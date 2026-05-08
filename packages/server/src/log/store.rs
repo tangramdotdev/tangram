@@ -25,7 +25,7 @@ impl Store {
 			prefix: config.prefix.clone(),
 		};
 		let fdb = log_store::fdb::Store::new(&options)
-			.map_err(|source| tg::error!(!source, "failed to create the foundationdb store"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the foundationdb store"))?;
 		Ok(Self::Fdb(fdb))
 	}
 
@@ -37,7 +37,7 @@ impl Store {
 			path: path.clone(),
 		};
 		let lmdb = log_store::lmdb::Store::new(&config).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the lmdb store"),
+			|error| tg::error!(!error, path = %path.display(), "failed to create the lmdb store"),
 		)?;
 		Ok(Self::Lmdb(lmdb))
 	}

@@ -60,7 +60,7 @@ impl Session {
 			.sender
 			.send(Ok(tg::sync::GetMessage::End))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the get end message"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the get end message"))?;
 
 		Ok(())
 	}
@@ -82,7 +82,7 @@ impl Session {
 				.index
 				.touch_objects(&ids, touched_at, self.server.config.object.time_to_touch)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to touch the objects"))?
+				.map_err(|error| tg::error!(!error, "failed to touch the objects"))?
 		};
 
 		// Handle each item and output.
@@ -122,7 +122,7 @@ impl Session {
 						.sender
 						.send(Ok(message))
 						.await
-						.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+						.map_err(|error| tg::error!(!error, "failed to send the message"))?;
 				},
 
 				Some(object) => {
@@ -149,7 +149,7 @@ impl Session {
 							.sender
 							.send(Ok(message))
 							.await
-							.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+							.map_err(|error| tg::error!(!error, "failed to send the message"))?;
 
 						// Increment the progress.
 						let objects = metadata.subtree.count.unwrap_or(1);
@@ -160,11 +160,11 @@ impl Session {
 						let bytes = self
 							.try_get_object_local(&item.id, false)
 							.await
-							.map_err(|source| tg::error!(!source, "failed to get the object"))?
+							.map_err(|error| tg::error!(!error, "failed to get the object"))?
 							.ok_or_else(|| tg::error!("expected the object to exist"))?
 							.bytes;
 						let data = tg::object::Data::deserialize(item.id.kind(), bytes).map_err(
-							|source| tg::error!(!source, "failed to deserialize the object"),
+							|error| tg::error!(!error, "failed to deserialize the object"),
 						)?;
 
 						// Update the graph with data.
@@ -209,7 +209,7 @@ impl Session {
 			.index
 			.touch_processes(&ids, touched_at, self.server.config.process.time_to_touch)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to touch the processes"))?;
+			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
 
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
@@ -248,7 +248,7 @@ impl Session {
 						.sender
 						.send(Ok(message))
 						.await
-						.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+						.map_err(|error| tg::error!(!error, "failed to send the message"))?;
 				},
 
 				// If the process is present, then enqueue children and objects as necessary, and send a stored message if necessary.
@@ -259,7 +259,7 @@ impl Session {
 					let data = self
 						.try_get_process_local(&item.id, false)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to get the process"))?
+						.map_err(|error| tg::error!(!error, "failed to get the process"))?
 						.ok_or_else(|| tg::error!("expected the process to exist"))?
 						.data;
 
@@ -298,8 +298,8 @@ impl Session {
 									subtree_stored: stored.subtree,
 								},
 							));
-						state.sender.send(Ok(message)).await.map_err(|source| {
-							tg::error!(!source, "failed to send the stored message")
+						state.sender.send(Ok(message)).await.map_err(|error| {
+							tg::error!(!error, "failed to send the stored message")
 						})?;
 					}
 				},

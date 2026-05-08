@@ -35,7 +35,7 @@ impl Index {
 		};
 		self.sender_low
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -60,13 +60,13 @@ impl Index {
 		let mut candidates: Vec<Candidate> = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to iterate clean keys"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate clean keys"))?;
 		for result in iter {
 			if candidates.len() >= batch_size {
 				break;
 			}
 			let (key, _) =
-				result.map_err(|source| tg::error!(!source, "failed to read clean key"))?;
+				result.map_err(|error| tg::error!(!error, "failed to read clean key"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::Clean {
 				touched_at,
@@ -89,7 +89,7 @@ impl Index {
 						return Err(tg::error!("expected object id for cache entry"));
 					};
 					let id = tg::artifact::Id::try_from(id)
-						.map_err(|source| tg::error!(!source, "invalid artifact id"))?;
+						.map_err(|error| tg::error!(!error, "invalid artifact id"))?;
 					Item::CacheEntry(id)
 				},
 				ItemKind::Object => {
@@ -213,7 +213,7 @@ impl Index {
 		};
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to delete clean key"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete clean key"))?;
 		Ok(())
 	}
 
@@ -316,9 +316,9 @@ impl Index {
 		let mut count = 0u64;
 		let iter = db
 			.prefix_iter(transaction, prefix)
-			.map_err(|source| tg::error!(!source, "failed to iterate keys with prefix"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate keys with prefix"))?;
 		for result in iter {
-			result.map_err(|source| tg::error!(!source, "failed to read key"))?;
+			result.map_err(|error| tg::error!(!error, "failed to read key"))?;
 			count += 1;
 		}
 		Ok(count)
@@ -337,13 +337,13 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = db
 					.get(transaction, &key)
-					.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
+					.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
 				{
 					let mut entry = CacheEntry::deserialize(bytes)?;
 					entry.reference_count = reference_count;
 					let bytes = entry.serialize()?;
 					db.put(transaction, &key, &bytes)
-						.map_err(|source| tg::error!(!source, "failed to put cache entry"))?;
+						.map_err(|error| tg::error!(!error, "failed to put cache entry"))?;
 				}
 			},
 			Item::Object(id) => {
@@ -351,13 +351,13 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = db
 					.get(transaction, &key)
-					.map_err(|source| tg::error!(!source, "failed to get object"))?
+					.map_err(|error| tg::error!(!error, "failed to get object"))?
 				{
 					let mut object = Object::deserialize(bytes)?;
 					object.reference_count = reference_count;
 					let bytes = object.serialize()?;
 					db.put(transaction, &key, &bytes)
-						.map_err(|source| tg::error!(!source, "failed to put object"))?;
+						.map_err(|error| tg::error!(!error, "failed to put object"))?;
 				}
 			},
 			Item::Process(id) => {
@@ -365,13 +365,13 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = db
 					.get(transaction, &key)
-					.map_err(|source| tg::error!(!source, "failed to get process"))?
+					.map_err(|error| tg::error!(!error, "failed to get process"))?
 				{
 					let mut process = Process::deserialize(bytes)?;
 					process.reference_count = reference_count;
 					let bytes = process.serialize()?;
 					db.put(transaction, &key, &bytes)
-						.map_err(|source| tg::error!(!source, "failed to put process"))?;
+						.map_err(|error| tg::error!(!error, "failed to put process"))?;
 				}
 			},
 		}
@@ -400,7 +400,7 @@ impl Index {
 		let key = Key::CacheEntry(id.clone());
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to delete cache entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete cache entry"))?;
 
 		let id_bytes = id.to_bytes();
 		let prefix = &(
@@ -408,14 +408,13 @@ impl Index {
 			id_bytes.as_ref(),
 		);
 		let prefix = Self::pack(subspace, prefix);
-		let iter = db.prefix_iter(transaction, &prefix).map_err(|source| {
-			tg::error!(!source, "failed to iterate cache entry dependency keys")
-		})?;
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to iterate cache entry dependency keys"))?;
 		let mut entries = Vec::new();
 		for result in iter {
-			let (key, _) = result.map_err(|source| {
-				tg::error!(!source, "failed to read cache entry dependency key")
-			})?;
+			let (key, _) = result
+				.map_err(|error| tg::error!(!error, "failed to read cache entry dependency key"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::CacheEntryDependency { dependency, .. } = &key else {
 				return Err(tg::error!("expected cache entry dependency key"));
@@ -425,8 +424,8 @@ impl Index {
 		}
 
 		for (key, _) in &entries {
-			db.delete(transaction, key).map_err(|source| {
-				tg::error!(!source, "failed to delete cache entry dependency key")
+			db.delete(transaction, key).map_err(|error| {
+				tg::error!(!error, "failed to delete cache entry dependency key")
 			})?;
 		}
 
@@ -436,8 +435,8 @@ impl Index {
 				cache_entry: id.clone(),
 			};
 			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key).map_err(|source| {
-				tg::error!(!source, "failed to delete dependency cache entry key")
+			db.delete(transaction, &key).map_err(|error| {
+				tg::error!(!error, "failed to delete dependency cache entry key")
 			})?;
 
 			Self::decrement_cache_entry_reference_count(db, subspace, transaction, &dependency)?;
@@ -456,23 +455,23 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let cache_entry = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to get object"))?
+			.map_err(|error| tg::error!(!error, "failed to get object"))?
 			.and_then(|bytes| Object::deserialize(bytes).ok())
 			.and_then(|obj| obj.cache_entry);
 
 		db.delete(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to delete object"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete object"))?;
 
 		let id_bytes = id.to_bytes();
 		let prefix = &(KeyKind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to iterate object child keys"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate object child keys"))?;
 		let mut entries = Vec::new();
 		for result in iter {
 			let (key, _) =
-				result.map_err(|source| tg::error!(!source, "failed to read object child key"))?;
+				result.map_err(|error| tg::error!(!error, "failed to read object child key"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ObjectChild { child, .. } = &key else {
 				return Err(tg::error!("expected object child key"));
@@ -482,7 +481,7 @@ impl Index {
 		}
 		for (key, _) in &entries {
 			db.delete(transaction, key)
-				.map_err(|source| tg::error!(!source, "failed to delete object child key"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete object child key"))?;
 		}
 
 		for (_, child) in &entries {
@@ -492,7 +491,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete child object key"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete child object key"))?;
 		}
 		for (_, child) in entries {
 			Self::decrement_object_reference_count(db, subspace, transaction, &child)?;
@@ -505,7 +504,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete object cache entry"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete object cache entry"))?;
 
 			let key = Key::CacheEntryObject {
 				cache_entry: cache_entry.clone(),
@@ -513,7 +512,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete cache entry object"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete cache entry object"))?;
 
 			Self::decrement_cache_entry_reference_count(db, subspace, transaction, cache_entry)?;
 		}
@@ -530,18 +529,18 @@ impl Index {
 		let key = Key::Process(id.clone());
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to delete process"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
 
 		let id_bytes = id.to_bytes();
 		let prefix = &(KeyKind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to iterate process child keys"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate process child keys"))?;
 		let mut entries = Vec::new();
 		for result in iter {
 			let (key, _) =
-				result.map_err(|source| tg::error!(!source, "failed to read process child key"))?;
+				result.map_err(|error| tg::error!(!error, "failed to read process child key"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ProcessChild { child, .. } = &key else {
 				return Err(tg::error!("expected process child key"));
@@ -551,7 +550,7 @@ impl Index {
 		}
 		for (key, _) in &entries {
 			db.delete(transaction, key)
-				.map_err(|source| tg::error!(!source, "failed to delete process child key"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete process child key"))?;
 		}
 
 		for (_, child) in &entries {
@@ -561,7 +560,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete child process key"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete child process key"))?;
 		}
 		for (_, child) in entries {
 			Self::decrement_process_reference_count(db, subspace, transaction, &child)?;
@@ -572,11 +571,11 @@ impl Index {
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to iterate process object keys"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate process object keys"))?;
 		let mut object_entries: Vec<(Vec<u8>, tg::object::Id, ProcessObjectKind)> = Vec::new();
 		for result in iter {
-			let (key, _) = result
-				.map_err(|source| tg::error!(!source, "failed to read process object key"))?;
+			let (key, _) =
+				result.map_err(|error| tg::error!(!error, "failed to read process object key"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ProcessObject { kind, object, .. } = &key else {
 				return Err(tg::error!("expected process object key"));
@@ -586,7 +585,7 @@ impl Index {
 		}
 		for (key, _, _) in &object_entries {
 			db.delete(transaction, key)
-				.map_err(|source| tg::error!(!source, "failed to delete process object key"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete process object key"))?;
 		}
 
 		for (_, object, kind) in &object_entries {
@@ -597,7 +596,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete object process key"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete object process key"))?;
 		}
 		for (_, object, _) in object_entries {
 			Self::decrement_object_reference_count(db, subspace, transaction, &object)?;
@@ -616,7 +615,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		if let Some(bytes) = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
 		{
 			let mut entry = CacheEntry::deserialize(bytes)?;
 			let reference_count = entry.reference_count;
@@ -624,12 +623,12 @@ impl Index {
 				entry.reference_count = reference_count - 1;
 				let bytes = entry.serialize()?;
 				db.put(transaction, &key, &bytes)
-					.map_err(|source| tg::error!(!source, "failed to put cache entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to put cache entry"))?;
 			} else {
 				entry.reference_count = 0;
 				let bytes = entry.serialize()?;
 				db.put(transaction, &key, &bytes)
-					.map_err(|source| tg::error!(!source, "failed to put cache entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to put cache entry"))?;
 
 				let key = Key::Clean {
 					touched_at: entry.touched_at,
@@ -638,7 +637,7 @@ impl Index {
 				};
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
-					.map_err(|source| tg::error!(!source, "failed to put clean key"))?;
+					.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
 			}
 		}
 		Ok(())
@@ -654,7 +653,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		if let Some(bytes) = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to get object"))?
+			.map_err(|error| tg::error!(!error, "failed to get object"))?
 		{
 			let mut object = Object::deserialize(bytes)?;
 			let reference_count = object.reference_count;
@@ -662,12 +661,12 @@ impl Index {
 				object.reference_count = reference_count - 1;
 				let bytes = object.serialize()?;
 				db.put(transaction, &key, &bytes)
-					.map_err(|source| tg::error!(!source, "failed to put object"))?;
+					.map_err(|error| tg::error!(!error, "failed to put object"))?;
 			} else {
 				object.reference_count = 0;
 				let bytes = object.serialize()?;
 				db.put(transaction, &key, &bytes)
-					.map_err(|source| tg::error!(!source, "failed to put object"))?;
+					.map_err(|error| tg::error!(!error, "failed to put object"))?;
 
 				let key = Key::Clean {
 					touched_at: object.touched_at,
@@ -676,7 +675,7 @@ impl Index {
 				};
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
-					.map_err(|source| tg::error!(!source, "failed to put clean key"))?;
+					.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
 			}
 		}
 		Ok(())
@@ -692,7 +691,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		if let Some(bytes) = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to get process"))?
+			.map_err(|error| tg::error!(!error, "failed to get process"))?
 		{
 			let mut process = Process::deserialize(bytes)?;
 			let reference_count = process.reference_count;
@@ -700,12 +699,12 @@ impl Index {
 				process.reference_count = reference_count - 1;
 				let bytes = process.serialize()?;
 				db.put(transaction, &key, &bytes)
-					.map_err(|source| tg::error!(!source, "failed to put process"))?;
+					.map_err(|error| tg::error!(!error, "failed to put process"))?;
 			} else {
 				process.reference_count = 0;
 				let bytes = process.serialize()?;
 				db.put(transaction, &key, &bytes)
-					.map_err(|source| tg::error!(!source, "failed to put process"))?;
+					.map_err(|error| tg::error!(!error, "failed to put process"))?;
 
 				let key = Key::Clean {
 					touched_at: process.touched_at,
@@ -714,7 +713,7 @@ impl Index {
 				};
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
-					.map_err(|source| tg::error!(!source, "failed to put clean key"))?;
+					.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
 			}
 		}
 		Ok(())

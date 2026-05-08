@@ -24,7 +24,7 @@ impl Server {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				Self::clean_processes_sqlite_sync(connection, &processes, max_stored_at)
@@ -40,7 +40,7 @@ impl Server {
 		for process in processes {
 			let transaction = connection
 				.transaction()
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 			let statement = indoc!(
 				"
@@ -50,7 +50,7 @@ impl Server {
 			);
 			let n = transaction
 				.execute(statement, sqlite::params![process, max_stored_at])
-				.map_err(|source| tg::error!(!source, "failed to delete the process"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete the process"))?;
 			if n == 0 {
 				continue;
 			}
@@ -63,7 +63,7 @@ impl Server {
 			);
 			transaction
 				.execute(statement, sqlite::params![process])
-				.map_err(|source| tg::error!(!source, "failed to delete process_children"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete process_children"))?;
 
 			let statement = indoc!(
 				"
@@ -73,7 +73,7 @@ impl Server {
 			);
 			transaction
 				.execute(statement, sqlite::params![process])
-				.map_err(|source| tg::error!(!source, "failed to delete process_tokens"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete process_tokens"))?;
 
 			let statement = indoc!(
 				"
@@ -83,7 +83,7 @@ impl Server {
 			);
 			transaction
 				.execute(statement, sqlite::params![process])
-				.map_err(|source| tg::error!(!source, "failed to delete process_finalize_queue"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete process_finalize_queue"))?;
 
 			let statement = indoc!(
 				"
@@ -93,7 +93,7 @@ impl Server {
 			);
 			transaction
 				.execute(statement, sqlite::params![process])
-				.map_err(|source| tg::error!(!source, "failed to delete process_signals"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete process_signals"))?;
 
 			let statement = indoc!(
 				"
@@ -103,11 +103,11 @@ impl Server {
 			);
 			transaction
 				.execute(statement, sqlite::params![process])
-				.map_err(|source| tg::error!(!source, "failed to delete process_stdio"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete process_stdio"))?;
 
 			transaction
 				.commit()
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+				.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		}
 
 		Ok(())

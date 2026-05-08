@@ -190,7 +190,7 @@ enum Update {
 impl Index {
 	pub fn new(options: &Options) -> tg::Result<Self> {
 		let database = fdb::Database::new(Some(options.cluster.to_str().unwrap()))
-			.map_err(|source| tg::error!(!source, "failed to open the foundationdb cluster"))?;
+			.map_err(|error| tg::error!(!error, "failed to open the foundationdb cluster"))?;
 		let database = Arc::new(database);
 
 		let subspace = match &options.prefix {
@@ -262,18 +262,18 @@ impl Index {
 	) -> tg::Result<T> {
 		subspace
 			.unpack(bytes)
-			.map_err(|source| tg::error!(!source, "failed to unpack key"))
+			.map_err(|error| tg::error!(!error, "failed to unpack key"))
 	}
 
 	pub async fn get_transaction_id(&self) -> tg::Result<u64> {
 		let txn = self
 			.database
 			.create_trx()
-			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 		let version = txn
 			.get_read_version()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the read version"))?
+			.map_err(|error| tg::error!(!error, "failed to get the read version"))?
 			.cast_unsigned();
 		Ok(version)
 	}

@@ -20,7 +20,7 @@ impl Cli {
 		let output = client
 			.health(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the health"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the health"))?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

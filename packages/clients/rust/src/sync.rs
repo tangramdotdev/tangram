@@ -290,7 +290,7 @@ impl tg::Session {
 				let uri = Uri::builder().path("/sync").build().unwrap();
 				(true, uri)
 			},
-			Err(source) => return Err(tg::error!(!source, "failed to serialize the arg")),
+			Err(error) => return Err(tg::error!(!error, "failed to serialize the arg")),
 		};
 
 		// Create the body.
@@ -322,7 +322,7 @@ impl tg::Session {
 		let mut body = tangram_http::body::Boxed::with_stream(stream);
 		if arg_in_body {
 			body = tangram_http::body::arg::set(body, &arg)
-				.map_err(|source| tg::error!(!source, "failed to add the sync arg"))?;
+				.map_err(|error| tg::error!(!error, "failed to add the sync arg"))?;
 		}
 
 		// Send the request.
@@ -342,11 +342,12 @@ impl tg::Session {
 		let response = self
 			.send(request)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		if !response.status().is_success() {
-			let error = response.json().await.map_err(|source| {
-				tg::error!(!source, "failed to deserialize the error response")
-			})?;
+			let error = response
+				.json()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
 			return Err(error);
 		}
 
@@ -388,7 +389,7 @@ impl tg::Session {
 			let Some(len) = reader
 				.try_read_uvarint()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read the length"))?
+				.map_err(|error| tg::error!(!error, "failed to read the length"))?
 				.map(|value| value.to_usize().unwrap())
 			else {
 				return Ok(None);
@@ -397,9 +398,9 @@ impl tg::Session {
 			reader
 				.read_exact(&mut bytes)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read the message"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the message"))?;
 			let message = tangram_serialize::from_slice(&bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the message"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
 			Ok(Some((message, reader)))
 		});
 
@@ -409,15 +410,15 @@ impl tg::Session {
 				.get("x-tg-event")
 				.ok_or_else(|| tg::error!("missing event"))?
 				.to_str()
-				.map_err(|source| tg::error!(!source, "invalid event"))?;
+				.map_err(|error| tg::error!(!error, "invalid event"))?;
 			if let "error" = event {
 				let data = trailers
 					.get("x-tg-data")
 					.ok_or_else(|| tg::error!("missing data"))?
 					.to_str()
-					.map_err(|source| tg::error!(!source, "invalid data"))?;
-				let error = serde_json::from_str(data).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the header value")
+					.map_err(|error| tg::error!(!error, "invalid data"))?;
+				let error = serde_json::from_str(data).map_err(|error| {
+					tg::error!(!error, "failed to deserialize the header value")
 				})?;
 				Err(error)
 			} else {

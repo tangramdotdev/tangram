@@ -45,7 +45,7 @@ impl Cli {
 		T: serde::Serialize,
 	{
 		let value = serde_json::to_value(&value)
-			.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the value"))?;
 		self.print_value(&value.into(), options, tg::object::get::Arg::default())
 			.await?;
 		Ok(())
@@ -67,7 +67,7 @@ impl Cli {
 		stdout
 			.write_all(b"[")
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 		let mut stream = pin!(stream);
 		let mut first = true;
 		while let Some(value) = stream.try_next().await? {
@@ -75,21 +75,21 @@ impl Cli {
 				stdout
 					.write_all(b",")
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+					.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 			}
 			if pretty {
 				stdout
 					.write_all(b"\n")
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+					.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 				stdout
 					.write_all(INDENTATION.as_bytes())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+					.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 			}
 			first = false;
 			let value = serde_json::to_value(&value)
-				.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the value"))?;
 			let indent = if pretty { 1 } else { 0 };
 			Self::print_value_inner(
 				&client,
@@ -104,23 +104,23 @@ impl Cli {
 				stdout
 					.flush()
 					.await
-					.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+					.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 			}
 		}
 		if pretty {
 			stdout
 				.write_all(b"\n")
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+				.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 		}
 		stdout
 			.write_all(b"]\n")
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 		stdout
 			.flush()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 		Ok(())
 	}
 
@@ -140,11 +140,11 @@ impl Cli {
 		stdout
 			.write_all(b"\n")
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 		stdout
 			.flush()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 		Ok(())
 	}
 
@@ -175,7 +175,7 @@ impl Cli {
 		stdout
 			.write_all(output.as_bytes())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the output"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the output"))?;
 		Ok(())
 	}
 

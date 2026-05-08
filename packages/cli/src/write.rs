@@ -25,16 +25,16 @@ impl Cli {
 			client
 				.write(arg, reader)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the blob"))?
+				.map_err(|error| tg::error!(!error, "failed to write the blob"))?
 		} else {
 			let reader = StreamReader::new(
 				tangram_util::io::stdin()
-					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+					.map_err(|error| tg::error!(!error, "failed to open stdin"))?,
 			);
 			client
 				.write(arg, reader)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the blob"))?
+				.map_err(|error| tg::error!(!error, "failed to write the blob"))?
 		};
 		Self::print_id(&output.blob);
 		Ok(())

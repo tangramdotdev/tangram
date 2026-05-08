@@ -72,7 +72,7 @@ impl Session {
 		// Clean the temporary directory.
 		tangram_util::fs::remove(self.server.temp_path())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to remove the temporary directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to remove the temporary directory"))?;
 		tokio::fs::create_dir_all(self.server.temp_path())
 			.await
 			.map_err(|error| {
@@ -162,12 +162,12 @@ impl Session {
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let statement = "delete from tag_list_cache;";
 		connection
 			.execute(statement.into(), db::params![])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the tag list cache"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete the tag list cache"))?;
 		drop(connection);
 
 		Ok::<_, tg::Error>(output)
@@ -264,7 +264,7 @@ impl Server {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "the clean task panicked"))??;
+		.map_err(|error| tg::error!(!error, "the clean task panicked"))??;
 
 		// Delete objects.
 		let ttl = object_time_to_live.as_secs();
@@ -315,13 +315,13 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the stream.
 		let stream = self
 			.clean()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the clean task"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the clean task"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

@@ -46,7 +46,7 @@ impl Cli {
 		let output = client
 			.create_sandbox(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the sandbox"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
 		Self::print_id(&output.id);
 		Ok(())
 	}

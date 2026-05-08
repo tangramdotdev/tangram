@@ -16,7 +16,7 @@ impl Server {
 		let status = task
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, process = %id, "the process task panicked"))??;
+			.map_err(|error| tg::error!(!error, process = %id, "the process task panicked"))??;
 		let output = crate::client::wait::Output { status };
 		Ok(output)
 	}
@@ -28,7 +28,7 @@ impl Server {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id: tg::process::Id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let server = self.clone();
 		let stream = stream::once(async move {
 			server

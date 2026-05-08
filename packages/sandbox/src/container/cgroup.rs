@@ -24,7 +24,7 @@ impl Cgroup {
 			return Err(tg::error!("cgroup v2 is not available"));
 		}
 		let current = std::fs::read_to_string("/proc/self/cgroup")
-			.map_err(|source| tg::error!(!source, "failed to read the current cgroup"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the current cgroup"))?;
 		let current = current
 			.lines()
 			.find_map(|line| {
@@ -34,9 +34,9 @@ impl Cgroup {
 			.unwrap_or_else(|| "/".to_owned());
 		let current = root.join(current.trim_start_matches('/'));
 		let path = current.join(sanitize_name(name));
-		std::fs::create_dir(&path).map_err(|source| {
+		std::fs::create_dir(&path).map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %path.display(),
 				"failed to create the cgroup"
 			)
@@ -47,9 +47,9 @@ impl Cgroup {
 				.checked_mul(100_000)
 				.ok_or_else(|| tg::error!("sandbox cpu is too large"))?;
 			let cpu_max = path.join("cpu.max");
-			write_file(&cpu_max, format!("{quota} 100000\n").as_bytes()).map_err(|source| {
+			write_file(&cpu_max, format!("{quota} 100000\n").as_bytes()).map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					path = %cpu_max.display(),
 					"failed to set cpu.max"
 				)
@@ -58,9 +58,9 @@ impl Cgroup {
 
 		if let Some(memory) = options.memory {
 			let memory_max = path.join("memory.max");
-			write_file(&memory_max, format!("{memory}\n").as_bytes()).map_err(|source| {
+			write_file(&memory_max, format!("{memory}\n").as_bytes()).map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					path = %memory_max.display(),
 					"failed to set memory.max"
 				)
@@ -70,9 +70,9 @@ impl Cgroup {
 		if options.memory_oom_group {
 			let oom_group = path.join("memory.oom.group");
 			if oom_group.exists() {
-				write_file(&oom_group, b"1\n").map_err(|source| {
+				write_file(&oom_group, b"1\n").map_err(|error| {
 					tg::error!(
-						!source,
+						!error,
 						path = %oom_group.display(),
 						"failed to set memory.oom.group"
 					)
@@ -89,9 +89,9 @@ impl Cgroup {
 			.read(true)
 			.custom_flags(libc::O_PATH | libc::O_DIRECTORY)
 			.open(&self.path)
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					path = %self.path.display(),
 					"failed to open the cgroup directory",
 				)
@@ -101,9 +101,9 @@ impl Cgroup {
 
 	pub fn move_self(&self) -> tg::Result<()> {
 		let path = self.path.join("cgroup.procs");
-		write_file(&path, b"0\n").map_err(|source| {
+		write_file(&path, b"0\n").map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %path.display(),
 				"failed to move the process into the cgroup"
 			)

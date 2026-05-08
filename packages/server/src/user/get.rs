@@ -20,7 +20,7 @@ impl Session {
 		let location = self
 			.server
 			.location(arg.location.as_ref())
-			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
 			tg::Location::Local(_) => {
 				let Some(token) = self.context.token.as_deref() else {
@@ -43,7 +43,7 @@ impl Session {
 			.database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		// Get the user ID for the token.
 		#[derive(db::row::Deserialize)]
@@ -64,7 +64,7 @@ impl Session {
 		let user = connection
 			.query_optional_into::<UserRow>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(user) = user else {
 			return Ok(None);
 		};
@@ -86,7 +86,7 @@ impl Session {
 		let rows = connection
 			.query_all_into::<EmailRow>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let emails = rows.into_iter().map(|row| row.email).collect();
 		let user = tg::User {
 			id: user.id,
@@ -107,9 +107,9 @@ impl Session {
 		let client = self
 			.get_remote_session(remote.name.clone())
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					remote = %remote.name,
 					"failed to get the remote client"
 				)
@@ -117,9 +117,9 @@ impl Session {
 		let arg = tg::user::get::Arg {
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 		};
-		let mut user = client.get_user(arg).await.map_err(|source| {
+		let mut user = client.get_user(arg).await.map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				remote = %remote.name,
 				"failed to get the user"
 			)
@@ -141,13 +141,13 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// Get the user.

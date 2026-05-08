@@ -40,11 +40,11 @@ impl Cli {
 			let mut input = Vec::new();
 			StreamReader::new(
 				tangram_util::io::stdin()
-					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+					.map_err(|error| tg::error!(!error, "failed to open stdin"))?,
 			)
 			.read_to_end(&mut input)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
+			.map_err(|error| tg::error!(!error, "failed to read stdin"))?;
 			input
 		};
 
@@ -70,21 +70,21 @@ impl Cli {
 			client
 				.put_object(&id, arg)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 
 			id
 		} else {
 			// Parse the value.
 			let input = std::str::from_utf8(&input)
-				.map_err(|source| tg::error!(!source, "the input was not valid utf-8"))?;
+				.map_err(|error| tg::error!(!error, "the input was not valid utf-8"))?;
 			let value = tg::value::parse(input)
-				.map_err(|source| tg::error!(!source, "failed to parse the value"))?;
+				.map_err(|error| tg::error!(!error, "failed to parse the value"))?;
 
 			// Store the value.
 			value
 				.store_with_location_with_handle(&client, concrete_location)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to store the value"))?;
+				.map_err(|error| tg::error!(!error, "failed to store the value"))?;
 
 			// Extract the object from the value.
 			let tg::Value::Object(object) = value else {

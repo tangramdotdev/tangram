@@ -45,14 +45,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
 					.try_read_process_stdio_local(id, arg.clone())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to read local process stdio"))?
+					.map_err(|error| tg::error!(!error, "failed to read local process stdio"))?
 			{
 				return Ok(Some(stream));
 			}
@@ -60,8 +60,8 @@ impl Session {
 			if let Some(stream) = self
 				.try_read_process_stdio_regions(id, arg.clone(), &local.regions)
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to read process stdio from another region")
+				.map_err(|error| {
+					tg::error!(!error, "failed to read process stdio from another region")
 				})? {
 				return Ok(Some(stream));
 			}
@@ -70,7 +70,7 @@ impl Session {
 		if let Some(stream) = self
 			.try_read_process_stdio_remotes(id, arg, &locations.remotes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read process stdio from a remote"))?
+			.map_err(|error| tg::error!(!error, "failed to read process stdio from a remote"))?
 		{
 			return Ok(Some(stream));
 		}
@@ -86,7 +86,7 @@ impl Session {
 		let output = self
 			.try_get_process_local(id, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 		let Some(output) = output else {
 			return Ok(None);
 		};
@@ -143,7 +143,7 @@ impl Session {
 				.messenger
 				.subscribe::<()>(subject)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ())
 				.boxed();
 
@@ -153,7 +153,7 @@ impl Session {
 				.messenger
 				.subscribe::<()>(subject)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ())
 				.boxed();
 
@@ -175,12 +175,12 @@ impl Session {
 			let status = self
 				.get_process_status_local(id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the process status"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the process status"))?;
 
 			let mut stream = self
 				.process_log_stream(id, arg.position, arg.length, arg.size, streams.clone())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the log stream"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the log stream"))?;
 			while let Some(chunk) = stream.next().await {
 				if let Ok(chunk) = &chunk {
 					let position = chunk
@@ -284,7 +284,7 @@ impl Session {
 					.messenger
 					.subscribe_with_delivery::<()>(subject, Delivery::One)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+					.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 					.map(|_| ())
 					.boxed();
 				wakeups.push(wakeup);
@@ -294,7 +294,7 @@ impl Session {
 					.messenger
 					.subscribe_with_delivery::<()>(subject, Delivery::One)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+					.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 					.map(|_| ())
 					.boxed();
 				wakeups.push(wakeup);
@@ -409,7 +409,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -422,7 +422,7 @@ impl Session {
 			.try_read_process_stdio_all(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, region = %region, "failed to read the process stdio"),
+				|error| tg::error!(!error, region = %region, "failed to read the process stdio"),
 			)?
 			.map(futures::StreamExt::boxed);
 		let Some(stream) = stream else {
@@ -467,7 +467,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::stdio::read::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -481,7 +481,7 @@ impl Session {
 			.try_read_process_stdio_all(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, remote = %remote.name, "failed to read the process stdio"),
+				|error| tg::error!(!error, remote = %remote.name, "failed to read the process stdio"),
 			)?
 			.map(futures::StreamExt::boxed);
 		let Some(stream) = stream else {
@@ -545,7 +545,7 @@ impl Session {
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		match accept
 			.as_ref()
@@ -559,11 +559,11 @@ impl Session {
 
 		let id = id
 			.parse::<tg::process::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let arg: tg::process::stdio::read::Arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 		let Some(stream) = self.try_read_process_stdio(&id, arg).await? else {
 			return Ok(http::Response::builder()

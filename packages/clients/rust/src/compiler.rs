@@ -25,25 +25,25 @@ impl tg::Session {
 		let response = sender
 			.send_request(request.boxed_body())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		if response.status() != http::StatusCode::SWITCHING_PROTOCOLS {
 			let bytes = response
 				.bytes()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?;
+				.map_err(|error| tg::error!(!error, "failed to collect the response body"))?;
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);
 		}
 		let io = hyper::upgrade::on(response)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the upgrade"))?;
+			.map_err(|error| tg::error!(!error, "failed to perform the upgrade"))?;
 		let io = hyper_util::rt::TokioIo::new(io);
 		let (mut o, mut i) = tokio::io::split(io);
 		let input = tokio::io::copy(&mut input, &mut i)
-			.map_err(|source| tg::error!(!source, "failed to copy the input"));
+			.map_err(|error| tg::error!(!error, "failed to copy the input"));
 		let output = tokio::io::copy(&mut o, &mut output)
-			.map_err(|source| tg::error!(!source, "failed to copy the output"));
+			.map_err(|error| tg::error!(!error, "failed to copy the output"));
 		future::try_join(input, output).await?;
 		Ok(())
 	}

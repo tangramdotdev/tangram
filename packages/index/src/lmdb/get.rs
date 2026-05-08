@@ -22,7 +22,7 @@ impl Index {
 			move || {
 				let transaction = env
 					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in &ids {
 					let option = Self::try_get_cache_entry_with_transaction(
@@ -37,7 +37,7 @@ impl Index {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	pub async fn try_get_objects(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Object>>> {
@@ -52,7 +52,7 @@ impl Index {
 			move || {
 				let transaction = env
 					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in &ids {
 					let option =
@@ -63,7 +63,7 @@ impl Index {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	pub async fn try_get_processes(
@@ -81,7 +81,7 @@ impl Index {
 			move || {
 				let transaction = env
 					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in &ids {
 					let option =
@@ -92,7 +92,7 @@ impl Index {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	pub(super) fn try_get_cache_entry_with_transaction(
@@ -105,7 +105,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the cache entry"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cache entry"))?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
@@ -122,7 +122,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
@@ -139,7 +139,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
@@ -158,10 +158,10 @@ impl Index {
 		let mut children = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get object children"))?;
+			.map_err(|error| tg::error!(!error, "failed to get object children"))?;
 		for entry in iter {
 			let (key, _) =
-				entry.map_err(|source| tg::error!(!source, "failed to read object child entry"))?;
+				entry.map_err(|error| tg::error!(!error, "failed to read object child entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ObjectChild { child, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
@@ -183,10 +183,10 @@ impl Index {
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get object parents"))?;
+			.map_err(|error| tg::error!(!error, "failed to get object parents"))?;
 		for entry in iter {
 			let (key, _) =
-				entry.map_err(|source| tg::error!(!source, "failed to read child object entry"))?;
+				entry.map_err(|error| tg::error!(!error, "failed to read child object entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ChildObject { object, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
@@ -208,10 +208,10 @@ impl Index {
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get object process parents"))?;
+			.map_err(|error| tg::error!(!error, "failed to get object process parents"))?;
 		for entry in iter {
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read object process entry"))?;
+			let (key, _) =
+				entry.map_err(|error| tg::error!(!error, "failed to read object process entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ObjectProcess { kind, process, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
@@ -233,10 +233,10 @@ impl Index {
 		let mut children = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get process children"))?;
+			.map_err(|error| tg::error!(!error, "failed to get process children"))?;
 		for entry in iter {
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read process child entry"))?;
+			let (key, _) =
+				entry.map_err(|error| tg::error!(!error, "failed to read process child entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ProcessChild { child, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
@@ -258,10 +258,10 @@ impl Index {
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get process parents"))?;
+			.map_err(|error| tg::error!(!error, "failed to get process parents"))?;
 		for entry in iter {
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read child process entry"))?;
+			let (key, _) =
+				entry.map_err(|error| tg::error!(!error, "failed to read child process entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ChildProcess { parent, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
@@ -283,10 +283,10 @@ impl Index {
 		let mut objects = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get process objects"))?;
+			.map_err(|error| tg::error!(!error, "failed to get process objects"))?;
 		for entry in iter {
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read process object entry"))?;
+			let (key, _) =
+				entry.map_err(|error| tg::error!(!error, "failed to read process object entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::ProcessObject { kind, object, .. } = key else {
 				return Err(tg::error!("unexpected key type"));

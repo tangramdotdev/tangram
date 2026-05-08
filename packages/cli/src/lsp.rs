@@ -10,13 +10,13 @@ impl Cli {
 		let client = self.client().await?;
 		let stdin = Box::new(StreamReader::new(
 			tangram_util::io::stdin()
-				.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+				.map_err(|error| tg::error!(!error, "failed to open stdin"))?,
 		));
 		let stdout = Box::new(tokio::io::BufWriter::new(tokio::io::stdout()));
 		client
 			.lsp(stdin, stdout)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to run the language server"))?;
+			.map_err(|error| tg::error!(!error, "failed to run the language server"))?;
 		Ok(())
 	}
 }

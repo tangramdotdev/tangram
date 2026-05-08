@@ -22,7 +22,7 @@ impl Cli {
 			let health = client
 				.health(arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the health"))?;
 			self.health.replace(health);
 		}
 		if !self.args.quiet.get()
@@ -47,7 +47,7 @@ impl Cli {
 	async fn client_with_client_mode(&mut self) -> tg::Result<tg::Client> {
 		let client = self.create_client()?;
 		client.connect().await.map_err(
-			|source| tg::error!(!source, url = %client.url(), "failed to connect to the server"),
+			|error| tg::error!(!error, url = %client.url(), "failed to connect to the server"),
 		)?;
 		Ok(client)
 	}
@@ -58,14 +58,14 @@ impl Cli {
 			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
 		match client.connect().await {
 			Ok(()) => (),
-			Err(source) => {
+			Err(error) => {
 				if client.process().is_some() || !local {
 					return Err(
-						tg::error!(!source, url = %client.url(), "failed to connect to the server"),
+						tg::error!(!error, url = %client.url(), "failed to connect to the server"),
 					);
 				}
 				self.spawn_server(&client).await.map_err(
-					|source| tg::error!(!source, url = %client.url(), "failed to start the server"),
+					|error| tg::error!(!error, url = %client.url(), "failed to start the server"),
 				)?;
 			},
 		}
@@ -77,14 +77,14 @@ impl Cli {
 			let health = client
 				.health(arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the health"))?;
 			let server_version = health.version.clone();
 			self.health.replace(health);
 			if server_version.is_some_and(|server_version| version() != server_version) {
 				client.disconnect().await;
 				self.stop_server().await?;
 				self.spawn_server(&client).await.map_err(
-					|source| tg::error!(!source, url = %client.url(), "failed to start the server"),
+					|error| tg::error!(!error, url = %client.url(), "failed to start the server"),
 				)?;
 			}
 		}
@@ -150,7 +150,7 @@ impl Cli {
 			.map(|value| {
 				value
 					.parse()
-					.map_err(|source| tg::error!(!source, "failed to parse TANGRAM_PROCESS"))
+					.map_err(|error| tg::error!(!error, "failed to parse TANGRAM_PROCESS"))
 			})
 			.transpose()?;
 

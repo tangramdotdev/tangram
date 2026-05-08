@@ -31,7 +31,7 @@ where
 		let value = self
 			.0
 			.serialize(serializer)
-			.map_err(|source| tg::error!(!source, "failed to serialize the value to v8"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the value to v8"))?;
 		Ok(value)
 	}
 }
@@ -46,7 +46,7 @@ where
 	) -> tg::Result<Self> {
 		let deserializer = Deserializer::new(scope, value);
 		let value = T::deserialize(deserializer)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the value from v8"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the value from v8"))?;
 		let value = Self(value);
 		Ok(value)
 	}

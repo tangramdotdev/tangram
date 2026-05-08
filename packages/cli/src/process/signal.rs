@@ -31,7 +31,7 @@ impl Cli {
 			.signal_with_handle(&client, args.signal)
 			.await
 			.map_err(
-				|source| tg::error!(!source, id = %process.id(), "failed to signal the process"),
+				|error| tg::error!(!error, id = %process.id(), "failed to signal the process"),
 			)?;
 
 		Ok(())

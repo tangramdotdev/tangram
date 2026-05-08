@@ -40,7 +40,7 @@ impl Index {
 		};
 		self.sender_low
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -85,12 +85,12 @@ impl Index {
 					.next()
 					.await
 					.transpose()
-					.map_err(|source| tg::error!(!source, "failed to get the next entry"))?
+					.map_err(|error| tg::error!(!error, "failed to get the next entry"))?
 				else {
 					break;
 				};
 				let key = Self::unpack(subspace, entry.key())
-					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
 				let Key::Clean {
 					partition,
 					touched_at,
@@ -113,7 +113,7 @@ impl Index {
 							return Err(tg::error!("expected object id for cache entry"));
 						};
 						let artifact_id = tg::artifact::Id::try_from(object_id)
-							.map_err(|source| tg::error!(!source, "invalid artifact id"))?;
+							.map_err(|error| tg::error!(!error, "invalid artifact id"))?;
 						Item::CacheEntry(artifact_id)
 					},
 					ItemKind::Object => {
@@ -253,7 +253,7 @@ impl Index {
 			let count = txn
 				.get_range(&range, 1, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
@@ -274,7 +274,7 @@ impl Index {
 			let count = txn
 				.get_range(&range, 1, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
@@ -305,7 +305,7 @@ impl Index {
 			let count = txn
 				.get_range(&range, 1, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
@@ -323,7 +323,7 @@ impl Index {
 			let count = txn
 				.get_range(&range, 1, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
@@ -341,7 +341,7 @@ impl Index {
 			let count = txn
 				.get_range(&range, 1, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
@@ -371,7 +371,7 @@ impl Index {
 			let count = txn
 				.get_range(&range, 1, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
@@ -389,7 +389,7 @@ impl Index {
 			let count = txn
 				.get_range(&range, 1, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
@@ -414,7 +414,7 @@ impl Index {
 				if let Some(bytes) = txn
 					.get(&key, false)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
+					.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
 				{
 					let mut entry = CacheEntry::deserialize(&bytes)?;
 					entry.reference_count = reference_count;
@@ -428,7 +428,7 @@ impl Index {
 				if let Some(bytes) = txn
 					.get(&key, false)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get object"))?
+					.map_err(|error| tg::error!(!error, "failed to get object"))?
 				{
 					let mut object = Object::deserialize(&bytes)?;
 					object.reference_count = reference_count;
@@ -442,7 +442,7 @@ impl Index {
 				if let Some(bytes) = txn
 					.get(&key, false)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get process"))?
+					.map_err(|error| tg::error!(!error, "failed to get process"))?
 				{
 					let mut process = Process::deserialize(&bytes)?;
 					process.reference_count = reference_count;
@@ -493,12 +493,12 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get range"))?;
+			.map_err(|error| tg::error!(!error, "failed to get range"))?;
 		let dependencies = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())
-					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
 				let Key::CacheEntryDependency { dependency, .. } = key else {
 					return Err(tg::error!("expected cache entry dependency key"));
 				};
@@ -540,7 +540,7 @@ impl Index {
 		let cache_entry = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object"))?
+			.map_err(|error| tg::error!(!error, "failed to get object"))?
 			.and_then(|bytes| Object::deserialize(&bytes).ok())
 			.and_then(|obj| obj.cache_entry);
 
@@ -558,12 +558,12 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get range"))?;
+			.map_err(|error| tg::error!(!error, "failed to get range"))?;
 		let children = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())
-					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
 				let Key::ObjectChild { child, .. } = key else {
 					return Err(tg::error!("expected object child key"));
 				};
@@ -633,12 +633,12 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get range"))?;
+			.map_err(|error| tg::error!(!error, "failed to get range"))?;
 		let children = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())
-					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
 				let Key::ProcessChild { child, .. } = key else {
 					return Err(tg::error!("expected process child key"));
 				};
@@ -669,12 +669,12 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get range"))?;
+			.map_err(|error| tg::error!(!error, "failed to get range"))?;
 		let object_processes = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())
-					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
 				let Key::ProcessObject { kind, object, .. } = key else {
 					return Err(tg::error!("expected process object key"));
 				};
@@ -710,7 +710,7 @@ impl Index {
 		let Some(bytes) = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
 		else {
 			return Ok(());
 		};
@@ -750,7 +750,7 @@ impl Index {
 		let Some(bytes) = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object"))?
+			.map_err(|error| tg::error!(!error, "failed to get object"))?
 		else {
 			return Ok(());
 		};
@@ -790,7 +790,7 @@ impl Index {
 		let Some(bytes) = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get process"))?
+			.map_err(|error| tg::error!(!error, "failed to get process"))?
 		else {
 			return Ok(());
 		};

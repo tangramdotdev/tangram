@@ -94,7 +94,7 @@ impl std::str::FromStr for Checksum {
 			.next()
 			.unwrap()
 			.parse()
-			.map_err(|source| tg::error!(!source, "invalid algorithm"))?;
+			.map_err(|error| tg::error!(!error, "invalid algorithm"))?;
 
 		// Parse the body.
 		let body = match (algorithm, components.next()) {
@@ -103,37 +103,37 @@ impl std::str::FromStr for Checksum {
 			(Algorithm::Blake3, Some(body)) if body.len() == 44 => Body::Bytes(
 				data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|source| tg::error!(!source, "invalid body"))?
+					.map_err(|error| tg::error!(!error, "invalid body"))?
 					.into(),
 			),
 			(Algorithm::Blake3, Some(body)) if body.len() == 64 => Body::Bytes(
 				data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|source| tg::error!(!source, "invalid body"))?
+					.map_err(|error| tg::error!(!error, "invalid body"))?
 					.into(),
 			),
 			(Algorithm::Sha256, Some(body)) if body.len() == 44 => Body::Bytes(
 				data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|source| tg::error!(!source, "invalid body"))?
+					.map_err(|error| tg::error!(!error, "invalid body"))?
 					.into(),
 			),
 			(Algorithm::Sha256, Some(body)) if body.len() == 64 => Body::Bytes(
 				data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|source| tg::error!(!source, "invalid body"))?
+					.map_err(|error| tg::error!(!error, "invalid body"))?
 					.into(),
 			),
 			(Algorithm::Sha512, Some(body)) if body.len() == 88 => Body::Bytes(
 				data_encoding::BASE64
 					.decode(body.as_bytes())
-					.map_err(|source| tg::error!(!source, "invalid body"))?
+					.map_err(|error| tg::error!(!error, "invalid body"))?
 					.into(),
 			),
 			(Algorithm::Sha512, Some(body)) if body.len() == 128 => Body::Bytes(
 				data_encoding::HEXLOWER
 					.decode(body.as_bytes())
-					.map_err(|source| tg::error!(!source, "invalid body"))?
+					.map_err(|error| tg::error!(!error, "invalid body"))?
 					.into(),
 			),
 			_ => {

@@ -63,7 +63,7 @@ impl Session {
 		for object in &arg.objects {
 			// Deserialize the object.
 			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
-				.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
 			// Get the children.
 			let mut children = BTreeSet::new();
@@ -121,7 +121,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<()> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -131,7 +131,7 @@ impl Session {
 			..arg
 		};
 		client.post_object_batch(arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to post the object batch"),
+			|error| tg::error!(!error, region = %region, "failed to post the object batch"),
 		)?;
 		Ok(())
 	}
@@ -143,14 +143,14 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<()> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::object::batch::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
 		client.post_object_batch(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to post the object batch"),
+			|error| tg::error!(!error, remote = %remote, "failed to post the object batch"),
 		)?;
 		Ok(())
 	}
@@ -163,17 +163,17 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Read the body.
 		let bytes = request
 			.bytes()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the request body"))?;
 
 		// Deserialize the arg.
 		let arg = tg::object::batch::Arg::deserialize(bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?;
 
 		// Validate all object IDs match their bytes.
 		for object in &arg.objects {
@@ -190,7 +190,7 @@ impl Session {
 		// Post the object batch.
 		self.post_object_batch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to post the object batch"))?;
+			.map_err(|error| tg::error!(!error, "failed to post the object batch"))?;
 
 		// Create the response.
 		match accept

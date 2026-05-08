@@ -33,12 +33,12 @@ impl<O> tg::Process<O> {
 			tg::progress::write_progress_stream(handle, stream, writer, false)
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		let output = process
 			.output_with_handle(handle)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the process output"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the process output"))?;
 
 		Ok(output)
 	}

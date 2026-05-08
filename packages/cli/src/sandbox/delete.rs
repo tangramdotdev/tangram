@@ -12,7 +12,7 @@ impl Cli {
 	pub async fn command_sandbox_delete(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		client.delete_sandbox(&args.sandbox).await.map_err(
-			|source| tg::error!(!source, sandbox = %args.sandbox, "failed to delete the sandbox"),
+			|error| tg::error!(!error, sandbox = %args.sandbox, "failed to delete the sandbox"),
 		)?;
 		Ok(())
 	}

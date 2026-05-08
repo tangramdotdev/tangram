@@ -27,7 +27,7 @@ impl Cli {
 			replicate: None,
 		};
 		let output = client.delete_tags(arg).await.map_err(
-			|source| tg::error!(!source, pattern = %args.pattern, "failed to delete the tag"),
+			|error| tg::error!(!error, pattern = %args.pattern, "failed to delete the tag"),
 		)?;
 		self.print_serde(output, args.print).await?;
 		Ok(())

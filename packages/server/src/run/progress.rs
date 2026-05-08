@@ -169,11 +169,11 @@ impl Session {
 			session
 				.write_process_stdio_all(&id, arg, input)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the progress stream"))
+				.map_err(|error| tg::error!(!error, "failed to write the progress stream"))
 		});
 		let (result1, result2) = future::join(progress_task.wait(), stderr_task.wait()).await;
-		result2.map_err(|source| tg::error!(!source, "the stderr task panicked"))??;
-		result1.map_err(|source| tg::error!(!source, "the progress task panicked"))?
+		result2.map_err(|error| tg::error!(!error, "the stderr task panicked"))??;
+		result1.map_err(|error| tg::error!(!error, "the progress task panicked"))?
 	}
 }
 

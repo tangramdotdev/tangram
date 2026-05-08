@@ -13,10 +13,10 @@ impl Session {
 		let mut reader = blob
 			.read_with_handle(self, tg::read::Options::default())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
 		tokio::io::copy(&mut reader, &mut writer)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the file contents"))?;
 		let checksum = writer.finalize();
 		Ok(checksum)
 	}
@@ -30,10 +30,10 @@ impl Session {
 		writer
 			.write_uvarint(0)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the archive version"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the archive version"))?;
 		self.checksum_artifact_inner(&mut writer, artifact)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to checksum the artifact"))?;
+			.map_err(|error| tg::error!(!error, "failed to checksum the artifact"))?;
 		let checksum = writer.finalize();
 		Ok(checksum)
 	}
@@ -48,92 +48,92 @@ impl Session {
 				let entries = directory
 					.entries_with_handle(self)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get directory entries"))?;
+					.map_err(|error| tg::error!(!error, "failed to get directory entries"))?;
 				writer
 					.write_uvarint(0)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the artifact kind"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the artifact kind"))?;
 				let len = entries.len().to_u64().unwrap();
-				writer.write_uvarint(len).await.map_err(|source| {
-					tg::error!(!source, "failed to write the number of directory entries")
+				writer.write_uvarint(len).await.map_err(|error| {
+					tg::error!(!error, "failed to write the number of directory entries")
 				})?;
 				for (name, artifact) in entries {
 					let len = name.len().to_u64().unwrap();
 					writer
 						.write_uvarint(len)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write the name length"))?;
+						.map_err(|error| tg::error!(!error, "failed to write the name length"))?;
 					writer
 						.write_all(name.as_bytes())
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write the name"))?;
+						.map_err(|error| tg::error!(!error, "failed to write the name"))?;
 					Box::pin(self.checksum_artifact_inner(writer, &artifact.clone()))
 						.await
-						.map_err(|source| tg::error!(!source, %name, "failed to checksum entry"))?;
+						.map_err(|error| tg::error!(!error, %name, "failed to checksum entry"))?;
 				}
 			},
 			tg::Artifact::File(file) => {
 				let dependencies = file
 					.dependencies_with_handle(self)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get file dependencies"))?;
+					.map_err(|error| tg::error!(!error, "failed to get file dependencies"))?;
 				if !dependencies.is_empty() {
 					return Err(tg::error!("cannot checksum a file with dependencies"));
 				}
 				let executable = file
 					.executable_with_handle(self)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get executable bit"))?;
+					.map_err(|error| tg::error!(!error, "failed to get executable bit"))?;
 				let length = file
 					.length_with_handle(self)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get file length"))?;
+					.map_err(|error| tg::error!(!error, "failed to get file length"))?;
 				let mut reader = file
 					.read_with_handle(self, tg::read::Options::default())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to read the file"))?;
+					.map_err(|error| tg::error!(!error, "failed to read the file"))?;
 				writer
 					.write_uvarint(1)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the artifact kind"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the artifact kind"))?;
 				writer
 					.write_uvarint(executable.into())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the executable bit"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the executable bit"))?;
 				writer
 					.write_uvarint(length)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the file length"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the file length"))?;
 				tokio::io::copy(&mut reader, writer)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the file contents"))?;
 			},
 			tg::Artifact::Symlink(symlink) => {
 				let artifact = symlink
 					.artifact_with_handle(self)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get symlink artifact"))?;
+					.map_err(|error| tg::error!(!error, "failed to get symlink artifact"))?;
 				if artifact.is_some() {
 					return Err(tg::error!("cannot checksum a symlink with an artifact"));
 				}
 				let path = symlink
 					.path_with_handle(self)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get symlink path"))?
+					.map_err(|error| tg::error!(!error, "failed to get symlink path"))?
 					.ok_or_else(|| tg::error!("cannot checksum a symlink without a path"))?;
 				let target = path.to_string_lossy();
 				writer
 					.write_uvarint(2)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the artifact kind"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the artifact kind"))?;
 				let len = target.len().to_u64().unwrap();
-				writer.write_uvarint(len).await.map_err(|source| {
-					tg::error!(!source, "failed to write the target path length")
+				writer.write_uvarint(len).await.map_err(|error| {
+					tg::error!(!error, "failed to write the target path length")
 				})?;
 				writer
 					.write_all(target.as_bytes())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the target path"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the target path"))?;
 			},
 		}
 		Ok(())

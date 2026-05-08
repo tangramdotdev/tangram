@@ -25,22 +25,22 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current {
 				let local_outputs = self
 					.list_processes_local()
 					.await
-					.map_err(|source| tg::error!(!source, "failed to list local processes"))?;
+					.map_err(|error| tg::error!(!error, "failed to list local processes"))?;
 				output.data.extend(local_outputs);
 			}
 
 			let region_outputs =
 				self.list_processes_regions(&local.regions)
 					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to list processes from other regions")
+					.map_err(|error| {
+						tg::error!(!error, "failed to list processes from other regions")
 					})?;
 			output
 				.data
@@ -50,7 +50,7 @@ impl Session {
 		let remote_outputs = self
 			.list_processes_remotes(&locations.remotes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list processes from remotes"))?;
+			.map_err(|error| tg::error!(!error, "failed to list processes from remotes"))?;
 		output
 			.data
 			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
@@ -94,7 +94,7 @@ impl Session {
 
 	async fn list_processes_region(&self, region: &str) -> tg::Result<tg::process::list::Output> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -105,7 +105,7 @@ impl Session {
 		let mut output = client
 			.list_processes(arg)
 			.await
-			.map_err(|source| tg::error!(!source, region = %region, "failed to list processes"))?;
+			.map_err(|error| tg::error!(!error, region = %region, "failed to list processes"))?;
 		for process in &mut output.data {
 			process.location = Some(location.clone());
 		}
@@ -130,7 +130,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<tg::process::list::Output> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::list::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -140,7 +140,7 @@ impl Session {
 			])),
 		};
 		let mut output = client.list_processes(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to list processes"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to list processes"),
 		)?;
 		for process in &mut output.data {
 			let region = match process.location.take() {
@@ -164,20 +164,20 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// List the processes.
 		let output = self
 			.list_processes(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the processes"))?;
+			.map_err(|error| tg::error!(!error, "failed to list the processes"))?;
 		let output = output.data;
 
 		// Create the response.

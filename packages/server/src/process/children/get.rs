@@ -30,14 +30,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
 					.try_get_process_children_local(id, arg.clone())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get the process children"))?
+					.map_err(|error| tg::error!(!error, "failed to get the process children"))?
 			{
 				return Ok(Some(stream));
 			}
@@ -45,9 +45,9 @@ impl Session {
 			if let Some(stream) = self
 				.try_get_process_children_regions(id, arg.clone(), &local.regions)
 				.await
-				.map_err(|source| {
+				.map_err(|error| {
 					tg::error!(
-						!source,
+						!error,
 						"failed to get the process children from another region"
 					)
 				})? {
@@ -58,8 +58,8 @@ impl Session {
 		if let Some(stream) = self
 			.try_get_process_children_remotes(id, arg, &locations.remotes)
 			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to get the process children from a remote")
+			.map_err(|error| {
+				tg::error!(!error, "failed to get the process children from a remote")
 			})? {
 			return Ok(Some(stream));
 		}
@@ -77,7 +77,7 @@ impl Session {
 			.server
 			.get_process_exists_local(id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check if the process exists"))?
+			.map_err(|error| tg::error!(!error, "failed to check if the process exists"))?
 		{
 			return Ok(None);
 		}
@@ -116,7 +116,7 @@ impl Session {
 			Some(std::io::SeekFrom::End(seek) | std::io::SeekFrom::Current(seek)) => self
 				.try_get_process_children_local_current_position(id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the current position"))?
+				.map_err(|error| tg::error!(!error, "failed to get the current position"))?
 				.to_i64()
 				.unwrap()
 				.checked_add(seek)
@@ -136,7 +136,7 @@ impl Session {
 				.messenger
 				.subscribe::<()>(subject)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ())
 				.boxed();
 			let subject = format!("processes.{id}.status");
@@ -145,7 +145,7 @@ impl Session {
 				.messenger
 				.subscribe::<()>(subject)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ())
 				.boxed();
 			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
@@ -242,7 +242,7 @@ impl Session {
 			.process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		// Get the position.
 		let p = connection.p();
@@ -257,7 +257,7 @@ impl Session {
 		let position = connection
 			.query_one_value_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		// Drop the process store connection.
 		drop(connection);
@@ -277,7 +277,7 @@ impl Session {
 			.process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		// Get the children.
 		#[derive(db::row::Deserialize)]
@@ -303,7 +303,7 @@ impl Session {
 		let children = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.into_iter()
 			.map(|row| tg::process::data::Child {
 				cached: row.cached,
@@ -360,7 +360,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -373,7 +373,7 @@ impl Session {
 			.try_get_process_children_stream(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, region = %region, "failed to get the process children"),
+				|error| tg::error!(!error, region = %region, "failed to get the process children"),
 			)?
 		else {
 			return Ok(None);
@@ -417,7 +417,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::children::get::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -431,7 +431,7 @@ impl Session {
 			.try_get_process_children_stream(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, remote = %remote.name, "failed to get the process children"),
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the process children"),
 			)?
 		else {
 			return Ok(None);
@@ -447,20 +447,20 @@ impl Session {
 		// Parse the ID.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the query.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the stream.
 		let Some(stream) = self.try_get_process_children_stream(&id, arg).await? else {

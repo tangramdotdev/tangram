@@ -18,7 +18,7 @@ impl Session {
 		let location = self
 			.server
 			.location(arg.location.as_ref())
-			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
 			tg::Location::Local(_) => self.login_user_local(arg.email).await,
 			tg::Location::Remote(remote) => self.login_user_remote(arg, remote).await,
@@ -35,11 +35,11 @@ impl Session {
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 
 		// Get or create the user.
 		#[derive(db::row::Deserialize)]
@@ -59,7 +59,7 @@ impl Session {
 		let user = transaction
 			.query_optional_into::<UserRow>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let id = if let Some(user) = user {
 			user.id
 		} else {
@@ -74,7 +74,7 @@ impl Session {
 			transaction
 				.execute(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			let statement = formatdoc!(
 				"
@@ -86,7 +86,7 @@ impl Session {
 			transaction
 				.execute(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			id
 		};
@@ -103,7 +103,7 @@ impl Session {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		// Get the user's emails.
 		#[derive(db::row::Deserialize)]
@@ -122,13 +122,13 @@ impl Session {
 		let rows = transaction
 			.query_all_into::<EmailRow>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let emails = rows.into_iter().map(|row| row.email).collect();
 
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		drop(connection);
 
 		let user = tg::User {
@@ -149,9 +149,9 @@ impl Session {
 		let client = self
 			.get_remote_session(remote.name.clone())
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					remote = %remote.name,
 					"failed to get the remote client"
 				)
@@ -160,18 +160,18 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 			..arg
 		};
-		let mut output = client.login_user(arg).await.map_err(|source| {
+		let mut output = client.login_user(arg).await.map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				remote = %remote.name,
 				"failed to log in the user"
 			)
 		})?;
 		self.put_remote_token(&remote.name, output.token.clone())
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					remote = %remote.name,
 					"failed to update the remote"
 				)
@@ -195,19 +195,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Log in the user.
 		let output = self
 			.login_user(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to log in the user"))?;
+			.map_err(|error| tg::error!(!error, "failed to log in the user"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

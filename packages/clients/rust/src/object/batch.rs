@@ -47,7 +47,7 @@ impl Arg {
 		let mut bytes = Vec::new();
 		bytes.push(0);
 		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
@@ -60,9 +60,9 @@ impl Arg {
 		let format = bytes[0];
 		match format {
 			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			_ => Err(tg::error!("invalid format")),
 		}
 	}
@@ -85,11 +85,12 @@ impl tg::Session {
 		let response = self
 			.send_with_retry(request)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		if !response.status().is_success() {
-			let error = response.json().await.map_err(|source| {
-				tg::error!(!source, "failed to deserialize the error response")
-			})?;
+			let error = response
+				.json()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
 			return Err(error);
 		}
 		Ok(())

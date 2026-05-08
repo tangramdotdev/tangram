@@ -46,9 +46,9 @@ impl<O> tg::Process<O> {
 		command.stdout(convert_stdio(&arg.stdout));
 		command.stderr(convert_stdio(&arg.stderr));
 
-		let source = command.exec();
+		let error = command.exec();
 		Err(tg::error!(
-			!source,
+			!error,
 			executable = %prepared.executable.display(),
 			"failed to exec the process"
 		))

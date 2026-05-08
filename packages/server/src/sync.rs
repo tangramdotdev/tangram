@@ -107,7 +107,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -119,7 +119,7 @@ impl Session {
 		let stream = client
 			.sync(arg, stream)
 			.await
-			.map_err(|source| tg::error!(!source, region = %region, "failed to sync"))?;
+			.map_err(|error| tg::error!(!error, region = %region, "failed to sync"))?;
 		Ok(stream.boxed())
 	}
 
@@ -131,7 +131,7 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::sync::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
@@ -140,7 +140,7 @@ impl Session {
 		let stream = client
 			.sync(arg, stream)
 			.await
-			.map_err(|source| tg::error!(!source, remote = %remote, "failed to sync"))?;
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to sync"))?;
 		Ok(stream.boxed())
 	}
 
@@ -230,7 +230,7 @@ impl Session {
 		future::try_join4(
 			input_task
 				.wait()
-				.map_err(|source| tg::error!(!source, "the input task panicked"))
+				.map_err(|error| tg::error!(!error, "the input task panicked"))
 				.and_then(future::ready),
 			output_future,
 			get_future,
@@ -246,7 +246,7 @@ impl Session {
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let arg_in_body = tangram_http::body::arg::get_header(request.headers())
-			.map_err(|source| tg::error!(!source, "failed to parse the x-tg-arg-in-body header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the x-tg-arg-in-body header"))?;
 
 		// Parse the arg.
 		let arg = if arg_in_body {
@@ -256,7 +256,7 @@ impl Session {
 				request
 					.query_params()
 					.transpose()
-					.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+					.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 					.unwrap_or_default(),
 			)
 		};
@@ -265,7 +265,7 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Create the request body.
 		let mut reader = request.reader();
@@ -274,14 +274,14 @@ impl Session {
 		} else {
 			tangram_http::body::arg::get(&mut reader)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read the sync arg"))?
+				.map_err(|error| tg::error!(!error, "failed to read the sync arg"))?
 		};
 		let stream = stream::try_unfold(reader, move |mut reader| async move {
 			// Read a message.
 			let Some(len) = reader
 				.try_read_uvarint()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read the length"))?
+				.map_err(|error| tg::error!(!error, "failed to read the length"))?
 				.map(|value| value.to_usize().unwrap())
 			else {
 				return Ok(None);
@@ -290,9 +290,9 @@ impl Session {
 			reader
 				.read_exact(&mut bytes)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read the message"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the message"))?;
 			let message = tangram_serialize::from_slice(&bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the message"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
 
 			// Validate object IDs.
 			if let tg::sync::Message::Put(tg::sync::PutMessage::Item(
@@ -314,7 +314,7 @@ impl Session {
 		let stream = self
 			.sync(arg, stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the sync"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the sync"))?;
 
 		// Validate the accept header.
 		let sync_content_type: mime::Mime = tg::sync::CONTENT_TYPE.parse().unwrap();

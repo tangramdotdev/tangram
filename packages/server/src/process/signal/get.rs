@@ -34,15 +34,15 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
 					.try_get_process_signal_stream_local(id, arg.timeout)
 					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to get the process signal stream")
+					.map_err(|error| {
+						tg::error!(!error, "failed to get the process signal stream")
 					})? {
 				return Ok(Some(stream));
 			}
@@ -50,9 +50,9 @@ impl Session {
 			if let Some(stream) = self
 				.try_get_process_signal_stream_regions(id, &local.regions, arg.timeout)
 				.await
-				.map_err(|source| {
+				.map_err(|error| {
 					tg::error!(
-						!source,
+						!error,
 						"failed to get the process signal stream from another region"
 					)
 				})? {
@@ -63,9 +63,9 @@ impl Session {
 		if let Some(stream) = self
 			.try_get_process_signal_stream_remotes(id, &locations.remotes, arg.timeout)
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					"failed to get the process signal stream from a remote"
 				)
 			})? {
@@ -85,7 +85,7 @@ impl Session {
 			.server
 			.get_process_exists_local(id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check if the process exists"))?
+			.map_err(|error| tg::error!(!error, "failed to check if the process exists"))?
 		{
 			return Ok(None);
 		}
@@ -127,7 +127,7 @@ impl Session {
 				.messenger
 				.subscribe_with_delivery::<()>(subject, Delivery::One)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
 			let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
 				.skip(1)
@@ -227,7 +227,7 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -240,7 +240,7 @@ impl Session {
 			.try_get_process_signal_stream(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, region = %region, "failed to get the process signal stream"),
+				|error| tg::error!(!error, region = %region, "failed to get the process signal stream"),
 			)?
 		else {
 			return Ok(None);
@@ -284,7 +284,7 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::signal::get::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -298,7 +298,7 @@ impl Session {
 			.try_get_process_signal_stream(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, remote = %remote.name, "failed to get the process signal stream"),
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the process signal stream"),
 			)?
 		else {
 			return Ok(None);
@@ -314,20 +314,20 @@ impl Session {
 		// Parse the ID.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the args.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the stream.
 		let Some(stream) = self.try_get_process_signal_stream(&id, arg).await? else {

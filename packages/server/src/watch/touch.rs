@@ -52,18 +52,18 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the body"))?;
 
 		// Touch the watch.
 		self.touch_watch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the watch"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete the watch"))?;
 
 		// Create the response.
 		match accept

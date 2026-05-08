@@ -87,7 +87,7 @@ impl Session {
 		let Some(output) = self
 			.try_get_process_local(id, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the process"))?
+			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {
 			return Ok(None);
 		};
@@ -150,8 +150,8 @@ impl Session {
 		while let Some(result) = input.next().await {
 			let event = match result {
 				Ok(event) => event,
-				Err(source) => {
-					return Err(tg::error!(!source, "failed to read a stdio event"));
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to read a stdio event"));
 				},
 			};
 			match event {
@@ -191,7 +191,7 @@ impl Session {
 								.log_store
 								.put(arg)
 								.await
-								.map_err(|source| tg::error!(!source, "failed to store the log"))?;
+								.map_err(|error| tg::error!(!error, "failed to store the log"))?;
 							tokio::spawn({
 								let session = self.clone();
 								let id = id.clone();
@@ -270,7 +270,7 @@ impl Session {
 			.messenger
 			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 			.map(|_| ());
 		let subject = format!("processes.{id}.{stream}.close");
 		let close_wakeups = self
@@ -278,7 +278,7 @@ impl Session {
 			.messenger
 			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 			.map(|_| ());
 		let interval = Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval(interval))
@@ -351,7 +351,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -363,7 +363,7 @@ impl Session {
 		let stream = client
 			.try_write_process_stdio(id, arg, input)
 			.await
-			.map_err(|source| tg::error!(!source, region = %region, "failed to write stdio"))?;
+			.map_err(|error| tg::error!(!error, region = %region, "failed to write stdio"))?;
 		Ok(stream.map(futures::StreamExt::boxed))
 	}
 
@@ -376,7 +376,7 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::stdio::write::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
@@ -385,7 +385,7 @@ impl Session {
 		let stream = client
 			.try_write_process_stdio(id, arg, input)
 			.await
-			.map_err(|source| tg::error!(!source, remote = %remote, "failed to write stdio"))?;
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to write stdio"))?;
 		Ok(stream.map(futures::StreamExt::boxed))
 	}
 
@@ -397,7 +397,7 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		match accept
 			.as_ref()
@@ -411,15 +411,15 @@ impl Session {
 
 		let id = id
 			.parse::<tg::process::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let arg: tg::process::stdio::write::Arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 		let input = request
 			.sse()
-			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
 					if event.event.as_deref().is_some_and(|event| event == "error") {

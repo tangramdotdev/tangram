@@ -549,9 +549,7 @@ impl Index {
 						let response =
 							Self::execute_request(&txn, &subspace, &request, partition_total)
 								.await
-								.map_err(|source| {
-									fdb::FdbBindingError::CustomError(source.into())
-								})?;
+								.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 						responses.push(response);
 					}
 					Ok(responses)

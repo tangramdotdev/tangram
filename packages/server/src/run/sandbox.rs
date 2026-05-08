@@ -73,7 +73,7 @@ impl Session {
 				},
 			)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?;
 		let Some(state) = state else {
 			return Ok(());
 		};
@@ -93,12 +93,12 @@ impl Session {
 		let temp = Temp::new(&self.server);
 		tokio::fs::create_dir_all(temp.path())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
 		// Create the listener.
 		let (listener, guest_uri) = Server::run_create_listener(temp.path(), &isolation)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to create the tangram listener"))?;
 
 		// Create the sandbox. Include the artifacts directory as a readonly mount.
 		let artifacts_path = self.server.artifacts_path();
@@ -197,7 +197,7 @@ impl Session {
 		};
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to create the sandbox"))?;
 
 		let _temp = temp;
 		self.server.sandboxes.insert(id.clone(), sandbox.clone());
@@ -245,9 +245,7 @@ impl Session {
 				},
 			)
 			.await
-			.map_err(
-				|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
-			)?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox status stream"))?;
 		let mut status = pin!(status);
 
 		// Create the process tasks.
@@ -284,7 +282,7 @@ impl Session {
 			tokio::select! {
 				// If a process is dequeued, then start it and dequeue another.
 				output = &mut dequeue => {
-					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
+					let output = output.map_err(|error| tg::error!(!error, "failed to dequeue a process"))?;
 					timer.take();
 					self.spawn_process_task(
 						&mut process_tasks,
@@ -299,7 +297,7 @@ impl Session {
 
 				// If the sandbox finishes, then break.
 				result = status.try_next() => {
-					let option = result.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))?;
+					let option = result.map_err(|error| tg::error!(!error, "failed to read the sandbox status"))?;
 					let Some(status) = option else {
 						break;
 					};
@@ -312,8 +310,8 @@ impl Session {
 				output = process_tasks.join_next(), if !process_tasks.is_empty() => {
 					output
 						.unwrap()
-						.map_err(|source| tg::error!(!source, "a process task panicked"))?
-						.map_err(|source| tg::error!(!source, "a process task failed"))?;
+						.map_err(|error| tg::error!(!error, "a process task panicked"))?
+						.map_err(|error| tg::error!(!error, "a process task failed"))?;
 					if process_tasks.is_empty() && let Some(ttl) = ttl {
 						timer.replace(tokio::time::sleep(ttl).boxed());
 					}
@@ -343,8 +341,8 @@ impl Session {
 		process_stopper.stop();
 		while let Some(result) = process_tasks.join_next().await {
 			result
-				.map_err(|source| tg::error!(!source, "a process task panicked"))?
-				.map_err(|source| tg::error!(!source, "a process task failed"))?;
+				.map_err(|error| tg::error!(!error, "a process task panicked"))?
+				.map_err(|error| tg::error!(!error, "a process task failed"))?;
 		}
 
 		// Stop and await the server task.
@@ -352,15 +350,15 @@ impl Session {
 		serve_task
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
+			.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
 
 		// Stop and await the heartbeat task.
 		heartbeat_task.stop();
 		heartbeat_task
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the heartbeat task panicked"))?
-			.map_err(|source| tg::error!(!source, "the heartbeat task failed"))?;
+			.map_err(|error| tg::error!(!error, "the heartbeat task panicked"))?
+			.map_err(|error| tg::error!(!error, "the heartbeat task failed"))?;
 
 		Ok(())
 	}

@@ -59,7 +59,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 		})
 	} else {
 		let module: tg::module::Data = match resource_name.parse().map_err(
-			|source| tg::error!(!source, %resource_name, "failed to parse the resource name"),
+			|error| tg::error!(!error, %resource_name, "failed to parse the resource name"),
 		) {
 			Ok(module) => module,
 			Err(error) => {
@@ -83,8 +83,8 @@ pub fn host_import_module_dynamically_callback<'s>(
 				referrer: referrer.clone(),
 				import: import.clone(),
 			};
-			let output = handle.resolve_module(arg).await.map_err(|source| {
-				tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
+			let output = handle.resolve_module(arg).await.map_err(|error| {
+				tg::error!(!error, ?referrer, ?import, "failed to resolve the module")
 			})?;
 			let module = output.module;
 			Ok(Serde(module))
@@ -116,8 +116,8 @@ pub fn host_import_module_dynamically_callback<'s>(
 						let arg = tg::module::load::Arg {
 							module: module.clone(),
 						};
-						let output = handle.load_module(arg).await.map_err(|source| {
-							tg::error!(!source, ?module, "failed to load the module")
+						let output = handle.load_module(arg).await.map_err(|error| {
+							tg::error!(!error, ?module, "failed to load the module")
 						})?;
 						Ok(Serde((module, output.text)))
 					}
@@ -297,7 +297,7 @@ fn resolve_module_sync(
 	let result = receiver
 		.recv()
 		.unwrap()
-		.map_err(|source| tg::error!(!source, ?referrer, ?import, "failed to resolve"));
+		.map_err(|error| tg::error!(!error, ?referrer, ?import, "failed to resolve"));
 	let module = match result {
 		Ok(module) => module,
 		Err(error) => {
@@ -326,7 +326,7 @@ fn load_module_sync(scope: &mut v8::PinScope, module: &tg::module::Data) -> Opti
 	let result = receiver
 		.recv()
 		.unwrap()
-		.map_err(|source| tg::error!(!source, ?module, "failed to load the module"));
+		.map_err(|error| tg::error!(!error, ?module, "failed to load the module"));
 	let text = match result {
 		Ok(text) => text,
 		Err(error) => {
@@ -364,7 +364,7 @@ fn compile_module<'s>(
 
 	// Parse the source map.
 	let source_map = match SourceMap::from_slice(output.source_map.as_bytes())
-		.map_err(|source| tg::error!(!source, "failed to parse the source map"))
+		.map_err(|error| tg::error!(!error, "failed to parse the error map"))
 	{
 		Ok(source_map) => source_map,
 		Err(error) => {
@@ -465,7 +465,7 @@ fn parse_import_inner<'s>(
 				.get(scope, i)
 				.ok_or_else(|| tg::error!("failed to get the key"))?;
 			let key = v8::Local::<v8::Value>::try_from(key)
-				.map_err(|source| tg::error!(!source, "failed to convert the key"))?;
+				.map_err(|error| tg::error!(!error, "failed to convert the key"))?;
 			let key = key.to_rust_string_lossy(scope);
 			i += 1;
 
@@ -474,7 +474,7 @@ fn parse_import_inner<'s>(
 				.get(scope, i)
 				.ok_or_else(|| tg::error!(%key, "failed to get the attribute value"))?;
 			let value = v8::Local::<v8::Value>::try_from(value)
-				.map_err(|source| tg::error!(!source, "failed to convert the value"))?;
+				.map_err(|error| tg::error!(!error, "failed to convert the value"))?;
 			let value = value.to_rust_string_lossy(scope);
 			i += 1;
 

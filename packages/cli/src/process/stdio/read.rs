@@ -88,7 +88,7 @@ impl Cli {
 			.try_read_stdio_all(&client, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, id = %args.process, "failed to get the process stdio"),
+				|error| tg::error!(!error, id = %args.process, "failed to get the process stdio"),
 			)?
 			.ok_or_else(|| tg::error!(id = %args.process, "failed to get the process stdio"))?;
 
@@ -103,13 +103,13 @@ impl Cli {
 					stdout
 						.write_all(&chunk.bytes)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+						.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 				},
 				tg::process::stdio::Stream::Stderr => {
 					stderr
 						.write_all(&chunk.bytes)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write to stderr"))?;
+						.map_err(|error| tg::error!(!error, "failed to write to stderr"))?;
 				},
 				tg::process::stdio::Stream::Stdin => {
 					return Err(tg::error!("invalid stdio stream"));
@@ -119,11 +119,11 @@ impl Cli {
 		stdout
 			.flush()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 		stderr
 			.flush()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stderr"))?;
+			.map_err(|error| tg::error!(!error, "failed to flush stderr"))?;
 
 		Ok(())
 	}
@@ -132,6 +132,6 @@ impl Cli {
 fn parse_seek_from(value: &str) -> Result<std::io::SeekFrom, String> {
 	let value = serde_json::json!({ "position": value });
 	let position = serde_json::from_value::<PositionArg>(value)
-		.map_err(|source| format!("failed to parse the position: {source}"))?;
+		.map_err(|error| format!("failed to parse the position: {error}"))?;
 	Ok(position.position)
 }

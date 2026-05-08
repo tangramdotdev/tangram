@@ -22,7 +22,7 @@ impl Session {
 				ttl: None,
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the tags"))?
+			.map_err(|error| tg::error!(!error, "failed to list the tags"))?
 			.data;
 		list.into_iter()
 			.filter_map(|output| {

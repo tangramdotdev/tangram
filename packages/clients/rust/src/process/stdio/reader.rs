@@ -80,11 +80,11 @@ impl Reader {
 				Fd::Stderr(stderr) => stderr
 					.read(&mut buffer)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to read stderr"))?,
+					.map_err(|error| tg::error!(!error, "failed to read stderr"))?,
 				Fd::Stdout(stdout) => stdout
 					.read(&mut buffer)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to read stdout"))?,
+					.map_err(|error| tg::error!(!error, "failed to read stdout"))?,
 			};
 			if count == 0 {
 				state.fd = None;
@@ -174,7 +174,7 @@ impl Reader {
 		H: tg::Handle,
 	{
 		String::from_utf8(self.read_all_with_handle(handle).await?.to_vec())
-			.map_err(|source| tg::error!(!source, "failed to decode the output as UTF-8"))
+			.map_err(|error| tg::error!(!error, "failed to decode the output as UTF-8"))
 	}
 }
 

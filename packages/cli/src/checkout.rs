@@ -93,7 +93,7 @@ impl Cli {
 		let path = if let Some(path) = args.path {
 			let path = tangram_util::fs::canonicalize_parent(path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 			Some(path)
 		} else {
 			None
@@ -124,12 +124,12 @@ impl Cli {
 			path,
 		};
 		let stream = client.checkout(arg).await.map_err(
-			|source| tg::error!(!source, %artifact, "failed to create the checkout stream"),
+			|error| tg::error!(!error, %artifact, "failed to create the checkout stream"),
 		)?;
 		let output = self
 			.render_progress_stream(stream)
 			.await
-			.map_err(|source| tg::error!(!source, %artifact, "failed to check out the artifact"))?;
+			.map_err(|error| tg::error!(!error, %artifact, "failed to check out the artifact"))?;
 
 		// Print the output.
 		Self::print_display(output.path.display());

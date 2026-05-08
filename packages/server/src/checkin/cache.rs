@@ -82,8 +82,8 @@ impl Session {
 					async move {
 						tokio::task::spawn_blocking(move || session.checkin_cache_inner(batch))
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "the checkin cache task panicked")
+							.map_err(|error| {
+								tg::error!(!error, "the checkin cache task panicked")
 							})??;
 						progress.increment("bytes", batch_bytes);
 						Ok::<_, tg::Error>(())
@@ -95,7 +95,7 @@ impl Session {
 				.buffer_unordered(self.server.config.checkin.cache.concurrency)
 				.try_collect::<()>()
 				.await
-				.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
+				.map_err(|error| tg::error!(!error, "the checkin cache task failed"))?;
 
 			progress.finish("copying");
 			progress.finish("bytes");
@@ -112,7 +112,7 @@ impl Session {
 		if id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(src, permissions).map_err(
-				|source| tg::error!(!source, path = %src.display(), "failed to set permissions"),
+				|error| tg::error!(!error, path = %src.display(), "failed to set permissions"),
 			)?;
 		}
 		let done = match tangram_util::fs::rename_noreplace(src, &dst).await {
@@ -130,8 +130,8 @@ impl Session {
 			{
 				true
 			},
-			Err(source) => {
-				return Err(tg::error!(!source, "failed to rename the root"));
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to rename the root"));
 			},
 		};
 		if !done && id.is_directory() {
@@ -139,13 +139,13 @@ impl Session {
 			tokio::fs::set_permissions(&dst, permissions)
 				.await
 				.map_err(
-					|source| tg::error!(!source, path = %dst.display(), "failed to set permissions"),
+					|error| tg::error!(!error, path = %dst.display(), "failed to set permissions"),
 				)?;
 		}
 		if !done {
 			let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 			filetime::set_symlink_file_times(&dst, epoch, epoch).map_err(
-				|source| tg::error!(!source, path = %dst.display(), "failed to set the modified time"),
+				|error| tg::error!(!error, path = %dst.display(), "failed to set the modified time"),
 			)?;
 		}
 		Ok(())
@@ -170,52 +170,52 @@ impl Session {
 				{
 					true
 				},
-				Err(source) => {
-					return Err(tg::error!(!source, "failed to rename the root"));
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to rename the root"));
 				},
 			};
 			if !done {
 				tangram_util::fs::remove_sync(&src).map_err(
-					|source| tg::error!(!source, path = %src.display(), "failed to remove the root"),
+					|error| tg::error!(!error, path = %src.display(), "failed to remove the root"),
 				)?;
 			}
 			Ok(done)
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "the destructive checkin copy task panicked"))?
+		.map_err(|error| tg::error!(!error, "the destructive checkin copy task panicked"))?
 	}
 
 	fn checkin_cache_destructive_copy_inner(src: &Path, dst: &Path) -> tg::Result<()> {
 		let metadata = std::fs::symlink_metadata(src).map_err(
-			|source| tg::error!(!source, path = %src.display(), "failed to get the metadata"),
+			|error| tg::error!(!error, path = %src.display(), "failed to get the metadata"),
 		)?;
 		if metadata.is_dir() {
 			std::fs::create_dir(dst).map_err(
-				|source| tg::error!(!source, path = %dst.display(), "failed to create the directory"),
+				|error| tg::error!(!error, path = %dst.display(), "failed to create the directory"),
 			)?;
 			let read_dir = std::fs::read_dir(src).map_err(
-				|source| tg::error!(!source, path = %src.display(), "failed to read the directory"),
+				|error| tg::error!(!error, path = %src.display(), "failed to read the directory"),
 			)?;
 			for entry in read_dir {
 				let entry = entry
-					.map_err(|source| tg::error!(!source, "failed to get the directory entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the directory entry"))?;
 				let src = entry.path();
 				let dst = dst.join(entry.file_name());
 				Self::checkin_cache_destructive_copy_inner(&src, &dst)?;
 			}
 		} else if metadata.is_file() {
 			std::fs::copy(src, dst)
-				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+				.map_err(|error| tg::error!(!error, "failed to copy the file"))?;
 		} else if metadata.is_symlink() {
 			let target = std::fs::read_link(src)
-				.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
 			std::os::unix::fs::symlink(target, dst)
-				.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 		} else {
 			return Err(tg::error!(path = %src.display(), "invalid file type"));
 		}
 		Self::checkin_fixup(dst, &metadata).map_err(
-			|source| tg::error!(!source, path = %dst.display(), "failed to fix up the copied path"),
+			|error| tg::error!(!error, path = %dst.display(), "failed to fix up the copied path"),
 		)?;
 		Ok(())
 	}
@@ -236,7 +236,7 @@ impl Session {
 			let temp = Temp::new(&self.server);
 			let dst = temp.path();
 			std::fs::copy(src, dst)
-				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+				.map_err(|error| tg::error!(!error, "failed to copy the file"))?;
 
 			// Set its permissions.
 			if !metadata.is_symlink() {
@@ -244,7 +244,7 @@ impl Session {
 				let mode = if executable { 0o555 } else { 0o444 };
 				let permissions = std::fs::Permissions::from_mode(mode);
 				std::fs::set_permissions(dst, permissions).map_err(
-					|source| tg::error!(!source, path = %dst.display(), "failed to set permissions"),
+					|error| tg::error!(!error, path = %dst.display(), "failed to set permissions"),
 				)?;
 			}
 
@@ -263,8 +263,8 @@ impl Session {
 				{
 					true
 				},
-				Err(source) => {
-					return Err(tg::error!(!source, "failed to rename the file"));
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to rename the file"));
 				},
 			};
 
@@ -272,7 +272,7 @@ impl Session {
 			if !done {
 				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 				filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
-					|source| tg::error!(!source, path = %dst.display(), "failed to set the modified time"),
+					|error| tg::error!(!error, path = %dst.display(), "failed to set the modified time"),
 				)?;
 			}
 		}
@@ -357,8 +357,8 @@ impl Session {
 										continue;
 									}
 									let data = graph_data.get(id);
-									let ids = self.graph_ids(id, data).await.map_err(|source| {
-										tg::error!(!source, "failed to get the graph ids")
+									let ids = self.graph_ids(id, data).await.map_err(|error| {
+										tg::error!(!error, "failed to get the graph ids")
 									})?;
 									artifacts.extend(ids);
 								} else {
@@ -398,8 +398,8 @@ impl Session {
 										}
 										let data = graph_data.get(id);
 										let ids =
-											self.graph_ids(id, data).await.map_err(|source| {
-												tg::error!(!source, "failed to get the graph ids")
+											self.graph_ids(id, data).await.map_err(|error| {
+												tg::error!(!error, "failed to get the graph ids")
 											})?;
 										artifacts.extend(ids);
 									} else {
@@ -434,8 +434,8 @@ impl Session {
 										continue;
 									}
 									let data = graph_data.get(id);
-									let ids = self.graph_ids(id, data).await.map_err(|source| {
-										tg::error!(!source, "failed to get the graph ids")
+									let ids = self.graph_ids(id, data).await.map_err(|error| {
+										tg::error!(!error, "failed to get the graph ids")
 									})?;
 									artifacts.extend(ids);
 								} else {
@@ -452,7 +452,7 @@ impl Session {
 		let stream = self
 			.cache(tg::cache::Arg { artifacts })
 			.await
-			.map_err(|source| tg::error!(!source, "failed to cache dependencies"))?;
+			.map_err(|error| tg::error!(!error, "failed to cache dependencies"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
 			if matches!(event, Ok(tg::progress::Event::Output(()))) {
@@ -475,7 +475,7 @@ impl Session {
 			tg::Graph::with_id(graph.clone())
 				.data_with_handle(self)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+				.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 		};
 		let graph = tg::Graph::with_id(graph.clone());
 		let mut nodes = Vec::with_capacity(data.nodes.len());

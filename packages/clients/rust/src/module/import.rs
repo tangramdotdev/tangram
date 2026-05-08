@@ -21,7 +21,7 @@ impl Import {
 			.and_then(|attributes| attributes.remove("type").or(attributes.remove("kind")))
 			.map(|kind| {
 				kind.parse::<tg::module::Kind>()
-					.map_err(|source| tg::error!(!source, "invalid module kind"))
+					.map_err(|error| tg::error!(!error, "invalid module kind"))
 			})
 			.transpose()?;
 		let artifact = attributes
@@ -44,7 +44,7 @@ impl Import {
 			.map(|location| {
 				location
 					.parse::<tg::location::Arg>()
-					.map_err(|source| tg::error!(!source, "invalid location attribute"))
+					.map_err(|error| tg::error!(!error, "invalid location attribute"))
 			})
 			.transpose()?;
 		let name = attributes

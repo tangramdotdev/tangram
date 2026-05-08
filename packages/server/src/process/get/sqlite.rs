@@ -15,7 +15,7 @@ impl Session {
 		let connection = process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		let outputs = connection
 			.with({
@@ -118,40 +118,41 @@ impl Session {
 		);
 		let mut statement = cache
 			.get(connection, statement.into())
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		else {
 			return Ok(None);
 		};
 
 		// Deserialize the row.
 		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-		let actual_checksum =
-			row.actual_checksum.map(|s| s.parse()).transpose().map_err(
-				|source| tg::error!(!source, %id, "failed to parse the actual checksum"),
-			)?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
+		let actual_checksum = row
+			.actual_checksum
+			.map(|s| s.parse())
+			.transpose()
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the actual checksum"))?;
 		let cacheable = row.cacheable != 0;
 		let command = row
 			.command
 			.parse()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the command"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the command"))?;
 		let error = row
 			.error
 			.map(|s| {
 				if s.starts_with('{') {
-					serde_json::from_str(&s).map(tg::Either::Left).map_err(
-						|source| tg::error!(!source, %id, "failed to deserialize the error"),
-					)
+					serde_json::from_str(&s)
+						.map(tg::Either::Left)
+						.map_err(|error| tg::error!(!error, %id, "failed to deserialize the error"))
 				} else {
 					s.parse()
 						.map(tg::Either::Right)
-						.map_err(|source| tg::error!(!source, %id, "failed to parse the error id"))
+						.map_err(|error| tg::error!(!error, %id, "failed to parse the error id"))
 				}
 			})
 			.transpose()?;
@@ -159,46 +160,46 @@ impl Session {
 			.expected_checksum
 			.map(|s| s.parse())
 			.transpose()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the expected checksum"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the expected checksum"))?;
 		let log = row
 			.log
 			.map(|s| s.parse())
 			.transpose()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the log id"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the log id"))?;
 		let output = row
 			.output
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize"))?;
 		let retry = row.retry != 0;
 		let sandbox = row
 			.sandbox
 			.parse()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the sandbox"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the sandbox"))?;
 		let status = row
 			.status
 			.parse()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the status"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the status"))?;
 		let stderr = row
 			.stderr
 			.map(|s| s.parse())
 			.transpose()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the stderr pipe"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the stderr pipe"))?;
 		let stdin = row
 			.stdin
 			.map(|s| s.parse())
 			.transpose()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the stdin pipe"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the stdin pipe"))?;
 		let stdout = row
 			.stdout
 			.map(|s| s.parse())
 			.transpose()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the stdout pipe"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the stdout pipe"))?;
 		let tty = row
 			.tty
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize the tty"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the tty"))?;
 
 		// Get the children.
 		#[derive(db::sqlite::row::Deserialize)]
@@ -216,22 +217,22 @@ impl Session {
 		);
 		let mut statement = cache
 			.get(connection, statement.into())
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 		let mut child_rows = statement
 			.query([id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let mut children = Vec::new();
 		while let Some(child_row) = child_rows
 			.next()
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		{
 			let child_row = <ChildRow as db::sqlite::row::Deserialize>::deserialize(child_row)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 			let cached = child_row.cached;
 			let process = child_row
 				.child
 				.parse()
-				.map_err(|source| tg::error!(!source, %id, "failed to parse the child id"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to parse the child id"))?;
 			let options = child_row.options.0;
 			children.push(tg::process::data::Child {
 				cached,

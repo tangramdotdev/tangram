@@ -14,7 +14,7 @@ impl Index {
 		let request = Request::PutTags(args.to_vec());
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -43,7 +43,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let tag = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to get the tag"))?
+			.map_err(|error| tg::error!(!error, "failed to get the tag"))?
 			.map(Tag::deserialize)
 			.transpose()?;
 		if let Some(tag) = tag
@@ -59,7 +59,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete the old item tag"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete the old item tag"))?;
 
 			match &tag.item {
 				tg::Either::Left(id) => {
@@ -78,7 +78,7 @@ impl Index {
 		}
 		.serialize()?;
 		db.put(transaction, &key, &value)
-			.map_err(|source| tg::error!(!source, "failed to put the tag"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
 
 		let item = match &arg.item {
 			tg::Either::Left(id) => id.to_bytes().to_vec(),
@@ -90,7 +90,7 @@ impl Index {
 		};
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
-			.map_err(|source| tg::error!(!source, "failed to put the item tag"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the item tag"))?;
 
 		Ok(())
 	}
@@ -103,7 +103,7 @@ impl Index {
 		let request = Request::DeleteTags(tags.to_vec());
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -121,7 +121,7 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let value = db
 				.get(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to get the tag"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the tag"))?;
 			let Some(bytes) = value else {
 				continue;
 			};
@@ -136,7 +136,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete the item tag"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete the item tag"))?;
 			match &data.item {
 				tg::Either::Left(id) => {
 					Self::decrement_object_reference_count(db, subspace, transaction, id)?;
@@ -148,7 +148,7 @@ impl Index {
 			let key = Key::Tag(tag.clone());
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete the tag"))?;
 		}
 		Ok(())
 	}

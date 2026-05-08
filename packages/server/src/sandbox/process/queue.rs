@@ -77,7 +77,7 @@ impl Session {
 			.get_sandbox_exists_local(sandbox)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %sandbox, "failed to check if the sandbox exists"),
+				|error| tg::error!(!error, %sandbox, "failed to check if the sandbox exists"),
 			)? {
 			return Ok(None);
 		}
@@ -91,7 +91,7 @@ impl Session {
 				.messenger
 				.subscribe_with_delivery::<()>(subject, Delivery::One)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
 			let interval = Duration::from_secs(1);
 			let interval = IntervalStream::new(tokio::time::interval(interval))
@@ -145,7 +145,7 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -158,7 +158,7 @@ impl Session {
 			.try_dequeue_sandbox_process(sandbox, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, region = %region, %sandbox, "failed to dequeue the process"),
+				|error| tg::error!(!error, region = %region, %sandbox, "failed to dequeue the process"),
 			)?;
 		Ok(output)
 	}
@@ -171,7 +171,7 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::process::queue::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
@@ -181,7 +181,7 @@ impl Session {
 			.try_dequeue_sandbox_process(sandbox, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, remote = %remote, %sandbox, "failed to dequeue the process"),
+				|error| tg::error!(!error, remote = %remote, %sandbox, "failed to dequeue the process"),
 			)?;
 		Ok(output)
 	}
@@ -214,19 +214,19 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let sandbox = sandbox
 			.parse::<tg::sandbox::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the arg.
 		let arg = request
 			.json_or_default()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Get the stream.
 		let stream = self.try_dequeue_sandbox_process_stream(&sandbox, arg);

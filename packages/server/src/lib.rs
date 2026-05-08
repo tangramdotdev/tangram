@@ -168,7 +168,7 @@ impl Owned {
 		self.task
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the server task panicked"))
+			.map_err(|error| tg::error!(!error, "the server task panicked"))
 	}
 }
 
@@ -183,9 +183,9 @@ impl Server {
 		// Ensure the directory exists.
 		tokio::fs::create_dir_all(&directory)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
 		let path = tokio::fs::canonicalize(&directory).await.map_err(
-			|source| tg::error!(!source, path = %directory.display(), "failed to canonicalize directory path"),
+			|error| tg::error!(!error, path = %directory.display(), "failed to canonicalize directory path"),
 		)?;
 
 		// Lock.
@@ -197,7 +197,7 @@ impl Server {
 			.truncate(false)
 			.open(lock_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to open the lock file"))?;
+			.map_err(|error| tg::error!(!error, "failed to open the lock file"))?;
 		let ret = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
 		if ret != 0 {
 			return Err(tg::error!(
@@ -208,10 +208,10 @@ impl Server {
 		let pid = std::process::id();
 		lock.set_len(0)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to truncate the lock file"))?;
+			.map_err(|error| tg::error!(!error, "failed to truncate the lock file"))?;
 		lock.write_all(pid.to_string().as_bytes())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the pid to the lock file"))?;
 		let lock = Mutex::new(Some(lock));
 
 		// Verify the version file.
@@ -238,7 +238,7 @@ impl Server {
 			None => {
 				tokio::fs::write(&version_path, b"0")
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the version file"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the version file"))?;
 			},
 		}
 
@@ -246,13 +246,13 @@ impl Server {
 		let temp_path = path.join("tmp");
 		tokio::fs::create_dir_all(&temp_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
 		// Ensure the tags directory exists.
 		let tags_path = path.join("tags");
 		tokio::fs::create_dir_all(&tags_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the tags directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the tags directory"))?;
 
 		// Get the available parallelism.
 		let parallelism =
@@ -304,7 +304,7 @@ impl Server {
 					};
 					let database = db::postgres::Database::new(options)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+						.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 					Database::Postgres(database)
 				}
 			},
@@ -326,7 +326,7 @@ impl Server {
 					};
 					let database = db::sqlite::Database::new(options)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+						.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 					Database::Sqlite(database)
 				}
 			},
@@ -351,8 +351,8 @@ impl Server {
 					let process_store =
 						db::postgres::Database::new(options)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to create the process store")
+							.map_err(|error| {
+								tg::error!(!error, "failed to create the process store")
 							})?;
 					Database::Postgres(process_store)
 				}
@@ -374,8 +374,8 @@ impl Server {
 						path: path.join(&config.path),
 					};
 					let process_store =
-						db::sqlite::Database::new(options).await.map_err(|source| {
-							tg::error!(!source, "failed to create the process store")
+						db::sqlite::Database::new(options).await.map_err(|error| {
+							tg::error!(!error, "failed to create the process store")
 						})?;
 					Database::Sqlite(process_store)
 				}
@@ -405,7 +405,7 @@ impl Server {
 						prefix: options.prefix.clone(),
 					};
 					Index::new_fdb(&options)
-						.map_err(|source| tg::error!(!source, "failed to create the index"))?
+						.map_err(|error| tg::error!(!error, "failed to create the index"))?
 				}
 			},
 			self::config::Index::Lmdb(options) => {
@@ -425,7 +425,7 @@ impl Server {
 						path,
 					};
 					Index::new_lmdb(&config)
-						.map_err(|source| tg::error!(!source, "failed to create the index"))?
+						.map_err(|error| tg::error!(!error, "failed to create the index"))?
 				}
 			},
 		};
@@ -450,20 +450,17 @@ impl Server {
 				{
 					let mut options = async_nats::ConnectOptions::new();
 					if let Some(ref credentials) = nats.credentials {
-						options =
-							options
-								.credentials_file(credentials)
-								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to load the NATS credentials")
-								})?;
+						options = options
+							.credentials_file(credentials)
+							.await
+							.map_err(|error| {
+								tg::error!(!error, "failed to load the NATS credentials")
+							})?;
 					}
 					let client = options
 						.connect(nats.url.to_string())
 						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to create the NATS client")
-						})?;
+						.map_err(|error| tg::error!(!error, "failed to create the NATS client"))?;
 					Messenger::Nats(tangram_messenger::nats::Messenger::new(
 						client,
 						nats.id.clone(),
@@ -483,7 +480,7 @@ impl Server {
 				);
 				let messenger = tangram_messenger::unix::Messenger::new(messenger_path)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to create the messenger"))?;
+					.map_err(|error| tg::error!(!error, "failed to create the messenger"))?;
 				Messenger::Unix(messenger)
 			},
 		};
@@ -523,7 +520,7 @@ impl Server {
 		// Create the sandbox rootfs.
 		let sandbox_rootfs_path = path.join("rootfs");
 		let tangram_path = tangram_util::env::current_exe()
-			.map_err(|source| tg::error!(!source, "failed to get the tangram executable path"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the tangram executable path"))?;
 		let sandbox_rootfs = sandbox_rootfs_path.clone();
 		tangram_sandbox::root::prepare(&tangram_sandbox::root::Arg {
 			path: sandbox_rootfs.clone(),
@@ -654,7 +651,7 @@ impl Server {
 		if let Ok(database) = server.database.try_unwrap_sqlite_ref() {
 			self::database::sqlite::migrate(database)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
+				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
 		}
 
 		// Migrate the process store if necessary.
@@ -662,7 +659,7 @@ impl Server {
 		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
 			self::process::store::sqlite::migrate(process_store)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to migrate the process store"))?;
+				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
 		}
 
 		// Finish unfinished sandboxes if single process mode is enabled.
@@ -679,7 +676,7 @@ impl Server {
 				.database
 				.write_connection()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 			#[derive(db::row::Deserialize)]
 			struct RemoteTokenRow {
 				name: String,
@@ -695,7 +692,7 @@ impl Server {
 			let tokens = connection
 				.query_all_into::<RemoteTokenRow>(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 				.into_iter()
 				.map(|row| (row.name, row.token))
 				.collect::<std::collections::BTreeMap<_, _>>();
@@ -708,7 +705,7 @@ impl Server {
 			connection
 				.execute(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the remotes"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete the remotes"))?;
 			for remote in remotes {
 				let p = connection.p();
 				let statement = formatdoc!(
@@ -725,7 +722,7 @@ impl Server {
 				connection
 					.execute(statement.into(), params)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
+					.map_err(|error| tg::error!(!error, "failed to insert the remote"))?;
 			}
 		}
 		server.remotes.clear();
@@ -733,7 +730,7 @@ impl Server {
 			.database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		#[derive(db::row::Deserialize)]
 		struct RemoteRow {
 			name: String,
@@ -752,7 +749,7 @@ impl Server {
 		let remotes = connection
 			.query_all_into::<RemoteRow>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for remote in remotes {
 			let client = server.create_remote_client(&remote.name, remote.url, remote.token)?;
 			server.remotes.insert(remote.name, client);
@@ -799,32 +796,30 @@ impl Server {
 				}
 				true
 			},
-			Err(source) => {
-				return Err(tg::error!(!source, "failed to stat the path"));
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to stat the path"));
 			},
 		};
 		let cache_exists = tokio::fs::try_exists(&cache_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
+			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
 		if let Some(options) = server.config.vfs {
 			if artifacts_exists && !cache_exists {
 				tokio::fs::rename(&artifacts_path, &cache_path)
 					.await
-					.map_err(|source| {
+					.map_err(|error| {
 						tg::error!(
-							!source,
+							!error,
 							"failed to move the artifacts directory to the cache path"
 						)
 					})?;
 			}
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the artifacts directory")
-				})?;
+				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
 			tokio::fs::create_dir_all(&cache_path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the cache directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
 			let kind = if cfg!(target_os = "macos") {
 				vfs::Kind::Nfs
 			} else if cfg!(target_os = "linux") {
@@ -835,8 +830,8 @@ impl Server {
 			let artifacts_path = server.artifacts_path();
 			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path, options)
 				.await
-				.inspect_err(|source| {
-					tracing::error!(?source, "failed to start the VFS");
+				.inspect_err(|error| {
+					tracing::error!(?error, "failed to start the VFS");
 				})
 				.ok();
 			if let Some(vfs) = vfs {
@@ -846,18 +841,16 @@ impl Server {
 			if cache_exists {
 				tokio::fs::rename(&cache_path, &artifacts_path)
 					.await
-					.map_err(|source| {
+					.map_err(|error| {
 						tg::error!(
-							!source,
+							!error,
 							"failed to move the artifacts directory to the cache directory"
 						)
 					})?;
 			}
 			tokio::fs::create_dir_all(&artifacts_path)
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the artifacts directory")
-				})?;
+				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
 		}
 
 		// Spawn the HTTP task.
@@ -882,21 +875,19 @@ impl Server {
 			let mut streams = Vec::new();
 			for listener_config in &http_listeners {
 				if matches!(listener_config.url.scheme(), Some("http+stdio")) {
-					let stream = Self::connect(&listener_config.url)
-						.await
-						.map_err(|source| {
-							tg::error!(
-								!source,
-								url = %listener_config.url,
-								"failed to connect to the http url"
-							)
-						})?;
+					let stream = Self::connect(&listener_config.url).await.map_err(|error| {
+						tg::error!(
+							!error,
+							url = %listener_config.url,
+							"failed to connect to the http url"
+						)
+					})?;
 					tracing::info!("serving on {}", listener_config.url);
 					streams.push(stream);
 				} else {
-					let listener = Self::listen(&listener_config.url).await.map_err(|source| {
+					let listener = Self::listen(&listener_config.url).await.map_err(|error| {
 						tg::error!(
-							!source,
+							!error,
 							url = %listener_config.url,
 							"failed to listen on the http url"
 						)
@@ -1016,7 +1007,7 @@ impl Server {
 					tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 				}
 				tangram_sandbox::network::create_bridge(&bridge_name, bridge_ip)
-					.map_err(|source| tg::error!(!source, "failed to create the bridge"))?;
+					.map_err(|error| tg::error!(!error, "failed to create the bridge"))?;
 			} else {
 				tracing::warn!(
 					bridge = %bridge_name,
@@ -1256,7 +1247,7 @@ impl Server {
 		let outputs = session
 			.list_sandboxes_local()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list sandboxes"))?;
+			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
 		outputs
 			.into_iter()
 			.map(|output| {

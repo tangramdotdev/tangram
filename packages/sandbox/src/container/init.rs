@@ -26,7 +26,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 	let child = command
 		.spawn()
-		.map_err(|source| tg::error!(!source, "failed to spawn the sandbox server"))?;
+		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox server"))?;
 	let pid: libc::pid_t = child
 		.id()
 		.try_into()
@@ -47,11 +47,11 @@ fn wait_for_child() -> tg::Result<(libc::pid_t, u8)> {
 		if pid >= 0 {
 			return Ok((pid, exit_code_from_status(status)));
 		}
-		let source = std::io::Error::last_os_error();
-		if source.raw_os_error() == Some(libc::EINTR) {
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::EINTR) {
 			continue;
 		}
-		return Err(tg::error!(!source, "failed to wait for a sandbox child"));
+		return Err(tg::error!(!error, "failed to wait for a sandbox child"));
 	}
 }
 

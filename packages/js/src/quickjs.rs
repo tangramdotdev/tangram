@@ -77,7 +77,7 @@ impl Runtime {
 
 		// Create the runtime.
 		let runtime = qjs::AsyncRuntime::new()
-			.map_err(|source| tg::error!(!source, "failed to create the QuickJS runtime"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the QuickJS runtime"))?;
 
 		// Set the resolver and loader.
 		runtime.set_loader(Resolver, Loader).await;
@@ -100,7 +100,7 @@ impl Runtime {
 		// Create the context.
 		let context = qjs::AsyncContext::full(&runtime)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the context"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the context"))?;
 
 		// Create the state.
 		let global_source_map = SourceMap::from_slice(SOURCE_MAP).ok();
@@ -276,7 +276,7 @@ impl Runtime {
 			let error = rejection
 				.wait_for(Option::is_some)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to receive the promise rejection"))?;
+				.map_err(|error| tg::error!(!error, "failed to receive the promise rejection"))?;
 			Ok::<_, tg::Error>(error.as_ref().unwrap().clone())
 		};
 		let result = match future::select(pin!(future), pin!(rejection)).await {

@@ -57,7 +57,7 @@ impl Session {
 		let blob = tg::Blob::with_id(arg.blob.clone());
 		let reader = Reader::new(self, blob)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the reader"))?;
 
 		// Create the channel.
 		let (sender, receiver) = async_channel::unbounded();
@@ -120,18 +120,18 @@ impl Session {
 		reader
 			.seek(position)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to seek in the blob file"))?;
+			.map_err(|error| tg::error!(!error, "failed to seek in the blob file"))?;
 		loop {
 			let position = reader
 				.stream_position()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the stream position"))?;
 			let mut n = 0;
 			while n < buffer.len() {
 				let n_ = reader
 					.read(&mut buffer[n..])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
+					.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
 				n += n_;
 				if n_ == 0 {
 					break;
@@ -166,13 +166,13 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the query.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
 		// Get the stream.
@@ -255,16 +255,16 @@ impl Reader {
 				path.push(path_);
 			}
 			let file = tokio::fs::File::open(&path).await.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
+				|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 			)?;
 			let reader = File::new(file, cache_pointer.position, cache_pointer.length)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to create the file reader"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to create the file reader"))?;
 			Self::File(reader)
 		} else {
 			let reader = Object::new(session, blob)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to create the object reader"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to create the object reader"))?;
 			Self::Object(reader)
 		};
 		Ok(reader)
@@ -287,24 +287,23 @@ impl Reader {
 				path.push(path_);
 			}
 			let file = std::fs::File::open(&path).map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
+				|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 			)?;
 			let reader = File::new_sync(file, cache_pointer.position, cache_pointer.length)
-				.map_err(|source| tg::error!(!source, %id, "failed to create the file reader"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to create the file reader"))?;
 			Self::File(reader)
 		} else {
 			let mut file = None;
 			let Some(output) = session
 				.try_get_object_sync(&id.clone().into(), &mut file)
-				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			else {
 				return Err(tg::error!(%id, "failed to get the blob object"));
 			};
-			let data = tg::blob::Data::deserialize(output.bytes).map_err(
-				|source| tg::error!(!source, %id, "failed to deserialize the blob data"),
-			)?;
+			let data = tg::blob::Data::deserialize(output.bytes)
+				.map_err(|error| tg::error!(!error, %id, "failed to deserialize the blob data"))?;
 			let object = tg::blob::Object::try_from_data(data)
-				.map_err(|source| tg::error!(!source, %id, "failed to create the blob object"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to create the blob object"))?;
 			let length = match &object {
 				tg::blob::Object::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
 				tg::blob::Object::Branch(branch) => {
@@ -409,7 +408,7 @@ impl File {
 		reader
 			.seek(std::io::SeekFrom::Start(position))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to seek the file"))?;
+			.map_err(|error| tg::error!(!error, "failed to seek the file"))?;
 		Ok(Self {
 			current: 0,
 			length,
@@ -423,7 +422,7 @@ impl File {
 		let mut reader = std::io::BufReader::new(file);
 		reader
 			.seek(std::io::SeekFrom::Start(position))
-			.map_err(|source| tg::error!(!source, "failed to seek the file"))?;
+			.map_err(|error| tg::error!(!error, "failed to seek the file"))?;
 		Ok(Self {
 			current: 0,
 			length,
@@ -588,7 +587,7 @@ impl Object {
 		let size = blob
 			.length_with_handle(session)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the blob length"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the blob length"))?;
 		let session = session.clone();
 		Ok(Self {
 			blob,
@@ -898,12 +897,12 @@ async fn poll_read_inner(
 			let bytes = session
 				.get_object(&id.unwrap(), arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the object"))?
+				.map_err(|error| tg::error!(!error, "failed to get the object"))?
 				.bytes;
 			let data = tg::blob::Data::deserialize(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the blob"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the blob"))?;
 			let object = tg::blob::Object::try_from_data(data)
-				.map_err(|source| tg::error!(!source, "failed to create the blob object"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the blob object"))?;
 			let object = Arc::new(object);
 			if object.is_branch() {
 				state.set_object(object.clone());
@@ -952,14 +951,14 @@ fn read_inner_sync(
 		} else {
 			let Some(output) = session
 				.try_get_object_sync(&id.unwrap(), cache_file)
-				.map_err(|source| tg::error!(!source, "failed to get the object"))?
+				.map_err(|error| tg::error!(!error, "failed to get the object"))?
 			else {
 				return Err(tg::error!("failed to get the blob object"));
 			};
 			let data = tg::blob::Data::deserialize(output.bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the blob"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the blob"))?;
 			let object = tg::blob::Object::try_from_data(data)
-				.map_err(|source| tg::error!(!source, "failed to create the blob object"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the blob object"))?;
 			let object = Arc::new(object);
 			if object.is_branch() {
 				state.set_object(object.clone());

@@ -22,7 +22,7 @@ impl Cli {
 		let client = self.client().await?;
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 		let items = args
 			.items
 			.into_iter()
@@ -30,12 +30,12 @@ impl Cli {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the paths"))?;
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the paths"))?;
 		let arg = tg::watch::touch::Arg { path, items };
 		client
 			.touch_watch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to touch the watch"))?;
+			.map_err(|error| tg::error!(!error, "failed to touch the watch"))?;
 		Ok(())
 	}
 }

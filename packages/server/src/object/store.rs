@@ -26,7 +26,7 @@ impl Store {
 			path: path.clone(),
 		};
 		let lmdb = object_store::lmdb::Store::new(&config).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the lmdb store"),
+			|error| tg::error!(!error, path = %path.display(), "failed to create the lmdb store"),
 		)?;
 		Ok(Self::Lmdb(lmdb))
 	}

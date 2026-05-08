@@ -154,7 +154,7 @@ where
 		let event = match value {
 			Event::Diagnostic(data) => {
 				let data = serde_json::to_string(&data)
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("diagnostic".to_owned()),
 					data,
@@ -163,7 +163,7 @@ where
 			},
 			Event::Indicators(data) => {
 				let data = serde_json::to_string(&data)
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("indicators".to_owned()),
 					data,
@@ -172,7 +172,7 @@ where
 			},
 			Event::Log(data) => {
 				let data = serde_json::to_string(&data)
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("log".to_owned()),
 					data,
@@ -181,7 +181,7 @@ where
 			},
 			Event::Output(data) => {
 				let data = serde_json::to_string(&data)
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				tangram_http::sse::Event {
 					event: Some("output".to_owned()),
 					data,
@@ -203,22 +203,22 @@ where
 		match value.event.as_deref() {
 			Some("diagnostic") => {
 				let data = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 				Ok(Self::Diagnostic(data))
 			},
 			Some("indicators") => {
 				let data = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 				Ok(Self::Indicators(data))
 			},
 			Some("log") => {
 				let data = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 				Ok(Self::Log(data))
 			},
 			Some("output") => {
 				let data = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 				Ok(Self::Output(data))
 			},
 			_ => Err(tg::error!("invalid event")),

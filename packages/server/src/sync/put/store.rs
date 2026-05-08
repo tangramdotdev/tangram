@@ -73,7 +73,7 @@ impl Session {
 		let outputs = self
 			.try_get_object_batch_local(&ids, state.arg.metadata)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the objects"))?;
 
 		// Handle the objects.
 		for (item, output) in std::iter::zip(items, outputs) {
@@ -100,7 +100,7 @@ impl Session {
 				.sender
 				.send(Ok(message))
 				.await
-				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
+				.map_err(|error| tg::error!(!error, "failed to send the put message"))?;
 			state.graph.lock().unwrap().update_object_remote(
 				&item.id,
 				None,
@@ -112,7 +112,7 @@ impl Session {
 			if item.eager {
 				let bytes = output.bytes;
 				let data = tg::object::Data::deserialize(item.id.kind(), bytes.clone())
-					.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 				let mut children = BTreeSet::new();
 				data.children(&mut children);
 				let items = children
@@ -144,7 +144,7 @@ impl Session {
 		let outputs = self
 			.try_get_process_batch_local(&ids, state.arg.metadata)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the processes"))?;
 
 		// Handle the processes.
 		for (item, output) in std::iter::zip(items, outputs) {
@@ -161,7 +161,7 @@ impl Session {
 			// Compact the log if needed before sending the process data.
 			if item.eager && state.arg.logs && output.data.log.is_none() {
 				self.compact_process_log(&item.id).boxed().await.map_err(
-					|source| tg::error!(!source, process = %item.id, "failed to compact the log"),
+					|error| tg::error!(!error, process = %item.id, "failed to compact the log"),
 				)?;
 				output = self
 					.try_get_process_local(&item.id, true)
@@ -173,7 +173,7 @@ impl Session {
 
 			// Send the process.
 			let bytes = serde_json::to_string(&output.data)
-				.map_err(|source| tg::error!(!source, "failed to serialize the process"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
 			let message = tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Process(
 				tg::sync::PutItemProcessMessage {
 					id: item.id.clone(),
@@ -185,7 +185,7 @@ impl Session {
 				.sender
 				.send(Ok(message))
 				.await
-				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
+				.map_err(|error| tg::error!(!error, "failed to send the put message"))?;
 			let stored = tangram_index::ProcessStored::default();
 			state
 				.graph

@@ -46,26 +46,22 @@ impl Server {
 					let path = root_path.join("vm").join(socket);
 					tokio::fs::create_dir_all(path.parent().unwrap())
 						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to create the vm directory")
-						})?;
+						.map_err(|error| tg::error!(!error, "failed to create the vm directory"))?;
 					let url = tangram_uri::Uri::builder()
 						.scheme("http+unix")
 						.authority(&path.display().to_string())
 						.path("")
 						.build()
-						.map_err(|source| {
-							tg::error!(source = source, "failed to build the socket URL")
-						})?;
+						.map_err(|error| tg::error!(!error, "failed to build the socket URL"))?;
 					let listener = Server::listen(&url)
 						.await
-						.map_err(|source| tg::error!(!source, url = %url, "failed to listen"))?;
+						.map_err(|error| tg::error!(!error, url = %url, "failed to listen"))?;
 					let guest_uri = format!(
 						"http+vsock://{}:{port}",
 						tangram_sandbox::vm::VMADDR_CID_HOST
 					)
 					.parse::<tangram_uri::Uri>()
-					.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?;
 					Ok((listener, guest_uri))
 				}
 			},
@@ -93,46 +89,46 @@ impl Server {
 
 		tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the host path"))?;
 		let url = if host_socket_path_string.len() <= max_socket_path_len {
 			tangram_uri::Uri::builder()
 				.scheme("http+unix")
 				.authority(host_socket_path_string)
 				.path("")
 				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the socket URL"))?
+				.map_err(|error| tg::error!(!error, "failed to build the socket URL"))?
 		} else {
 			"http://localhost:0"
 				.parse::<tangram_uri::Uri>()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?
+				.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
 		};
 		let listener = Server::listen(&url)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to listen"))?;
+			.map_err(|error| tg::error!(!error, "failed to listen"))?;
 		let guest_uri = match &listener {
 			crate::http::Listener::Tcp(tcp) => {
 				let port = tcp
 					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the listener address"))?
+					.map_err(|error| tg::error!(!error, "failed to get the listener address"))?
 					.port();
 				format!("http://localhost:{port}")
 					.parse::<tangram_uri::Uri>()
-					.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
 			},
 			crate::http::Listener::Unix(_) => tangram_uri::Uri::builder()
 				.scheme("http+unix")
 				.authority(guest_socket_path_string)
 				.path("")
 				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the guest URL"))?,
+				.map_err(|error| tg::error!(!error, "failed to build the guest URL"))?,
 			#[cfg(feature = "vsock")]
 			crate::http::Listener::Vsock(vsock) => {
 				let addr = vsock
 					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the listener address"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the listener address"))?;
 				format!("http+vsock://{}:{}", addr.cid(), addr.port())
 					.parse::<tangram_uri::Uri>()
-					.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
 			},
 		};
 		Ok((listener, guest_uri))

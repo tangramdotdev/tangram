@@ -98,7 +98,7 @@ impl Cli {
 			// Start the server.
 			let server: Server = tangram_server::Server::start(config)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to start the server"))?
+				.map_err(|error| tg::error!(!error, "failed to start the server"))?
 				.into();
 
 			if let Some(ready_fd) = ready_fd {
@@ -106,10 +106,10 @@ impl Cli {
 				let mut ready = std::fs::File::from(ready_fd);
 				ready
 					.write_all(&[0x00])
-					.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the ready signal"))?;
 				ready
 					.flush()
-					.map_err(|source| tg::error!(!source, "failed to flush the ready signal"))?;
+					.map_err(|error| tg::error!(!error, "failed to flush the ready signal"))?;
 			}
 
 			// Spawn a task to stop the server on the first interrupt signal and exit the process on the second.
@@ -136,11 +136,11 @@ impl Cli {
 			let runtime = tokio::runtime::Builder::new_multi_thread()
 				.enable_all()
 				.build()
-				.map_err(|source| tg::error!(!source, "failed to create the tokio runtime"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
 			let task: tokio::task::JoinHandle<tg::Result<()>> = runtime.spawn(future);
 			let result = task.await;
 			runtime.shutdown_background();
-			result.map_err(|source| tg::error!(!source, "the server runtime task panicked"))??;
+			result.map_err(|error| tg::error!(!error, "the server runtime task panicked"))??;
 		}
 
 		Ok(())

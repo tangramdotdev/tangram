@@ -66,7 +66,7 @@ impl Session {
 				.messenger
 				.subscribe_with_delivery::<()>("sandboxes.created".into(), Delivery::One)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
 			let interval = Duration::from_secs(1);
 			let interval = IntervalStream::new(tokio::time::interval(interval))
@@ -117,7 +117,7 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -127,7 +127,7 @@ impl Session {
 			timeout,
 		};
 		let output = client.try_dequeue_sandbox(arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to dequeue the sandbox"),
+			|error| tg::error!(!error, region = %region, "failed to dequeue the sandbox"),
 		)?;
 		Ok(output)
 	}
@@ -139,14 +139,14 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::queue::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			timeout,
 		};
 		let output = client.try_dequeue_sandbox(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to dequeue the sandbox"),
+			|error| tg::error!(!error, remote = %remote, "failed to dequeue the sandbox"),
 		)?;
 		Ok(output)
 	}
@@ -175,11 +175,11 @@ impl Session {
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let arg = request
 			.json_or_default()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		let stream = self.try_dequeue_sandbox_stream(arg);
 		let (content_type, body) = match accept
 			.as_ref()

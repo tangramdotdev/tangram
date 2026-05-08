@@ -55,7 +55,7 @@ impl Cli {
 			ttl: args.ttl.get(),
 		};
 		let output = client.list_tags(arg).await.map_err(
-			|source| tg::error!(!source, pattern = %args.pattern, "failed to list the tags"),
+			|error| tg::error!(!error, pattern = %args.pattern, "failed to list the tags"),
 		)?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())

@@ -40,7 +40,7 @@ where
 	let format = match args.get(1) {
 		Some(tg::value::Data::String(s)) => s
 			.parse::<tg::CompressionFormat>()
-			.map_err(|source| tg::error!(!source, "invalid format"))?,
+			.map_err(|error| tg::error!(!error, "invalid format"))?,
 		_ => return Err(tg::error!("expected a string")),
 	};
 
@@ -50,7 +50,7 @@ where
 		.await?;
 	let reader = SharedPositionReader::with_reader_and_position(reader, 0)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the shared position reader"))?;
 
 	// Spawn a task to log progress.
 	let position = reader.shared_position();

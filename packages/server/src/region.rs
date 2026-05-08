@@ -18,7 +18,7 @@ impl Server {
 			.into_iter()
 			.map(|region| async {
 				let client = self.get_region_client(region.clone()).await.map_err(
-					|source| tg::error!(!source, region = %region, "failed to get the region client"),
+					|error| tg::error!(!error, region = %region, "failed to get the region client"),
 				)?;
 				Ok::<_, tg::Error>((region, client))
 			})

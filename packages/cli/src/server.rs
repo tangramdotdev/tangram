@@ -56,7 +56,7 @@ impl Cli {
 		let directory = self.directory_path();
 		tokio::fs::create_dir_all(&directory)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
 
 		// Acquire an exclusive lock on the start file.
 		let start_path = directory.join("start");
@@ -67,7 +67,7 @@ impl Cli {
 			.truncate(false)
 			.open(&start_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to open the start lock file"))?
+			.map_err(|error| tg::error!(!error, "failed to open the start lock file"))?
 			.into_std()
 			.await;
 		let _start_file = tokio::task::spawn_blocking(move || {
@@ -75,8 +75,8 @@ impl Cli {
 			Ok::<_, std::io::Error>(start_file)
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "the start lock task panicked"))?
-		.map_err(|source| tg::error!(!source, "failed to lock the start lock file"))?;
+		.map_err(|error| tg::error!(!error, "the start lock task panicked"))?
+		.map_err(|error| tg::error!(!error, "failed to lock the start lock file"))?;
 
 		// Attempt to connect.
 		if client.connect().await.is_ok() {
@@ -94,7 +94,7 @@ impl Cli {
 			.truncate(false)
 			.open(&log_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
+			.map_err(|error| tg::error!(!error, "failed to open the log file"))?
 			.into_std()
 			.await;
 		let stderr = tokio::fs::OpenOptions::new()
@@ -104,20 +104,20 @@ impl Cli {
 			.truncate(false)
 			.open(&log_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
+			.map_err(|error| tg::error!(!error, "failed to open the log file"))?
 			.into_std()
 			.await;
 
 		// Get the path to the current executable.
 		let executable = tangram_util::env::current_exe()
-			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the current executable path"))?;
 
 		// Spawn the server.
 		let mut command = tokio::process::Command::new(executable);
 
 		// Create the ready pipe.
 		let (mut ready_reader, ready_writer) = std::io::pipe()
-			.map_err(|source| tg::error!(!source, "failed to create the server ready pipe"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the server ready pipe"))?;
 
 		// Unset FD_CLOEXEC on the ready writer.
 		let flags = unsafe { libc::fcntl(ready_writer.as_raw_fd(), libc::F_GETFD) };
@@ -188,20 +188,19 @@ impl Cli {
 
 		let mut server = command
 			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
+			.map_err(|error| tg::error!(!error, "failed to spawn the server"))?;
 		drop(ready_writer);
 
 		// Wait for the server to be ready.
 		let task = tokio::task::spawn_blocking(move || ready_reader.read_u8());
 		let ready = tokio::time::timeout(Duration::from_secs(5), task)
 			.await
-			.map_err(|source| tg::error!(!source, "timed out waiting for the server ready signal"))
+			.map_err(|error| tg::error!(!error, "timed out waiting for the server ready signal"))
 			.and_then(|output| {
-				output.map_err(|source| tg::error!(!source, "the server ready task panicked"))
+				output.map_err(|error| tg::error!(!error, "the server ready task panicked"))
 			})
 			.and_then(|output| {
-				output
-					.map_err(|source| tg::error!(!source, "failed to read the server ready signal"))
+				output.map_err(|error| tg::error!(!error, "failed to read the server ready signal"))
 			})
 			.and_then(|byte| {
 				if byte != 0x00 {
@@ -209,13 +208,13 @@ impl Cli {
 				}
 				Ok(())
 			});
-		if let Err(source) = ready {
+		if let Err(error) = ready {
 			server.start_kill().ok();
 			server.wait().await.ok();
 			if client.connect().await.is_ok() {
 				return Ok(());
 			}
-			return Err(tg::error!(!source, "failed to start the server"));
+			return Err(tg::error!(!error, "failed to start the server"));
 		}
 		if client.connect().await.is_err() {
 			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
@@ -230,9 +229,9 @@ impl Cli {
 		let lock_path = self.directory_path().join("lock");
 		let pid = tokio::fs::read_to_string(&lock_path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the pid from the lock file"))?
+			.map_err(|error| tg::error!(!error, "failed to read the pid from the lock file"))?
 			.parse::<i32>()
-			.map_err(|source| tg::error!(!source, "invalid lock file"))?;
+			.map_err(|error| tg::error!(!error, "invalid lock file"))?;
 
 		// Open a wait handle for the process.
 		let handle = match waitpid_any::WaitHandle::open(pid) {
@@ -265,8 +264,8 @@ impl Cli {
 			Ok::<_, std::io::Error>((handle, wait))
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "the server wait task panicked"))?
-		.map_err(|source| tg::error!(!source, "failed to wait for the server process"))?;
+		.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
+		.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
 		if wait.is_some() {
 			return Ok(());
 		}
@@ -284,8 +283,8 @@ impl Cli {
 		// Wait up to one second for the server to exit.
 		let wait = tokio::task::spawn_blocking(move || handle.wait_timeout(Duration::from_secs(1)))
 			.await
-			.map_err(|source| tg::error!(!source, "the server wait task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to wait for the server process"))?;
+			.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
 		if wait.is_some() {
 			return Ok(());
 		}

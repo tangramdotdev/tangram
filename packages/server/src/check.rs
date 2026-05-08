@@ -45,7 +45,7 @@ impl Session {
 		let diagnostics = compiler
 			.check(arg.modules)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check the modules"))?;
+			.map_err(|error| tg::error!(!error, "failed to check the modules"))?;
 
 		// Create the output.
 		let diagnostics = diagnostics.iter().map(tg::Diagnostic::to_data).collect();
@@ -56,7 +56,7 @@ impl Session {
 		compiler
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the compiler"))?;
+			.map_err(|error| tg::error!(!error, "failed to wait for the compiler"))?;
 
 		Ok(output)
 	}
@@ -68,7 +68,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<tg::check::Output> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -80,7 +80,7 @@ impl Session {
 		let output = client
 			.check(arg)
 			.await
-			.map_err(|source| tg::error!(!source, region = %region, "failed to check"))?;
+			.map_err(|error| tg::error!(!error, region = %region, "failed to check"))?;
 		Ok(output)
 	}
 
@@ -92,7 +92,7 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<tg::check::Output> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::check::Arg {
 			location: Some(region.as_deref().map_or_else(
@@ -109,7 +109,7 @@ impl Session {
 		let output = client
 			.check(arg)
 			.await
-			.map_err(|source| tg::error!(!source, remote = %remote, "failed to check"))?;
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to check"))?;
 		Ok(output)
 	}
 
@@ -121,19 +121,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Check the modules.
 		let output = self
 			.check(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check the modules"))?;
+			.map_err(|error| tg::error!(!error, "failed to check the modules"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

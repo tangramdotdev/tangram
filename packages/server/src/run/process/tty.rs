@@ -15,9 +15,9 @@ impl Session {
 		let mut stream = self
 			.try_get_process_tty_size_stream(id, arg)
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					process = %id,
 					"failed to get the process's tty stream"
 				)
@@ -28,14 +28,14 @@ impl Session {
 
 		// Handle the events.
 		while let Some(event) = stream.try_next().await.map_err(
-			|source| tg::error!(!source, process = %id, "failed to get the next tty event"),
+			|error| tg::error!(!error, process = %id, "failed to get the next tty event"),
 		)? {
 			match event {
 				tg::process::tty::size::get::Event::Size(size) => {
 					sandbox
 						.set_tty_size(sandbox_process, size)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to set the tty size"))?;
+						.map_err(|error| tg::error!(!error, "failed to set the tty size"))?;
 				},
 				tg::process::tty::size::get::Event::End => {
 					break;

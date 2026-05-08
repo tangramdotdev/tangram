@@ -156,7 +156,7 @@ impl Index {
 			// Begin a write transaction.
 			let result = env
 				.write_txn()
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"));
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"));
 			let mut transaction = match result {
 				Ok(transaction) => transaction,
 				Err(error) => {
@@ -245,7 +245,7 @@ impl Index {
 			// Commit the transaction.
 			let commit_result = transaction
 				.commit()
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"));
+				.map_err(|error| tg::error!(!error, "failed to commit the transaction"));
 
 			// Merge the results into the trackers and send completed responses.
 			for (result, tracker_index) in std::iter::zip(results, &batch.tracker_indices) {

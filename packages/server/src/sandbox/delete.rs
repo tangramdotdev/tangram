@@ -21,16 +21,16 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		let id = id
 			.parse::<tg::sandbox::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 
 		let Some(()) = self
 			.try_delete_sandbox(&id)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to delete the sandbox"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to delete the sandbox"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

@@ -76,7 +76,7 @@ impl Session {
 		let version = reader
 			.read_u8()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read u8"))?;
+			.map_err(|error| tg::error!(!error, "failed to read u8"))?;
 		if version != 0 {
 			return Err(tg::error!("expected a 0 byte"));
 		}
@@ -84,20 +84,20 @@ impl Session {
 		let index_length = reader
 			.read_uvarint()
 			.await
-			.map_err(|source| tg::error!(!source, "expected a uvarint"))?;
+			.map_err(|error| tg::error!(!error, "expected a uvarint"))?;
 		let mut index = vec![0u8; index_length.to_usize().unwrap()];
 		reader
 			.read_exact(&mut index)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the log index"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the log index"))?;
 
 		let mut index = tangram_serialize::from_slice::<Index>(&index)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the index"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the index"))?;
 
 		let position = reader
 			.stream_position()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the stream position"))?;
 
 		for entry in &mut index.entries {
 			entry.blob_position += position;
@@ -130,7 +130,7 @@ impl Session {
 				]),
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the log entries"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the log entries"))?;
 
 		let mut index = Index::default();
 		let mut entries_bytes = Vec::new();
@@ -181,7 +181,7 @@ impl Session {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get db connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get db connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -194,7 +194,7 @@ impl Session {
 		connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		self.server
 			.log_store
@@ -202,7 +202,7 @@ impl Session {
 				process: process.clone(),
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the process log from store"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete the process log from store"))?;
 
 		Ok(())
 	}
@@ -254,7 +254,7 @@ impl Session {
 				let length = inner
 					.try_get_length(&streams)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get the log length"))?
+					.map_err(|error| tg::error!(!error, "failed to get the log length"))?
 					.unwrap_or_default();
 				if offset >= 0 {
 					length.saturating_add(offset.to_u64().unwrap())
@@ -270,7 +270,7 @@ impl Session {
 			inner
 				.try_get_length(&streams)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the log length"))?
+				.map_err(|error| tg::error!(!error, "failed to get the log length"))?
 		};
 
 		struct State {
@@ -523,14 +523,14 @@ impl BlobInner {
 		self.reader
 			.seek(SeekFrom::Start(entry.blob_position))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to seek"))?;
+			.map_err(|error| tg::error!(!error, "failed to seek"))?;
 		let mut bytes = vec![0u8; entry.blob_length.to_usize().unwrap()];
 		self.reader
 			.read_exact(&mut bytes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the log entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the log entry"))?;
 		let entry: tangram_log_store::Entry<'_> = tangram_serialize::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "log blob is corrupted"))?;
+			.map_err(|error| tg::error!(!error, "log blob is corrupted"))?;
 		Ok(entry.into_static())
 	}
 }
@@ -553,7 +553,7 @@ impl StoreInner {
 			.log_store
 			.try_read(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the log"))
+			.map_err(|error| tg::error!(!error, "failed to read the log"))
 	}
 
 	async fn try_get_length(
@@ -565,7 +565,7 @@ impl StoreInner {
 			.log_store
 			.try_get_length(&self.process, streams)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the log"))
+			.map_err(|error| tg::error!(!error, "failed to read the log"))
 	}
 }
 

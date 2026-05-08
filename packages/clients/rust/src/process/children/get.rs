@@ -122,7 +122,7 @@ impl tg::Session {
 		let uri = Uri::builder()
 			.path(&path)
 			.query_params(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();
 		let request = http::request::Builder::default()
@@ -134,14 +134,15 @@ impl tg::Session {
 		let response = self
 			.send_with_retry(request)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			let error = response.json().await.map_err(|source| {
-				tg::error!(!source, "failed to deserialize the error response")
-			})?;
+			let error = response
+				.json()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
 			return Err(error);
 		}
 		let content_type = response
@@ -157,7 +158,7 @@ impl tg::Session {
 		}
 		let stream = response
 			.sse()
-			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
 					if event.event.as_deref().is_some_and(|event| event == "error") {
@@ -180,7 +181,7 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 		let event = match value {
 			Event::Chunk(chunk) => {
 				let data = serde_json::to_string(&chunk)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the event"))?;
 				tangram_http::sse::Event {
 					data,
 					..Default::default()
@@ -202,7 +203,7 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 		match value.event.as_deref() {
 			None => {
 				let chunk = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
 				Ok(Self::Chunk(chunk))
 			},
 			Some("end") => Ok(Self::End),

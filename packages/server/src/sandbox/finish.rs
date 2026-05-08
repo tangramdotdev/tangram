@@ -44,14 +44,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
 					.try_finish_sandbox_local(id, arg.error.clone(), None)
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to finish the sandbox"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to finish the sandbox"))?
 			{
 				return Ok(Some(output));
 			}
@@ -60,7 +60,7 @@ impl Session {
 				.try_finish_sandbox_regions(id, &arg, &local.regions)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, "failed to finish the sandbox in another region"),
+					|error| tg::error!(!error, %id, "failed to finish the sandbox in another region"),
 				)? {
 				return Ok(Some(output));
 			}
@@ -69,9 +69,8 @@ impl Session {
 		if let Some(output) = self
 			.try_finish_sandbox_remotes(id, &arg, &locations.remotes)
 			.await
-			.map_err(
-				|source| tg::error!(!source, %id, "failed to finish the sandbox in a remote"),
-			)? {
+			.map_err(|error| tg::error!(!error, %id, "failed to finish the sandbox in a remote"))?
+		{
 			return Ok(Some(output));
 		}
 
@@ -89,7 +88,7 @@ impl Session {
 			.server
 			.get_sandbox_exists_local(id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?
+			.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
 		{
 			return Ok(None);
 		}
@@ -100,13 +99,13 @@ impl Session {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to acquire a transaction"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let arg = InnerArg { condition, now };
 
@@ -116,7 +115,7 @@ impl Session {
 		} = self
 			.try_finish_sandbox_inner(&transaction, id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to finish the sandbox"))?;
+			.map_err(|error| tg::error!(!error, "failed to finish the sandbox"))?;
 		if !finished {
 			return Ok(Some(false));
 		}
@@ -154,9 +153,7 @@ impl Session {
 						let finished = self
 							.try_finish_process_inner(transaction, &process, arg)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to finish the process")
-							})?;
+							.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
 						Ok::<_, tg::Error>(finished.then_some(process))
 					}
 				})
@@ -175,7 +172,7 @@ impl Session {
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		drop(connection);
 
@@ -248,7 +245,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<bool>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -258,7 +255,7 @@ impl Session {
 			..arg.clone()
 		};
 		let Some(finished) = client.try_finish_sandbox(id, arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to finish the sandbox"),
+			|error| tg::error!(!error, region = %region, "failed to finish the sandbox"),
 		)?
 		else {
 			return Ok(None);
@@ -302,7 +299,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<bool>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::finish::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -313,7 +310,7 @@ impl Session {
 			..arg.clone()
 		};
 		let Some(finished) = client.try_finish_sandbox(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to finish the sandbox"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to finish the sandbox"),
 		)?
 		else {
 			return Ok(None);
@@ -329,19 +326,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let id = id
 			.parse::<tg::sandbox::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 		let arg = request
 			.json_or_default()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		let Some(finished) = self
 			.try_finish_sandbox(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to finish the sandbox"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to finish the sandbox"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

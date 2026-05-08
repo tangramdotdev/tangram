@@ -173,7 +173,7 @@ impl std::str::FromStr for Module {
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let uri = Uri::parse(value).map_err(|error| tg::error!(!error, "invalid uri"))?;
 		let reference = Self::with_uri(&uri)?;
 		Ok(reference)
 	}
@@ -207,8 +207,8 @@ impl std::str::FromStr for Item {
 		if s.starts_with('.') || s.starts_with('/') {
 			Ok(Self::Path(s.strip_prefix("./").unwrap_or(s).into()))
 		} else {
-			Ok(Self::Edge(s.parse().map_err(|source| {
-				tg::error!(!source, "failed to parse the module edge")
+			Ok(Self::Edge(s.parse().map_err(|error| {
+				tg::error!(!error, "failed to parse the module edge")
 			})?))
 		}
 	}

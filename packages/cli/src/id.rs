@@ -18,7 +18,7 @@ impl crate::Cli {
 			stdin
 				.read_to_end(&mut id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read from stdin"))?;
+				.map_err(|error| tg::error!(!error, "failed to read from stdin"))?;
 			id
 		};
 
@@ -36,11 +36,11 @@ impl crate::Cli {
 		stdout
 			.write_all(&output)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 		stdout
 			.flush()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 
 		Ok(())
 	}

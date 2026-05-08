@@ -48,10 +48,10 @@ impl std::str::FromStr for Size {
 			.ok_or_else(|| tg::error!(%s, "invalid tty size"))?;
 		let rows = rows
 			.parse()
-			.map_err(|source| tg::error!(!source, %s, "invalid tty size"))?;
+			.map_err(|error| tg::error!(!error, %s, "invalid tty size"))?;
 		let cols = cols
 			.parse()
-			.map_err(|source| tg::error!(!source, %s, "invalid tty size"))?;
+			.map_err(|error| tg::error!(!error, %s, "invalid tty size"))?;
 		Ok(Self { rows, cols })
 	}
 }

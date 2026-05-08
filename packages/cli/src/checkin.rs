@@ -272,7 +272,7 @@ impl Cli {
 		// Canonicalize the path's parent.
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 
 		// Check in the artifact.
 		let arg = tg::checkin::Arg {
@@ -283,7 +283,7 @@ impl Cli {
 		let stream = client
 			.checkin(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
+			.map_err(|error| tg::error!(!error, "failed to check in the artifact"))?;
 		let output = self.render_progress_stream(stream).await?;
 
 		// Print.

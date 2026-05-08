@@ -33,11 +33,12 @@ impl Client {
 		let response = self
 			.send(request)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		if !response.status().is_success() {
-			let error = response.json().await.map_err(|source| {
-				tg::error!(!source, "failed to deserialize the error response")
-			})?;
+			let error = response
+				.json()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
 			return Err(error);
 		}
 		let content_type = response
@@ -53,7 +54,7 @@ impl Client {
 		}
 		let stream = response
 			.sse()
-			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
 					if event.event.as_deref().is_some_and(|event| event == "error") {
@@ -83,7 +84,7 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 		match value {
 			Event::Output(output) => {
 				let data = serde_json::to_string(&output)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the event"))?;
 				Ok(tangram_http::sse::Event {
 					data,
 					event: Some("output".into()),
@@ -101,12 +102,12 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 		match value.event.as_deref() {
 			Some("output") => {
 				let output = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
 				Ok(Self::Output(output))
 			},
 			Some("error") => {
 				let error = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
 				Err(error)
 			},
 			value => Err(tg::error!(?value, "invalid event")),

@@ -667,9 +667,7 @@ impl Session {
 								.checkin_solve_get_object(prefetch, &id.clone().into())
 								.await?;
 							let data = tg::directory::Data::deserialize(output.bytes).map_err(
-								|source| {
-									tg::error!(!source, "failed to deserialize directory data")
-								},
+								|error| tg::error!(!error, "failed to deserialize directory data"),
 							)?;
 							match data {
 								tg::directory::Data::Node(directory) => directory,
@@ -744,9 +742,7 @@ impl Session {
 								.checkin_solve_get_object(prefetch, &id.clone().into())
 								.await?;
 							let data = tg::directory::Data::deserialize(output.bytes).map_err(
-								|source| {
-									tg::error!(!source, "failed to deserialize directory data")
-								},
+								|error| tg::error!(!error, "failed to deserialize directory data"),
 							)?;
 							match data {
 								tg::directory::Data::Node(directory) => directory,
@@ -795,7 +791,7 @@ impl Session {
 				.checkin_solve_get_object(prefetch, &child_graph_id.clone().into())
 				.await?;
 			let data = tg::graph::Data::deserialize(output.bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize graph data"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize graph data"))?;
 			checkpoint
 				.graphs
 				.insert(child_graph_id.clone(), (data.clone(), output.metadata));
@@ -823,7 +819,7 @@ impl Session {
 			.checkin_solve_get_object(&state.prefetch, &id.clone().into())
 			.await?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes.clone())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 		let kind = data.kind();
 
 		// Try to create a checkin graph node.
@@ -966,7 +962,7 @@ impl Session {
 					.checkin_solve_get_object(&state.prefetch, &graph_id.clone().into())
 					.await?;
 				let data = tg::graph::Data::deserialize(output.bytes)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 				let metadata = output.metadata;
 				checkpoint
 					.graphs

@@ -38,7 +38,7 @@ enum Key<'a> {
 impl Store {
 	pub fn new(options: &Options) -> tg::Result<Self> {
 		let database = fdb::Database::new(Some(options.cluster.to_str().unwrap()))
-			.map_err(|source| tg::error!(!source, "failed to open the foundationdb cluster"))?;
+			.map_err(|error| tg::error!(!error, "failed to open the foundationdb cluster"))?;
 		let database = Arc::new(database);
 
 		let subspace = match &options.prefix {
@@ -135,12 +135,12 @@ impl Store {
 				let subspace = subspace.clone();
 				async move {
 					Self::task_delete(&txn, &subspace, &arg)
-						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+						.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 					Ok(())
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the request"))?;
 		Ok(())
 	}
 
@@ -156,12 +156,12 @@ impl Store {
 				async move {
 					Self::task_put(&txn, &subspace, &arg)
 						.await
-						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+						.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 					Ok(())
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the request"))?;
 		Ok(())
 	}
 
@@ -175,12 +175,12 @@ impl Store {
 		let bytes = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the log entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the log entry"))?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
 		let entry = tangram_serialize::from_slice::<Entry>(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the log entry"))?;
 		Ok(Some(entry.into_static()))
 	}
 
@@ -200,12 +200,12 @@ impl Store {
 			.next()
 			.await
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to get the last log entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get the last log entry"))?
 		else {
 			return Ok(None);
 		};
 		let entry = tangram_serialize::from_slice::<Entry>(entry.value())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the log entry"))?;
 		Ok(Some(entry.into_static()))
 	}
 
@@ -231,12 +231,12 @@ impl Store {
 			.next()
 			.await
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get the log entry"))?
 		else {
 			return Ok(None);
 		};
 		let entry = tangram_serialize::from_slice::<Entry>(entry.value())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the log entry"))?;
 		Ok(Some(entry.into_static()))
 	}
 
@@ -263,7 +263,7 @@ impl Store {
 			.next()
 			.await
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to get the stream index"))?
+			.map_err(|error| tg::error!(!error, "failed to get the stream index"))?
 		else {
 			return Ok(None);
 		};
@@ -290,7 +290,7 @@ impl Store {
 		let txn = self
 			.database
 			.create_trx()
-			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 		let combined = arg.streams.len() > 1;
 
 		let start_position = if combined {
@@ -341,13 +341,13 @@ impl Store {
 				.next()
 				.await
 				.transpose()
-				.map_err(|source| tg::error!(!source, "failed to get the next entry"))?
+				.map_err(|error| tg::error!(!error, "failed to get the next entry"))?
 			else {
 				break;
 			};
 
 			let chunk = tangram_serialize::from_slice::<Entry>(entry.value())
-				.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the log entry"))?;
 
 			if !arg.streams.contains(&chunk.stream) {
 				continue;
@@ -425,7 +425,7 @@ impl Store {
 		let txn = self
 			.database
 			.create_trx()
-			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 
 		let length = if streams.len() == 1 {
 			let stream = streams.iter().next().copied().unwrap();
@@ -465,7 +465,7 @@ impl Store {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		self.sender
 			.send((Request::Put(arg), sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))?
@@ -475,7 +475,7 @@ impl Store {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		self.sender
 			.send((Request::Delete(arg), sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))?

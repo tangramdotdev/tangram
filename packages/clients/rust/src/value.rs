@@ -126,7 +126,7 @@ impl Value {
 				let data = object_.to_data();
 				let bytes = data
 					.serialize()
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(data.kind(), &bytes);
 				object.state().set_id(id.clone());
 				objects.push(tg::object::batch::Object { id, bytes });
@@ -188,7 +188,7 @@ impl Value {
 				let data = object_.to_data();
 				let bytes = data
 					.serialize()
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(data.kind(), &bytes);
 				object.state().set_id(id.clone());
 				objects.push(tg::object::batch::Object { id, bytes });
@@ -365,7 +365,7 @@ impl Value {
 			}
 			if let Some(result) = join_set.join_next().await {
 				let (children, depth): (Vec<Self>, Option<u64>) = result
-					.map_err(|source| tg::error!(!source, "the load task panicked"))
+					.map_err(|error| tg::error!(!error, "the load task panicked"))
 					.and_then(|result| result)?;
 				for child in children {
 					queue.push_back((child, depth));

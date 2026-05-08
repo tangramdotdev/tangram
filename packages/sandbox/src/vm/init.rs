@@ -61,7 +61,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 fn mount_proc(target: &Path) -> tg::Result<()> {
 	std::fs::create_dir_all(target)
-		.map_err(|source| tg::error!(!source, "failed to create /proc"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /proc"))?;
 	let source = CString::new("proc").unwrap();
 	let target = CString::new(target.as_os_str().as_bytes()).unwrap();
 	let fstype = CString::new("proc").unwrap();
@@ -75,15 +75,14 @@ fn mount_proc(target: &Path) -> tg::Result<()> {
 		)
 	};
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to mount /proc"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to mount /proc"));
 	}
 	Ok(())
 }
 
 fn mount_sys(target: &Path) -> tg::Result<()> {
-	std::fs::create_dir_all(target)
-		.map_err(|source| tg::error!(!source, "failed to create /sys"))?;
+	std::fs::create_dir_all(target).map_err(|error| tg::error!(!error, "failed to create /sys"))?;
 	let source = CString::new("sysfs").unwrap();
 	let target = CString::new(target.as_os_str().as_bytes()).unwrap();
 	let fstype = CString::new("sysfs").unwrap();
@@ -97,15 +96,14 @@ fn mount_sys(target: &Path) -> tg::Result<()> {
 		)
 	};
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to mount /sys"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to mount /sys"));
 	}
 	Ok(())
 }
 
 fn mount_dev(target: &Path) -> tg::Result<()> {
-	std::fs::create_dir_all(target)
-		.map_err(|source| tg::error!(!source, "failed to create /dev"))?;
+	std::fs::create_dir_all(target).map_err(|error| tg::error!(!error, "failed to create /dev"))?;
 	let source = CString::new("devtmpfs").unwrap();
 	let target_cstring = CString::new(target.as_os_str().as_bytes()).unwrap();
 	let fstype = CString::new("devtmpfs").unwrap();
@@ -128,7 +126,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 
 	let pts = target.join("pts");
 	std::fs::create_dir_all(&pts)
-		.map_err(|source| tg::error!(!source, "failed to create /dev/pts"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/pts"))?;
 	let source = CString::new("devpts").unwrap();
 	let pts_target = CString::new(pts.as_os_str().as_bytes()).unwrap();
 	let fstype = CString::new("devpts").unwrap();
@@ -143,8 +141,8 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		)
 	};
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to mount /dev/pts"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to mount /dev/pts"));
 	}
 
 	configure_dev(target)?;
@@ -159,15 +157,15 @@ fn configure_dev(target: &Path) -> tg::Result<()> {
 		}
 	}
 	std::os::unix::fs::symlink("../proc/self/fd", target.join("fd"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/fd"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/fd"))?;
 	std::os::unix::fs::symlink("../proc/self/fd/0", target.join("stdin"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/stdin"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/stdin"))?;
 	std::os::unix::fs::symlink("../proc/self/fd/1", target.join("stdout"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/stdout"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/stdout"))?;
 	std::os::unix::fs::symlink("../proc/self/fd/2", target.join("stderr"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/stderr"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/stderr"))?;
 	std::os::unix::fs::symlink("pts/ptmx", target.join("ptmx"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/ptmx"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/ptmx"))?;
 	Ok(())
 }
 
@@ -201,22 +199,22 @@ fn add_default_route(fd: libc::c_int, interface: &str, gateway_ip: Ipv4Addr) -> 
 	route.rt_genmask = sockaddr_from_ipv4(Ipv4Addr::UNSPECIFIED);
 	route.rt_flags = libc::RTF_GATEWAY | libc::RTF_UP;
 	let interface = CString::new(interface)
-		.map_err(|source| tg::error!(!source, "failed to encode the network interface name"))?;
+		.map_err(|error| tg::error!(!error, "failed to encode the network interface name"))?;
 	route.rt_dev = interface.as_ptr().cast_mut();
 	let result = unsafe { libc::ioctl(fd, libc::SIOCADDRT, std::ptr::addr_of!(route)) };
 	if result == 0 {
 		return Ok(());
 	}
-	let source = std::io::Error::last_os_error();
-	if source.raw_os_error() == Some(libc::EEXIST) {
+	let error = std::io::Error::last_os_error();
+	if error.raw_os_error() == Some(libc::EEXIST) {
 		return Ok(());
 	}
-	Err(tg::error!(!source, "failed to add the default route"))
+	Err(tg::error!(!error, "failed to add the default route"))
 }
 
 fn copy_interface_name(ifreq: &mut libc::ifreq, interface: &str) -> tg::Result<()> {
 	let interface = CString::new(interface)
-		.map_err(|source| tg::error!(!source, "failed to encode the network interface name"))?;
+		.map_err(|error| tg::error!(!error, "failed to encode the network interface name"))?;
 	let bytes = interface.as_bytes_with_nul();
 	if bytes.len() > libc::IFNAMSIZ {
 		return Err(tg::error!("the network interface name is too long"));
@@ -234,8 +232,8 @@ fn copy_interface_name(ifreq: &mut libc::ifreq, interface: &str) -> tg::Result<(
 fn open_network_socket() -> tg::Result<OwnedFd> {
 	let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0) };
 	if fd < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to create the network socket"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to create the network socket"));
 	}
 	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 	Ok(fd)
@@ -256,8 +254,8 @@ fn resolve_home(uid: libc::uid_t) -> Option<PathBuf> {
 fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 	let result = unsafe { libc::setresgid(gid, gid, gid) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set the gid"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the gid"));
 	}
 	Ok(())
 }
@@ -265,8 +263,8 @@ fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 fn setresuid(uid: libc::uid_t) -> tg::Result<()> {
 	let result = unsafe { libc::setresuid(uid, uid, uid) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set the uid"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the uid"));
 	}
 	Ok(())
 }
@@ -283,8 +281,8 @@ fn set_interface_address(
 	ifreq.ifr_ifru.ifru_addr = sockaddr_from_ipv4(address);
 	let result = unsafe { libc::ioctl(fd, request, std::ptr::addr_of_mut!(ifreq)) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "{}", message));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "{}", message));
 	}
 	Ok(())
 }
@@ -294,9 +292,9 @@ fn set_interface_up(fd: libc::c_int, interface: &str) -> tg::Result<()> {
 	copy_interface_name(&mut ifreq, interface)?;
 	let result = unsafe { libc::ioctl(fd, libc::SIOCGIFFLAGS, std::ptr::addr_of_mut!(ifreq)) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
+		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(
-			!source,
+			!error,
 			"failed to read the network interface flags"
 		));
 	}
@@ -305,9 +303,9 @@ fn set_interface_up(fd: libc::c_int, interface: &str) -> tg::Result<()> {
 	}
 	let result = unsafe { libc::ioctl(fd, libc::SIOCSIFFLAGS, std::ptr::addr_of_mut!(ifreq)) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
+		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(
-			!source,
+			!error,
 			"failed to set the network interface flags"
 		));
 	}
@@ -317,8 +315,8 @@ fn set_interface_up(fd: libc::c_int, interface: &str) -> tg::Result<()> {
 fn set_hostname(hostname: &str) -> tg::Result<()> {
 	let result = unsafe { libc::sethostname(hostname.as_ptr().cast(), hostname.len()) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set the hostname"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the hostname"));
 	}
 	Ok(())
 }
@@ -359,14 +357,14 @@ fn spawn_server(arg: &crate::serve::Arg, home: Option<&Path>) -> tg::Result<std:
 	}
 	command
 		.spawn()
-		.map_err(|source| tg::error!(!source, "failed to spawn the sandbox server"))
+		.map_err(|error| tg::error!(!error, "failed to spawn the sandbox server"))
 }
 
 fn wait_for_network_interface() -> tg::Result<String> {
 	let start = Instant::now();
 	loop {
 		let mut interfaces = std::fs::read_dir("/sys/class/net")
-			.map_err(|source| tg::error!(!source, "failed to read the network interfaces"))?
+			.map_err(|error| tg::error!(!error, "failed to read the network interfaces"))?
 			.filter_map(|entry| {
 				let entry = entry.ok()?;
 				let name = entry.file_name();
@@ -396,11 +394,11 @@ fn wait_for_child() -> tg::Result<(libc::pid_t, u8)> {
 		if pid >= 0 {
 			return Ok((pid, exit_code_from_status(status)));
 		}
-		let source = std::io::Error::last_os_error();
-		if source.raw_os_error() == Some(libc::EINTR) {
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::EINTR) {
 			continue;
 		}
-		return Err(tg::error!(!source, "failed to wait for a sandbox child"));
+		return Err(tg::error!(!error, "failed to wait for a sandbox child"));
 	}
 }
 
@@ -418,8 +416,7 @@ fn exit_code_from_status(status: libc::c_int) -> u8 {
 fn write_resolv_conf(dns_servers: &[Ipv4Addr]) -> tg::Result<()> {
 	use std::fmt::Write as _;
 
-	std::fs::create_dir_all("/etc")
-		.map_err(|source| tg::error!(!source, "failed to create /etc"))?;
+	std::fs::create_dir_all("/etc").map_err(|error| tg::error!(!error, "failed to create /etc"))?;
 	let resolv_conf = dns_servers
 		.iter()
 		.fold(String::new(), |mut output, dns_server| {
@@ -427,6 +424,6 @@ fn write_resolv_conf(dns_servers: &[Ipv4Addr]) -> tg::Result<()> {
 			output
 		});
 	std::fs::write("/etc/resolv.conf", resolv_conf)
-		.map_err(|source| tg::error!(!source, "failed to write /etc/resolv.conf"))?;
+		.map_err(|error| tg::error!(!error, "failed to write /etc/resolv.conf"))?;
 	Ok(())
 }

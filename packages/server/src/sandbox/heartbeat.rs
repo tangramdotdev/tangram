@@ -23,14 +23,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
 					.try_heartbeat_sandbox_local(id)
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to heartbeat the sandbox"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to heartbeat the sandbox"))?
 			{
 				return Ok(Some(output));
 			}
@@ -39,7 +39,7 @@ impl Session {
 				.try_heartbeat_sandbox_regions(id, &local.regions)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, "failed to heartbeat the sandbox in another region"),
+					|error| tg::error!(!error, %id, "failed to heartbeat the sandbox in another region"),
 				)? {
 				return Ok(Some(output));
 			}
@@ -49,7 +49,7 @@ impl Session {
 			.try_heartbeat_sandbox_remotes(id, &locations.remotes)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %id, "failed to heartbeat the sandbox in a remote"),
+				|error| tg::error!(!error, %id, "failed to heartbeat the sandbox in a remote"),
 			)? {
 			return Ok(Some(output));
 		}
@@ -69,7 +69,7 @@ impl Session {
 				priority: db::Priority::High,
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -83,7 +83,7 @@ impl Session {
 		let n = connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if n == 0 {
 			return Ok(None);
 		}
@@ -126,7 +126,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -135,7 +135,7 @@ impl Session {
 			location: Some(location.into()),
 		};
 		let Some(output) = client.try_heartbeat_sandbox(id, arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to heartbeat the sandbox"),
+			|error| tg::error!(!error, region = %region, "failed to heartbeat the sandbox"),
 		)?
 		else {
 			return Ok(None);
@@ -178,7 +178,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::heartbeat::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -188,7 +188,7 @@ impl Session {
 			])),
 		};
 		let Some(output) = client.try_heartbeat_sandbox(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to heartbeat the sandbox"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to heartbeat the sandbox"),
 		)?
 		else {
 			return Ok(None);
@@ -205,18 +205,18 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let id = id
 			.parse::<tg::sandbox::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 		let arg = request
 			.json_or_default()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		let Some(output) = self
 			.try_heartbeat_sandbox(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to heartbeat the sandbox"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to heartbeat the sandbox"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

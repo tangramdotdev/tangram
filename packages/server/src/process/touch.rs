@@ -22,14 +22,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
 					.try_touch_process_local(id)
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?
 			{
 				return Ok(Some(output));
 			}
@@ -38,7 +38,7 @@ impl Session {
 				.try_touch_process_regions(id, &local.regions)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, "failed to touch the process in another region"),
+					|error| tg::error!(!error, %id, "failed to touch the process in another region"),
 				)? {
 				return Ok(Some(output));
 			}
@@ -47,7 +47,7 @@ impl Session {
 		if let Some(output) = self
 			.try_touch_process_remotes(id, &locations.remotes)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the process in a remote"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the process in a remote"))?
 		{
 			return Ok(Some(output));
 		}
@@ -62,7 +62,7 @@ impl Session {
 			.index
 			.touch_process(id, touched_at, self.server.config.process.time_to_touch)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?
 		else {
 			return Ok(None);
 		};
@@ -103,7 +103,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -112,7 +112,7 @@ impl Session {
 			location: Some(location.into()),
 		};
 		let Some(()) = client.try_touch_process(id, arg).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to touch the process"),
+			|error| tg::error!(!error, region = %region, %id, "failed to touch the process"),
 		)?
 		else {
 			return Ok(None);
@@ -154,7 +154,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::touch::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -164,7 +164,7 @@ impl Session {
 			])),
 		};
 		let Some(()) = client.try_touch_process(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, %id, "failed to touch the process"),
+			|error| tg::error!(!error, remote = %remote.name, %id, "failed to touch the process"),
 		)?
 		else {
 			return Ok(None);
@@ -181,24 +181,24 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the process id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
 			.json_or_default()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Touch the process.
 		let Some(()) = self
 			.try_touch_process(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

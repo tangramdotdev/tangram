@@ -24,13 +24,13 @@ impl Session {
 		let location = self
 			.server
 			.location(arg.location.as_ref())
-			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_put_tag_local(tag, arg.clone())
 					.await
-					.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;
+					.map_err(|error| tg::error!(!error, %tag, "failed to put the tag"))?;
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -52,7 +52,7 @@ impl Session {
 		// Authorize.
 		self.authorize()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
+			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
 
 		// Insert the tag into the database unless this is a replicated request.
 		if !arg.replicate {
@@ -61,13 +61,13 @@ impl Session {
 				Database::Postgres(database) => {
 					self.put_tag_postgres(database, tag, &arg)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to put the tag"))?;
+						.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
 				},
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => {
 					self.put_tag_sqlite(database, tag, &arg)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to put the tag"))?;
+						.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
 				},
 			}
 		}
@@ -80,7 +80,7 @@ impl Session {
 				item: arg.item.clone(),
 			}])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to index the tag"))?;
+			.map_err(|error| tg::error!(!error, "failed to index the tag"))?;
 
 		// Handle regions unless this is a replicated request.
 		if !arg.replicate {
@@ -89,7 +89,7 @@ impl Session {
 				.server
 				.locations(Some(&location))
 				.await
-				.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+				.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 			if let Some(local) = locations.local
 				&& !local.regions.is_empty()
 			{
@@ -107,7 +107,7 @@ impl Session {
 					.try_collect::<()>()
 					.await
 					.map_err(
-						|source| tg::error!(!source, %tag, "failed to put the tag in another region"),
+						|error| tg::error!(!error, %tag, "failed to put the tag in another region"),
 					)?;
 			}
 		}
@@ -122,7 +122,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<()> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, %tag, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, %tag, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -131,9 +131,10 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		client.put_tag(tag, arg).await.map_err(
-			|source| tg::error!(!source, %tag, region = %region, "failed to put the tag"),
-		)?;
+		client
+			.put_tag(tag, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %tag, region = %region, "failed to put the tag"))?;
 		Ok(())
 	}
 
@@ -145,16 +146,17 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<()> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, %tag, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, %tag, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::tag::put::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			replicate: false,
 			..arg
 		};
-		client.put_tag(tag, arg).await.map_err(
-			|source| tg::error!(!source, %tag, remote = %remote, "failed to put the tag"),
-		)?;
+		client
+			.put_tag(tag, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %tag, remote = %remote, "failed to put the tag"))?;
 		Ok(())
 	}
 
@@ -167,19 +169,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the tag.
 		let tag = tag
 			.join("/")
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Put the tag.
 		self.put_tag(&tag, arg).await?;

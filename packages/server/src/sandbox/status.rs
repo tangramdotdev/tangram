@@ -33,7 +33,7 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
@@ -45,7 +45,7 @@ impl Session {
 					)
 					.await
 					.map_err(
-						|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
+						|error| tg::error!(!error, %id, "failed to get the sandbox status stream"),
 					)? {
 				return Ok(Some(status));
 			}
@@ -54,7 +54,7 @@ impl Session {
 				.try_get_sandbox_status_stream_regions(id, &local.regions, arg.timeout)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, "failed to get the sandbox status from another region"),
+					|error| tg::error!(!error, %id, "failed to get the sandbox status from another region"),
 				)? {
 				return Ok(Some(status));
 			}
@@ -64,7 +64,7 @@ impl Session {
 			.try_get_sandbox_status_stream_remotes(id, &locations.remotes, arg.timeout)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %id, "failed to get the sandbox status from a remote"),
+				|error| tg::error!(!error, %id, "failed to get the sandbox status from a remote"),
 			)? {
 			return Ok(Some(status));
 		}
@@ -82,7 +82,7 @@ impl Session {
 			.server
 			.get_sandbox_exists_local(id)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to check if the sandbox exists"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to check if the sandbox exists"))?
 		{
 			return Ok(None);
 		}
@@ -96,7 +96,7 @@ impl Session {
 				.messenger
 				.subscribe::<()>(subject)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
 			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
 				.skip(1)
@@ -178,7 +178,7 @@ impl Session {
 			.process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -194,7 +194,7 @@ impl Session {
 				params,
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.map(|value| value.0)
 		else {
 			return Ok(None);
@@ -239,7 +239,7 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -252,7 +252,7 @@ impl Session {
 			.try_get_sandbox_status_stream(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, region = %region, "failed to get the sandbox status"),
+				|error| tg::error!(!error, region = %region, "failed to get the sandbox status"),
 			)?
 		else {
 			return Ok(None);
@@ -296,7 +296,7 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::status::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -310,7 +310,7 @@ impl Session {
 			.try_get_sandbox_status_stream(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the sandbox status"),
+				|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the sandbox status"),
 			)?
 		else {
 			return Ok(None);
@@ -325,16 +325,16 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let Some(stream) = self.try_get_sandbox_status_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()

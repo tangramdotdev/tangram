@@ -82,9 +82,8 @@ impl Session {
 						.unwrap()
 						.get_process_requested(&message.id)
 						.is_none_or(|requested| requested.eager);
-					let data = serde_json::from_slice(&message.bytes).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the process")
-					})?;
+					let data = serde_json::from_slice(&message.bytes)
+						.map_err(|error| tg::error!(!error, "failed to deserialize the process"))?;
 
 					// Update the graph with data and metadata.
 					let metadata = if state.context.untrusted {

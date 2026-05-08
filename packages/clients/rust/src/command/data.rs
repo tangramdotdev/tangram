@@ -117,14 +117,14 @@ impl Command {
 		let mut bytes = Vec::new();
 		bytes.push(0);
 		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
 	pub fn serialize_json(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
 		serde_json::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
@@ -137,9 +137,9 @@ impl Command {
 		let format = bytes[0];
 		match format {
 			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			_ => Err(tg::error!("invalid format")),
 		}
 	}
@@ -288,7 +288,7 @@ impl std::str::FromStr for Executable {
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let uri = Uri::parse(value).map_err(|error| tg::error!(!error, "invalid uri"))?;
 		let executable = Self::with_uri(&uri)?;
 		Ok(executable)
 	}

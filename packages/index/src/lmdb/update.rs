@@ -14,15 +14,15 @@ impl Index {
 		tokio::task::spawn_blocking(move || {
 			let transaction = env
 				.read_txn()
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 			let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
 			let prefix = Self::pack(&subspace, prefix);
 			for entry in db
 				.prefix_iter(&transaction, &prefix)
-				.map_err(|source| tg::error!(!source, "failed to get update version range"))?
+				.map_err(|error| tg::error!(!error, "failed to get update version range"))?
 			{
 				let (key, _) = entry
-					.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
 				let key = Self::unpack(&subspace, key)?;
 				let Key::UpdateVersion { version, .. } = key else {
 					return Err(tg::error!("unexpected key type"));
@@ -34,7 +34,7 @@ impl Index {
 			Ok(true)
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	pub async fn update_batch(
@@ -47,7 +47,7 @@ impl Index {
 		let request = Request::Update { batch_size };
 		self.sender_low
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -67,11 +67,11 @@ impl Index {
 		let prefix = Self::pack(subspace, prefix);
 		let entries = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get update version range"))?
+			.map_err(|error| tg::error!(!error, "failed to get update version range"))?
 			.take(batch_size)
 			.map(|entry| {
 				let (key, _) = entry
-					.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
 				let key = Self::unpack(subspace, key)?;
 				let Key::UpdateVersion { version, id } = key else {
 					return Err(tg::error!("unexpected key type"));
@@ -86,7 +86,7 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let value = db
 				.get(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to get update key"))?
+				.map_err(|error| tg::error!(!error, "failed to get update key"))?
 				.ok_or_else(|| tg::error!("expected an update key for the update version key"))?;
 
 			let update = value
@@ -109,14 +109,14 @@ impl Index {
 			let key = Key::Update { id: id.clone() };
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete update key"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete update key"))?;
 			let key = Key::UpdateVersion {
 				version,
 				id: id.clone(),
 			};
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete update version key"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete update version key"))?;
 
 			count += 1;
 		}
@@ -134,7 +134,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			.ok_or_else(|| tg::error!(%id, "object not found"))?;
 		let mut object = Object::deserialize(bytes)?;
 
@@ -242,7 +242,7 @@ impl Index {
 		if changed {
 			let value = object.serialize()?;
 			db.put(transaction, &key, &value)
-				.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 		}
 
 		Ok(changed)
@@ -258,7 +258,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
 		let mut process = Process::deserialize(bytes)?;
 
@@ -983,7 +983,7 @@ impl Index {
 		if changed {
 			let value = process.serialize()?;
 			db.put(transaction, &key, &value)
-				.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 		}
 
 		Ok(changed)
@@ -1053,7 +1053,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		if let Some(existing) = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to get update key"))?
+			.map_err(|error| tg::error!(!error, "failed to get update key"))?
 		{
 			let existing = existing
 				.first()
@@ -1062,20 +1062,20 @@ impl Index {
 			if existing == Update::Propagate && update == Update::Put {
 				let value = [update.to_u8().unwrap()];
 				db.put(transaction, &key, &value)
-					.map_err(|source| tg::error!(!source, "failed to put update key"))?;
+					.map_err(|error| tg::error!(!error, "failed to put update key"))?;
 			}
 			return Ok(());
 		}
 
 		let value = [update.to_u8().unwrap()];
 		db.put(transaction, &key, &value)
-			.map_err(|source| tg::error!(!source, "failed to put update key"))?;
+			.map_err(|error| tg::error!(!error, "failed to put update key"))?;
 
 		let version = version.unwrap_or_else(|| transaction.id() as u64);
 		let key = Key::UpdateVersion { version, id };
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
-			.map_err(|source| tg::error!(!source, "failed to put update version key"))?;
+			.map_err(|error| tg::error!(!error, "failed to put update version key"))?;
 
 		Ok(())
 	}

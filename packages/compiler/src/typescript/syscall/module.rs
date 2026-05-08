@@ -10,7 +10,7 @@ pub fn load(
 		let text = compiler
 			.load_module(&module)
 			.await
-			.map_err(|source| tg::error!(!source, ?module, "failed to load the module"))?;
+			.map_err(|error| tg::error!(!error, ?module, "failed to load the module"))?;
 		Ok(text)
 	})
 }
@@ -86,7 +86,7 @@ pub fn resolve(
 ) -> tg::Result<Serde<tg::module::Data>> {
 	let (Serde(referrer), specifier, attributes) = args;
 	let import = tg::module::Import::with_specifier_and_attributes(&specifier, attributes)
-		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the import"))?;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let arg = tg::module::resolve::Arg {
 			referrer: Some(referrer.clone()),
@@ -138,7 +138,7 @@ pub fn version(
 		let version = compiler
 			.get_module_version(&module)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the module version"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the module version"))?;
 		Ok(version.to_string())
 	})
 }

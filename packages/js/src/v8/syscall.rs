@@ -135,7 +135,7 @@ where
 
 	// Deserialize the args.
 	let args = A::deserialize(scope, args.into())
-		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
+		.map_err(|error| tg::error!(!error, "failed to deserialize the args"))?;
 
 	// Call the function.
 	let value = f(state, scope, args)?;
@@ -143,7 +143,7 @@ where
 	// Serialize the value to v8.
 	let value = value
 		.serialize(scope)
-		.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
+		.map_err(|error| tg::error!(!error, "failed to serialize the value"))?;
 
 	Ok(value)
 }
@@ -171,7 +171,7 @@ where
 
 	// Deserialize the args.
 	let args = A::deserialize(scope, args.into())
-		.map_err(|source| tg::error!(!source, "failed to deserialize the args"))?;
+		.map_err(|error| tg::error!(!error, "failed to deserialize the args"))?;
 
 	let promise = state.create_promise(scope, f(state.clone(), args));
 

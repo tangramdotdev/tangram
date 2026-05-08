@@ -59,7 +59,7 @@ impl Session {
 				let stream = self
 					.cache(cache_arg)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
+					.map_err(|error| tg::error!(!error, "failed to cache the artifact"))?;
 				let extension = arg.extension.clone();
 				let stream = stream
 					.boxed()
@@ -132,7 +132,7 @@ impl Session {
 					.checkout_ensure_stored(&artifact, &progress)
 					.await
 					.map_err(
-						|source| tg::error!(!source, %artifact, "failed to ensure the artifact is stored"),
+						|error| tg::error!(!error, %artifact, "failed to ensure the artifact is stored"),
 					);
 				if let Err(error) = result {
 					tracing::warn!(error = %error.trace());
@@ -216,7 +216,7 @@ impl Session {
 			.try_get_object(&artifact.clone().into())
 			.await
 			.map_err(
-				|source| tg::error!(!source, %artifact, "failed to check if the artifact is stored"),
+				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored"),
 			)?
 			.map(|object| object.stored)
 			.unwrap_or_default();
@@ -228,12 +228,12 @@ impl Session {
 		let stream = self
 			.index()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the index"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the next index event"))?
+			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
 		{
 			progress.forward(Ok(event));
 		}
@@ -245,7 +245,7 @@ impl Session {
 			.try_get_object(&artifact.clone().into())
 			.await
 			.map_err(
-				|source| tg::error!(!source, %artifact, "failed to check if the artifact is stored"),
+				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored"),
 			)?
 			.map(|object| object.stored)
 			.unwrap_or_default();
@@ -260,13 +260,13 @@ impl Session {
 				..Default::default()
 			})
 			.await
-			.map_err(|source| tg::error!(!source, %artifact, "failed to start the pull"))?;
+			.map_err(|error| tg::error!(!error, %artifact, "failed to start the pull"))?;
 		progress.spinner("pull", "pull");
 		let mut stream = pin!(stream);
 		while let Some(event) = stream
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the next pull event"))?
+			.map_err(|error| tg::error!(!error, "failed to get the next pull event"))?
 		{
 			progress.forward(Ok(event));
 		}
@@ -294,7 +294,7 @@ impl Session {
 		}
 		let path = tangram_util::fs::canonicalize_parent(path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path's parent"))?;
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path's parent"))?;
 
 		// Determine the artifacts path.
 		let artifacts_path: Option<PathBuf> = if artifact.is_directory() {
@@ -341,25 +341,25 @@ impl Session {
 				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
 				let item = session
 					.checkout_get_item(edge)
-					.map_err(|source| tg::error!(!source, "failed to get the item"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 				// Check out the artifact.
 				let path = state.path.clone();
 				session
 					.checkout_artifact(&mut state, &path, &item)
-					.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
+					.map_err(|error| tg::error!(!error, "failed to check out the artifact"))?;
 
 				// Write the lock if necessary.
 				session
 					.checkout_write_lock(&mut state)
-					.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the lock"))?;
 
 				Ok::<_, tg::Error>(())
 			}
 		})
 		.wait()
 		.await
-		.map_err(|source| tg::error!(!source, "the checkout task panicked"))?;
+		.map_err(|error| tg::error!(!error, "the checkout task panicked"))?;
 
 		// Remove the output if checkout failed.
 		if let Err(error) = result {
@@ -391,9 +391,8 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!("cannot check out a dependency without an artifacts path"))?;
 		if !state.artifacts_path_created {
-			std::fs::create_dir_all(artifacts_path).map_err(|source| {
-				tg::error!(!source, "failed to create the artifacts directory")
-			})?;
+			std::fs::create_dir_all(artifacts_path)
+				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
 			state.artifacts_path_created = true;
 		}
 		let path = artifacts_path.join(item.id.to_string());
@@ -416,7 +415,7 @@ impl Session {
 			.server
 			.object_store
 			.try_get_data_sync(&graph_id.clone().into())
-			.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+			.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 			.ok_or_else(|| tg::error!("failed to load the graph"))?;
 		let graph_data: tg::graph::Data = data
 			.try_into()
@@ -431,9 +430,8 @@ impl Session {
 			.clone()
 			.ok_or_else(|| tg::error!("cannot check out a dependency without an artifacts path"))?;
 		if !state.artifacts_path_created {
-			std::fs::create_dir_all(&artifacts_path).map_err(|source| {
-				tg::error!(!source, "failed to create the artifacts directory")
-			})?;
+			std::fs::create_dir_all(&artifacts_path)
+				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
 			state.artifacts_path_created = true;
 		}
 
@@ -552,7 +550,7 @@ impl Session {
 
 		// Create the directory.
 		std::fs::create_dir_all(path).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
+			|error| tg::error!(!error, path = %path.display(), "failed to create the directory"),
 		)?;
 
 		// Collect all entries, recursively flattening branches.
@@ -572,7 +570,7 @@ impl Session {
 			let path = path.join(&name);
 			let item = self
 				.checkout_get_item(edge)
-				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			// Check for a cycle.
 			if state.visiting.contains(&item.id) {
@@ -580,7 +578,7 @@ impl Session {
 			}
 
 			self.checkout_artifact(state, &path, &item)
-				.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
+				.map_err(|error| tg::error!(!error, "failed to check out the artifact"))?;
 		}
 
 		// Remove from visiting set.
@@ -623,10 +621,10 @@ impl Session {
 			}
 			let item = self
 				.checkout_get_item(edge)
-				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 			if item.id != state.artifact {
 				self.checkout_dependency(state, &item)
-					.map_err(|source| tg::error!(!source, "failed to check out the dependency"))?;
+					.map_err(|error| tg::error!(!error, "failed to check out the dependency"))?;
 			}
 		}
 
@@ -643,7 +641,7 @@ impl Session {
 		let result = reflink(src, dst);
 		if result.is_ok() {
 			let len = std::fs::symlink_metadata(dst)
-				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
+				.map_err(|error| tg::error!(!error, "failed to get the metadata"))?
 				.len();
 			state.progress.increment("bytes", len);
 
@@ -651,27 +649,26 @@ impl Session {
 				// Set the dependencies attr.
 				let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
 				if !dependencies.is_empty() {
-					let dependencies = serde_json::to_vec(&dependencies).map_err(|source| {
-						tg::error!(!source, "failed to serialize the dependencies")
+					let dependencies = serde_json::to_vec(&dependencies).map_err(|error| {
+						tg::error!(!error, "failed to serialize the dependencies")
 					})?;
 					xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies).map_err(
-						|source| tg::error!(!source, "failed to write the dependencies attr"),
+						|error| tg::error!(!error, "failed to write the dependencies attr"),
 					)?;
 				}
 
 				// Set the module xattr.
 				if let Some(module) = &node.module {
 					let module = module.to_string();
-					xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes()).map_err(
-						|source| tg::error!(!source, "failed to write the module xattr"),
-					)?;
+					xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
+						.map_err(|error| tg::error!(!error, "failed to write the module xattr"))?;
 				}
 
 				// Set the permissions.
 				if node.executable {
 					let permissions = std::fs::Permissions::from_mode(0o755);
 					std::fs::set_permissions(dst, permissions)
-						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+						.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 				}
 			}
 
@@ -682,7 +679,7 @@ impl Session {
 		if !done {
 			let mut reader =
 				crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
-					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+					.map_err(|error| tg::error!(!error, "failed to create the reader"))?;
 			let mut reader = InspectReader::new(&mut reader, {
 				|buffer| {
 					let len = buffer.len().to_u64().unwrap();
@@ -690,33 +687,31 @@ impl Session {
 				}
 			});
 			let mut file = std::fs::File::create(path)
-				.map_err(|source| tg::error!(!source, ?path, "failed to create the file"))?;
+				.map_err(|error| tg::error!(!error, ?path, "failed to create the file"))?;
 			std::io::copy(&mut reader, &mut file)
-				.map_err(|source| tg::error!(!source, ?path, "failed to write to the file"))?;
+				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 
 			// Set the dependencies attr.
 			let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
 			if !dependencies.is_empty() {
-				let dependencies = serde_json::to_vec(&dependencies).map_err(|source| {
-					tg::error!(!source, "failed to serialize the dependencies")
-				})?;
-				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies).map_err(
-					|source| tg::error!(!source, "failed to write the dependencies attr"),
-				)?;
+				let dependencies = serde_json::to_vec(&dependencies)
+					.map_err(|error| tg::error!(!error, "failed to serialize the dependencies"))?;
+				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
+					.map_err(|error| tg::error!(!error, "failed to write the dependencies attr"))?;
 			}
 
 			// Set the module xattr.
 			if let Some(module) = &node.module {
 				let module = module.to_string();
 				xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-					.map_err(|source| tg::error!(!source, "failed to write the module xattr"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the module xattr"))?;
 			}
 
 			// Set the permissions.
 			if node.executable {
 				let permissions = std::fs::Permissions::from_mode(0o755);
 				std::fs::set_permissions(path, permissions)
-					.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+					.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 			}
 		}
 
@@ -749,7 +744,7 @@ impl Session {
 			// Get the dependency node.
 			let dependency_item = self
 				.checkout_get_item(edge)
-				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			if dependency_item.id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
@@ -778,7 +773,7 @@ impl Session {
 				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 			let dst = &target;
 			tangram_util::path::diff(src, dst)
-				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+				.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
 				.ok_or_else(|| tg::error!("expected the paths to differ"))?
 		} else if let Some(path) = node.path.clone() {
 			path
@@ -788,7 +783,7 @@ impl Session {
 
 		// Create the symlink.
 		std::os::unix::fs::symlink(target, path)
-			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 
 		// Increment the progress.
 		state.progress.increment("artifacts", 1);
@@ -809,7 +804,7 @@ impl Session {
 					.server
 					.object_store
 					.try_get_data_sync(&graph_id.clone().into())
-					.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+					.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
 				let graph_data: tg::graph::Data = data
 					.try_into()
@@ -847,7 +842,7 @@ impl Session {
 					.server
 					.object_store
 					.try_get_data_sync(&id.clone().into())
-					.map_err(|source| tg::error!(!source, "failed to get the object data"))?
+					.map_err(|error| tg::error!(!error, "failed to get the object data"))?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
 					.try_into()
@@ -869,7 +864,7 @@ impl Session {
 							.server
 							.object_store
 							.try_get_data_sync(&graph_id.clone().into())
-							.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+							.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 							.ok_or_else(|| tg::error!("failed to load the graph"))?;
 						let graph_data: tg::graph::Data = data
 							.try_into()
@@ -920,19 +915,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Get the stream.
 		let stream = self
 			.checkout(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the checkout"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the checkout"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

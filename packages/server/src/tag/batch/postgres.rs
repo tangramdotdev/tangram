@@ -14,13 +14,13 @@ impl Session {
 		let mut connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		// Begin a transaction.
 		let mut transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		for tg::tag::batch::Item { tag, item, force } in &arg.tags {
 			let arg = tg::tag::put::Arg {
@@ -31,14 +31,14 @@ impl Session {
 			};
 			Self::put_tag_postgres_inner(&mut transaction, tag, &arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to perform the transaction"))?;
+				.map_err(|error| tg::error!(!error, "failed to perform the transaction"))?;
 		}
 
 		// Commit the transaction.
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		Ok(())
 	}

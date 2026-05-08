@@ -26,7 +26,7 @@ impl Cli {
 			None,
 		);
 		process.cancel_with_handle(&client).await.map_err(
-			|source| tg::error!(!source, id = %process.id(), "failed to cancel the process"),
+			|error| tg::error!(!error, id = %process.id(), "failed to cancel the process"),
 		)?;
 		Ok(())
 	}

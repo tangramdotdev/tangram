@@ -17,13 +17,13 @@ impl Session {
 		let mut connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Get all tags matching the pattern.
 		let mut matches = self
@@ -49,7 +49,7 @@ impl Session {
 					.inner()
 					.execute(statement, &[&m.id.to_i64().unwrap()])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 				let statement = indoc!(
 					"
@@ -61,7 +61,7 @@ impl Session {
 					.inner()
 					.execute(statement, &[&m.id.to_i64().unwrap()])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				deleted.push(m.tag);
 			} else {
 				// This is a branch tag.
@@ -75,7 +75,7 @@ impl Session {
 					.inner()
 					.query(statement, &[&m.id.to_i64().unwrap()])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				let count: i64 = rows
 					.first()
 					.ok_or_else(|| tg::error!("failed to get count"))?
@@ -99,7 +99,7 @@ impl Session {
 					.inner()
 					.execute(statement, &[&m.id.to_i64().unwrap()])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 				let statement = indoc!(
 					"
@@ -111,7 +111,7 @@ impl Session {
 					.inner()
 					.execute(statement, &[&m.id.to_i64().unwrap()])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				deleted.push(m.tag);
 			}
 		}
@@ -120,7 +120,7 @@ impl Session {
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		let output = tg::tag::delete::Output { deleted };
 

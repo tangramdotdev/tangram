@@ -595,8 +595,8 @@ pub trait Ext: tg::Handle {
 
 			// Wait for both tasks.
 			let (input, output) = future::join(input_task.wait(), output_task.wait()).await;
-			input.map_err(|source| tg::error!(!source, "the input task panicked"))??;
-			output.map_err(|source| tg::error!(!source, "the output task panicked"))??;
+			input.map_err(|error| tg::error!(!error, "the input task panicked"))??;
+			output.map_err(|error| tg::error!(!error, "the output task panicked"))??;
 			Ok(())
 		}
 	}

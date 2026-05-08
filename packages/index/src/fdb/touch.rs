@@ -26,7 +26,7 @@ impl Index {
 		};
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -53,7 +53,7 @@ impl Index {
 		};
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -80,7 +80,7 @@ impl Index {
 		};
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -178,7 +178,7 @@ impl Index {
 		let existing = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the cache entry"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cache entry"))?;
 		let existing = existing
 			.as_ref()
 			.map(|bytes| CacheEntry::deserialize(bytes))
@@ -194,12 +194,12 @@ impl Index {
 		let mut key_end = key.clone();
 		key_end.push(0x00);
 		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)
-			.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
+			.map_err(|error| tg::error!(!error, "failed to add read conflict range"))?;
 
 		cache_entry.touched_at = cache_entry.touched_at.max(touched_at);
 		let value = cache_entry
 			.serialize()
-			.map_err(|source| tg::error!(!source, "failed to serialize the cache entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the cache entry"))?;
 		txn.set(&key, &value);
 		if cache_entry.reference_count == 0 {
 			let id_bytes = id.to_bytes();
@@ -232,7 +232,7 @@ impl Index {
 		let existing = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let existing = existing
 			.as_ref()
 			.map(|bytes| Object::deserialize(bytes))
@@ -248,12 +248,12 @@ impl Index {
 		let mut key_end = key.clone();
 		key_end.push(0x00);
 		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)
-			.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
+			.map_err(|error| tg::error!(!error, "failed to add read conflict range"))?;
 
 		object.touched_at = object.touched_at.max(touched_at);
 		let value = object
 			.serialize()
-			.map_err(|source| tg::error!(!source, "failed to serialize the object"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
 		txn.set(&key, &value);
 		if object.reference_count == 0 {
 			let id_bytes = id.to_bytes();
@@ -286,7 +286,7 @@ impl Index {
 		let existing = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
 		let existing = existing
 			.as_ref()
 			.map(|bytes| Process::deserialize(bytes))
@@ -302,12 +302,12 @@ impl Index {
 		let mut key_end = key.clone();
 		key_end.push(0x00);
 		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)
-			.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
+			.map_err(|error| tg::error!(!error, "failed to add read conflict range"))?;
 
 		process.touched_at = process.touched_at.max(touched_at);
 		let value = process
 			.serialize()
-			.map_err(|source| tg::error!(!source, "failed to serialize the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
 		txn.set(&key, &value);
 		if process.reference_count == 0 {
 			let id_bytes = id.to_bytes();

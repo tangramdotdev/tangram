@@ -71,7 +71,7 @@ impl Session {
 		}
 		arg.path = tangram_util::fs::canonicalize_parent(&arg.path)
 			.await
-			.map_err(|source| tg::error!(!source, path = %&arg.path.display(), "failed to canonicalize the path's parent"))?;
+			.map_err(|error| tg::error!(!error, path = %&arg.path.display(), "failed to canonicalize the path's parent"))?;
 
 		// Handle paths in the cache directory.
 		if let Ok(path) = arg.path.strip_prefix(self.server.cache_path()) {
@@ -79,7 +79,7 @@ impl Session {
 			let output = self
 				.checkin_cache_path(path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the cache path"))?;
+				.map_err(|error| tg::error!(!error, "failed to check in the cache path"))?;
 			progress.output(output);
 			return Ok(progress.stream().left_stream());
 		}
@@ -90,13 +90,13 @@ impl Session {
 			.ignore
 			.then(Self::checkin_create_ignorer)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to create the ignorer"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the ignorer"))?;
 		let (root, ignorer) = if arg.options.root {
 			(arg.path.clone(), ignorer)
 		} else {
 			self.checkin_find_root_path(&arg.path, ignorer)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to find the root path"))?
+				.map_err(|error| tg::error!(!error, "failed to find the root path"))?
 		};
 
 		// Get or spawn the checkin task for the root.
@@ -220,7 +220,7 @@ impl Session {
 			})
 			.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the artifact id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the artifact id"))?;
 		if path.components().count() == 1 {
 			let output = tg::checkin::Output {
 				artifact: tg::Referent::with_item(id),
@@ -236,7 +236,7 @@ impl Session {
 		let artifact = directory
 			.get_with_handle(self, subpath)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the artifact from the cache"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the artifact from the cache"))?;
 		let id = artifact.id();
 		let referent = tg::Referent::with_item(id);
 		let output = tg::checkin::Output { artifact: referent };
@@ -291,7 +291,7 @@ impl Session {
 			Some(lock)
 		} else if arg.options.lock.is_some() {
 			Self::checkin_try_read_lock(root)
-				.map_err(|source| tg::error!(!source, "failed to read the lock"))?
+				.map_err(|error| tg::error!(!error, "failed to read the lock"))?
 				.map(Arc::new)
 		} else {
 			None
@@ -306,7 +306,7 @@ impl Session {
 			let task = tokio::task::spawn_blocking(move || Self::checkin_fixup_task(&receiver))
 				.map(|result| {
 					result
-						.map_err(|source| tg::error!(!source, "the fixup task panicked"))
+						.map_err(|error| tg::error!(!error, "the fixup task panicked"))
 						.and_then(|result| result)
 				});
 			(Some(task), Some(sender))
@@ -338,7 +338,7 @@ impl Session {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "the checkin input task panicked"))??;
+		.map_err(|error| tg::error!(!error, "the checkin input task panicked"))??;
 
 		// Solve.
 		if arg.options.solve {
@@ -352,14 +352,14 @@ impl Session {
 				progress,
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to solve dependencies"))?;
+			.map_err(|error| tg::error!(!error, "failed to solve dependencies"))?;
 		}
 
 		// Get reference path edges.
 		let paths = self
 			.checkin_path_get_edges(&graph, next)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get reference path edges"))?;
+			.map_err(|error| tg::error!(!error, "failed to get reference path edges"))?;
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -381,7 +381,7 @@ impl Session {
 			progress,
 		)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to create blobs"))?;
+		.map_err(|error| tg::error!(!error, "failed to create blobs"))?;
 
 		// Create artifacts.
 		Self::checkin_create_artifacts(
@@ -402,7 +402,7 @@ impl Session {
 		if arg.options.cache_pointers {
 			if let Some(task) = fixup_task {
 				task.await
-					.map_err(|source| tg::error!(!source, "failed to run the fixup task"))?;
+					.map_err(|error| tg::error!(!error, "failed to run the fixup task"))?;
 			}
 			self.checkin_cache(
 				&arg,
@@ -414,18 +414,18 @@ impl Session {
 				progress,
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to cache"))?;
+			.map_err(|error| tg::error!(!error, "failed to cache"))?;
 		}
 
 		// Store.
 		self.checkin_store(store_args.into_values().collect(), progress)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the objects to the store"))?;
 
 		// Write the lock.
 		self.checkin_write_lock(&arg, &graph, next, lock.as_deref(), root, progress)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
 
 		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
 		if self
@@ -468,7 +468,7 @@ impl Session {
 						solutions,
 						next,
 					)
-					.map_err(|source| tg::error!(!source, "failed to create the watch"))?;
+					.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
 					entry.insert(watch);
 				},
 			}
@@ -534,7 +534,7 @@ impl Session {
 			let mut output = None;
 			for ancestor in path.ancestors() {
 				let metadata = std::fs::symlink_metadata(ancestor).map_err(
-					|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
+					|error| tg::error!(!error, path = %path.display(), "failed to get the metadata"),
 				)?;
 				if metadata.is_dir()
 					&& tg::module::try_get_root_module_file_name_sync(ancestor)?.is_some()
@@ -542,8 +542,8 @@ impl Session {
 						.as_mut()
 						.map(|ignorer| ignorer.matches(Some(ancestor), &path, None))
 						.transpose()
-						.map_err(|source| {
-							tg::error!(!source, "failed to check if the path is ignored")
+						.map_err(|error| {
+							tg::error!(!error, "failed to check if the path is ignored")
 						})?
 						.is_none_or(|ignore| !ignore)
 				{
@@ -554,7 +554,7 @@ impl Session {
 			Ok::<_, tg::Error>((output, ignorer))
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "the checkin root task panicked"))??;
+		.map_err(|error| tg::error!(!error, "the checkin root task panicked"))??;
 		Ok(output)
 	}
 
@@ -569,7 +569,7 @@ impl Session {
 			"
 		);
 		ignore::Ignorer::new(file_names, Some(global))
-			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
+			.map_err(|error| tg::error!(!error, "failed to create the matcher"))
 	}
 
 	pub(crate) async fn checkin_request(
@@ -580,19 +580,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Get the stream.
 		let stream = self
 			.checkin(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the checkin"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the checkin"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

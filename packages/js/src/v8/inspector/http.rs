@@ -65,13 +65,13 @@ impl Server {
 		command: debugger::CommandSender,
 	) -> tg::Result<Self> {
 		let listener = std::net::TcpListener::bind(address)
-			.map_err(|source| tg::error!(!source, "failed to bind the inspector server"))?;
+			.map_err(|error| tg::error!(!error, "failed to bind the inspector server"))?;
 		listener
 			.set_nonblocking(true)
-			.map_err(|source| tg::error!(!source, "failed to configure the inspector server"))?;
+			.map_err(|error| tg::error!(!error, "failed to configure the inspector server"))?;
 		let host = listener
 			.local_addr()
-			.map_err(|source| tg::error!(!source, "failed to get the inspector server address"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the inspector server address"))?;
 		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 		};

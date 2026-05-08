@@ -140,7 +140,7 @@ impl Cli {
 		let stream = client
 			.push(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to push"))?;
+			.map_err(|error| tg::error!(!error, "failed to push"))?;
 		let output = self.render_progress_stream(stream).await?;
 
 		let processes = output.skipped.processes;
@@ -171,7 +171,7 @@ impl Cli {
 					client
 						.put_tag(&tag, arg)
 						.await
-						.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;
+						.map_err(|error| tg::error!(!error, %tag, "failed to put the tag"))?;
 				}
 				Ok::<_, tg::Error>(())
 			},

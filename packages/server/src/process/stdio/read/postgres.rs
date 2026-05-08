@@ -16,12 +16,12 @@ impl Session {
 		let mut connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let transaction = connection
 			.inner_mut()
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
@@ -52,15 +52,15 @@ impl Session {
 		if let Some(row) = transaction
 			.query_opt(statement, &[&id, &streams])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		{
 			let row = <Row as db::postgres::row::Deserialize>::deserialize(&row)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 			let _ = row.position;
 			transaction
 				.commit()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+				.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 			return Ok(Some(tg::process::stdio::read::Event::Chunk(
 				tg::process::stdio::Chunk {
 					bytes: Bytes::from(row.bytes),
@@ -84,10 +84,10 @@ impl Session {
 		let row = transaction
 			.query_opt(statement, &[&id])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.map(|row| {
 				<OpenRow as db::postgres::row::Deserialize>::deserialize(&row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 			})
 			.transpose()?;
 		let Some(row) = row else {

@@ -39,7 +39,7 @@ impl Session {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		connection
 			.with(move |connection, cache| {
@@ -59,7 +59,7 @@ impl Session {
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Prepare the process insert statement.
 		let process_statement = indoc!(
@@ -153,7 +153,7 @@ impl Session {
 		);
 		let mut process_stmt = cache
 			.get(&transaction, process_statement.into())
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 
 		// Prepare the children insert statement.
 		let children_statement = indoc!(
@@ -165,7 +165,7 @@ impl Session {
 		);
 		let mut children_stmt = cache
 			.get(&transaction, children_statement.into())
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 
 		// Insert all processes and their children.
 		for (id, data) in items {
@@ -248,7 +248,7 @@ impl Session {
 			];
 			process_stmt
 				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			// Insert children.
 			if let Some(children) = &data.children {
@@ -262,7 +262,7 @@ impl Session {
 					];
 					children_stmt
 						.execute(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				}
 			}
 		}
@@ -274,7 +274,7 @@ impl Session {
 		// Commit the transaction.
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		Ok(())
 	}

@@ -52,13 +52,13 @@ where
 		.await?;
 	let mut reader = SharedPositionReader::with_reader_and_position(reader, 0)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the shared position reader"))?;
 
 	// Detect the archive and compression formats.
 	let buffer = reader
 		.fill_buf()
 		.await
-		.map_err(|source| tg::error!(!source, "failed to fill the buffer"))?;
+		.map_err(|error| tg::error!(!error, "failed to fill the buffer"))?;
 	let (format, compression) = super::util::detect_archive_format(buffer)?
 		.ok_or_else(|| tg::error!("invalid archive format"))?;
 
@@ -96,10 +96,10 @@ where
 	// Create a temp.
 	let temp = temp_path
 		.map_or_else(tangram_util::fs::Temp::new, tangram_util::fs::Temp::new_in)
-		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 	tokio::fs::create_dir(temp.path())
 		.await
-		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
 	// Extract to the temp.
 	match format {
@@ -178,51 +178,51 @@ pub(crate) async fn extract_tar(
 	let mut archive = tokio_tar::ArchiveBuilder::new(reader).build();
 	let mut entries = archive
 		.entries()
-		.map_err(|source| tg::error!(!source, "failed to read the archive"))?;
+		.map_err(|error| tg::error!(!error, "failed to read the archive"))?;
 	while let Some(entry) = entries.next().await {
 		let mut entry =
-			entry.map_err(|source| tg::error!(!source, "failed to read the archive entry"))?;
+			entry.map_err(|error| tg::error!(!error, "failed to read the archive entry"))?;
 		if entry.header().entry_type().is_pax_global_extensions() {
 			continue;
 		}
 		let path = entry
 			.path()
-			.map_err(|source| tg::error!(!source, "failed to read the archive entry path"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the archive entry path"))?;
 		let path = resolve_tar_entry_path(temp, &path)?;
 		let kind = entry.header().entry_type();
 
 		if kind.is_dir() {
 			tokio::fs::create_dir_all(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
 			continue;
 		}
 
 		let parent = path.parent().expect("expected the entry to have a parent");
 		tokio::fs::create_dir_all(parent)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
 
 		if kind.is_symlink() {
 			let target = entry
 				.link_name()
-				.map_err(|source| tg::error!(!source, "failed to read symlink target"))?
+				.map_err(|error| tg::error!(!error, "failed to read symlink target"))?
 				.ok_or_else(|| tg::error!("expected the entry to have a symlink target"))?;
 			tokio::fs::symlink(&target, &path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 			continue;
 		}
 
 		if kind.is_hard_link() {
 			let target = entry
 				.link_name()
-				.map_err(|source| tg::error!(!source, "failed to read hard link target"))?
+				.map_err(|error| tg::error!(!error, "failed to read hard link target"))?
 				.ok_or_else(|| tg::error!("expected the entry to have a hard link target"))?;
 			let target = resolve_tar_entry_path(temp, &target)?;
 			tokio::fs::hard_link(&target, &path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the hard link"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the hard link"))?;
 			continue;
 		}
 
@@ -236,15 +236,15 @@ pub(crate) async fn extract_tar(
 			.create_new(true)
 			.open(&path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the file"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the file"))?;
 		tokio::io::copy(&mut entry, &mut file)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the file"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the file"))?;
 		if is_executable {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			tokio::fs::set_permissions(&path, permissions)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 		}
 	}
 
@@ -282,8 +282,8 @@ pub(crate) async fn extract_zip(
 				central_directory.extend_from_slice(&0x0605_4b50_u32.to_le_bytes());
 				break;
 			},
-			Err(source) => {
-				return Err(tg::error!(!source, "failed to read first entry"));
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to read first entry"));
 			},
 		}) else {
 			central_directory.extend_from_slice(&0x0201_4b50_u32.to_le_bytes());
@@ -298,14 +298,14 @@ pub(crate) async fn extract_zip(
 			.entry()
 			.filename()
 			.as_str()
-			.map_err(|source| tg::error!(!source, "failed to get the entry filename"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the entry filename"))?;
 		let path = temp.join(filename);
 
 		// Check if the entry is a directory.
 		let is_dir = entry_reader
 			.entry()
 			.dir()
-			.map_err(|source| tg::error!(!source, "failed to get type of entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to get type of entry"))?;
 
 		// Check if the entry is a symlink.
 		let is_symlink = entry_reader
@@ -322,37 +322,37 @@ pub(crate) async fn extract_zip(
 		if is_dir {
 			tokio::fs::create_dir_all(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
 		} else if is_symlink {
 			let mut buffer = Vec::new();
 			entry_reader
 				.read_to_end(&mut buffer)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read symlink target"))?;
+				.map_err(|error| tg::error!(!error, "failed to read symlink target"))?;
 			let target = std::str::from_utf8(&buffer)
-				.map_err(|source| tg::error!(!source, "symlink target not valid UTF-8"))?;
+				.map_err(|error| tg::error!(!error, "symlink target not valid UTF-8"))?;
 			tokio::fs::symlink(target, &path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 		} else {
 			let parent = path.parent().expect("expected the entry to have a parent");
 			tokio::fs::create_dir_all(parent)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
 			let mut file = tokio::fs::OpenOptions::new()
 				.write(true)
 				.create_new(true)
 				.open(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the file"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the file"))?;
 			tokio::io::copy(&mut entry_reader.compat(), &mut file)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the file"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the file"))?;
 			if is_executable {
 				let permissions = std::fs::Permissions::from_mode(0o755);
 				tokio::fs::set_permissions(&path, permissions)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+					.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 			}
 		}
 
@@ -362,14 +362,14 @@ pub(crate) async fn extract_zip(
 		let value = entry
 			.done()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to advance the reader"))?;
+			.map_err(|error| tg::error!(!error, "failed to advance the reader"))?;
 		zip_reader.replace(value);
 	}
 
 	reader
 		.read_to_end(&mut central_directory)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to read zip central directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to read zip central directory"))?;
 
 	// Get symlinks.
 	let central_directory: &[u8] = &central_directory;
@@ -428,15 +428,15 @@ pub(crate) async fn extract_zip(
 		}
 		let buffer = tokio::fs::read(path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read symlink target"))?;
+			.map_err(|error| tg::error!(!error, "failed to read symlink target"))?;
 		let target = std::str::from_utf8(&buffer)
-			.map_err(|source| tg::error!(!source, "symlink target not valid UTF-8"))?;
+			.map_err(|error| tg::error!(!error, "symlink target not valid UTF-8"))?;
 		tokio::fs::remove_file(path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to remove the symlink placeholder"))?;
+			.map_err(|error| tg::error!(!error, "failed to remove the symlink placeholder"))?;
 		tokio::fs::symlink(target, path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 	}
 
 	Ok(())

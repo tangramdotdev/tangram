@@ -136,7 +136,7 @@ impl Session {
 			.sender
 			.send(Ok(tg::sync::PutMessage::End))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the put end message"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the put end message"))?;
 
 		// Abort the input task.
 		input_task.abort();
@@ -146,7 +146,7 @@ impl Session {
 		progress_task
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the progress task panicked"))?;
+			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
 		Ok(())
 	}

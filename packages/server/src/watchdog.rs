@@ -39,9 +39,9 @@ impl Server {
 					.messenger
 					.subscribe::<()>("watchdog".into())
 					.await
-					.map_err(|source| {
+					.map_err(|error| {
 						tg::error!(
-							!source,
+							!error,
 							"failed to subscribe to the cancellation message stream"
 						)
 					})?;
@@ -57,10 +57,11 @@ impl Server {
 		&self,
 		config: &crate::config::Watchdog,
 	) -> tg::Result<u64> {
-		let connection =
-			self.process_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a process store connection")
-			})?;
+		let connection = self
+			.process_store
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let p = connection.p();
 
 		// Get entries to finish.
@@ -104,7 +105,7 @@ impl Server {
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		drop(connection);
 
@@ -152,7 +153,7 @@ impl Server {
 								.try_finish_process_local(&id, arg, Some(condition))
 								.await
 								.map_err(
-									|source| tg::error!(!source, %id, "failed to finish the process"),
+									|error| tg::error!(!error, %id, "failed to finish the process"),
 								)?
 								.unwrap_or(false);
 							Ok::<_, tg::Error>(finished)
@@ -180,7 +181,7 @@ impl Server {
 								)
 								.await
 								.map_err(
-									|source| tg::error!(!source, %id, "failed to finish the sandbox"),
+									|error| tg::error!(!error, %id, "failed to finish the sandbox"),
 								)?
 								.unwrap_or(false);
 							Ok::<_, tg::Error>(finished)

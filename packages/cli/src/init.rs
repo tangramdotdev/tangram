@@ -13,19 +13,19 @@ impl Cli {
 		// Canonicalize the path's parent.
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 
 		// Create the directory.
 		tokio::fs::create_dir_all(&path)
 			.await
-			.map_err(|source| tg::error!(!source, ?path, "failed to create the directory"))?;
+			.map_err(|error| tg::error!(!error, ?path, "failed to create the directory"))?;
 
 		// Check if there is already a root module for the path.
 		for name in tg::module::ROOT_MODULE_FILE_NAMES {
 			let module_path = path.join(name);
 			let exists = tokio::fs::try_exists(&module_path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to check if the path exists"))?;
+				.map_err(|error| tg::error!(!error, "failed to check if the path exists"))?;
 			if exists {
 				return Err(
 					tg::error!(module_path = %module_path.display(), "found existing root module"),
@@ -54,7 +54,7 @@ impl Cli {
 		// Write the files.
 		for (path, contents) in files {
 			tokio::fs::write(&path, &contents).await.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to write the file"),
+				|error| tg::error!(!error, path = %path.display(), "failed to write the file"),
 			)?;
 		}
 

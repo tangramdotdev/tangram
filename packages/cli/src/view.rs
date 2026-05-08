@@ -114,7 +114,7 @@ impl Cli {
 			Kind::Tag => {
 				let item = args.reference.item();
 				let pattern = item.clone().try_unwrap_tag().map_err(
-					|source| tg::error!(!source, reference = %args.reference, "expected a tag"),
+					|error| tg::error!(!error, reference = %args.reference, "expected a tag"),
 				)?;
 				tg::Referent::with_item(crate::viewer::Item::Tag(pattern.clone()))
 			},

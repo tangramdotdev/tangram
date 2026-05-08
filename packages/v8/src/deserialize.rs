@@ -45,7 +45,7 @@ impl<'a> Deserialize<'a> for bool {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Boolean>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a boolean value"))?;
+			.map_err(|error| tg::error!(!error, "expected a boolean value"))?;
 		let value = value.boolean_value(scope);
 		Ok(value)
 	}
@@ -57,7 +57,7 @@ impl<'a> Deserialize<'a> for u8 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_u8()
@@ -71,7 +71,7 @@ impl<'a> Deserialize<'a> for u16 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_u16()
@@ -85,7 +85,7 @@ impl<'a> Deserialize<'a> for u32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_u32()
@@ -99,7 +99,7 @@ impl<'a> Deserialize<'a> for u64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_u64()
@@ -113,7 +113,7 @@ impl<'a> Deserialize<'a> for usize {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_usize()
@@ -127,7 +127,7 @@ impl<'a> Deserialize<'a> for i8 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_i8()
@@ -141,7 +141,7 @@ impl<'a> Deserialize<'a> for i16 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_i16()
@@ -155,7 +155,7 @@ impl<'a> Deserialize<'a> for i32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_i32()
@@ -169,7 +169,7 @@ impl<'a> Deserialize<'a> for i64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_i64()
@@ -183,7 +183,7 @@ impl<'a> Deserialize<'a> for isize {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_isize()
@@ -197,7 +197,7 @@ impl<'a> Deserialize<'a> for f32 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))?
 			.to_f32()
@@ -211,7 +211,7 @@ impl<'a> Deserialize<'a> for f64 {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a number"))?
+			.map_err(|error| tg::error!(!error, "expected a number"))?
 			.number_value(scope)
 			.ok_or_else(|| tg::error!("expected a number"))
 	}
@@ -281,12 +281,12 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected an array"))?;
+			.map_err(|error| tg::error!(!error, "expected an array"))?;
 		let value0 = value
 			.get_index(scope, 0)
 			.ok_or_else(|| tg::error!("expected a value"))?;
 		let value0 = <_>::deserialize(scope, value0)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the first value"))?;
 		Ok((value0,))
 	}
 }
@@ -301,7 +301,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected an array"))?;
+			.map_err(|error| tg::error!(!error, "expected an array"))?;
 		let value0 = value
 			.get_index(scope, 0)
 			.ok_or_else(|| tg::error!("expected a value"))?;
@@ -309,9 +309,9 @@ where
 			.get_index(scope, 1)
 			.ok_or_else(|| tg::error!("expected a value"))?;
 		let value0 = <_>::deserialize(scope, value0)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the first value"))?;
 		let value1 = <_>::deserialize(scope, value1)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the second value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the second value"))?;
 		Ok((value0, value1))
 	}
 }
@@ -327,7 +327,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected an array"))?;
+			.map_err(|error| tg::error!(!error, "expected an array"))?;
 		let value0 = value
 			.get_index(scope, 0)
 			.ok_or_else(|| tg::error!("expected a value"))?;
@@ -338,11 +338,11 @@ where
 			.get_index(scope, 2)
 			.ok_or_else(|| tg::error!("expected a value"))?;
 		let value0 = <_>::deserialize(scope, value0)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the first value"))?;
 		let value1 = <_>::deserialize(scope, value1)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the second value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the second value"))?;
 		let value2 = <_>::deserialize(scope, value2)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the third value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the third value"))?;
 		Ok((value0, value1, value2))
 	}
 }
@@ -359,7 +359,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected an array"))?;
+			.map_err(|error| tg::error!(!error, "expected an array"))?;
 		let value0 = value
 			.get_index(scope, 0)
 			.ok_or_else(|| tg::error!("expected a value"))?;
@@ -373,13 +373,13 @@ where
 			.get_index(scope, 3)
 			.ok_or_else(|| tg::error!("expected a value"))?;
 		let value0 = <_>::deserialize(scope, value0)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the first value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the first value"))?;
 		let value1 = <_>::deserialize(scope, value1)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the second value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the second value"))?;
 		let value2 = <_>::deserialize(scope, value2)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the third value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the third value"))?;
 		let value3 = <_>::deserialize(scope, value3)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the fourth value"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the fourth value"))?;
 		Ok((value0, value1, value2, value3))
 	}
 }
@@ -393,7 +393,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected an array"))?;
+			.map_err(|error| tg::error!(!error, "expected an array"))?;
 		let len = value.length().to_usize().unwrap();
 		let mut output = Vec::with_capacity(len);
 		for i in 0..len {
@@ -401,7 +401,7 @@ where
 				.get_index(scope, i.to_u32().unwrap())
 				.ok_or_else(|| tg::error!("expected a value"))?;
 			let value = <_>::deserialize(scope, value)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the value"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the value"))?;
 			output.push(value);
 		}
 		Ok(output)
@@ -418,7 +418,7 @@ where
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Object>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected an object"))?;
+			.map_err(|error| tg::error!(!error, "expected an object"))?;
 		let args = v8::GetPropertyNamesArgsBuilder::new()
 			.key_conversion(v8::KeyConversionMode::ConvertToString)
 			.build();
@@ -428,9 +428,9 @@ where
 			let key = property_names.get_index(scope, i).unwrap();
 			let value = value.get(scope, key).unwrap();
 			let key = <_>::deserialize(scope, key)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the key"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the key"))?;
 			let value = <_>::deserialize(scope, value)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the value"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the value"))?;
 			output.insert(key, value);
 		}
 		Ok(output)
@@ -469,7 +469,7 @@ impl<'a> Deserialize<'a> for Bytes {
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(value)
-			.map_err(|source| tg::error!(!source, "expected a Uint8Array"))?;
+			.map_err(|error| tg::error!(!error, "expected a Uint8Array"))?;
 
 		let length = uint8_array.byte_length();
 		let mut buffer = vec![0u8; length];

@@ -74,10 +74,10 @@ impl Cli {
 					PathBuf::from(std::env::var("HOME").unwrap()).join(".local/state"),
 				)
 			})
-			.map_err(|source| tg::error!(!source, "failed to get the state directory"))?
+			.map_err(|error| tg::error!(!error, "failed to get the state directory"))?
 			.join("tangram/shell/state");
 		std::fs::create_dir_all(&path)
-			.map_err(|source| tg::error!(!source, "failed to create the state directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the state directory"))?;
 		let bytes = rand::random::<[u8; 10]>();
 		let bytes = tg::id::ENCODING.encode(&bytes);
 		let name = format!("{bytes}.json");
@@ -92,28 +92,28 @@ impl Cli {
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				return Ok(None);
 			},
-			Err(source) => {
+			Err(error) => {
 				return Err(tg::error!(
-					!source,
+					!error,
 					path = %path.display(),
 					"failed to read the shell state file"
 				));
 			},
 		};
 		let state = serde_json::from_str(&state).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the shell state"),
+			|error| tg::error!(!error, path = %path.display(), "failed to deserialize the shell state"),
 		)?;
 		Ok(Some(state))
 	}
 
 	pub(super) fn write_shell_state(path: &Path, state: &State) -> tg::Result<()> {
 		let json = serde_json::to_vec_pretty(state)
-			.map_err(|source| tg::error!(!source, "failed to serialize the shell state"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the shell state"))?;
 		let temporary = path.with_extension("json.tmp");
 		std::fs::write(&temporary, json)
-			.map_err(|source| tg::error!(!source, "failed to write the shell state file"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the shell state file"))?;
 		std::fs::rename(&temporary, path)
-			.map_err(|source| tg::error!(!source, "failed to commit the shell state file"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the shell state file"))?;
 		Ok(())
 	}
 
@@ -315,9 +315,9 @@ impl Cli {
 			.stderr(Stdio::inherit())
 			.output()
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					path = %path.display(),
 					"failed to spawn the process"
 				)
@@ -342,9 +342,9 @@ impl Cli {
 				continue;
 			};
 			let key = std::str::from_utf8(&record[..index])
-				.map_err(|source| tg::error!(!source, "failed to parse an env key"))?;
+				.map_err(|error| tg::error!(!error, "failed to parse an env key"))?;
 			let value = std::str::from_utf8(&record[index + 1..])
-				.map_err(|source| tg::error!(!source, "failed to parse an env value"))?;
+				.map_err(|error| tg::error!(!error, "failed to parse an env value"))?;
 			if ignored(key) {
 				continue;
 			}

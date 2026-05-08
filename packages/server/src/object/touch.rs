@@ -18,14 +18,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
 					.try_touch_object_local(id)
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
 			{
 				return Ok(Some(output));
 			}
@@ -34,7 +34,7 @@ impl Session {
 				.try_touch_object_regions(id, &local.regions)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, "failed to touch the object in another region"),
+					|error| tg::error!(!error, %id, "failed to touch the object in another region"),
 				)? {
 				return Ok(Some(output));
 			}
@@ -43,7 +43,7 @@ impl Session {
 		if let Some(output) = self
 			.try_touch_object_remotes(id, &locations.remotes)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the object in a remote"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the object in a remote"))?
 		{
 			return Ok(Some(output));
 		}
@@ -58,7 +58,7 @@ impl Session {
 			.index
 			.touch_object(id, touched_at, self.server.config.object.time_to_touch)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
 		else {
 			return Ok(None);
 		};
@@ -82,8 +82,8 @@ impl Session {
 					break;
 				},
 				Ok(None) => (),
-				Err(source) => {
-					result = Err(source);
+				Err(error) => {
+					result = Err(error);
 				},
 			}
 		}
@@ -99,7 +99,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, %id, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -108,7 +108,7 @@ impl Session {
 			location: Some(location.into()),
 		};
 		let Some(()) = client.try_touch_object(id, arg).await.map_err(
-			|source| tg::error!(!source, %id, region = %region, "failed to touch the object"),
+			|error| tg::error!(!error, %id, region = %region, "failed to touch the object"),
 		)?
 		else {
 			return Ok(None);
@@ -133,8 +133,8 @@ impl Session {
 					break;
 				},
 				Ok(None) => (),
-				Err(source) => {
-					result = Err(source);
+				Err(error) => {
+					result = Err(error);
 				},
 			}
 		}
@@ -150,7 +150,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::object::touch::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -160,7 +160,7 @@ impl Session {
 			])),
 		};
 		let Some(()) = client.try_touch_object(id, arg).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote.name, "failed to touch the object"),
+			|error| tg::error!(!error, %id, remote = %remote.name, "failed to touch the object"),
 		)?
 		else {
 			return Ok(None);
@@ -177,24 +177,24 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the object id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
 
 		// Get the arg.
 		let arg = request
 			.json_or_default()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Touch the object.
 		let Some(()) = self
 			.try_touch_object(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

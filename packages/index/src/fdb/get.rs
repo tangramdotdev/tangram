@@ -19,7 +19,7 @@ impl Index {
 		let txn = self
 			.database
 			.create_trx()
-			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 
 		let outputs = futures::future::try_join_all(
 			ids.iter()
@@ -38,7 +38,7 @@ impl Index {
 		let txn = self
 			.database
 			.create_trx()
-			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 
 		let outputs = futures::future::try_join_all(
 			ids.iter()
@@ -60,7 +60,7 @@ impl Index {
 		let txn = self
 			.database
 			.create_trx()
-			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 
 		let outputs = futures::future::try_join_all(
 			ids.iter()
@@ -81,7 +81,7 @@ impl Index {
 		let bytes = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the cache entry"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cache entry"))?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
@@ -98,7 +98,7 @@ impl Index {
 		let bytes = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
@@ -115,7 +115,7 @@ impl Index {
 		let bytes = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
@@ -139,7 +139,7 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object children"))?;
+			.map_err(|error| tg::error!(!error, "failed to get object children"))?;
 
 		let children = entries
 			.iter()
@@ -172,7 +172,7 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object parents"))?;
+			.map_err(|error| tg::error!(!error, "failed to get object parents"))?;
 
 		let parents = entries
 			.iter()
@@ -205,7 +205,7 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object process parents"))?;
+			.map_err(|error| tg::error!(!error, "failed to get object process parents"))?;
 
 		let processes = entries
 			.iter()
@@ -238,7 +238,7 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get process children"))?;
+			.map_err(|error| tg::error!(!error, "failed to get process children"))?;
 
 		let children = entries
 			.iter()
@@ -271,7 +271,7 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get process parents"))?;
+			.map_err(|error| tg::error!(!error, "failed to get process parents"))?;
 
 		let parents = entries
 			.iter()
@@ -304,7 +304,7 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get process objects"))?;
+			.map_err(|error| tg::error!(!error, "failed to get process objects"))?;
 
 		let objects = entries
 			.iter()

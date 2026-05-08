@@ -44,12 +44,12 @@ impl Session {
 			},
 			None => compiler.serve(input, output).await,
 		};
-		result.map_err(|source| tg::error!(!source, "failed to serve the lsp"))?;
+		result.map_err(|error| tg::error!(!error, "failed to serve the lsp"))?;
 		compiler.stop();
 		compiler
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the compiler"))?;
+			.map_err(|error| tg::error!(!error, "failed to wait for the compiler"))?;
 		Ok(())
 	}
 
@@ -83,7 +83,7 @@ impl Session {
 			async move {
 				let io = hyper::upgrade::on(request)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to perform the upgrade"))?;
+					.map_err(|error| tg::error!(!error, "failed to perform the upgrade"))?;
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);

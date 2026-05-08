@@ -129,18 +129,18 @@ impl Server {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id: tg::process::Id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let arg: crate::client::stdio::Arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or(crate::client::stdio::Arg {
 				streams: Vec::new(),
 			});
 		let stream = self
 			.read_stdio(id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to handle stdio"))?;
+			.map_err(|error| tg::error!(!error, "failed to handle stdio"))?;
 		let stream = stream.map(
 			|result: tg::Result<tg::process::stdio::read::Event>| match result {
 				Ok(event) => event.try_into(),

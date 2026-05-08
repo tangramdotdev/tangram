@@ -68,7 +68,7 @@ impl Stdio {
 				Ok::<_, tg::Error>(stream)
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))??;
+			.map_err(|error| tg::error!(!error, "the task panicked"))??;
 		let Some(stream) = stream else {
 			return Ok(None);
 		};
@@ -114,7 +114,7 @@ impl Stdio {
 		writer
 			.task
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
 	}
 
 	pub async fn process_stdio_write_open(
@@ -154,6 +154,6 @@ impl Stdio {
 		sender
 			.send(Ok(event))
 			.await
-			.map_err(|source| tg::error!(!source, %token, "failed to send the process stdio event"))
+			.map_err(|error| tg::error!(!error, %token, "failed to send the process stdio event"))
 	}
 }

@@ -23,7 +23,7 @@ impl Cli {
 		let command = command
 			.store_with_handle(&client)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
+			.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
 		let args = crate::process::build::Args {
 			options: args.build,

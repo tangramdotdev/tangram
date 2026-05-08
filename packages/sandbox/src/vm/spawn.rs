@@ -72,5 +72,5 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		.stderr(std::process::Stdio::inherit());
 	command
 		.spawn()
-		.map_err(|source| tg::error!(!source, "failed to spawn sandbox vm"))
+		.map_err(|error| tg::error!(!error, "failed to spawn sandbox vm"))
 }

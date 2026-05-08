@@ -47,12 +47,12 @@ impl Tap {
 		let raw = fd.as_raw_fd();
 		let flags = unsafe { libc::fcntl(raw, libc::F_GETFD) };
 		if flags < 0 {
-			let source = std::io::Error::last_os_error();
-			return Err(tg::error!(!source, "failed to get tap fd flags"));
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(!error, "failed to get tap fd flags"));
 		}
 		if unsafe { libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
-			let source = std::io::Error::last_os_error();
-			return Err(tg::error!(!source, "failed to clear O_CLOEXEC on tap fd"));
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(!error, "failed to clear O_CLOEXEC on tap fd"));
 		}
 
 		Ok(Tap {
@@ -102,13 +102,13 @@ impl Bridge {
 		netlink.link_set_up(&host_name)?;
 
 		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair()
-			.map_err(|source| tg::error!(!source, "failed to create socket pair"))?;
+			.map_err(|error| tg::error!(!error, "failed to create socket pair"))?;
 		let guest_pipe = guest_pipe
 			.into_std()
-			.map_err(|source| tg::error!(!source, "failed to create the guest pipe"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the guest pipe"))?;
 		guest_pipe
 			.set_nonblocking(false)
-			.map_err(|source| tg::error!(!source, "failed to set the pipe as non blocking"))?;
+			.map_err(|error| tg::error!(!error, "failed to set the pipe as non blocking"))?;
 
 		unsafe {
 			let raw = guest_pipe.as_raw_fd();
@@ -141,14 +141,14 @@ impl Bridge {
 		self.host_pipe
 			.read_u8()
 			.await
-			.map_err(|source| tg::error!(!source, "child process failed"))?;
+			.map_err(|error| tg::error!(!error, "child process failed"))?;
 		let pid = u32::try_from(child)
-			.map_err(|source| tg::error!(!source, "the child pid does not fit in a u32"))?;
+			.map_err(|error| tg::error!(!error, "the child pid does not fit in a u32"))?;
 		self.netlink.link_set_netns_pid(&self.guest_name, pid)?;
 		self.host_pipe
 			.write_u8(0)
 			.await
-			.map_err(|source| tg::error!(!source, "child process failed"))?;
+			.map_err(|error| tg::error!(!error, "child process failed"))?;
 		Ok(())
 	}
 }
@@ -264,8 +264,8 @@ fn tap_name(id: &str) -> String {
 fn open_tap(name: &str) -> tg::Result<OwnedFd> {
 	let fd = unsafe { libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_NONBLOCK) };
 	if fd < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to open /dev/net/tun"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to open /dev/net/tun"));
 	}
 	let tap = unsafe { OwnedFd::from_raw_fd(fd) };
 
@@ -284,15 +284,15 @@ fn open_tap(name: &str) -> tg::Result<OwnedFd> {
 			libc::c_short::try_from(libc::IFF_TAP | libc::IFF_NO_PI | libc::IFF_VNET_HDR).unwrap();
 	}
 	if unsafe { libc::ioctl(tap.as_raw_fd(), TUNSETIFF, std::ptr::addr_of_mut!(ifr)) } < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "TUNSETIFF failed"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "TUNSETIFF failed"));
 	}
 	Ok(tap)
 }
 
 fn enable_ipv4_forwarding() -> tg::Result<()> {
 	std::fs::write("/proc/sys/net/ipv4/ip_forward", "1\n")
-		.map_err(|source| tg::error!(!source, "failed to enable ipv4 forwarding"))
+		.map_err(|error| tg::error!(!error, "failed to enable ipv4 forwarding"))
 }
 
 fn ensure_iptables_rules() -> tg::Result<()> {
@@ -344,7 +344,7 @@ fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 		.args(&check)
 		.stderr(std::process::Stdio::piped())
 		.output()
-		.map_err(|source| tg::error!(!source, "failed to spawn iptables"))?;
+		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if output.status.success() {
 		return Ok(());
 	}
@@ -357,7 +357,7 @@ fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 		.args(&insert)
 		.stderr(std::process::Stdio::piped())
 		.output()
-		.map_err(|source| tg::error!(!source, "failed to spawn iptables"))?;
+		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		let rule = rule.join(" ");
@@ -378,12 +378,12 @@ fn delete_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 			.output()
 		{
 			Ok(output) => output,
-			Err(source) => {
-				if source.kind() == std::io::ErrorKind::NotFound {
+			Err(error) => {
+				if error.kind() == std::io::ErrorKind::NotFound {
 					tracing::warn!("iptables not found; skipping rule cleanup");
 					return Ok(());
 				}
-				return Err(tg::error!(!source, "failed to spawn iptables"));
+				return Err(tg::error!(!error, "failed to spawn iptables"));
 			},
 		};
 		if output.status.success() {
@@ -406,12 +406,12 @@ fn delete_bridge_masquerade_rules(bridge: &str) -> tg::Result<()> {
 		.output()
 	{
 		Ok(output) => output,
-		Err(source) => {
-			if source.kind() == std::io::ErrorKind::NotFound {
+		Err(error) => {
+			if error.kind() == std::io::ErrorKind::NotFound {
 				tracing::warn!("iptables not found; skipping rule cleanup");
 				return Ok(());
 			}
-			return Err(tg::error!(!source, "failed to spawn iptables"));
+			return Err(tg::error!(!error, "failed to spawn iptables"));
 		},
 	};
 	if !output.status.success() {
@@ -438,7 +438,7 @@ fn delete_bridge_masquerade_rules(bridge: &str) -> tg::Result<()> {
 			.output()
 		{
 			Ok(output) => output,
-			Err(source) => return Err(tg::error!(!source, "failed to spawn iptables")),
+			Err(error) => return Err(tg::error!(!error, "failed to spawn iptables")),
 		};
 		if output.status.success() {
 			continue;

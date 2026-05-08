@@ -336,7 +336,7 @@ impl<O> Process<O> {
 	{
 		if let Some(pid) = self.id().left() {
 			let pid = i32::try_from(*pid)
-				.map_err(|source| tg::error!(!source, "failed to convert the process id"))?;
+				.map_err(|error| tg::error!(!error, "failed to convert the process id"))?;
 			let signal = i32::from(signal as u8);
 			let ret = unsafe { libc::kill(pid, signal) };
 			if ret < 0 {
@@ -375,13 +375,13 @@ impl<O> Process<O> {
 		if let Some(task) = self.stdio_task.as_ref() {
 			task.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "the stdio task panicked"))??;
+				.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
 		}
 		if let Some(task) = &self.task {
 			let output = task
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "the task panicked"))??;
+				.map_err(|error| tg::error!(!error, "the task panicked"))??;
 			return output.try_into();
 		}
 		if let Some(wait) = self.wait.lock().unwrap().take() {
@@ -425,7 +425,7 @@ impl<O> Process<O> {
 		let output = wait.into_output()?;
 		output
 			.try_into()
-			.map_err(|source| tg::error!(source = source, "failed to convert the process output"))
+			.map_err(|error| tg::error!(source = error, "failed to convert the process output"))
 	}
 }
 

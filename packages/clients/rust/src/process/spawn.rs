@@ -174,7 +174,7 @@ where
 		builder = builder.cwd(cwd);
 	} else if !sandboxed && !command_has_cwd {
 		let cwd = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
 		builder = builder.cwd(cwd);
 	}
 
@@ -408,7 +408,7 @@ impl<O: 'static> tg::Process<O> {
 			let mut object = tg::Command::with_id(arg.command.item.clone())
 				.object_with_handle(&handle)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to load the command"))?
+				.map_err(|error| tg::error!(!error, "failed to load the command"))?
 				.as_ref()
 				.clone();
 			let mut changed = false;
@@ -426,7 +426,7 @@ impl<O: 'static> tg::Process<O> {
 				let id = tg::Command::with_object(object)
 					.store_with_handle(&handle)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to store the command"))?;
+					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 				arg.command.item = id;
 			}
 		}
@@ -515,7 +515,7 @@ impl<O: 'static> tg::Process<O> {
 		let command = tg::Command::with_id(arg.command.item().clone())
 			.data_with_handle(handle)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to load the command"))?;
+			.map_err(|error| tg::error!(!error, "failed to load the command"))?;
 		if command.stdin.is_some() {
 			return Err(tg::error!(
 				"command stdin blobs are not supported for unsandboxed processes"
@@ -528,10 +528,10 @@ impl<O: 'static> tg::Process<O> {
 		}
 
 		let temp = tangram_util::fs::Temp::new()
-			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		tokio::fs::create_dir(temp.path())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
 		let artifacts = checkout_artifacts(handle, &command).await?;
 		let env = render_env(handle, &command.env, &artifacts, &output_path)?;
@@ -580,9 +580,9 @@ impl<O: 'static> tg::Process<O> {
 			tg::process::stdio::Stream::Stderr,
 		)?);
 
-		let mut child = command_.spawn().map_err(|source| {
+		let mut child = command_.spawn().map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				executable = %prepared.executable.display(),
 				"failed to spawn the process"
 			)
@@ -656,7 +656,7 @@ impl<O: 'static> tg::Process<O> {
 		let status = child
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to wait for the process"))?;
 		let exit = exit_status_to_code(status)?;
 		let mut output = tg::process::wait::Output {
 			error: None,
@@ -666,42 +666,39 @@ impl<O: 'static> tg::Process<O> {
 
 		let exists = tokio::fs::try_exists(&output_path)
 			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to determine if the output path exists")
-			})?;
+			.map_err(|error| tg::error!(!error, "failed to determine if the output path exists"))?;
 
 		if exists {
 			let output_bytes = xattr::get(&output_path, "user.tangram.output")
-				.map_err(|source| tg::error!(!source, "failed to read the output xattr"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the output xattr"))?;
 			if let Some(bytes) = output_bytes {
 				let tgon = String::from_utf8(bytes)
-					.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
+					.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
 				output.output = Some(
 					tgon.parse::<tg::Value>()
-						.map_err(|source| tg::error!(!source, "failed to parse the output xattr"))?
+						.map_err(|error| tg::error!(!error, "failed to parse the output xattr"))?
 						.to_data(),
 				);
 			}
 
 			let error_bytes = xattr::get(&output_path, "user.tangram.error")
-				.map_err(|source| tg::error!(!source, "failed to read the error xattr"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the error xattr"))?;
 			if let Some(bytes) = error_bytes {
 				let error = if let Ok(error) =
 					serde_json::from_slice::<tg::Either<tg::error::Data, tg::error::Id>>(&bytes)
 				{
 					match error {
-						tg::Either::Left(data) => tg::Error::try_from(data).map_err(|source| {
-							tg::error!(!source, "failed to convert the error data")
+						tg::Either::Left(data) => tg::Error::try_from(data).map_err(|error| {
+							tg::error!(!error, "failed to convert the error data")
 						})?,
 						tg::Either::Right(id) => tg::Error::with_id(id),
 					}
 				} else {
-					let id = String::from_utf8(bytes).map_err(|source| {
-						tg::error!(!source, "failed to decode the error xattr")
-					})?;
+					let id = String::from_utf8(bytes)
+						.map_err(|error| tg::error!(!error, "failed to decode the error xattr"))?;
 					let id = id
 						.parse()
-						.map_err(|source| tg::error!(!source, "failed to parse the error xattr"))?;
+						.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
 					tg::Error::with_id(id)
 				};
 				output.error = Some(error.to_data_or_id());
@@ -726,7 +723,7 @@ impl<O: 'static> tg::Process<O> {
 				},
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
+			.map_err(|error| tg::error!(!error, "failed to check in the output"))?;
 			output.output = Some(tg::Value::from(artifact).to_data());
 		}
 
@@ -755,21 +752,22 @@ impl tg::Session {
 				mime::APPLICATION_JSON.to_string(),
 			)
 			.json(arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send_with_retry(request)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		if !response.status().is_success() {
-			let error = response.json().await.map_err(|source| {
-				tg::error!(!source, "failed to deserialize the error response")
-			})?;
+			let error = response
+				.json()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
 			return Err(error);
 		}
 		let stream = response
 			.sse()
-			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
 					if event.event.as_deref().is_some_and(|event| event == "error") {
@@ -812,7 +810,7 @@ where
 			},
 		)
 		.await
-		.map_err(|source| tg::error!(!source, %artifact, "failed to check out the artifact"))?;
+		.map_err(|error| tg::error!(!error, %artifact, "failed to check out the artifact"))?;
 		output.insert(artifact, path);
 	}
 	Ok(output)
@@ -1044,14 +1042,14 @@ fn convert_stdio(
 fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 	if let Some(code) = status.code() {
 		return u8::try_from(code)
-			.map_err(|source| tg::error!(!source, "failed to convert the exit code"));
+			.map_err(|error| tg::error!(!error, "failed to convert the exit code"));
 	}
 	if let Some(signal) = status.signal() {
 		let code = signal
 			.checked_add(128)
 			.ok_or_else(|| tg::error!("failed to convert the signal"))?;
 		return u8::try_from(code)
-			.map_err(|source| tg::error!(!source, "failed to convert the signal"));
+			.map_err(|error| tg::error!(!error, "failed to convert the signal"));
 	}
 	Err(tg::error!("failed to determine the exit status"))
 }

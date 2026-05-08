@@ -18,14 +18,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(metadata) = self
 					.try_get_process_metadata_local(id)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get the process metadata"))?
+					.map_err(|error| tg::error!(!error, "failed to get the process metadata"))?
 			{
 				return Ok(Some(metadata));
 			}
@@ -33,9 +33,9 @@ impl Session {
 			if let Some(metadata) = self
 				.try_get_process_metadata_regions(id, &local.regions)
 				.await
-				.map_err(|source| {
+				.map_err(|error| {
 					tg::error!(
-						!source,
+						!error,
 						"failed to get the process metadata from another region"
 					)
 				})? {
@@ -46,8 +46,8 @@ impl Session {
 		if let Some(metadata) = self
 			.try_get_process_metadata_remotes(id, &locations.remotes)
 			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to get the process metadata from a remote")
+			.map_err(|error| {
+				tg::error!(!error, "failed to get the process metadata from a remote")
 			})? {
 			return Ok(Some(metadata));
 		}
@@ -115,7 +115,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -124,7 +124,7 @@ impl Session {
 			location: Some(location.into()),
 		};
 		let Some(metadata) = client.try_get_process_metadata(id, arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the process metadata"),
+			|error| tg::error!(!error, region = %region, "failed to get the process metadata"),
 		)?
 		else {
 			return Ok(None);
@@ -166,7 +166,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::metadata::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -176,7 +176,7 @@ impl Session {
 			])),
 		};
 		let Some(metadata) = client.try_get_process_metadata(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the process metadata"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the process metadata"),
 		)?
 		else {
 			return Ok(None);
@@ -193,18 +193,18 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the process id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// Get the process metadata.

@@ -56,7 +56,7 @@ impl Session {
 		let blob = self
 			.write_inner(reader, Some(&destination))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write the blob"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the blob"))?;
 		let blob = Arc::new(blob);
 
 		// Rename the temp file to the cache directory if necessary.
@@ -83,9 +83,9 @@ impl Session {
 							| std::io::ErrorKind::IsADirectory
 							| std::io::ErrorKind::PermissionDenied
 					) => {},
-				Err(source) => {
+				Err(error) => {
 					return Err(tg::error!(
-						!source,
+						!error,
 						"failed to rename the file to the blobs directory"
 					));
 				},
@@ -98,12 +98,12 @@ impl Session {
 		// Store.
 		self.write_store(&blob, cache_pointer.clone(), touched_at)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to store the blob"))?;
+			.map_err(|error| tg::error!(!error, "failed to store the blob"))?;
 
 		// Publish index messages.
 		self.write_index(&blob, cache_pointer.clone(), touched_at)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to index the blob"))?;
+			.map_err(|error| tg::error!(!error, "failed to index the blob"))?;
 
 		// Create the output.
 		let output = tg::write::Output {
@@ -134,7 +134,7 @@ impl Session {
 			Some(
 				tokio::fs::File::create_new(temp.path())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to create the file"))?,
+					.map_err(|error| tg::error!(!error, "failed to create the file"))?,
 			)
 		} else {
 			None
@@ -145,7 +145,7 @@ impl Session {
 		while let Some(chunk) = stream
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read from the reader"))?
+			.map_err(|error| tg::error!(!error, "failed to read from the reader"))?
 		{
 			// Create the leaf.
 			let blob = Self::write_inner_leaf(&chunk);
@@ -158,7 +158,7 @@ impl Session {
 						.unwrap()
 						.write_all(&chunk.data)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
+						.map_err(|error| tg::error!(!error, "failed to write to the file"))?;
 				},
 				Some(Destination::Store { stored_at }) => {
 					let mut bytes = vec![0];
@@ -173,7 +173,7 @@ impl Session {
 						.object_store
 						.put(arg)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
+						.map_err(|error| tg::error!(!error, "failed to store the leaf"))?;
 				},
 			}
 
@@ -184,7 +184,7 @@ impl Session {
 		if let Some(mut file) = file {
 			file.flush()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to flush the file"))?;
+				.map_err(|error| tg::error!(!error, "failed to flush the file"))?;
 			drop(file);
 		}
 
@@ -231,7 +231,7 @@ impl Session {
 		let mut file = if let Some(Destination::Temp(temp)) = destination {
 			Some(
 				std::fs::File::create_new(temp.path())
-					.map_err(|source| tg::error!(!source, "failed to create the file"))?,
+					.map_err(|error| tg::error!(!error, "failed to create the file"))?,
 			)
 		} else {
 			None
@@ -241,7 +241,7 @@ impl Session {
 		let mut blobs = Vec::new();
 		for chunk in &mut chunker {
 			let chunk =
-				chunk.map_err(|source| tg::error!(!source, "failed to read from the reader"))?;
+				chunk.map_err(|error| tg::error!(!error, "failed to read from the reader"))?;
 
 			// Create the leaf.
 			let blob = Self::write_inner_leaf(&chunk);
@@ -253,7 +253,7 @@ impl Session {
 					file.as_mut()
 						.unwrap()
 						.write_all(&chunk.data)
-						.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
+						.map_err(|error| tg::error!(!error, "failed to write to the file"))?;
 				},
 				Some(Destination::Store { stored_at }) => {
 					let mut bytes = vec![0];
@@ -267,7 +267,7 @@ impl Session {
 					self.server
 						.object_store
 						.put_sync(arg)
-						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
+						.map_err(|error| tg::error!(!error, "failed to store the leaf"))?;
 				},
 			}
 
@@ -277,7 +277,7 @@ impl Session {
 		// Flush and close the file if necessary.
 		if let Some(mut file) = file {
 			file.flush()
-				.map_err(|source| tg::error!(!source, "failed to flush the file"))?;
+				.map_err(|error| tg::error!(!error, "failed to flush the file"))?;
 			drop(file);
 		}
 
@@ -443,7 +443,7 @@ impl Session {
 			.object_store
 			.put_batch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
+			.map_err(|error| tg::error!(!error, "failed to store the objects"))?;
 		Ok(())
 	}
 
@@ -568,20 +568,20 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params::<tg::write::Arg>()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// Write.
 		let output = self
 			.write(arg, request.reader())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write"))?;
+			.map_err(|error| tg::error!(!error, "failed to write"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

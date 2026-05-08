@@ -20,7 +20,7 @@ impl Cli {
 		let output = client
 			.list_processes(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the processes"))?;
+			.map_err(|error| tg::error!(!error, "failed to list the processes"))?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

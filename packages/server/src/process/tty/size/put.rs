@@ -45,7 +45,7 @@ impl Session {
 		let Some(output) = self
 			.try_get_process_local(id, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 		else {
 			return Ok(None);
 		};
@@ -63,7 +63,7 @@ impl Session {
 			.messenger
 			.publish(format!("processes.{id}.tty"), payload)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to update the tty size"))?;
+			.map_err(|error| tg::error!(!error, "failed to update the tty size"))?;
 
 		Ok(Some(()))
 	}
@@ -75,7 +75,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -85,7 +85,7 @@ impl Session {
 			location: Some(location.into()),
 		};
 		let Some(()) = client.try_set_process_tty_size(id, arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to put the process tty"),
+			|error| tg::error!(!error, region = %region, "failed to put the process tty"),
 		)?
 		else {
 			return Ok(None);
@@ -101,14 +101,14 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, %id, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::tty::size::put::Arg {
 			size,
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 		};
 		let Some(()) = client.try_set_process_tty_size(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to put the process tty"),
+			|error| tg::error!(!error, remote = %remote, "failed to put the process tty"),
 		)?
 		else {
 			return Ok(None);
@@ -125,24 +125,24 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the process id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Put the process tty.
 		let Some(()) = self
 			.try_set_process_tty_size(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to put the process tty"))?
+			.map_err(|error| tg::error!(!error, "failed to put the process tty"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

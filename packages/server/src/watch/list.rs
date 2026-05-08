@@ -32,20 +32,20 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// List the watches.
 		let output = self
 			.list_watches(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the watches"))?;
+			.map_err(|error| tg::error!(!error, "failed to list the watches"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

@@ -33,7 +33,7 @@ impl Server {
 			.messenger
 			.subscribe_with_delivery::<()>(subject.into(), Delivery::One)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 			.map(|_| ());
 		let interval = config.message_batch_timeout.max(Duration::from_millis(1));
 		let interval = IntervalStream::new(tokio::time::interval(interval))
@@ -107,11 +107,11 @@ impl Server {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to acquire a transaction"))?;
 		let p = transaction.p();
 
 		let statement = formatdoc!(
@@ -127,7 +127,7 @@ impl Server {
 		let n = transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if n == 0 {
 			let statement = formatdoc!(
 				"
@@ -140,7 +140,7 @@ impl Server {
 			let exists = transaction
 				.query_one_value_into::<bool>(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if exists {
 				return Err(tg::error!("failed to delete the finished sandbox"));
 			}
@@ -160,7 +160,7 @@ impl Server {
 		let n = transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if n != 1 {
 			return Err(tg::error!(
 				"failed to update the sandbox finalize queue entry"
@@ -177,7 +177,7 @@ impl Server {
 		let n = transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if n != 1 {
 			return Err(tg::error!(
 				"failed to delete the sandbox finalize queue entry"
@@ -187,7 +187,7 @@ impl Server {
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		Ok(())
 	}

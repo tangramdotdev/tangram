@@ -41,14 +41,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
 					.try_get_object_local(id, arg.metadata)
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			{
 				return Ok(Some(output));
 			}
@@ -57,7 +57,7 @@ impl Session {
 				.try_get_object_regions(id, &local.regions, arg.metadata)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, "failed to get the object from another region"),
+					|error| tg::error!(!error, %id, "failed to get the object from another region"),
 				)? {
 				return Ok(Some(output));
 			}
@@ -66,7 +66,7 @@ impl Session {
 		if let Some(output) = self
 			.try_get_object_remotes(id, &locations.remotes, arg.metadata)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object from a remote"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object from a remote"))?
 		{
 			return Ok(Some(output));
 		}
@@ -155,12 +155,12 @@ impl Session {
 		let outputs = self
 			.try_get_object_batch_local(ids, metadata)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the objects locally"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
 		let locations = self
 			.server
 			.locations(None)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
 		let remotes = locations.remotes;
 		let outputs = std::iter::zip(ids, outputs)
@@ -295,7 +295,7 @@ impl Session {
 			.try_get_object_location(id, location, metadata)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %id, region = %region, "failed to get the object"),
+				|error| tg::error!(!error, %id, region = %region, "failed to get the object"),
 			)?
 		else {
 			return Ok(None);
@@ -348,9 +348,9 @@ impl Session {
 		let Some(output) = self
 			.try_get_object_location(id, location, metadata)
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					%id,
 					remote = %remote.name,
 					"failed to get the object"
@@ -389,7 +389,7 @@ impl Session {
 			});
 		task.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the get object task panicked"))?
+			.map_err(|error| tg::error!(!error, "the get object task panicked"))?
 	}
 
 	async fn try_get_object_from_location_task_inner(
@@ -408,7 +408,7 @@ impl Session {
 					.as_ref()
 					.ok_or_else(|| tg::error!("expected the region to be set"))?;
 				let client = self.get_region_session(region.clone()).await.map_err(
-					|source| tg::error!(!source, region = %region, "failed to get the region client"),
+					|error| tg::error!(!error, region = %region, "failed to get the region client"),
 				)?;
 				let location = tg::Location::Local(tg::location::Local {
 					region: Some(region.to_owned()),
@@ -418,16 +418,16 @@ impl Session {
 					metadata,
 				};
 				client.try_get_object(&id, arg).await.map_err(
-					|source| tg::error!(!source, %id, region = %region, "failed to get the object"),
+					|error| tg::error!(!error, %id, region = %region, "failed to get the object"),
 				)
 			},
 			tg::Location::Remote(remote) => {
 				let client =
 					self.get_remote_session(remote.name.clone())
 						.await
-						.map_err(|source| {
+						.map_err(|error| {
 							tg::error!(
-								!source,
+								!error,
 								remote = %remote.name,
 								"failed to get the remote client"
 							)
@@ -445,7 +445,7 @@ impl Session {
 					metadata,
 				};
 				client.try_get_object(&id, arg).await.map_err(
-					|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the object"),
+					|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the object"),
 				)
 			},
 		}
@@ -496,13 +496,13 @@ impl Session {
 		// Seek.
 		file.seek(std::io::SeekFrom::Start(cache_pointer.position))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to seek in the file"))?;
+			.map_err(|error| tg::error!(!error, "failed to seek in the file"))?;
 
 		// Read.
 		let mut buffer = vec![0; 1 + cache_pointer.length.to_usize().unwrap()];
 		file.read_exact(&mut buffer[1..])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the leaf from the file"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the leaf from the file"))?;
 
 		Ok(Some(buffer.into()))
 	}
@@ -526,7 +526,7 @@ impl Session {
 					path = path.join(path_);
 				}
 				let file_ = std::fs::File::open(&path).map_err(
-					|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
+					|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 				)?;
 				cache_file.replace(CacheFile {
 					artifact: cache_pointer.artifact.clone(),
@@ -540,13 +540,13 @@ impl Session {
 		let file_handle = &mut cache_file.as_mut().unwrap().file;
 		file_handle
 			.seek(std::io::SeekFrom::Start(cache_pointer.position))
-			.map_err(|source| tg::error!(!source, "failed to seek the cache file"))?;
+			.map_err(|error| tg::error!(!error, "failed to seek the cache file"))?;
 
 		// Read.
 		let mut buffer = vec![0u8; 1 + cache_pointer.length.to_usize().unwrap()];
 		file_handle
 			.read_exact(&mut buffer[1..])
-			.map_err(|source| tg::error!(!source, "failed to read from the cache file"))?;
+			.map_err(|error| tg::error!(!error, "failed to read from the cache file"))?;
 
 		Ok(Some(buffer.into()))
 	}
@@ -560,18 +560,18 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the object id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// Get the object.
@@ -602,7 +602,7 @@ impl Session {
 		if let Some(metadata) = &output.metadata {
 			response = response
 				.header_json(tg::object::get::METADATA_HEADER, metadata)
-				.map_err(|source| tg::error!(!source, "failed to serialize the metadata"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 		}
 		let response = response.bytes(output.bytes).unwrap().boxed_body();
 

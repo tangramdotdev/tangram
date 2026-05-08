@@ -35,7 +35,7 @@ impl Session {
 
 		// Deserialize the lock.
 		let lock = serde_json::from_slice::<tg::graph::Data>(&contents).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the lock"),
+			|error| tg::error!(!error, path = %path.display(), "failed to deserialize the lock"),
 		)?;
 
 		Ok(Some(lock))
@@ -52,8 +52,8 @@ impl Session {
 			{
 				Ok(None)
 			},
-			Err(source) => {
-				Err(tg::error!(!source, path = %path.display(), "failed to read the lockfile"))
+			Err(error) => {
+				Err(tg::error!(!error, path = %path.display(), "failed to read the lockfile"))
 			},
 		}
 	}
@@ -135,12 +135,12 @@ impl Session {
 
 				// Serialize the lock.
 				let contents = serde_json::to_vec_pretty(&lock)
-					.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
 
 				// Write the lockfile.
 				tokio::fs::write(&lockfile_path, contents)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the lock"))?;
 			},
 
 			Variant::File(_) => {
@@ -175,14 +175,12 @@ impl Session {
 						}
 
 						// Serialize the lock.
-						let contents = serde_json::to_vec(&lock).map_err(|source| {
-							tg::error!(!source, "failed to serialize the lock")
-						})?;
+						let contents = serde_json::to_vec(&lock)
+							.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
 
 						// Write the lockattr.
-						xattr::set(root, tg::file::LOCK_XATTR_NAME, &contents).map_err(
-							|source| tg::error!(!source, "failed to write the lockattr"),
-						)?;
+						xattr::set(root, tg::file::LOCK_XATTR_NAME, &contents)
+							.map_err(|error| tg::error!(!error, "failed to write the lockattr"))?;
 					},
 
 					tg::checkin::Lock::File => {
@@ -201,14 +199,13 @@ impl Session {
 						}
 
 						// Serialize the lock.
-						let contents = serde_json::to_vec_pretty(&lock).map_err(|source| {
-							tg::error!(!source, "failed to serialize the lock")
-						})?;
+						let contents = serde_json::to_vec_pretty(&lock)
+							.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
 
 						// Write the lockfile.
 						tokio::fs::write(&lockfile_path, contents)
 							.await
-							.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
+							.map_err(|error| tg::error!(!error, "failed to write the lock"))?;
 					},
 
 					tg::checkin::Lock::Auto => unreachable!(),

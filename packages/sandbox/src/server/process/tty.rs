@@ -53,18 +53,18 @@ impl Server {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id: tg::process::Id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the body"))?;
 
 		// Set the tty size.
 		self.set_tty_size(id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to set the tty size"))?;
+			.map_err(|error| tg::error!(!error, "failed to set the tty size"))?;
 
 		let response = http::Response::builder().empty().unwrap().boxed_body();
 

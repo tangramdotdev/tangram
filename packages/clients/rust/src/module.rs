@@ -196,10 +196,10 @@ where
 			tg::Either::Left(directory) => directory
 				.try_get_entry_with_handle(handle, name_)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the entry"))?
+				.map_err(|error| tg::error!(!error, "failed to get the entry"))?
 				.is_some(),
 			tg::Either::Right(path) => tokio::fs::try_exists(path.join(*name_)).await.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
+				|error| tg::error!(!error, path = %path.display(), "failed to get the metadata"),
 			)?,
 		};
 		if exists {
@@ -216,7 +216,7 @@ pub fn try_get_root_module_file_name_sync(path: &Path) -> tg::Result<Option<&'st
 	let mut name = None;
 	for name_ in tg::module::ROOT_MODULE_FILE_NAMES {
 		let exists = path.join(name_).try_exists().map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
+			|error| tg::error!(!error, path = %path.display(), "failed to get the metadata"),
 		)?;
 		if exists {
 			if name.is_some() {

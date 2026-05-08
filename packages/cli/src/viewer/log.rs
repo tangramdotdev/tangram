@@ -326,7 +326,7 @@ impl State {
 			let stream = self
 				.read_log(position, None, Some(PAGE_SIZE))
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the log stream"))?
+				.map_err(|error| tg::error!(!error, "failed to create the log stream"))?
 				.boxed();
 			scrolling.stream.replace(stream);
 		}
@@ -338,7 +338,7 @@ impl State {
 			.unwrap()
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to page down"))?;
+			.map_err(|error| tg::error!(!error, "failed to page down"))?;
 
 		// Update EOF.
 		if let Some(chunk) = chunk {
@@ -372,7 +372,7 @@ impl State {
 			let stream = self
 				.read_log(position, Some(-(PAGE_SIZE.to_i64().unwrap())), None)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the log stream"))?
+				.map_err(|error| tg::error!(!error, "failed to create the log stream"))?
 				.boxed();
 			scrolling.stream.replace(stream);
 		}
@@ -384,7 +384,7 @@ impl State {
 			.unwrap()
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to page down"))?;
+			.map_err(|error| tg::error!(!error, "failed to page down"))?;
 		if let Some(chunk) = chunk {
 			debug_assert!(matches!(
 				chunk.stream,

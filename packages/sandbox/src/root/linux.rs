@@ -9,10 +9,10 @@ const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/ro
 pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 	std::fs::remove_dir_all(&arg.path).ok();
 	std::fs::create_dir_all(&arg.path)
-		.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
 	let permissions = <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
 	ROOTFS.extract(&arg.path).map_err(
-		|source| tg::error!(!source, path = %arg.path.display(), "failed to extract the sandbox rootfs"),
+		|error| tg::error!(!error, path = %arg.path.display(), "failed to extract the sandbox rootfs"),
 	)?;
 	set_rootfs_permissions(&arg.path, &ROOTFS, &permissions)?;
 	restore_rootfs_symlinks(&arg.path)?;
@@ -22,14 +22,14 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 	let output = std::process::Command::new("ldd")
 		.arg(&arg.tangram_path)
 		.output()
-		.map_err(|source| {
-			if source.kind() == std::io::ErrorKind::NotFound {
+		.map_err(|error| {
+			if error.kind() == std::io::ErrorKind::NotFound {
 				tg::error!(
 					"failed to prepare the sandbox rootfs: could not execute `ldd`; install `ldd` on this Linux host"
 				)
 			} else {
 				tg::error!(
-					!source,
+					!error,
 					path = %arg.tangram_path.display(),
 					"failed to execute `ldd`"
 				)
@@ -47,7 +47,7 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 		));
 	}
 	let stdout = String::from_utf8(output.stdout)
-		.map_err(|source| tg::error!(!source, "failed to parse the `ldd` output"))?;
+		.map_err(|error| tg::error!(!error, "failed to parse the `ldd` output"))?;
 	for line in stdout.lines() {
 		let line = line.trim();
 		if line.is_empty() || line.starts_with("linux-vdso") {
@@ -80,9 +80,9 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 		let Some(dependency_path) = parsed else {
 			continue;
 		};
-		let source = std::fs::canonicalize(&dependency_path).map_err(|source| {
+		let source = std::fs::canonicalize(&dependency_path).map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %dependency_path.display(),
 				"failed to canonicalize the library path"
 			)
@@ -110,9 +110,9 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 				)
 			})?;
 		}
-		std::fs::set_permissions(&target, permissions.clone()).map_err(|source| {
+		std::fs::set_permissions(&target, permissions.clone()).map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %target.display(),
 				"failed to set sandbox file permissions"
 			)
@@ -126,7 +126,7 @@ fn restore_rootfs_symlinks(rootfs_path: &Path) -> tg::Result<()> {
 	let tg_path = rootfs_path.join("opt/tangram/bin/tg");
 	std::fs::remove_file(&tg_path).ok();
 	std::os::unix::fs::symlink("tangram", &tg_path)
-		.map_err(|source| tg::error!(!source, "failed to restore the tg symlink"))?;
+		.map_err(|error| tg::error!(!error, "failed to restore the tg symlink"))?;
 	Ok(())
 }
 
@@ -142,9 +142,9 @@ fn set_rootfs_permissions(
 			},
 			include_dir::DirEntry::File(file) => {
 				let path = rootfs_path.join(file.path());
-				std::fs::set_permissions(&path, permissions.clone()).map_err(|source| {
+				std::fs::set_permissions(&path, permissions.clone()).map_err(|error| {
 					tg::error!(
-						!source,
+						!error,
 						path = %path.display(),
 						"failed to set sandbox file permissions"
 					)
@@ -188,11 +188,11 @@ pub(crate) fn ensure_mount_target(
 	upper_path: &Path,
 	mount: &tg::sandbox::Mount,
 ) -> tg::Result<()> {
-	let source_metadata = std::fs::metadata(&mount.source).map_err(|source| {
+	let source_metadata = std::fs::metadata(&mount.source).map_err(|error| {
 		tg::error!(
-			!source,
-			source = %mount.source.display(),
-			"failed to stat the mount source"
+			!error,
+			error = %mount.source.display(),
+			"failed to stat the mount error"
 		)
 	})?;
 	let target_path = map_guest_path(rootfs_path, &mount.target)?;
@@ -225,9 +225,9 @@ pub(crate) fn ensure_mount_target(
 
 fn create_guest_directory(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
 	let path = map_guest_path(root_path, guest_path)?;
-	std::fs::create_dir_all(&path).map_err(|source| {
+	std::fs::create_dir_all(&path).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %path.display(),
 			"failed to create a guest directory"
 		)
@@ -247,9 +247,9 @@ fn create_guest_file(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
 		return Ok(());
 	}
 	if let Some(parent) = path.parent() {
-		std::fs::create_dir_all(parent).map_err(|source| {
+		std::fs::create_dir_all(parent).map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %parent.display(),
 				"failed to create a guest parent directory"
 			)
@@ -260,9 +260,9 @@ fn create_guest_file(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
 		.write(true)
 		.truncate(false)
 		.open(&path)
-		.map_err(|source| {
+		.map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %path.display(),
 				"failed to create a guest file"
 			)
@@ -271,9 +271,9 @@ fn create_guest_file(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
 }
 
 fn map_guest_path(root_path: &Path, guest_path: &Path) -> tg::Result<PathBuf> {
-	let suffix = guest_path.strip_prefix("/").map_err(|source| {
+	let suffix = guest_path.strip_prefix("/").map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %guest_path.display(),
 			"expected an absolute guest path"
 		)

@@ -43,7 +43,7 @@ impl Session {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -82,12 +82,12 @@ impl Session {
 			.cpu
 			.map(i64::try_from)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?;
+			.map_err(|error| tg::error!(!error, "invalid sandbox cpu"))?;
 		let memory = arg
 			.memory
 			.map(i64::try_from)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?;
+			.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?;
 		let ttl = arg.ttl;
 		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
 		let params = db::params![
@@ -106,7 +106,7 @@ impl Session {
 		connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		drop(connection);
 
 		self.server.spawn_publish_sandbox_status_task(&id);
@@ -123,7 +123,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<tg::sandbox::create::Output> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -133,7 +133,7 @@ impl Session {
 			..arg
 		};
 		let output = client.create_sandbox(arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to create the sandbox"),
+			|error| tg::error!(!error, region = %region, "failed to create the sandbox"),
 		)?;
 		Ok(output)
 	}
@@ -145,14 +145,14 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<tg::sandbox::create::Output> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::create::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
 		let output = client.create_sandbox(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to create the sandbox"),
+			|error| tg::error!(!error, remote = %remote, "failed to create the sandbox"),
 		)?;
 		Ok(output)
 	}
@@ -164,12 +164,12 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		let output = self.create_sandbox(arg).await?;
 

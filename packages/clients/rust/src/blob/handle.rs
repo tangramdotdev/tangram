@@ -239,7 +239,7 @@ impl Blob {
 		pin!(reader)
 			.read_to_end(&mut bytes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read to the end"))?;
+			.map_err(|error| tg::error!(!error, "failed to read to the end"))?;
 		Ok(bytes)
 	}
 
@@ -254,7 +254,7 @@ impl Blob {
 	{
 		let bytes = self.bytes_with_handle(handle).await?;
 		let string = String::from_utf8(bytes)
-			.map_err(|source| tg::error!(!source, "failed to decode the blob's bytes as UTF-8"))?;
+			.map_err(|error| tg::error!(!error, "failed to decode the blob's bytes as UTF-8"))?;
 		Ok(string)
 	}
 }

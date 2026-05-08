@@ -20,7 +20,7 @@ impl Cli {
 		let output = client
 			.list_sandboxes(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the sandboxes"))?;
+			.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}

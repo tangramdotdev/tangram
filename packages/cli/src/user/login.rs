@@ -24,7 +24,7 @@ impl Cli {
 				location: location.clone().map(Into::into),
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to log in"))?;
+			.map_err(|error| tg::error!(!error, "failed to log in"))?;
 		if !location.as_ref().is_some_and(tg::Location::is_remote) {
 			self.write_token(output.token)?;
 		}

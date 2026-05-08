@@ -33,7 +33,7 @@ impl Cli {
 		let stream = client
 			.cache(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the cache stream"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the cache stream"))?;
 		self.render_progress_stream(stream).await?;
 		Ok(())
 	}

@@ -51,14 +51,14 @@ impl Client {
 				let (stream, _) = listener
 					.accept()
 					.await
-					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
+					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
 				Self::with_stream(stream).await
 			},
 			crate::server::Listener::Unix(listener) => {
 				let (stream, _) = listener
 					.accept()
 					.await
-					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
+					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
 				Self::with_stream(stream).await
 			},
 			#[cfg(feature = "vsock")]
@@ -66,7 +66,7 @@ impl Client {
 				let (stream, _) = listener
 					.accept()
 					.await
-					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
+					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
 				Self::with_stream(stream).await
 			},
 		}
@@ -82,7 +82,7 @@ impl Client {
 			.scheme("http+stdio")
 			.path("")
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the URL"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the URL"))?;
 		let service = Self::service(url, sender);
 		let client = Self(Arc::new(State { service }));
 		Ok(client)
@@ -156,7 +156,7 @@ impl Client {
 						.host()
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.parse::<u32>()
-						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let stream = Self::connect_vsock(cid, u32::from(port)).await?;
 					Self::handshake_h2(stream).await
@@ -169,20 +169,20 @@ impl Client {
 	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
 		tokio::net::UnixStream::connect(path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))
+			.map_err(|error| tg::error!(!error, "failed to connect to the socket"))
 	}
 
 	async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
 		tokio::net::TcpStream::connect((host, port))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))
+			.map_err(|error| tg::error!(!error, "failed to connect to the socket"))
 	}
 
 	#[cfg(feature = "vsock")]
 	async fn connect_vsock(cid: u32, port: u32) -> tg::Result<tokio_vsock::VsockStream> {
 		tokio_vsock::VsockStream::connect(tokio_vsock::VsockAddr::new(cid, port))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))
+			.map_err(|error| tg::error!(!error, "failed to connect to the socket"))
 	}
 
 	async fn handshake_h2<S>(
@@ -199,7 +199,7 @@ impl Client {
 			.max_concurrent_reset_streams(usize::MAX)
 			.handshake(io)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|error| tg::error!(!error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -215,7 +215,7 @@ impl Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
+			.map_err(|error| tg::error!(!error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -231,7 +231,7 @@ impl Client {
 		let request = request.boxed_body();
 		let future = self.service.clone().call(request);
 		let response = future.await.map_err(|error| match error {
-			Error::Hyper(source) => tg::error!(!source, "failed to send the request"),
+			Error::Hyper(source) => tg::error!(source = source, "failed to send the request"),
 			Error::Other(error) => error,
 		})?;
 		let response = response.map(Into::into);

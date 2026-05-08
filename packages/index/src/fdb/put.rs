@@ -18,7 +18,7 @@ impl Index {
 		let request = Request::Put(arg);
 		self.sender_medium
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -36,17 +36,17 @@ impl Index {
 	) -> tg::Result<()> {
 		for cache_entry in &arg.cache_entries {
 			Self::put_cache_entry(txn, subspace, cache_entry, partition_total)
-				.map_err(|source| tg::error!(!source, "failed to put the cache entry"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the cache entry"))?;
 		}
 		for object in &arg.objects {
 			Self::put_object(txn, subspace, object, partition_total)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to put the object"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 		}
 		for process in &arg.processes {
 			Self::put_process(txn, subspace, process, partition_total)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
 		}
 		Ok(())
 	}

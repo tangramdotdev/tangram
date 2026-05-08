@@ -18,7 +18,7 @@ impl Session {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		let output = connection
 			.with({
@@ -27,16 +27,16 @@ impl Session {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
-						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+						.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 					// Delete tags matching the pattern.
 					let output =
 						Self::delete_tag_sqlite_sync(&transaction, cache, &pattern, recursive)?;
 
 					// Commit the transaction.
-					transaction.commit().map_err(|source| {
-						tg::error!(!source, "failed to commit the transaction")
-					})?;
+					transaction
+						.commit()
+						.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 					Ok::<_, tg::Error>(output)
 				}
@@ -76,11 +76,11 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(transaction, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![m.id.to_i64().unwrap()];
 				statement
 					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 				let statement = indoc!(
 					"
@@ -90,11 +90,11 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(transaction, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![m.id.to_i64().unwrap()];
 				statement
 					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				deleted.push(m.tag);
 			} else {
 				// This is a branch tag.
@@ -106,11 +106,11 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(transaction, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![m.id.to_i64().unwrap()];
 				let count: i64 = statement
 					.query_row(params, |row| row.get(0))
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 				if count > 0 {
 					return Err(tg::error!(
@@ -128,11 +128,11 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(transaction, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![m.id.to_i64().unwrap()];
 				statement
 					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 				let statement = indoc!(
 					"
@@ -142,11 +142,11 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(transaction, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![m.id.to_i64().unwrap()];
 				statement
 					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				deleted.push(m.tag);
 			}
 		}

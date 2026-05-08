@@ -14,7 +14,7 @@ impl Server {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
 			position: i64,
@@ -50,12 +50,12 @@ impl Server {
 			.inner()
 			.query(statement, &[&batch_size, &now])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let entries = rows
 			.iter()
 			.map(|row| {
 				<Row as db::postgres::row::Deserialize>::deserialize(row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 			})
 			.map(|row| {
 				let row = row?;

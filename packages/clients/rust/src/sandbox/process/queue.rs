@@ -40,19 +40,20 @@ impl tg::Session {
 				mime::APPLICATION_JSON.to_string(),
 			)
 			.json(arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send_with_retry(request)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
 		if !response.status().is_success() {
-			let error = response.json().await.map_err(|source| {
-				tg::error!(!source, "failed to deserialize the error response")
-			})?;
+			let error = response
+				.json()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
 			return Err(error);
 		}
 		let content_type = response
@@ -68,7 +69,7 @@ impl tg::Session {
 		}
 		let stream = response
 			.sse()
-			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
 				future::ready({
 					if event.event.as_deref().is_some_and(|event| event == "error") {
@@ -92,7 +93,7 @@ impl TryFrom<tg::sandbox::process::queue::Output> for tangram_http::sse::Event {
 
 	fn try_from(value: tg::sandbox::process::queue::Output) -> Result<Self, Self::Error> {
 		let data = serde_json::to_string(&value)
-			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the event"))?;
 		let event = tangram_http::sse::Event {
 			data,
 			..Default::default()
@@ -108,7 +109,7 @@ impl TryFrom<tangram_http::sse::Event> for tg::sandbox::process::queue::Output {
 		match value.event.as_deref() {
 			None => {
 				let output = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
 				Ok(output)
 			},
 			_ => Err(tg::error!("invalid event")),

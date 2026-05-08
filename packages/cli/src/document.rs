@@ -46,7 +46,7 @@ impl Cli {
 		let output = client
 			.document(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the document"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the document"))?;
 
 		// Print the document.
 		self.print_serde(output, args.print).await?;

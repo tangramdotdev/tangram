@@ -14,7 +14,7 @@ impl Session {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
 			position: i64,
@@ -45,10 +45,10 @@ impl Session {
 			.inner()
 			.query_opt(statement, &[&id])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.map(|row| {
 				<Row as db::postgres::row::Deserialize>::deserialize(&row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 			})
 			.transpose()?;
 		let Some(row) = row else {

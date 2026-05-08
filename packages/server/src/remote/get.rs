@@ -20,7 +20,7 @@ impl Session {
 			.database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
@@ -40,7 +40,7 @@ impl Session {
 		let row = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let output = row.map(|row| Remote {
 			name: row.name,
 			url: row.url,
@@ -72,13 +72,13 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the remote.
 		let Some(output) = self
 			.try_get_remote(name)
 			.await
-			.map_err(|source| tg::error!(!source, %name, "failed to get the remote"))?
+			.map_err(|error| tg::error!(!error, %name, "failed to get the remote"))?
 		else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)

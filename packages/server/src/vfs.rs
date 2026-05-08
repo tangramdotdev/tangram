@@ -31,7 +31,7 @@ impl Server {
 		// Create the provider.
 		let provider = Provider::new(server, options)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the vfs provider"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 
 		let vfs = match kind {
 			Kind::Fuse => {
@@ -55,7 +55,7 @@ impl Server {
 					};
 					let fuse = vfs::fuse::Server::start(provider, path, options)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to start the FUSE server"))?;
+						.map_err(|error| tg::error!(!error, "failed to start the FUSE server"))?;
 					Server::Fuse(fuse)
 				}
 				#[cfg(not(target_os = "linux"))]
@@ -80,14 +80,14 @@ impl Server {
 						.stdout(std::process::Stdio::null())
 						.stderr(std::process::Stdio::null())
 						.spawn()
-						.map_err(|source| tg::error!(!source, "failed to spawn dns-sd"))?;
+						.map_err(|error| tg::error!(!error, "failed to spawn dns-sd"))?;
 					"Tangram"
 				} else {
 					"localhost"
 				};
 				let nfs = vfs::nfs::Server::start(provider, path, host, port)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to start the NFS server"))?;
+					.map_err(|error| tg::error!(!error, "failed to start the NFS server"))?;
 				Self::Nfs(nfs)
 			},
 		};
@@ -102,7 +102,7 @@ impl Server {
 				{
 					vfs::fuse::Server::<Provider>::unmount(path)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to unmount"))?;
+						.map_err(|error| tg::error!(!error, "failed to unmount"))?;
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
@@ -112,7 +112,7 @@ impl Server {
 			},
 			Kind::Nfs => vfs::nfs::unmount(path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to unmount"))?,
+				.map_err(|error| tg::error!(!error, "failed to unmount"))?,
 		}
 		Ok(())
 	}

@@ -22,7 +22,7 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current {
@@ -68,7 +68,7 @@ impl Session {
 			.process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let statement = formatdoc!(
 			"
 				select id, cpu, hostname, memory, mounts, network, status, ttl, \"user\" as user
@@ -81,7 +81,7 @@ impl Session {
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let data = rows
 			.into_iter()
 			.map(|row| {
@@ -91,13 +91,13 @@ impl Session {
 						.cpu
 						.map(u64::try_from)
 						.transpose()
-						.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?,
+						.map_err(|error| tg::error!(!error, "invalid sandbox cpu"))?,
 					hostname: row.hostname,
 					memory: row
 						.memory
 						.map(u64::try_from)
 						.transpose()
-						.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?,
+						.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?,
 					mounts: row.mounts.unwrap_or_default(),
 					network: row.network.unwrap_or(tg::Either::Left(false)),
 					status: row.status,
@@ -124,7 +124,7 @@ impl Session {
 
 	async fn list_sandboxes_region(&self, region: &str) -> tg::Result<tg::sandbox::list::Output> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -133,7 +133,7 @@ impl Session {
 			location: Some(location.into()),
 		};
 		let output = client.list_sandboxes(arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to list the sandboxes"),
+			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
 		)?;
 		Ok(output)
 	}
@@ -156,7 +156,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<tg::sandbox::list::Output> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::list::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -166,7 +166,7 @@ impl Session {
 			])),
 		};
 		let output = client.list_sandboxes(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to list the sandboxes"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to list the sandboxes"),
 		)?;
 		Ok(output)
 	}
@@ -178,18 +178,18 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		let output = self
 			.list_sandboxes(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the sandboxes"))?;
+			.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

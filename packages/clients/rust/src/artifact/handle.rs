@@ -289,7 +289,7 @@ impl TryFrom<tg::Value> for Artifact {
 
 	fn try_from(value: tg::Value) -> tg::Result<Self, Self::Error> {
 		tg::object::Handle::try_from(value)
-			.map_err(|source| tg::error!(!source, "invalid value"))?
+			.map_err(|error| tg::error!(!error, "invalid value"))?
 			.try_into()
 	}
 }

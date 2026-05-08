@@ -121,7 +121,7 @@ impl Server {
 				.and_then(Pty::slave)
 				.ok_or_else(|| tg::error!("expected a tty arg"))?
 				.try_clone()
-				.map_err(|source| tg::error!(!source, "failed to clone the tty fd"))?;
+				.map_err(|error| tg::error!(!error, "failed to clone the tty fd"))?;
 			unsafe {
 				command.pre_exec(move || {
 					start_session(&tty, stdin_is_tty, stdout_is_tty, stderr_is_tty);
@@ -131,9 +131,9 @@ impl Server {
 		}
 
 		// Spawn.
-		let mut child = command.spawn().map_err(|source| {
+		let mut child = command.spawn().map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				executable = %executable.display(),
 				"failed to spawn the child process"
 			)
@@ -187,7 +187,7 @@ impl Server {
 			child
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for the process"))
+				.map_err(|error| tg::error!(!error, "failed to wait for the process"))
 				.map(|status| {
 					status
 						.code()
@@ -223,11 +223,11 @@ impl Server {
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the body"))?;
 		let output = self
 			.spawn(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to spawn"))?;
+			.map_err(|error| tg::error!(!error, "failed to spawn"))?;
 		let response = http::Response::builder()
 			.json(output)
 			.unwrap()
@@ -245,7 +245,7 @@ fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> t
 		.unwrap_or_default();
 	paths.extend(directories.iter().map(|path| path.to_path_buf()));
 	let path = std::env::join_paths(paths)
-		.map_err(|source| tg::error!(!source, "failed to build `PATH`"))?;
+		.map_err(|error| tg::error!(!error, "failed to build `PATH`"))?;
 	let path = path
 		.to_str()
 		.ok_or_else(|| tg::error!("failed to encode `PATH` as valid UTF-8"))?;
@@ -268,7 +268,7 @@ fn child_stdio(stdio: Stdio, pty: Option<&Pty>) -> tg::Result<std::process::Stdi
 				.and_then(Pty::slave)
 				.ok_or_else(|| tg::error!("expected a tty arg"))?
 				.try_clone()
-				.map_err(|source| tg::error!(!source, "failed to clone the tty fd"))?;
+				.map_err(|error| tg::error!(!error, "failed to clone the tty fd"))?;
 			let stdio = std::process::Stdio::from(fd);
 			Ok(stdio)
 		},

@@ -30,7 +30,7 @@ impl Server {
 			.process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		// Check if the process exists.
 		let p = connection.p();
@@ -45,7 +45,7 @@ impl Server {
 		let exists = connection
 			.query_one_value_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		// Drop the database connection.
 		drop(connection);
@@ -58,7 +58,7 @@ impl Server {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -74,7 +74,7 @@ impl Server {
 		let n = connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		drop(connection);
 
 		if n == 0 {
@@ -121,7 +121,7 @@ impl Server {
 				params,
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(status.map(|status| status.0))
 	}
 
@@ -146,7 +146,7 @@ impl Server {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())
 	}
 }

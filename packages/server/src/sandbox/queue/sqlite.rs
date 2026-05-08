@@ -14,7 +14,7 @@ impl Session {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| Self::try_dequeue_sandbox_sqlite_sync(connection))
 			.await
@@ -25,7 +25,7 @@ impl Session {
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
 		let transaction = connection
 			.transaction()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let statement = indoc!(
 			"
 				select id
@@ -38,10 +38,10 @@ impl Session {
 		let sandbox = transaction
 			.query_row(statement, [], |row| row.get::<_, String>(0))
 			.optional()
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.map(|id| id.parse::<tg::sandbox::Id>())
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 		let Some(sandbox) = sandbox else {
 			return Ok(None);
 		};
@@ -58,7 +58,7 @@ impl Session {
 		);
 		let n = transaction
 			.execute(statement, sqlite::params![now, sandbox.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if n == 0 {
 			return Ok(None);
 		}
@@ -77,7 +77,7 @@ impl Session {
 				row.get::<_, String>(0)
 			})
 			.optional()
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let process = if let Some(process) = process {
 			let statement = indoc!(
 				"
@@ -93,14 +93,14 @@ impl Session {
 					statement,
 					sqlite::params![now, process.clone(), sandbox.to_string()],
 				)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if n == 0 {
 				return Ok(None);
 			}
 			Some(
 				process
 					.parse()
-					.map_err(|source| tg::error!(!source, "failed to parse the process id"))?,
+					.map_err(|error| tg::error!(!error, "failed to parse the process id"))?,
 			)
 		} else {
 			None
@@ -108,7 +108,7 @@ impl Session {
 
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		let output = tg::sandbox::queue::Output { sandbox, process };
 

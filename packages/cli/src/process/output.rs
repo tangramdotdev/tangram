@@ -21,7 +21,7 @@ impl Cli {
 		let process =
 			tg::Process::<tg::Value>::new(args.process.clone(), locations, None, None, None, None);
 		let output = process.output_with_handle(&client).await.map_err(
-			|source| tg::error!(!source, id = %args.process, "failed to get the process output"),
+			|error| tg::error!(!error, id = %args.process, "failed to get the process output"),
 		)?;
 		self.print_serde(output.to_data(), args.print).await?;
 		Ok(())

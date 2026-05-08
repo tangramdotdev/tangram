@@ -21,7 +21,7 @@ impl Session {
 			.database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -40,7 +40,7 @@ impl Session {
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let data = rows
 			.into_iter()
 			.map(|row| tg::remote::get::Output {
@@ -62,20 +62,20 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// List the remotes.
 		let output = self
 			.list_remotes(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
+			.map_err(|error| tg::error!(!error, "failed to list the remotes"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

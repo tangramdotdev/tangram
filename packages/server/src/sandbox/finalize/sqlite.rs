@@ -15,7 +15,7 @@ impl Server {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				Self::try_dequeue_sandbox_finalize_batch_sqlite_sync(connection, batch_size)
@@ -29,7 +29,7 @@ impl Server {
 	) -> tg::Result<Option<Vec<Entry>>> {
 		let transaction = connection
 			.transaction()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let statement = indoc!(
 			"
 				select position, sandbox
@@ -41,23 +41,23 @@ impl Server {
 		);
 		let mut statement = transaction
 			.prepare(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query(sqlite::params![i64::try_from(batch_size).unwrap()])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let mut entries = Vec::new();
 		while let Some(row) = rows
 			.next()
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		{
 			let position = row
 				.get::<_, i64>(0)
-				.map_err(|source| tg::error!(!source, "failed to get the position"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the position"))?;
 			let sandbox = row
 				.get::<_, String>(1)
-				.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?
+				.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
 				.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
+				.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 			entries.push(Entry { position, sandbox });
 		}
 		drop(rows);
@@ -78,7 +78,7 @@ impl Server {
 		for entry in &entries {
 			let n = transaction
 				.execute(statement, sqlite::params![now, entry.position])
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if n != 1 {
 				return Err(tg::error!(
 					"failed to claim the sandbox finalize queue entry"
@@ -87,7 +87,7 @@ impl Server {
 		}
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(Some(entries))
 	}
 }

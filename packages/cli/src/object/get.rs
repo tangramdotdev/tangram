@@ -34,19 +34,17 @@ impl Cli {
 			let tg::object::get::Output { bytes, metadata } = client
 				.try_get_object(&args.object, arg)
 				.await
-				.map_err(
-					|source| tg::error!(!source, id = %args.object, "failed to get the object"),
-				)?
+				.map_err(|error| tg::error!(!error, id = %args.object, "failed to get the object"))?
 				.ok_or_else(|| tg::error!(id = %args.object, "failed to find the object"))?;
 			if let Some(metadata) = metadata {
 				let metadata = serde_json::to_string(&metadata)
-					.map_err(|source| tg::error!(!source, "failed to serialize the metadata"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 				self.print_info_message(&metadata);
 			}
 			tokio::io::stdout()
 				.write_all(&bytes)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+				.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 			return Ok(());
 		}
 		let value = tg::Value::Object(tg::Object::with_id(args.object.clone()));
@@ -61,13 +59,11 @@ impl Cli {
 			let output = client
 				.try_get_object(&args.object, arg.clone())
 				.await
-				.map_err(
-					|source| tg::error!(!source, id = %args.object, "failed to get the object"),
-				)?
+				.map_err(|error| tg::error!(!error, id = %args.object, "failed to get the object"))?
 				.ok_or_else(|| tg::error!(id = %args.object, "failed to find the object"))?;
 			if let Some(metadata) = output.metadata {
 				let metadata = serde_json::to_string(&metadata)
-					.map_err(|source| tg::error!(!source, "failed to serialize the metadata"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 				self.print_info_message(&metadata);
 			}
 		}

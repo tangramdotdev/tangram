@@ -31,7 +31,7 @@ impl Cli {
 			token: None,
 		};
 		let output = process.wait_with_handle(&client, arg).await.map_err(
-			|source| tg::error!(!source, id = %args.process, "failed to wait for the process"),
+			|error| tg::error!(!error, id = %args.process, "failed to wait for the process"),
 		)?;
 		self.print_serde(output.to_data(), args.print).await?;
 		Ok(())

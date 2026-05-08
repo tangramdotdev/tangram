@@ -37,7 +37,7 @@ impl Session {
 				let parents: Vec<Parent> = transaction
 					.query_all_into::<Parent>(statement.into(), params)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to query parent depths"))?;
+					.map_err(|error| tg::error!(!error, "failed to query parent depths"))?;
 
 				// Update each parent's depth if needed.
 				for parent in parents {
@@ -54,9 +54,7 @@ impl Session {
 						let rows = transaction
 							.execute(statement.into(), params)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to update parent depth")
-							})?;
+							.map_err(|error| tg::error!(!error, "failed to update parent depth"))?;
 
 						// If we updated this parent, track it for next iteration.
 						if rows > 0 {

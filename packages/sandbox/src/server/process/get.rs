@@ -31,7 +31,7 @@ impl Server {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id = id
 			.parse::<tg::process::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let Some(output) = self.try_get_process(&id).await? else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)

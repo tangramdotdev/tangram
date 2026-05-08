@@ -190,7 +190,7 @@ impl tg::Client {
 						.host()
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.parse::<u32>()
-						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					let stream = Self::connect_vsock(addr).await?;
@@ -251,7 +251,7 @@ impl tg::Client {
 						.host()
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.parse::<u32>()
-						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					let stream = Self::connect_vsock(addr).await?;
@@ -272,7 +272,7 @@ impl tg::Client {
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|error| tg::error!(!error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -289,7 +289,7 @@ impl tg::Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
+			.map_err(|error| tg::error!(!error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -308,7 +308,7 @@ impl tg::Client {
 			.max_concurrent_reset_streams(usize::MAX)
 			.handshake(io)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
+			.map_err(|error| tg::error!(!error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
 		tokio::spawn(async move {
@@ -324,7 +324,7 @@ impl tg::Client {
 		sender
 			.ready()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
+			.map_err(|error| tg::error!(!error, "failed to ready the sender"))?;
 
 		Ok(sender)
 	}
@@ -334,7 +334,7 @@ impl tg::Client {
 		tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
 			.await
 			.map_err(|_| tg::error!("connection timeout"))?
-			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))
+			.map_err(|error| tg::error!(!error, "failed to create the TCP connection"))
 	}
 
 	#[cfg(feature = "tls")]
@@ -352,21 +352,21 @@ impl tg::Client {
 		.with_safe_default_protocol_versions()
 		.unwrap()
 		.with_platform_verifier()
-		.map_err(|source| tg::error!(!source, "failed to create the tls config"))?
+		.map_err(|error| tg::error!(!error, "failed to create the tls config"))?
 		.with_no_client_auth();
 		config.alpn_protocols = protocols;
 		let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
 
 		// Create the server name.
 		let server_name = rustls::pki_types::ServerName::try_from(host.to_string().as_str())
-			.map_err(|source| tg::error!(!source, "failed to create the server name"))?
+			.map_err(|error| tg::error!(!error, "failed to create the server name"))?
 			.to_owned();
 
 		// Connect via TLS.
 		let stream = connector
 			.connect(server_name, stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect"))?;
+			.map_err(|error| tg::error!(!error, "failed to connect"))?;
 
 		Ok(stream)
 	}
@@ -374,7 +374,7 @@ impl tg::Client {
 	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
 		tokio::net::UnixStream::connect(path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))
+			.map_err(|error| tg::error!(!error, "failed to connect to the socket"))
 	}
 
 	#[cfg(feature = "vsock")]
@@ -386,8 +386,8 @@ impl tg::Client {
 			tokio_vsock::VsockStream::connect(addr),
 		)
 		.await
-		.map_err(|source| tg::error!(!source, "timed out connecting to the socket"))?
-		.map_err(|source| tg::error!(!source, "failed to connect to the socket"))
+		.map_err(|error| tg::error!(!error, "timed out connecting to the socket"))?
+		.map_err(|error| tg::error!(!error, "failed to connect to the socket"))
 	}
 
 	#[cfg(feature = "tls")]
@@ -418,7 +418,7 @@ impl tg::Client {
 		let request = request.boxed_body();
 		let future = self.service.clone().call(request);
 		let response = future.await.map_err(|error| match error {
-			Error::Hyper(source) => tg::error!(!source, "failed to send the request"),
+			Error::Hyper(source) => tg::error!(source = source, "failed to send the request"),
 			Error::Other(error) => error,
 		})?;
 		let response = response.map(Into::into);
@@ -485,7 +485,7 @@ impl tg::Session {
 					},
 					Err(error) => Err(match error {
 						Error::Hyper(source) => {
-							tg::error!(!source, "failed to send the request")
+							tg::error!(source = source, "failed to send the request")
 						},
 						Error::Other(error) => error,
 					}),

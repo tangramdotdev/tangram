@@ -31,7 +31,7 @@ impl crate::Cli {
 		// Start the runtime thread.
 		let args = Vec::new();
 		let cwd = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
 		let env = tg::process::env()?
 			.into_iter()
 			.map(|(key, value)| (key, value.to_data()))
@@ -58,7 +58,7 @@ impl crate::Cli {
 			let runtime = tokio::runtime::Builder::new_current_thread()
 				.enable_all()
 				.build()
-				.map_err(|source| tg::error!(!source, "failed to create the tokio runtime"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
 			runtime.block_on(async move {
 				match engine {
 					#[allow(unreachable_patterns)]
@@ -86,7 +86,7 @@ impl crate::Cli {
 		// Set up reedline.
 		let history_path = self.directory_path().join("history");
 		let history = reedline::FileBackedHistory::with_file(HISTORY_SIZE, history_path)
-			.map_err(|source| tg::error!(!source, "failed to initialize the repl history"))?;
+			.map_err(|error| tg::error!(!error, "failed to initialize the repl history"))?;
 		let history_exclusion_prefix = " ".to_owned();
 		let hinter_style = nu_ansi_term::Style::new()
 			.italic()
@@ -106,11 +106,11 @@ impl crate::Cli {
 			let result = tokio::task::spawn_blocking(move || {
 				let signal = editor
 					.read_line(&prompt)
-					.map_err(|source| tg::error!(!source, "failed to read from the repl"))?;
+					.map_err(|error| tg::error!(!error, "failed to read from the repl"))?;
 				Ok::<_, tg::Error>((editor, signal))
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to join the repl reader task"))??;
+			.map_err(|error| tg::error!(!error, "failed to join the repl reader task"))??;
 			let (editor_, signal) = result;
 			editor = editor_;
 			match signal {
@@ -128,8 +128,8 @@ impl crate::Cli {
 						Ok(Err(error)) => {
 							self.print_error(tg::Referent::with_item(error)).await;
 						},
-						Err(source) => {
-							return Err(tg::error!(!source, "failed to receive the repl response"));
+						Err(error) => {
+							return Err(tg::error!(!error, "failed to receive the repl response"));
 						},
 					}
 				},
@@ -142,7 +142,7 @@ impl crate::Cli {
 
 		drop(sender);
 		task.await
-			.map_err(|source| tg::error!(!source, "the repl thread failed"))?;
+			.map_err(|error| tg::error!(!error, "the repl thread failed"))?;
 
 		Ok(())
 	}

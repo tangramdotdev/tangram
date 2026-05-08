@@ -159,7 +159,7 @@ where
 		match task.wait().await {
 			Ok(result) => result,
 			Err(error) if error.is_cancelled() => Ok(()),
-			Err(source) => Err(tg::error!(!source, "the stdin task panicked")),
+			Err(error) => Err(tg::error!(!error, "the stdin task panicked")),
 		}
 	} else {
 		Ok(())
@@ -222,7 +222,7 @@ where
 		streams: vec![tg::process::stdio::Stream::Stdin],
 	};
 	let input = io::stdin()
-		.map_err(|source| tg::error!(!source, "failed to open stdin"))?
+		.map_err(|error| tg::error!(!error, "failed to open stdin"))?
 		.filter_map(|result| {
 			future::ready(match result {
 				Ok(bytes) if bytes.is_empty() => None,
@@ -290,21 +290,21 @@ where
 					stdout_writer
 						.write_all(&chunk.bytes)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write stdout"))?;
+						.map_err(|error| tg::error!(!error, "failed to write stdout"))?;
 					stdout_writer
 						.flush()
 						.await
-						.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+						.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 				},
 				tg::process::stdio::Stream::Stderr if stderr.is_some() => {
 					writer
 						.write_all(&chunk.bytes)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write stderr"))?;
+						.map_err(|error| tg::error!(!error, "failed to write stderr"))?;
 					writer
 						.flush()
 						.await
-						.map_err(|source| tg::error!(!source, "failed to flush stderr"))?;
+						.map_err(|error| tg::error!(!error, "failed to flush stderr"))?;
 				},
 				_ => (),
 			},
@@ -323,7 +323,7 @@ where
 	H: tg::Handle,
 {
 	let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
-		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
+		.map_err(|error| tg::error!(!error, "failed to create signal handler"))?;
 	while let Some(()) = signal.recv().await {
 		let Some(size) = get_tty_size() else {
 			continue;
@@ -335,7 +335,7 @@ where
 		handle
 			.set_process_tty_size(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to put the tty"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the tty"))?;
 	}
 	Ok(())
 }

@@ -288,7 +288,7 @@ impl Session {
 			.messenger
 			.subscribe::<()>("processes.finalizer.progress".to_owned())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe to finalizer progress"))?;
+			.map_err(|error| tg::error!(!error, "failed to subscribe to finalizer progress"))?;
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).skip(1);
 		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
 
@@ -335,7 +335,7 @@ impl Session {
 			.messenger
 			.subscribe::<()>("indexer_progress".to_owned())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe to indexer progress"))?;
+			.map_err(|error| tg::error!(!error, "failed to subscribe to indexer progress"))?;
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).skip(1);
 		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
 
@@ -345,7 +345,7 @@ impl Session {
 			.index
 			.get_transaction_id()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the transaction id"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the transaction id"))?;
 		progress.spinner("updates", "waiting for index updates");
 		loop {
 			let finished = self
@@ -353,7 +353,7 @@ impl Session {
 				.index
 				.updates_finished(transaction_id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to check if updates are finished"))?;
+				.map_err(|error| tg::error!(!error, "failed to check if updates are finished"))?;
 			if finished {
 				break;
 			}
@@ -412,13 +412,13 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the stream.
 		let stream = self
 			.index()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the index task"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the index task"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

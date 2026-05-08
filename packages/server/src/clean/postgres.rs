@@ -23,7 +23,7 @@ impl Server {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let statement = indoc!(
 			"
 				with deleted_processes as (
@@ -64,7 +64,7 @@ impl Server {
 			.inner()
 			.query(statement, &[&processes, &max_stored_at])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())
 	}
 }

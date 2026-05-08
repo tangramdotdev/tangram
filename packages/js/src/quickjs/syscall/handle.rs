@@ -58,8 +58,8 @@ pub async fn checkin(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to check in the output"))?;
 		Ok(Serde(artifact.id().clone()))
 	}
 	.await;
@@ -95,8 +95,8 @@ pub async fn checkout(ctx: qjs::Ctx<'_>, arg: Serde<tg::checkout::Arg>) -> Resul
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to check out the artifact"))?;
 		let path = path
 			.into_os_string()
 			.into_string()
@@ -136,8 +136,8 @@ pub async fn object_batch(ctx: qjs::Ctx<'_>, arg: Serde<ObjectBatchArg>) -> Resu
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to post object batch"))?;
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to post object batch"))?;
 		Ok(())
 	}
 	.await;
@@ -164,8 +164,8 @@ pub async fn object_get(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to get the object"))?;
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to get the object"))?;
 		Ok(data)
 	}
 	.await;
@@ -205,8 +205,8 @@ pub async fn process_get(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to get the process"))?;
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 		Ok(output)
 	}
 	.await;
@@ -231,8 +231,8 @@ pub async fn sandbox_get(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?;
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?;
 		Ok(data)
 	}
 	.await;
@@ -318,7 +318,7 @@ pub async fn process_signal(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))??;
+			.map_err(|error| tg::error!(!error, "the task panicked"))??;
 		Ok(())
 	}
 	.await;
@@ -353,7 +353,7 @@ pub async fn process_spawn(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))??;
+			.map_err(|error| tg::error!(!error, "the task panicked"))??;
 		let writer = std::io::stderr();
 		let handle = state.handle.clone();
 		let output = tg::progress::write_progress_stream(&handle, stream, writer, false).await?;
@@ -382,7 +382,7 @@ pub async fn process_tty_size_put(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))??;
+			.map_err(|error| tg::error!(!error, "the task panicked"))??;
 		Ok(())
 	}
 	.await;
@@ -408,7 +408,7 @@ pub async fn process_wait(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))??;
+			.map_err(|error| tg::error!(!error, "the task panicked"))??;
 		Ok(output)
 	}
 	.await;
@@ -434,13 +434,13 @@ pub async fn read(ctx: qjs::Ctx<'_>, arg: Serde<tg::read::Arg>) -> Result<Uint8A
 					pin!(reader)
 						.read_to_end(&mut buffer)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
+						.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
 					Ok::<_, tg::Error>(buffer)
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
 		Ok(Uint8Array::from(bytes))
 	}
 	.await;
@@ -451,7 +451,7 @@ pub fn value_parse(_ctx: qjs::Ctx<'_>, value: String) -> Result<Serde<tg::value:
 	let result = value
 		.parse::<tg::Value>()
 		.map(|value| Serde(value.to_data()))
-		.map_err(|source| tg::error!(!source, "failed to parse the value"));
+		.map_err(|error| tg::error!(!error, "failed to parse the value"));
 	Result(result)
 }
 
@@ -459,7 +459,7 @@ pub fn value_stringify(_ctx: qjs::Ctx<'_>, value: Serde<tg::value::Data>) -> Res
 	let Serde(value) = value;
 	let result = tg::Value::try_from_data(value)
 		.map(|value| value.to_string())
-		.map_err(|source| tg::error!(!source, "failed to convert the value"));
+		.map_err(|error| tg::error!(!error, "failed to convert the value"));
 	Result(result)
 }
 
@@ -485,8 +485,8 @@ pub async fn write(
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
+			.map_err(|error| tg::error!(!error, "the task panicked"))?
+			.map_err(|error| tg::error!(!error, "failed to create the blob"))?;
 		Ok(Serde(blob_id))
 	}
 	.await;

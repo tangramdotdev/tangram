@@ -39,7 +39,7 @@ impl Session {
 			.as_ref()
 			.map(serde_json::to_string)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
 		let (condition, max_depth) = match arg.condition {
 			Some(Condition::DepthExceeded { max_depth }) => {
 				(Some("depth_exceeded"), Some(max_depth))
@@ -91,7 +91,7 @@ impl Session {
 					max_depth,
 				],
 			)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if n != 1 {
 			return Ok(false);
 		}
@@ -104,7 +104,7 @@ impl Session {
 		);
 		transaction
 			.execute(statement, sqlite::params![id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		let statement = indoc!(
 			"
@@ -117,7 +117,7 @@ impl Session {
 				statement,
 				sqlite::params![arg.now, id.to_string(), "created"],
 			)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		Ok(true)
 	}

@@ -49,9 +49,9 @@ impl Session {
 				let result = session
 					.cache_ensure_stored(&artifacts, &progress)
 					.await
-					.map_err(|source| {
+					.map_err(|error| {
 						tg::error!(
-							!source,
+							!error,
 							?artifacts,
 							"failed to ensure the artifacts are stored"
 						)
@@ -143,12 +143,12 @@ impl Session {
 		let stream = self
 			.index()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the index"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the next index event"))?
+			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
 		{
 			progress.forward(Ok(event));
 		}
@@ -163,7 +163,7 @@ impl Session {
 			.index
 			.try_get_objects(&ids)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check if the artifacts are stored"))?
+			.map_err(|error| tg::error!(!error, "failed to check if the artifacts are stored"))?
 			.iter()
 			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
 		if stored {
@@ -180,13 +180,13 @@ impl Session {
 				..Default::default()
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the pull"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the pull"))?;
 		progress.spinner("pull", "pull");
 		let mut stream = pin!(stream);
 		while let Some(event) = stream
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the next pull event"))?
+			.map_err(|error| tg::error!(!error, "failed to get the next pull event"))?
 		{
 			progress.forward(Ok(event));
 		}
@@ -274,7 +274,7 @@ impl Session {
 					}
 					result = task_future => {
 						return result
-							.map_err(|source| tg::error!(!source, "a cache task panicked"))
+							.map_err(|error| tg::error!(!error, "a cache task panicked"))
 							.and_then(|result| result);
 					}
 				}
@@ -347,7 +347,7 @@ impl Session {
 					}
 					result = task_future => {
 						return result
-							.map_err(|source| tg::error!(!source, "a cache graph task panicked"))
+							.map_err(|error| tg::error!(!error, "a cache graph task panicked"))
 							.and_then(|result| result);
 					}
 				}
@@ -364,7 +364,7 @@ impl Session {
 		if let Some(graph_id) = &item.graph {
 			self.cache_graph(graph_id, progress.clone())
 				.await
-				.map_err(|source| tg::error!(!source, %graph_id, "failed to cache the graph"))?;
+				.map_err(|error| tg::error!(!error, %graph_id, "failed to cache the graph"))?;
 		}
 
 		// Create the path.
@@ -376,8 +376,8 @@ impl Session {
 			move || path.try_exists()
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
-		.map_err(|source| tg::error!(!source, "failed to determine if the path exists"))?;
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to determine if the path exists"))?;
 		if exists {
 			return Ok(());
 		}
@@ -394,7 +394,7 @@ impl Session {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
+		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		let dependency_ids: Vec<tg::artifact::Id> = dependencies
 			.iter()
@@ -408,7 +408,7 @@ impl Session {
 				.map(|dependency| self.cache_artifact(dependency, progress.clone())),
 		)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to cache the dependencies"))?;
+		.map_err(|error| tg::error!(!error, "failed to cache the dependencies"))?;
 
 		// Rename the temp to the cache directory.
 		tokio::task::spawn_blocking({
@@ -416,7 +416,7 @@ impl Session {
 			move || session.cache_rename(item, &temp, &dependency_ids)
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
+		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		Ok(())
 	}
@@ -443,7 +443,7 @@ impl Session {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
+		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		// Get the items that need cache entries.
 		let items = Self::cache_entry_items_for_graph(graph_id, &graph_data)?;
@@ -466,7 +466,7 @@ impl Session {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?;
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?;
 		if all_exist {
 			return Ok(());
 		}
@@ -500,7 +500,7 @@ impl Session {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
+		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		let dependencies: Vec<Item> = outputs
 			.iter()
@@ -512,7 +512,7 @@ impl Session {
 				.map(|dependency| self.cache_artifact(dependency, progress.clone())),
 		)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to cache the dependencies"))?;
+		.map_err(|error| tg::error!(!error, "failed to cache the dependencies"))?;
 
 		// Rename all entries to the cache directory.
 		tokio::task::spawn_blocking({
@@ -529,7 +529,7 @@ impl Session {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
+		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 
 		Ok(())
 	}
@@ -551,13 +551,13 @@ impl Session {
 		// Cache the artifact and collect dependencies.
 		let dependencies = self
 			.cache_write_artifact(&mut state, path, item)
-			.map_err(|source| tg::error!(!source, "failed to write the artifact"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the artifact"))?;
 
 		// Set permissions on the temp directory before rename.
 		if state.artifact.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(path, permissions).map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to set permissions"),
+				|error| tg::error!(!error, path = %path.display(), "failed to set permissions"),
 			)?;
 		}
 
@@ -582,7 +582,7 @@ impl Session {
 		// Set the file times to the epoch.
 		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to set the modified time"),
+			|error| tg::error!(!error, path = %path.display(), "failed to set the modified time"),
 		)?;
 
 		Ok(dependencies)
@@ -602,7 +602,7 @@ impl Session {
 
 		// Create the directory.
 		std::fs::create_dir_all(path).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
+			|error| tg::error!(!error, path = %path.display(), "failed to create the directory"),
 		)?;
 
 		// Collect all entries, recursively flattening branches.
@@ -624,7 +624,7 @@ impl Session {
 			let path = path.join(&name);
 			let item = self
 				.cache_get_item(edge)
-				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			// Check for a cycle.
 			if state.visiting.contains(&item.id) {
@@ -634,7 +634,7 @@ impl Session {
 			let item_id = item.id.clone();
 			let entry_dependencies = self
 				.cache_write_artifact(state, &path, &item)
-				.map_err(|source| tg::error!(!source, "failed to write the artifact"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the artifact"))?;
 			if visited.insert(item_id) {
 				for dependency in entry_dependencies {
 					dependencies.push(dependency);
@@ -648,7 +648,7 @@ impl Session {
 		// Set the permissions.
 		let permissions = std::fs::Permissions::from_mode(0o555);
 		std::fs::set_permissions(path, permissions).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to set permissions"),
+			|error| tg::error!(!error, path = %path.display(), "failed to set permissions"),
 		)?;
 
 		// Increment the progress.
@@ -695,7 +695,7 @@ impl Session {
 			// Get the node.
 			let item = self
 				.cache_get_item(edge)
-				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			// Collect the dependency if it is not the root artifact.
 			if item.id != state.artifact && visited.insert(item.id.clone()) {
@@ -726,7 +726,7 @@ impl Session {
 				|| result.is_err_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists)
 			{
 				let len = std::fs::symlink_metadata(dst)
-					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?
+					.map_err(|error| tg::error!(!error, "failed to get the metadata"))?
 					.len();
 				state.progress.increment("bytes", len);
 
@@ -738,7 +738,7 @@ impl Session {
 		if !done {
 			let mut reader =
 				crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
-					.map_err(|source| tg::error!(!source, "failed to create the reader"))?;
+					.map_err(|error| tg::error!(!error, "failed to create the reader"))?;
 			let mut reader = InspectReader::new(&mut reader, {
 				|buffer| {
 					let len = buffer.len().to_u64().unwrap();
@@ -746,33 +746,31 @@ impl Session {
 				}
 			});
 			let mut file = std::fs::File::create(path)
-				.map_err(|source| tg::error!(!source, ?path, "failed to create the file"))?;
+				.map_err(|error| tg::error!(!error, ?path, "failed to create the file"))?;
 			std::io::copy(&mut reader, &mut file)
-				.map_err(|source| tg::error!(!source, ?path, "failed to write to the file"))?;
+				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 
 			// Set the dependencies attr.
 			let dependencies_ = node.dependencies.keys().cloned().collect::<Vec<_>>();
 			if !dependencies_.is_empty() {
-				let dependencies = serde_json::to_vec(&dependencies_).map_err(|source| {
-					tg::error!(!source, "failed to serialize the dependencies")
-				})?;
-				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies).map_err(
-					|source| tg::error!(!source, "failed to write the dependencies attr"),
-				)?;
+				let dependencies = serde_json::to_vec(&dependencies_)
+					.map_err(|error| tg::error!(!error, "failed to serialize the dependencies"))?;
+				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
+					.map_err(|error| tg::error!(!error, "failed to write the dependencies attr"))?;
 			}
 
 			// Set the module xattr.
 			if let Some(module) = &node.module {
 				let module = module.to_string();
 				xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-					.map_err(|source| tg::error!(!source, "failed to write the module xattr"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the module xattr"))?;
 			}
 
 			// Set the permissions.
 			let mode = if node.executable { 0o555 } else { 0o444 };
 			let permissions = std::fs::Permissions::from_mode(mode);
 			std::fs::set_permissions(path, permissions)
-				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 		}
 
 		// Increment the progress.
@@ -807,7 +805,7 @@ impl Session {
 			// Get the dependency node.
 			let item = self
 				.cache_get_item(edge)
-				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			if item.id == state.artifact {
 				// If the symlink's artifact is the root artifact, then use the root path.
@@ -833,7 +831,7 @@ impl Session {
 				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 			let dst = &target;
 			tangram_util::path::diff(src, dst)
-				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+				.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
 				.ok_or_else(|| tg::error!("expected the paths to differ"))?
 		} else if let Some(path) = &node.path {
 			path.clone()
@@ -843,7 +841,7 @@ impl Session {
 
 		// Create the symlink.
 		std::os::unix::fs::symlink(target, path)
-			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 
 		// Increment the progress.
 		state.progress.increment("artifacts", 1);
@@ -874,10 +872,10 @@ impl Session {
 			{
 				true
 			},
-			Err(source) => {
+			Err(error) => {
 				let src = temp.path().display();
 				let dst = path.display();
-				let error = tg::error!(!source, %src, %dst, "failed to rename to the cache path");
+				let error = tg::error!(!error, %src, %dst, "failed to rename to the cache path");
 				return Err(error);
 			},
 		};
@@ -886,7 +884,7 @@ impl Session {
 		if !done && item.id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o555);
 			std::fs::set_permissions(&path, permissions).map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to set permissions"),
+				|error| tg::error!(!error, path = %path.display(), "failed to set permissions"),
 			)?;
 		}
 
@@ -894,7 +892,7 @@ impl Session {
 		if !done {
 			let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 			filetime::set_symlink_file_times(&path, epoch, epoch).map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to set the modified time"),
+				|error| tg::error!(!error, path = %path.display(), "failed to set the modified time"),
 			)?;
 		}
 
@@ -941,7 +939,7 @@ impl Session {
 					.server
 					.object_store
 					.try_get_data_sync(&graph_id.clone().into())
-					.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+					.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
 				let graph_data: tg::graph::Data = data
 					.try_into()
@@ -982,7 +980,7 @@ impl Session {
 					.server
 					.object_store
 					.try_get_data_sync(&object_id.clone().into())
-					.map_err(|source| tg::error!(!source, "failed to get the object data"))?
+					.map_err(|error| tg::error!(!error, "failed to get the object data"))?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
 					.try_into()
@@ -1004,7 +1002,7 @@ impl Session {
 							.server
 							.object_store
 							.try_get_data_sync(&graph_id.clone().into())
-							.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+							.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 							.ok_or_else(|| tg::error!("failed to load the graph"))?;
 						let graph_data: tg::graph::Data = data
 							.try_into()
@@ -1127,19 +1125,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Get the stream.
 		let stream = self
 			.cache(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the cache task"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the cache task"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

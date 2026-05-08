@@ -41,7 +41,7 @@ pub(crate) async fn spawn(
 		Some(
 			tokio::task::spawn_blocking(move || crate::network::Bridge::new(&id, &bridge_name))
 				.await
-				.map_err(|source| tg::error!(!source, "the bridge creation task panicked"))??,
+				.map_err(|error| tg::error!(!error, "the bridge creation task panicked"))??,
 		)
 	} else {
 		None
@@ -196,13 +196,13 @@ pub(crate) async fn spawn(
 		.stderr(std::process::Stdio::inherit());
 	let child = command
 		.spawn()
-		.map_err(|source| tg::error!(!source, "failed to spawn sandbox container"))?;
+		.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
 	if let Some(bridge) = bridge.as_mut() {
 		drop(bridge.guest_pipe.take());
 		let pid = child
 			.id()
 			.ok_or_else(|| tg::error!("no child pid available"))?;
-		let pid = i32::try_from(pid).map_err(|source| tg::error!(!source, "invalid child pid"))?;
+		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
 		bridge.connect(pid).await?;
 	}
 	Ok(child)
@@ -218,24 +218,24 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		Sandbox::host_work_path_from_root(sandbox_path),
 	] {
 		std::fs::create_dir_all(&path).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the sandbox path"),
+			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
 	let tmp_path = Sandbox::host_tmp_path_from_root(sandbox_path);
-	std::fs::set_permissions(&tmp_path, permissions).map_err(|source| {
+	std::fs::set_permissions(&tmp_path, permissions).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %tmp_path.display(),
 			"failed to set sandbox path permissions"
 		)
 	})?;
 	let upper_path = Sandbox::host_upper_path_from_root(sandbox_path);
 	let tangram_path = upper_path.join("opt/tangram");
-	std::fs::create_dir_all(&tangram_path).map_err(|source| {
+	std::fs::create_dir_all(&tangram_path).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %tangram_path.display(),
 			"failed to create the sandbox path"
 		)
@@ -252,7 +252,7 @@ fn prepare_etc_files(
 	let user = resolve_user(user)?;
 	let passwd = render_passwd(&user);
 	std::fs::write(Sandbox::host_passwd_path_from_root(sandbox_path), passwd)
-		.map_err(|source| tg::error!(!source, "failed to write /etc/passwd"))?;
+		.map_err(|error| tg::error!(!error, "failed to write /etc/passwd"))?;
 	let nsswitch = indoc!(
 		"
 			passwd: files compat
@@ -264,7 +264,7 @@ fn prepare_etc_files(
 		Sandbox::host_nsswitch_path_from_root(sandbox_path),
 		nsswitch,
 	)
-	.map_err(|source| tg::error!(!source, "failed to write /etc/nsswitch.conf"))?;
+	.map_err(|error| tg::error!(!error, "failed to write /etc/nsswitch.conf"))?;
 	match network {
 		Some(crate::Network::Bridge(_)) => {
 			let mut contents = String::new();
@@ -274,12 +274,12 @@ fn prepare_etc_files(
 			}
 			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
 			std::fs::write(path, contents)
-				.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
+				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
 		Some(crate::Network::Host) if Path::new("/etc/resolv.conf").exists() => {
 			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
 			std::fs::copy("/etc/resolv.conf", path)
-				.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
+				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
 		_ => (),
 	}
@@ -309,7 +309,7 @@ fn resolve_user(name: Option<&str>) -> tg::Result<User> {
 	let ptr = unsafe {
 		if let Some(name) = name {
 			let name = CString::new(OsStr::new(name).as_bytes())
-				.map_err(|source| tg::error!(!source, "failed to encode the user name"))?;
+				.map_err(|error| tg::error!(!error, "failed to encode the user name"))?;
 			libc::getpwnam(name.as_ptr())
 		} else {
 			libc::getpwuid(libc::getuid())

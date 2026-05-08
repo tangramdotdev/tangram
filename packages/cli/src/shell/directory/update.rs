@@ -18,10 +18,9 @@ pub struct Args {
 impl Cli {
 	pub async fn command_shell_directory_update(&mut self, args: Args) -> tg::Result<()> {
 		let path = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-		let path = std::fs::canonicalize(path).map_err(|source| {
-			tg::error!(!source, "failed to canonicalize the current directory")
-		})?;
+			.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
+		let path = std::fs::canonicalize(path)
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the current directory"))?;
 		let directory = self.get_shell_directory(&path)?;
 		let shell_state_path = std::env::var("TANGRAM_SHELL_STATE").ok();
 		let state = shell_state_path
@@ -52,9 +51,7 @@ impl Cli {
 			.to_owned();
 		let reference = format!("{directory}#{}", desired.export)
 			.parse::<tg::Reference>()
-			.map_err(|source| {
-				tg::error!(!source, "failed to parse the shell directory reference")
-			})?;
+			.map_err(|error| tg::error!(!error, "failed to parse the shell directory reference"))?;
 
 		if state
 			.as_ref()

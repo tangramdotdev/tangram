@@ -12,7 +12,7 @@ impl Session {
 			.object_store
 			.put_batch(args)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
+			.map_err(|error| tg::error!(!error, "failed to store the objects"))?;
 		progress.finish("storing");
 		Ok(())
 	}

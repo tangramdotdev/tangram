@@ -177,7 +177,7 @@ impl State {
 
 		// Deserialize.
 		let data = tg::object::Data::deserialize(id.kind(), output.bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 		let object = tg::object::Object::try_from_data(data)?;
 
 		// Store and return.

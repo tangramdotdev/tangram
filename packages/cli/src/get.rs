@@ -123,7 +123,7 @@ impl Cli {
 		if let tg::reference::Item::Path(path) = &mut item {
 			*path = tangram_util::fs::canonicalize_parent(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 		}
 		let reference = tg::Reference::with_item_and_options(item, options);
 
@@ -131,18 +131,18 @@ impl Cli {
 		let stream = client
 			.get(&reference, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
+			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
 		let mut referent = self
 			.render_progress_stream(stream)
 			.await
-			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
+			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
 		if relative && let Some(path) = referent.path() {
 			let current_dir = std::env::current_dir()
-				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the working directory"))?;
 			let path = tangram_util::path::diff(&current_dir, path)
-				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+				.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
 				.unwrap_or_default();
 			referent.options.path = Some(path);
 		}
@@ -204,7 +204,7 @@ impl Cli {
 				let item = directory
 					.get_entry_edge_with_handle(&client, root_module_name)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
 				let item = tg::module::Item::Edge(item.into());
 				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }
@@ -248,7 +248,7 @@ impl Cli {
 				let item = directory
 					.get_entry_edge_with_handle(&client, root_module_name)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
 				let item = tg::module::Item::Edge(item.into());
 				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }

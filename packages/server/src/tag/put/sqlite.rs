@@ -18,7 +18,7 @@ impl Session {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		connection
 			.with({
@@ -28,15 +28,15 @@ impl Session {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
-						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+						.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 					// Insert the tag.
 					Self::put_tag_sqlite_sync(&transaction, cache, &tag, &arg)?;
 
 					// Commit the transaction.
-					transaction.commit().map_err(|source| {
-						tg::error!(!source, "failed to commit the transaction")
-					})?;
+					transaction
+						.commit()
+						.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 					Ok::<_, tg::Error>(())
 				}
@@ -79,18 +79,18 @@ impl Session {
 			);
 			let mut statement = cache
 				.get(transaction, statement.into())
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 			let params = sqlite::params![parent.to_i64().unwrap(), component.to_string()];
 			let mut rows = statement
 				.query(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			if let Some(row) = rows
 				.next()
-				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+				.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 			{
 				let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 				if row.item.is_some() {
 					return Err(tg::error!(%ancestor, "found existing tag"));
 				}
@@ -107,11 +107,11 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(transaction, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![component.to_string()];
 				statement
 					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				let new_id = transaction.last_insert_rowid();
 
 				// Insert the parent-child relationship.
@@ -123,11 +123,11 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(transaction, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![parent.to_i64().unwrap(), new_id];
 				statement
 					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 				parent = new_id.to_u64().unwrap();
 			}
@@ -144,16 +144,16 @@ impl Session {
 		);
 		let mut statement = cache
 			.get(transaction, statement.into())
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 		let params = sqlite::params![
 			parent.to_i64().unwrap(),
 			tag.components().last().unwrap().to_string(),
 		];
 		let exists = statement
 			.query(params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.next()
-			.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the query"))?
 			.is_some();
 		if exists {
 			return Err(tg::error!("found existing branch"));
@@ -170,23 +170,23 @@ impl Session {
 		);
 		let mut statement = cache
 			.get(transaction, statement.into())
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 		let params = sqlite::params![
 			parent.to_i64().unwrap(),
 			tag.components().last().unwrap().to_string(),
 		];
 		let mut rows = statement
 			.query(params)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		if let Some(row) = rows
 			.next()
-			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+			.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 		{
 			// Update the existing leaf.
 			let id: i64 = row
 				.get(0)
-				.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the id"))?;
 			drop(rows);
 			let statement = indoc!(
 				"
@@ -196,11 +196,11 @@ impl Session {
 			);
 			let mut statement = cache
 				.get(transaction, statement.into())
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 			let params = sqlite::params![arg.item.to_string(), id];
 			statement
 				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		} else {
 			drop(rows);
 
@@ -213,14 +213,14 @@ impl Session {
 			);
 			let mut statement = cache
 				.get(transaction, statement.into())
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 			let params = sqlite::params![
 				tag.components().last().unwrap().to_string(),
 				arg.item.to_string(),
 			];
 			statement
 				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			let new_id = transaction.last_insert_rowid();
 
 			// Insert the parent-child relationship.
@@ -232,11 +232,11 @@ impl Session {
 			);
 			let mut statement = cache
 				.get(transaction, statement.into())
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 			let params = sqlite::params![parent.to_i64().unwrap(), new_id];
 			statement
 				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}
 
 		Ok(())

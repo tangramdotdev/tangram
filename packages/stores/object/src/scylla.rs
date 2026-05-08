@@ -83,10 +83,10 @@ impl Store {
 			builder = builder.pool_size(scylla::client::PoolSize::PerHost(connections));
 		}
 		let session = builder.build().boxed().await.map_err(
-			|source| tg::error!(!source, addr = %config.addr, "failed to build the session"),
+			|error| tg::error!(!error, addr = %config.addr, "failed to build the session"),
 		)?;
 		session.use_keyspace(&config.keyspace, true).await.map_err(
-			|source| tg::error!(!source, keyspace = %config.keyspace, "failed to use the keyspace"),
+			|error| tg::error!(!error, keyspace = %config.keyspace, "failed to use the keyspace"),
 		)?;
 
 		let statement = indoc!(
@@ -98,7 +98,7 @@ impl Store {
 		let mut delete_object = session
 			.prepare(statement)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to prepare the delete statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the delete statement"))?;
 		delete_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
@@ -111,7 +111,7 @@ impl Store {
 		let mut get_object_batch = session
 			.prepare(statement)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to prepare the get batch statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the get batch statement"))?;
 		get_object_batch.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
@@ -121,8 +121,8 @@ impl Store {
 				where id = ?;
 			"
 		);
-		let mut get_object_cache_pointer = session.prepare(statement).await.map_err(|source| {
-			tg::error!(!source, "failed to prepare the get cache pointer statement")
+		let mut get_object_cache_pointer = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the get cache pointer statement")
 		})?;
 		get_object_cache_pointer.set_consistency(scylla::statement::Consistency::One);
 
@@ -136,7 +136,7 @@ impl Store {
 		let mut get_object = session
 			.prepare(statement)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to prepare the get statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the get statement"))?;
 		get_object.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
@@ -148,7 +148,7 @@ impl Store {
 		let mut put_object = session
 			.prepare(statement)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to prepare the put statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the put statement"))?;
 		put_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let scylla = Self {
@@ -180,12 +180,12 @@ impl Store {
 			.execute_unpaged(statement, params)
 			.boxed()
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?
 			.into_rows_result()
-			.map_err(|source| tg::error!(!source, %id, "failed to get the rows"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the rows"))?;
 		let Some(row) = result
 			.maybe_first_row::<Row>()
-			.map_err(|source| tg::error!(!source, %id, "failed to get the row"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the row"))?
 		else {
 			return Ok(None);
 		};
@@ -215,21 +215,21 @@ impl Store {
 			.session
 			.execute_unpaged(statement, params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the query"))?
 			.into_rows_result()
-			.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the rows"))?;
 		let map = result
 			.rows::<Row>()
-			.map_err(|source| tg::error!(!source, "failed to iterate the rows"))?
+			.map_err(|error| tg::error!(!error, "failed to iterate the rows"))?
 			.filter_map(|result| {
 				result
-					.map_err(|source| tg::error!(!source, "failed to get the row"))
+					.map_err(|error| tg::error!(!error, "failed to get the row"))
 					.and_then(|row| {
 						let Some(bytes) = row.bytes else {
 							return Ok(None);
 						};
 						let id = tg::object::Id::from_slice(row.id)
-							.map_err(|source| tg::error!(!source, "failed to parse the id"))?;
+							.map_err(|error| tg::error!(!error, "failed to parse the id"))?;
 						let bytes = Bytes::copy_from_slice(bytes);
 						Ok(Some((id, bytes)))
 					})
@@ -254,21 +254,20 @@ impl Store {
 			.execute_unpaged(statement, params)
 			.boxed()
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?
 			.into_rows_result()
-			.map_err(|source| tg::error!(!source, %id, "failed to get the rows"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the rows"))?;
 		let Some(row) = result
 			.maybe_first_row::<Row>()
-			.map_err(|source| tg::error!(!source, %id, "failed to get the row"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the row"))?
 		else {
 			return Ok(None);
 		};
 		let Some(cache_pointer) = row.cache_pointer else {
 			return Ok(None);
 		};
-		let cache_pointer = CachePointer::deserialize(cache_pointer).map_err(
-			|source| tg::error!(!source, %id, "failed to deserialize the cache pointer"),
-		)?;
+		let cache_pointer = CachePointer::deserialize(cache_pointer)
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the cache pointer"))?;
 		Ok(Some(cache_pointer))
 	}
 }
@@ -351,7 +350,7 @@ impl crate::Store for Store {
 		let bytes = arg.bytes;
 		let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
 			let cache_pointer = cache_pointer.serialize().map_err(
-				|source| tg::error!(!source, %id, "failed to serialize the cache pointer"),
+				|error| tg::error!(!error, %id, "failed to serialize the cache pointer"),
 			)?;
 			Some(cache_pointer)
 		} else {
@@ -363,7 +362,7 @@ impl crate::Store for Store {
 		self.session
 			.execute_unpaged(&self.statements.put_object, params)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?;
 		Ok(())
 	}
 
@@ -386,7 +385,7 @@ impl crate::Store for Store {
 				let bytes = arg.bytes.clone();
 				let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
 					let cache_pointer = cache_pointer.serialize().map_err(
-						|source| tg::error!(!source, %id, "failed to serialize the cache pointer"),
+						|error| tg::error!(!error, %id, "failed to serialize the cache pointer"),
 					)?;
 					Some(cache_pointer)
 				} else {
@@ -401,7 +400,7 @@ impl crate::Store for Store {
 		self.session
 			.batch(&batch, params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the batch"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the batch"))?;
 		Ok(())
 	}
 
@@ -413,7 +412,7 @@ impl crate::Store for Store {
 		self.session
 			.execute_unpaged(&self.statements.delete_object, params)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?;
 		Ok(())
 	}
 

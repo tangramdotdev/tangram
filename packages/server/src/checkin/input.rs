@@ -92,12 +92,12 @@ impl Session {
 		// Collect the artifacts path entries.
 		let artifacts_entries = if let Some(artifacts_path) = artifacts_path {
 			let read_dir = std::fs::read_dir(artifacts_path).map_err(
-				|source| tg::error!(!source, path = %artifacts_path.display(), "failed to read the artifacts directory"),
+				|error| tg::error!(!error, path = %artifacts_path.display(), "failed to read the artifacts directory"),
 			)?;
 			let mut entries = Vec::new();
 			for entry in read_dir {
 				let entry = entry
-					.map_err(|source| tg::error!(!source, "failed to get the directory entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the directory entry"))?;
 				entries.push((entry.path(), entry.file_name()));
 			}
 			entries
@@ -189,7 +189,7 @@ impl Session {
 
 		// Get the metadata.
 		let metadata = std::fs::symlink_metadata(&item.path).map_err(
-			|source| tg::error!(!source, path = %item.path.display(), "failed to get the metadata"),
+			|error| tg::error!(!error, path = %item.path.display(), "failed to get the metadata"),
 		)?;
 
 		// Skip ignored files, unless the path is in the artifacts path.
@@ -208,7 +208,7 @@ impl Session {
 					ignorer.matches(root, &item.path, Some(metadata.is_dir()))
 				})
 				.transpose()
-				.map_err(|source| tg::error!(!source, "failed to ignore"))?
+				.map_err(|error| tg::error!(!error, "failed to ignore"))?
 				.is_some_and(|ignore| ignore)
 		{
 			return Ok(());
@@ -228,7 +228,7 @@ impl Session {
 			})
 		} else if metadata.is_symlink() {
 			let path = std::fs::read_link(&item.path)
-				.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
 			Variant::Symlink(Symlink {
 				artifact: None,
 				path: Some(path),
@@ -315,12 +315,12 @@ impl Session {
 			.as_ref()
 			.unwrap();
 		let read_dir = std::fs::read_dir(path).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to read the directory"),
+			|error| tg::error!(!error, path = %path.display(), "failed to read the directory"),
 		)?;
 		let mut names = Vec::new();
 		for result in read_dir {
-			let entry = result
-				.map_err(|source| tg::error!(!source, "failed to get the directory entry"))?;
+			let entry =
+				result.map_err(|error| tg::error!(!error, "failed to get the directory entry"))?;
 			let name = entry
 				.file_name()
 				.to_str()
@@ -380,7 +380,7 @@ impl Session {
 		if let Ok(Some(contents)) = xattr::get(&path, tg::file::DEPENDENCIES_XATTR_NAME) {
 			// Read the dependencies xattr.
 			let references = serde_json::from_slice::<Vec<tg::Reference>>(&contents)
-				.map_err(|source| tg::error!(!source, "failed to deserialize dependencies"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize dependencies"))?;
 
 			// Create the dependencies and push items for path dependencies.
 			for reference in references {
@@ -400,7 +400,7 @@ impl Session {
 					};
 					let referent = path.parent().unwrap().join(reference_path);
 					let referent = referent.canonicalize().map_err(
-						|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
+						|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
 					)?;
 					stack.push(Item {
 						path: referent,
@@ -450,10 +450,10 @@ impl Session {
 
 			// Read the module.
 			let contents = std::fs::read(&path).map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to read the module"),
+				|error| tg::error!(!error, path = %path.display(), "failed to read the module"),
 			)?;
 			let text = String::from_utf8(contents).map_err(
-				|source| tg::error!(!source, path = %path.display(), "the module is not valid utf-8"),
+				|error| tg::error!(!error, path = %path.display(), "the module is not valid utf-8"),
 			)?;
 
 			// Analyze.
@@ -486,11 +486,11 @@ impl Session {
 					let referent = path.parent().unwrap().join(reference_path);
 					let result = if matches!(import.kind, Some(tg::module::Kind::Symlink)) {
 						tangram_util::fs::canonicalize_parent_sync(&referent).map_err(
-							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
+							|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
 						)
 					} else {
 						referent.canonicalize().map_err(
-							|source| tg::error!(!source, path = %referent.display(), "failed to canonicalize the path"),
+							|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
 						)
 					};
 					dependencies.insert(reference, None);
@@ -582,7 +582,7 @@ impl Session {
 			.unwrap()
 			.clone();
 		let mut target = std::fs::read_link(&path)
-			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
 
 		// If the target is absolute, then get the host path if necessary.
 		if target.is_absolute() {
@@ -629,7 +629,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 				let dst = &absolute_target;
 				let target = tangram_util::path::diff(src, dst)
-					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+					.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
 					.ok_or_else(|| tg::error!("expected the paths to differ"))?;
 				Self::checkin_replace_symlink(state, &path, &target)?;
 			}
@@ -678,7 +678,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 				let dst = &absolute_target;
 				let target = tangram_util::path::diff(src, dst)
-					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+					.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
 					.ok_or_else(|| tg::error!("expected the paths to differ"))?;
 				Self::checkin_replace_symlink(state, &path, &target)?;
 			}
@@ -718,24 +718,24 @@ impl Session {
 	fn checkin_replace_symlink(state: &State, path: &Path, target: &Path) -> tg::Result<()> {
 		match std::fs::remove_file(path) {
 			Ok(()) => (),
-			Err(source) if source.kind() == std::io::ErrorKind::PermissionDenied => {
+			Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
 				Self::checkin_make_parent_writable(state, path)?;
 				std::fs::remove_file(path)
-					.map_err(|source| tg::error!(!source, "failed to remove the symlink"))?;
+					.map_err(|error| tg::error!(!error, "failed to remove the symlink"))?;
 			},
-			Err(source) => {
-				return Err(tg::error!(!source, "failed to remove the symlink"));
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to remove the symlink"));
 			},
 		}
 		match std::os::unix::fs::symlink(target, path) {
 			Ok(()) => (),
-			Err(source) if source.kind() == std::io::ErrorKind::PermissionDenied => {
+			Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
 				Self::checkin_make_parent_writable(state, path)?;
 				std::os::unix::fs::symlink(target, path)
-					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+					.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 			},
-			Err(source) => {
-				return Err(tg::error!(!source, "failed to create the symlink"));
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to create the symlink"));
 			},
 		}
 		Ok(())
@@ -753,16 +753,15 @@ impl Session {
 			let mode = metadata.permissions().mode();
 			let permissions = std::fs::Permissions::from_mode(mode | 0o222);
 			std::fs::set_permissions(parent, permissions)
-				.map_err(|source| tg::error!(!source, "failed to set the parent permissions"))?;
+				.map_err(|error| tg::error!(!error, "failed to set the parent permissions"))?;
 		} else {
 			let mut permissions = std::fs::symlink_metadata(parent)
-				.map_err(|source| tg::error!(!source, "failed to get the parent permissions"))?
+				.map_err(|error| tg::error!(!error, "failed to get the parent permissions"))?
 				.permissions();
 			if permissions.mode() & 0o222 == 0 {
 				permissions.set_mode(permissions.mode() | 0o222);
-				std::fs::set_permissions(parent, permissions).map_err(|source| {
-					tg::error!(!source, "failed to set the parent permissions")
-				})?;
+				std::fs::set_permissions(parent, permissions)
+					.map_err(|error| tg::error!(!error, "failed to set the parent permissions"))?;
 			}
 		}
 		Ok(())
@@ -819,7 +818,7 @@ impl Session {
 					.as_ref()
 					.unwrap();
 				let path = tangram_util::path::diff(parent_path.parent().unwrap(), path)
-					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+					.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
 					.unwrap_or_else(|| ".".into());
 				let path = if let Some(get) = reference.options().get.as_ref() {
 					path.join(get)
@@ -919,15 +918,15 @@ impl Session {
 			return Ok(Some(tg::module::Kind::Ts));
 		}
 		let Some(xattr) = xattr::get(path, tg::file::MODULE_XATTR_NAME)
-			.map_err(|source| tg::error!(!source, "failed to get the module xattr"))?
+			.map_err(|error| tg::error!(!error, "failed to get the module xattr"))?
 		else {
 			return Ok(None);
 		};
 		let xattr = String::from_utf8(xattr)
-			.map_err(|source| tg::error!(!source, "the module xattr is not valid utf-8"))?;
+			.map_err(|error| tg::error!(!error, "the module xattr is not valid utf-8"))?;
 		let kind = xattr
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the module kind"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the module kind"))?;
 		Ok(Some(kind))
 	}
 }

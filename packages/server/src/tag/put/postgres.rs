@@ -16,24 +16,24 @@ impl Session {
 		let mut connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		// Begin a transaction.
 		let mut transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Perform the transaction.
 		Self::put_tag_postgres_inner(&mut transaction, tag, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to perform the transaction"))?;
 
 		// Commit the transaction.
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		Ok(())
 	}
@@ -66,7 +66,7 @@ impl Session {
 				.inner()
 				.query(statement, &[&parent, &component.to_string()])
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			if let Some(row) = rows.first() {
 				#[derive(db::postgres::row::Deserialize)]
@@ -75,7 +75,7 @@ impl Session {
 					item: Option<String>,
 				}
 				let row = <Row as db::postgres::row::Deserialize>::deserialize(row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 				if row.item.is_some() {
 					return Err(tg::error!(%ancestor, "found existing tag"));
 				}
@@ -93,7 +93,7 @@ impl Session {
 					.inner()
 					.query(statement, &[&component.to_string()])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				let new_id: i64 = rows.first().unwrap().get(0);
 
 				// Insert the parent-child relationship.
@@ -107,7 +107,7 @@ impl Session {
 					.inner()
 					.execute(statement, &[&parent, &new_id])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 				parent = new_id;
 			}
@@ -126,7 +126,7 @@ impl Session {
 		let exists = transaction
 			.query_optional(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.is_some();
 		if exists {
 			return Err(tg::error!("found existing branch"));
@@ -148,7 +148,7 @@ impl Session {
 				&[&parent, &tag.components().last().unwrap().to_string()],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		if let Some(row) = rows.first() {
 			// Update the existing leaf.
@@ -163,7 +163,7 @@ impl Session {
 				.inner()
 				.execute(statement, &[&arg.item.to_string(), &id])
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		} else {
 			// Insert the leaf node.
 			let statement = indoc!(
@@ -183,7 +183,7 @@ impl Session {
 					],
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			let new_id: i64 = rows.first().unwrap().get(0);
 
 			// Insert the parent-child relationship.
@@ -197,7 +197,7 @@ impl Session {
 				.inner()
 				.execute(statement, &[&parent, &new_id])
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}
 		Ok(())
 	}

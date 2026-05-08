@@ -25,7 +25,7 @@ impl Session {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		let output = connection
 			.with({
@@ -34,7 +34,7 @@ impl Session {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
-						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+						.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 					// List the tags.
 					let output = Self::list_tags_sqlite_sync(&transaction, cache, &arg)?;
@@ -87,18 +87,18 @@ impl Session {
 			);
 			let mut statement = cache
 				.get(transaction, statement.into())
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 			let params = sqlite::params![m.id.to_i64().unwrap()];
 			let mut rows = statement
 				.query(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			let mut expanded = Vec::new();
 			while let Some(row) = rows
 				.next()
-				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+				.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 			{
 				let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 				let mut tag = m.tag.clone();
 				tag.push(&row.component);
 				let m = Match {
@@ -146,7 +146,7 @@ impl Session {
 		let connection = database
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let arg = arg.to_owned();
 		connection
 			.with(move |connection, cache| {
@@ -159,23 +159,23 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(connection, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![arg];
 				let mut rows = statement
 					.query(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				let Some(row) = rows
 					.next()
-					.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+					.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 				else {
 					return Ok(None);
 				};
 				let output: String = row
 					.get(0)
-					.map_err(|source| tg::error!(!source, "failed to get the output column"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the output column"))?;
 				let timestamp: i64 = row
 					.get(1)
-					.map_err(|source| tg::error!(!source, "failed to get the timestamp column"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the timestamp column"))?;
 				Ok(Some((output, timestamp)))
 			})
 			.await
@@ -191,7 +191,7 @@ impl Session {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let arg = arg.to_owned();
 		let output = output.to_owned();
 		connection
@@ -206,11 +206,11 @@ impl Session {
 				);
 				let mut statement = cache
 					.get(connection, statement.into())
-					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 				let params = sqlite::params![arg, output, timestamp];
 				statement
 					.execute(params)
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				Ok(())
 			})
 			.await
@@ -253,17 +253,17 @@ impl Session {
 			);
 			let mut statement = cache
 				.get(transaction, statement.into())
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 			let mut rows = statement
 				.query([])
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			let mut matches = Vec::new();
 			while let Some(row) = rows
 				.next()
-				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+				.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 			{
 				let row = <TagRow as db::sqlite::row::Deserialize>::deserialize(row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 				let mut tag = tg::Tag::empty();
 				tag.push(&row.component);
 				let m = Match {
@@ -292,19 +292,17 @@ impl Session {
 					);
 					let mut statement = cache
 						.get(transaction, statement.into())
-						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 					let params = sqlite::params![m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())];
 					let mut rows = statement
 						.query(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 					while let Some(row) = rows
 						.next()
-						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+						.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 					{
 						let row = <TagRow as db::sqlite::row::Deserialize>::deserialize(row)
-							.map_err(|source| {
-								tg::error!(!source, "failed to deserialize the row")
-							})?;
+							.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 						let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
 						tag.push(&row.component);
 						let m = Match {
@@ -326,19 +324,17 @@ impl Session {
 					);
 					let mut statement = cache
 						.get(transaction, statement.into())
-						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 					let params = sqlite::params![m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())];
 					let mut rows = statement
 						.query(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 					while let Some(row) = rows
 						.next()
-						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+						.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 					{
 						let row = <TagRow as db::sqlite::row::Deserialize>::deserialize(row)
-							.map_err(|source| {
-								tg::error!(!source, "failed to deserialize the row")
-							})?;
+							.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 						if tg::tag::pattern::matches(&row.component, pattern) {
 							let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
 							tag.push(&row.component);
@@ -362,23 +358,21 @@ impl Session {
 					);
 					let mut statement = cache
 						.get(transaction, statement.into())
-						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 					let params = sqlite::params![
 						m.as_ref().map_or(0, |m| m.id.to_i64().unwrap()),
 						pattern.to_string()
 					];
 					let mut rows = statement
 						.query(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 					while let Some(row) = rows
 						.next()
-						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+						.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 					{
 						let row =
 							<TagRowNoComponent as db::sqlite::row::Deserialize>::deserialize(row)
-								.map_err(|source| {
-								tg::error!(!source, "failed to deserialize the row")
-							})?;
+								.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 						let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
 						tag.push(pattern);
 						let m = Match {
@@ -413,20 +407,18 @@ impl Session {
 					);
 					let mut statement = cache
 						.get(transaction, statement.into())
-						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 					let params = sqlite::params![m.id.to_i64().unwrap()];
 					let mut rows = statement
 						.query(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 					while let Some(row) = rows
 						.next()
-						.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+						.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 					{
 						let row = <TagRow as db::sqlite::row::Deserialize>::deserialize(row)
-							.map_err(|source| {
-								tg::error!(!source, "failed to deserialize the row")
-							})?;
+							.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 						let mut tag = m.tag.clone();
 						tag.push(&row.component);
 						let child = Match {

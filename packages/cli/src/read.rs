@@ -28,7 +28,7 @@ impl Cli {
 				tg::graph::Edge::Object(tg::Object::File(file)) => file
 					.contents_with_handle(&client)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get file contents"))?,
+					.map_err(|error| tg::error!(!error, "failed to get file contents"))?,
 				tg::graph::Edge::Object(tg::Object::Symlink(symlink)) => {
 					let artifact = symlink.try_resolve_with_handle(&client).await?;
 					match artifact {
@@ -41,9 +41,7 @@ impl Cli {
 						Some(tg::Artifact::File(file)) => file
 							.contents_with_handle(&client)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the file contents")
-							})?
+							.map_err(|error| tg::error!(!error, "failed to get the file contents"))?
 							.clone(),
 					}
 				},
@@ -59,7 +57,7 @@ impl Cli {
 					let file = tg::File::with_object(tg::file::Object::Pointer(pointer.clone()));
 					file.contents_with_handle(&client)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to get file contents"))?
+						.map_err(|error| tg::error!(!error, "failed to get file contents"))?
 				},
 
 				tg::graph::Edge::Pointer(pointer)
@@ -78,9 +76,7 @@ impl Cli {
 						Some(tg::Artifact::File(file)) => file
 							.contents_with_handle(&client)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the file contents")
-							})?
+							.map_err(|error| tg::error!(!error, "failed to get the file contents"))?
 							.clone(),
 					}
 				},
@@ -100,14 +96,14 @@ impl Cli {
 				.await?;
 			tokio::io::copy(&mut pin!(reader), &mut stdout)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the blob to stdout"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the blob to stdout"))?;
 		}
 
 		// Flush.
 		stdout
 			.flush()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+			.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 
 		Ok(())
 	}

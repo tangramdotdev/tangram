@@ -79,7 +79,7 @@ impl Session {
 			.index
 			.touch_objects(&ids, touched_at, self.server.config.object.time_to_touch)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to touch and get object metadata"))?;
+			.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
 
 		for (item, output) in std::iter::zip(items, outputs) {
 			// Update the graph.
@@ -103,7 +103,7 @@ impl Session {
 					.sender
 					.send(Ok(message))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to send the stored message"))?;
+					.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
 			}
 
 			if item.missing {
@@ -120,12 +120,12 @@ impl Session {
 						.try_get_object_local(&item.id, false)
 						.await
 						.map_err(
-							|source| tg::error!(!source, id = %item.id, "failed to get the object locally"),
+							|error| tg::error!(!error, id = %item.id, "failed to get the object locally"),
 						)?
 						.ok_or_else(|| tg::error!(id = %item.id, "expected the object to exist"))?
 						.bytes;
 					let data = tg::object::Data::deserialize(item.id.kind(), bytes).map_err(
-						|source| tg::error!(!source, id = %item.id, "failed to deserialize the object"),
+						|error| tg::error!(!error, id = %item.id, "failed to deserialize the object"),
 					)?;
 
 					// Update the graph.
@@ -167,7 +167,7 @@ impl Session {
 			.index
 			.touch_processes(&ids, touched_at, self.server.config.process.time_to_touch)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to touch and get process metadata"))?;
+			.map_err(|error| tg::error!(!error, "failed to touch and get process metadata"))?;
 
 		for (item, output) in std::iter::zip(items, outputs) {
 			// Update the graph.
@@ -200,7 +200,7 @@ impl Session {
 					.sender
 					.send(Ok(message))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to send the stored message"))?;
+					.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
 			}
 
 			if item.missing {
@@ -214,7 +214,7 @@ impl Session {
 					.try_get_process_local(&item.id, false)
 					.await
 					.map_err(
-						|source| tg::error!(!source, id = %item.id, "failed to get the process locally"),
+						|error| tg::error!(!error, id = %item.id, "failed to get the process locally"),
 					)?
 					.ok_or_else(|| tg::error!(id = %item.id, "expected the process to exist"))?
 					.data;
@@ -258,7 +258,7 @@ impl Session {
 		// Create the index args.
 		let (put_object_args, put_process_args) =
 			Self::sync_get_index_create_args(&mut graph.lock().unwrap())
-				.map_err(|source| tg::error!(!source, "failed to create the index args"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
 
 		// Index the objects and processes.
 		self.server
@@ -269,7 +269,7 @@ impl Session {
 				..Default::default()
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to index the sync"))?;
+			.map_err(|error| tg::error!(!error, "failed to index the sync"))?;
 
 		Ok(())
 	}

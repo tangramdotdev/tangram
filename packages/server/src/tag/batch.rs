@@ -24,7 +24,7 @@ impl Session {
 		let location = self
 			.server
 			.location(arg.location.as_ref())
-			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -50,7 +50,7 @@ impl Session {
 		// Authorize.
 		self.authorize()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
+			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
 
 		// Insert the tags into the database unless this is a replicated request.
 		if !arg.replicate {
@@ -59,13 +59,13 @@ impl Session {
 				Database::Postgres(database) => {
 					self.post_tag_batch_postgres(database, arg)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
+						.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
 				},
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => {
 					self.post_tag_batch_sqlite(database, arg)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
+						.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
 				},
 			}
 		}
@@ -83,7 +83,7 @@ impl Session {
 			.index
 			.put_tags(&put_tag_args)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to index the tags"))?;
+			.map_err(|error| tg::error!(!error, "failed to index the tags"))?;
 
 		// Handle regions unless this is a replicated request.
 		if !arg.replicate {
@@ -92,7 +92,7 @@ impl Session {
 				.server
 				.locations(Some(&location))
 				.await
-				.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+				.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 			if let Some(local) = locations.local
 				&& !local.regions.is_empty()
 			{
@@ -109,8 +109,8 @@ impl Session {
 					.collect::<futures::stream::FuturesUnordered<_>>()
 					.try_collect::<()>()
 					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to post the tag batch in another region")
+					.map_err(|error| {
+						tg::error!(!error, "failed to post the tag batch in another region")
 					})?;
 			}
 		}
@@ -124,7 +124,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<()> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -134,7 +134,7 @@ impl Session {
 			..arg
 		};
 		client.post_tag_batch(arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to post the tag batch"),
+			|error| tg::error!(!error, region = %region, "failed to post the tag batch"),
 		)?;
 		Ok(())
 	}
@@ -148,7 +148,7 @@ impl Session {
 		let client = self
 			.get_remote_session(remote)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the remote client"))?;
 		let arg = tg::tag::batch::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			replicate: false,
@@ -157,7 +157,7 @@ impl Session {
 		client
 			.post_tag_batch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to post the tag batch on the remote"))?;
+			.map_err(|error| tg::error!(!error, "failed to post the tag batch on the remote"))?;
 		Ok(())
 	}
 
@@ -168,10 +168,10 @@ impl Session {
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		self.post_tag_batch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
+			.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
 		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}

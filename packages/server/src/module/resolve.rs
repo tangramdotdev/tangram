@@ -15,24 +15,23 @@ impl Session {
 
 		// Get the referent.
 		let referent = match referrer {
-			None => Self::resolve_module_without_referrer(&import).map_err(|source| {
-				tg::error!(!source, "failed to resolve module without referrer")
-			})?,
+			None => Self::resolve_module_without_referrer(&import)
+				.map_err(|error| tg::error!(!error, "failed to resolve module without referrer"))?,
 			Some(referrer) => match referrer.referent.item() {
 				tg::module::data::Item::Edge(edge) => {
 					let referrer = referrer.referent.clone().map(|_| edge);
 					self.resolve_module_with_edge_referrer(&referrer, &import)
 						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to resolve module with edge referrer")
+						.map_err(|error| {
+							tg::error!(!error, "failed to resolve module with edge referrer")
 						})?
 				},
 				tg::module::data::Item::Path(path) => {
 					let referrer = referrer.referent.clone().map(|_| path.as_ref());
 					self.resolve_module_with_path_referrer(&referrer, &import)
 						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to resolve module with path referrer")
+						.map_err(|error| {
+							tg::error!(!error, "failed to resolve module with path referrer")
 						})?
 				},
 			},
@@ -77,7 +76,7 @@ impl Session {
 				tg::module::data::Item::Path(path) => {
 					let metadata = tokio::fs::symlink_metadata(&path)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+						.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
 					if metadata.is_dir() {
 						tg::module::Kind::Directory
 					} else if metadata.is_file() {
@@ -141,7 +140,7 @@ impl Session {
 		let dependency = file
 			.get_dependency_edge_with_handle(self, &import.reference)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the dependency edge"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the dependency edge"))?;
 
 		let edge = dependency
 			.0
@@ -168,12 +167,12 @@ impl Session {
 					tg::Either::Left(directory),
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the root module file name"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the root module file name"))?;
 				if let Some(path) = path {
 					let edge = directory
 						.get_entry_edge_with_handle(self, path)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
+						.map_err(|error| tg::error!(!error, "failed to get the entry edge"))?;
 					let edge: tg::graph::Edge<tg::Object> = match edge {
 						tg::graph::Edge::Pointer(pointer) => {
 							if pointer.kind != tg::artifact::Kind::File {
@@ -304,10 +303,10 @@ impl Session {
 			let path =
 				tangram_util::fs::canonicalize_parent(&referrer.item.parent().unwrap().join(path))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+					.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 			let metadata = tokio::fs::symlink_metadata(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
 			if metadata.is_dir()
 				&& matches!(
 					import.kind,
@@ -354,12 +353,12 @@ impl Session {
 			let stream = self
 				.checkin(arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the path"))?;
+				.map_err(|error| tg::error!(!error, "failed to check in the path"))?;
 			let stream = pin!(stream);
 			stream
 				.try_last()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to complete the checkin"))?;
+				.map_err(|error| tg::error!(!error, "failed to complete the checkin"))?;
 
 			// Get the watch and retrieve the edge from the graph.
 			let entry = self
@@ -382,8 +381,8 @@ impl Session {
 			let referent = self
 				.resolve_module_with_edge_referrer(&referrer, import)
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to resolve module with edge referrer")
+				.map_err(|error| {
+					tg::error!(!error, "failed to resolve module with edge referrer")
 				})?;
 
 			Ok(referent)
@@ -397,12 +396,12 @@ impl Session {
 		let stream = self
 			.try_get(&import.reference, tg::get::Arg::default())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the reference"))?;
 		let stream = pin!(stream);
 		let output = stream
 			.try_last()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to complete the get"))?
+			.map_err(|error| tg::error!(!error, "failed to complete the get"))?
 			.ok_or_else(|| tg::error!("expected an event"))?
 			.try_unwrap_output()
 			.ok()
@@ -443,12 +442,12 @@ impl Session {
 					tg::Either::Left(directory),
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the root module file name"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the root module file name"))?;
 				if let Some(path) = path {
 					let edge = directory
 						.get_entry_edge_with_handle(self, path)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
+						.map_err(|error| tg::error!(!error, "failed to get the entry edge"))?;
 					let edge = match edge {
 						tg::graph::Edge::Pointer(pointer) => {
 							if pointer.kind != tg::artifact::Kind::File {
@@ -558,19 +557,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Resolve the module.
 		let output = self
 			.resolve_module(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the module"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the module"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

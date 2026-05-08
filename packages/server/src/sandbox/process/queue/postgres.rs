@@ -14,7 +14,7 @@ impl Session {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let statement = indoc!(
 			"
@@ -39,14 +39,14 @@ impl Session {
 			.inner()
 			.query(statement, &[&sandbox, &now])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(row) = rows.first() else {
 			return Ok(None);
 		};
 		let process = row
 			.get::<_, String>(0)
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		let output = tg::sandbox::process::queue::Output { process };
 

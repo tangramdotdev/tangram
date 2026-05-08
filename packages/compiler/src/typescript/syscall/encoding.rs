@@ -8,7 +8,7 @@ pub fn base64_decode(
 	let (value,) = args;
 	let bytes = data_encoding::BASE64
 		.decode(value.as_bytes())
-		.map_err(|source| tg::error!(!source, "failed to decode the bytes"))?;
+		.map_err(|error| tg::error!(!error, "failed to decode the bytes"))?;
 	Ok(bytes.into())
 }
 
@@ -30,7 +30,7 @@ pub fn hex_decode(
 	let (string,) = args;
 	let bytes = data_encoding::HEXLOWER
 		.decode(string.as_bytes())
-		.map_err(|source| tg::error!(!source, "failed to decode the string as hex"))?;
+		.map_err(|error| tg::error!(!error, "failed to decode the string as hex"))?;
 	Ok(bytes.into())
 }
 
@@ -51,7 +51,7 @@ pub fn json_decode(
 ) -> tg::Result<Serde<serde_json::Value>> {
 	let (json,) = args;
 	let value = serde_json::from_str(&json)
-		.map_err(|source| tg::error!(!source, "failed to decode the string as json"))?;
+		.map_err(|error| tg::error!(!error, "failed to decode the string as json"))?;
 	Ok(Serde(value))
 }
 
@@ -62,7 +62,7 @@ pub fn json_encode(
 ) -> tg::Result<String> {
 	let (Serde(value),) = args;
 	let json = serde_json::to_string(&value)
-		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
+		.map_err(|error| tg::error!(!error, "failed to encode the value"))?;
 	Ok(json)
 }
 
@@ -73,7 +73,7 @@ pub fn toml_decode(
 ) -> tg::Result<Serde<toml::Value>> {
 	let (toml,) = args;
 	let value = toml::from_str(&toml)
-		.map_err(|source| tg::error!(!source, "failed to decode the string as toml"))?;
+		.map_err(|error| tg::error!(!error, "failed to decode the string as toml"))?;
 	Ok(Serde(value))
 }
 
@@ -84,7 +84,7 @@ pub fn toml_encode(
 ) -> tg::Result<String> {
 	let (Serde(value),) = args;
 	let toml = toml::to_string(&value)
-		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
+		.map_err(|error| tg::error!(!error, "failed to encode the value"))?;
 	Ok(toml)
 }
 
@@ -95,7 +95,7 @@ pub fn utf8_decode(
 ) -> tg::Result<String> {
 	let (bytes,) = args;
 	let string = String::from_utf8(bytes.into())
-		.map_err(|source| tg::error!(!source, "failed to decode the bytes as UTF-8"))?;
+		.map_err(|error| tg::error!(!error, "failed to decode the bytes as UTF-8"))?;
 	Ok(string)
 }
 
@@ -116,7 +116,7 @@ pub fn yaml_decode(
 ) -> tg::Result<Serde<serde_yaml::Value>> {
 	let (yaml,) = args;
 	let value = serde_yaml::from_str(&yaml)
-		.map_err(|source| tg::error!(!source, "failed to decode the string as yaml"))?;
+		.map_err(|error| tg::error!(!error, "failed to decode the string as yaml"))?;
 	Ok(Serde(value))
 }
 
@@ -127,6 +127,6 @@ pub fn yaml_encode(
 ) -> tg::Result<String> {
 	let (Serde(value),) = args;
 	let yaml = serde_yaml::to_string(&value)
-		.map_err(|source| tg::error!(!source, "failed to encode the value"))?;
+		.map_err(|error| tg::error!(!error, "failed to encode the value"))?;
 	Ok(yaml)
 }

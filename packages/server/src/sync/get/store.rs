@@ -126,7 +126,7 @@ impl Session {
 		for item in &items {
 			// Deserialize the bytes.
 			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())
-				.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
 			// Get the metadata.
 			let metadata = if state.context.untrusted {
@@ -227,8 +227,8 @@ impl Session {
 		)> = items
 			.into_iter()
 			.map(|item| {
-				let data = serde_json::from_slice(&item.bytes).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the process data")
+				let data = serde_json::from_slice(&item.bytes).map_err(|error| {
+					tg::error!(!error, "failed to deserialize the process data")
 				})?;
 				Ok((item.id, data, item.metadata))
 			})
@@ -242,13 +242,13 @@ impl Session {
 			Database::Postgres(database) => {
 				self.put_process_batch_postgres(&batch_refs, database, now)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to put the processes"))?;
+					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => {
 				self.put_process_batch_sqlite(&batch_refs, database, now)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to put the processes"))?;
+					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
 			},
 		}
 

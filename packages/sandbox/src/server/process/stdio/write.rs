@@ -65,20 +65,20 @@ impl Server {
 			while let Some(event) = stream
 				.try_next()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read a stdio event"))?
+				.map_err(|error| tg::error!(!error, "failed to read a stdio event"))?
 			{
 				match event {
 					tg::process::stdio::read::Event::Chunk(chunk) => {
 						writer
 							.write_all(&chunk.bytes)
 							.await
-							.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+							.map_err(|error| tg::error!(!error, "failed to write stdin"))?;
 					},
 					tg::process::stdio::read::Event::End => {
 						writer
 							.shutdown()
 							.await
-							.map_err(|source| tg::error!(!source, "failed to close stdin"))?;
+							.map_err(|error| tg::error!(!error, "failed to close stdin"))?;
 						break;
 					},
 				}
@@ -96,17 +96,17 @@ impl Server {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id: tg::process::Id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let arg: crate::client::stdio::Arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or(crate::client::stdio::Arg {
 				streams: Vec::new(),
 			});
 		let stream = request
 			.sse()
-			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
 					if event.event.as_deref().is_some_and(|event| event == "error") {
@@ -122,7 +122,7 @@ impl Server {
 		let output = self
 			.write_stdio(id, arg, stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to handle stdio"))?;
+			.map_err(|error| tg::error!(!error, "failed to handle stdio"))?;
 		let stream = output.map(
 			|result: tg::Result<tg::process::stdio::write::Event>| match result {
 				Ok(event) => event.try_into(),

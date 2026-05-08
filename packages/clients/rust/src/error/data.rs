@@ -98,7 +98,7 @@ impl Error {
 		let mut bytes = Vec::new();
 		bytes.write_u8(0).unwrap();
 		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
@@ -111,9 +111,9 @@ impl Error {
 		let format = bytes[0];
 		let error = match format {
 			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			_ => Err(tg::error!("invalid format")),
 		}?;
 		Ok(error)

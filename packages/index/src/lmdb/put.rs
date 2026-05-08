@@ -17,7 +17,7 @@ impl Index {
 		let request = Request::Put(arg);
 		self.sender_medium
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -53,7 +53,7 @@ impl Index {
 
 		let existing = db
 			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, "failed to get the cache entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get the cache entry"))?
 			.and_then(|bytes| CacheEntry::deserialize(bytes).ok());
 
 		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
@@ -66,7 +66,7 @@ impl Index {
 		}
 		.serialize()?;
 		db.put(transaction, &key, &value)
-			.map_err(|source| tg::error!(!source, "failed to put the cache entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the cache entry"))?;
 
 		for dependency in &arg.dependencies {
 			let key = Key::CacheEntryDependency {
@@ -74,18 +74,16 @@ impl Index {
 				dependency: dependency.clone(),
 			};
 			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[]).map_err(|source| {
-				tg::error!(!source, "failed to put the cache entry dependency")
-			})?;
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the cache entry dependency"))?;
 
 			let key = Key::DependencyCacheEntry {
 				dependency: dependency.clone(),
 				cache_entry: arg.id.clone(),
 			};
 			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[]).map_err(|source| {
-				tg::error!(!source, "failed to put the dependency cache entry")
-			})?;
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the dependency cache entry"))?;
 		}
 
 		let key = Key::Clean {
@@ -95,7 +93,7 @@ impl Index {
 		};
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
-			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
 
 		Ok(())
 	}
@@ -113,7 +111,7 @@ impl Index {
 		let merge = !arg.complete();
 		let existing = if merge {
 			db.get(transaction, &key)
-				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 				.and_then(|bytes| Object::deserialize(bytes).ok())
 		} else {
 			None
@@ -150,7 +148,7 @@ impl Index {
 		}
 		.serialize()?;
 		db.put(transaction, &key, &value)
-			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 
 		for child in &arg.children {
 			let key = Key::ObjectChild {
@@ -159,7 +157,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|source| tg::error!(!source, "failed to put the object child"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the object child"))?;
 
 			let key = Key::ChildObject {
 				child: child.clone(),
@@ -167,7 +165,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|source| tg::error!(!source, "failed to put the child object"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the child object"))?;
 		}
 
 		if let Some(cache_entry) = &arg.cache_entry {
@@ -177,7 +175,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|source| tg::error!(!source, "failed to put the object cache entry"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the object cache entry"))?;
 
 			let key = Key::CacheEntryObject {
 				cache_entry: cache_entry.clone(),
@@ -185,7 +183,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|source| tg::error!(!source, "failed to put the cache entry object"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the cache entry object"))?;
 		}
 
 		let key = Key::Clean {
@@ -195,7 +193,7 @@ impl Index {
 		};
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
-			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
 
 		Self::enqueue_update(
 			db,
@@ -222,7 +220,7 @@ impl Index {
 		let merge = !arg.complete();
 		let existing = if merge {
 			db.get(transaction, &key)
-				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+				.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 				.and_then(|bytes| Process::deserialize(bytes).ok())
 		} else {
 			None
@@ -250,7 +248,7 @@ impl Index {
 		}
 		.serialize()?;
 		db.put(transaction, &key, &value)
-			.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 
 		for child in &arg.children {
 			let key = Key::ProcessChild {
@@ -259,7 +257,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|source| tg::error!(!source, "failed to put the process child"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the process child"))?;
 
 			let key = Key::ChildProcess {
 				child: child.clone(),
@@ -267,7 +265,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|source| tg::error!(!source, "failed to put the child process"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
 		}
 
 		for (object, kind) in &arg.objects {
@@ -278,7 +276,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|source| tg::error!(!source, "failed to put the process object"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the process object"))?;
 
 			let key = Key::ObjectProcess {
 				object: object.clone(),
@@ -287,7 +285,7 @@ impl Index {
 			};
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|source| tg::error!(!source, "failed to put the object process"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the object process"))?;
 		}
 
 		let key = Key::Clean {
@@ -297,7 +295,7 @@ impl Index {
 		};
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
-			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
 
 		Self::enqueue_update(
 			db,

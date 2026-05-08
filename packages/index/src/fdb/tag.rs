@@ -15,7 +15,7 @@ impl Index {
 		let request = Request::PutTags(args.to_vec());
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -33,7 +33,7 @@ impl Index {
 		let request = Request::DeleteTags(tags.to_vec());
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -66,7 +66,7 @@ impl Index {
 		let tag = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the tag"))?
+			.map_err(|error| tg::error!(!error, "failed to get the tag"))?
 			.map(|bytes| Tag::deserialize(&bytes))
 			.transpose()?;
 		if let Some(tag) = tag
@@ -140,7 +140,7 @@ impl Index {
 		let bytes = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get tag"))?;
+			.map_err(|error| tg::error!(!error, "failed to get tag"))?;
 		let Some(bytes) = bytes else {
 			return Ok(());
 		};

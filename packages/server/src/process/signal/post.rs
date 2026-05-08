@@ -20,14 +20,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
 					.try_post_process_signal_local(id, arg.signal)
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to signal the process"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to signal the process"))?
 			{
 				return Ok(Some(output));
 			}
@@ -36,7 +36,7 @@ impl Session {
 				.try_post_process_signal_regions(id, arg.signal, &local.regions)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, "failed to signal the process in another region"),
+					|error| tg::error!(!error, %id, "failed to signal the process in another region"),
 				)? {
 				return Ok(Some(output));
 			}
@@ -45,9 +45,8 @@ impl Session {
 		if let Some(output) = self
 			.try_post_process_signal_remotes(id, arg.signal, &locations.remotes)
 			.await
-			.map_err(
-				|source| tg::error!(!source, %id, "failed to signal the process in a remote"),
-			)? {
+			.map_err(|error| tg::error!(!error, %id, "failed to signal the process in a remote"))?
+		{
 			return Ok(Some(output));
 		}
 
@@ -62,7 +61,7 @@ impl Session {
 		let Some(output) = self
 			.try_get_process_local(id, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 		else {
 			return Ok(None);
 		};
@@ -79,7 +78,7 @@ impl Session {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -91,7 +90,7 @@ impl Session {
 		connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		drop(connection);
 
 		// Publish the signal message.
@@ -136,7 +135,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -146,7 +145,7 @@ impl Session {
 			location: Some(location.into()),
 		};
 		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to signal the process"),
+			|error| tg::error!(!error, region = %region, "failed to signal the process"),
 		)?
 		else {
 			return Ok(None);
@@ -190,7 +189,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::signal::post::Arg {
 			signal,
@@ -201,7 +200,7 @@ impl Session {
 			])),
 		};
 		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to signal the process"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to signal the process"),
 		)?
 		else {
 			return Ok(None);
@@ -218,24 +217,24 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the process id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Post the process signal.
 		let Some(()) = self
 			.try_post_process_signal(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to post process signal"))?
+			.map_err(|error| tg::error!(!error, "failed to post process signal"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

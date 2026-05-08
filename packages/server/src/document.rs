@@ -45,14 +45,14 @@ impl Session {
 		let output = compiler
 			.document(&arg.module)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to document the module"))?;
+			.map_err(|error| tg::error!(!error, "failed to document the module"))?;
 
 		// Stop and await the compiler.
 		compiler.stop();
 		compiler
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the compiler"))?;
+			.map_err(|error| tg::error!(!error, "failed to wait for the compiler"))?;
 
 		Ok(output)
 	}
@@ -64,7 +64,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<serde_json::Value> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -74,7 +74,7 @@ impl Session {
 			..arg
 		};
 		let output = client.document(arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to document the module"),
+			|error| tg::error!(!error, region = %region, "failed to document the module"),
 		)?;
 		Ok(output)
 	}
@@ -87,7 +87,7 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<serde_json::Value> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::document::Arg {
 			location: Some(region.as_deref().map_or_else(
@@ -102,7 +102,7 @@ impl Session {
 			..arg
 		};
 		let output = client.document(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to document the module"),
+			|error| tg::error!(!error, remote = %remote, "failed to document the module"),
 		)?;
 		Ok(output)
 	}
@@ -115,19 +115,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Document the module.
 		let output = self
 			.document(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to document the module"))?;
+			.map_err(|error| tg::error!(!error, "failed to document the module"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

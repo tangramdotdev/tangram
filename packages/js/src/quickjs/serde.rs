@@ -27,7 +27,7 @@ where
 		let value = self
 			.0
 			.serialize(serializer)
-			.map_err(|source| qjs::Error::Io(std::io::Error::other(source)))?;
+			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 		Ok(value)
 	}
 }
@@ -39,7 +39,7 @@ where
 	fn from_js(ctx: &qjs::Ctx<'js>, value: qjs::Value<'js>) -> qjs::Result<Self> {
 		let deserializer = Deserializer::new(ctx.clone(), value);
 		let value = T::deserialize(deserializer)
-			.map_err(|source| qjs::Error::Io(std::io::Error::other(source)))?;
+			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 		let value = Self(value);
 		Ok(value)
 	}

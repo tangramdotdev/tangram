@@ -52,7 +52,7 @@ impl Server {
 				Stream::Tcp(
 					tokio::net::TcpStream::connect((host, port))
 						.await
-						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?,
 				)
 			},
 			Some("http+unix") => {
@@ -60,7 +60,7 @@ impl Server {
 				Stream::Unix(
 					tokio::net::UnixStream::connect(path)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?,
 				)
 			},
 			Some("http+vsock") => {
@@ -74,14 +74,14 @@ impl Server {
 						.host()
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.parse::<u32>()
-						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					Stream::Vsock(
 						tokio_vsock::VsockStream::connect(addr)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to connect to the socket")
+							.map_err(|error| {
+								tg::error!(!error, "failed to connect to the socket")
 							})?,
 					)
 				}
@@ -101,7 +101,7 @@ impl Server {
 					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let listener = tokio::net::TcpListener::bind(format!("{host}:{port}"))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to bind"))?;
+					.map_err(|error| tg::error!(!error, "failed to bind"))?;
 				Listener::Tcp(listener)
 			},
 			Some("https") => {
@@ -111,14 +111,14 @@ impl Server {
 					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let listener = tokio::net::TcpListener::bind(format!("{host}:{port}"))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to bind"))?;
+					.map_err(|error| tg::error!(!error, "failed to bind"))?;
 				Listener::Tcp(listener)
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let path = Path::new(path);
 				let listener = tokio::net::UnixListener::bind(path).map_err(
-					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
+					|error| tg::error!(!error, path = %path.display(), "failed to bind"),
 				)?;
 				Listener::Unix(listener)
 			},
@@ -133,11 +133,11 @@ impl Server {
 						.host()
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.parse::<u32>()
-						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					let listener = tokio_vsock::VsockListener::bind(addr)
-						.map_err(|source| tg::error!(!source, "failed to bind"))?;
+						.map_err(|error| tg::error!(!error, "failed to bind"))?;
 					Listener::Vsock(listener)
 				}
 			},
@@ -408,9 +408,9 @@ impl Server {
 	) -> tg::Result<tokio_rustls::TlsAcceptor> {
 		let certificates = tokio::fs::read(&config.certificate)
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					path = %config.certificate.display(),
 					"failed to read the certificate file"
 				)
@@ -419,9 +419,9 @@ impl Server {
 			let mut reader = std::io::BufReader::new(certificates.as_slice());
 			rustls_pemfile::certs(&mut reader)
 				.collect::<Result<Vec<_>, _>>()
-				.map_err(|source| {
+				.map_err(|error| {
 					tg::error!(
-						!source,
+						!error,
 						path = %config.certificate.display(),
 						"failed to parse the certificate file"
 					)
@@ -434,9 +434,9 @@ impl Server {
 			));
 		}
 
-		let private_key = tokio::fs::read(&config.key).await.map_err(|source| {
+		let private_key = tokio::fs::read(&config.key).await.map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %config.key.display(),
 				"failed to read the private key file"
 			)
@@ -444,9 +444,9 @@ impl Server {
 		let private_key = {
 			let mut reader = std::io::BufReader::new(private_key.as_slice());
 			rustls_pemfile::private_key(&mut reader)
-				.map_err(|source| {
+				.map_err(|error| {
 					tg::error!(
-						!source,
+						!error,
 						path = %config.key.display(),
 						"failed to parse the private key file"
 					)
@@ -463,10 +463,10 @@ impl Server {
 			rustls::crypto::ring::default_provider(),
 		))
 		.with_safe_default_protocol_versions()
-		.map_err(|source| tg::error!(!source, "failed to create the tls config"))?
+		.map_err(|error| tg::error!(!error, "failed to create the tls config"))?
 		.with_no_client_auth()
 		.with_single_cert(certificates, private_key)
-		.map_err(|source| tg::error!(!source, "failed to create the tls config"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the tls config"))?;
 		config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
 		let acceptor = tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(config));
@@ -703,8 +703,8 @@ impl Server {
 			match headers.get("x-tg-process") {
 				None => None,
 				Some(value) => {
-					let value = value.to_str().map_err(|source| {
-						let error = tg::error!(!source, "failed to parse the x-tg-process header");
+					let value = value.to_str().map_err(|error| {
+						let error = tg::error!(!error, "failed to parse the x-tg-process header");
 						tracing::debug!(error = %error.trace(), "failed to update the request context");
 						let bytes = match error.to_data_or_id() {
 							tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
@@ -716,8 +716,8 @@ impl Server {
 							.unwrap()
 							.boxed_body()
 					})?;
-					let value = value.parse::<tg::process::Id>().map_err(|source| {
-						let error = tg::error!(!source, "failed to parse the x-tg-process header");
+					let value = value.parse::<tg::process::Id>().map_err(|error| {
+						let error = tg::error!(!error, "failed to parse the x-tg-process header");
 						tracing::debug!(error = %error.trace(), "failed to update the request context");
 						let bytes = match error.to_data_or_id() {
 							tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
@@ -788,9 +788,9 @@ impl Server {
 					.unwrap()
 					.boxed_body());
 			},
-			Err(source) => {
+			Err(error) => {
 				let error = tg::error!(
-					!source,
+					!error,
 					process = %process_id,
 					sandbox = %sandbox_id,
 					"failed to get the sandbox process"

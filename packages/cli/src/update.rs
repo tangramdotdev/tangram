@@ -65,7 +65,7 @@ impl Cli {
 		// Canonicalize the path's parent.
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 
 		// Get the old lockfile.
 		let root = if args.checkin.root {
@@ -73,12 +73,12 @@ impl Cli {
 		} else {
 			find_root(args.path.clone())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to find the root"))?
+				.map_err(|error| tg::error!(!error, "failed to find the root"))?
 		};
 		let root = normalize_root(root);
 		let old_lock = try_read_lock(root.clone())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
+			.map_err(|error| tg::error!(!error, "failed to read lockfile"))?;
 
 		// Get the updates.
 		let updates = args.updates.unwrap_or_else(|| vec!["*".parse().unwrap()]);
@@ -92,13 +92,13 @@ impl Cli {
 		let stream = client
 			.checkin(arg)
 			.await
-			.map_err(|source| tg::error!(!source, path = %path.display(), "failed to check in"))?;
+			.map_err(|error| tg::error!(!error, path = %path.display(), "failed to check in"))?;
 		self.render_progress_stream(stream).await?;
 
 		// Get the new lockfile.
 		let new_lock = try_read_lock(root.clone())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
+			.map_err(|error| tg::error!(!error, "failed to read lockfile"))?;
 
 		// Print the updates.
 		let updates = create_updates(old_lock.as_ref(), new_lock.as_ref(), &root);
@@ -137,7 +137,7 @@ pub(crate) async fn find_root(path: PathBuf) -> tg::Result<PathBuf> {
 				continue;
 			}
 			let metadata = std::fs::symlink_metadata(ancestor).map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
+				|error| tg::error!(!error, path = %path.display(), "failed to get the metadata"),
 			)?;
 			if metadata.is_dir()
 				&& tg::module::try_get_root_module_file_name_sync(ancestor)?.is_some()
@@ -149,7 +149,7 @@ pub(crate) async fn find_root(path: PathBuf) -> tg::Result<PathBuf> {
 		Ok::<_, tg::Error>(output)
 	})
 	.await
-	.map_err(|source| tg::error!(!source, "the checkin root task panicked"))??;
+	.map_err(|error| tg::error!(!error, "the checkin root task panicked"))??;
 	Ok(output)
 }
 
@@ -187,13 +187,13 @@ pub(crate) async fn try_read_lock(path: PathBuf) -> tg::Result<Option<tg::graph:
 
 		// Deserialize the lock.
 		let lock = serde_json::from_slice::<tg::graph::Data>(&contents).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the lock"),
+			|error| tg::error!(!error, path = %path.display(), "failed to deserialize the lock"),
 		)?;
 
 		Ok(Some(lock))
 	})
 	.await
-	.map_err(|source| tg::error!(!source, "the lockfile task panicked"))?
+	.map_err(|error| tg::error!(!error, "the lockfile task panicked"))?
 }
 
 fn try_read_lockfile(path: &Path) -> tg::Result<Option<Vec<u8>>> {
@@ -207,8 +207,8 @@ fn try_read_lockfile(path: &Path) -> tg::Result<Option<Vec<u8>>> {
 		{
 			Ok(None)
 		},
-		Err(source) => {
-			Err(tg::error!(!source, path = %path.display(), "failed to read the lockfile"))
+		Err(error) => {
+			Err(tg::error!(!error, path = %path.display(), "failed to read the lockfile"))
 		},
 	}
 }

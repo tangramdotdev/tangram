@@ -181,7 +181,7 @@ impl Client {
 				.scheme("http+stdio")
 				.path("")
 				.build()
-				.map_err(|source| tg::error!(!source, "failed to build the URL"))?,
+				.map_err(|error| tg::error!(!error, "failed to build the URL"))?,
 		};
 		arg.url = Some(url.clone());
 		arg.version
@@ -223,7 +223,7 @@ impl Client {
 			.map(|value| {
 				value
 					.parse()
-					.map_err(|source| tg::error!(!source, "failed to parse TANGRAM_PROCESS"))
+					.map_err(|error| tg::error!(!error, "failed to parse TANGRAM_PROCESS"))
 			})
 			.transpose()
 	}

@@ -164,7 +164,7 @@ impl Inspector {
 		self.next_id += 1;
 		let message = protocol::Request { id, method, params };
 		let message = serde_json::to_string(&message)
-			.map_err(|source| tg::error!(!source, "failed to serialize the inspector request"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the inspector request"))?;
 		let mut session = self.session.borrow_mut();
 		let Some(session) = session.as_mut() else {
 			return Err(tg::error!("the V8 inspector session is not available"));

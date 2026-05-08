@@ -81,7 +81,7 @@ impl Session {
 			value
 				.store_with_handle(self)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to store the output"))?;
+				.map_err(|error| tg::error!(!error, "failed to store the output"))?;
 			let data = value.to_data();
 			Some(data)
 		} else {
@@ -119,10 +119,10 @@ impl Session {
 				let stream = self
 					.push(arg)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to push the output"))?;
+					.map_err(|error| tg::error!(!error, "failed to push the output"))?;
 				self.write_progress_stream(process, stream)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
+					.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 			}
 		}
 
@@ -140,7 +140,7 @@ impl Session {
 			.try_finish_process(process.id().unwrap_right(), arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, process = %process.id(), "failed to finish the process"),
+				|error| tg::error!(!error, process = %process.id(), "failed to finish the process"),
 			)?;
 		if finished.is_none() {
 			return Err(tg::error!(process = %process.id(), "failed to find the process"));
@@ -160,7 +160,7 @@ impl Session {
 		let state = &process
 			.load_with_handle(self)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to load the process"))?;
 		let location = process
 			.location()
 			.and_then(|location| location.to_location());
@@ -168,11 +168,11 @@ impl Session {
 		let command = process
 			.command_with_handle(self)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the command"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
 		let command = &command
 			.data_with_handle(self)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the command data"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
 
 		// Validate the host.
 		let host = command.host.as_str();
@@ -209,7 +209,7 @@ impl Session {
 		// Cache the process's children.
 		self.checkout_process_artifacts(process)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to cache the children"))?;
+			.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
 
 		let guest_artifacts_path = sandbox.guest_artifacts_path();
 		let guest_output_path = sandbox.guest_output_path_for_process(id);
@@ -335,7 +335,7 @@ impl Session {
 			})
 			.await
 			.map_err(
-				|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
+				|error| tg::error!(!error, %id, "failed to spawn the process in the sandbox"),
 			)?;
 		let sandbox_process = Arc::new(sandbox_process);
 		let stdin = state.stdin.clone();
@@ -385,7 +385,7 @@ impl Session {
 					session
 						.run_tty_task(&sandbox, &sandbox_process, &id, location.as_ref())
 						.await
-						.inspect_err(|source| tracing::error!(?source, "the tty task failed"))
+						.inspect_err(|error| tracing::error!(?error, "the tty task failed"))
 						.ok();
 				}
 			}))
@@ -404,22 +404,24 @@ impl Session {
 				session
 					.run_signal_task(&sandbox, &sandbox_process, &id, location.as_ref())
 					.await
-					.inspect_err(|source| tracing::error!(?source, "the signal task failed"))
+					.inspect_err(|error| tracing::error!(?error, "the signal task failed"))
 					.ok();
 			}
 		});
 
-		let wait = sandbox.wait(&sandbox_process).await.map_err(
-			|source| tg::error!(!source, %id, "failed to start waiting for the process"),
-		)?;
+		let wait = sandbox
+			.wait(&sandbox_process)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to start waiting for the process"))?;
 		let mut wait = std::pin::pin!(wait);
 		let arg = tg::process::status::Arg {
 			location: location.clone().map(Into::into),
 			timeout: None,
 		};
-		let status = self.get_process_status(id, arg).await.map_err(
-			|source| tg::error!(!source, %id, "failed to get the process status stream"),
-		)?;
+		let status = self
+			.get_process_status(id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process status stream"))?;
 		let status = async move {
 			let mut status = std::pin::pin!(status);
 			while let Some(status) = status.try_next().await? {
@@ -433,24 +435,24 @@ impl Session {
 		let (exit, stopped) = tokio::select! {
 			result = &mut wait => {
 				let exit = result
-					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
+					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
 				(exit, false)
 			},
 			result = &mut status => {
-				result.map_err(|source| {
-					tg::error!(!source, %id, "failed to wait for the process status")
+				result.map_err(|error| {
+					tg::error!(!error, %id, "failed to wait for the process status")
 				})?;
 				sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
 				let exit = wait
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
+					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
 				(exit, true)
 			},
 			() = stopper.wait() => {
 				sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
 				let exit = wait
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
+					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
 				(exit, true)
 			},
 		};
@@ -468,8 +470,8 @@ impl Session {
 			stdout_stderr_task
 				.wait()
 				.await
-				.map_err(|source| tg::error!(!source, "the output task panicked"))
-				.and_then(|r| r.map_err(|source| tg::error!(!source, "failed to send output")))?;
+				.map_err(|error| tg::error!(!error, "the output task panicked"))
+				.and_then(|r| r.map_err(|error| tg::error!(!error, "failed to send output")))?;
 		}
 
 		if stopped {
@@ -500,35 +502,35 @@ impl Session {
 
 		// Get the output path.
 		let path = host_output_path;
-		let exists = tokio::fs::try_exists(&path).await.map_err(|source| {
-			tg::error!(!source, "failed to determine if the output path exists")
-		})?;
+		let exists = tokio::fs::try_exists(&path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to determine if the output path exists"))?;
 
 		// Try to read the user.tangram.checksum xattr.
 		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.checksum") {
 			let checksum = String::from_utf8(bytes)
-				.map_err(|source| tg::error!(!source, "failed to parse the checksum xattr"))
+				.map_err(|error| tg::error!(!error, "failed to parse the checksum xattr"))
 				.and_then(|string| string.parse::<tg::Checksum>())
-				.map_err(|source| tg::error!(!source, "failed to parse the checksum string"))?;
+				.map_err(|error| tg::error!(!error, "failed to parse the checksum string"))?;
 			output.checksum = Some(checksum);
 		}
 
 		// Try to read the user.tangram.output xattr.
 		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
 			let tgon = String::from_utf8(bytes)
-				.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
+				.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
 			output.value = Some(
 				tgon.parse::<tg::Value>()
-					.map_err(|source| tg::error!(!source, "failed to parse the output xattr"))?,
+					.map_err(|error| tg::error!(!error, "failed to parse the output xattr"))?,
 			);
 		}
 
 		// Try to read the user.tangram.error xattr.
 		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.error") {
 			let error = serde_json::from_slice::<tg::error::Data>(&bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the error xattr"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error xattr"))?;
 			let error = tg::Error::try_from(error)
-				.map_err(|source| tg::error!(!source, "failed to convert the error data"))?;
+				.map_err(|error| tg::error!(!error, "failed to convert the error data"))?;
 			output.error = Some(error);
 		}
 
@@ -551,7 +553,7 @@ impl Session {
 			let checkin_output = session
 				.checkin(arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
+				.map_err(|error| tg::error!(!error, "failed to check in the output"))?
 				.try_last()
 				.await?
 				.and_then(|event| event.try_unwrap_output().ok())
@@ -568,7 +570,7 @@ impl Session {
 			let checksum = self
 				.compute_checksum(value, algorithm)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to compute the checksum"))?;
+				.map_err(|error| tg::error!(!error, "failed to compute the checksum"))?;
 			output.checksum = Some(checksum);
 		}
 
@@ -601,10 +603,10 @@ impl Session {
 		let artifacts: Vec<tg::artifact::Id> = process
 			.command_with_handle(self)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the command"))?
+			.map_err(|error| tg::error!(!error, "failed to get the command"))?
 			.children_with_handle(self)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the command's children"))?
+			.map_err(|error| tg::error!(!error, "failed to get the command's children"))?
 			.into_iter()
 			.filter_map(|object| object.id().try_into().ok())
 			.collect::<Vec<_>>();
@@ -614,12 +616,12 @@ impl Session {
 		let stream = self
 			.cache(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to cache the artifacts"))?;
+			.map_err(|error| tg::error!(!error, "failed to cache the artifacts"))?;
 
 		// Write progress.
 		self.write_progress_stream(process, stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
+			.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 
 		Ok(())
 	}

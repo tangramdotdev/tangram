@@ -19,22 +19,22 @@ pub fn to_exception<'js>(ctx: &qjs::Ctx<'js>, error: &tg::Error) -> tg::Result<q
 			let from_data = error_constructor
 				.get::<_, qjs::Function>("fromData")
 				.unwrap();
-			let data_value = Serde(&data).into_js(ctx).map_err(|source| {
-				tg::error!(!source, "failed to serialize error data to JavaScript")
+			let data_value = Serde(&data).into_js(ctx).map_err(|error| {
+				tg::error!(!error, "failed to serialize error data to JavaScript")
 			})?;
 			let exception = from_data
 				.call((data_value,))
-				.map_err(|source| tg::error!(!source, "failed to call Tangram.Error.fromData"))?;
+				.map_err(|error| tg::error!(!error, "failed to call Tangram.Error.fromData"))?;
 			Ok(exception)
 		},
 		tg::Either::Right(id) => {
 			let with_id = error_constructor.get::<_, qjs::Function>("withId").unwrap();
-			let id_value = Serde(&id).into_js(ctx).map_err(|source| {
-				tg::error!(!source, "failed to serialize error ID to JavaScript")
+			let id_value = Serde(&id).into_js(ctx).map_err(|error| {
+				tg::error!(!error, "failed to serialize error ID to JavaScript")
 			})?;
 			let exception = with_id
 				.call((id_value,))
-				.map_err(|source| tg::error!(!source, "failed to call Tangram.Error.withId"))?;
+				.map_err(|error| tg::error!(!error, "failed to call Tangram.Error.withId"))?;
 			Ok(exception)
 		},
 	}

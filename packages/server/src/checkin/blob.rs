@@ -56,7 +56,7 @@ impl Session {
 						let path = path.clone();
 						move || {
 							let file = std::fs::File::open(&path).map_err(
-								|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
+								|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 							)?;
 							let destination = if cache_pointers {
 								None
@@ -68,12 +68,12 @@ impl Session {
 							session
 								.write_inner_sync(file, destination.as_ref())
 								.map_err(
-									|source| tg::error!(!source, path = %path.display(), "failed to create the blob"),
+									|error| tg::error!(!error, path = %path.display(), "failed to create the blob"),
 								)
 						}
 					})
 					.await
-					.map_err(|source| tg::error!(!source, "the blob task panicked"))??;
+					.map_err(|error| tg::error!(!error, "the blob task panicked"))??;
 					if let Some(size) = size {
 						progress.increment("bytes", size);
 					}

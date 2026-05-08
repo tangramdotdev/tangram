@@ -1292,21 +1292,21 @@ mod ip_range {
 				let min = min
 					.trim()
 					.parse()
-					.map_err(|source| tg::error!(!source, "invalid minimum address"))?;
+					.map_err(|error| tg::error!(!error, "invalid minimum address"))?;
 				let max = max
 					.trim()
 					.parse()
-					.map_err(|source| tg::error!(!source, "invalid maximum address"))?;
+					.map_err(|error| tg::error!(!error, "invalid maximum address"))?;
 				Ok(IpRange { min, max })
 			} else if let Some((addr, prefix)) = s.split_once('/') {
 				let addr: Ipv4Addr = addr
 					.trim()
 					.parse()
-					.map_err(|source| tg::error!(!source, "invalid address"))?;
+					.map_err(|error| tg::error!(!error, "invalid address"))?;
 				let prefix: u8 = prefix
 					.trim()
 					.parse()
-					.map_err(|source| tg::error!(!source, "invalid prefix"))?;
+					.map_err(|error| tg::error!(!error, "invalid prefix"))?;
 				if prefix > 32 {
 					return Err(tg::error!(%prefix, "invalid prefix"));
 				}

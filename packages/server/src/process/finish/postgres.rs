@@ -25,7 +25,7 @@ impl Session {
 			.as_ref()
 			.map(serde_json::to_string)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
 		let (condition, max_depth) = match arg.condition {
 			Some(Condition::DepthExceeded { max_depth }) => {
 				(Some("depth_exceeded"), Some(max_depth))
@@ -93,7 +93,7 @@ impl Session {
 				],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(finished)
 	}
 }

@@ -254,18 +254,18 @@ impl Viewer {
 		// Set up the backend.
 		let backend = tui::backend::CrosstermBackend::new(tty);
 		let mut terminal = tui::Terminal::new(backend)
-			.map_err(|source| tg::error!(!source, "failed to create the terminal backend"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the terminal backend"))?;
 
 		// Enable mouse capture and enter an alternate screen.
 		ct::execute!(terminal.backend_mut(), ct::event::EnableMouseCapture,)
-			.map_err(|source| tg::error!(!source, "failed to enable mouse capture"))?;
+			.map_err(|error| tg::error!(!error, "failed to enable mouse capture"))?;
 		if alternate_screen {
 			ct::execute!(
 				terminal.backend_mut(),
 				ct::event::EnableMouseCapture,
 				ct::terminal::EnterAlternateScreen,
 			)
-			.map_err(|source| tg::error!(!source, "failed to enable mouse capture"))?;
+			.map_err(|error| tg::error!(!error, "failed to enable mouse capture"))?;
 		}
 
 		// Get the termios and enable raw mode.
@@ -310,10 +310,9 @@ impl Viewer {
 			self.update();
 
 			// Try to render.
-			if let Err(source) =
-				terminal.draw(|frame| self.render(frame.area(), frame.buffer_mut()))
+			if let Err(error) = terminal.draw(|frame| self.render(frame.area(), frame.buffer_mut()))
 			{
-				break Err(tg::error!(!source, "failed to render the frame"));
+				break Err(tg::error!(!error, "failed to render the frame"));
 			}
 
 			// If the user has requested an exit, exit the loop after rendering.
@@ -325,7 +324,7 @@ impl Viewer {
 			let sleep = tokio::time::sleep(Duration::from_millis(100));
 			let event = events
 				.try_next()
-				.map_err(|source| tg::error!(!source, "failed to poll for an event"));
+				.map_err(|error| tg::error!(!error, "failed to poll for an event"));
 			match future::select(pin!(sleep), event).await {
 				future::Either::Right((Ok(Some(event)), _)) => {
 					self.handle(&event);
@@ -364,7 +363,7 @@ impl Viewer {
 			&& let Some(tty) = tty.as_mut()
 		{
 			ct::queue!(tty, ct::cursor::Hide)
-				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+				.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
 		}
 
 		// Render the tree.
@@ -382,7 +381,7 @@ impl Viewer {
 						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 						ct::cursor::Show,
 					)
-					.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+					.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
 				}
 
 				break;
@@ -415,29 +414,29 @@ impl Viewer {
 					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 					ct::cursor::SavePosition,
 				)
-				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+				.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
 
 				// Print the tree.
 				let mut first = true;
 				for line in tree.lines().take(rows.saturating_sub(row)) {
 					if !first {
-						writeln!(tty).map_err(|source| {
-							tg::error!(!source, "failed to write to the terminal")
+						writeln!(tty).map_err(|error| {
+							tg::error!(!error, "failed to write to the terminal")
 						})?;
 					}
 					first = false;
 					let line = clip(line, columns);
 					write!(tty, "{line}")
-						.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+						.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
 				}
 
 				// Restore the cursor position.
 				ct::queue!(tty, ct::cursor::RestorePosition)
-					.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
+					.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
 
 				// Flush the terminal.
 				tty.flush()
-					.map_err(|source| tg::error!(!source, "failed to flush the terminal"))?;
+					.map_err(|error| tg::error!(!error, "failed to flush the terminal"))?;
 			} else {
 				self.tree.clear_guards();
 			}

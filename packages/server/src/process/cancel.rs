@@ -19,14 +19,14 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
 					.try_cancel_process_local(id, arg.clone())
 					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to cancel the process"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))?
 			{
 				return Ok(Some(output));
 			}
@@ -35,7 +35,7 @@ impl Session {
 				.try_cancel_process_regions(id, arg.clone(), &local.regions)
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, "failed to cancel the process in another region"),
+					|error| tg::error!(!error, %id, "failed to cancel the process in another region"),
 				)? {
 				return Ok(Some(output));
 			}
@@ -44,9 +44,8 @@ impl Session {
 		if let Some(output) = self
 			.try_cancel_process_remotes(id, arg, &locations.remotes)
 			.await
-			.map_err(
-				|source| tg::error!(!source, %id, "failed to cancel the process in a remote"),
-			)? {
+			.map_err(|error| tg::error!(!error, %id, "failed to cancel the process in a remote"))?
+		{
 			return Ok(Some(output));
 		}
 
@@ -64,24 +63,24 @@ impl Session {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		let status = self
 			.server
 			.try_lock_process_with_transaction(&transaction, id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to lock the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to lock the process"))?;
 		let Some(status) = status else {
 			transaction
 				.rollback()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
+				.map_err(|error| tg::error!(!error, "failed to roll back the transaction"))?;
 			return Ok(None);
 		};
 
@@ -97,14 +96,14 @@ impl Session {
 		let deleted = transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		// If no token was removed, then validate whether the token was stale or invalid.
 		if deleted == 0 && !status.is_finished() {
 			transaction
 				.rollback()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
+				.map_err(|error| tg::error!(!error, "failed to roll back the transaction"))?;
 			return Err(tg::error!("the process token was not found"));
 		}
 
@@ -112,13 +111,13 @@ impl Session {
 		self.server
 			.update_process_token_count_with_transaction(&transaction, id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
+			.map_err(|error| tg::error!(!error, "failed to update the token count"))?;
 
 		// Commit the transaction.
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		drop(connection);
 
@@ -166,7 +165,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -176,7 +175,7 @@ impl Session {
 			..arg
 		};
 		let Some(()) = client.try_cancel_process(id, arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to cancel the process"),
+			|error| tg::error!(!error, region = %region, "failed to cancel the process"),
 		)?
 		else {
 			return Ok(None);
@@ -220,7 +219,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::cancel::Arg {
 			location: Some(tg::location::Arg(vec![
@@ -231,7 +230,7 @@ impl Session {
 			..arg
 		};
 		let Some(()) = client.try_cancel_process(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to cancel the process"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to cancel the process"),
 		)?
 		else {
 			return Ok(None);
@@ -248,24 +247,24 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the ID.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Parse the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
 		let Some(()) = self
 			.try_cancel_process(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to cancel the process"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

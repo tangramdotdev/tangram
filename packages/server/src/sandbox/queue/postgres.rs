@@ -13,12 +13,12 @@ impl Session {
 		let mut connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let transaction = connection
 			.inner_mut()
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		let statement = indoc!(
@@ -43,14 +43,14 @@ impl Session {
 		let rows = transaction
 			.query(statement, &[&now])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(row) = rows.first() else {
 			return Ok(None);
 		};
 		let sandbox = row
 			.get::<_, String>(0)
 			.parse::<tg::sandbox::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 
 		let statement = indoc!(
 			"
@@ -74,20 +74,20 @@ impl Session {
 		let rows = transaction
 			.query(statement, &[&sandbox_string, &now])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let process = rows
 			.first()
 			.map(|row| {
 				row.get::<_, String>(0)
 					.parse()
-					.map_err(|source| tg::error!(!source, "failed to parse the process id"))
+					.map_err(|error| tg::error!(!error, "failed to parse the process id"))
 			})
 			.transpose()?;
 
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		let output = tg::sandbox::queue::Output { sandbox, process };
 

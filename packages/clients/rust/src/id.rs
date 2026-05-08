@@ -84,11 +84,11 @@ impl Id {
 	pub fn to_writer(&self, mut writer: impl std::io::Write) -> tg::Result<()> {
 		writer
 			.write_u8(0)
-			.map_err(|source| tg::error!(!source, "failed to write the version"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the version"))?;
 
 		writer
 			.write_u8(0)
-			.map_err(|source| tg::error!(!source, "failed to write the padding"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the padding"))?;
 
 		let kind = match self.kind {
 			Kind::Blob => 0,
@@ -105,7 +105,7 @@ impl Id {
 		};
 		writer
 			.write_u8(kind)
-			.map_err(|source| tg::error!(!source, "failed to write the kind"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the kind"))?;
 
 		let algorithm = match self.body {
 			Body::UuidV7(_) => 0,
@@ -113,7 +113,7 @@ impl Id {
 		};
 		writer
 			.write_u8(algorithm)
-			.map_err(|source| tg::error!(!source, "failed to write the algorithm"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the algorithm"))?;
 
 		let body = match &self.body {
 			Body::UuidV7(body) => body.as_slice(),
@@ -121,7 +121,7 @@ impl Id {
 		};
 		writer
 			.write_all(body)
-			.map_err(|source| tg::error!(!source, "failed to write the body"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the body"))?;
 
 		Ok(())
 	}
@@ -129,7 +129,7 @@ impl Id {
 	pub fn from_reader(mut reader: impl std::io::Read) -> tg::Result<Self> {
 		let version = reader
 			.read_u8()
-			.map_err(|source| tg::error!(!source, "failed to read the version"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the version"))?;
 
 		if version != 0 {
 			return Err(tg::error!(%version, "invalid version"));
@@ -137,11 +137,11 @@ impl Id {
 
 		let _padding = reader
 			.read_u8()
-			.map_err(|source| tg::error!(!source, "failed to read the padding"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the padding"))?;
 
 		let kind = reader
 			.read_u8()
-			.map_err(|source| tg::error!(!source, "failed to read the kind"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the kind"))?;
 		let kind = match kind {
 			0 => Kind::Blob,
 			1 => Kind::Directory,
@@ -161,21 +161,21 @@ impl Id {
 
 		let algorithm = reader
 			.read_u8()
-			.map_err(|source| tg::error!(!source, "failed to read the algorithm"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the algorithm"))?;
 
 		let body = match algorithm {
 			0 => {
 				let mut body = [0u8; 16];
 				reader
 					.read_exact(&mut body)
-					.map_err(|source| tg::error!(!source, "failed to read the body"))?;
+					.map_err(|error| tg::error!(!error, "failed to read the body"))?;
 				Body::UuidV7(body)
 			},
 			1 => {
 				let mut body = [0u8; 32];
 				reader
 					.read_exact(&mut body)
-					.map_err(|source| tg::error!(!source, "failed to read the body"))?;
+					.map_err(|error| tg::error!(!error, "failed to read the body"))?;
 				Body::Blake3(body)
 			},
 			_ => {
@@ -233,7 +233,7 @@ impl std::str::FromStr for Id {
 			.get(0..=2)
 			.ok_or_else(|| tg::error!(%id, "invalid ID"))?
 			.parse()
-			.map_err(|source| tg::error!(!source, %id, "failed to parse the ID kind"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to parse the ID kind"))?;
 		let version = id
 			.chars()
 			.nth(4)
@@ -250,7 +250,7 @@ impl std::str::FromStr for Id {
 			'0' => Body::UuidV7(
 				ENCODING
 					.decode(body.as_bytes())
-					.map_err(|source| tg::error!(!source, "invalid body"))?
+					.map_err(|error| tg::error!(!error, "invalid body"))?
 					.try_into()
 					.ok()
 					.ok_or_else(|| tg::error!("invalid body"))?,
@@ -258,7 +258,7 @@ impl std::str::FromStr for Id {
 			'1' => Body::Blake3(
 				ENCODING
 					.decode(body.as_bytes())
-					.map_err(|source| tg::error!(!source, "invalid body"))?
+					.map_err(|error| tg::error!(!error, "invalid body"))?
 					.try_into()
 					.ok()
 					.ok_or_else(|| tg::error!("invalid body"))?,

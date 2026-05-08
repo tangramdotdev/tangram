@@ -17,7 +17,7 @@ pub fn env() -> tg::Result<tg::value::Map> {
 			continue;
 		}
 		let value = value.parse::<tg::Value>().map_err(
-			|source| tg::error!(!source, key = %key, "failed to parse the prefixed env var"),
+			|error| tg::error!(!error, key = %key, "failed to parse the prefixed env var"),
 		)?;
 		env.insert(key, value);
 	}

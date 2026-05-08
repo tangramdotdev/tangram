@@ -203,7 +203,7 @@ impl TryFrom<tangram_http::sse::Event> for Error {
 			return Err(tg::error!("invalid event"));
 		}
 		let data: Data = serde_json::from_str(&value.data)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the error"))?;
 		let object = Object::try_from_data(data)?;
 		Ok(Error::with_object(object))
 	}

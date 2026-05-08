@@ -419,7 +419,7 @@ impl Cli {
 			})
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		// Tag the process if requested.
 		if let Some(tag) = tag {
@@ -438,7 +438,7 @@ impl Cli {
 			client
 				.put_tag(&tag, arg)
 				.await
-				.map_err(|source| tg::error!(!source, %tag, "failed to tag the process"))?;
+				.map_err(|error| tg::error!(!error, %tag, "failed to tag the process"))?;
 		}
 
 		let process = referent.replace(process).0;
@@ -505,7 +505,7 @@ impl Cli {
 			let command = command
 				.store_with_handle(&client)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
+				.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 			tg::Reference::with_object(command.into())
 		} else {
 			tg::Reference::with_path(".".into())
@@ -599,8 +599,8 @@ impl Cli {
 								tg::Either::Left(&directory),
 							)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the root module name")
+							.map_err(|error| {
+								tg::error!(!error, "failed to get the root module name")
 							})?
 							.ok_or_else(
 								|| tg::error!(directory = %directory.id(), "failed to find a root module"),
@@ -614,9 +614,7 @@ impl Cli {
 						let item = directory
 							.get_entry_edge_with_handle(&client, root_module_file_name)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the root module")
-							})?;
+							.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
 						let item = tg::module::Item::Edge(item.into());
 						let referent = tg::Referent::with_item(item);
 						let module = tg::Module { kind, referent };
@@ -650,8 +648,8 @@ impl Cli {
 						let kind = if kind.is_some() {
 							kind
 						} else {
-							file.module_with_handle(&client).await.map_err(|source| {
-								tg::error!(!source, "failed to get the module kind")
+							file.module_with_handle(&client).await.map_err(|error| {
+								tg::error!(!error, "failed to get the module kind")
 							})?
 						};
 						if let Some(kind) = kind {
@@ -818,7 +816,7 @@ impl Cli {
 		for mount in &options.sandbox.arg.mounts {
 			let source = tokio::fs::canonicalize(&mount.source)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 			mounts.push(tg::sandbox::Mount {
 				source,
 				target: mount.target.clone(),

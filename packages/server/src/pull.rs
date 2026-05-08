@@ -14,9 +14,11 @@ impl Session {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
 	> {
 		if !arg.force
-			&& self.pull_items_stored(&arg).await.map_err(|source| {
-				tg::error!(!source, "failed to check whether the pull is local")
-			})? {
+			&& self
+				.pull_items_stored(&arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to check whether the pull is local"))?
+		{
 			let stream = stream::once(future::ok(tg::progress::Event::Output(
 				tg::pull::Output::default(),
 			)));
@@ -65,7 +67,7 @@ impl Session {
 					self.server.config.object.time_to_touch,
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to touch the objects"))
+				.map_err(|error| tg::error!(!error, "failed to touch the objects"))
 		};
 		let touch_processes_future = async {
 			self.server
@@ -76,7 +78,7 @@ impl Session {
 					self.server.config.process.time_to_touch,
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to touch the processes"))
+				.map_err(|error| tg::error!(!error, "failed to touch the processes"))
 		};
 		let (objects, processes) =
 			futures::try_join!(touch_objects_future, touch_processes_future)?;
@@ -113,19 +115,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Get the stream.
 		let stream = self
 			.pull(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the pull"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the pull"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

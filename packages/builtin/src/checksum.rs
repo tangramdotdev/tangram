@@ -33,7 +33,7 @@ where
 	let algorithm = match args.get(1) {
 		Some(tg::value::Data::String(s)) => s
 			.parse::<tg::checksum::Algorithm>()
-			.map_err(|source| tg::error!(!source, "invalid algorithm"))?,
+			.map_err(|error| tg::error!(!error, "invalid algorithm"))?,
 		_ => return Err(tg::error!("expected a string")),
 	};
 
@@ -72,7 +72,7 @@ where
 		.await?;
 	let reader = SharedPositionReader::with_reader_and_position(reader, 0)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the shared position reader"))?;
 
 	// Spawn a task to log progress.
 	let position = reader.shared_position();
@@ -107,7 +107,7 @@ where
 	let mut reader = reader;
 	tokio::io::copy(&mut reader, &mut writer)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
+		.map_err(|error| tg::error!(!error, "failed to write the file contents"))?;
 
 	// Abort the log task.
 	log_task.abort();
@@ -168,7 +168,7 @@ where
 	writer
 		.write_uvarint(0)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to write the archive version"))?;
+		.map_err(|error| tg::error!(!error, "failed to write the archive version"))?;
 	checksum_artifact_inner(handle, &mut writer, artifact, &position).await?;
 	let checksum = writer.finalize();
 
@@ -201,21 +201,21 @@ where
 			writer
 				.write_uvarint(0)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the artifact kind"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the artifact kind"))?;
 			let len = entries.len().to_u64().unwrap();
-			writer.write_uvarint(len).await.map_err(|source| {
-				tg::error!(!source, "failed to write the number of directory entries")
+			writer.write_uvarint(len).await.map_err(|error| {
+				tg::error!(!error, "failed to write the number of directory entries")
 			})?;
 			for (name, artifact) in entries {
 				let len = name.len().to_u64().unwrap();
 				writer
 					.write_uvarint(len)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the name length"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the name length"))?;
 				writer
 					.write_all(name.as_bytes())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the name"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the name"))?;
 				Box::pin(checksum_artifact_inner(
 					handle,
 					writer,
@@ -237,18 +237,18 @@ where
 			writer
 				.write_uvarint(1)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the artifact kind"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the artifact kind"))?;
 			writer
 				.write_uvarint(executable.into())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the executable bit"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the executable bit"))?;
 			writer
 				.write_uvarint(length)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the file length"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the file length"))?;
 			tokio::io::copy(&mut reader, writer)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the file contents"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the file contents"))?;
 			position.fetch_add(length, Ordering::Relaxed);
 		},
 		tg::Artifact::Symlink(symlink) => {
@@ -263,16 +263,16 @@ where
 			writer
 				.write_uvarint(2)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the artifact kind"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the artifact kind"))?;
 			let len = target.len().to_u64().unwrap();
 			writer
 				.write_uvarint(len)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the target length"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the target length"))?;
 			writer
 				.write_all(target.as_bytes())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the symlink target"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the symlink target"))?;
 		},
 	}
 	Ok(())

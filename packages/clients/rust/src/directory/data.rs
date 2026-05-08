@@ -29,14 +29,14 @@ impl Directory {
 		let mut bytes = Vec::new();
 		bytes.push(0);
 		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
 	pub fn serialize_json(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
 		serde_json::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
@@ -49,9 +49,9 @@ impl Directory {
 		let format = bytes[0];
 		match format {
 			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			_ => Err(tg::error!("invalid format")),
 		}
 	}

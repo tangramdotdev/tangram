@@ -7,7 +7,7 @@ pub fn prepare_command_for_spawn(
 ) -> tg::Result<()> {
 	if !command.env.contains_key("HOME") {
 		let home = std::env::var("HOME")
-			.map_err(|source| tg::error!(!source, "failed to get the home directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the home directory"))?;
 		command.env.insert("HOME".to_owned(), home);
 	}
 	let mut paths = Vec::new();
@@ -33,7 +33,7 @@ pub fn prepare_command_for_spawn(
 		paths.extend(std::env::split_paths(existing));
 	}
 	let path = std::env::join_paths(paths)
-		.map_err(|source| tg::error!(!source, "failed to build `DYLD_LIBRARY_PATH`"))?;
+		.map_err(|error| tg::error!(!error, "failed to build `DYLD_LIBRARY_PATH`"))?;
 	let path = path
 		.to_str()
 		.ok_or_else(|| tg::error!("failed to encode `DYLD_LIBRARY_PATH` as valid UTF-8"))?;

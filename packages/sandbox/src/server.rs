@@ -82,7 +82,7 @@ impl Server {
 				Stream::Tcp(
 					tokio::net::TcpStream::connect((host, port))
 						.await
-						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?,
 				)
 			},
 			Some("http+unix") => {
@@ -90,7 +90,7 @@ impl Server {
 				Stream::Unix(
 					tokio::net::UnixStream::connect(path)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?,
 				)
 			},
 			Some("http+vsock") => {
@@ -104,14 +104,14 @@ impl Server {
 						.host()
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.parse::<u32>()
-						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					Stream::Vsock(
 						tokio_vsock::VsockStream::connect(addr)
 							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to connect to the socket")
+							.map_err(|error| {
+								tg::error!(!error, "failed to connect to the socket")
 							})?,
 					)
 				}
@@ -131,14 +131,14 @@ impl Server {
 					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let listener = tokio::net::TcpListener::bind((host, port))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to bind"))?;
+					.map_err(|error| tg::error!(!error, "failed to bind"))?;
 				Listener::Tcp(listener)
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let path = Path::new(path);
 				let listener = tokio::net::UnixListener::bind(path).map_err(
-					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
+					|error| tg::error!(!error, path = %path.display(), "failed to bind"),
 				)?;
 				Listener::Unix(listener)
 			},
@@ -153,11 +153,11 @@ impl Server {
 						.host()
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.parse::<u32>()
-						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					let listener = tokio_vsock::VsockListener::bind(addr)
-						.map_err(|source| tg::error!(!source, "failed to bind"))?;
+						.map_err(|error| tg::error!(!error, "failed to bind"))?;
 					Listener::Vsock(listener)
 				}
 			},

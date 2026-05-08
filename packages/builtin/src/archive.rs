@@ -38,7 +38,7 @@ where
 	let format = match args.get(1) {
 		Some(tg::value::Data::String(s)) => s
 			.parse::<tg::ArchiveFormat>()
-			.map_err(|source| tg::error!(!source, "invalid format"))?,
+			.map_err(|error| tg::error!(!error, "invalid format"))?,
 		_ => return Err(tg::error!("expected a string")),
 	};
 
@@ -47,7 +47,7 @@ where
 		Some(tg::value::Data::String(value)) => {
 			let compression = value
 				.parse::<tg::CompressionFormat>()
-				.map_err(|source| tg::error!(!source, "invalid compression format"))?;
+				.map_err(|error| tg::error!(!error, "invalid compression format"))?;
 			Some(compression)
 		},
 		_ => None,
@@ -148,7 +148,7 @@ where
 		builder
 			.finish()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to finish the archive"))?;
+			.map_err(|error| tg::error!(!error, "failed to finish the archive"))?;
 
 		Ok::<_, tg::Error>(())
 	};
@@ -180,9 +180,9 @@ where
 	// Join the futures.
 	let blob = match future::join(archive_future, blob_future).await {
 		(_, Ok(blob)) => blob,
-		(Err(source), _) | (_, Err(source)) => {
+		(Err(error), _) | (_, Err(error)) => {
 			return Err(tg::error!(
-				!source,
+				!error,
 				"failed to join the archive and blob futures"
 			));
 		},
@@ -211,7 +211,7 @@ where
 			builder
 				.append_data(&mut header, path, &[][..])
 				.await
-				.map_err(|source| tg::error!(!source, "failed to append directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to append directory"))?;
 			for (name, artifact) in directory.entries_with_handle(handle).await? {
 				Box::pin(tar_inner(
 					handle,
@@ -241,7 +241,7 @@ where
 			builder
 				.append_data(&mut header, path, reader)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to append file"))?;
+				.map_err(|error| tg::error!(!error, "failed to append file"))?;
 			position.fetch_add(size, Ordering::Relaxed);
 			Ok(())
 		},
@@ -259,11 +259,11 @@ where
 			header.set_mode(0o777);
 			header
 				.set_link_name(target.to_string_lossy().as_ref())
-				.map_err(|source| tg::error!(!source, "failed to set symlink target"))?;
+				.map_err(|error| tg::error!(!error, "failed to set symlink target"))?;
 			builder
 				.append_data(&mut header, path, &[][..])
 				.await
-				.map_err(|source| tg::error!(!source, "failed to append symlink"))
+				.map_err(|error| tg::error!(!error, "failed to append symlink"))
 		},
 	}
 }
@@ -299,7 +299,7 @@ where
 			.close()
 			.await
 			.map(|_| ())
-			.map_err(|source| tg::error!(!source, "failed to write the archive"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the archive"))?;
 
 		Ok::<_, tg::Error>(())
 	};
@@ -310,9 +310,9 @@ where
 	// Join the futures.
 	let blob = match future::join(archive_future, blob_future).await {
 		(_, Ok(blob)) => blob,
-		(Err(source), _) | (_, Err(source)) => {
+		(Err(error), _) | (_, Err(error)) => {
 			return Err(tg::error!(
-				!source,
+				!error,
 				"failed to join the archive and blob futures"
 			));
 		},
@@ -341,7 +341,7 @@ where
 			builder
 				.write_entry_whole(entry.build(), &[][..])
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the directory entry"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the directory entry"))?;
 			for (name, artifact) in directory.entries_with_handle(handle).await? {
 				Box::pin(zip_inner(
 					handle,
@@ -376,7 +376,7 @@ where
 				.await?;
 			tokio::io::copy(&mut file_reader, &mut entry_writer)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the file entry"))?;
+				.map_err(|error| tg::error!(!error, "failed to write the file entry"))?;
 			entry_writer.into_inner().close().await.unwrap();
 			position.fetch_add(size, Ordering::Relaxed);
 			Ok(())
@@ -397,7 +397,7 @@ where
 			builder
 				.write_entry_whole(entry.build(), target.to_string_lossy().as_bytes())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write the symlink entry"))
+				.map_err(|error| tg::error!(!error, "failed to write the symlink entry"))
 		},
 	}
 }

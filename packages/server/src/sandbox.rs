@@ -24,7 +24,7 @@ impl Server {
 			.process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -37,7 +37,7 @@ impl Server {
 		let exists = connection
 			.query_one_value_into(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		drop(connection);
 		Ok(exists)
 	}
@@ -47,7 +47,7 @@ impl Server {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -66,7 +66,7 @@ impl Server {
 		let n = connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		drop(connection);
 		if n == 0 {
 			return Ok(false);

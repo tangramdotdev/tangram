@@ -62,7 +62,7 @@ impl Session {
 					max_heartbeat_at,
 				],
 			)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if n != 1 {
 			let output = InnerOutput {
 				finished: false,
@@ -82,7 +82,7 @@ impl Session {
 				statement,
 				sqlite::params![arg.now, id.to_string(), "created"],
 			)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		let statement = indoc!(
 			"
@@ -96,20 +96,20 @@ impl Session {
 		);
 		let mut statement = transaction
 			.prepare(statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query(sqlite::params![id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let mut unfinished_processes = Vec::new();
 		while let Some(row) = rows
 			.next()
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		{
 			let process = row
 				.get::<_, String>(0)
-				.map_err(|source| tg::error!(!source, "failed to get the process"))?
+				.map_err(|error| tg::error!(!error, "failed to get the process"))?
 				.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+				.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 			unfinished_processes.push(process);
 		}
 

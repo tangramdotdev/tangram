@@ -182,7 +182,7 @@ impl Shared {
 		self.task
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the compiler task panicked"))
+			.map_err(|error| tg::error!(!error, "the compiler task panicked"))
 	}
 }
 
@@ -268,7 +268,7 @@ impl Compiler {
 		self.serve_task.lock().unwrap().replace(task.clone());
 		task.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
+			.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
 		Ok(())
 	}
 
@@ -289,20 +289,20 @@ impl Compiler {
 		let outgoing_message_task = tokio::spawn(async move {
 			while let Some(outgoing_message) = outgoing_message_receiver.recv().await {
 				let body = serde_json::to_string(&outgoing_message)
-					.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 				let head = format!("Content-Length: {}\r\n\r\n", body.len());
 				output
 					.write_all(head.as_bytes())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the head"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the head"))?;
 				output
 					.write_all(body.as_bytes())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the body"))?;
+					.map_err(|error| tg::error!(!error, "failed to write the body"))?;
 				output
 					.flush()
 					.await
-					.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+					.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 			}
 			Ok::<_, tg::Error>(())
 		});
@@ -376,7 +376,7 @@ impl Compiler {
 			let n = reader
 				.read_line(&mut line)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read a line"))?;
+				.map_err(|error| tg::error!(!error, "failed to read a line"))?;
 			if n == 0 {
 				return Ok(None);
 			}
@@ -412,9 +412,9 @@ impl Compiler {
 		reader
 			.read_exact(&mut message)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the message"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the message"))?;
 		let message = serde_json::from_slice(&message)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the message"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
 
 		Ok(message)
 	}
@@ -747,7 +747,7 @@ impl Compiler {
 		Fut: Future<Output = tg::Result<()>>,
 	{
 		let params = serde_json::from_value(request.params.unwrap_or(serde_json::Value::Null))
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request params"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request params"))
 			.unwrap();
 		handler(params)
 			.await
@@ -850,7 +850,7 @@ impl Compiler {
 			// Deserialize the result.
 			let result = response.result.unwrap_or(serde_json::Value::Null);
 			let result = serde_json::from_value(result)
-				.map_err(|source| tg::error!(!source, "failed to deserialize response"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize response"))?;
 
 			Ok(result)
 		}
@@ -874,7 +874,7 @@ impl Compiler {
 		}
 		let metadata = tokio::fs::symlink_metadata(path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
 		if metadata.is_dir() {
 			Ok(tg::module::Kind::Directory)
 		} else if metadata.is_file() {
@@ -970,7 +970,7 @@ impl Compiler {
 					current_path.push(component);
 					let metadata = tokio::fs::symlink_metadata(&current_path)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+						.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
 					if metadata.is_symlink() {
 						tag_components.push(
 							component
@@ -999,13 +999,13 @@ impl Compiler {
 			let symlink_path = self.tags_path.join(tag_components.join("/"));
 			let symlink_target = tokio::fs::read_link(&symlink_path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
 
 			// The symlink target is a relative path to the artifact.
 			let artifact_path = symlink_path.parent().unwrap().join(symlink_target);
 			let artifact_path = tokio::fs::canonicalize(artifact_path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 
 			// Extract the directory ID from the artifact path.
 			let id = artifact_path
@@ -1111,16 +1111,16 @@ impl Compiler {
 				let absolute_path = self.library_path.join(relative_path);
 				let exists = tokio::fs::try_exists(&absolute_path)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to stat the path"))?;
+					.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
 				if !exists {
 					tokio::fs::create_dir_all(&self.library_path)
 						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to create the library temp directory")
+						.map_err(|error| {
+							tg::error!(!error, "failed to create the library temp directory")
 						})?;
-					LIBRARY.extract(&self.library_path).map_err(|source| {
-						tg::error!(!source, "failed to materialize the library")
-					})?;
+					LIBRARY
+						.extract(&self.library_path)
+						.map_err(|error| tg::error!(!error, "failed to materialize the library"))?;
 				}
 				let uri = format!("file://{}", absolute_path.display())
 					.parse()
@@ -1177,12 +1177,12 @@ impl Compiler {
 						if is_leaf {
 							if let Ok(metadata) = tokio::fs::symlink_metadata(&path).await {
 								if metadata.is_dir() {
-									tokio::fs::remove_dir_all(&path).await.map_err(|source| {
-										tg::error!(!source, "failed to remove the directory")
+									tokio::fs::remove_dir_all(&path).await.map_err(|error| {
+										tg::error!(!error, "failed to remove the directory")
 									})?;
 								} else {
-									tokio::fs::remove_file(&path).await.map_err(|source| {
-										tg::error!(!source, "failed to remove the file")
+									tokio::fs::remove_file(&path).await.map_err(|error| {
+										tg::error!(!error, "failed to remove the file")
 									})?;
 								}
 							}
@@ -1190,16 +1190,16 @@ impl Compiler {
 							match tokio::fs::symlink_metadata(&path).await {
 								Ok(metadata) if metadata.is_dir() => (),
 								Ok(_) => {
-									tokio::fs::remove_file(&path).await.map_err(|source| {
-										tg::error!(!source, "failed to remove the file")
+									tokio::fs::remove_file(&path).await.map_err(|error| {
+										tg::error!(!error, "failed to remove the file")
 									})?;
-									tokio::fs::create_dir(&path).await.map_err(|source| {
-										tg::error!(!source, "failed to create the directory")
+									tokio::fs::create_dir(&path).await.map_err(|error| {
+										tg::error!(!error, "failed to create the directory")
 									})?;
 								},
 								Err(_) => {
-									tokio::fs::create_dir(&path).await.map_err(|source| {
-										tg::error!(!source, "failed to create the directory")
+									tokio::fs::create_dir(&path).await.map_err(|error| {
+										tg::error!(!error, "failed to create the directory")
 									})?;
 								},
 							}
@@ -1238,20 +1238,18 @@ impl Compiler {
 						if metadata.is_dir() {
 							tokio::fs::remove_dir_all(&symlink_path)
 								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to remove the directory")
+								.map_err(|error| {
+									tg::error!(!error, "failed to remove the directory")
 								})?;
 						} else {
 							tokio::fs::remove_file(&symlink_path)
 								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to remove the file")
-								})?;
+								.map_err(|error| tg::error!(!error, "failed to remove the file"))?;
 						}
 					}
 					tokio::fs::symlink(&target, &symlink_path)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+						.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 
 					if let Some(path_) = &options.path {
 						symlink_path.join(path_)

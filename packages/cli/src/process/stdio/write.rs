@@ -38,7 +38,7 @@ impl Cli {
 			streams: vec![stream],
 		};
 		let input = tangram_util::io::stdin()
-			.map_err(|source| tg::error!(!source, "failed to open stdin"))?
+			.map_err(|error| tg::error!(!error, "failed to open stdin"))?
 			.filter_map(move |result| {
 				future::ready(match result {
 					Ok(bytes) if bytes.is_empty() => None,
@@ -57,7 +57,7 @@ impl Cli {
 			)))
 			.boxed();
 		process.write_stdio_all(&client, arg, input).await.map_err(
-			|source| tg::error!(!source, id = %args.process, "failed to write process stdio"),
+			|error| tg::error!(!error, id = %args.process, "failed to write process stdio"),
 		)?;
 		Ok(())
 	}

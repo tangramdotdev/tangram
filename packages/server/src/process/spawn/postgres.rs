@@ -21,7 +21,7 @@ impl Session {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())
 	}
 }

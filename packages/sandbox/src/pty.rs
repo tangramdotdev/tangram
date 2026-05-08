@@ -42,17 +42,17 @@ impl Pty {
 			let slave = Some(OwnedFd::from_raw_fd(slave));
 			let input = master
 				.try_clone()
-				.map_err(|source| tg::error!(!source, "failed to clone the pty input fd"))
+				.map_err(|error| tg::error!(!error, "failed to clone the pty input fd"))
 				.and_then(|fd| {
 					async_fd(fd)
-						.map_err(|source| tg::error!(!source, "failed to create the pty input"))
+						.map_err(|error| tg::error!(!error, "failed to create the pty input"))
 				})?;
 			let output = master
 				.try_clone()
-				.map_err(|source| tg::error!(!source, "failed to clone the pty output fd"))
+				.map_err(|error| tg::error!(!error, "failed to clone the pty output fd"))
 				.and_then(|fd| {
 					async_fd(fd)
-						.map_err(|source| tg::error!(!source, "failed to create the pty output"))
+						.map_err(|error| tg::error!(!error, "failed to create the pty output"))
 				})?;
 			Ok(Self {
 				input,

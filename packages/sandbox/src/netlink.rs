@@ -37,9 +37,9 @@ impl std::fmt::Debug for Netlink {
 impl Netlink {
 	pub fn new() -> tg::Result<Self> {
 		let (rtnl, _) = NlRouter::connect(NlFamily::Route, None, Groups::empty())
-			.map_err(|source| tg::error!(!source, "failed to connect to rtnetlink"))?;
+			.map_err(|error| tg::error!(!error, "failed to connect to rtnetlink"))?;
 		rtnl.enable_strict_checking(true)
-			.map_err(|source| tg::error!(!source, "failed to enable strict checking"))?;
+			.map_err(|error| tg::error!(!error, "failed to enable strict checking"))?;
 		Ok(Self { rtnl })
 	}
 
@@ -51,16 +51,16 @@ impl Netlink {
 				.rta_type(Ifla::Ifname)
 				.rta_payload(new_name.to_owned())
 				.build()
-				.map_err(|source| tg::error!(!source, "failed to build the ifname attribute"))?,
+				.map_err(|error| tg::error!(!error, "failed to build the ifname attribute"))?,
 		);
 		let msg = IfinfomsgBuilder::default()
 			.ifi_family(RtAddrFamily::Unspecified)
 			.ifi_index(index)
 			.rtattrs(attrs)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
-			.map_err(|source| tg::error!(!source, "failed to link rename"))
+			.map_err(|error| tg::error!(!error, "failed to link rename"))
 	}
 
 	pub fn link_set_up(&mut self, name: &str) -> tg::Result<()> {
@@ -71,9 +71,9 @@ impl Netlink {
 			.ifi_flags(Iff::UP)
 			.ifi_change(Iff::UP)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
-			.map_err(|source| tg::error!(!source, "failed link set up"))
+			.map_err(|error| tg::error!(!error, "failed link set up"))
 	}
 
 	pub fn link_delete(&mut self, name: &str) -> tg::Result<()> {
@@ -82,15 +82,15 @@ impl Netlink {
 			.ifi_family(RtAddrFamily::Unspecified)
 			.ifi_index(index)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Dellink, NlmF::ACK, msg)
-			.map_err(|source| tg::error!(!source, "failed to link delete"))
+			.map_err(|error| tg::error!(!error, "failed to link delete"))
 	}
 
 	#[expect(clippy::unused_self)]
 	pub fn link_exists(&mut self, name: &str) -> tg::Result<bool> {
 		let c = CString::new(name)
-			.map_err(|source| tg::error!(!source, %name, "invalid interface name"))?;
+			.map_err(|error| tg::error!(!error, %name, "invalid interface name"))?;
 		let index = unsafe { libc::if_nametoindex(c.as_ptr()) };
 		if index != 0 {
 			return Ok(true);
@@ -112,9 +112,9 @@ impl Netlink {
 			.ifi_family(RtAddrFamily::Unspecified)
 			.rtattrs(attrs)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::CREATE | NlmF::EXCL | NlmF::ACK, msg)
-			.map_err(|source| tg::error!(!source, "failed to add bridge"))
+			.map_err(|error| tg::error!(!error, "failed to add bridge"))
 	}
 
 	pub fn link_add_veth_pair(&mut self, host: &str, peer: &str) -> tg::Result<()> {
@@ -126,41 +126,41 @@ impl Netlink {
 			.ifi_family(RtAddrFamily::Unspecified)
 			.rtattrs(peer_attrs)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the peer ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the peer ifinfomsg"))?;
 		let mut peer_buf = Cursor::new(Vec::<u8>::new());
 		peer_msg
 			.to_bytes(&mut peer_buf)
-			.map_err(|source| tg::error!(!source, "failed to serialize the peer ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the peer ifinfomsg"))?;
 
 		// Wrap the peer payload in a VETH_INFO_PEER attribute.
 		let veth_peer: Rtattr<libc::c_ushort, Buffer> = RtattrBuilder::default()
 			.rta_type(VETH_INFO_PEER)
 			.rta_payload(peer_buf.into_inner())
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the veth peer attribute"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the veth peer attribute"))?;
 
 		// Build IFLA_LINKINFO containing IFLA_INFO_KIND = "veth" and IFLA_INFO_DATA nesting the peer.
 		let info_kind: Rtattr<IflaInfo, Buffer> = RtattrBuilder::default()
 			.rta_type(IflaInfo::Kind)
 			.rta_payload("veth".to_owned())
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the info_kind attribute"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the info_kind attribute"))?;
 		let info_data: Rtattr<IflaInfo, Buffer> = RtattrBuilder::default()
 			.rta_type(IflaInfo::Data)
 			.rta_payload(Vec::<u8>::new())
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the info_data attribute"))?
+			.map_err(|error| tg::error!(!error, "failed to build the info_data attribute"))?
 			.nest(&veth_peer)
-			.map_err(|source| tg::error!(!source, "failed to nest the veth peer"))?;
+			.map_err(|error| tg::error!(!error, "failed to nest the veth peer"))?;
 		let linkinfo: Rtattr<Ifla, Buffer> = RtattrBuilder::default()
 			.rta_type(Ifla::Linkinfo)
 			.rta_payload(Vec::<u8>::new())
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the linkinfo attribute"))?
+			.map_err(|error| tg::error!(!error, "failed to build the linkinfo attribute"))?
 			.nest(&info_kind)
-			.map_err(|source| tg::error!(!source, "failed to nest the info_kind"))?
+			.map_err(|error| tg::error!(!error, "failed to nest the info_kind"))?
 			.nest(&info_data)
-			.map_err(|source| tg::error!(!source, "failed to nest the info_data"))?;
+			.map_err(|error| tg::error!(!error, "failed to nest the info_data"))?;
 
 		let mut attrs = RtBuffer::<Ifla, Buffer>::new();
 		attrs.push(rtattr_ifname(host)?);
@@ -169,31 +169,31 @@ impl Netlink {
 			.ifi_family(RtAddrFamily::Unspecified)
 			.rtattrs(attrs)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::CREATE | NlmF::EXCL | NlmF::ACK, msg)
-			.map_err(|source| tg::error!(!source, "failed to add veth pair"))
+			.map_err(|error| tg::error!(!error, "failed to add veth pair"))
 	}
 
 	pub fn link_set_master(&mut self, name: &str, master: &str) -> tg::Result<()> {
 		let index = index_of(name)?;
 		let master_index = u32::try_from(index_of(master)?)
-			.map_err(|source| tg::error!(!source, "master interface index overflow"))?;
+			.map_err(|error| tg::error!(!error, "master interface index overflow"))?;
 		let mut attrs = RtBuffer::<Ifla, Buffer>::new();
 		attrs.push(
 			RtattrBuilder::default()
 				.rta_type(Ifla::Master)
 				.rta_payload(master_index)
 				.build()
-				.map_err(|source| tg::error!(!source, "failed to build the master attribute"))?,
+				.map_err(|error| tg::error!(!error, "failed to build the master attribute"))?,
 		);
 		let msg = IfinfomsgBuilder::default()
 			.ifi_family(RtAddrFamily::Unspecified)
 			.ifi_index(index)
 			.rtattrs(attrs)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
-			.map_err(|source| tg::error!(!source, "failed to set link master"))
+			.map_err(|error| tg::error!(!error, "failed to set link master"))
 	}
 
 	pub fn link_set_netns_pid(&mut self, name: &str, pid: u32) -> tg::Result<()> {
@@ -204,18 +204,16 @@ impl Netlink {
 				.rta_type(Ifla::NetNsPid)
 				.rta_payload(pid)
 				.build()
-				.map_err(|source| {
-					tg::error!(!source, "failed to build the net_ns_pid attribute")
-				})?,
+				.map_err(|error| tg::error!(!error, "failed to build the net_ns_pid attribute"))?,
 		);
 		let msg = IfinfomsgBuilder::default()
 			.ifi_family(RtAddrFamily::Unspecified)
 			.ifi_index(index)
 			.rtattrs(attrs)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
-			.map_err(|source| tg::error!(!source, "failed to set netns pid"))
+			.map_err(|error| tg::error!(!error, "failed to set netns pid"))
 	}
 
 	pub fn addr_add_v4(&mut self, name: &str, addr: Ipv4Addr, prefix_len: u8) -> tg::Result<()> {
@@ -249,8 +247,8 @@ impl Netlink {
 		flags: NlmF,
 	) -> tg::Result<()> {
 		let index = index_of(name)?;
-		let ifa_index = u32::try_from(index)
-			.map_err(|source| tg::error!(!source, "interface index overflow"))?;
+		let ifa_index =
+			u32::try_from(index).map_err(|error| tg::error!(!error, "interface index overflow"))?;
 		let bytes = addr.octets().to_vec();
 		let mut attrs = RtBuffer::<Ifa, Buffer>::new();
 		attrs.push(
@@ -258,16 +256,14 @@ impl Netlink {
 				.rta_type(Ifa::Local)
 				.rta_payload(bytes.clone())
 				.build()
-				.map_err(|source| tg::error!(!source, "failed to build the ifa_local attribute"))?,
+				.map_err(|error| tg::error!(!error, "failed to build the ifa_local attribute"))?,
 		);
 		attrs.push(
 			RtattrBuilder::default()
 				.rta_type(Ifa::Address)
 				.rta_payload(bytes)
 				.build()
-				.map_err(|source| {
-					tg::error!(!source, "failed to build the ifa_address attribute")
-				})?,
+				.map_err(|error| tg::error!(!error, "failed to build the ifa_address attribute"))?,
 		);
 		let msg = IfaddrmsgBuilder::default()
 			.ifa_family(RtAddrFamily::Inet)
@@ -276,9 +272,9 @@ impl Netlink {
 			.ifa_index(ifa_index)
 			.rtattrs(attrs)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the ifaddrmsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the ifaddrmsg"))?;
 		self.send::<Ifaddrmsg>(Rtm::Newaddr, flags, msg)
-			.map_err(|source| tg::error!(!source, "failed to add address"))
+			.map_err(|error| tg::error!(!error, "failed to add address"))
 	}
 
 	pub fn route_add_default_v4(&mut self, gateway: Ipv4Addr) -> tg::Result<()> {
@@ -289,9 +285,7 @@ impl Netlink {
 				.rta_type(Rta::Gateway)
 				.rta_payload(bytes)
 				.build()
-				.map_err(|source| {
-					tg::error!(!source, "failed to build the rta_gateway attribute")
-				})?,
+				.map_err(|error| tg::error!(!error, "failed to build the rta_gateway attribute"))?,
 		);
 		let msg = RtmsgBuilder::default()
 			.rtm_family(RtAddrFamily::Inet)
@@ -304,9 +298,9 @@ impl Netlink {
 			.rtm_type(Rtn::Unicast)
 			.rtattrs(attrs)
 			.build()
-			.map_err(|source| tg::error!(!source, "failed to build the rtmsg"))?;
+			.map_err(|error| tg::error!(!error, "failed to build the rtmsg"))?;
 		self.send::<Rtmsg>(Rtm::Newroute, NlmF::CREATE | NlmF::EXCL | NlmF::ACK, msg)
-			.map_err(|source| tg::error!(!source, "failed to add default"))
+			.map_err(|error| tg::error!(!error, "failed to add default"))
 	}
 
 	fn send<P>(&mut self, msg_type: Rtm, flags: NlmF, payload: P) -> tg::Result<()>
@@ -322,25 +316,23 @@ impl Netlink {
 		let recv = self
 			.rtnl
 			.send::<_, _, Rtm, P>(msg_type, flags, NlPayload::Payload(payload))
-			.map_err(|source| {
-				tg::error!(!source, ?msg_type, "failed to send the netlink request")
-			})?;
+			.map_err(|error| tg::error!(!error, ?msg_type, "failed to send the netlink request"))?;
 		for response in recv {
-			response.map_err(|source| tg::error!(!source, ?msg_type, "netlink request failed"))?;
+			response.map_err(|error| tg::error!(!error, ?msg_type, "netlink request failed"))?;
 		}
 		Ok(())
 	}
 }
 
 fn index_of(name: &str) -> tg::Result<i32> {
-	let c = CString::new(name)
-		.map_err(|source| tg::error!(!source, %name, "invalid interface name"))?;
+	let c =
+		CString::new(name).map_err(|error| tg::error!(!error, %name, "invalid interface name"))?;
 	let index = unsafe { libc::if_nametoindex(c.as_ptr()) };
 	if index == 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, %name, "failed to look up the interface index"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, %name, "failed to look up the interface index"));
 	}
-	i32::try_from(index).map_err(|source| tg::error!(!source, "interface index overflow"))
+	i32::try_from(index).map_err(|error| tg::error!(!error, "interface index overflow"))
 }
 
 fn rtattr_ifname(name: &str) -> tg::Result<Rtattr<Ifla, Buffer>> {
@@ -348,7 +340,7 @@ fn rtattr_ifname(name: &str) -> tg::Result<Rtattr<Ifla, Buffer>> {
 		.rta_type(Ifla::Ifname)
 		.rta_payload(name.to_owned())
 		.build()
-		.map_err(|source| tg::error!(!source, "failed to build the ifname attribute"))
+		.map_err(|error| tg::error!(!error, "failed to build the ifname attribute"))
 }
 
 fn rtattr_linkinfo_kind(kind: &str) -> tg::Result<Rtattr<Ifla, Buffer>> {
@@ -356,12 +348,12 @@ fn rtattr_linkinfo_kind(kind: &str) -> tg::Result<Rtattr<Ifla, Buffer>> {
 		.rta_type(IflaInfo::Kind)
 		.rta_payload(kind.to_owned())
 		.build()
-		.map_err(|source| tg::error!(!source, "failed to build the info_kind attribute"))?;
+		.map_err(|error| tg::error!(!error, "failed to build the info_kind attribute"))?;
 	RtattrBuilder::default()
 		.rta_type(Ifla::Linkinfo)
 		.rta_payload(Vec::<u8>::new())
 		.build()
-		.map_err(|source| tg::error!(!source, "failed to build the linkinfo attribute"))?
+		.map_err(|error| tg::error!(!error, "failed to build the linkinfo attribute"))?
 		.nest(&info_kind)
-		.map_err(|source| tg::error!(!source, "failed to nest the info_kind"))
+		.map_err(|error| tg::error!(!error, "failed to nest the info_kind"))
 }

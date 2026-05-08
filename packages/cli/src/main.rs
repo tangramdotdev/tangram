@@ -716,6 +716,6 @@ impl Cli {
 		});
 		receiver
 			.await
-			.map_err(|source| tg::error!(!source, "failed to receive the thread result"))?
+			.map_err(|error| tg::error!(!error, "failed to receive the thread result"))?
 	}
 }

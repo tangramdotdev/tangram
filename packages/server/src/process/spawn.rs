@@ -134,13 +134,13 @@ impl Session {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Determine if the process is cacheable.
 		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
@@ -161,7 +161,7 @@ impl Session {
 			&& let Some(output) = self
 				.try_get_cached_process_local(&transaction, &arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get a cached local process"))?
+				.map_err(|error| tg::error!(!error, "failed to get a cached local process"))?
 		{
 			tracing::trace!(?output, "got cached local process");
 			Some(output)
@@ -171,9 +171,9 @@ impl Session {
 			&& let Some(output) = self
 				.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, host)
 				.await
-				.map_err(|source| {
+				.map_err(|error| {
 					tg::error!(
-						!source,
+						!error,
 						"failed to get a cached local process with mismatched checksum"
 					)
 				})? {
@@ -190,7 +190,7 @@ impl Session {
 					&host,
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create a local process"))?;
+				.map_err(|error| tg::error!(!error, "failed to create a local process"))?;
 			tracing::trace!(?output, "created local process");
 			Some(output)
 		} else {
@@ -201,7 +201,7 @@ impl Session {
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -259,7 +259,7 @@ impl Session {
 						.wait_process(&id, tg::process::wait::Arg::default())
 						.await
 						.map_err(
-							|source| tg::error!(!source, %id, "failed to wait for the process"),
+							|error| tg::error!(!error, %id, "failed to wait for the process"),
 						)?;
 					Ok(Some(wait))
 				} else {
@@ -278,26 +278,21 @@ impl Session {
 					.server
 					.locations(arg.cache_location.as_ref())
 					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to resolve the cache locations")
-					})?;
+					.map_err(|error| tg::error!(!error, "failed to resolve the cache locations"))?;
 				let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
 				if let Some(output) = self
 					.try_get_cached_process_regions(&arg, &regions)
 					.await
-					.map_err(|source| {
-						tg::error!(
-							!source,
-							"failed to get a cached process from another region"
-						)
+					.map_err(|error| {
+						tg::error!(!error, "failed to get a cached process from another region")
 					})? {
 					return Ok(Some(output));
 				}
 				let output = self
 					.try_get_cached_process_remotes(&arg, &locations.remotes)
 					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to get a cached process from a remote")
+					.map_err(|error| {
+						tg::error!(!error, "failed to get a cached process from a remote")
 					})?;
 				Ok(output)
 			} else {
@@ -369,7 +364,7 @@ impl Session {
 			)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %parent, child = %output.process, "failed to add the process as a child"),
+				|error| tg::error!(!error, %parent, child = %output.process, "failed to add the process as a child"),
 			)?;
 		}
 
@@ -383,23 +378,22 @@ impl Session {
 		region: String,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
 		self.spawn_process_push_command(arg.command.item(), Some(location.clone()), progress)
 			.await
-			.map_err(
-				|source| tg::error!(!source, region = %region, "failed to push the command"),
-			)?;
+			.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
 		let arg = tg::process::spawn::Arg {
 			location: Some(location.clone().into()),
 			..arg
 		};
-		let stream = client.try_spawn_process(arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to spawn the process"),
-		)?;
+		let stream = client
+			.try_spawn_process(arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to spawn the process"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
 			let event = event.map(|event| {
@@ -425,7 +419,7 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let destination = tg::Location::Remote(tg::location::Remote {
 			name: remote.clone(),
@@ -433,9 +427,7 @@ impl Session {
 		});
 		self.spawn_process_push_command(arg.command.item(), Some(destination), progress)
 			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote, "failed to push the command"),
-			)?;
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
 		let arg = tg::process::spawn::Arg {
 			location: Some(
 				tg::Location::Local(tg::location::Local {
@@ -445,9 +437,10 @@ impl Session {
 			),
 			..arg
 		};
-		let stream = client.try_spawn_process(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to spawn the process"),
-		)?;
+		let stream = client
+			.try_spawn_process(arg)
+			.await
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to spawn the process"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
 			let remote = remote.clone();
@@ -489,7 +482,7 @@ impl Session {
 		let stream = self
 			.push(push_arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to push the command"))?;
+			.map_err(|error| tg::error!(!error, "failed to push the command"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
 			if event.is_output() {
@@ -534,7 +527,7 @@ impl Session {
 		region: &str,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -547,7 +540,7 @@ impl Session {
 			..arg.clone()
 		};
 		let stream = client.try_spawn_process(arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the cached process"),
+			|error| tg::error!(!error, region = %region, "failed to get the cached process"),
 		)?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
@@ -595,7 +588,7 @@ impl Session {
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::spawn::Arg {
 			cached: Some(true),
@@ -605,7 +598,7 @@ impl Session {
 			..arg.clone()
 		};
 		let stream = client.try_spawn_process(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to get the cached process"),
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the cached process"),
 		)?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
@@ -713,7 +706,7 @@ impl Session {
 		}) = transaction
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		else {
 			return Ok(None);
 		};
@@ -740,38 +733,37 @@ impl Session {
 				.index
 				.touch_process(&id, now, self.server.config.process.time_to_touch)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 			if process.is_none() {
 				return Ok(None);
 			}
 		}
 
-		let wait =
-			if status == tg::process::Status::Finished {
-				let error =
-					error
-						.map(|error| {
-							if error.starts_with('{') {
-								serde_json::from_str(&error).map(tg::Either::Left).map_err(
-									|source| tg::error!(!source, "failed to deserialize the error"),
-								)
-							} else {
-								error.parse().map(tg::Either::Right).map_err(|source| {
-									tg::error!(!source, "failed to parse the error id")
-								})
-							}
-						})
-						.transpose()
-						.map_err(|source| tg::error!(!source, "invalid error"))?;
-				let exit = exit.ok_or_else(|| tg::error!("expected the exit to be set"))?;
-				Some(tg::process::wait::Output {
-					error,
-					exit,
-					output,
+		let wait = if status == tg::process::Status::Finished {
+			let error = error
+				.map(|error| {
+					if error.starts_with('{') {
+						serde_json::from_str(&error)
+							.map(tg::Either::Left)
+							.map_err(|error| tg::error!(!error, "failed to deserialize the error"))
+					} else {
+						error
+							.parse()
+							.map(tg::Either::Right)
+							.map_err(|error| tg::error!(!error, "failed to parse the error id"))
+					}
 				})
-			} else {
-				None
-			};
+				.transpose()
+				.map_err(|error| tg::error!(!error, "invalid error"))?;
+			let exit = exit.ok_or_else(|| tg::error!("expected the exit to be set"))?;
+			Some(tg::process::wait::Output {
+				error,
+				exit,
+				output,
+			})
+		} else {
+			None
+		};
 
 		// If the process is not finished, then create a process token.
 		let token = if status == tg::process::Status::Finished {
@@ -792,7 +784,7 @@ impl Session {
 			let n = transaction
 				.execute(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if n == 0 {
 				return Ok(None);
 			}
@@ -801,7 +793,7 @@ impl Session {
 				.server
 				.try_lock_process_with_transaction(transaction, &id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to lock the process"))?;
+				.map_err(|error| tg::error!(!error, "failed to lock the process"))?;
 			let Some(status) = status else {
 				return Ok(None);
 			};
@@ -820,13 +812,13 @@ impl Session {
 			transaction
 				.execute(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			// Update token count.
 			self.server
 				.update_process_token_count_with_transaction(transaction, &id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
+				.map_err(|error| tg::error!(!error, "failed to update the token count"))?;
 
 			Some(token)
 		};
@@ -926,7 +918,7 @@ impl Session {
 		}) = transaction
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		else {
 			return Ok(None);
 		};
@@ -1053,7 +1045,7 @@ impl Session {
 			error
 				.store_with_handle(self)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to store the error"))?;
+				.map_err(|error| tg::error!(!error, "failed to store the error"))?;
 			let code = error
 				.data_with_handle(self)
 				.await?
@@ -1100,7 +1092,7 @@ impl Session {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		// Copy the process children.
 		let statement = formatdoc!(
@@ -1129,7 +1121,7 @@ impl Session {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		Ok(Some(LocalOutput {
 			cached: true,
@@ -1306,7 +1298,7 @@ impl Session {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		// Insert the process token.
 		let statement = formatdoc!(
@@ -1319,13 +1311,13 @@ impl Session {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		// Update token count.
 		self.server
 			.update_process_token_count_with_transaction(transaction, &id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
+			.map_err(|error| tg::error!(!error, "failed to update the token count"))?;
 
 		Ok(LocalOutput {
 			cached: false,
@@ -1390,12 +1382,12 @@ impl Session {
 			.cpu
 			.map(i64::try_from)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?;
+			.map_err(|error| tg::error!(!error, "invalid sandbox cpu"))?;
 		let memory = arg
 			.memory
 			.map(i64::try_from)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?;
+			.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?;
 		let ttl = arg.ttl;
 		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
 		let params = db::params![
@@ -1416,7 +1408,7 @@ impl Session {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(id)
 	}
 
@@ -1440,7 +1432,7 @@ impl Session {
 				params,
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.map(|value| value.0);
 		Ok(status)
 	}
@@ -1479,13 +1471,13 @@ impl Session {
 			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Add the process as a child.
 		self.add_process_child_with_transaction(
@@ -1498,14 +1490,14 @@ impl Session {
 		)
 		.await
 		.map_err(
-			|source| tg::error!(!source, %parent, %child, "failed to add the process as a child"),
+			|error| tg::error!(!error, %parent, %child, "failed to add the process as a child"),
 		)?;
 
 		// Commit the transaction.
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		// Drop the connection.
 		drop(connection);
@@ -1535,7 +1527,7 @@ impl Session {
 			.server
 			.try_lock_process_with_transaction(transaction, parent)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to lock the parent process"))?;
+			.map_err(|error| tg::error!(!error, "failed to lock the parent process"))?;
 		let Some(status) = status else {
 			return Err(tg::error!("the parent process was not found"));
 		};
@@ -1562,7 +1554,7 @@ impl Session {
 		let cycle = transaction
 			.query_one_value_into::<bool>(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the cycle check"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the cycle check"))?;
 
 		// If adding this child creates a cycle, return an error.
 		if cycle {
@@ -1639,7 +1631,7 @@ impl Session {
 		transaction
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		// Update parent depths.
 		match &transaction {
@@ -1647,13 +1639,13 @@ impl Session {
 			database::Transaction::Postgres(transaction) => {
 				self.update_parent_depths_postgres(transaction, child.to_string())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
+					.map_err(|error| tg::error!(!error, "failed to update parent depths"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(transaction) => {
 				self.update_parent_depths_sqlite(transaction, vec![child.to_string()])
 					.await
-					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
+					.map_err(|error| tg::error!(!error, "failed to update parent depths"))?;
 			},
 		}
 
@@ -1757,17 +1749,17 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		let stream = self
 			.try_spawn_process(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

@@ -14,10 +14,9 @@ pub struct Args {
 impl Cli {
 	pub async fn command_shell_deactivate(&mut self, args: Args) -> tg::Result<()> {
 		let path = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-		let path = std::fs::canonicalize(path).map_err(|source| {
-			tg::error!(!source, "failed to canonicalize the current directory")
-		})?;
+			.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
+		let path = std::fs::canonicalize(path)
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the current directory"))?;
 		let directory = self.get_shell_directory(&path)?;
 		if directory.is_some() {
 			let error = tg::error!("cannot deactivate the current directory's shell environment");

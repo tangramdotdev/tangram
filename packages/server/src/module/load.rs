@@ -39,7 +39,7 @@ impl Session {
 			} => {
 				// Otherwise, load from the path.
 				let text = tokio::fs::read_to_string(&path).await.map_err(
-					|source| tg::error!(!source, path = %path.display(), "failed to read the file"),
+					|error| tg::error!(!error, path = %path.display(), "failed to read the file"),
 				)?;
 				Ok(tg::module::load::Output { text })
 			},
@@ -71,7 +71,7 @@ impl Session {
 				let text = file
 					.text_with_handle(self)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to get the file text"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the file text"))?;
 				Ok(tg::module::load::Output { text })
 			},
 
@@ -143,19 +143,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Load the module.
 		let output = self
 			.load_module(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to load the module"))?;
+			.map_err(|error| tg::error!(!error, "failed to load the module"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

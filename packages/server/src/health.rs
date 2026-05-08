@@ -90,9 +90,7 @@ impl Session {
 				.process_store
 				.connection()
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to get a process store connection")
-				})?;
+				.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 			// Get the process health.
 			let permits = if self.server.config.runner.is_some() {
@@ -122,7 +120,7 @@ impl Session {
 			let Row { created, started } = connection
 				.query_one_into::<Row>(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			Some(tg::health::Processes {
 				created,
@@ -185,20 +183,20 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// Get the health.
 		let health = self
 			.health(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the server health"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the server health"))?;
 
 		// Create the response.
 		let (content_type, body) = match accept

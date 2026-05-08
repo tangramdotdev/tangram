@@ -64,14 +64,14 @@ impl Data {
 		let mut bytes = Vec::new();
 		bytes.push(0);
 		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
 	pub fn serialize_json(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
 		serde_json::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		Ok(bytes.into())
 	}
 
@@ -84,9 +84,9 @@ impl Data {
 		let format = bytes[0];
 		match format {
 			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			_ => Err(tg::error!("invalid format")),
 		}
 	}
@@ -122,9 +122,9 @@ impl Data {
 		T: serde::de::DeserializeOwned,
 	{
 		let json = serde_json::to_value(&self)
-			.map_err(|source| tg::error!(!source, "failed to convert to json"))?;
+			.map_err(|error| tg::error!(!error, "failed to convert to json"))?;
 		let result = serde_json::from_value(json)
-			.map_err(|source| tg::error!(!source, "failed to deserialize from json"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize from json"))?;
 		Ok(result)
 	}
 
@@ -133,9 +133,9 @@ impl Data {
 		T: serde::Serialize,
 	{
 		let json = serde_json::to_value(&value)
-			.map_err(|source| tg::error!(!source, "failed to serialize to json"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize to json"))?;
 		let result = serde_json::from_value(json)
-			.map_err(|source| tg::error!(!source, "failed to convert from json"))?;
+			.map_err(|error| tg::error!(!error, "failed to convert from json"))?;
 		Ok(result)
 	}
 }

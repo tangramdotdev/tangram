@@ -10,12 +10,12 @@ use {
 pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 	std::fs::remove_dir_all(&arg.path).ok();
 	std::fs::create_dir_all(&arg.path)
-		.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
 	let libraries = collect_dynamic_libraries(&arg.tangram_path)?;
 	let libraries_path = arg.path.join("lib");
 	if !libraries.is_empty() {
-		std::fs::create_dir_all(&libraries_path).map_err(|source| {
-			tg::error!(!source, "failed to create the sandbox libraries directory")
+		std::fs::create_dir_all(&libraries_path).map_err(|error| {
+			tg::error!(!error, "failed to create the sandbox libraries directory")
 		})?;
 		for source in libraries {
 			let name = source.file_name().ok_or_else(|| {
@@ -47,7 +47,7 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 fn prepare_tangram_wrapper(arg: &Arg, libraries_path: &Path) -> tg::Result<()> {
 	let bin_path = arg.path.join("bin");
 	std::fs::create_dir_all(&bin_path)
-		.map_err(|source| tg::error!(!source, "failed to create the sandbox bin directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the sandbox bin directory"))?;
 	let tangram_wrapper_path = bin_path.join("tangram");
 	let tangram_path = shell_quote(&arg.tangram_path);
 	let libraries_path = shell_quote(libraries_path);
@@ -67,14 +67,14 @@ exec '{tangram_path}' "$@"
 "#,
 	);
 	std::fs::write(&tangram_wrapper_path, wrapper)
-		.map_err(|source| tg::error!(!source, "failed to write the tangram wrapper"))?;
+		.map_err(|error| tg::error!(!error, "failed to write the tangram wrapper"))?;
 	let permissions = std::os::unix::fs::PermissionsExt::from_mode(0o755);
 	std::fs::set_permissions(&tangram_wrapper_path, permissions)
-		.map_err(|source| tg::error!(!source, "failed to set the tangram wrapper permissions"))?;
+		.map_err(|error| tg::error!(!error, "failed to set the tangram wrapper permissions"))?;
 	let tg_wrapper_path = bin_path.join("tg");
 	std::fs::remove_file(&tg_wrapper_path).ok();
 	std::os::unix::fs::symlink("tangram", &tg_wrapper_path)
-		.map_err(|source| tg::error!(!source, "failed to create the tg wrapper symlink"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the tg wrapper symlink"))?;
 	Ok(())
 }
 
@@ -83,9 +83,9 @@ fn shell_quote(path: &Path) -> String {
 }
 
 fn collect_dynamic_libraries(executable: &Path) -> tg::Result<Vec<PathBuf>> {
-	let executable = std::fs::canonicalize(executable).map_err(|source| {
+	let executable = std::fs::canonicalize(executable).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %executable.display(),
 			"failed to canonicalize the executable path"
 		)
@@ -126,9 +126,9 @@ fn otool_dependencies(path: &Path) -> tg::Result<Vec<String>> {
 		.args(["-L"])
 		.arg(path)
 		.output()
-		.map_err(|source| {
+		.map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %path.display(),
 				"failed to execute `otool -L`"
 			)
@@ -145,7 +145,7 @@ fn otool_dependencies(path: &Path) -> tg::Result<Vec<String>> {
 		));
 	}
 	let stdout = String::from_utf8(output.stdout)
-		.map_err(|source| tg::error!(!source, "failed to parse the `otool -L` output"))?;
+		.map_err(|error| tg::error!(!error, "failed to parse the `otool -L` output"))?;
 	let mut dependencies = Vec::new();
 	for line in stdout.lines().skip(1) {
 		let line = line.trim();
@@ -165,9 +165,9 @@ fn otool_rpaths(path: &Path) -> tg::Result<Vec<PathBuf>> {
 		.args(["-l"])
 		.arg(path)
 		.output()
-		.map_err(|source| {
+		.map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %path.display(),
 				"failed to execute `otool -l`"
 			)
@@ -184,7 +184,7 @@ fn otool_rpaths(path: &Path) -> tg::Result<Vec<PathBuf>> {
 		));
 	}
 	let stdout = String::from_utf8(output.stdout)
-		.map_err(|source| tg::error!(!source, "failed to parse the `otool -l` output"))?;
+		.map_err(|error| tg::error!(!error, "failed to parse the `otool -l` output"))?;
 	let mut rpaths = Vec::new();
 	let mut in_rpath = false;
 	for line in stdout.lines() {
@@ -216,9 +216,9 @@ fn resolve_dynamic_library(
 					"failed to resolve the dynamic library"
 				)
 			})?;
-		std::fs::canonicalize(&path).map_err(|source| {
+		std::fs::canonicalize(&path).map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %path.display(),
 				"failed to canonicalize the dynamic library path"
 			)
@@ -228,9 +228,9 @@ fn resolve_dynamic_library(
 		if is_system_library_path(&path) {
 			return Ok(None);
 		}
-		std::fs::canonicalize(&path).map_err(|source| {
+		std::fs::canonicalize(&path).map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %path.display(),
 				"failed to canonicalize the dynamic library path"
 			)

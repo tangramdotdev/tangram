@@ -20,7 +20,7 @@ impl Cli {
 		client
 			.put_remote(&name, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %name, "failed to put the remote"))?;
+			.map_err(|error| tg::error!(!error, %name, "failed to put the remote"))?;
 		Ok(())
 	}
 }

@@ -152,7 +152,7 @@ impl Cli {
 					wait: None,
 				};
 				let value = serde_json::to_value(output)
-					.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+					.map_err(|error| tg::error!(!error, "failed to serialize the output"))?
 					.into();
 				return Ok(value);
 			}
@@ -169,7 +169,7 @@ impl Cli {
 				let runtime = tokio::runtime::Builder::new_current_thread()
 					.enable_all()
 					.build()
-					.map_err(|source| tg::error!(!source, "failed to create the tokio runtime"))?;
+					.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
 				local_set.block_on(&runtime, async move {
 					let viewer_options = crate::viewer::Options {
 						collapse_process_children: true,
@@ -235,7 +235,7 @@ impl Cli {
 			.item()
 			.wait_with_handle(&client, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to await the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to await the process"))?;
 
 		// Abort the cancel task.
 		if let Some(cancel_task) = cancel_task {
@@ -266,7 +266,7 @@ impl Cli {
 				output: wait.output.as_ref().map(tg::Value::to_data),
 			};
 			let value = serde_json::to_value(&output)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+				.map_err(|error| tg::error!(!error, "failed to serialize the output"))?
 				.into();
 			return Ok(value);
 		}
@@ -320,7 +320,7 @@ impl Cli {
 			let path = if let Some(path) = path {
 				let path = tangram_util::fs::canonicalize_parent(path)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+					.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 				Some(path)
 			} else {
 				None
@@ -335,11 +335,11 @@ impl Cli {
 				path,
 			};
 			let stream = client.checkout(arg).await.map_err(
-				|source| tg::error!(!source, %artifact, "failed to check out the artifact"),
+				|error| tg::error!(!error, %artifact, "failed to check out the artifact"),
 			)?;
 			let tg::checkout::Output { path, .. } =
 				self.render_progress_stream(stream).await.map_err(
-					|source| tg::error!(!source, %artifact, "failed to check out the artifact"),
+					|error| tg::error!(!error, %artifact, "failed to check out the artifact"),
 				)?;
 			let value = path.display().to_string().into();
 			return Ok(value);

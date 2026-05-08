@@ -129,9 +129,9 @@ impl Session {
 		let output = self
 			.get_object(id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let data = tg::object::Data::deserialize(id.kind(), output.bytes.clone())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
 		// If the object is solvable, then spawn tasks to prefetch its descendant objects and tags.
 		let solvable = output
@@ -347,7 +347,7 @@ impl Session {
 				ttl: prefetch.arg.options.tag_ttl,
 			})
 			.await
-			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?
+			.map_err(|error| tg::error!(!error, %pattern, "failed to list tags"))?
 		};
 
 		// Prefetch the first candidate's object.

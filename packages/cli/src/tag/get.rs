@@ -49,7 +49,7 @@ impl Cli {
 			ttl: args.ttl.get(),
 		};
 		let output = client.list_tags(arg).await.map_err(
-			|source| tg::error!(!source, pattern = %args.pattern, "failed to get the tag"),
+			|error| tg::error!(!error, pattern = %args.pattern, "failed to get the tag"),
 		)?;
 		let entry = output
 			.data

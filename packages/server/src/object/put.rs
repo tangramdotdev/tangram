@@ -58,7 +58,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())
-			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 
@@ -132,7 +132,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<()> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, %id, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -142,7 +142,7 @@ impl Session {
 			..arg
 		};
 		client.put_object(id, arg).await.map_err(
-			|source| tg::error!(!source, %id, region = %region, "failed to put the object"),
+			|error| tg::error!(!error, %id, region = %region, "failed to put the object"),
 		)?;
 		Ok(())
 	}
@@ -155,14 +155,14 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<()> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			|error| tg::error!(!error, %id, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::object::put::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
 		client.put_object(id, arg).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote, "failed to put the object"),
+			|error| tg::error!(!error, %id, remote = %remote, "failed to put the object"),
 		)?;
 		Ok(())
 	}
@@ -174,16 +174,16 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id = id
 			.parse::<tg::object::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
 		let arg = request
 			.query_params::<tg::object::put::Arg>()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 		let bytes = request
 			.bytes()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to read the request body"))?;
 
 		let actual = tg::object::Id::new(id.kind(), &bytes);
 		if id != actual {
@@ -199,7 +199,7 @@ impl Session {
 			let response = http::Response::builder()
 				.status(http::StatusCode::BAD_REQUEST)
 				.json(error)
-				.map_err(|source| tg::error!(!source, "failed to serialize the error"))?
+				.map_err(|error| tg::error!(!error, "failed to serialize the error"))?
 				.unwrap()
 				.boxed_body();
 			return Ok(response);
@@ -208,7 +208,7 @@ impl Session {
 		let arg = tg::object::put::Arg { bytes, ..arg };
 		self.put_object(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 
 		let response = http::Response::builder().empty().unwrap().boxed_body();
 

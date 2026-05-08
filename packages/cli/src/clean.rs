@@ -24,14 +24,14 @@ impl Cli {
 		let stream = client
 			.index()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to index"))?;
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
 		self.render_progress_stream(stream).await?;
 
 		// Clean.
 		let stream = client
 			.clean()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to clean"))?;
+			.map_err(|error| tg::error!(!error, "failed to clean"))?;
 		let output = self.render_progress_stream(stream).await?;
 		let bytes = byte_unit::Byte::from_u64(output.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);
@@ -103,7 +103,7 @@ impl Cli {
 			let mut stack = vec![path];
 			while let Some(path) = stack.pop() {
 				let metadata = std::fs::symlink_metadata(&path)
-					.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
 				if !metadata.is_symlink() {
 					let mut perms = metadata.permissions();
 					#[cfg(unix)]
@@ -120,15 +120,14 @@ impl Cli {
 						perms.set_readonly(false);
 					}
 					std::fs::set_permissions(&path, perms)
-						.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+						.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 				}
 				if metadata.is_dir() {
 					let entries = std::fs::read_dir(&path)
-						.map_err(|source| tg::error!(!source, "failed to read the directory"))?;
+						.map_err(|error| tg::error!(!error, "failed to read the directory"))?;
 					for entry in entries {
-						let entry = entry.map_err(|source| {
-							tg::error!(!source, "failed to read the directory")
-						})?;
+						let entry = entry
+							.map_err(|error| tg::error!(!error, "failed to read the directory"))?;
 						stack.push(entry.path());
 					}
 				}
@@ -147,10 +146,10 @@ impl Cli {
 			for (path, metadata) in paths.into_iter().rev() {
 				if metadata.is_dir() {
 					std::fs::remove_dir(&path)
-						.map_err(|source| tg::error!(!source, "failed to remove the directory"))?;
+						.map_err(|error| tg::error!(!error, "failed to remove the directory"))?;
 				} else {
 					std::fs::remove_file(&path)
-						.map_err(|source| tg::error!(!source, "failed to remove the file"))?;
+						.map_err(|error| tg::error!(!error, "failed to remove the file"))?;
 				}
 				progress_.increment("cleaning", 1);
 			}

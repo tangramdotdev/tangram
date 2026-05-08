@@ -48,7 +48,7 @@ impl Cli {
 			.get_process_status(&args.process, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, id = %args.process, "failed to get the process status"),
+				|error| tg::error!(!error, id = %args.process, "failed to get the process status"),
 			)?;
 		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())

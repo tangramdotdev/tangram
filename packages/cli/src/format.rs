@@ -15,14 +15,14 @@ impl Cli {
 		// Canonicalize the path's parent.
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 
 		// Format.
 		let arg = tg::format::Arg { path };
 		client
 			.format(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to format"))?;
+			.map_err(|error| tg::error!(!error, "failed to format"))?;
 
 		Ok(())
 	}

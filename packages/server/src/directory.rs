@@ -31,7 +31,7 @@ fn resolve_directory_child(
 			// Load the directory data from the store.
 			let (_size, data) = store
 				.try_get_data_sync(&id.clone().into())
-				.map_err(|source| tg::error!(!source, %id, "failed to get directory object"))?
+				.map_err(|error| tg::error!(!error, %id, "failed to get directory object"))?
 				.ok_or_else(|| tg::error!(%id, "failed to find directory"))?;
 			let dir_data: tg::directory::Data = data
 				.try_into()
@@ -52,9 +52,7 @@ fn resolve_directory_child(
 				.ok_or_else(|| tg::error!("missing graph id for pointer"))?;
 			let (_size, data) = store
 				.try_get_data_sync(&child_graph_id.clone().into())
-				.map_err(
-					|source| tg::error!(!source, %child_graph_id, "failed to get graph object"),
-				)?
+				.map_err(|error| tg::error!(!error, %child_graph_id, "failed to get graph object"))?
 				.ok_or_else(|| tg::error!(%child_graph_id, "failed to find graph"))?;
 			let graph_data: tg::graph::Data = data
 				.try_into()

@@ -54,7 +54,7 @@ pub async fn checkin(
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
+		.map_err(|error| tg::error!(!error, "failed to check in the output"))?;
 	Ok(Serde(artifact.id().clone()))
 }
 
@@ -84,7 +84,7 @@ pub async fn checkout(state: Rc<State>, args: (Serde<tg::checkout::Arg>,)) -> tg
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
+		.map_err(|error| tg::error!(!error, "failed to check out the artifact"))?;
 	let path = path
 		.into_os_string()
 		.into_string()
@@ -118,7 +118,7 @@ pub async fn object_batch(state: Rc<State>, args: (Serde<ObjectBatchArg>,)) -> t
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to post object batch"))?;
+		.map_err(|error| tg::error!(!error, "failed to post object batch"))?;
 	Ok(())
 }
 
@@ -141,7 +141,7 @@ pub async fn object_get(
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+		.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 	Ok(Serde(data))
 }
 
@@ -174,7 +174,7 @@ pub async fn process_get(
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to get the process"))?;
+		.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 	Ok(Serde(output))
 }
 
@@ -192,7 +192,7 @@ pub async fn sandbox_get(
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?;
+		.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?;
 	Ok(Serde(data))
 }
 
@@ -348,12 +348,12 @@ pub async fn read(state: Rc<State>, args: (Serde<tg::read::Arg>,)) -> tg::Result
 			pin!(reader)
 				.read_to_end(&mut buffer)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
 			Ok::<_, tg::Error>(buffer.into())
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
+		.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
 	Ok(bytes)
 }
 
@@ -365,7 +365,7 @@ pub fn value_parse(
 	let (value,) = args;
 	let value = value
 		.parse::<tg::Value>()
-		.map_err(|source| tg::error!(!source, "failed to parse the value"))?;
+		.map_err(|error| tg::error!(!error, "failed to parse the value"))?;
 	Ok(Serde(value.to_data()))
 }
 
@@ -377,7 +377,7 @@ pub fn value_stringify(
 	let (value,) = args;
 	let Serde(value) = value;
 	let value = tg::Value::try_from_data(value)
-		.map_err(|source| tg::error!(!source, "failed to convert the value"))?;
+		.map_err(|error| tg::error!(!error, "failed to convert the value"))?;
 	Ok(value.to_string())
 }
 
@@ -397,6 +397,6 @@ pub async fn write(
 		})
 		.await
 		.unwrap()
-		.map_err(|source| tg::error!(!source, "failed to create the blob"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the blob"))?;
 	Ok(Serde(blob))
 }

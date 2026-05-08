@@ -19,13 +19,13 @@ impl Session {
 		let mut connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		let transaction = connection
 			.inner_mut()
 			.transaction()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
@@ -44,13 +44,13 @@ impl Session {
 		let Some(row) = transaction
 			.query_opt(&statement, &[&id])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		else {
 			return Ok(WriteOutput::Closed);
 		};
 		let open = row
 			.try_get::<_, Option<bool>>(0)
-			.map_err(|source| tg::error!(!source, "failed to get the open state"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the open state"))?;
 		if open != Some(true) {
 			return Ok(WriteOutput::Closed);
 		}
@@ -63,9 +63,9 @@ impl Session {
 		let written_len = transaction
 			.query_one(statement, &[&id, &stream.to_string()])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.try_get::<_, i64>(0)
-			.map_err(|source| tg::error!(!source, "failed to get the written bytes"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the written bytes"))?;
 		let written_len = u64::try_from(written_len).unwrap();
 		let bytes_len = u64::try_from(bytes.len()).unwrap();
 		if written_len != 0
@@ -81,12 +81,12 @@ impl Session {
 		transaction
 			.execute(statement, &[&id, &stream.to_string(), &&bytes[..]])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		transaction
 			.commit()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		Ok(WriteOutput::Written)
 	}
@@ -100,7 +100,7 @@ impl Session {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
 			tg::process::stdio::Stream::Stdout => "stdout_open",
@@ -118,7 +118,7 @@ impl Session {
 			.inner()
 			.execute(&statement, &[&id])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())
 	}
 }

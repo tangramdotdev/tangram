@@ -22,7 +22,7 @@ pub async fn format_blob(client: &tg::Client, blob: &tg::Blob) -> tg::Result<Str
 	let stream = client
 		.try_read(arg)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to read the blob"))?
+		.map_err(|error| tg::error!(!error, "failed to read the blob"))?
 		.ok_or_else(|| tg::error!("blob not found"))?;
 	let mut stream = pin!(stream);
 	let mut is_utf8 = true;

@@ -65,7 +65,7 @@ impl Session {
 		let stream = self
 			.checkin(checkin_arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check in the path"))?
+			.map_err(|error| tg::error!(!error, "failed to check in the path"))?
 			.and_then({
 				let session = self.clone();
 				move |event| {
@@ -131,7 +131,7 @@ impl Session {
 		let tg::tag::list::Output { data } = self
 			.list_tags(list_arg)
 			.await
-			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
+			.map_err(|error| tg::error!(!error, %pattern, "failed to list tags"))?;
 		let Some(tg::tag::list::Entry { item, tag, .. }) = data.into_iter().next() else {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
@@ -178,7 +178,7 @@ impl Session {
 				let id = artifact
 					.store_with_handle(self)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
+					.map_err(|error| tg::error!(!error, "failed to store the artifact"))?;
 				output.referent.item = tg::Either::Left(tg::graph::data::Edge::Object(id.into()));
 				output.referent.options.id = Some(directory.id().into());
 				output.referent.options.path = Some(get.to_owned());
@@ -235,25 +235,25 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		let item = path
 			.join("/")
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the item"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the item"))?;
 
 		// Get the reference options and arg.
 		let arg: tg::get::Arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 		let reference = tg::Reference::with_item_and_options(item, arg.options.clone());
 
 		let stream = self
 			.try_get(&reference, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
+			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

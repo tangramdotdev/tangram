@@ -10,14 +10,14 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 	let connection = database
 		.connection()
 		.await
-		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 	let version = connection
 		.with(|connection, _cache| {
 			connection
 				.pragma_query_value(None, "user_version", |row| {
 					Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
 				})
-				.map_err(|source| tg::error!(!source, "failed to get the version"))
+				.map_err(|error| tg::error!(!error, "failed to get the version"))
 		})
 		.await?;
 	drop(connection);
@@ -31,19 +31,19 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 	if version == 0 {
 		migration_0000(database)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the process store schema"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the process store schema"))?;
 	}
 
 	if version < schema_version {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				connection
 					.pragma_update(None, "user_version", schema_version.to_i64().unwrap())
-					.map_err(|source| tg::error!(!source, "failed to set the version"))
+					.map_err(|error| tg::error!(!error, "failed to set the version"))
 			})
 			.await?;
 	}
@@ -56,12 +56,12 @@ async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
 	let connection = database
 		.write_connection()
 		.await
-		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 	connection
 		.with(move |connection, _cache| {
 			connection
 				.execute_batch(sql)
-				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statements"))?;
 			Ok::<_, tg::Error>(())
 		})
 		.await?;

@@ -10,9 +10,9 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_shell_directory_delete(&mut self, args: Args) -> tg::Result<()> {
-		let key = std::fs::canonicalize(&args.path).map_err(|source| {
+		let key = std::fs::canonicalize(&args.path).map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %args.path.display(),
 				"failed to canonicalize the directory path"
 			)

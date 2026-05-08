@@ -16,9 +16,9 @@ impl Session {
 		let mut stream = self
 			.try_get_process_signal_stream(id, arg)
 			.await
-			.map_err(|source| {
+			.map_err(|error| {
 				tg::error!(
-					!source,
+					!error,
 					process = %id,
 					"failed to get the process's signal stream"
 				)
@@ -29,14 +29,14 @@ impl Session {
 
 		// Handle the events.
 		while let Some(event) = stream.try_next().await.map_err(
-			|source| tg::error!(!source, process = %id, "failed to get the next signal event"),
+			|error| tg::error!(!error, process = %id, "failed to get the next signal event"),
 		)? {
 			match event {
 				tg::process::signal::get::Event::Signal(signal) => {
 					sandbox
 						.kill(sandbox_process, signal)
 						.await
-						.map_err(|source| tg::error!(!source, "failed to signal the process"))?;
+						.map_err(|error| tg::error!(!error, "failed to signal the process"))?;
 				},
 				tg::process::signal::get::Event::End => {
 					break;

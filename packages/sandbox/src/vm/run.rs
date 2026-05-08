@@ -76,7 +76,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 	let virtiofsd_socket_path = host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SOCKET_NAME);
 	let socket = std::os::unix::net::UnixListener::bind(&virtiofsd_socket_path)
-		.map_err(|source| tg::error!(!source, "failed to open the virtiofsd socket"))?;
+		.map_err(|error| tg::error!(!error, "failed to open the virtiofsd socket"))?;
 	let helper_pid = spawn_virtiofsd_helper(arg, &user, socket.into_raw_fd())?;
 
 	let tap = if arg.network {
@@ -143,17 +143,17 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 	let mut child = match command.spawn() {
 		Ok(child) => child,
-		Err(source) => {
+		Err(error) => {
 			kill_pid(helper_pid);
 			wait_for_pid(helper_pid);
-			return Err(tg::error!(!source, "failed to spawn cloud-hypervisor"));
+			return Err(tg::error!(!error, "failed to spawn cloud-hypervisor"));
 		},
 	};
 
 	loop {
 		if let Some(status) = child
 			.try_wait()
-			.map_err(|source| tg::error!(!source, "failed to poll cloud-hypervisor"))?
+			.map_err(|error| tg::error!(!error, "failed to poll cloud-hypervisor"))?
 		{
 			kill_pid(helper_pid);
 			wait_for_pid(helper_pid);
@@ -269,7 +269,7 @@ fn helper_child_main(arg: &Arg, user: &User, socket: RawFd) -> tg::Result<()> {
 	let root = host_vm_root_path_from_root(&arg.path);
 	std::fs::remove_dir_all(&root).ok();
 	std::fs::create_dir_all(&root)
-		.map_err(|source| tg::error!(!source, "failed to create the vm root"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the vm root"))?;
 
 	let mount_arg = build_mount_arg(arg);
 	container::mount::apply(&mount_arg, Some(&root))?;
@@ -317,11 +317,11 @@ fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
 	let host_gid = unsafe { libc::getgid() };
 	unshare(libc::CLONE_NEWUSER, "failed to unshare the user namespace")?;
 	std::fs::write("/proc/self/uid_map", format!("{uid} {host_uid} 1\n"))
-		.map_err(|source| tg::error!(!source, "failed to write the uid map"))?;
+		.map_err(|error| tg::error!(!error, "failed to write the uid map"))?;
 	std::fs::write("/proc/self/setgroups", "deny")
-		.map_err(|source| tg::error!(!source, "failed to deny setgroups"))?;
+		.map_err(|error| tg::error!(!error, "failed to deny setgroups"))?;
 	std::fs::write("/proc/self/gid_map", format!("{gid} {host_gid} 1\n"))
-		.map_err(|source| tg::error!(!source, "failed to write the gid map"))?;
+		.map_err(|error| tg::error!(!error, "failed to write the gid map"))?;
 	Ok(())
 }
 
@@ -392,24 +392,24 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		host_vm_root_path_from_root(sandbox_path),
 	] {
 		std::fs::create_dir_all(&path).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the sandbox path"),
+			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
 	let tmp_path = Sandbox::host_tmp_path_from_root(sandbox_path);
-	std::fs::set_permissions(&tmp_path, permissions).map_err(|source| {
+	std::fs::set_permissions(&tmp_path, permissions).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %tmp_path.display(),
 			"failed to set sandbox path permissions"
 		)
 	})?;
 	let upper_path = Sandbox::host_upper_path_from_root(sandbox_path);
 	let tangram_path = upper_path.join("opt/tangram");
-	std::fs::create_dir_all(&tangram_path).map_err(|source| {
+	std::fs::create_dir_all(&tangram_path).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %tangram_path.display(),
 			"failed to create the sandbox path"
 		)
@@ -441,7 +441,7 @@ fn prepare_etc_files(sandbox_path: &Path, user: &User) -> tg::Result<()> {
 		.unwrap();
 	}
 	std::fs::write(Sandbox::host_passwd_path_from_root(sandbox_path), passwd)
-		.map_err(|source| tg::error!(!source, "failed to write /etc/passwd"))?;
+		.map_err(|error| tg::error!(!error, "failed to write /etc/passwd"))?;
 	let nsswitch = indoc::indoc!(
 		"
 			passwd: files compat
@@ -453,7 +453,7 @@ fn prepare_etc_files(sandbox_path: &Path, user: &User) -> tg::Result<()> {
 		Sandbox::host_nsswitch_path_from_root(sandbox_path),
 		nsswitch,
 	)
-	.map_err(|source| tg::error!(!source, "failed to write /etc/nsswitch.conf"))?;
+	.map_err(|error| tg::error!(!error, "failed to write /etc/nsswitch.conf"))?;
 	Ok(())
 }
 
@@ -461,7 +461,7 @@ fn resolve_user(name: Option<&str>) -> tg::Result<User> {
 	let ptr = unsafe {
 		if let Some(name) = name {
 			let name = CString::new(OsStr::new(name).as_bytes())
-				.map_err(|source| tg::error!(!source, "failed to encode the user name"))?;
+				.map_err(|error| tg::error!(!error, "failed to encode the user name"))?;
 			libc::getpwnam(name.as_ptr())
 		} else {
 			libc::getpwuid(libc::getuid())
@@ -488,8 +488,8 @@ fn resolve_user(name: Option<&str>) -> tg::Result<User> {
 fn set_no_new_privs() -> tg::Result<()> {
 	let result = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set no_new_privs"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set no_new_privs"));
 	}
 	Ok(())
 }
@@ -497,8 +497,8 @@ fn set_no_new_privs() -> tg::Result<()> {
 fn set_parent_death_signal(signal: libc::c_int) -> tg::Result<()> {
 	let result = unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, signal, 0, 0, 0) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set the parent death signal"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the parent death signal"));
 	}
 	Ok(())
 }
@@ -514,8 +514,8 @@ fn set_parent_death_signal_io(signal: libc::c_int) -> std::io::Result<()> {
 fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 	let result = unsafe { libc::setresgid(gid, gid, gid) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set the gid"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the gid"));
 	}
 	Ok(())
 }
@@ -523,8 +523,8 @@ fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 fn setresuid(uid: libc::uid_t) -> tg::Result<()> {
 	let result = unsafe { libc::setresuid(uid, uid, uid) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set the uid"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the uid"));
 	}
 	Ok(())
 }
@@ -532,8 +532,8 @@ fn setresuid(uid: libc::uid_t) -> tg::Result<()> {
 fn spawn_virtiofsd_helper(arg: &Arg, user: &User, socket: RawFd) -> tg::Result<libc::pid_t> {
 	let child = unsafe { libc::fork() };
 	if child < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to fork the virtiofsd helper"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to fork the virtiofsd helper"));
 	}
 	if child == 0 {
 		match helper_child_main(arg, user, socket) {
@@ -555,11 +555,11 @@ fn try_wait_for_pid(pid: libc::pid_t) -> tg::Result<Option<u8>> {
 		return Ok(None);
 	}
 	if result < 0 {
-		let source = std::io::Error::last_os_error();
-		if source.raw_os_error() == Some(libc::EINTR) {
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::EINTR) {
 			return Ok(None);
 		}
-		return Err(tg::error!(!source, "failed to wait for the helper"));
+		return Err(tg::error!(!error, "failed to wait for the helper"));
 	}
 	Ok(Some(exit_code_from_status(status)))
 }
@@ -567,8 +567,8 @@ fn try_wait_for_pid(pid: libc::pid_t) -> tg::Result<Option<u8>> {
 fn unshare(flags: libc::c_int, message: &'static str) -> tg::Result<()> {
 	let result = unsafe { libc::unshare(flags) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "{}", message));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "{}", message));
 	}
 	Ok(())
 }

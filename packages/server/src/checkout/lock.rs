@@ -22,7 +22,7 @@ impl Session {
 		// Create the lock.
 		let lock = self
 			.checkout_create_lock(&state.artifact, state.arg.dependencies)
-			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
 
 		// Do not write the lock if it is empty.
 		if lock.nodes.is_empty() {
@@ -32,10 +32,10 @@ impl Session {
 		// Write the lock.
 		if state.artifact.is_directory() {
 			let contents = serde_json::to_vec_pretty(&lock)
-				.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
 			let lockfile_path = state.path.join(tg::module::LOCKFILE_FILE_NAME);
 			std::fs::write(&lockfile_path, &contents).map_err(
-				|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
+				|error| tg::error!(!error, path = %lockfile_path.display(), "failed to write the lockfile"),
 			)?;
 		} else if state.artifact.is_file() {
 			let lock_kind = state.arg.lock.unwrap();
@@ -55,18 +55,18 @@ impl Session {
 					std::fs::remove_file(&lockfile_path).ok();
 					xattr::remove(&state.path, tg::file::LOCK_XATTR_NAME).ok();
 					let contents = serde_json::to_vec(&lock)
-						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+						.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
 					xattr::set(&state.path, tg::file::LOCK_XATTR_NAME, &contents)
-						.map_err(|source| tg::error!(!source, "failed to write the lockattr"))?;
+						.map_err(|error| tg::error!(!error, "failed to write the lockattr"))?;
 				},
 				tg::checkout::Lock::File => {
 					xattr::remove(&state.path, tg::file::LOCK_XATTR_NAME).ok();
 					let contents = serde_json::to_vec_pretty(&lock)
-						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+						.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
 					let lockfile_path = state.path.with_extension("lock");
 					std::fs::remove_file(&lockfile_path).ok();
 					std::fs::write(&lockfile_path, &contents).map_err(
-						|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
+						|error| tg::error!(!error, path = %lockfile_path.display(), "failed to write the lockfile"),
 					)?;
 				},
 				tg::checkout::Lock::Auto => unreachable!(),
@@ -135,7 +135,7 @@ impl Session {
 						.object_store
 						.try_get_data_sync(&graph_id.clone().into())
 						.map_err(
-							|source| tg::error!(!source, %graph_id, "failed to get the graph object"),
+							|error| tg::error!(!error, %graph_id, "failed to get the graph object"),
 						)?
 						.ok_or_else(|| tg::error!(%graph_id, "failed to find the graph"))?;
 					let graph_data: tg::graph::Data = data
@@ -178,7 +178,7 @@ impl Session {
 					.server
 					.object_store
 					.try_get_data_sync(&id.clone().into())
-					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 					.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
 				let data = data
 					.try_into()

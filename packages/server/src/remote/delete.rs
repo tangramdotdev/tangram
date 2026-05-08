@@ -19,7 +19,7 @@ impl Session {
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -31,7 +31,7 @@ impl Session {
 		let n = connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		if n == 0 {
 			return Ok(None);
@@ -51,13 +51,13 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Delete the remote.
 		let Some(()) = self
 			.try_delete_remote(name)
 			.await
-			.map_err(|source| tg::error!(!source, %name, "failed to delete the remote"))?
+			.map_err(|error| tg::error!(!error, %name, "failed to delete the remote"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

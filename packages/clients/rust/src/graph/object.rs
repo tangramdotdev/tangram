@@ -427,7 +427,7 @@ where
 			tg::graph::data::Edge::Object(data) => Ok(Self::Object(
 				tg::Object::with_id(data.into())
 					.try_into()
-					.map_err(|source| tg::error!(!source, "failed to conver the object"))?,
+					.map_err(|error| tg::error!(!error, "failed to conver the object"))?,
 			)),
 		}
 	}
@@ -541,7 +541,7 @@ impl std::str::FromStr for Pointer {
 			.get("kind")
 			.ok_or_else(|| tg::error!("missing kind"))?
 			.parse()
-			.map_err(|source| tg::error!(!source, "invalid kind"))?;
+			.map_err(|error| tg::error!(!error, "invalid kind"))?;
 		Ok(Self { graph, index, kind })
 	}
 }

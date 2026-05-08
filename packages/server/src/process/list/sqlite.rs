@@ -14,7 +14,7 @@ impl Session {
 		let connection = process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		let outputs = connection
 			.with(move |connection, cache| Self::list_processes_sqlite_sync(connection, cache))
@@ -94,18 +94,18 @@ impl Session {
 		);
 		let mut statement = cache
 			.get(connection, statement.into())
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query([])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		let mut outputs = Vec::new();
 		while let Some(row) = rows
 			.next()
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		{
 			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 
 			// Get the children for this process.
 			#[derive(db::sqlite::row::Deserialize)]
@@ -124,17 +124,17 @@ impl Session {
 			);
 			let mut statement = cache
 				.get(connection, statement.into())
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 			let mut child_rows = statement
 				.query([&row.id.to_string()])
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			let mut children = Vec::new();
 			while let Some(child_row) = child_rows
 				.next()
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			{
 				let child_row = <ChildRow as db::sqlite::row::Deserialize>::deserialize(child_row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
 				let child = tg::process::data::Child {
 					cached: child_row.cached,
 					process: child_row.child,
@@ -149,13 +149,11 @@ impl Session {
 					if s.starts_with('{') {
 						serde_json::from_str(&s)
 							.map(tg::Either::Left)
-							.map_err(|source| {
-								tg::error!(!source, "failed to deserialize the error")
-							})
+							.map_err(|error| tg::error!(!error, "failed to deserialize the error"))
 					} else {
 						s.parse()
 							.map(tg::Either::Right)
-							.map_err(|source| tg::error!(!source, "failed to parse the error id"))
+							.map_err(|error| tg::error!(!error, "failed to parse the error id"))
 					}
 				})
 				.transpose()?;

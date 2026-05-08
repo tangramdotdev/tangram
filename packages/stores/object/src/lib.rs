@@ -97,7 +97,7 @@ impl Object<'_> {
 		let mut bytes = Vec::new();
 		bytes.push(0);
 		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the object value"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the object value"))?;
 		Ok(bytes.into())
 	}
 }
@@ -113,8 +113,8 @@ impl Object<'static> {
 		match format {
 			0 => {
 				let object: Object<'_> =
-					tangram_serialize::from_slice(&bytes[1..]).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the object value")
+					tangram_serialize::from_slice(&bytes[1..]).map_err(|error| {
+						tg::error!(!error, "failed to deserialize the object value")
 					})?;
 				Ok(object.into_static())
 			},
@@ -139,7 +139,7 @@ impl CachePointer {
 		let mut bytes = Vec::new();
 		bytes.push(0);
 		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the cache pointer"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the cache pointer"))?;
 		Ok(bytes.into())
 	}
 
@@ -152,9 +152,9 @@ impl CachePointer {
 		let format = bytes[0];
 		match format {
 			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the cache pointer")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the cache pointer")),
 			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the cache pointer")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the cache pointer")),
 			_ => Err(tg::error!("invalid cache pointer format")),
 		}
 	}

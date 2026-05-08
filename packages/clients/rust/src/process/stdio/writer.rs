@@ -99,7 +99,7 @@ impl Writer {
 			stdin
 				.write_all(input)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+				.map_err(|error| tg::error!(!error, "failed to write stdin"))?;
 			return Ok(input.len());
 		}
 		let Some(process) = state.process.clone() else {

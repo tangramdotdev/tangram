@@ -92,7 +92,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			)
 		})
 		.transpose()
-		.map_err(|source| tg::error!(!source, "failed to create the cgroup"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the cgroup"))?;
 	if arg.unshare_all {
 		enter_user_namespace(arg.uid, arg.gid)?;
 		match &arg.network {
@@ -121,11 +121,11 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				let mut socket = UnixStream::from(bridge_fd);
 				socket
 					.write_all(&[0u8])
-					.map_err(|source| tg::error!(!source, "failed to signal ready to the host"))?;
+					.map_err(|error| tg::error!(!error, "failed to signal ready to the host"))?;
 				let mut buf = [0u8; 1];
 				socket
 					.read_exact(&mut buf)
-					.map_err(|source| tg::error!(!source, "failed to wait for go from the host"))?;
+					.map_err(|error| tg::error!(!error, "failed to wait for go from the host"))?;
 				let guest_ip = arg
 					.guest_ip
 					.ok_or_else(|| tg::error!("bridge networking requires a guest ip"))?;
@@ -186,8 +186,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 fn fork() -> tg::Result<libc::pid_t> {
 	let pid = unsafe { libc::fork() };
 	if pid < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to fork the sandbox child"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to fork the sandbox child"));
 	}
 	Ok(pid)
 }
@@ -197,7 +197,7 @@ fn fork_with_cgroup(cgroup: &cgroup::Cgroup) -> tg::Result<(libc::pid_t, bool)> 
 	match fork_into_cgroup(cgroup_fd.as_raw_fd()) {
 		Ok(pid) => Ok((pid, false)),
 		Err(source) if clone3_cgroup_should_fallback(&source) => fork().map(|pid| (pid, true)),
-		Err(source) => Err(tg::error!(!source, "failed to clone3 into the cgroup")),
+		Err(error) => Err(tg::error!(!error, "failed to clone3 into the cgroup")),
 	}
 }
 
@@ -236,10 +236,10 @@ fn child_main(
 	}
 	let result = unsafe { libc::nice(libc::c_int::from(arg.nice)) };
 	if result == -1 {
-		let source = std::io::Error::last_os_error();
-		if source.raw_os_error() != Some(0) {
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() != Some(0) {
 			return Err(tg::error!(
-				!source,
+				!error,
 				"failed to lower the sandbox cpu priority"
 			));
 		}
@@ -276,14 +276,14 @@ fn prepare_root(arg: &Arg) -> tg::Result<Option<tangram_util::fs::Temp>> {
 		return Ok(None);
 	}
 	let path = tangram_util::fs::Temp::new()
-		.map_err(|source| tg::error!(!source, "failed to create the scratch path"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the scratch path"))?;
 	std::fs::create_dir(path.path())
-		.map_err(|source| tg::error!(!source, "failed to create the scratch path"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the scratch path"))?;
 	let root = path.path().join("root");
 	std::fs::remove_dir_all(&root).ok();
-	std::fs::create_dir_all(&root).map_err(|source| {
+	std::fs::create_dir_all(&root).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %root.display(),
 			"failed to create the sandbox root"
 		)
@@ -296,23 +296,23 @@ fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
 	let host_gid = unsafe { libc::getgid() };
 	unshare(libc::CLONE_NEWUSER, "failed to unshare the user namespace")?;
 	std::fs::write("/proc/self/uid_map", format!("{uid} {host_uid} 1\n"))
-		.map_err(|source| tg::error!(!source, "failed to write the uid map"))?;
+		.map_err(|error| tg::error!(!error, "failed to write the uid map"))?;
 	std::fs::write("/proc/self/setgroups", "deny")
-		.map_err(|source| tg::error!(!source, "failed to deny setgroups"))?;
+		.map_err(|error| tg::error!(!error, "failed to deny setgroups"))?;
 	std::fs::write("/proc/self/gid_map", format!("{gid} {host_gid} 1\n"))
-		.map_err(|source| tg::error!(!source, "failed to write the gid map"))?;
+		.map_err(|error| tg::error!(!error, "failed to write the gid map"))?;
 	Ok(())
 }
 
 fn exec_command(arg: &Arg) -> tg::Result<()> {
 	let executable = CString::new(arg.command[0].as_os_str().as_bytes())
-		.map_err(|source| tg::error!(!source, "failed to encode the executable"))?;
+		.map_err(|error| tg::error!(!error, "failed to encode the executable"))?;
 	let argv = arg
 		.command
 		.iter()
 		.map(|arg| {
 			CString::new(arg.as_os_str().as_bytes())
-				.map_err(|source| tg::error!(!source, "failed to encode an argument"))
+				.map_err(|error| tg::error!(!error, "failed to encode an argument"))
 		})
 		.collect::<Result<CStringVec, _>>()?;
 	let envp = environment(arg)?
@@ -326,8 +326,8 @@ fn exec_command(arg: &Arg) -> tg::Result<()> {
 			envp.as_ptr().cast(),
 		);
 	}
-	let source = std::io::Error::last_os_error();
-	Err(tg::error!(!source, "failed to execute the command"))
+	let error = std::io::Error::last_os_error();
+	Err(tg::error!(!error, "failed to execute the command"))
 }
 
 fn environment(arg: &Arg) -> tg::Result<BTreeMap<OsString, OsString>> {
@@ -347,15 +347,14 @@ fn envstring(key: &OsStr, value: &OsStr) -> tg::Result<CString> {
 	let mut bytes = key.as_bytes().to_vec();
 	bytes.push(b'=');
 	bytes.extend_from_slice(value.as_bytes());
-	CString::new(bytes)
-		.map_err(|source| tg::error!(!source, "failed to encode an environment entry"))
+	CString::new(bytes).map_err(|error| tg::error!(!error, "failed to encode an environment entry"))
 }
 
 fn unshare(flags: libc::c_int, message: &'static str) -> tg::Result<()> {
 	let result = unsafe { libc::unshare(flags) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "{}", message));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "{}", message));
 	}
 	Ok(())
 }
@@ -363,8 +362,8 @@ fn unshare(flags: libc::c_int, message: &'static str) -> tg::Result<()> {
 fn set_hostname(hostname: &str) -> tg::Result<()> {
 	let result = unsafe { libc::sethostname(hostname.as_ptr().cast(), hostname.len()) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set the hostname"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the hostname"));
 	}
 	Ok(())
 }
@@ -372,8 +371,8 @@ fn set_hostname(hostname: &str) -> tg::Result<()> {
 fn set_parent_death_signal(signal: libc::c_int) -> tg::Result<()> {
 	let result = unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, signal, 0, 0, 0) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set the parent death signal"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the parent death signal"));
 	}
 	Ok(())
 }
@@ -381,8 +380,8 @@ fn set_parent_death_signal(signal: libc::c_int) -> tg::Result<()> {
 fn start_session() -> tg::Result<()> {
 	let ret = unsafe { libc::setsid() };
 	if ret < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to start a new session"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to start a new session"));
 	}
 	Ok(())
 }
@@ -390,8 +389,8 @@ fn start_session() -> tg::Result<()> {
 fn setresuid(uid: libc::uid_t) -> tg::Result<()> {
 	let ret = unsafe { libc::setresuid(uid, uid, uid) };
 	if ret != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, uid = %uid, "failed to set the uid"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, uid = %uid, "failed to set the uid"));
 	}
 	Ok(())
 }
@@ -399,8 +398,8 @@ fn setresuid(uid: libc::uid_t) -> tg::Result<()> {
 fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 	let ret = unsafe { libc::setresgid(gid, gid, gid) };
 	if ret != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, gid = %gid, "failed to set the gid"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, gid = %gid, "failed to set the gid"));
 	}
 	Ok(())
 }
@@ -408,8 +407,8 @@ fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 fn set_no_new_privs() -> tg::Result<()> {
 	let ret = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
 	if ret != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set no_new_privs"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set no_new_privs"));
 	}
 	Ok(())
 }
@@ -433,8 +432,8 @@ fn set_securebits() -> tg::Result<()> {
 		| SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED;
 	let ret = unsafe { libc::prctl(PR_SET_SECUREBITS, securebits, 0, 0, 0) };
 	if ret != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to set securebits"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set securebits"));
 	}
 	Ok(())
 }
@@ -461,8 +460,8 @@ fn drop_capabilities() -> tg::Result<()> {
 
 	let ret = unsafe { libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) };
 	if ret != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to clear ambient capabilities"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to clear ambient capabilities"));
 	}
 	let max = std::fs::read_to_string("/proc/sys/kernel/cap_last_cap")
 		.ok()
@@ -471,9 +470,9 @@ fn drop_capabilities() -> tg::Result<()> {
 	for capability in 0..=max {
 		let ret = unsafe { libc::prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) };
 		if ret != 0 {
-			let source = std::io::Error::last_os_error();
+			let error = std::io::Error::last_os_error();
 			return Err(tg::error!(
-				!source,
+				!error,
 				capability = %capability,
 				"failed to drop a capability from the bounding set"
 			));
@@ -496,8 +495,8 @@ fn drop_capabilities() -> tg::Result<()> {
 		)
 	};
 	if ret != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to drop capabilities"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to drop capabilities"));
 	}
 	Ok(())
 }
@@ -521,11 +520,11 @@ fn close_non_std_fds() -> tg::Result<()> {
 
 fn close_non_std_fds_fallback() -> tg::Result<()> {
 	let entries = std::fs::read_dir("/proc/self/fd")
-		.map_err(|source| tg::error!(!source, "failed to enumerate file descriptors"))?;
+		.map_err(|error| tg::error!(!error, "failed to enumerate file descriptors"))?;
 	let mut fds = Vec::new();
 	for entry in entries {
 		let entry =
-			entry.map_err(|source| tg::error!(!source, "failed to read a directory entry"))?;
+			entry.map_err(|error| tg::error!(!error, "failed to read a directory entry"))?;
 		let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
 			continue;
 		};
@@ -550,8 +549,8 @@ fn wait_for_child(child: libc::pid_t) -> tg::Result<u8> {
 		let mut status = 0;
 		let result = libc::waitpid(child, std::ptr::addr_of_mut!(status), 0);
 		if result < 0 {
-			let source = std::io::Error::last_os_error();
-			return Err(tg::error!(!source, "failed to wait for the sandbox child"));
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(!error, "failed to wait for the sandbox child"));
 		}
 		if libc::WIFEXITED(status) {
 			return Ok(libc::WEXITSTATUS(status).min(255).to_u8().unwrap());

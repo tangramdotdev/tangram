@@ -58,13 +58,13 @@ impl Session {
 			Database::Postgres(process_store) => {
 				self.put_process_postgres(id, &arg, process_store, now)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
 				self.put_process_sqlite(id, &arg, process_store, now)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
 			},
 		}
 
@@ -160,7 +160,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<()> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -172,7 +172,7 @@ impl Session {
 		client
 			.put_process(id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, region = %region, "failed to put the process"))?;
+			.map_err(|error| tg::error!(!error, region = %region, "failed to put the process"))?;
 		Ok(())
 	}
 
@@ -184,7 +184,7 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<()> {
 		let client = self.get_remote_session(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, %id, "failed to get the remote client"),
+			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
 		)?;
 		let location = region.as_deref().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
@@ -201,7 +201,7 @@ impl Session {
 		client
 			.put_process(id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, remote = %remote, "failed to put the process"))?;
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to put the process"))?;
 		Ok(())
 	}
 
@@ -214,23 +214,23 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the process id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Put the process.
 		self.put_process(&id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 
 		// Create the response.
 		match accept

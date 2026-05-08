@@ -114,14 +114,14 @@ impl Cli {
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				return Ok(None);
 			},
-			Err(source) => {
+			Err(error) => {
 				return Err(
-					tg::error!(!source, directory = %path.display(), "failed to read the config file"),
+					tg::error!(!error, directory = %path.display(), "failed to read the config file"),
 				);
 			},
 		};
 		let config = serde_json::from_str(&config).map_err(
-			|source| tg::error!(!source, directory = %path.display(), "failed to deserialize the config"),
+			|error| tg::error!(!error, directory = %path.display(), "failed to deserialize the config"),
 		)?;
 		Ok(Some(config))
 	}
@@ -133,29 +133,29 @@ impl Cli {
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				return Ok(Config::default());
 			},
-			Err(source) => {
+			Err(error) => {
 				return Err(tg::error!(
-					!source,
+					!error,
 					path = %path.display(),
 					"failed to read the config file"
 				));
 			},
 		};
 		serde_json::from_str(&config).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the config"),
+			|error| tg::error!(!error, path = %path.display(), "failed to deserialize the config"),
 		)
 	}
 
 	pub(crate) fn write_config(&self, config: &Config) -> tg::Result<()> {
 		let path = self.config_path();
 		let config = serde_json::to_string_pretty(config)
-			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the config"))?;
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)
-				.map_err(|source| tg::error!(!source, "failed to create the config directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the config directory"))?;
 		}
 		std::fs::write(path, config)
-			.map_err(|source| tg::error!(!source, "failed to save the config"))?;
+			.map_err(|error| tg::error!(!error, "failed to save the config"))?;
 		Ok(())
 	}
 }

@@ -43,13 +43,13 @@ where
 		.await?;
 	let mut reader = SharedPositionReader::with_reader_and_position(reader, 0)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the shared position reader"))?;
 
 	// Detect the compression format.
 	let buffer = reader
 		.fill_buf()
 		.await
-		.map_err(|source| tg::error!(!source, "failed to fill the buffer"))?;
+		.map_err(|error| tg::error!(!error, "failed to fill the buffer"))?;
 	let format = super::util::detect_compression_format(buffer)?
 		.ok_or_else(|| tg::error!("invalid compression format"))?;
 

@@ -49,17 +49,17 @@ impl Server {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id: tg::process::Id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the body"))?;
 
 		// Kill.
 		self.kill(id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to kill"))?;
+			.map_err(|error| tg::error!(!error, "failed to kill"))?;
 
 		let response = http::Response::builder().empty().unwrap().boxed_body();
 

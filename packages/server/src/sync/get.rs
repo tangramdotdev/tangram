@@ -173,7 +173,7 @@ impl Session {
 		progress_task
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the progress task panicked"))?;
+			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
 		Ok(())
 	}

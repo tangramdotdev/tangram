@@ -23,7 +23,7 @@ impl Session {
 		let location = self
 			.server
 			.location(arg.location.as_ref())
-			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -48,7 +48,7 @@ impl Session {
 		// Authorize.
 		self.authorize()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
+			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
 
 		let output = if arg.replicate.is_none() {
 			// Delete the tags from the database.
@@ -57,12 +57,12 @@ impl Session {
 				Database::Postgres(database) => self
 					.delete_tags_postgres(database, &arg.pattern, arg.recursive)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
+					.map_err(|error| tg::error!(!error, "failed to delete the tag"))?,
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => self
 					.delete_tags_sqlite(database, &arg.pattern, arg.recursive)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
+					.map_err(|error| tg::error!(!error, "failed to delete the tag"))?,
 			}
 		} else {
 			let deleted = arg
@@ -83,7 +83,7 @@ impl Session {
 				.index
 				.delete_tags(&tags)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to index the deleted tags"))?;
+				.map_err(|error| tg::error!(!error, "failed to index the deleted tags"))?;
 		}
 
 		// Handle regions if this is the primary delete request.
@@ -93,7 +93,7 @@ impl Session {
 				.server
 				.locations(Some(&location))
 				.await
-				.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+				.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 			if let Some(local) = locations.local
 				&& !local.regions.is_empty()
 			{
@@ -114,8 +114,8 @@ impl Session {
 					.collect::<futures::stream::FuturesUnordered<_>>()
 					.try_collect::<()>()
 					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to delete the tag in another region")
+					.map_err(|error| {
+						tg::error!(!error, "failed to delete the tag in another region")
 					})?;
 			}
 		}
@@ -129,7 +129,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let client = self.get_region_session(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -141,7 +141,7 @@ impl Session {
 		let output = client
 			.delete_tags(arg)
 			.await
-			.map_err(|source| tg::error!(!source, region = %region, "failed to delete the tag"))?;
+			.map_err(|error| tg::error!(!error, region = %region, "failed to delete the tag"))?;
 		Ok(output)
 	}
 
@@ -154,7 +154,7 @@ impl Session {
 		let client = self
 			.get_remote_session(remote)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the remote client"))?;
 		let arg = tg::tag::delete::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			replicate: None,
@@ -163,7 +163,7 @@ impl Session {
 		let output = client
 			.delete_tags(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the tag on remote"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete the tag on remote"))?;
 		Ok(output)
 	}
 
@@ -176,13 +176,13 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Delete the tag.
 		let output = self.delete_tags(arg).await?;

@@ -124,7 +124,7 @@ impl Compiler {
 		};
 		let metadata = tokio::fs::symlink_metadata(&path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
 		let modified = metadata.modified().map_err(|error| {
 			tg::error!(source = error, "failed to get the last modification time")
 		})?;

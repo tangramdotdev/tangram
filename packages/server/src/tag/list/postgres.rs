@@ -42,14 +42,14 @@ impl Session {
 			.connection()
 			.instrument(tracing::trace_span!("connection"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.instrument(tracing::trace_span!("begin_transaction"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Get all tags matching the pattern.
 		let matches = self
@@ -83,11 +83,11 @@ impl Session {
 			}
 			.instrument(tracing::trace_span!("query_branch_children"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.iter()
 			.map(|row| {
 				<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 			output = rows
@@ -140,7 +140,7 @@ impl Session {
 			.connection()
 			.instrument(tracing::trace_span!("connection"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let statement = indoc!(
 			"
 				select output, timestamp
@@ -153,16 +153,16 @@ impl Session {
 			.query(statement, &[&arg])
 			.instrument(tracing::trace_span!("query_cache_get"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(row) = rows.first() else {
 			return Ok(None);
 		};
 		let output: String = row
 			.try_get(0)
-			.map_err(|source| tg::error!(!source, "failed to get the output column"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the output column"))?;
 		let timestamp: i64 = row
 			.try_get(1)
-			.map_err(|source| tg::error!(!source, "failed to get the timestamp column"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the timestamp column"))?;
 		Ok(Some((output, timestamp)))
 	}
 
@@ -177,7 +177,7 @@ impl Session {
 			.connection()
 			.instrument(tracing::trace_span!("connection"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let statement = indoc!(
 			"
 				insert into tag_list_cache (arg, output, timestamp)
@@ -191,7 +191,7 @@ impl Session {
 			.execute(statement, &[&arg, &output, &timestamp])
 			.instrument(tracing::trace_span!("query_cache_put"))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())
 	}
 
@@ -215,11 +215,11 @@ impl Session {
 			let rows = async { transaction.inner().query(statement, &[]).await }
 				.instrument(tracing::trace_span!("query_root_tags"))
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 				.iter()
 				.map(|row| {
 					<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+						.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 				})
 				.collect::<tg::Result<Vec<_>>>()?;
 			let matches = rows
@@ -261,11 +261,11 @@ impl Session {
 					}
 					.instrument(tracing::trace_span!("query_wildcard_children"))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 					.iter()
 					.map(|row| {
 						<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+							.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 					new.extend(rows.into_iter().map(|row| {
@@ -297,11 +297,11 @@ impl Session {
 					}
 					.instrument(tracing::trace_span!("query_version_children"))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 					.iter()
 					.map(|row| {
 						<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+							.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 					new.extend(
@@ -341,11 +341,11 @@ impl Session {
 					}
 					.instrument(tracing::trace_span!("query_exact_match"))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 					.iter()
 					.map(|row| {
 						<RowWithoutComponent as db::postgres::row::Deserialize>::deserialize(row)
-							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+							.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 					new.extend(rows.into_iter().map(|row| {
@@ -387,11 +387,11 @@ impl Session {
 					}
 					.instrument(tracing::trace_span!("query_recursive_children"))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 					.iter()
 					.map(|row| {
 						<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+							.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 					for row in rows {

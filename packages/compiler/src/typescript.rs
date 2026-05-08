@@ -55,7 +55,7 @@ impl Typescript {
 			.as_ref()
 			.unwrap()
 			.send((request, response_sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 
 		// Receive the response.
 		let response = response_receiver.await.map_err(|error| {
@@ -119,7 +119,7 @@ fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
 		// Serialize the request.
 		let result = Serde(request)
 			.serialize(scope)
-			.map_err(|source| tg::error!(!source, "failed to serialize the request"));
+			.map_err(|error| tg::error!(!error, "failed to serialize the request"));
 		let request = match result {
 			Ok(request) => request,
 			Err(error) => {
@@ -143,7 +143,7 @@ fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
 		// Deserialize the response.
 		let result = Serde::deserialize(scope, response)
 			.map(|output| output.0)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the response"));
+			.map_err(|error| tg::error!(!error, "failed to deserialize the response"));
 		let response = match result {
 			Ok(response) => response,
 			Err(error) => {

@@ -63,7 +63,7 @@ impl Session {
 				..Default::default()
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to index"))?;
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
 
 		Ok(())
 	}

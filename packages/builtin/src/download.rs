@@ -33,7 +33,7 @@ where
 	let url = match args.first() {
 		Some(tg::value::Data::String(s)) => s
 			.parse::<Uri>()
-			.map_err(|source| tg::error!(!source, "invalid url"))?,
+			.map_err(|error| tg::error!(!error, "invalid url"))?,
 		_ => return Err(tg::error!("expected a string")),
 	};
 	let options = match args.get(1) {
@@ -42,7 +42,7 @@ where
 			let checksum = match map.get("checksum") {
 				Some(tg::value::Data::String(s)) => Some(
 					s.parse()
-						.map_err(|source| tg::error!(!source, "invalid checksum algorithm"))?,
+						.map_err(|error| tg::error!(!error, "invalid checksum algorithm"))?,
 				),
 				Some(tg::value::Data::Null) | None => None,
 				_ => return Err(tg::error!("invalid checksum algorithm")),
@@ -50,7 +50,7 @@ where
 			let mode = match map.get("mode") {
 				Some(tg::value::Data::String(s)) => Some(
 					s.parse()
-						.map_err(|source| tg::error!(!source, "invalid mode"))?,
+						.map_err(|error| tg::error!(!error, "invalid mode"))?,
 				),
 				Some(tg::value::Data::Null) | None => None,
 				_ => return Err(tg::error!("invalid mode")),
@@ -64,9 +64,9 @@ where
 	// Send the request.
 	let response = reqwest::get(url.as_str())
 		.await
-		.map_err(|source| tg::error!(!source, %url, "failed to perform the request"))?
+		.map_err(|error| tg::error!(!error, %url, "failed to perform the request"))?
 		.error_for_status()
-		.map_err(|source| tg::error!(!source, %url, "expected a success status"))?;
+		.map_err(|error| tg::error!(!error, %url, "expected a success status"))?;
 
 	// Log that the download started.
 	let message = format!("downloading from \"{url}\"\n");
@@ -137,7 +137,7 @@ where
 	let header = reader
 		.fill_buf()
 		.await
-		.map_err(|source| tg::error!(!source, "failed to fill the buffer"))?;
+		.map_err(|error| tg::error!(!error, "failed to fill the buffer"))?;
 
 	// Determine the mode.
 	let mode = options.and_then(|options| options.mode).unwrap_or_default();
@@ -158,19 +158,19 @@ where
 	// Download.
 	let temp = temp_path
 		.map_or_else(tangram_util::fs::Temp::new, tangram_util::fs::Temp::new_in)
-		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 	tokio::fs::create_dir(temp.path())
 		.await
-		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 	let path = match mode {
 		Mode::Raw => {
 			let path = temp.path().join("file");
 			let mut file = tokio::fs::File::create(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed create the temp file"))?;
+				.map_err(|error| tg::error!(!error, "failed create the temp file"))?;
 			tokio::io::copy(&mut reader, &mut file)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
+				.map_err(|error| tg::error!(!error, "failed to write to the temp file"))?;
 			path
 		},
 		Mode::Decompress(format) => {
@@ -191,10 +191,10 @@ where
 			let path = temp.path().join("file");
 			let mut file = tokio::fs::File::create(&path)
 				.await
-				.map_err(|source| tg::error!(!source, "failed create the temp file"))?;
+				.map_err(|error| tg::error!(!error, "failed create the temp file"))?;
 			tokio::io::copy(&mut reader, &mut file)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write to the temp file"))?;
+				.map_err(|error| tg::error!(!error, "failed to write to the temp file"))?;
 			path
 		},
 		Mode::Extract(format, compression) => {
@@ -213,7 +213,7 @@ where
 	// Drain and drop the reader.
 	tokio::io::copy(&mut reader, &mut tokio::io::sink())
 		.await
-		.map_err(|source| tg::error!(!source, "failed to drain the reader"))?;
+		.map_err(|error| tg::error!(!error, "failed to drain the reader"))?;
 	drop(reader);
 
 	// Finalize the checksum if necessary.
@@ -240,7 +240,7 @@ where
 	};
 	let artifact = tg::checkin::checkin_with_handle(handle, arg)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to check in the downloaded file"))?;
+		.map_err(|error| tg::error!(!error, "failed to check in the downloaded file"))?;
 
 	// Abort the log task.
 	log_task.abort();

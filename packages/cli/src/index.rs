@@ -11,7 +11,7 @@ impl Cli {
 		let stream = client
 			.index()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to index"))?;
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
 		self.render_progress_stream(stream).await?;
 		Ok(())
 	}

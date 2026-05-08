@@ -276,7 +276,7 @@ where
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let uri = Uri::parse(value).map_err(|error| tg::error!(!error, "invalid uri"))?;
 		let reference = Self::with_uri(&uri)?;
 		Ok(reference)
 	}

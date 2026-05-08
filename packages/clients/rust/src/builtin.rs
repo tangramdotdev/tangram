@@ -191,7 +191,7 @@ where
 		.ok()
 		.ok_or_else(|| tg::error!("expected a string"))?
 		.parse()
-		.map_err(|source| tg::error!(!source, "failed to parse the checksum"))?;
+		.map_err(|error| tg::error!(!error, "failed to parse the checksum"))?;
 	Ok(checksum)
 }
 
@@ -415,7 +415,7 @@ impl TryFrom<tg::Value> for DownloadOptions {
 				.ok()
 				.ok_or_else(|| tg::error!("expected a string"))?
 				.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the checksum algorithm"))?;
+				.map_err(|error| tg::error!(!error, "failed to parse the checksum algorithm"))?;
 			options.checksum = Some(checksum);
 		}
 		if let Some(value) = map.get("mode") {
@@ -425,7 +425,7 @@ impl TryFrom<tg::Value> for DownloadOptions {
 				.ok()
 				.ok_or_else(|| tg::error!("expected a string"))?
 				.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the mode"))?;
+				.map_err(|error| tg::error!(!error, "failed to parse the mode"))?;
 			options.mode = Some(mode);
 		}
 		Ok(options)

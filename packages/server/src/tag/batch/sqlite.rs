@@ -14,7 +14,7 @@ impl Session {
 		let connection = database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 
 		connection
 			.with({
@@ -23,7 +23,7 @@ impl Session {
 					// Begin a transaction.
 					let transaction = connection
 						.transaction()
-						.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+						.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 					// Insert the tags.
 					for tg::tag::batch::Item { tag, item, force } in &arg.tags {
@@ -34,18 +34,18 @@ impl Session {
 							replicate: false,
 						};
 						Self::put_tag_sqlite_sync(&transaction, cache, tag, &arg)
-							.map_err(|source| tg::error!(!source, %tag, "failed to put tag"))?;
+							.map_err(|error| tg::error!(!error, %tag, "failed to put tag"))?;
 					}
 					// Commit the transaction.
-					transaction.commit().map_err(|source| {
-						tg::error!(!source, "failed to commit the transaction")
-					})?;
+					transaction
+						.commit()
+						.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 					Ok::<_, tg::Error>(())
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to put tags"))?;
+			.map_err(|error| tg::error!(!error, "failed to put tags"))?;
 
 		Ok(())
 	}

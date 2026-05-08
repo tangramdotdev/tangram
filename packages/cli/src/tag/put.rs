@@ -56,7 +56,7 @@ impl Cli {
 		client
 			.put_tag(&tag, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;
+			.map_err(|error| tg::error!(!error, %tag, "failed to put the tag"))?;
 
 		Ok(())
 	}

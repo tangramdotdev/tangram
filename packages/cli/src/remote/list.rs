@@ -15,7 +15,7 @@ impl Cli {
 		let output = client
 			.list_remotes(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
+			.map_err(|error| tg::error!(!error, "failed to list the remotes"))?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}

@@ -141,9 +141,9 @@ impl Host {
 		command.stdout(arg.stdout.to_std());
 		command.stderr(arg.stderr.to_std());
 
-		let source = command.exec();
+		let error = command.exec();
 		Err(tg::error!(
-			!source,
+			!error,
 			executable = %arg.executable,
 			"failed to exec the process"
 		))
@@ -152,7 +152,7 @@ impl Host {
 	pub async fn exists(&self, path: String) -> tg::Result<bool> {
 		let path = PathBuf::from(path);
 		let exists = tokio::fs::try_exists(&path).await.map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to determine if the path exists"),
+			|error| tg::error!(!error, path = %path.display(), "failed to determine if the path exists"),
 		)?;
 		Ok(exists)
 	}
@@ -172,9 +172,9 @@ impl Host {
 		let name_for_task = name.clone();
 		let bytes = tokio::task::spawn_blocking(move || xattr::get(&path_for_task, &name_for_task))
 			.await
-			.map_err(|source| tg::error!(!source, "the xattr task panicked"))?
+			.map_err(|error| tg::error!(!error, "the xattr task panicked"))?
 			.map_err(
-				|source| tg::error!(!source, path = %path_display, %name, "failed to read the xattr"),
+				|error| tg::error!(!error, path = %path_display, %name, "failed to read the xattr"),
 			)?;
 		Ok(bytes.map(Bytes::from))
 	}
@@ -199,7 +199,7 @@ impl Host {
 			SignalKind::Sigwinch => tokio::signal::unix::SignalKind::window_change(),
 		};
 		let signal = tokio::signal::unix::signal(signal_kind)
-			.map_err(|source| tg::error!(!source, "failed to create the signal handler"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the signal handler"))?;
 		let (stop, _) = tokio::sync::watch::channel(false);
 		let token = self.0.next_token.fetch_add(1, Ordering::Relaxed) + 1;
 		let signal = Arc::new(Signal {
@@ -229,10 +229,10 @@ impl Host {
 
 	pub async fn mkdtemp(&self) -> tg::Result<String> {
 		let path = tangram_util::fs::Temp::new()
-			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		tokio::fs::create_dir(path.path())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		let path = path.into_path();
 		let path = path
 			.into_os_string()
@@ -259,7 +259,7 @@ impl Host {
 				Some(stopper) => read_with_stopper(fd, length, stopper).await,
 				None => tokio::task::spawn_blocking(move || read(fd, length))
 					.await
-					.map_err(|source| tg::error!(!source, "the task panicked"))?,
+					.map_err(|error| tg::error!(!error, "the task panicked"))?,
 			};
 		};
 		let mut buffer = vec![0; length.unwrap_or(64 * 1024)];
@@ -279,7 +279,7 @@ impl Host {
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, %fd, "failed to read the file descriptor"))
+			.map_err(|error| tg::error!(!error, %fd, "failed to read the file descriptor"))
 		})
 		.await?;
 		if bytes_read == 0 {
@@ -292,13 +292,13 @@ impl Host {
 	pub async fn remove(&self, path: String) -> tg::Result<()> {
 		tangram_util::fs::remove(&path)
 			.await
-			.map_err(|source| tg::error!(!source, %path, "failed to remove"))?;
+			.map_err(|error| tg::error!(!error, %path, "failed to remove"))?;
 		Ok(())
 	}
 
 	pub async fn signal(&self, pid: u32, signal: tg::process::Signal) -> tg::Result<()> {
 		let pid = i32::try_from(pid)
-			.map_err(|source| tg::error!(!source, "failed to convert the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to convert the process id"))?;
 		let signal = i32::from(signal as u8);
 		let ret = unsafe { libc::kill(pid, signal) };
 		if ret < 0 {
@@ -330,9 +330,9 @@ impl Host {
 		command.stdin(arg.stdin.to_std());
 		command.stdout(arg.stdout.to_std());
 		command.stderr(arg.stderr.to_std());
-		let mut child = command.spawn().map_err(|source| {
+		let mut child = command.spawn().map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				executable = %arg.executable,
 				"failed to spawn the process"
 			)
@@ -346,13 +346,11 @@ impl Host {
 			.map(|stdin| {
 				stdin
 					.into_owned_fd()
-					.map_err(|source| {
-						tg::error!(!source, "failed to get the stdin file descriptor")
-					})
+					.map_err(|error| tg::error!(!error, "failed to get the stdin file descriptor"))
 					.and_then(|value| {
 						let fd = value.as_raw_fd();
 						let value = AsyncFd::new(value).map_err(
-							|source| tg::error!(!source, %fd, "failed to register the file descriptor"),
+							|error| tg::error!(!error, %fd, "failed to register the file descriptor"),
 						)?;
 						Ok((fd, Arc::new(value)))
 					})
@@ -364,13 +362,11 @@ impl Host {
 			.map(|stdout| {
 				stdout
 					.into_owned_fd()
-					.map_err(|source| {
-						tg::error!(!source, "failed to get the stdout file descriptor")
-					})
+					.map_err(|error| tg::error!(!error, "failed to get the stdout file descriptor"))
 					.and_then(|value| {
 						let fd = value.as_raw_fd();
 						let value = AsyncFd::new(value).map_err(
-							|source| tg::error!(!source, %fd, "failed to register the file descriptor"),
+							|error| tg::error!(!error, %fd, "failed to register the file descriptor"),
 						)?;
 						Ok((fd, Arc::new(value)))
 					})
@@ -382,13 +378,11 @@ impl Host {
 			.map(|stderr| {
 				stderr
 					.into_owned_fd()
-					.map_err(|source| {
-						tg::error!(!source, "failed to get the stderr file descriptor")
-					})
+					.map_err(|error| tg::error!(!error, "failed to get the stderr file descriptor"))
 					.and_then(|value| {
 						let fd = value.as_raw_fd();
 						let value = AsyncFd::new(value).map_err(
-							|source| tg::error!(!source, %fd, "failed to register the file descriptor"),
+							|error| tg::error!(!error, %fd, "failed to register the file descriptor"),
 						)?;
 						Ok((fd, Arc::new(value)))
 					})
@@ -472,7 +466,7 @@ impl Host {
 			},
 			None => child.wait().await,
 		}
-		.map_err(|source| tg::error!(!source, %pid, "failed to wait for the process"))?;
+		.map_err(|error| tg::error!(!error, %pid, "failed to wait for the process"))?;
 		let exit = exit_status_to_code(status)?;
 		Ok(WaitOutput { exit })
 	}
@@ -483,7 +477,7 @@ impl Host {
 			let bytes = bytes.clone();
 			return tokio::task::spawn_blocking(move || Self::write_sync(fd, bytes.as_ref()))
 				.await
-				.map_err(|source| tg::error!(!source, "the task panicked"))?;
+				.map_err(|error| tg::error!(!error, "the task panicked"))?;
 		};
 		let mut bytes = bytes.as_ref();
 		while !bytes.is_empty() {
@@ -503,9 +497,7 @@ impl Host {
 					}
 				})
 				.await
-				.map_err(
-					|source| tg::error!(!source, %fd, "failed to write the file descriptor"),
-				)?;
+				.map_err(|error| tg::error!(!error, %fd, "failed to write the file descriptor"))?;
 			bytes = &bytes[bytes_written..];
 		}
 		Ok(())
@@ -566,14 +558,14 @@ fn validate_exec_stdio(stdio: Stdio, stream: &str) -> tg::Result<()> {
 fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 	if let Some(code) = status.code() {
 		return u8::try_from(code)
-			.map_err(|source| tg::error!(!source, "failed to convert the exit code"));
+			.map_err(|error| tg::error!(!error, "failed to convert the exit code"));
 	}
 	if let Some(signal) = status.signal() {
 		let code = signal
 			.checked_add(128)
 			.ok_or_else(|| tg::error!("failed to convert the signal"))?;
 		return u8::try_from(code)
-			.map_err(|source| tg::error!(!source, "failed to convert the signal"));
+			.map_err(|error| tg::error!(!error, "failed to convert the signal"));
 	}
 	Err(tg::error!("failed to determine the exit status"))
 }
@@ -604,7 +596,7 @@ async fn read_with_stopper(fd: i32, length: usize, stopper: Stopper) -> tg::Resu
 		read_with_wakeup(fd, length, wake_fd)
 	})
 	.await
-	.map_err(|source| tg::error!(!source, "the task panicked"))?;
+	.map_err(|error| tg::error!(!error, "the task panicked"))?;
 	stop_task.abort();
 	result
 }
@@ -617,12 +609,12 @@ fn read(fd: i32, length: usize) -> tg::Result<Option<Bytes>> {
 		if bytes_read >= 0 {
 			break bytes_read.cast_unsigned();
 		}
-		let source = std::io::Error::last_os_error();
-		if source.kind() == std::io::ErrorKind::Interrupted {
+		let error = std::io::Error::last_os_error();
+		if error.kind() == std::io::ErrorKind::Interrupted {
 			continue;
 		}
 		return Err(tg::error!(
-			!source,
+			!error,
 			%fd,
 			"failed to read the file descriptor"
 		));
@@ -653,11 +645,11 @@ fn read_with_wakeup(fd: i32, length: usize, wake_fd: i32) -> tg::Result<Option<B
 			)
 		};
 		if result < 0 {
-			let source = std::io::Error::last_os_error();
-			if source.kind() == std::io::ErrorKind::Interrupted {
+			let error = std::io::Error::last_os_error();
+			if error.kind() == std::io::ErrorKind::Interrupted {
 				continue;
 			}
-			return Err(tg::error!(!source, %fd, "failed to poll the file descriptor"));
+			return Err(tg::error!(!error, %fd, "failed to poll the file descriptor"));
 		}
 		let wake_ready = unsafe { libc::FD_ISSET(wake_fd, &raw const readfds) };
 		if wake_ready {
@@ -734,12 +726,12 @@ fn write_wakeup(fd: i32) -> tg::Result<()> {
 		if bytes_written >= 0 {
 			return Ok(());
 		}
-		let source = std::io::Error::last_os_error();
-		match source.kind() {
+		let error = std::io::Error::last_os_error();
+		match error.kind() {
 			std::io::ErrorKind::BrokenPipe => return Ok(()),
 			std::io::ErrorKind::Interrupted => {},
 			_ => {
-				return Err(tg::error!(!source, "failed to write the wakeup pipe"));
+				return Err(tg::error!(!error, "failed to write the wakeup pipe"));
 			},
 		}
 	}

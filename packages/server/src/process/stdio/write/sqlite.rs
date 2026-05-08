@@ -20,7 +20,7 @@ impl Session {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				Self::try_write_process_stdio_sqlite_sync(connection, &id, stream, &bytes)
@@ -36,7 +36,7 @@ impl Session {
 	) -> tg::Result<WriteOutput> {
 		let transaction = connection
 			.transaction()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
@@ -52,19 +52,19 @@ impl Session {
 		);
 		let mut statement = transaction
 			.prepare(&statement)
-			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 		let mut rows = statement
 			.query(sqlite::params![id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		else {
 			return Ok(WriteOutput::Closed);
 		};
 		let open = row
 			.get::<_, Option<bool>>(0)
-			.map_err(|source| tg::error!(!source, "failed to get the open state"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the open state"))?;
 		if open != Some(true) {
 			return Ok(WriteOutput::Closed);
 		}
@@ -82,7 +82,7 @@ impl Session {
 				sqlite::params![id.to_string(), stream.to_string()],
 				|row| row.get::<_, i64>(0),
 			)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let written_len = u64::try_from(written_len).unwrap();
 		let bytes_len = u64::try_from(bytes.len()).unwrap();
 		if written_len != 0
@@ -100,10 +100,10 @@ impl Session {
 				statement,
 				sqlite::params![id.to_string(), stream.to_string(), bytes.as_ref()],
 			)
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(WriteOutput::Written)
 	}
 
@@ -117,7 +117,7 @@ impl Session {
 		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				Self::try_close_process_stdio_sqlite_sync(connection, &id, stream)
@@ -144,7 +144,7 @@ impl Session {
 		);
 		connection
 			.execute(&statement, sqlite::params![id.to_string()])
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())
 	}
 }

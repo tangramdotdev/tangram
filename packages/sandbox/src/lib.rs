@@ -190,7 +190,7 @@ impl Sandbox {
 					.scheme("http+stdio")
 					.path("")
 					.build()
-					.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+					.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
 				(None, uri)
 			},
 			Isolation::Vm(_) => {
@@ -248,7 +248,7 @@ impl Sandbox {
 				result = connect => result,
 				result = process.wait() => {
 					let status = result
-						.map_err(|source| tg::error!(!source, "failed to wait for the sandbox process"))?;
+						.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"))?;
 					Err(tg::error!(status = %status, "the sandbox process exited before connecting"))
 				}
 			}
@@ -256,16 +256,16 @@ impl Sandbox {
 		.await
 		{
 			Ok(Ok(client)) => client,
-			Ok(Err(source)) => {
+			Ok(Err(error)) => {
 				process.start_kill().ok();
 				process.wait().await.ok();
-				return Err(tg::error!(!source, "failed to start the sandbox"));
+				return Err(tg::error!(!error, "failed to start the sandbox"));
 			},
-			Err(source) => {
+			Err(error) => {
 				process.start_kill().ok();
 				process.wait().await.ok();
 				return Err(tg::error!(
-					!source,
+					!error,
 					"timed out waiting for the sandbox to connect"
 				));
 			},
@@ -315,7 +315,7 @@ impl Sandbox {
 		let host_path = Self::host_listen_path_from_root(root_path);
 		tokio::fs::create_dir_all(host_path.parent().unwrap())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the host path"))?;
 
 		let host_path_string = host_path
 			.to_str()
@@ -333,7 +333,7 @@ impl Sandbox {
 				.authority(host_path_string)
 				.path("")
 				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+				.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
 			let url = {
 				#[cfg(target_os = "linux")]
@@ -347,7 +347,7 @@ impl Sandbox {
 						.authority(guest_path)
 						.path("")
 						.build()
-						.map_err(|source| tg::error!(source = source, "failed to build the URL"))?
+						.map_err(|error| tg::error!(source = error, "failed to build the URL"))?
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
@@ -356,25 +356,25 @@ impl Sandbox {
 						.authority(host_path_string)
 						.path("")
 						.build()
-						.map_err(|source| tg::error!(source = source, "failed to build the URL"))?
+						.map_err(|error| tg::error!(error = error, "failed to build the URL"))?
 				}
 			};
 			Ok((listener, url))
 		} else {
 			let host_url = "http://localhost:0"
 				.parse()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+				.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
 			let crate::server::Listener::Tcp(tcp) = &listener else {
 				unreachable!();
 			};
 			let port = tcp
 				.local_addr()
-				.map_err(|source| tg::error!(!source, "failed to get the local address"))?
+				.map_err(|error| tg::error!(!error, "failed to get the local address"))?
 				.port();
 			let url = format!("http://localhost:{port}")
 				.parse()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+				.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
 			Ok((listener, url))
 		}
 	}
@@ -409,17 +409,17 @@ impl Sandbox {
 		let path = root_path.join("vm").join(socket);
 		tokio::fs::create_dir_all(path.parent().unwrap())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the vm directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the vm directory"))?;
 		let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
 		let host_url = Uri::builder()
 			.scheme("http+unix")
 			.authority(path)
 			.path("")
 			.build()
-			.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+			.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
 		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
 			.parse()
-			.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+			.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
 		let listener = crate::server::Server::listen(&host_url).await?;
 		Ok((listener, guest_url))
 	}

@@ -24,7 +24,7 @@ impl Index {
 		};
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -51,7 +51,7 @@ impl Index {
 		};
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -78,7 +78,7 @@ impl Index {
 		};
 		self.sender_high
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -103,7 +103,7 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let existing = db
 				.get(transaction, &key)
-				.map_err(|source| tg::error!(!source, %id, "failed to get the cache entry"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to get the cache entry"))?;
 			let existing = existing.map(CacheEntry::deserialize).transpose()?;
 			let Some(mut cache_entry) = existing else {
 				outputs.push(None);
@@ -116,7 +116,7 @@ impl Index {
 			cache_entry.touched_at = cache_entry.touched_at.max(touched_at);
 			let value = cache_entry.serialize()?;
 			db.put(transaction, &key, &value)
-				.map_err(|source| tg::error!(!source, %id, "failed to put the cache entry"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to put the cache entry"))?;
 			if cache_entry.reference_count == 0 {
 				let key = Key::Clean {
 					touched_at: cache_entry.touched_at,
@@ -125,7 +125,7 @@ impl Index {
 				};
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
-					.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+					.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
 			}
 			outputs.push(Some(cache_entry));
 		}
@@ -147,7 +147,7 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let existing = db
 				.get(transaction, &key)
-				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 			let existing = existing.map(Object::deserialize).transpose()?;
 			let Some(mut object) = existing else {
 				outputs.push(None);
@@ -160,7 +160,7 @@ impl Index {
 			object.touched_at = object.touched_at.max(touched_at);
 			let value = object.serialize()?;
 			db.put(transaction, &key, &value)
-				.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 			if object.reference_count == 0 {
 				let key = Key::Clean {
 					touched_at: object.touched_at,
@@ -169,7 +169,7 @@ impl Index {
 				};
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
-					.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+					.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
 			}
 			outputs.push(Some(object));
 		}
@@ -191,7 +191,7 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let existing = db
 				.get(transaction, &key)
-				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
 			let existing = existing.map(Process::deserialize).transpose()?;
 			let Some(mut process) = existing else {
 				outputs.push(None);
@@ -204,7 +204,7 @@ impl Index {
 			process.touched_at = process.touched_at.max(touched_at);
 			let value = process.serialize()?;
 			db.put(transaction, &key, &value)
-				.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 			if process.reference_count == 0 {
 				let key = Key::Clean {
 					touched_at: process.touched_at,
@@ -213,7 +213,7 @@ impl Index {
 				};
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
-					.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+					.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
 			}
 
 			outputs.push(Some(process));

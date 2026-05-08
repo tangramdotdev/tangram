@@ -13,7 +13,7 @@ impl Index {
 		let txn = self
 			.database
 			.create_trx()
-			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 
 		let mut bytes = [0u8; 10];
 		bytes[..8].copy_from_slice(&transaction_id.to_be_bytes());
@@ -35,7 +35,7 @@ impl Index {
 		});
 		let results = future::try_join_all(futures)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check if updates are finished"))?;
+			.map_err(|error| tg::error!(!error, "failed to check if updates are finished"))?;
 		let finished = results.iter().all(|entries| entries.is_empty());
 
 		Ok(finished)
@@ -55,7 +55,7 @@ impl Index {
 		};
 		self.sender_low
 			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
@@ -94,7 +94,7 @@ impl Index {
 			let partition_entries = txn
 				.get_range(&range, 1, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get update version range"))?;
+				.map_err(|error| tg::error!(!error, "failed to get update version range"))?;
 			for entry in partition_entries {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::UpdateVersion {
@@ -115,7 +115,7 @@ impl Index {
 			let value = txn
 				.get(&key, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get update key"))?;
+				.map_err(|error| tg::error!(!error, "failed to get update key"))?;
 
 			let Some(value) = value else {
 				let key = Self::pack(
@@ -176,7 +176,7 @@ impl Index {
 		let bytes = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			.ok_or_else(|| tg::error!(%id, "object not found"))?;
 		let mut object = Object::deserialize(&bytes)?;
 
@@ -286,7 +286,7 @@ impl Index {
 		if changed {
 			let value = object
 				.serialize()
-				.map_err(|source| tg::error!(!source, "failed to serialize the object"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
 			txn.set(&key, &value);
 		}
 
@@ -303,7 +303,7 @@ impl Index {
 		let bytes = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
 		let mut process = Process::deserialize(&bytes)?;
 
@@ -1030,7 +1030,7 @@ impl Index {
 		if changed {
 			let value = process
 				.serialize()
-				.map_err(|source| tg::error!(!source, "failed to serialize the process"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
 			txn.set(&key, &value);
 		}
 

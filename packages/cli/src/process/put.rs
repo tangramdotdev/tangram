@@ -26,15 +26,15 @@ impl Cli {
 			let mut bytes = String::new();
 			StreamReader::new(
 				tangram_util::io::stdin()
-					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+					.map_err(|error| tg::error!(!error, "failed to open stdin"))?,
 			)
 			.read_to_string(&mut bytes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
+			.map_err(|error| tg::error!(!error, "failed to read stdin"))?;
 			bytes
 		};
 		let data = serde_json::from_str(&bytes)
-			.map_err(|source| tg::error!(!source, "failed to deseralize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to deseralize the data"))?;
 		let arg = tg::process::put::Arg {
 			data,
 			location: args.location.get(),
@@ -42,7 +42,7 @@ impl Cli {
 		client
 			.put_process(&args.id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, id = %args.id, "failed to put the process"))?;
+			.map_err(|error| tg::error!(!error, id = %args.id, "failed to put the process"))?;
 		Ok(())
 	}
 }

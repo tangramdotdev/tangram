@@ -155,8 +155,8 @@ impl Session {
 								let Some(metadata) = session
 									.try_get_process_metadata(process, metadata_arg)
 									.await
-									.map_err(|source| {
-										tg::error!(!source, "failed to get the process")
+									.map_err(|error| {
+										tg::error!(!error, "failed to get the process")
 									})?
 								else {
 									return Err(tg::error!("failed to get the process"));
@@ -295,7 +295,7 @@ impl Session {
 			let push_output_stream = self
 				.sync(push_arg, push_input_stream)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the push stream"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the push stream"))?;
 
 			// Start the pull.
 			let pull_arg = tg::sync::Arg {
@@ -315,7 +315,7 @@ impl Session {
 			let pull_output_stream = self
 				.sync(pull_arg, pull_input_stream)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the pull stream"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the pull stream"))?;
 
 			// Create the push future.
 			let push_future = async {
@@ -398,19 +398,19 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Get the stream.
 		let stream = self
 			.push(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to start the push"))?;
+			.map_err(|error| tg::error!(!error, "failed to start the push"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

@@ -28,11 +28,11 @@ impl Cli {
 		let output = client
 			.try_get_process(&args.process, arg)
 			.await
-			.map_err(|source| tg::error!(!source, id = %args.process, "failed to get the process"))?
+			.map_err(|error| tg::error!(!error, id = %args.process, "failed to get the process"))?
 			.ok_or_else(|| tg::error!(id = %args.process, "failed to find the process"))?;
 		if let Some(metadata) = output.metadata {
 			let metadata = serde_json::to_string(&metadata)
-				.map_err(|source| tg::error!(!source, "failed to serialize the metadata"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 			self.print_info_message(&metadata);
 		}
 		self.print_serde(output.data, args.print).await?;

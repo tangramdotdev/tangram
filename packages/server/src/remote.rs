@@ -35,7 +35,7 @@ impl Session {
 		let Some(output) = self
 			.try_get_remote_config(&remote)
 			.await
-			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote"))?
+			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote"))?
 		else {
 			return Ok(None);
 		};

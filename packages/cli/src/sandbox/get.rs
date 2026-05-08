@@ -26,7 +26,7 @@ impl Cli {
 			)
 			.await
 			.map_err(
-				|source| tg::error!(!source, sandbox = %args.sandbox, "failed to get the sandbox"),
+				|error| tg::error!(!error, sandbox = %args.sandbox, "failed to get the sandbox"),
 			)?
 			.ok_or_else(|| tg::error!(sandbox = %args.sandbox, "failed to find the sandbox"))?;
 		self.print_serde(output, args.print).await?;

@@ -17,9 +17,10 @@ impl Cli {
 		let arg = tg::object::touch::Arg {
 			location: args.locations.get(),
 		};
-		client.touch_object(&args.object, arg).await.map_err(
-			|source| tg::error!(!source, id = %args.object, "failed to touch the object"),
-		)?;
+		client
+			.touch_object(&args.object, arg)
+			.await
+			.map_err(|error| tg::error!(!error, id = %args.object, "failed to touch the object"))?;
 		Ok(())
 	}
 }

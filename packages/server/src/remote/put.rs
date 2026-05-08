@@ -19,7 +19,7 @@ impl Session {
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -33,7 +33,7 @@ impl Session {
 		connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
+			.map_err(|error| tg::error!(!error, "failed to insert the remote"))?;
 		drop(connection);
 		let remote = self
 			.try_get_remote_config(name)
@@ -56,7 +56,7 @@ impl Session {
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -69,7 +69,7 @@ impl Session {
 		connection
 			.execute(statement.into(), params)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to update the remote"))?;
+			.map_err(|error| tg::error!(!error, "failed to update the remote"))?;
 		drop(connection);
 		let remote = self
 			.try_get_remote_config(name)
@@ -91,18 +91,18 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Put the remote.
 		self.put_remote(name, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %name, "failed to put the remote"))?;
+			.map_err(|error| tg::error!(!error, %name, "failed to put the remote"))?;
 
 		// Create the response.
 		match accept

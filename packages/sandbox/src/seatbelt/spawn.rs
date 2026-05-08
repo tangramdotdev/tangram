@@ -22,16 +22,16 @@ pub(crate) fn spawn(
 			.to_owned(),
 	] {
 		std::fs::create_dir_all(&path).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the sandbox path"),
+			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
 	let profile = create_sandbox_profile(arg)
-		.map_err(|source| tg::error!(!source, "failed to create the sandbox profile"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the sandbox profile"))?;
 	std::fs::write(
 		Sandbox::host_profile_path_from_root(&arg.path),
 		profile.as_bytes(),
 	)
-	.map_err(|source| tg::error!(!source, "failed to write the sandbox profile"))?;
+	.map_err(|error| tg::error!(!error, "failed to write the sandbox profile"))?;
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command
 		.arg("sandbox")
@@ -64,7 +64,7 @@ pub(crate) fn spawn(
 			paths.extend(std::env::split_paths(&existing));
 		}
 		let path = std::env::join_paths(paths)
-			.map_err(|source| tg::error!(!source, "failed to build `DYLD_LIBRARY_PATH`"))?;
+			.map_err(|error| tg::error!(!error, "failed to build `DYLD_LIBRARY_PATH`"))?;
 		command.env("DYLD_LIBRARY_PATH", path);
 	}
 	command
@@ -73,7 +73,7 @@ pub(crate) fn spawn(
 		.stdout(std::process::Stdio::piped());
 	command
 		.spawn()
-		.map_err(|source| tg::error!(!source, "failed to spawn sandbox seatbelt"))
+		.map_err(|error| tg::error!(!error, "failed to spawn sandbox seatbelt"))
 }
 
 fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {

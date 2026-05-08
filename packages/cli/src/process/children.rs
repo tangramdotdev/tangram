@@ -73,7 +73,7 @@ impl Cli {
 			.children_with_handle(&client, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, id = %args.process, "failed to get the process children"),
+				|error| tg::error!(!error, id = %args.process, "failed to get the process children"),
 			)?
 			.map_ok(|child| child.to_data());
 		self.print_serde_stream(stream.boxed(), args.print).await?;

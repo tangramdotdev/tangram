@@ -69,14 +69,14 @@ impl Cli {
 		// Check in the root package.
 		let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 		let arg = tg::checkin::Arg {
 			options: tg::checkin::Options::default(),
 			path: absolute_path.clone(),
 			updates: Vec::new(),
 		};
 		let artifact = tg::checkin::checkin_with_handle(&client, arg).await.map_err(
-			|source| tg::error!(!source, path = %absolute_path.display(), "failed to check in the root package"),
+			|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
 		)?;
 		let referent = tg::Referent::new(
 			artifact.into(),
@@ -90,20 +90,20 @@ impl Cli {
 		state
 			.visit_objects(&client, &referent)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to analyze objects"))?;
+			.map_err(|error| tg::error!(!error, "failed to analyze objects"))?;
 
 		// Create the graph.
 		state
 			.create_graph(&client)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create package graph"))?;
+			.map_err(|error| tg::error!(!error, "failed to create package graph"))?;
 
 		// Create the plan.
 		let plan = state
 			.create_plan(&client, args.tag.map(tg::Tag::new))
 			.boxed()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create publishing plan"))?;
+			.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
 
 		// Print the plan if this is a dry run.
 		if args.dry_run {
@@ -144,7 +144,7 @@ impl Cli {
 						replicate: false,
 					};
 					client.put_tag(&tag, arg).await.map_err(
-						|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
+						|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
 					)?;
 				},
 
@@ -162,7 +162,7 @@ impl Cli {
 							replicate: false,
 						};
 						client.put_tag(&item.tag, arg).await.map_err(
-							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
+							|error| tg::error!(!error, tag = %item.tag, "failed to put local tag"),
 						)?;
 					}
 
@@ -179,7 +179,7 @@ impl Cli {
 							replicate: false,
 						};
 						client.put_tag(&tag, arg).await.map_err(
-							|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
+							|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
 						)?;
 					}
 				},
@@ -210,11 +210,11 @@ impl Cli {
 				source: None,
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to push items"))?;
+			.map_err(|error| tg::error!(!error, "failed to push items"))?;
 		let output = self
 			.render_progress_stream(stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to push items"))?;
+			.map_err(|error| tg::error!(!error, "failed to push items"))?;
 
 		let processes = output.skipped.processes;
 		let objects = output.skipped.objects;
@@ -245,7 +245,7 @@ impl Cli {
 				tags: tags.clone(),
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish tags to remote"))?;
+			.map_err(|error| tg::error!(!error, "failed to publish tags to remote"))?;
 		for item in &tags {
 			let message = format!("tagged {} {}", item.tag, item.item);
 			self.print_info_message(&message);
@@ -298,12 +298,12 @@ async fn try_get_package_tag(
 	let map = match tangram_compiler::metadata::metadata(&text) {
 		Ok(Some(map)) => map,
 		Ok(None) => return Ok(None),
-		Err(source) => {
+		Err(error) => {
 			return if let Some(path) = module_path {
-				Err(tg::error!(!source, path = %path.display(), "failed to extract metadata"))
+				Err(tg::error!(!error, path = %path.display(), "failed to extract metadata"))
 			} else {
 				let id = object.id();
-				Err(tg::error!(!source, %id, "failed to extract metadata"))
+				Err(tg::error!(!error, %id, "failed to extract metadata"))
 			};
 		},
 	};
@@ -455,9 +455,9 @@ impl State {
 					let path =
 						tangram_util::fs::canonicalize_parent(&path)
 							.await
-							.map_err(|source| {
+							.map_err(|error| {
 								tg::error!(
-									!source,
+									!error,
 									path = %path.display(),
 									"failed to canonicalize the path"
 								)
@@ -482,9 +482,9 @@ impl State {
 							.path()
 							.ok_or_else(|| tg::error!("missing path"))?;
 						let path = tangram_util::fs::canonicalize_parent(&path).await.map_err(
-							|source| {
+							|error| {
 								tg::error!(
-									!source,
+									!error,
 									path = %path.display(),
 									"failed to canonicalize the path"
 								)
@@ -721,6 +721,6 @@ async fn publish_checkin(
 	};
 	let artifact = tg::checkin::checkin_with_handle(client, args)
 		.await
-		.map_err(|source| tg::error!(!source, path = %path_display, "failed to checkin"))?;
+		.map_err(|error| tg::error!(!error, path = %path_display, "failed to checkin"))?;
 	Ok(artifact.id().into())
 }

@@ -189,7 +189,7 @@ impl Index {
 			.write(true)
 			.open(&config.path)
 			.map_err(
-				|source| tg::error!(!source, path = %config.path.display(), "failed to open the lmdb file"),
+				|error| tg::error!(!error, path = %config.path.display(), "failed to open the lmdb file"),
 			)?;
 		let env = unsafe {
 			lmdb::EnvOpenOptions::new()
@@ -202,17 +202,17 @@ impl Index {
 						| lmdb::EnvFlags::MAP_ASYNC,
 				)
 				.open(&config.path)
-				.map_err(|source| {
-					tg::error!(!source, path = %config.path.display(), "failed to open the lmdb environment")
+				.map_err(|error| {
+					tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
 				})?
 		};
 		let mut transaction = env.write_txn().unwrap();
 		let db = env
 			.create_database(&mut transaction, None)
-			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		let (sender_high, receiver_high) = crossbeam::bounded(256);
 		let (sender_medium, receiver_medium) = crossbeam::bounded(256);
@@ -257,7 +257,7 @@ impl Index {
 	) -> tg::Result<T> {
 		subspace
 			.unpack(bytes)
-			.map_err(|source| tg::error!(!source, "failed to unpack key"))
+			.map_err(|error| tg::error!(!error, "failed to unpack key"))
 	}
 
 	pub async fn get_transaction_id(&self) -> tg::Result<u64> {
@@ -265,11 +265,11 @@ impl Index {
 		tokio::task::spawn_blocking(move || {
 			let transaction = env
 				.read_txn()
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 			Ok(transaction.id() as u64)
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	pub async fn sync(&self) -> tg::Result<()> {
@@ -277,11 +277,11 @@ impl Index {
 			let env = self.env.clone();
 			move || {
 				env.force_sync()
-					.map_err(|source| tg::error!(!source, "failed to sync"))
+					.map_err(|error| tg::error!(!error, "failed to sync"))
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
+		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 		Ok(())
 	}
 }

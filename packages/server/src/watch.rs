@@ -75,7 +75,7 @@ impl Watch {
 			}
 		};
 		let watcher = notify::RecommendedWatcher::new(handler, config)
-			.map_err(|source| tg::error!(!source, "failed to create the watcher"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the watcher"))?;
 
 		// Create the state.
 		let state = State {

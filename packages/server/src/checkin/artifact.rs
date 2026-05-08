@@ -356,7 +356,7 @@ impl Session {
 				let kind = data.kind();
 				let bytes = data
 					.serialize()
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(kind, &bytes);
 				node.edge
 					.replace(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
@@ -598,7 +598,7 @@ impl Session {
 		let kind = data.kind();
 		let bytes = data
 			.serialize()
-			.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 		let id = tg::object::Id::new(kind, &bytes);
 		let mut children_ids = BTreeSet::new();
 		data.children(&mut children_ids);
@@ -828,7 +828,7 @@ impl Session {
 		// Serialize and compute the ID.
 		let bytes = data
 			.serialize()
-			.map_err(|source| tg::error!(!source, "failed to serialize the reference artifact"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the reference artifact"))?;
 		let id = tg::object::Id::new(data.kind(), &bytes);
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
@@ -843,7 +843,7 @@ impl Session {
 			.object_store
 			.put(store_arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to store the reference artifact"))?;
+			.map_err(|error| tg::error!(!error, "failed to store the reference artifact"))?;
 
 		// Index the object.
 		let mut children = std::collections::BTreeSet::new();
@@ -863,7 +863,7 @@ impl Session {
 				..Default::default()
 			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to index the object"))?;
+			.map_err(|error| tg::error!(!error, "failed to index the object"))?;
 
 		let id = id.try_into().unwrap();
 
@@ -983,7 +983,7 @@ impl Session {
 
 		// Serialize the node data.
 		let bytes = tangram_serialize::to_vec(&data)
-			.map_err(|source| tg::error!(!source, "failed to serialize the node"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the node"))?;
 
 		Ok(bytes)
 	}
@@ -1199,7 +1199,7 @@ impl Session {
 		let kind = data.kind();
 		let bytes = data
 			.serialize()
-			.map_err(|source| tg::error!(!source, "failed to serialize the directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the directory"))?;
 		let id = tg::object::Id::new(kind, &bytes);
 
 		// Collect children IDs.

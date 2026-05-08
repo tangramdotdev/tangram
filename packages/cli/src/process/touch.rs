@@ -18,7 +18,7 @@ impl Cli {
 			location: args.locations.get(),
 		};
 		client.touch_process(&args.process, arg).await.map_err(
-			|source| tg::error!(!source, id = %args.process, "failed to touch the process"),
+			|error| tg::error!(!error, id = %args.process, "failed to touch the process"),
 		)?;
 		Ok(())
 	}

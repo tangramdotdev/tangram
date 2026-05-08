@@ -13,7 +13,7 @@ impl Session {
 		let connection = process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
@@ -88,11 +88,11 @@ impl Session {
 			.inner()
 			.query(statement, &[])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			.iter()
 			.map(|row| {
 				<Row as db::postgres::row::Deserialize>::deserialize(row)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 			})
 			.map(|row| {
 				let row = row?;
@@ -102,13 +102,13 @@ impl Session {
 						if s.starts_with('{') {
 							serde_json::from_str(&s)
 								.map(tg::Either::Left)
-								.map_err(|source| {
-									tg::error!(!source, "failed to deserialize the error")
+								.map_err(|error| {
+									tg::error!(!error, "failed to deserialize the error")
 								})
 						} else {
-							s.parse().map(tg::Either::Right).map_err(|source| {
-								tg::error!(!source, "failed to parse the error id")
-							})
+							s.parse()
+								.map(tg::Either::Right)
+								.map_err(|error| tg::error!(!error, "failed to parse the error id"))
 						}
 					})
 					.transpose()?;

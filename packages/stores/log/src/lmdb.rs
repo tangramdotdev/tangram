@@ -58,7 +58,7 @@ impl Store {
 			.write(true)
 			.open(&config.path)
 			.map_err(
-				|source| tg::error!(!source, path = %config.path.display(), "failed to open the lmdb file"),
+				|error| tg::error!(!error, path = %config.path.display(), "failed to open the lmdb file"),
 			)?;
 		let env = unsafe {
 			lmdb::EnvOpenOptions::new()
@@ -71,17 +71,17 @@ impl Store {
 						| lmdb::EnvFlags::MAP_ASYNC,
 				)
 				.open(&config.path)
-				.map_err(|source| {
-					tg::error!(!source, path = %config.path.display(), "failed to open the lmdb environment")
+				.map_err(|error| {
+					tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
 				})?
 		};
 		let mut transaction = env.write_txn().unwrap();
 		let db = env
 			.create_database(&mut transaction, None)
-			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		// Create the thread.
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
@@ -113,7 +113,7 @@ impl Store {
 			}
 			let result = env
 				.write_txn()
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"));
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"));
 			let mut transaction = match result {
 				Ok(transaction) => transaction,
 				Err(error) => {
@@ -138,7 +138,7 @@ impl Store {
 			}
 			let result = transaction
 				.commit()
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"));
+				.map_err(|error| tg::error!(!error, "failed to commit the transaction"));
 			if let Err(error) = result {
 				for sender in senders {
 					sender.send(Err(error.clone())).ok();
@@ -164,7 +164,7 @@ impl Store {
 		let key = Key::Entry(id, u64::MAX);
 		let position = db
 			.get_lower_than_or_equal_to(transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, "failed to get the last combined entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get the last combined entry"))?
 			.and_then(|(_, value)| {
 				tangram_serialize::from_slice::<Entry>(value)
 					.ok()
@@ -178,7 +178,7 @@ impl Store {
 		let key = Key::StreamPosition(id, request.stream, u64::MAX);
 		let stream_position = db
 			.get_lower_than_or_equal_to(transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, "failed to get the last stream entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get the last stream entry"))?
 			.and_then(|(key, value)| {
 				// Verify the key is actually for this stream, not a different one.
 				if key < stream_start.as_slice() {
@@ -211,13 +211,13 @@ impl Store {
 		let key = Key::Entry(id, position);
 		let val = tangram_serialize::to_vec(&entry).unwrap();
 		db.put(transaction, &key.pack_to_vec(), &val)
-			.map_err(|source| tg::error!(!source, "failed to store the log entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to store the log entry"))?;
 
 		// Store the stream index pointer.
 		let key = Key::StreamPosition(id, request.stream, stream_position);
 		let val = position.to_le_bytes();
 		db.put(transaction, &key.pack_to_vec(), &val)
-			.map_err(|source| tg::error!(!source, "failed to store the stream index"))?;
+			.map_err(|error| tg::error!(!error, "failed to store the stream index"))?;
 
 		Ok(())
 	}
@@ -242,7 +242,7 @@ impl Store {
 			loop {
 				let Some((key, _)) = db
 					.get_greater_than_or_equal_to(transaction, &current_key)
-					.map_err(|source| tg::error!(!source, "failed to iterate log entries"))?
+					.map_err(|error| tg::error!(!error, "failed to iterate log entries"))?
 				else {
 					break;
 				};
@@ -255,7 +255,7 @@ impl Store {
 			}
 			for key in keys_to_delete {
 				db.delete(transaction, &key)
-					.map_err(|source| tg::error!(!source, "failed to delete the log entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to delete the log entry"))?;
 			}
 			Ok(())
 		};
@@ -306,7 +306,7 @@ impl crate::Store for Store {
 				}
 				let transaction = env
 					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				let id = &arg.process;
 				let combined = arg.streams.len() > 1;
 
@@ -321,14 +321,11 @@ impl crate::Store for Store {
 					let key = Key::StreamPosition(id, stream, arg.position);
 					let key = key.pack_to_vec();
 					let result = if arg.position == 0 {
-						db.get(&transaction, &key).map_err(|source| {
-							tg::error!(!source, "failed to get the stream index")
-						})?
+						db.get(&transaction, &key)
+							.map_err(|error| tg::error!(!error, "failed to get the stream index"))?
 					} else {
 						db.get_lower_than_or_equal_to(&transaction, &key)
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the stream index")
-							})?
+							.map_err(|error| tg::error!(!error, "failed to get the stream index"))?
 							.and_then(|(key, value)| {
 								// Verify the key is for this stream.
 								if key < stream_start.as_slice() {
@@ -352,11 +349,11 @@ impl crate::Store for Store {
 				let key = key.pack_to_vec();
 				let result = if start_position == 0 {
 					db.get(&transaction, &key)
-						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
+						.map_err(|error| tg::error!(!error, "failed to get the log entry"))?
 						.map(|value| (key.clone(), value))
 				} else {
 					db.get_lower_than_or_equal_to(&transaction, &key)
-						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
+						.map_err(|error| tg::error!(!error, "failed to get the log entry"))?
 						.map(|(key, value)| (key.to_vec(), value))
 				};
 				let Some((mut current_key, first_value)) = result else {
@@ -381,9 +378,7 @@ impl crate::Store for Store {
 						// Get the next entry.
 						let Some(result) = db
 							.get_greater_than(&transaction, &current_key)
-							.map_err(|source| {
-								tg::error!(!source, "failed to get the next entry")
-							})?
+							.map_err(|error| tg::error!(!error, "failed to get the next entry"))?
 						else {
 							break;
 						};
@@ -395,8 +390,8 @@ impl crate::Store for Store {
 						result.1
 					};
 
-					let chunk = tangram_serialize::from_slice::<Entry>(val).map_err(|source| {
-						tg::error!(!source, "failed to deserialize the log entry")
+					let chunk = tangram_serialize::from_slice::<Entry>(val).map_err(|error| {
+						tg::error!(!error, "failed to deserialize the log entry")
 					})?;
 
 					// Skip chunks that do not match the stream filter.
@@ -465,7 +460,7 @@ impl crate::Store for Store {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	async fn try_get_length(
@@ -490,7 +485,7 @@ impl crate::Store for Store {
 				}
 				let transaction = env
 					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 				let length = if streams.len() == 1 {
 					let stream = streams.iter().next().copied().unwrap();
@@ -500,7 +495,7 @@ impl crate::Store for Store {
 					let key = Key::StreamPosition(&id, stream, u64::MAX);
 					let Some((found_key, value)) = db
 						.get_lower_than_or_equal_to(&transaction, &key.pack_to_vec())
-						.map_err(|source| tg::error!(!source, "failed to get the last entry"))?
+						.map_err(|error| tg::error!(!error, "failed to get the last entry"))?
 					else {
 						return Ok(None);
 					};
@@ -519,12 +514,12 @@ impl crate::Store for Store {
 					let entry_key = Key::Entry(&id, position);
 					let Some(entry_bytes) = db
 						.get(&transaction, &entry_key.pack_to_vec())
-						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
+						.map_err(|error| tg::error!(!error, "failed to get the log entry"))?
 					else {
 						return Ok(None);
 					};
 					let entry = tangram_serialize::from_slice::<Entry>(entry_bytes)
-						.map_err(|source| tg::error!(!source, "failed to deserialize entry"))?;
+						.map_err(|error| tg::error!(!error, "failed to deserialize entry"))?;
 					entry.stream_position + entry.bytes.len().to_u64().unwrap()
 				} else {
 					// For combined queries, find the last log entry.
@@ -533,7 +528,7 @@ impl crate::Store for Store {
 					let key = Key::Entry(&id, u64::MAX);
 					let Some((found_key, value)) = db
 						.get_lower_than_or_equal_to(&transaction, &key.pack_to_vec())
-						.map_err(|source| tg::error!(!source, "failed to get the last entry"))?
+						.map_err(|error| tg::error!(!error, "failed to get the last entry"))?
 					else {
 						return Ok(None);
 					};
@@ -544,7 +539,7 @@ impl crate::Store for Store {
 					}
 
 					let entry = tangram_serialize::from_slice::<Entry>(value)
-						.map_err(|source| tg::error!(!source, "failed to deserialize entry"))?;
+						.map_err(|error| tg::error!(!error, "failed to deserialize entry"))?;
 					entry.position + entry.bytes.len().to_u64().unwrap()
 				};
 
@@ -552,7 +547,7 @@ impl crate::Store for Store {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {
@@ -569,7 +564,7 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))?
@@ -581,7 +576,7 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))?

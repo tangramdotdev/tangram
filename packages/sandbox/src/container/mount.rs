@@ -13,9 +13,9 @@ use {
 pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 	make_mounts_private()?;
 	if let Some(root) = root {
-		std::fs::create_dir_all(root).map_err(|source| {
+		std::fs::create_dir_all(root).map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %root.display(),
 				"failed to create the root mountpoint"
 			)
@@ -75,9 +75,9 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 
 pub fn pivot_root_into(root: &Path) -> tg::Result<()> {
 	let put_old = root.join(".pivot_root");
-	std::fs::create_dir_all(&put_old).map_err(|source| {
+	std::fs::create_dir_all(&put_old).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %put_old.display(),
 			"failed to create the pivot_root staging directory"
 		)
@@ -86,26 +86,26 @@ pub fn pivot_root_into(root: &Path) -> tg::Result<()> {
 	let result =
 		unsafe { libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".pivot_root".as_ptr()) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, root = %root.display(), "pivot_root failed"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, root = %root.display(), "pivot_root failed"));
 	}
 	change_directory(Path::new("/"))?;
 	let result = unsafe { libc::umount2(c"/.pivot_root".as_ptr(), libc::MNT_DETACH) };
 	if result != 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to unmount the old root"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to unmount the old root"));
 	}
 	std::fs::remove_dir("/.pivot_root")
-		.map_err(|source| tg::error!(!source, "failed to remove the old root mountpoint"))?;
+		.map_err(|error| tg::error!(!error, "failed to remove the old root mountpoint"))?;
 	Ok(())
 }
 
 pub fn change_directory(path: &Path) -> tg::Result<()> {
 	let ret = unsafe { libc::chdir(cstring(path.as_os_str()).as_ptr()) };
 	if ret != 0 {
-		let source = std::io::Error::last_os_error();
+		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(
-			!source,
+			!error,
 			path = %path.display(),
 			"failed to change directories"
 		));
@@ -118,9 +118,9 @@ fn map_target(root: Option<&Path>, target: &Path) -> tg::Result<PathBuf> {
 		if target == Path::new("/") {
 			return Ok(root.to_owned());
 		}
-		let suffix = target.strip_prefix("/").map_err(|source| {
+		let suffix = target.strip_prefix("/").map_err(|error| {
 			tg::error!(
-				!source,
+				!error,
 				path = %target.display(),
 				"expected an absolute target path"
 			)
@@ -132,10 +132,10 @@ fn map_target(root: Option<&Path>, target: &Path) -> tg::Result<PathBuf> {
 }
 
 fn mount_bind(bind: &Bind, target: &Path, readonly: bool) -> tg::Result<()> {
-	create_mountpoint_if_not_exists(&bind.source, target).map_err(|source| {
+	create_mountpoint_if_not_exists(&bind.source, target).map_err(|error| {
 		tg::error!(
-			!source,
-			source = %bind.source.display(),
+			!error,
+			error = %bind.source.display(),
 			target = %target.display(),
 			"failed to create the bind mountpoint"
 		)
@@ -145,20 +145,20 @@ fn mount_bind(bind: &Bind, target: &Path, readonly: bool) -> tg::Result<()> {
 	let target = cstring(target_path);
 	let mut flags = libc::MS_BIND | libc::MS_REC;
 	flags |= get_existing_mount_flags(&source).unwrap_or(0);
-	mount_raw(Some(&source), &target, None, flags, std::ptr::null_mut()).map_err(|source| {
+	mount_raw(Some(&source), &target, None, flags, std::ptr::null_mut()).map_err(|error| {
 		tg::error!(
-			!source,
-			source = %bind.source.display(),
+			!error,
+			error = %bind.source.display(),
 			target = %target_path.display(),
 			"failed to create the bind mount"
 		)
 	})?;
 	if readonly {
 		let flags = flags | libc::MS_REMOUNT | libc::MS_RDONLY;
-		mount_raw(Some(&source), &target, None, flags, std::ptr::null_mut()).map_err(|source| {
+		mount_raw(Some(&source), &target, None, flags, std::ptr::null_mut()).map_err(|error| {
 			tg::error!(
-				!source,
-				source = %bind.source.display(),
+				!error,
+				error = %bind.source.display(),
 				target = %target_path.display(),
 				"failed to remount the bind mount as read only"
 			)
@@ -173,23 +173,23 @@ fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg:
 			"an overlay requires at least one overlay source"
 		));
 	}
-	std::fs::create_dir_all(target).map_err(|source| {
+	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %target.display(),
 			"failed to create the overlay target"
 		)
 	})?;
-	std::fs::create_dir_all(&overlay.upperdir).map_err(|source| {
+	std::fs::create_dir_all(&overlay.upperdir).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %overlay.upperdir.display(),
 			"failed to create the overlay upperdir"
 		)
 	})?;
-	std::fs::create_dir_all(&overlay.workdir).map_err(|source| {
+	std::fs::create_dir_all(&overlay.workdir).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %overlay.workdir.display(),
 			"failed to create the overlay workdir"
 		)
@@ -205,9 +205,9 @@ fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg:
 		0,
 		data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
-	.map_err(|source| {
+	.map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			target = %overlay.target.display(),
 			"failed to create the overlay mount"
 		)
@@ -216,9 +216,9 @@ fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg:
 }
 
 fn mount_proc(target: &Path) -> tg::Result<()> {
-	std::fs::create_dir_all(target).map_err(|source| {
+	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %target.display(),
 			"failed to create the proc mountpoint"
 		)
@@ -233,14 +233,14 @@ fn mount_proc(target: &Path) -> tg::Result<()> {
 		libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
 		std::ptr::null_mut(),
 	)
-	.map_err(|source| tg::error!(!source, "failed to create the proc mount"))?;
+	.map_err(|error| tg::error!(!error, "failed to create the proc mount"))?;
 	Ok(())
 }
 
 fn mount_tmpfs(target: &Path) -> tg::Result<()> {
-	std::fs::create_dir_all(target).map_err(|source| {
+	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %target.display(),
 			"failed to create the tmpfs mountpoint"
 		)
@@ -256,14 +256,14 @@ fn mount_tmpfs(target: &Path) -> tg::Result<()> {
 		libc::MS_NOSUID | libc::MS_NODEV,
 		data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
-	.map_err(|source| tg::error!(!source, "failed to create the tmpfs mount"))?;
+	.map_err(|error| tg::error!(!error, "failed to create the tmpfs mount"))?;
 	Ok(())
 }
 
 fn mount_dev(target: &Path) -> tg::Result<()> {
-	std::fs::create_dir_all(target).map_err(|source| {
+	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
-			!source,
+			!error,
 			path = %target.display(),
 			"failed to create the dev mountpoint"
 		)
@@ -279,10 +279,10 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		libc::MS_NOSUID | libc::MS_STRICTATIME,
 		data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
-	.map_err(|source| tg::error!(!source, "failed to create the dev mount"))?;
+	.map_err(|error| tg::error!(!error, "failed to create the dev mount"))?;
 	let pts = target.join("pts");
 	std::fs::create_dir_all(&pts)
-		.map_err(|source| tg::error!(!source, "failed to create the devpts mountpoint"))?;
+		.map_err(|error| tg::error!(!error, "failed to create the devpts mountpoint"))?;
 	let pts_source = cstring("devpts");
 	let pts_target = cstring(&pts);
 	let pts_fstype = cstring("devpts");
@@ -294,7 +294,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		libc::MS_NOSUID | libc::MS_NOEXEC,
 		pts_data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
-	.map_err(|source| tg::error!(!source, "failed to create the devpts mount"))?;
+	.map_err(|error| tg::error!(!error, "failed to create the devpts mount"))?;
 	for source in [
 		"/dev/null",
 		"/dev/zero",
@@ -328,9 +328,9 @@ fn make_mounts_private() -> tg::Result<()> {
 		)
 	};
 	if result < 0 {
-		let source = std::io::Error::last_os_error();
+		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(
-			!source,
+			!error,
 			"failed to make the mount namespace private"
 		));
 	}
@@ -345,15 +345,15 @@ fn configure_dev(target: &Path) -> tg::Result<()> {
 		}
 	}
 	std::os::unix::fs::symlink("../proc/self/fd", target.join("fd"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/fd"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/fd"))?;
 	std::os::unix::fs::symlink("../proc/self/fd/0", target.join("stdin"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/stdin"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/stdin"))?;
 	std::os::unix::fs::symlink("../proc/self/fd/1", target.join("stdout"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/stdout"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/stdout"))?;
 	std::os::unix::fs::symlink("../proc/self/fd/2", target.join("stderr"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/stderr"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/stderr"))?;
 	std::os::unix::fs::symlink("pts/ptmx", target.join("ptmx"))
-		.map_err(|source| tg::error!(!source, "failed to create /dev/ptmx"))?;
+		.map_err(|error| tg::error!(!error, "failed to create /dev/ptmx"))?;
 	Ok(())
 }
 

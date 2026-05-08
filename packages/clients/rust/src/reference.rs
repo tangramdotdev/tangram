@@ -158,12 +158,12 @@ impl Reference {
 		let path = uri.path();
 		let item = path
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the reference item"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the reference item"))?;
 		let options = uri
 			.query_raw()
 			.map(serde_qs::from_str::<Options>)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to deserialize the query params"))?
 			.unwrap_or_default();
 		let export = uri.fragment().map(ToOwned::to_owned);
 		Ok(Self {
@@ -180,7 +180,7 @@ impl Reference {
 		if self.options != Options::default() {
 			builder = builder
 				.query_params(&self.options)
-				.map_err(|source| tg::error!(!source, "failed to serialize the query params"))
+				.map_err(|error| tg::error!(!error, "failed to serialize the query params"))
 				.unwrap();
 		}
 		if let Some(export) = &self.export {
@@ -207,7 +207,7 @@ impl Reference {
 		let stream = handle
 			.get(self, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get stream"))?;
+			.map_err(|error| tg::error!(!error, "failed to get stream"))?;
 		let stream = pin!(stream);
 		let output = stream
 			.try_last()
@@ -235,7 +235,7 @@ impl std::str::FromStr for Reference {
 	type Err = tg::Error;
 
 	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let uri = Uri::parse(value).map_err(|source| tg::error!(!source, "invalid uri"))?;
+		let uri = Uri::parse(value).map_err(|error| tg::error!(!error, "invalid uri"))?;
 		let reference = Self::with_uri(&uri)?;
 		Ok(reference)
 	}

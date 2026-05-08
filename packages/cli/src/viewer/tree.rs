@@ -1361,7 +1361,7 @@ impl Tree {
 				ttl: None,
 			})
 			.await
-			.map_err(|source| tg::error!(!source, tag = %pattern, "failed to list tags"))?;
+			.map_err(|error| tg::error!(!error, tag = %pattern, "failed to list tags"))?;
 
 		// Get the children of this tag.
 		let children = output

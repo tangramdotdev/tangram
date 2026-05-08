@@ -21,7 +21,7 @@ impl Session {
 			let reader = blob
 				.read_with_handle(self, tg::read::Options::default())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read process stdin blob"))?;
+				.map_err(|error| tg::error!(!error, "failed to read process stdin blob"))?;
 			let stream = ReaderStream::new(reader)
 				.map_ok(|bytes| {
 					tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
@@ -47,7 +47,7 @@ impl Session {
 			let stream = self
 				.try_read_process_stdio_all(id, arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read process stdin stream"))?
+				.map_err(|error| tg::error!(!error, "failed to read process stdin stream"))?
 				.ok_or_else(
 					|| tg::error!(process = %id, "expected the process stdin stream to exist"),
 				)?
@@ -80,7 +80,7 @@ impl Session {
 					input,
 				)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to forward process stdin"))?;
+				.map_err(|error| tg::error!(!error, "failed to forward process stdin"))?;
 			let mut output = pin!(output);
 			while let Some(event) = output.try_next().await? {
 				match event {
@@ -118,11 +118,11 @@ impl Session {
 				],
 			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read process stdio from sandbox"))?
+			.map_err(|error| tg::error!(!error, "failed to read process stdio from sandbox"))?
 			.boxed();
 		self.write_process_stdio_all(id, arg, stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write stdio"))?;
+			.map_err(|error| tg::error!(!error, "failed to write stdio"))?;
 		Ok(())
 	}
 }

@@ -34,7 +34,7 @@ impl Session {
 			.server
 			.locations(arg.location.as_ref())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		// Collect local results.
 		if locations.local.is_some() {
@@ -45,7 +45,7 @@ impl Session {
 			let local_output = self
 				.list_tags_local(local_arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to list local tags"))?;
+				.map_err(|error| tg::error!(!error, "failed to list local tags"))?;
 			data.extend(local_output.data);
 		}
 
@@ -98,16 +98,16 @@ impl Session {
 			&& let Some((cached_output, timestamp)) = self
 				.list_tags_cache_get(&key_json)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the tag list cache"))?
+				.map_err(|error| tg::error!(!error, "failed to get the tag list cache"))?
 		{
 			let now = OffsetDateTime::now_utc().unix_timestamp();
 			let age = u64::try_from((now - timestamp).max(0))
 				.map(Duration::from_secs)
-				.map_err(|source| tg::error!(!source, "invalid tag list cache age"))?;
+				.map_err(|error| tg::error!(!error, "invalid tag list cache age"))?;
 			if arg.ttl.is_none_or(|ttl| age < ttl) {
 				let mut entries: Vec<tg::tag::list::Entry> = serde_json::from_str(&cached_output)
-					.map_err(|source| {
-					tg::error!(!source, "failed to deserialize the cached tag list")
+					.map_err(|error| {
+					tg::error!(!error, "failed to deserialize the cached tag list")
 				})?;
 				for entry in &mut entries {
 					entry.location = Some(tg::Location::Remote(tg::location::Remote {
@@ -135,7 +135,7 @@ impl Session {
 		let entries = task
 			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, "the remote tag list task panicked"))??;
+			.map_err(|error| tg::error!(!error, "the remote tag list task panicked"))??;
 
 		// Set the remote field on each entry.
 		let entries = entries
@@ -173,11 +173,11 @@ impl Session {
 		let client = self
 			.get_remote_session(remote.clone())
 			.await
-			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote client"))?;
+			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let output = client
 			.list_tags(arg.clone())
 			.await
-			.map_err(|source| tg::error!(!source, %remote, "failed to list tags"))?;
+			.map_err(|error| tg::error!(!error, %remote, "failed to list tags"))?;
 
 		// Upsert the result into the cache.
 		let key = serde_json::to_string(&RemoteTagListTaskKey { remote, arg }).unwrap();
@@ -185,7 +185,7 @@ impl Session {
 		let now = OffsetDateTime::now_utc().unix_timestamp();
 		self.list_tags_cache_put(&key, &output_json, now)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to put the tag list cache"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the tag list cache"))?;
 
 		Ok(output.data)
 	}
@@ -231,13 +231,13 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// List the tags.

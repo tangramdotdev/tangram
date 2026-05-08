@@ -381,24 +381,24 @@ pub struct CleanOutput {
 impl CacheEntry {
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the cache entry"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the cache entry"))
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the cache entry"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the cache entry"))
 	}
 }
 
 impl Object {
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the object"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the object"))
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))
 	}
 }
 
@@ -411,12 +411,12 @@ impl ObjectStored {
 impl Process {
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the process"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the process"))
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the process"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the process"))
 	}
 }
 
@@ -437,11 +437,11 @@ impl ProcessStored {
 impl Tag {
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the tag"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the tag"))
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|source| tg::error!(!source, "failed to deserialize the tag"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the tag"))
 	}
 }

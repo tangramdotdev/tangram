@@ -61,7 +61,7 @@ impl Store {
 			.write(true)
 			.open(&config.path)
 			.map_err(
-				|source| tg::error!(!source, path = %config.path.display(), "failed to open the lmdb file"),
+				|error| tg::error!(!error, path = %config.path.display(), "failed to open the lmdb file"),
 			)?;
 		let env = unsafe {
 			lmdb::EnvOpenOptions::new()
@@ -74,17 +74,17 @@ impl Store {
 						| lmdb::EnvFlags::MAP_ASYNC,
 				)
 				.open(&config.path)
-				.map_err(|source| {
-					tg::error!(!source, path = %config.path.display(), "failed to open the lmdb environment")
+				.map_err(|error| {
+					tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
 				})?
 		};
 		let mut transaction = env.write_txn().unwrap();
 		let db = env
 			.create_database(&mut transaction, None)
-			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		// Create the thread.
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
@@ -110,7 +110,7 @@ impl Store {
 		let transaction = self
 			.env
 			.read_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		self.try_get_object_with_transaction(&transaction, id)
 	}
 
@@ -121,14 +121,14 @@ impl Store {
 		let transaction = self
 			.env
 			.read_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
 			let key = Key::Object(id);
 			let value = self
 				.db
 				.get(&transaction, &key.pack_to_vec())
-				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 				.and_then(|bytes| Object::deserialize(bytes).ok());
 			outputs.push(value);
 		}
@@ -142,7 +142,7 @@ impl Store {
 		let transaction = self
 			.env
 			.read_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		self.try_get_object_data_with_transaction(&transaction, id)
 	}
 
@@ -156,12 +156,12 @@ impl Store {
 		let Some(bytes) = self
 			.db
 			.get(transaction, &key_bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 		else {
 			return Ok(None);
 		};
 		let value = Object::deserialize(bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 		Ok(Some(value))
 	}
 
@@ -175,18 +175,18 @@ impl Store {
 		let Some(raw_bytes) = self
 			.db
 			.get(transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 		else {
 			return Ok(None);
 		};
 		let value = Object::deserialize(raw_bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 		let Some(bytes) = value.bytes else {
 			return Ok(None);
 		};
 		let size = bytes.len().to_u64().unwrap();
 		let data = tg::object::Data::deserialize(kind, &*bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object data"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object data"))?;
 		Ok(Some((size, data)))
 	}
 
@@ -200,7 +200,7 @@ impl Store {
 			}
 			let result = env
 				.write_txn()
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"));
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"));
 			let mut transaction = match result {
 				Ok(transaction) => transaction,
 				Err(error) => {
@@ -238,7 +238,7 @@ impl Store {
 			}
 			let result = transaction
 				.commit()
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"));
+				.map_err(|error| tg::error!(!error, "failed to commit the transaction"));
 			if let Err(error) = result {
 				for sender in senders {
 					sender.send(Err(error.clone())).ok();
@@ -263,7 +263,7 @@ impl Store {
 
 		let existing = db
 			.get(transaction, &key_bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			.and_then(|bytes| Object::deserialize(bytes).ok());
 
 		let bytes = existing
@@ -282,7 +282,7 @@ impl Store {
 		};
 		let value_bytes = value.serialize().unwrap();
 		db.put(transaction, &key_bytes, &value_bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 
 		Ok(())
 	}
@@ -300,16 +300,16 @@ impl Store {
 
 		let Some(bytes) = db
 			.get(transaction, &key_bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 		else {
 			return Ok(());
 		};
 		let value = Object::deserialize(bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 
 		if request.now - value.stored_at >= request.ttl.to_i64().unwrap() {
 			db.delete(transaction, &key_bytes)
-				.map_err(|source| tg::error!(!source, %id, "failed to delete the object"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to delete the object"))?;
 		}
 
 		Ok(())
@@ -319,7 +319,7 @@ impl Store {
 		let mut transaction = self
 			.env
 			.write_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let request = PutObject {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
@@ -329,7 +329,7 @@ impl Store {
 		Self::task_put_object(&self.env, &self.db, &mut transaction, request)?;
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(())
 	}
 
@@ -340,7 +340,7 @@ impl Store {
 		let mut transaction = self
 			.env
 			.write_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		for arg in args {
 			let request = PutObject {
 				bytes: arg.bytes,
@@ -352,7 +352,7 @@ impl Store {
 		}
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(())
 	}
 
@@ -360,7 +360,7 @@ impl Store {
 		let mut transaction = self
 			.env
 			.write_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let request = DeleteObject {
 			id: arg.id,
 			now: arg.now,
@@ -369,7 +369,7 @@ impl Store {
 		Self::task_delete_object(&self.env, &self.db, &mut transaction, request)?;
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(())
 	}
 
@@ -380,7 +380,7 @@ impl Store {
 		let mut transaction = self
 			.env
 			.write_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		for arg in args {
 			let request = DeleteObject {
 				id: arg.id,
@@ -391,14 +391,14 @@ impl Store {
 		}
 		transaction
 			.commit()
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(())
 	}
 
 	pub fn flush_sync(&self) -> tg::Result<()> {
 		self.env
 			.force_sync()
-			.map_err(|source| tg::error!(!source, "failed to sync"))?;
+			.map_err(|error| tg::error!(!error, "failed to sync"))?;
 		Ok(())
 	}
 }
@@ -412,22 +412,21 @@ impl crate::Store for Store {
 			move || {
 				let transaction = env
 					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				let key = Key::Object(&id);
 				let Some(raw_bytes) = db
 					.get(&transaction, &key.pack_to_vec())
-					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 				else {
 					return Ok(None);
 				};
-				let value = Object::deserialize(raw_bytes).map_err(
-					|source| tg::error!(!source, %id, "failed to deserialize the object"),
-				)?;
+				let value = Object::deserialize(raw_bytes)
+					.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 				Ok(Some(value))
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	async fn try_get_batch(
@@ -444,13 +443,13 @@ impl crate::Store for Store {
 			move || {
 				let transaction = env
 					.read_txn()
-					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in &ids {
 					let key = Key::Object(id);
 					let value = db
 						.get(&transaction, &key.pack_to_vec())
-						.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+						.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 						.and_then(|bytes| Object::deserialize(bytes).ok());
 					outputs.push(value);
 				}
@@ -458,7 +457,7 @@ impl crate::Store for Store {
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {
@@ -473,7 +472,7 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!(%id, "the task panicked"))?
@@ -497,7 +496,7 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))?
@@ -514,7 +513,7 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!(%id, "the task panicked"))?
@@ -537,7 +536,7 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))?
@@ -548,11 +547,11 @@ impl crate::Store for Store {
 			let env = self.env.clone();
 			move || {
 				env.force_sync()
-					.map_err(|source| tg::error!(!source, "failed to sync"))
+					.map_err(|error| tg::error!(!error, "failed to sync"))
 			}
 		})
 		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 }
 

@@ -35,7 +35,7 @@ impl Cli {
 		let output = client
 			.check(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check"))?;
+			.map_err(|error| tg::error!(!error, "failed to check"))?;
 		let success = !output
 			.diagnostics
 			.iter()
