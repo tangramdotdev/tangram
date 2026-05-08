@@ -115,6 +115,10 @@ impl Network {
 			.arg("--foreground") // run pasta in the foreground, die
 			.arg("--config-net") // setup addr/routes in the net namespace
 			.arg("--no-map-gw") // disable loopback to the host
+			.arg("-t").arg("none") // no TCP port forwarding host → guest
+			.arg("-u").arg("none") // no UDP port forwarding host → guest
+			.arg("-T").arg("none") // no TCP port forwarding guest → host
+			.arg("-U").arg("none") // no UDP port forwarding guest → host
 			.arg("--quiet");
 		if let Some(interface) = interface {
 			command.arg("-i").arg(interface);
