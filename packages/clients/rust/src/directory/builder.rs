@@ -164,6 +164,13 @@ impl Builder {
 
 	#[must_use]
 	pub fn build(self) -> tg::Directory {
-		tg::Directory::with_entries(self.entries)
+		let entries = self
+			.entries
+			.into_iter()
+			.map(|(name, artifact)| (name, tg::graph::Edge::Object(artifact)))
+			.collect();
+		let leaf = tg::graph::DirectoryLeaf { entries };
+		let node = tg::graph::Directory::Leaf(leaf);
+		tg::Directory::with_object(tg::directory::Object::Node(node))
 	}
 }
