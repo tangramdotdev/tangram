@@ -45,7 +45,7 @@ pub enum Item {
 	Object(tg::graph::data::Edge<tg::object::Id>),
 	Path(PathBuf),
 	Process(tg::process::Id),
-	Tag(tg::tag::Pattern),
+	Tag(tg::list::Pattern),
 }
 
 #[derive(
@@ -135,7 +135,7 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_tag(tag: tg::tag::Pattern) -> Self {
+	pub fn with_tag(tag: tg::list::Pattern) -> Self {
 		Self::with_item(Item::Tag(tag))
 	}
 

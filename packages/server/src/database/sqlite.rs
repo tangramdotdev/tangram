@@ -38,7 +38,7 @@ pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
 }
 
 pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
-	let schema_version = 5;
+	let schema_version = 1;
 
 	let connection = database
 		.connection()

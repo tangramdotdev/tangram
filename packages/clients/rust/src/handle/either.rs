@@ -5,6 +5,7 @@ use {
 };
 
 mod module;
+mod namespace;
 mod object;
 mod process;
 mod remote;
@@ -151,6 +152,13 @@ where
 				.index()
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
+		}
+	}
+
+	fn list(&self, arg: tg::list::Arg) -> impl Future<Output = tg::Result<tg::list::Output>> {
+		match self {
+			tg::Either::Left(s) => s.list(arg).left_future(),
+			tg::Either::Right(s) => s.list(arg).right_future(),
 		}
 	}
 

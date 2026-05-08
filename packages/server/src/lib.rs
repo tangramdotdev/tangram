@@ -36,10 +36,12 @@ mod handle;
 mod health;
 mod http;
 mod index;
+mod list;
 mod location;
 mod log;
 mod messenger;
 mod module;
+mod namespace;
 mod network;
 mod object;
 mod process;
@@ -98,7 +100,7 @@ pub struct State {
 	path: PathBuf,
 	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-	remote_list_tags_tasks: RemoteListTagsTasks,
+	remote_list_tasks: RemoteListTasks,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_permits: SandboxPermits,
 	sandbox_rootfs: PathBuf,
@@ -152,9 +154,9 @@ type ObjectGetTasks = tangram_futures::task::Map<
 	fnv::FnvBuildHasher,
 >;
 
-type RemoteListTagsTasks = tangram_futures::task::Map<
-	crate::tag::list::RemoteTagListTaskKey,
-	tg::Result<Vec<tg::tag::list::Entry>>,
+type RemoteListTasks = tangram_futures::task::Map<
+	crate::list::RemoteListTaskKey,
+	tg::Result<Vec<tg::list::Entry>>,
 	(),
 	fnv::FnvBuildHasher,
 >;
@@ -514,8 +516,8 @@ impl Server {
 		// Create the remotes.
 		let remotes = DashMap::default();
 
-		// Create the remote list tags tasks.
-		let remote_list_tags_tasks = tangram_futures::task::Map::default();
+		// Create the remote list tasks.
+		let remote_list_tasks = tangram_futures::task::Map::default();
 
 		// Create the sandbox rootfs.
 		let sandbox_rootfs_path = path.join("rootfs");
@@ -632,7 +634,7 @@ impl Server {
 			path,
 			process_store,
 			regions,
-			remote_list_tags_tasks,
+			remote_list_tasks,
 			remotes,
 			sandbox_permits,
 			sandbox_rootfs,
@@ -1169,17 +1171,17 @@ impl Server {
 				}
 				tracing::trace!("object get tasks");
 
-				// Abort the remote list tags tasks.
-				server.remote_list_tags_tasks.abort_all();
-				let results = server.remote_list_tags_tasks.wait().await;
+				// Abort the remote list tasks.
+				server.remote_list_tasks.abort_all();
+				let results = server.remote_list_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "a remote list tags task panicked");
+						tracing::error!(?error, "a remote list task panicked");
 					}
 				}
-				tracing::trace!("remote list tags tasks");
+				tracing::trace!("remote list tasks");
 
 				// Abort the index tasks.
 				server.index_tasks.abort_all();
@@ -1384,7 +1386,7 @@ impl Drop for Owned {
 		self.library.lock().unwrap().take();
 		self.sandbox_tasks.abort_all();
 		self.object_get_tasks.abort_all();
-		self.remote_list_tags_tasks.abort_all();
+		self.remote_list_tasks.abort_all();
 		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();
 		self.watches.clear();

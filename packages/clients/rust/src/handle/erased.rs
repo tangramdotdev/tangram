@@ -5,6 +5,7 @@ use {
 };
 
 mod module;
+mod namespace;
 mod object;
 mod process;
 mod remote;
@@ -14,12 +15,23 @@ mod user;
 mod watch;
 
 pub use self::{
-	module::Module, object::Object, process::Process, remote::Remote, sandbox::Sandbox, tag::Tag,
-	user::User, watch::Watch,
+	module::Module, namespace::Namespace, object::Object, process::Process, remote::Remote,
+	sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
 };
 
 pub trait Handle:
-	Module + Object + Process + Remote + Sandbox + Tag + User + Watch + Send + Sync + 'static
+	Module
+	+ Namespace
+	+ Object
+	+ Process
+	+ Remote
+	+ Sandbox
+	+ Tag
+	+ User
+	+ Watch
+	+ Send
+	+ Sync
+	+ 'static
 {
 	fn arg(&self) -> tg::Arg;
 
@@ -62,6 +74,8 @@ pub trait Handle:
 	fn index(
 		&self,
 	) -> BoxFuture<'_, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>>;
+
+	fn list(&self, arg: tg::list::Arg) -> BoxFuture<'_, tg::Result<tg::list::Output>>;
 
 	fn lsp<'a>(
 		&'a self,
@@ -176,6 +190,10 @@ where
 		&self,
 	) -> BoxFuture<'_, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>> {
 		self.index().map_ok(futures::StreamExt::boxed).boxed()
+	}
+
+	fn list(&self, arg: tg::list::Arg) -> BoxFuture<'_, tg::Result<tg::list::Output>> {
+		self.list(arg).boxed()
 	}
 
 	fn lsp<'a>(

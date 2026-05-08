@@ -20,25 +20,23 @@ failure $output "The delete command with star should fail."
 let output = tg tag delete "test/1.0.0" | from json
 assert (($output.deleted | length) == 1) "The command should delete one tag."
 
-# Try to delete branch tag with children - should fail.
-let output = tg tag delete "test/foo" | complete
-failure $output "The command cannot delete a branch tag with children."
-let stderr = $output.stderr
-assert ($stderr | str contains "cannot delete branch tag") "The error message should mention branch tag."
+# Deleting a namespace as a tag should not delete its children.
+let output = tg tag delete "test/foo" | from json
+assert (($output.deleted | length) == 0) "The command should not delete a namespace."
 
 # Delete one child leaf.
 tg tag delete "test/foo/bar"
 
-# Still cannot delete branch with remaining child.
-let output = tg tag delete "test/foo" | complete
-failure $output "The command still cannot delete a branch with a remaining child."
+# Deleting the namespace should still not delete the remaining child.
+let output = tg tag delete "test/foo" | from json
+assert (($output.deleted | length) == 0) "The command should not delete a namespace."
 
 # Delete remaining child.
 tg tag delete "test/foo/baz"
 
-# Now we can delete empty branch.
+# Deleting the empty namespace as a tag should still delete nothing.
 let output = tg tag delete "test/foo" | from json
-assert (($output.deleted | length) == 1) "The command should delete the empty branch."
+assert (($output.deleted | length) == 0) "The command should not delete a namespace."
 
 # Try to delete with empty pattern - should fail.
 let output = tg tag delete "" | complete

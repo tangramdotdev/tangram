@@ -8,27 +8,32 @@ use {
 impl Session {
 	pub(crate) async fn pull_tag(
 		&self,
-		pattern: tg::tag::Pattern,
+		pattern: tg::list::Pattern,
 		location: Option<tg::location::Arg>,
 	) -> tg::Result<()> {
 		let list = self
-			.list_tags(tg::tag::list::Arg {
+			.list(tg::list::Arg {
 				cached: false,
 				length: None,
 				location,
-				pattern,
+				namespaces: false,
+				pattern: pattern.clone(),
 				recursive: false,
 				reverse: false,
+				tags: true,
 				ttl: None,
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to list the tags"))?
+			.map_err(|error| tg::error!(!error, "failed to list entries"))?
 			.data;
 		list.into_iter()
-			.filter_map(|output| {
-				let directory = output.item?.left()?.try_unwrap_directory().ok()?;
+			.filter_map(|entry| {
+				let tg::list::Entry::Tag { item, location, .. } = entry else {
+					return None;
+				};
+				let directory = item.left()?.try_unwrap_directory().ok()?;
 				let session = self.clone();
-				let location = output.location?;
+				let location = location?;
 				Some(async move {
 					let arg = tg::pull::Arg {
 						source: Some(location),

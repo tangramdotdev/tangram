@@ -785,7 +785,7 @@ where
 			self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
 		}
 		if let Some(tag) = &options.tag {
-			self.map_entry("tag", |s| s.string(tag.as_str()))?;
+			self.map_entry("tag", |s| s.string(&tag.to_string()))?;
 		}
 		self.finish_map()
 	}

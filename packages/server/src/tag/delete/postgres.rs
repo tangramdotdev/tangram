@@ -1,129 +1,61 @@
-use {
-	crate::Session, indoc::indoc, num::ToPrimitive as _, tangram_client::prelude::*,
-	tangram_database::prelude::*,
-};
+use {crate::Session, indoc::indoc, tangram_client::prelude::*, tangram_database::prelude::*};
 
 impl Session {
 	pub(crate) async fn delete_tags_postgres(
 		&self,
 		database: &tangram_database::postgres::Database,
-		pattern: &tg::tag::Pattern,
+		pattern: &tg::list::Pattern,
 		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
 		if pattern.is_empty() {
 			return Err(tg::error!("cannot delete an empty pattern"));
+		}
+		if !recursive && pattern.contains_operators() {
+			return Err(tg::error!(
+				"cannot delete multiple tags without --recursive"
+			));
 		}
 
 		let mut connection = database
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-
-		// Get all tags matching the pattern.
-		let mut matches = self
-			.match_tags_postgres(&transaction, pattern, recursive)
-			.await?;
-
-		// Sort by tag length descending to delete leaves before branches.
-		matches.sort_by_key(|m| std::cmp::Reverse(m.tag.as_str().len()));
-
-		// Validate and delete each match.
+		let mut matches = if recursive {
+			self.match_tags_for_list_postgres(&transaction, pattern)
+				.await?
+		} else {
+			self.list_tag_matches_for_list_postgres(&transaction, pattern)
+				.await?
+		};
+		matches.sort_by(|a, b| a.tag.cmp(&b.tag));
 		let mut deleted = Vec::new();
 		for m in matches {
-			let is_leaf = m.item.is_some();
-			if is_leaf {
-				// This is a leaf tag, safe to delete.
-				let statement = indoc!(
-					"
-						delete from tag_children
-						where child = $1;
-					"
-				);
-				transaction
-					.inner()
-					.execute(statement, &[&m.id.to_i64().unwrap()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-				let statement = indoc!(
-					"
-						delete from tags
-						where id = $1;
-					"
-				);
-				transaction
-					.inner()
-					.execute(statement, &[&m.id.to_i64().unwrap()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-				deleted.push(m.tag);
-			} else {
-				// This is a branch tag.
-				let statement = indoc!(
-					"
-						select count(*) from tag_children
-						where tag = $1;
-					"
-				);
-				let rows = transaction
-					.inner()
-					.query(statement, &[&m.id.to_i64().unwrap()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-				let count: i64 = rows
-					.first()
-					.ok_or_else(|| tg::error!("failed to get count"))?
-					.get(0);
-
-				if count > 0 {
-					return Err(tg::error!(
-						"cannot delete branch tag {} with children",
-						m.tag
-					));
-				}
-
-				// No children, safe to delete.
-				let statement = indoc!(
-					"
-						delete from tag_children
-						where child = $1;
-					"
-				);
-				transaction
-					.inner()
-					.execute(statement, &[&m.id.to_i64().unwrap()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-				let statement = indoc!(
-					"
-						delete from tags
-						where id = $1;
-					"
-				);
-				transaction
-					.inner()
-					.execute(statement, &[&m.id.to_i64().unwrap()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-				deleted.push(m.tag);
-			}
+			let Some(namespace_id) =
+				Self::get_namespace_postgres(&transaction, &m.tag.namespace).await?
+			else {
+				continue;
+			};
+			let statement = indoc!(
+				"
+					delete from tags
+					where namespace = $1 and name = $2 ;
+				"
+			);
+			transaction
+				.inner()
+				.execute(statement, &[&namespace_id, &m.tag.name.to_string()])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			deleted.push(m.tag);
 		}
-
-		// Commit the transaction.
 		transaction
 			.commit()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		let output = tg::tag::delete::Output { deleted };
-
-		Ok(output)
+		Ok(tg::tag::delete::Output { deleted })
 	}
 }

@@ -1,108 +1,127 @@
-use {crate::prelude::*, std::cmp::Ordering};
+use {
+	crate::prelude::*,
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::{cmp::Ordering, time::Duration},
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
+	tangram_util::serde::{is_false, is_true, return_true},
+};
 
-#[derive(
-	Clone,
-	Debug,
-	Default,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
-)]
-pub struct Pattern(String);
+pub mod pattern;
 
-impl Pattern {
-	#[must_use]
-	pub fn new(s: impl Into<String>) -> Self {
-		Self(s.into())
-	}
+pub use self::pattern::Pattern;
 
-	#[must_use]
-	pub fn as_str(&self) -> &str {
-		&self.0
-	}
+#[serde_as]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
 
-	#[must_use]
-	pub fn is_empty(&self) -> bool {
-		self.0.is_empty()
-	}
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub length: Option<u64>,
 
-	pub fn components(&self) -> impl Iterator<Item = &str> {
-		self.0.split('/')
-	}
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 
-	#[must_use]
-	pub fn matches(&self, tag: &tg::Tag) -> bool {
-		let mut t = tag.components();
-		let mut p = self.components();
-		for (t, p) in t.by_ref().zip(p.by_ref()) {
-			if !matches(t, p) {
-				return false;
-			}
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub namespaces: bool,
+
+	#[serde(default, skip_serializing_if = "Pattern::is_empty")]
+	pub pattern: Pattern,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub recursive: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub reverse: bool,
+
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub tags: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub ttl: Option<Duration>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
+pub struct Output {
+	pub data: Vec<Entry>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum Entry {
+	Namespace {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		location: Option<tg::Location>,
+
+		namespace: tg::Namespace,
+	},
+	Tag {
+		item: tg::Either<tg::object::Id, tg::process::Id>,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		location: Option<tg::Location>,
+
+		tag: tg::Tag,
+	},
+}
+
+impl Default for Arg {
+	fn default() -> Self {
+		Self {
+			cached: false,
+			length: None,
+			location: None,
+			namespaces: true,
+			pattern: Pattern::default(),
+			recursive: false,
+			reverse: false,
+			tags: true,
+			ttl: None,
 		}
-		true
 	}
+}
 
-	pub fn push(&mut self, component: &str) {
-		if !self.is_empty() {
-			self.0.push('/');
+impl tg::Session {
+	pub async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+		let method = http::Method::GET;
+		let uri = Uri::builder()
+			.path("/list")
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.empty()
+			.unwrap();
+		let response = self
+			.send_with_retry(request)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+		if !response.status().is_success() {
+			let status = response.status();
+			let error = response
+				.json::<tg::Error>()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error response"))?;
+			let error = tg::error!(!error, status = %status, "the request failed");
+			return Err(error);
 		}
-		self.0.push_str(component);
-	}
-
-	#[must_use]
-	pub fn parent(&self) -> Option<Self> {
-		let components: Vec<_> = self.0.split('/').collect();
-		if components.len() <= 1 {
-			return None;
-		}
-		let parent = components[..components.len() - 1].join("/");
-		Some(Self(parent))
-	}
-}
-
-impl AsRef<str> for Pattern {
-	fn as_ref(&self) -> &str {
-		self.0.as_str()
-	}
-}
-
-impl std::fmt::Display for Pattern {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.0)
-	}
-}
-
-impl std::str::FromStr for Pattern {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		Ok(Self(s.to_owned()))
-	}
-}
-
-impl TryFrom<Pattern> for tg::Tag {
-	type Error = tg::Error;
-
-	fn try_from(value: tg::tag::Pattern) -> Result<Self, Self::Error> {
-		if value.0.contains(['=', '>', '<', '^']) {
-			return Err(tg::error!("the pattern contains operators"));
-		}
-		Ok(Self(value.0))
-	}
-}
-
-impl From<tg::Tag> for Pattern {
-	fn from(value: tg::Tag) -> Self {
-		Self(value.as_str().to_owned())
+		let output = response
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
+		Ok(output)
 	}
 }
 
 #[must_use]
-pub fn matches(t: &str, p: &str) -> bool {
+fn matches(t: &str, p: &str) -> bool {
 	for p in p.split(',') {
 		if p == "*" {
 		} else if let Some(p) = p.strip_prefix("^") {

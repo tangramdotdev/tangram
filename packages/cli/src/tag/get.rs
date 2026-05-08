@@ -12,7 +12,7 @@ pub struct Args {
 	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub pattern: tg::tag::Pattern,
+	pub pattern: tg::list::Pattern,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -39,22 +39,24 @@ impl Ttl {
 impl Cli {
 	pub async fn command_tag_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let arg = tg::tag::list::Arg {
+		let arg = tg::list::Arg {
 			cached: args.cached,
 			length: Some(1),
 			location: args.locations.get(),
+			namespaces: false,
 			pattern: args.pattern.clone(),
 			recursive: false,
 			reverse: true,
+			tags: true,
 			ttl: args.ttl.get(),
 		};
-		let output = client.list_tags(arg).await.map_err(
+		let output = client.list(arg).await.map_err(
 			|error| tg::error!(!error, pattern = %args.pattern, "failed to get the tag"),
 		)?;
 		let entry = output
 			.data
 			.into_iter()
-			.next()
+			.find(|entry| matches!(entry, tg::list::Entry::Tag { .. }))
 			.ok_or_else(|| tg::error!(pattern = %args.pattern, "no tag was found"))?;
 		self.print_serde(entry, args.print).await?;
 		Ok(())

@@ -31,9 +31,11 @@ mod index;
 mod init;
 #[cfg(feature = "js")]
 mod js;
+mod list;
 mod location;
 mod lsp;
 mod metadata;
+mod namespace;
 mod new;
 mod object;
 mod outdated;
@@ -275,7 +277,7 @@ enum Command {
 	Js(self::js::Args),
 
 	#[command(alias = "ls")]
-	List(self::tag::list::Args),
+	List(self::list::Args),
 
 	Login(self::user::login::Args),
 
@@ -288,6 +290,9 @@ enum Command {
 	Metadata(self::metadata::Args),
 
 	New(self::new::Args),
+
+	#[command(alias = "ns")]
+	Namespace(self::namespace::Args),
 
 	Object(self::object::Args),
 
@@ -578,13 +583,14 @@ impl Cli {
 			Command::Init(args) => self.command_init(args).boxed_local(),
 			#[cfg(feature = "js")]
 			Command::Js(args) => self.command_js(args).boxed_local(),
-			Command::List(args) => self.command_tag_list(args).boxed_local(),
+			Command::List(args) => self.command_list(args).boxed_local(),
 			Command::Login(args) => self.command_user_login(args).boxed_local(),
 			Command::Log(args) => self.command_process_stdio_read(args).boxed_local(),
 			Command::Logout(args) => self.command_user_logout(args).boxed_local(),
 			Command::Lsp(args) => self.command_lsp(args).boxed_local(),
 			Command::Metadata(args) => self.command_metadata(args).boxed_local(),
 			Command::New(args) => self.command_new(args).boxed_local(),
+			Command::Namespace(args) => self.command_namespace(args).boxed_local(),
 			Command::Object(args) => self.command_object(args).boxed_local(),
 			Command::Outdated(args) => self.command_outdated(args).boxed_local(),
 			Command::Output(args) => self.command_process_output(args).boxed_local(),

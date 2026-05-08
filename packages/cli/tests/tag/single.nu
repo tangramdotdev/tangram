@@ -13,7 +13,7 @@ let pattern = "test"
 tg tag put $pattern $id
 
 # List tags.
-let list_output = tg tag list $pattern
+let list_output = tg list --no-namespaces
 snapshot -n list $list_output
 
 # Get tag.

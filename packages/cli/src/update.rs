@@ -30,7 +30,7 @@ pub struct Args {
 		index = 2,
 		num_args = 1..,
 	)]
-	pub updates: Option<Vec<tg::tag::Pattern>>,
+	pub updates: Option<Vec<tg::list::Pattern>>,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +40,7 @@ struct Graph {
 
 #[derive(Clone, Debug)]
 struct Node {
-	edges: Vec<(Option<tg::tag::Pattern>, Edge)>,
+	edges: Vec<(Option<tg::list::Pattern>, Edge)>,
 	options: tg::referent::Options,
 	path: Vec<usize>,
 }
@@ -53,7 +53,7 @@ enum Edge {
 
 #[derive(Clone, Debug, serde::Serialize)]
 struct Update {
-	pattern: tg::Referent<tg::tag::Pattern>,
+	pattern: tg::Referent<tg::list::Pattern>,
 	old: Option<tg::Tag>,
 	new: Option<tg::Tag>,
 }
@@ -309,7 +309,7 @@ fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
 	Graph { nodes }
 }
 
-fn graph_dependencies(graph: &Graph) -> HashMap<tg::Referent<tg::tag::Pattern>, tg::Tag> {
+fn graph_dependencies(graph: &Graph) -> HashMap<tg::Referent<tg::list::Pattern>, tg::Tag> {
 	graph
 		.nodes
 		.iter()

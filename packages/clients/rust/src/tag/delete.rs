@@ -1,7 +1,6 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::is_false,
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -9,13 +8,13 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	pub pattern: tg::tag::Pattern,
+	pub pattern: tg::list::Pattern,
+
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
+	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub replicate: Option<Vec<tg::Tag>>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub recursive: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

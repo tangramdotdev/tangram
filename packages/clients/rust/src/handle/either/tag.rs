@@ -5,16 +5,6 @@ where
 	L: tg::handle::Tag,
 	R: tg::handle::Tag,
 {
-	fn list_tags(
-		&self,
-		arg: tg::tag::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::tag::list::Output>> {
-		match self {
-			tg::Either::Left(s) => s.list_tags(arg).left_future(),
-			tg::Either::Right(s) => s.list_tags(arg).right_future(),
-		}
-	}
-
 	fn put_tag(
 		&self,
 		tag: &tg::Tag,

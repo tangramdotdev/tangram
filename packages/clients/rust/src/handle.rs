@@ -8,6 +8,7 @@ use {
 mod either;
 mod ext;
 mod module;
+mod namespace;
 mod object;
 mod process;
 mod remote;
@@ -17,8 +18,8 @@ mod user;
 mod watch;
 
 pub use self::{
-	ext::Ext, module::Module, object::Object, process::Process, remote::Remote, sandbox::Sandbox,
-	tag::Tag, user::User, watch::Watch,
+	ext::Ext, module::Module, namespace::Namespace, object::Object, process::Process,
+	remote::Remote, sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
 };
 
 pub mod dynamic;
@@ -51,6 +52,7 @@ pub(crate) fn handle() -> tg::Result<&'static tg::Client> {
 
 pub trait Handle:
 	Module
+	+ Namespace
 	+ Object
 	+ Process
 	+ Remote
@@ -122,6 +124,9 @@ pub trait Handle:
 			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
 		>,
 	> + Send;
+
+	fn list(&self, arg: tg::list::Arg)
+	-> impl Future<Output = tg::Result<tg::list::Output>> + Send;
 
 	fn lsp(
 		&self,
@@ -295,6 +300,10 @@ impl tg::Handle for tg::Client {
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		self.session(&self.context).index().await
+	}
+
+	async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+		self.session(&self.context).list(arg).await
 	}
 
 	async fn lsp(

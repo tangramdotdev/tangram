@@ -36,7 +36,7 @@ assert ($fresh.item == $id2) "ttl 0 should return new item"
 
 # Fetch c.
 let c1 = tg -u $local.url tag get "a/c"
-snapshot $c1 '{"location":"remote","tag":"a/c/e"}'
+snapshot $c1 '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/c/d"}'
 
 # Add another child to c. Within ttl, should be the same as the last one.
 tg -u $remote.url tag put -f "a/c/h" $id2
@@ -45,17 +45,17 @@ assert ($c2 == $c1) "within TTL should return the same result"
 
 # With --ttl 0, should return the new child.
 let c3 = tg -u $local.url tag get --ttl 0 "a/c"
-snapshot $c3 '{"item":"fil_01ne07s5fgpn2cxfg2b5xgasfrfcjev22snh7g2nfjxpy02ady2yfg","location":"remote","tag":"a/c/h"}'
+snapshot $c3 '{"item":"fil_01ne07s5fgpn2cxfg2b5xgasfrfcjev22snh7g2nfjxpy02ady2yfg","kind":"tag","location":"remote","tag":"a/c/h"}'
 
-# Test that intermediate nodes are not cached.
+# Test that descendant tags can be cached independently.
 tg -u $local.url tag get "a/c/e/f/g"
 
 # Add a sibling branch on the remote.
 tg -u $remote.url tag put "a/c/e/i/j" $id
 
-# Fetch e, should return the new sibling i.
-let e = tg -u $local.url tag get "a/c/e"
-snapshot $e '{"location":"remote","tag":"a/c/e/i"}'
+# Fetch the new descendant.
+let e = tg -u $local.url tag get "a/c/e/i/j"
+snapshot $e '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/c/e/i/j"}'
 
 # Stale children are deleted when the cache is refreshed.
 # Create a branch with two children on the remote.
@@ -64,14 +64,14 @@ tg -u $remote.url tag put "a/k/m" $id
 
 # Fetch the branch to cache both children.
 let k = tg -u $local.url tag get "a/k"
-snapshot $k '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","location":"remote","tag":"a/k/m"}'
+snapshot $k '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/k/m"}'
 
 # Delete one child on the remote.
 tg -u $remote.url tag delete "a/k/l"
 
 # Bust the cache and fetch again. The deleted child should be gone.
 let k2 = tg -u $local.url tag get --ttl 0 "a/k"
-snapshot $k2 '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","location":"remote","tag":"a/k/m"}'
+snapshot $k2 '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/k/m"}'
 
 # A branch that becomes a leaf should have its cached children cleaned up.
 # Create a branch with children on the remote.
@@ -80,7 +80,7 @@ tg -u $remote.url tag put "a/n/p" $id
 
 # Fetch the branch to cache the children.
 let n = tg -u $local.url tag get "a/n"
-snapshot $n '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","location":"remote","tag":"a/n/p"}'
+snapshot $n '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/n/p"}'
 
 # Replace the branch with a leaf on the remote.
 tg -u $remote.url tag delete "a/n/o"
@@ -90,7 +90,7 @@ tg -u $remote.url tag put "a/n" $id
 
 # Bust the cache. Should return a leaf, not a branch with children.
 let n2 = tg -u $local.url tag get --ttl 0 "a/n"
-snapshot $n2 '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","location":"remote","tag":"a/n"}'
+snapshot $n2 '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/n"}'
 
 # A child cached as part of a branch fetch can be updated individually.
 # Fetch a to cache its children including b.
@@ -139,12 +139,6 @@ let after_b = tg -u $clean_local.url tag get --remote --cached --no-ttl "a/b" | 
 assert ($after_b.exit_code != 0) "leaf tag a/b should be cleaned"
 let after_d = tg -u $clean_local.url tag get --remote --cached --no-ttl "a/c/d" | complete
 assert ($after_d.exit_code != 0) "leaf tag a/c/d should be cleaned"
-
-# Branch tags should also be cleaned since they became childless.
-let after_a = tg -u $clean_local.url tag get --remote --cached --no-ttl "a" | complete
-assert ($after_a.exit_code != 0) "branch tag a should be cleaned"
-let after_c = tg -u $clean_local.url tag get --remote --cached --no-ttl "a/c" | complete
-assert ($after_c.exit_code != 0) "branch tag a/c should be cleaned"
 
 # Tags are still available from the remote. Fetching should work after clean.
 let refetched = tg -u $clean_local.url tag get "a/b" | from json

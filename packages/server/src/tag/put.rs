@@ -172,13 +172,13 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Parse the tag.
+		let tag = tag.join("/");
 		let tag = tag
-			.join("/")
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
 
 		// Get the arg.
-		let arg = request
+		let arg: tg::tag::put::Arg = request
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;

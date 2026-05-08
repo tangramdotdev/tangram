@@ -8,7 +8,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub pattern: tg::tag::Pattern,
+	pub pattern: tg::list::Pattern,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,

@@ -6,6 +6,7 @@ use {
 };
 
 mod module;
+mod namespace;
 mod object;
 mod process;
 mod remote;
@@ -98,6 +99,10 @@ impl tg::Handle for Handle {
 		>,
 	> {
 		self.0.index()
+	}
+
+	fn list(&self, arg: tg::list::Arg) -> impl Future<Output = tg::Result<tg::list::Output>> {
+		self.0.list(arg)
 	}
 
 	fn lsp(

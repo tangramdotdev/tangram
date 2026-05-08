@@ -28,6 +28,7 @@ pub use {
 		location::Location,
 		module::Module,
 		mutation::Mutation,
+		namespace::Namespace,
 		object::Handle as Object,
 		placeholder::Placeholder,
 		position::Position,
@@ -72,9 +73,11 @@ pub mod health;
 pub mod host;
 pub mod id;
 pub mod index;
+pub mod list;
 pub mod location;
 pub mod module;
 pub mod mutation;
+pub mod namespace;
 pub mod object;
 pub mod placeholder;
 pub mod position;
@@ -100,8 +103,8 @@ pub mod write;
 pub mod prelude {
 	pub use {
 		super::handle::{
-			Ext as _, Handle as _, Module as _, Object as _, Process as _, Remote as _,
-			Sandbox as _, Tag as _, User as _, Watch as _,
+			Ext as _, Handle as _, Module as _, Namespace as _, Object as _, Process as _,
+			Remote as _, Sandbox as _, Tag as _, User as _, Watch as _,
 		},
 		crate as tg,
 	};

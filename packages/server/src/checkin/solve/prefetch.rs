@@ -11,11 +11,11 @@ type ObjectTasks = tangram_futures::task::Map<
 	tg::id::BuildHasher,
 >;
 
-type Tags = Arc<DashMap<tg::tag::Pattern, tg::tag::list::Output, fnv::FnvBuildHasher>>;
+type Tags = Arc<DashMap<tg::list::Pattern, tg::list::Output, fnv::FnvBuildHasher>>;
 
 type TagTasks = tangram_futures::task::Map<
-	tg::tag::Pattern,
-	tg::Result<tg::tag::list::Output>,
+	tg::list::Pattern,
+	tg::Result<tg::list::Output>,
 	(),
 	fnv::FnvBuildHasher,
 >;
@@ -283,11 +283,11 @@ impl Session {
 		}
 	}
 
-	pub(super) async fn checkin_solve_list_tags(
+	pub(super) async fn checkin_solve_list_tag_entries(
 		&self,
 		prefetch: &Prefetch,
-		pattern: &tg::tag::Pattern,
-	) -> tg::Result<tg::tag::list::Output> {
+		pattern: &tg::list::Pattern,
+	) -> tg::Result<tg::list::Output> {
 		// Return a cached result if one is available.
 		if let Some(output) = prefetch.tags.get(pattern).map(|value| value.clone()) {
 			return Ok(output);
@@ -302,8 +302,8 @@ impl Session {
 	fn checkin_solve_get_or_spawn_tag_task(
 		&self,
 		prefetch: &Prefetch,
-		pattern: &tg::tag::Pattern,
-	) -> tangram_futures::task::Shared<tg::Result<tg::tag::list::Output>, ()> {
+		pattern: &tg::list::Pattern,
+	) -> tangram_futures::task::Shared<tg::Result<tg::list::Output>, ()> {
 		prefetch.tag_tasks.get_or_spawn(pattern.clone(), {
 			let session = self.clone();
 			let pattern = pattern.clone();
@@ -331,28 +331,30 @@ impl Session {
 	async fn checkin_solve_fetch_tags(
 		&self,
 		prefetch: &Prefetch,
-		pattern: &tg::tag::Pattern,
-	) -> tg::Result<tg::tag::list::Output> {
+		pattern: &tg::list::Pattern,
+	) -> tg::Result<tg::list::Output> {
 		// List tags.
 		let output = if prefetch.arg.options.deterministic {
-			tg::tag::list::Output { data: Vec::new() }
+			tg::list::Output { data: Vec::new() }
 		} else {
-			self.list_tags(tg::tag::list::Arg {
+			self.list(tg::list::Arg {
 				cached: false,
 				length: None,
 				location: None,
+				namespaces: false,
 				pattern: pattern.clone(),
 				recursive: false,
 				reverse: true,
+				tags: true,
 				ttl: prefetch.arg.options.tag_ttl,
 			})
 			.await
-			.map_err(|error| tg::error!(!error, %pattern, "failed to list tags"))?
+			.map_err(|error| tg::error!(!error, %pattern, "failed to list entries"))?
 		};
 
 		// Prefetch the first candidate's object.
-		if let Some(output) = output.data.first()
-			&& let Some(id) = output.item.as_ref().and_then(|item| item.as_ref().left())
+		if let Some(tg::list::Entry::Tag { item, .. }) = output.data.first()
+			&& let Some(id) = item.as_ref().left()
 		{
 			self.checkin_solve_get_or_spawn_object_task(prefetch, id);
 		}

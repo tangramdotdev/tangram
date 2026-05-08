@@ -1056,7 +1056,9 @@ impl Compiler {
 				.or_else(|| tag_string.strip_suffix(".tg.js"))
 				.or_else(|| tag_string.strip_suffix(".tg.ts"))
 				.unwrap_or(&tag_string);
-			let tag = tg::Tag::new(tag_string);
+			let tag = tag_string
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
 
 			// Create the referent.
 			let item = tg::module::data::Item::Edge(edge);
@@ -1169,7 +1171,8 @@ impl Compiler {
 						path: None,
 					};
 					tg::checkout::checkout_with_handle(&self.handle, arg).await?;
-					let components: Vec<_> = tag.components().collect();
+					let tag = tag.to_string();
+					let components = tag.split('/').collect::<Vec<_>>();
 					let mut path = self.tags_path.clone();
 					for (i, component) in components.iter().enumerate() {
 						path.push(component);

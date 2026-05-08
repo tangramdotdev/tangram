@@ -513,6 +513,7 @@ impl Server {
 			(http::Method::POST, ["format"]) => session.format_request(request).boxed(),
 			(http::Method::GET, ["health"]) => session.health_request(request).boxed(),
 			(http::Method::POST, ["index"]) => session.index_request(request).boxed(),
+			(http::Method::GET, ["list"]) => session.list_request(request).boxed(),
 			(http::Method::POST, ["lsp"]) => session.lsp_request(request).boxed(),
 			(http::Method::POST, ["pull"]) => session.pull_request(request).boxed(),
 			(http::Method::POST, ["push"]) => session.push_request(request).boxed(),
@@ -528,6 +529,20 @@ impl Server {
 			(http::Method::POST, ["modules", "resolve"]) => {
 				session.resolve_module_request(request).boxed()
 			},
+
+			// Namespaces.
+			(http::Method::GET, ["namespaces"]) => {
+				session.try_get_namespace_request(request, &[]).boxed()
+			},
+			(http::Method::GET, ["namespaces", namespace @ ..]) => session
+				.try_get_namespace_request(request, namespace)
+				.boxed(),
+			(http::Method::PUT, ["namespaces", namespace @ ..]) => {
+				session.create_namespace_request(request, namespace).boxed()
+			},
+			(http::Method::DELETE, ["namespaces", namespace @ ..]) => session
+				.try_delete_namespace_request(request, namespace)
+				.boxed(),
 
 			// Objects.
 			(http::Method::GET, ["objects", object, "metadata"]) => session
@@ -644,7 +659,6 @@ impl Server {
 			},
 
 			// Tags.
-			(http::Method::GET, ["tags"]) => session.list_tags_request(request).boxed(),
 			(http::Method::POST, ["tags", "batch"]) => {
 				session.post_tag_batch_request(request).boxed()
 			},

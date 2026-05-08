@@ -6,6 +6,7 @@ use {
 };
 
 mod module;
+mod namespace;
 mod object;
 mod process;
 mod remote;
@@ -72,6 +73,10 @@ impl tg::Handle for Server {
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
 		self.session(&self.context).index().await
+	}
+
+	async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+		self.session(&self.context).list(arg).await
 	}
 
 	async fn lsp(

@@ -30,7 +30,7 @@ pub struct Graph {
 
 #[derive(Clone, Debug)]
 struct Node {
-	edges: Vec<(Option<tg::tag::Pattern>, Edge)>,
+	edges: Vec<(Option<tg::list::Pattern>, Edge)>,
 	options: tg::referent::Options,
 	path: Vec<usize>,
 }
@@ -87,40 +87,45 @@ impl Cli {
 					Edge::Tag(tag) => tag.clone(),
 				};
 				let compatible = client
-					.list_tags(tg::tag::list::Arg {
+					.list(tg::list::Arg {
 						cached: false,
 						length: Some(1),
 						location: None,
+						namespaces: false,
 						pattern: pattern.clone(),
 						recursive: false,
 						reverse: true,
+						tags: true,
 						ttl: None,
 					})
 					.await?
 					.data
 					.into_iter()
-					.map(|output| output.tag)
-					.next();
+					.find_map(|entry| match entry {
+						tg::list::Entry::Tag { tag, .. } => Some(tag),
+						tg::list::Entry::Namespace { .. } => None,
+					});
 
-				let mut components = pattern.components().collect::<Vec<_>>();
-				components.pop();
-				components.push("*");
-				let pattern = tg::tag::Pattern::new(components.join("/"));
+				let pattern = tg::list::Pattern::any_in_namespace(pattern.namespace.clone());
 				let latest = client
-					.list_tags(tg::tag::list::Arg {
+					.list(tg::list::Arg {
 						cached: false,
 						length: Some(1),
 						location: None,
-						pattern: pattern.clone(),
+						namespaces: false,
+						pattern,
 						recursive: false,
 						reverse: true,
+						tags: true,
 						ttl: None,
 					})
 					.await?
 					.data
 					.into_iter()
-					.map(|output| output.tag)
-					.next();
+					.find_map(|entry| match entry {
+						tg::list::Entry::Tag { tag, .. } => Some(tag),
+						tg::list::Entry::Namespace { .. } => None,
+					});
 
 				let entry = Entry {
 					current,

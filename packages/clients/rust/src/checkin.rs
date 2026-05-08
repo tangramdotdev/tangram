@@ -39,7 +39,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub updates: Vec<tg::tag::Pattern>,
+	pub updates: Vec<tg::list::Pattern>,
 }
 
 #[serde_as]

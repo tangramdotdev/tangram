@@ -4,11 +4,6 @@ use {
 };
 
 pub trait Tag: Send + Sync + 'static {
-	fn list_tags(
-		&self,
-		arg: tg::tag::list::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::tag::list::Output>>;
-
 	fn put_tag<'a>(
 		&'a self,
 		tag: &'a tg::Tag,
@@ -27,13 +22,6 @@ impl<T> Tag for T
 where
 	T: tg::handle::Tag,
 {
-	fn list_tags(
-		&self,
-		arg: tg::tag::list::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::tag::list::Output>> {
-		self.list_tags(arg).boxed()
-	}
-
 	fn put_tag<'a>(
 		&'a self,
 		tag: &'a tg::Tag,

@@ -2,33 +2,68 @@ use crate::prelude::*;
 
 pub mod batch;
 pub mod delete;
-pub mod list;
-pub mod pattern;
 pub mod put;
-
-pub use self::pattern::Pattern;
 
 #[derive(
 	Clone,
 	Debug,
-	Default,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 #[tangram_serialize(display, from_str)]
-pub struct Tag(String);
+pub struct Tag {
+	pub namespace: tg::Namespace,
+	pub name: Name,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[tangram_serialize(display, from_str)]
+pub struct Name(String);
 
 impl Tag {
 	#[must_use]
-	pub fn new(s: impl Into<String>) -> Self {
-		Self(s.into())
+	pub fn new(name: Name) -> Self {
+		Self::with_name(name)
 	}
 
 	#[must_use]
-	pub fn empty() -> Self {
-		Self::default()
+	pub fn with_name(name: Name) -> Self {
+		Self {
+			namespace: tg::Namespace::root(),
+			name,
+		}
+	}
+
+	#[must_use]
+	pub fn with_namespace_and_name(namespace: tg::Namespace, name: Name) -> Self {
+		Self { namespace, name }
+	}
+
+	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self.name.is_empty()
+	}
+
+	pub fn components(&self) -> impl Iterator<Item = &str> {
+		self.namespace
+			.components()
+			.chain(std::iter::once(self.name.as_str()))
+	}
+}
+
+impl Name {
+	#[must_use]
+	pub fn new(s: impl Into<String>) -> Self {
+		Self(s.into())
 	}
 
 	#[must_use]
@@ -40,27 +75,9 @@ impl Tag {
 	pub fn is_empty(&self) -> bool {
 		self.0.is_empty()
 	}
-
-	pub fn components(&self) -> impl Iterator<Item = &str> {
-		self.0.split('/')
-	}
-
-	pub fn push(&mut self, component: &str) {
-		if !self.is_empty() {
-			self.0.push('/');
-		}
-		self.0.push_str(component);
-	}
-
-	#[must_use]
-	pub fn parent(&self) -> Option<Self> {
-		let mut components: Vec<_> = self.components().collect();
-		components.pop()?;
-		Some(Self(components.join("/")))
-	}
 }
 
-impl AsRef<str> for Tag {
+impl AsRef<str> for Name {
 	fn as_ref(&self) -> &str {
 		self.0.as_str()
 	}
@@ -68,7 +85,11 @@ impl AsRef<str> for Tag {
 
 impl std::fmt::Display for Tag {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.0)
+		if self.namespace.is_root() {
+			write!(f, "{}", self.name)
+		} else {
+			write!(f, "{}/{}", self.namespace, self.name)
+		}
 	}
 }
 
@@ -76,6 +97,41 @@ impl std::str::FromStr for Tag {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let Some((namespace, name)) = s.rsplit_once('/') else {
+			let name = s.parse()?;
+			return Ok(Self::with_name(name));
+		};
+		if name.is_empty() {
+			return Err(tg::error!("expected a tag"));
+		}
+		Ok(Self {
+			namespace: namespace.parse()?,
+			name: name.parse()?,
+		})
+	}
+}
+
+impl std::fmt::Display for Name {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.0)
+	}
+}
+
+impl std::str::FromStr for Name {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		if s.is_empty() {
+			return Err(tg::error!("expected a tag"));
+		}
+		if s.contains('/') {
+			return Err(tg::error!("invalid tag"));
+		}
+		if s.parse::<tg::graph::data::Edge<tg::object::Id>>().is_ok()
+			|| s.parse::<tg::process::Id>().is_ok()
+		{
+			return Err(tg::error!("invalid tag"));
+		}
 		Ok(Self::new(s.to_owned()))
 	}
 }
@@ -90,7 +146,8 @@ impl std::cmp::Eq for Tag {}
 
 impl std::hash::Hash for Tag {
 	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-		self.0.hash(state);
+		self.namespace.hash(state);
+		self.name.hash(state);
 	}
 }
 
@@ -105,7 +162,7 @@ impl std::cmp::Ord for Tag {
 		let mut a = self.components();
 		let mut b = other.components();
 		for (a, b) in a.by_ref().zip(b.by_ref()) {
-			let order = self::pattern::compare(a, b);
+			let order = tg::list::compare(a, b);
 			if order != std::cmp::Ordering::Equal {
 				return order;
 			}
@@ -116,5 +173,31 @@ impl std::cmp::Ord for Tag {
 			(None, None) => std::cmp::Ordering::Equal,
 			_ => unreachable!(),
 		}
+	}
+}
+
+impl std::cmp::PartialEq for Name {
+	fn eq(&self, other: &Self) -> bool {
+		self.cmp(other) == std::cmp::Ordering::Equal
+	}
+}
+
+impl std::cmp::Eq for Name {}
+
+impl std::hash::Hash for Name {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		self.0.hash(state);
+	}
+}
+
+impl std::cmp::PartialOrd for Name {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		Some(self.cmp(other))
+	}
+}
+
+impl std::cmp::Ord for Name {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		tg::list::compare(self.as_str(), other.as_str())
 	}
 }

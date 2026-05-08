@@ -116,44 +116,45 @@ impl Session {
 
 	async fn try_get_with_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::list::Pattern,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let list_arg = tg::tag::list::Arg {
+		let list_arg = tg::list::Arg {
 			cached: false,
 			length: Some(1),
 			location: options.location.clone(),
-			pattern: pattern.clone(),
+			namespaces: false,
+			pattern: tag.clone(),
 			recursive: false,
 			reverse: true,
+			tags: true,
 			ttl: None,
 		};
-		let tg::tag::list::Output { data } = self
-			.list_tags(list_arg)
+		let tg::list::Output { data } = self
+			.list(list_arg)
 			.await
-			.map_err(|error| tg::error!(!error, %pattern, "failed to list tags"))?;
-		let Some(tg::tag::list::Entry { item, tag, .. }) = data.into_iter().next() else {
+			.map_err(|error| tg::error!(!error, %tag, "failed to list entries"))?;
+		let Some(tg::list::Entry::Tag { item, tag, .. }) = data
+			.into_iter()
+			.find(|entry| matches!(entry, tg::list::Entry::Tag { .. }))
+		else {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		};
-		let output = match item {
-			Some(item) => {
-				let id = item.as_ref().left().cloned();
-				let item = item.map_left(tg::graph::data::Edge::Object);
-				let referent = tg::Referent {
-					item,
-					options: tg::referent::Options {
-						id,
-						tag: Some(tag),
-						..tg::referent::Options::default()
-					},
-				};
-				let output = tg::get::Output { referent };
-				self.try_get_apply_get(output, options.get.as_deref())
-					.await?
+		let id = item.as_ref().left().cloned();
+		let item = item.map_left(tg::graph::data::Edge::Object);
+		let referent = tg::Referent {
+			item,
+			options: tg::referent::Options {
+				id,
+				tag: Some(tag),
+				..tg::referent::Options::default()
 			},
-			None => None,
 		};
+		let output = tg::get::Output { referent };
+		let output = self
+			.try_get_apply_get(output, options.get.as_deref())
+			.await?;
 		let event = tg::progress::Event::Output(output);
 		let stream = stream::once(future::ok(event));
 		Ok(stream.boxed())

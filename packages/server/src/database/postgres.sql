@@ -4,25 +4,33 @@ create table remotes (
 	token text
 );
 
-create table tags (
+create table namespaces (
 	id int8 primary key default unique_rowid(),
+	parent int8 not null default 0,
 	component text not null,
-	item text
+	name text not null
 );
 
-create table tag_children (
-	tag int8 not null default 0,
-	child int8 not null unique,
-	primary key (tag, child)
+create index namespaces_parent_index on namespaces (parent);
+
+create unique index namespaces_name_index on namespaces (name);
+
+create unique index namespaces_parent_component_index on namespaces (parent, component);
+
+create table tags (
+	namespace int8 not null default 0,
+	name text not null,
+	item text not null,
+	primary key (namespace, name)
 );
 
-create table tag_list_cache (
+create table list_cache (
 	arg text not null,
 	output text not null,
 	timestamp int8 not null
 );
 
-create unique index tag_list_cache_arg_index on tag_list_cache (arg);
+create unique index list_cache_arg_index on list_cache (arg);
 
 create table users (
 	id text primary key

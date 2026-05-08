@@ -174,11 +174,11 @@ impl Cli {
 					let viewer_options = crate::viewer::Options {
 						collapse_process_children: true,
 						depth: None,
+						expand_namespaces: false,
 						expand_objects: false,
-						expand_packages: false,
 						expand_processes: true,
 						expand_metadata: false,
-						expand_tags: false,
+						expand_packages: false,
 						expand_values: false,
 						show_process_commands: false,
 					};

@@ -116,7 +116,7 @@ impl Cli {
 				let pattern = item.clone().try_unwrap_tag().map_err(
 					|error| tg::error!(!error, reference = %args.reference, "expected a tag"),
 				)?;
-				tg::Referent::with_item(crate::viewer::Item::Tag(pattern.clone()))
+				tg::Referent::with_item(crate::viewer::Item::Namespace(pattern.to_namespace()))
 			},
 			Kind::Value | Kind::Package => {
 				let referent = self.get_reference(&args.reference).await?;
@@ -183,11 +183,11 @@ impl Cli {
 					let options = crate::viewer::Options {
 						collapse_process_children: args.collapse_process_children,
 						depth: args.depth,
+						expand_namespaces: args.expand_tags,
 						expand_objects: args.expand_objects,
-						expand_packages: args.expand_packages,
 						expand_processes: args.expand_processes,
 						expand_metadata: args.expand_metadata,
-						expand_tags: args.expand_tags,
+						expand_packages: args.expand_packages,
 						expand_values: matches!(mode, Mode::Inline),
 						show_process_commands: true,
 					};

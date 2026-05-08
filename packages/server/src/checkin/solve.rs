@@ -71,11 +71,17 @@ enum ItemVariant {
 
 #[derive(Clone, Default)]
 pub struct Solutions {
-	map: im::HashMap<tg::tag::Pattern, Solution, fnv::FnvBuildHasher>,
-	referents:
-		im::HashMap<usize, im::HashSet<tg::tag::Pattern, fnv::FnvBuildHasher>, fnv::FnvBuildHasher>,
-	referrers:
-		im::HashMap<usize, im::HashSet<tg::tag::Pattern, fnv::FnvBuildHasher>, fnv::FnvBuildHasher>,
+	map: im::HashMap<tg::list::Pattern, Solution, fnv::FnvBuildHasher>,
+	referents: im::HashMap<
+		usize,
+		im::HashSet<tg::list::Pattern, fnv::FnvBuildHasher>,
+		fnv::FnvBuildHasher,
+	>,
+	referrers: im::HashMap<
+		usize,
+		im::HashSet<tg::list::Pattern, fnv::FnvBuildHasher>,
+		fnv::FnvBuildHasher,
+	>,
 }
 
 #[derive(Clone)]
@@ -93,7 +99,7 @@ enum TagInnerOutput {
 #[derive(Clone)]
 pub struct Referrer {
 	pub index: usize,
-	pub pattern: Option<tg::tag::Pattern>,
+	pub pattern: Option<tg::list::Pattern>,
 }
 
 impl Session {
@@ -266,21 +272,15 @@ impl Session {
 			.ok_or_else(|| tg::error!("expected a file dependency"))?
 			.clone();
 
-		let tg::reference::Item::Tag(pattern) = reference.item() else {
+		let tg::reference::Item::Tag(tag) = reference.item() else {
 			if state.arg.options.unsolved_dependencies {
 				return Ok(());
 			}
 			return Err(tg::error!(%reference, "expected reference to be a tag"));
 		};
 
-		self.checkin_solve_item_with_tag(
-			state,
-			checkpoint,
-			item,
-			reference.clone(),
-			pattern.clone(),
-		)
-		.await
+		self.checkin_solve_item_with_tag(state, checkpoint, item, reference.clone(), tag.clone())
+			.await
 	}
 
 	fn checkin_add_edge_for_item(
@@ -351,30 +351,24 @@ impl Session {
 		checkpoint: &mut Checkpoint,
 		item: Item,
 		reference: tg::Reference,
-		pattern: tg::tag::Pattern,
+		tag: tg::list::Pattern,
 	) -> tg::Result<()> {
 		// Get the key.
-		let key = if pattern
-			.components()
-			.last()
-			.is_some_and(|component| component.contains(['=', '>', '<', '^']))
-		{
-			let mut key = pattern.parent().unwrap();
-			key.push("*");
-			key
+		let key = if tag.contains_operators() {
+			tg::list::Pattern::any_in_namespace(tag.namespace.clone())
 		} else {
-			pattern.clone()
+			tag.clone()
 		};
 
 		// Solve the item.
 		let output = self
-			.checkin_solve_item_with_tag_inner(state, checkpoint, &item, &key, &pattern)
+			.checkin_solve_item_with_tag_inner(state, checkpoint, &item, &key, &tag)
 			.await?;
 
 		// Get the referrer.
 		let referrer = Referrer {
 			index: item.referent.item,
-			pattern: Some(pattern),
+			pattern: Some(tag),
 		};
 
 		// Handle the output.
@@ -443,7 +437,7 @@ impl Session {
 						if referent
 							.as_ref()
 							.and_then(|r| r.tag())
-							.is_some_and(|tag| key.matches(tag))
+							.is_some_and(|tag| key.matches_for_list(tag))
 						{
 							referent.take();
 							continue 'outer;
@@ -467,15 +461,15 @@ impl Session {
 		state: &State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: &Item,
-		key: &tg::tag::Pattern,
-		pattern: &tg::tag::Pattern,
+		key: &tg::list::Pattern,
+		pattern: &tg::list::Pattern,
 	) -> tg::Result<TagInnerOutput> {
 		// Check if a solution exists for the key.
 		if let Some(solution) = checkpoint.solutions.get(key) {
 			let Some(referent) = &solution.referent else {
 				return Ok(TagInnerOutput::Unsolved);
 			};
-			if !pattern.matches(referent.tag().unwrap()) {
+			if !pattern.matches_for_list(referent.tag().unwrap()) {
 				return Ok(TagInnerOutput::Conflicted);
 			}
 			return Ok(TagInnerOutput::Solved(referent.clone()));
@@ -576,12 +570,11 @@ impl Session {
 			.unwrap()
 			.lock_index?;
 		let candidate = Self::checkin_solve_get_lock_candidate_inner(checkpoint, item, lock_index)?;
-		if state
-			.arg
-			.updates
-			.iter()
-			.any(|pattern| pattern.matches(&candidate.tag))
-		{
+		if state.arg.updates.iter().any(|pattern| {
+			pattern
+				.for_list()
+				.matches_in_namespace_subtree(&candidate.tag)
+		}) {
 			return None;
 		}
 		Some(candidate)
@@ -623,20 +616,27 @@ impl Session {
 	async fn checkin_solve_get_tag_candidates(
 		&self,
 		state: &State<'_>,
-		pattern: &tg::tag::Pattern,
+		pattern: &tg::list::Pattern,
 	) -> tg::Result<im::Vector<Candidate>> {
 		let output = self
-			.checkin_solve_list_tags(&state.prefetch, pattern)
+			.checkin_solve_list_tag_entries(&state.prefetch, pattern)
 			.await?;
 
 		let candidates = output
 			.data
 			.into_iter()
 			.filter_map(|output| {
-				let object = output.item?.left()?;
+				let tg::list::Entry::Tag {
+					item,
+					location,
+					tag,
+					..
+				} = output
+				else {
+					return None;
+				};
+				let object = item.left()?;
 				let index = None;
-				let location = output.location;
-				let tag = output.tag;
 				let candidate = Candidate {
 					index,
 					location,
@@ -1246,7 +1246,7 @@ impl Session {
 
 	fn checkin_solve_backtrack(
 		state: &mut State<'_>,
-		key: &tg::tag::Pattern,
+		key: &tg::list::Pattern,
 	) -> Option<Checkpoint> {
 		let position = state
 			.checkpoints
@@ -1269,7 +1269,7 @@ impl Session {
 	fn checkin_solve_backtrack_error(
 		state: &State,
 		checkpoint: &Checkpoint,
-		key: &tg::tag::Pattern,
+		key: &tg::list::Pattern,
 	) -> tg::Error {
 		let mut message = format!("failed to solve {key}");
 		if let Some(solution) = checkpoint.solutions.get(key) {
@@ -1381,15 +1381,15 @@ impl Solutions {
 		self.map.is_empty()
 	}
 
-	pub fn get(&self, key: &tg::tag::Pattern) -> Option<&Solution> {
+	pub fn get(&self, key: &tg::list::Pattern) -> Option<&Solution> {
 		self.map.get(key)
 	}
 
-	pub fn contains_key(&self, key: &tg::tag::Pattern) -> bool {
+	pub fn contains_key(&self, key: &tg::list::Pattern) -> bool {
 		self.map.contains_key(key)
 	}
 
-	pub fn insert(&mut self, key: tg::tag::Pattern, solution: Solution) {
+	pub fn insert(&mut self, key: tg::list::Pattern, solution: Solution) {
 		if let Some(existing) = self.map.get(&key)
 			&& let Some(referent) = &existing.referent
 			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
@@ -1413,7 +1413,7 @@ impl Solutions {
 		self.map.insert(key, solution);
 	}
 
-	pub fn remove(&mut self, key: &tg::tag::Pattern) -> Option<Solution> {
+	pub fn remove(&mut self, key: &tg::list::Pattern) -> Option<Solution> {
 		let solution = self.map.remove(key)?;
 		let Some(referent) = &solution.referent else {
 			return Some(solution);
@@ -1489,7 +1489,7 @@ impl Solutions {
 		}
 	}
 
-	pub fn clear_referent(&mut self, key: &tg::tag::Pattern) {
+	pub fn clear_referent(&mut self, key: &tg::list::Pattern) {
 		if let Some(solution) = self.map.get_mut(key)
 			&& let Some(referent) = solution.referent.take()
 			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
@@ -1503,7 +1503,7 @@ impl Solutions {
 		}
 	}
 
-	pub fn add_referrer(&mut self, key: &tg::tag::Pattern, referrer: Referrer) {
+	pub fn add_referrer(&mut self, key: &tg::list::Pattern, referrer: Referrer) {
 		self.referrers
 			.entry(referrer.index)
 			.or_default()

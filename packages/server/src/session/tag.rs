@@ -1,10 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
 impl tg::handle::Tag for Session {
-	async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
-		self.list_tags(arg).await
-	}
-
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		self.put_tag(tag, arg).await
 	}

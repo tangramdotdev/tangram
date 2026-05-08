@@ -13,7 +13,7 @@ for tag in $tags {
 }
 
 # Verify tags exist.
-let output = tg tag list "test/*"
+let output = tg list --no-namespaces --recursive "test/*"
 assert (($output | from json | length) > 0) "the tags should exist"
 
 # Recursively delete from the root - should delete all children in correct order.
@@ -21,5 +21,5 @@ let output = tg tag delete --recursive "test/*"
 snapshot -n deleted $output
 
 # Verify all tags are deleted.
-let output = tg tag list "test/*"
+let output = tg list --no-namespaces --recursive "test/*"
 snapshot -n list $output

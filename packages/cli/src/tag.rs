@@ -2,7 +2,6 @@ use {crate::Cli, tangram_client::prelude::*};
 
 pub mod delete;
 pub mod get;
-pub mod list;
 pub mod put;
 
 /// Manage tags.
@@ -26,8 +25,6 @@ pub enum Command {
 	#[command(alias = "remove", alias = "rm")]
 	Delete(self::delete::Args),
 	Get(self::get::Args),
-	#[command(alias = "ls")]
-	List(self::list::Args),
 	#[command(alias = "add")]
 	Put(self::put::Args),
 }
@@ -40,9 +37,6 @@ impl Cli {
 			},
 			Command::Get(args) => {
 				self.command_tag_get(args).await?;
-			},
-			Command::List(args) => {
-				self.command_tag_list(args).await?;
 			},
 			Command::Put(args) => {
 				self.command_tag_put(args).await?;

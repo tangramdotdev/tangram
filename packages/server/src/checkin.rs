@@ -33,7 +33,7 @@ pub(crate) use self::{graph::Graph, solve::Solutions};
 pub struct TaskKey {
 	pub options: tg::checkin::Options,
 	pub root: PathBuf,
-	pub updates: Vec<tg::tag::Pattern>,
+	pub updates: Vec<tg::list::Pattern>,
 }
 
 #[derive(Clone)]

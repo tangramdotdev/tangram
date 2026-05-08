@@ -99,8 +99,13 @@ impl Cli {
 			.map_err(|error| tg::error!(!error, "failed to create package graph"))?;
 
 		// Create the plan.
+		let tag = args
+			.tag
+			.map(|tag| tag.parse())
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
 		let plan = state
-			.create_plan(&client, args.tag.map(tg::Tag::new))
+			.create_plan(&client, tag)
 			.boxed()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create publishing plan"))?;
@@ -329,7 +334,10 @@ async fn try_get_package_tag(
 			}
 		})?;
 
-	Ok(Some(tg::Tag::new(tag)))
+	let tag = tag
+		.parse()
+		.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
+	Ok(Some(tag))
 }
 
 impl State {

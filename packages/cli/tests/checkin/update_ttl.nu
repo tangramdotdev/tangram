@@ -21,7 +21,7 @@ let checkin_package_path = artifact {
 	'
 }
 
-# Check in once to create the lock and warm the remote tag list cache.
+# Check in once to create the lock and warm the remote list cache.
 tg -u $local.url checkin $checkin_package_path
 
 let checkin_lockfile_path = $checkin_package_path | path join 'tangram.lock'
@@ -37,13 +37,13 @@ let checkin_new_path = artifact {
 }
 tg -u $remote.url tag checkin/a/1.1.0 $checkin_new_path
 
-# Run checkin --update with the default TTL. The cached tag list should keep checkin/a/1.0.0.
+# Run checkin --update with the default TTL. The cached list should keep checkin/a/1.0.0.
 tg -u $local.url checkin $checkin_package_path --update checkin/a
 let checkin_stale_lock = open $checkin_lockfile_path | from json
 let checkin_stale_tag = $checkin_stale_lock.nodes.1.dependencies."checkin/a/^1".options.tag
-assert ($checkin_stale_tag == "checkin/a/1.0.0") "without a ttl override, checkin should use the cached tag list"
+assert ($checkin_stale_tag == "checkin/a/1.0.0") "without a ttl override, checkin should use the cached list"
 
-# Run checkin --update with --tag-ttl 0. The fresh tag list should now use checkin/a/1.1.0.
+# Run checkin --update with --tag-ttl 0. The fresh list should now use checkin/a/1.1.0.
 tg -u $local.url checkin $checkin_package_path --update checkin/a --tag-ttl 0
 let checkin_fresh_lock = open $checkin_lockfile_path | from json
 let checkin_fresh_tag = $checkin_fresh_lock.nodes.1.dependencies."checkin/a/^1".options.tag
@@ -65,7 +65,7 @@ let update_package_path = artifact {
 	'
 }
 
-# Check in once to create the lock and warm the remote tag list cache.
+# Check in once to create the lock and warm the remote list cache.
 tg -u $local.url checkin $update_package_path
 
 let update_lockfile_path = $update_package_path | path join 'tangram.lock'
@@ -81,13 +81,13 @@ let update_new_path = artifact {
 }
 tg -u $remote.url tag update/a/1.1.0 $update_new_path
 
-# Run update with the default TTL. The cached tag list should keep update/a/1.0.0.
+# Run update with the default TTL. The cached list should keep update/a/1.0.0.
 tg -u $local.url update $update_package_path
 let update_stale_lock = open $update_lockfile_path | from json
 let update_stale_tag = $update_stale_lock.nodes.1.dependencies."update/a/^1".options.tag
-assert ($update_stale_tag == "update/a/1.0.0") "without a ttl override, update should use the cached tag list"
+assert ($update_stale_tag == "update/a/1.0.0") "without a ttl override, update should use the cached list"
 
-# Run update with --tag-ttl 0. The fresh tag list should now use update/a/1.1.0.
+# Run update with --tag-ttl 0. The fresh list should now use update/a/1.1.0.
 tg -u $local.url update $update_package_path --tag-ttl 0
 let update_fresh_lock = open $update_lockfile_path | from json
 let update_fresh_tag = $update_fresh_lock.nodes.1.dependencies."update/a/^1".options.tag

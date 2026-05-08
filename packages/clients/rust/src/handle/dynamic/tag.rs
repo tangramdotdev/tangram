@@ -1,13 +1,6 @@
 use {super::Handle, crate::prelude::*, futures::future::BoxFuture};
 
 impl tg::handle::Tag for Handle {
-	fn list_tags(
-		&self,
-		arg: tg::tag::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::tag::list::Output>> {
-		self.0.list_tags(arg)
-	}
-
 	fn put_tag(
 		&self,
 		tag: &tg::Tag,
