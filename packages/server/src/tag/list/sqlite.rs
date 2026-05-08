@@ -153,7 +153,7 @@ impl Session {
 				let statement = indoc!(
 					"
 						select output, timestamp
-						from remote_tag_list_cache
+						from tag_list_cache
 						where arg = ?1 ;
 					"
 				);
@@ -198,7 +198,7 @@ impl Session {
 			.with(move |connection, cache| {
 				let statement = indoc!(
 					"
-						insert into remote_tag_list_cache (arg, output, timestamp)
+						insert into tag_list_cache (arg, output, timestamp)
 						values (?1, ?2, ?3)
 						on conflict (arg) do update
 						set output = excluded.output, timestamp = excluded.timestamp ;

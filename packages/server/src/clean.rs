@@ -156,18 +156,18 @@ impl Session {
 			}
 		}
 
-		// Delete the remote tag list cache.
+		// Delete the tag list cache.
 		let connection = self
 			.server
 			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let statement = "delete from remote_tag_list_cache;";
+		let statement = "delete from tag_list_cache;";
 		connection
 			.execute(statement.into(), db::params![])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to delete the remote tag list cache"))?;
+			.map_err(|source| tg::error!(!source, "failed to delete the tag list cache"))?;
 		drop(connection);
 
 		Ok::<_, tg::Error>(output)
