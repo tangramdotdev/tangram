@@ -356,7 +356,7 @@ impl Sandbox {
 						.authority(host_path_string)
 						.path("")
 						.build()
-						.map_err(|error| tg::error!(error = error, "failed to build the URL"))?
+						.map_err(|error| tg::error!(!error, "failed to build the URL"))?
 				}
 			};
 			Ok((listener, url))

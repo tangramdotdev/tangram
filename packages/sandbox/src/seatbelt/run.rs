@@ -67,7 +67,7 @@ fn exec_command(arg: &Arg) -> tg::Result<()> {
 	unsafe {
 		libc::execvp(executable.as_ptr(), argv.as_ptr());
 	}
-	let source = std::io::Error::last_os_error();
+	let error = std::io::Error::last_os_error();
 	Err(tg::error!(!error, "failed to execute the command"))
 }
 
