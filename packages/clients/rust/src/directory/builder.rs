@@ -13,8 +13,25 @@ pub struct Builder {
 
 impl Builder {
 	#[must_use]
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	#[must_use]
 	pub fn with_entries(entries: BTreeMap<String, tg::Artifact>) -> Self {
 		Self { entries }
+	}
+
+	#[must_use]
+	pub fn entry(mut self, name: impl Into<String>, artifact: impl Into<tg::Artifact>) -> Self {
+		self.entries.insert(name.into(), artifact.into());
+		self
+	}
+
+	#[must_use]
+	pub fn entries(mut self, entries: impl IntoIterator<Item = (String, tg::Artifact)>) -> Self {
+		self.entries.extend(entries);
+		self
 	}
 
 	pub async fn add(self, path: &Path, artifact: tg::Artifact) -> tg::Result<Self> {
@@ -68,7 +85,7 @@ impl Builder {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
-					.builder_with_handle(handle)
+					.to_builder_with_handle(handle)
 					.await?
 			} else {
 				Self::default()
@@ -126,7 +143,7 @@ impl Builder {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
-					.builder_with_handle(handle)
+					.to_builder_with_handle(handle)
 					.await?
 			} else {
 				return Err(tg::error!(path = %path.display(), "the path does not exist"));

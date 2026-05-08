@@ -85,7 +85,7 @@ impl Builder {
 		self
 	}
 
-	pub fn finish(self) -> tg::Result<tg::Command> {
+	pub fn build(self) -> tg::Result<tg::Command> {
 		let executable = self
 			.executable
 			.ok_or_else(|| tg::error!("cannot create a command without an executable"))?;
@@ -100,6 +100,10 @@ impl Builder {
 			user: self.user,
 		}))
 	}
+
+	pub fn finish(self) -> tg::Result<tg::Command> {
+		self.build()
+	}
 }
 
 impl IntoFuture for Builder {
@@ -107,6 +111,6 @@ impl IntoFuture for Builder {
 	type IntoFuture = Ready<Self::Output>;
 
 	fn into_future(self) -> Self::IntoFuture {
-		ready(self.finish())
+		ready(self.build())
 	}
 }

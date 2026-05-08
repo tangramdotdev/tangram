@@ -1,4 +1,5 @@
 pub use self::{
+	builder::Builder,
 	data::Graph as Data,
 	handle::Graph as Handle,
 	id::Id,
@@ -8,6 +9,7 @@ pub use self::{
 	},
 };
 
+pub mod builder;
 pub mod data;
 pub mod handle;
 pub mod id;

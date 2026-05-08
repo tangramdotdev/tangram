@@ -1,7 +1,8 @@
 use {crate::prelude::*, itertools::Itertools as _};
 
-pub use self::data::Data;
+pub use self::{builder::Builder, data::Data};
 
+pub mod builder;
 pub mod data;
 
 #[derive(Clone, Debug)]
@@ -33,6 +34,11 @@ pub enum Mutation {
 }
 
 impl Mutation {
+	#[must_use]
+	pub fn builder() -> Builder {
+		Builder::new()
+	}
+
 	pub fn objects(&self) -> Vec<tg::Object> {
 		match self {
 			Self::Unset => vec![],

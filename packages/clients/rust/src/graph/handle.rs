@@ -1,5 +1,5 @@
 use {
-	super::{Data, Id, Object},
+	super::{Builder, Data, Id, Object},
 	crate::prelude::*,
 	std::sync::Arc,
 };
@@ -11,9 +11,13 @@ pub struct Graph {
 
 impl Graph {
 	#[must_use]
+	pub fn builder() -> Builder {
+		Builder::new()
+	}
+
+	#[must_use]
 	pub fn with_nodes(nodes: Vec<tg::graph::Node>) -> Self {
-		let object = tg::graph::Object { nodes };
-		Self::with_object(object)
+		Self::builder().nodes(nodes).build()
 	}
 
 	#[must_use]

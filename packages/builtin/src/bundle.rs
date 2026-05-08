@@ -76,7 +76,7 @@ where
 
 	// Add the artifacts directory to the bundled artifact at `.tangram/artifacts`.
 	let output = output
-		.builder_with_handle(handle)
+		.to_builder_with_handle(handle)
 		.await?
 		.add_with_handle(
 			handle,
@@ -132,7 +132,10 @@ where
 		tg::Artifact::File(file) => {
 			let contents = file.contents_with_handle(handle).await?.clone();
 			let executable = file.executable_with_handle(handle).await?;
-			let file = tg::File::builder(contents).executable(executable).build();
+			let file = tg::File::builder()
+				.contents(contents)
+				.executable(executable)
+				.build()?;
 			Ok(file.into())
 		},
 

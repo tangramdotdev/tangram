@@ -4,8 +4,9 @@ use {
 	std::{borrow::Cow, collections::BTreeSet},
 };
 
-pub use self::data::Template as Data;
+pub use self::{builder::Builder, data::Template as Data};
 
+pub mod builder;
 pub mod data;
 
 #[derive(Clone, Debug, Default)]
@@ -31,9 +32,13 @@ pub enum Component {
 
 impl Template {
 	#[must_use]
+	pub fn builder() -> Builder {
+		Builder::new()
+	}
+
+	#[must_use]
 	pub fn with_components(components: impl IntoIterator<Item = Component>) -> Self {
-		let components = components.into_iter().collect();
-		Self { components }
+		Self::builder().components(components).build()
 	}
 
 	#[must_use]
@@ -225,15 +230,13 @@ impl From<Component> for Template {
 
 impl From<Vec<Component>> for Template {
 	fn from(value: Vec<Component>) -> Self {
-		Self { components: value }
+		Self::builder().components(value).build()
 	}
 }
 
 impl FromIterator<Component> for Template {
 	fn from_iter<I: IntoIterator<Item = Component>>(value: I) -> Self {
-		Self {
-			components: value.into_iter().collect(),
-		}
+		Self::builder().components(value).build()
 	}
 }
 

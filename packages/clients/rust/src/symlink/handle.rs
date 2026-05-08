@@ -1,5 +1,5 @@
 use {
-	super::{Data, Id, Object},
+	super::{Builder, Data, Id, Object},
 	crate::prelude::*,
 	std::{path::PathBuf, sync::Arc},
 };
@@ -10,6 +10,11 @@ pub struct Symlink {
 }
 
 impl Symlink {
+	#[must_use]
+	pub fn builder() -> Builder {
+		Builder::new()
+	}
+
 	#[must_use]
 	pub fn with_state(state: tg::object::State) -> Self {
 		Self { state }
@@ -179,26 +184,21 @@ impl Symlink {
 
 	#[must_use]
 	pub fn with_artifact_and_path(artifact: tg::Artifact, path: PathBuf) -> Self {
-		Self::with_object(Object::Node(tg::symlink::object::Node {
-			artifact: Some(tg::graph::Edge::Object(artifact)),
-			path: Some(path),
-		}))
+		Self::builder()
+			.artifact(artifact)
+			.path(path)
+			.build()
+			.unwrap()
 	}
 
 	#[must_use]
 	pub fn with_artifact(artifact: tg::Artifact) -> Self {
-		Self::with_object(Object::Node(tg::symlink::object::Node {
-			artifact: Some(tg::graph::Edge::Object(artifact)),
-			path: None,
-		}))
+		Self::builder().artifact(artifact).build().unwrap()
 	}
 
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
-		Self::with_object(Object::Node(tg::symlink::object::Node {
-			artifact: None,
-			path: Some(path),
-		}))
+		Self::builder().path(path).build().unwrap()
 	}
 
 	pub async fn artifact(&self) -> tg::Result<Option<tg::Artifact>> {

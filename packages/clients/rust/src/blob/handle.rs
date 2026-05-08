@@ -1,5 +1,5 @@
 use {
-	super::{Data, Id, Object},
+	super::{Builder, Data, Id, Object},
 	crate::prelude::*,
 	bytes::Bytes,
 	futures::FutureExt as _,
@@ -14,6 +14,11 @@ pub struct Blob {
 }
 
 impl Blob {
+	#[must_use]
+	pub fn builder() -> Builder {
+		Builder::new()
+	}
+
 	#[must_use]
 	pub fn with_state(state: tg::object::State) -> Self {
 		Self { state }
@@ -170,22 +175,17 @@ impl Blob {
 impl Blob {
 	#[must_use]
 	pub fn new(children: Vec<tg::blob::Child>) -> Self {
-		match children.len() {
-			0 => Self::leaf(Bytes::new()),
-			1 => children.into_iter().next().unwrap().blob,
-			_ => Self::branch(children),
-		}
+		Self::builder().children(children).build()
 	}
 
 	#[must_use]
 	pub fn leaf(bytes: impl Into<Bytes>) -> Self {
-		let bytes = bytes.into();
-		Self::with_object(Object::Leaf(tg::blob::object::Leaf { bytes }))
+		Self::builder().bytes(bytes).build()
 	}
 
 	#[must_use]
 	pub fn branch(children: Vec<tg::blob::Child>) -> Self {
-		Self::with_object(Object::Branch(tg::blob::object::Branch { children }))
+		Self::builder().children(children).build()
 	}
 
 	pub async fn with_reader(reader: impl AsyncRead + Send + 'static) -> tg::Result<Self> {
@@ -269,15 +269,13 @@ impl std::fmt::Display for Blob {
 
 impl From<Bytes> for Blob {
 	fn from(value: Bytes) -> Self {
-		Self::with_object(Object::Leaf(tg::blob::object::Leaf { bytes: value }))
+		Self::builder().bytes(value).build()
 	}
 }
 
 impl From<String> for Blob {
 	fn from(value: String) -> Self {
-		Self::with_object(Object::Leaf(tg::blob::object::Leaf {
-			bytes: value.into(),
-		}))
+		Self::builder().bytes(value).build()
 	}
 }
 

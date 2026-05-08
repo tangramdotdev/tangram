@@ -167,13 +167,13 @@ impl File {
 
 impl File {
 	#[must_use]
-	pub fn builder(contents: impl Into<tg::Blob>) -> Builder {
-		Builder::new(contents)
+	pub fn builder() -> Builder {
+		Builder::new()
 	}
 
 	#[must_use]
 	pub fn with_contents(contents: impl Into<tg::Blob>) -> Self {
-		Self::builder(contents).build()
+		Self::builder().contents(contents).build().unwrap()
 	}
 
 	#[must_use]

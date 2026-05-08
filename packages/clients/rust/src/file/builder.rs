@@ -1,7 +1,8 @@
 use {crate::prelude::*, std::collections::BTreeMap};
 
+#[derive(Clone, Debug, Default)]
 pub struct Builder {
-	contents: tg::Blob,
+	contents: Option<tg::Blob>,
 	dependencies: BTreeMap<tg::Reference, Option<tg::file::Dependency>>,
 	executable: bool,
 	module: Option<tg::module::Kind>,
@@ -9,18 +10,13 @@ pub struct Builder {
 
 impl Builder {
 	#[must_use]
-	pub fn new(contents: impl Into<tg::Blob>) -> Self {
-		Self {
-			contents: contents.into(),
-			dependencies: BTreeMap::new(),
-			executable: false,
-			module: None,
-		}
+	pub fn new() -> Self {
+		Self::default()
 	}
 
 	#[must_use]
 	pub fn contents(mut self, contents: impl Into<tg::Blob>) -> Self {
-		self.contents = contents.into();
+		self.contents = Some(contents.into());
 		self
 	}
 
@@ -45,26 +41,30 @@ impl Builder {
 		self
 	}
 
-	#[must_use]
-	pub fn build(self) -> tg::File {
-		tg::File::with_object(tg::file::Object::Node(tg::file::object::Node {
-			contents: self.contents,
-			dependencies: self
-				.dependencies
-				.into_iter()
-				.map(|(reference, option)| {
-					(
-						reference,
-						option.map(|dependency| {
-							tg::graph::Dependency(
-								dependency.0.map(|item| item.map(tg::graph::Edge::Object)),
-							)
-						}),
-					)
-				})
-				.collect(),
-			executable: self.executable,
-			module: self.module,
-		}))
+	pub fn build(self) -> tg::Result<tg::File> {
+		let contents = self
+			.contents
+			.ok_or_else(|| tg::error!("cannot create a file without contents"))?;
+		Ok(tg::File::with_object(tg::file::Object::Node(
+			tg::file::object::Node {
+				contents,
+				dependencies: self
+					.dependencies
+					.into_iter()
+					.map(|(reference, option)| {
+						(
+							reference,
+							option.map(|dependency| {
+								tg::graph::Dependency(
+									dependency.0.map(|item| item.map(tg::graph::Edge::Object)),
+								)
+							}),
+						)
+					})
+					.collect(),
+				executable: self.executable,
+				module: self.module,
+			},
+		)))
 	}
 }

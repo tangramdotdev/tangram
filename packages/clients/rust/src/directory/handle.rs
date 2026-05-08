@@ -162,14 +162,13 @@ impl Directory {
 
 impl Directory {
 	#[must_use]
+	pub fn builder() -> Builder {
+		Builder::new()
+	}
+
+	#[must_use]
 	pub fn with_entries(entries: BTreeMap<String, tg::Artifact>) -> Self {
-		let entries = entries
-			.into_iter()
-			.map(|(name, artifact)| (name, tg::graph::Edge::Object(artifact)))
-			.collect();
-		let leaf = tg::graph::DirectoryLeaf { entries };
-		let node = tg::graph::Directory::Leaf(leaf);
-		Self::with_object(Object::Node(node))
+		Self::builder().entries(entries).build()
 	}
 
 	#[must_use]
@@ -185,12 +184,12 @@ impl Directory {
 		}
 	}
 
-	pub async fn builder(&self) -> tg::Result<Builder> {
+	pub async fn to_builder(&self) -> tg::Result<Builder> {
 		let handle = tg::handle()?;
-		self.builder_with_handle(handle).await
+		self.to_builder_with_handle(handle).await
 	}
 
-	pub async fn builder_with_handle<H>(&self, handle: &H) -> tg::Result<Builder>
+	pub async fn to_builder_with_handle<H>(&self, handle: &H) -> tg::Result<Builder>
 	where
 		H: tg::Handle,
 	{
