@@ -25,6 +25,7 @@ const HELPER_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
 const ROOTFS_TAG: &str = "root";
 const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
+const PASST_SOCKET_NAME: &str = "passt.sock";
 
 #[derive(Clone, Debug)]
 pub struct Arg {
@@ -38,7 +39,7 @@ pub struct Arg {
 	pub kernel_path: PathBuf,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
-	pub network: bool,
+	pub network: Option<NetworkKind>,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
@@ -46,11 +47,42 @@ pub struct Arg {
 	pub user: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NetworkKind {
+	Tap,
+	Pasta,
+}
+
+impl std::str::FromStr for NetworkKind {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"tap" => Ok(Self::Tap),
+			"pasta" => Ok(Self::Pasta),
+			s => Err(tg::error!(option = %s, "invalid vm network option")),
+		}
+	}
+}
+
 struct User {
 	gid: libc::gid_t,
 	home: PathBuf,
 	name: String,
 	uid: libc::uid_t,
+}
+
+enum Network {
+	Tap(crate::network::Tap),
+	Pasta {
+		#[expect(dead_code)]
+		inner: crate::network::pasta::Network,
+		mac: String,
+		socket: PathBuf,
+		host_ip: Ipv4Addr,
+		guest_ip: Ipv4Addr,
+		netmask: Ipv4Addr,
+	},
 }
 
 pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
@@ -79,27 +111,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.map_err(|error| tg::error!(!error, "failed to open the virtiofsd socket"))?;
 	let helper_pid = spawn_virtiofsd_helper(arg, &user, socket.into_raw_fd())?;
 
-	let tap = if arg.network {
-		let host_ip = arg
-			.host_ip
-			.ok_or_else(|| tg::error!("--host-ip is required when --network is set"))?;
-		let guest_ip = arg
-			.guest_ip
-			.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
-		let mut hasher = DefaultHasher::new();
-		arg.path.hash(&mut hasher);
-		let id = format!("{:x}", hasher.finish());
-		Some(crate::network::Tap::new(&id, host_ip, guest_ip)?)
-	} else {
-		None
-	};
-	let network = tap.as_ref().map(|t| crate::vm::Network {
-		dns_servers: arg.dns.clone(),
-		gateway_ip: t.host_ip,
-		guest_ip: t.guest_ip,
-		netmask: t.netmask,
-	});
-
+	let network = Network::new(arg)?;
 	let mut command = std::process::Command::new("cloud-hypervisor");
 	command
 		.arg("--kernel")
@@ -133,11 +145,16 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit());
-	if let Some(tap) = tap.as_ref() {
+	if let Some(network) = network.as_ref() {
 		command.arg("--net");
-		command.arg(format!("fd={},mac={}", tap.fd.as_raw_fd(), tap.mac));
+		let arg = match network {
+			Network::Tap(tap) => format!("fd={},mac={}", tap.fd.as_raw_fd(), tap.mac),
+			Network::Pasta { socket, mac, .. } => {
+				format!("vhost_user=true,socket={},mac={mac}", socket.display())
+			},
+		};
+		command.arg(arg);
 	}
-	let _tap = tap;
 	unsafe {
 		command.pre_exec(|| set_parent_death_signal_io(libc::SIGKILL));
 	}
@@ -149,7 +166,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			return Err(tg::error!(!error, "failed to spawn cloud-hypervisor"));
 		},
 	};
-
 	loop {
 		if let Some(status) = child
 			.try_wait()
@@ -341,7 +357,7 @@ fn host_vm_root_path_from_root(root_path: &Path) -> PathBuf {
 	root_path.join("vmroot")
 }
 
-fn kernel_cmdline(arg: &Arg, user: &User, network: Option<&crate::vm::Network>) -> String {
+fn kernel_cmdline(arg: &Arg, user: &User, network: Option<&Network>) -> String {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
 	let output_path = Sandbox::guest_output_path_from_root(&arg.path);
 	let mut cmdline = String::from("console=ttyS0 rootfstype=virtiofs");
@@ -364,11 +380,20 @@ fn kernel_cmdline(arg: &Arg, user: &User, network: Option<&crate::vm::Network>) 
 		write!(
 			&mut cmdline,
 			" --network --guest-ip {} --gateway-ip {} --netmask {}",
-			network.guest_ip, network.gateway_ip, network.netmask,
+			network.guest_ip(),
+			network.host_ip(),
+			network.netmask(),
 		)
 		.unwrap();
-		for dns in &network.dns_servers {
-			write!(&mut cmdline, " --dns {dns}").unwrap();
+		match network {
+			Network::Pasta { host_ip, .. } => {
+				write!(&mut cmdline, " --dns {host_ip}").unwrap();
+			},
+			Network::Tap(_) => {
+				for dns in &arg.dns {
+					write!(&mut cmdline, " --dns {dns}").unwrap();
+				}
+			},
 		}
 	}
 	cmdline
@@ -589,4 +614,80 @@ fn exit_code_from_status(status: libc::c_int) -> u8 {
 		return u8::try_from((128 + signal).min(255)).unwrap_or(u8::MAX);
 	}
 	1
+}
+
+impl Network {
+	fn new(arg: &Arg) -> tg::Result<Option<Self>> {
+		match &arg.network {
+			Some(NetworkKind::Tap) => {
+				let host_ip = arg
+					.host_ip
+					.ok_or_else(|| tg::error!("--host-ip is required when --network is set"))?;
+				let guest_ip = arg
+					.guest_ip
+					.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
+				let mut hasher = DefaultHasher::new();
+				arg.path.hash(&mut hasher);
+				let id = format!("{:x}", hasher.finish());
+				let tap = crate::network::Tap::new(&id, host_ip, guest_ip)?;
+				Ok(Some(Network::Tap(tap)))
+			},
+			Some(NetworkKind::Pasta) => {
+				let host_ip = arg
+					.host_ip
+					.ok_or_else(|| tg::error!("--host-ip is required when --network is set"))?;
+				let guest_ip = arg
+					.guest_ip
+					.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
+				let netmask = Ipv4Addr::new(255, 255, 255, 252);
+				let socket = host_vm_path_from_root(&arg.path).join(PASST_SOCKET_NAME);
+				let bytes = rand::random::<[u8; 5]>();
+				let mac = format!(
+					"{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+					0x02, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4],
+				);
+				let mut inner =
+					crate::network::pasta::Network::new(crate::network::pasta::Options {
+						executable: None,
+						mode: crate::network::pasta::Mode::VhostUser {
+							socket: socket.clone(),
+							address: guest_ip,
+							netmask,
+							gateway: host_ip,
+						},
+					})?;
+				inner.start_vhost_user()?;
+				Ok(Some(Network::Pasta {
+					inner,
+					mac,
+					socket,
+					host_ip,
+					guest_ip,
+					netmask,
+				}))
+			},
+			None => Ok(None),
+		}
+	}
+
+	fn host_ip(&self) -> Ipv4Addr {
+		match self {
+			Self::Tap(tap) => tap.host_ip,
+			Self::Pasta { host_ip, .. } => *host_ip,
+		}
+	}
+
+	fn guest_ip(&self) -> Ipv4Addr {
+		match self {
+			Self::Tap(tap) => tap.guest_ip,
+			Self::Pasta { guest_ip, .. } => *guest_ip,
+		}
+	}
+
+	fn netmask(&self) -> Ipv4Addr {
+		match self {
+			Self::Tap(tap) => tap.netmask,
+			Self::Pasta { netmask, .. } => *netmask,
+		}
+	}
 }

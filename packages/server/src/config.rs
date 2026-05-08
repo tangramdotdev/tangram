@@ -563,8 +563,8 @@ pub enum JsEngine {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub network: Option<Network>,
+	#[serde(default = "default_network")]
+	pub network: Network,
 
 	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
 	pub dns: Vec<Ipv4Addr>,
@@ -1122,7 +1122,7 @@ impl Default for Runner {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			network: None,
+			network: default_network(),
 			dns: default_dns(),
 			finalizer: Some(Finalizer::default()),
 			isolation: SandboxIsolation::default(),
@@ -1350,6 +1350,10 @@ fn default_networks() -> Vec<SandboxNetwork> {
 
 fn default_dns() -> Vec<Ipv4Addr> {
 	vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)]
+}
+
+fn default_network() -> Network {
+	Network::Pasta(Pasta::default())
 }
 
 pub(crate) fn default_bridge_ip() -> Ipv4Addr {

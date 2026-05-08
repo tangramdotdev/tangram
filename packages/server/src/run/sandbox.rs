@@ -80,7 +80,28 @@ impl Session {
 		if state.status.is_finished() {
 			return Ok(());
 		}
-		let isolation = self.server.resolve_sandbox_isolation()?;
+
+		let isolation = match &state.isolation {
+			Some(tg::sandbox::Isolation::Container) => {
+				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default())
+			},
+			Some(tg::sandbox::Isolation::Seatbelt) => {
+				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
+			},
+			Some(tg::sandbox::Isolation::Vm) => {
+				let kernel_path = self
+					.config()
+					.sandbox
+					.isolation
+					.vm
+					.as_ref()
+					.ok_or_else(|| tg::error!("no vm image configured"))?
+					.kernel_path
+					.clone();
+				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation { kernel_path })
+			},
+			None => self.resolve_sandbox_isolation()?,
+		};
 
 		// Associate the permit with the sandbox.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
@@ -108,29 +129,6 @@ impl Session {
 			target: artifacts_path.clone(),
 			readonly: true,
 		});
-
-		let isolation = match &state.isolation {
-			Some(tg::sandbox::Isolation::Container) => {
-				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default())
-			},
-			Some(tg::sandbox::Isolation::Seatbelt) => {
-				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
-			},
-			Some(tg::sandbox::Isolation::Vm) => {
-				let kernel_path = self
-					.server
-					.config()
-					.sandbox
-					.isolation
-					.vm
-					.as_ref()
-					.ok_or_else(|| tg::error!("no vm image configured"))?
-					.kernel_path
-					.clone();
-				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation { kernel_path })
-			},
-			None => self.server.resolve_sandbox_isolation()?,
-		};
 		let network = match (state.network.as_ref(), &isolation) {
 			(tg::Either::Left(false), _) => None,
 			(
@@ -138,31 +136,31 @@ impl Session {
 				tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Seatbelt(_),
 			) => Some(tangram_sandbox::Network::Host),
 			(tg::Either::Left(true), tangram_sandbox::Isolation::Vm(_)) => {
-				Some(tangram_sandbox::Network::Tap)
+				if matches!(
+					self.config().sandbox.network,
+					crate::config::Network::Pasta(_)
+				) {
+					Some(tangram_sandbox::Network::Pasta)
+				} else {
+					Some(tangram_sandbox::Network::Tap)
+				}
 			},
 			(tg::Either::Right(tg::sandbox::Network::Host), _) => {
 				Some(tangram_sandbox::Network::Host)
 			},
-			(tg::Either::Right(tg::sandbox::Network::Bridge), _) => {
-				match self.config.sandbox.network.as_ref() {
-					Some(crate::config::Network::Pasta(_)) => Some(tangram_sandbox::Network::Pasta),
-					Some(crate::config::Network::Bridge(_)) | None => {
-						let bridge = match self.config.sandbox.network.as_ref() {
-							Some(crate::config::Network::Bridge(bridge)) => Some(bridge),
-							_ => None,
-						};
-						let ip = bridge
-							.and_then(|bridge| bridge.ip)
-							.unwrap_or_else(crate::config::default_bridge_ip);
-						let name = bridge
-							.and_then(|bridge| bridge.name.clone())
-							.unwrap_or_else(|| "tangram0".to_owned());
-						Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
-							ip,
-							name,
-						}))
-					},
-				}
+			(tg::Either::Right(tg::sandbox::Network::Bridge), _) => match &self.config.sandbox.network {
+				crate::config::Network::Pasta(_) => Some(tangram_sandbox::Network::Pasta),
+				crate::config::Network::Bridge(bridge) => {
+					let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
+					let name = bridge
+						.name
+						.clone()
+						.unwrap_or_else(|| "tangram0".to_owned());
+					Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
+						ip,
+						name,
+					}))
+				},
 			},
 		};
 		let (host_ip, guest_ip) = match (&isolation, network.as_ref()) {

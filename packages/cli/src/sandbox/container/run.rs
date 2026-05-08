@@ -14,9 +14,6 @@ pub struct Args {
 	pub binds: Vec<PathBuf>,
 
 	#[arg(long)]
-	pub bridge_fd: Option<i32>,
-
-	#[arg(long)]
 	pub bridge_ip: Option<Ipv4Addr>,
 
 	#[arg(long)]
@@ -57,6 +54,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub network: Option<tangram_sandbox::container::run::Network>,
+
+	#[arg(long)]
+	pub network_fd: Option<i32>,
 
 	#[arg(long)]
 	pub new_session: bool,
@@ -116,7 +116,6 @@ impl Args {
 		tangram_sandbox::container::run::Arg {
 			as_pid_1: self.as_pid_1,
 			binds,
-			bridge_fd: self.bridge_fd,
 			bridge_ip: self.bridge_ip,
 			cgroup: self.cgroup,
 			cgroup_cpu: self.cgroup_cpu,
@@ -130,6 +129,7 @@ impl Args {
 			guest_ip: self.guest_ip,
 			hostname: self.hostname,
 			network: self.network,
+			network_fd: self.network_fd,
 			new_session: self.new_session,
 			nice: self.nice,
 			overlay_sources: self.overlay_sources,

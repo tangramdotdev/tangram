@@ -488,11 +488,11 @@ impl Server {
 		};
 
 		// Create the networks
-		let ignored_ifaces: Vec<String> = match config.sandbox.network.as_ref() {
-			Some(crate::config::Network::Bridge(bridge)) => {
+		let ignored_ifaces: Vec<String> = match &config.sandbox.network {
+			crate::config::Network::Bridge(bridge) => {
 				vec![bridge.name.as_deref().unwrap_or("tangram0").to_owned()]
 			},
-			_ => vec![],
+			crate::config::Network::Pasta(_) => vec![],
 		};
 		let networks = config
 			.sandbox
@@ -994,14 +994,13 @@ impl Server {
 		// Remove host-wide iptables rules left behind by previous runs of the server, then create the bridge. Bridge setup requires root; if the server is not running as root, log a warning and skip. Pasta networking has no host-side bridge, so the setup is skipped entirely in that mode.
 		#[cfg(target_os = "linux")]
 		{
-			let bridge_config = match server.config.sandbox.network.as_ref() {
-				Some(crate::config::Network::Bridge(bridge)) => Some(bridge),
-				Some(crate::config::Network::Pasta(_)) => None,
-				None => None,
+			let bridge_config = match &server.config.sandbox.network {
+				crate::config::Network::Bridge(bridge) => Some(bridge),
+				crate::config::Network::Pasta(_) => None,
 			};
 			let create_bridge = !matches!(
-				server.config.sandbox.network.as_ref(),
-				Some(crate::config::Network::Pasta(_))
+				server.config.sandbox.network,
+				crate::config::Network::Pasta(_)
 			);
 			let bridge_name = bridge_config
 				.and_then(|bridge| bridge.name.as_deref())

@@ -227,7 +227,7 @@ pub(crate) async fn spawn(
 			.id()
 			.ok_or_else(|| tg::error!("no child pid available"))?;
 		let pid = i32::try_from(pid).map_err(|source| tg::error!(!source, "invalid child pid"))?;
-		pasta.connect(pid).await?;
+		pasta.start_netns(pid).await?;
 	}
 	Ok((child, pasta))
 }
