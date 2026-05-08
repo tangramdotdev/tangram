@@ -167,7 +167,7 @@ impl Network {
 		Ok(())
 	}
 
-	pub fn start_vhost_user(&mut self, forward_to_host: bool) -> tg::Result<()> {
+	pub fn start_vhost_user(&mut self) -> tg::Result<()> {
 		let Mode::VhostUser {
 			socket,
 			address,
@@ -197,10 +197,8 @@ impl Network {
 				rest.trim().parse::<Ipv4Addr>().ok()
 			})
 			.ok_or_else(|| tg::error!("/etc/resolv.conf has no IPv4 nameserver entry"))?;
-		if !forward_to_host {
-			command.arg("--no-map-gw");
-		}
 		command
+			.arg("--no-map-gw")
 			.arg("--vhost-user")
 			.arg("--foreground")
 			.arg("--quiet")

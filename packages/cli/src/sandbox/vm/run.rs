@@ -17,9 +17,6 @@ pub struct Args {
 	pub dns: Vec<Ipv4Addr>,
 
 	#[arg(long)]
-	pub forward_to_host: bool,
-
-	#[arg(long)]
 	pub host_ip: Option<Ipv4Addr>,
 
 	#[arg(long)]
@@ -65,7 +62,6 @@ impl Cli {
 			artifacts_path: args.artifacts_path,
 			cpu: args.cpu,
 			dns: args.dns,
-			forward_to_host: args.forward_to_host,
 			host_ip: args.host_ip,
 			guest_ip: args.guest_ip,
 			hostname: args.hostname,

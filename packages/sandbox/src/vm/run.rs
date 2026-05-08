@@ -32,7 +32,6 @@ pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
-	pub forward_to_host: bool,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub host_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
@@ -657,7 +656,7 @@ impl Network {
 							gateway: host_ip,
 						},
 					})?;
-				inner.start_vhost_user(arg.forward_to_host)?;
+				inner.start_vhost_user()?;
 				Ok(Some(Network::Pasta {
 					inner,
 					mac,

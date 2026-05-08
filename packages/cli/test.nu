@@ -379,8 +379,9 @@ def run_test [test: record, bridge: bool, cloud: bool, quickjs: bool, no_capture
 		$config = $config | merge deep {
 			sandbox: {
 				isolation: {
-					kind: 'vm',
-					kernel_path: $kernel_path,
+					vm : {
+						kernel_path: $kernel_path,
+					},
 				},
 			},
 		}
@@ -849,8 +850,9 @@ export def --env spawn [
 		$default_config = $default_config | merge deep {
 			sandbox: {
 				isolation: {
-					kind: 'vm',
-					kernel_path: $kernel_path,
+					vm: {
+						kernel_path: $kernel_path,
+					},
 				},
 			},
 		}

@@ -29,28 +29,27 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		.arg(serve_arg.url.to_string());
 	match &arg.network {
 		None => (),
+		Some(crate::Network::Host) => {
+			return Err(tg::error!("vm sandboxes do not support host networking"));
+		},
 		Some(crate::Network::Bridge(_)) => {
 			return Err(tg::error!("vm sandboxes do not support bridge networking"));
 		},
-		Some(crate::Network::Pasta | crate::Network::Tap | crate::Network::Host) => {
+		Some(crate::Network::Pasta | crate::Network::Tap) => {
 			let host_ip = arg
 				.host_ip
 				.ok_or_else(|| tg::error!("expected a host IP"))?;
 			let guest_ip = arg
 				.guest_ip
 				.ok_or_else(|| tg::error!("expected a guest IP"))?;
-			let (kind, forward_to_host) = match arg.network {
-				Some(crate::Network::Pasta) => ("pasta", false),
-				Some(crate::Network::Host) => ("pasta", true),
-				Some(crate::Network::Tap) => ("tap", false),
+			let kind = match arg.network {
+				Some(crate::Network::Pasta) => "pasta",
+				Some(crate::Network::Tap) => "tap",
 				_ => unreachable!(),
 			};
 			command.arg("--network").arg(kind);
 			command.arg("--host-ip").arg(host_ip.to_string());
 			command.arg("--guest-ip").arg(guest_ip.to_string());
-			if forward_to_host {
-				command.arg("--forward-to-host");
-			}
 			for server in &arg.dns {
 				command.arg("--dns").arg(server.to_string());
 			}
