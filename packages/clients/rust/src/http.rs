@@ -372,9 +372,9 @@ impl tg::Client {
 	}
 
 	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
-		tokio::net::UnixStream::connect(path)
-			.await
-			.map_err(|source| tg::error!(!source, path = %path.display(), "failed to connect to the socket"))
+		tokio::net::UnixStream::connect(path).await.map_err(
+			|source| tg::error!(!source, path = %path.display(), "failed to connect to the socket"),
+		)
 	}
 
 	#[cfg(feature = "vsock")]

@@ -42,7 +42,7 @@ const POLL_INTERVAL_MS: u64 = 16;
 impl Network {
 	pub fn new(options: Options) -> tg::Result<Self> {
 		let (host_pipe, guest_pipe) = match &options.mode {
-			Mode::Netns { .. }=> {
+			Mode::Netns { .. } => {
 				let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair().map_err(|source| {
 					tg::error!(!source, "failed to create the pasta sync socket pair")
 				})?;
@@ -115,10 +115,14 @@ impl Network {
 			.arg("--foreground") // run pasta in the foreground, die
 			.arg("--config-net") // setup addr/routes in the net namespace
 			.arg("--no-map-gw") // disable loopback to the host
-			.arg("-t").arg("none") // no TCP port forwarding host → guest
-			.arg("-u").arg("none") // no UDP port forwarding host → guest
-			.arg("-T").arg("none") // no TCP port forwarding guest → host
-			.arg("-U").arg("none") // no UDP port forwarding guest → host
+			.arg("-t")
+			.arg("none") // no TCP port forwarding host → guest
+			.arg("-u")
+			.arg("none") // no UDP port forwarding host → guest
+			.arg("-T")
+			.arg("none") // no TCP port forwarding guest → host
+			.arg("-U")
+			.arg("none") // no UDP port forwarding guest → host
 			.arg("--quiet");
 		if let Some(interface) = interface {
 			command.arg("-i").arg(interface);
@@ -163,7 +167,7 @@ impl Network {
 		Ok(())
 	}
 
-	pub fn start_vhost_user(&mut self) -> tg::Result<()> {
+	pub fn start_vhost_user(&mut self, forward_to_host: bool) -> tg::Result<()> {
 		let Mode::VhostUser {
 			socket,
 			address,
@@ -192,11 +196,11 @@ impl Network {
 				let rest = line.strip_prefix("nameserver")?;
 				rest.trim().parse::<Ipv4Addr>().ok()
 			})
-			.ok_or_else(|| {
-				tg::error!("/etc/resolv.conf has no IPv4 nameserver entry")
-			})?;
+			.ok_or_else(|| tg::error!("/etc/resolv.conf has no IPv4 nameserver entry"))?;
+		if !forward_to_host {
+			command.arg("--no-map-gw");
+		}
 		command
-			.arg("--no-map-gw")
 			.arg("--vhost-user")
 			.arg("--foreground")
 			.arg("--quiet")
@@ -224,10 +228,9 @@ impl Network {
 				break;
 			}
 			if let Some(child) = self.child.as_mut()
-				&& let Some(status) = child
-					.try_wait()
-					.map_err(|source| tg::error!(!source, "failed to poll {}", executable.display()))?
-			{
+				&& let Some(status) = child.try_wait().map_err(|source| {
+					tg::error!(!source, "failed to poll {}", executable.display())
+				})? {
 				return Err(tg::error!(
 					%status,
 					"{} passt exited before opening the vhost-user socket",
@@ -236,7 +239,8 @@ impl Network {
 			}
 			if Instant::now() >= deadline {
 				return Err(tg::error!(
-					"timed out waiting for {} to open the vhost-user socket", executable.display(),
+					"timed out waiting for {} to open the vhost-user socket",
+					executable.display(),
 				));
 			}
 			std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));

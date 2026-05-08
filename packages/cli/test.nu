@@ -415,11 +415,11 @@ def run_test [test: record, bridge: bool, cloud: bool, quickjs: bool, no_capture
 	} {
 		let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
 		if $no_capture {
-			open /dev/null | timeout $timeout nu -c $command o+e> /dev/stderr
+			open /dev/null | setpriv --pdeathsig SIGKILL timeout $timeout setpriv --pdeathsig SIGKILL nu -c $command o+e> /dev/stderr
 			let exit_code = $env.LAST_EXIT_CODE
 			{ exit_code: $exit_code, stdout: '', stderr: '' }
 		} else {
-			let output = open /dev/null | timeout $timeout nu -c $command o+e>| complete
+			let output = open /dev/null | setpriv --pdeathsig SIGKILL timeout $timeout setpriv --pdeathsig SIGKILL nu -c $command o+e>| complete
 			{
 				exit_code: $output.exit_code,
 				stdout: '',
@@ -821,6 +821,9 @@ export def --env spawn [
 			},
 		},
 		remotes: [],
+		sandbox: {
+			network: { kind: 'pasta' },
+		},
 		tokio_single_threaded: true,
 		v8_thread_pool_size: 1,
 	}
