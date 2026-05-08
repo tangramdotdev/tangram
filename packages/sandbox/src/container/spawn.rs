@@ -305,6 +305,14 @@ fn prepare_etc_files(
 			std::fs::copy("/etc/resolv.conf", path)
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
+		Some(crate::Network::Pasta) => {
+			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+			std::fs::write(
+				path,
+				&format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP),
+			)
+			.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+		},
 		_ => (),
 	}
 	Ok(user)

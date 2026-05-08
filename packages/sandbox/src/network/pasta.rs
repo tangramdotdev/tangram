@@ -38,6 +38,7 @@ pub struct Network {
 
 const TIMEOUT_MS: u64 = 5000;
 const POLL_INTERVAL_MS: u64 = 16;
+pub const DNS_FORWARD_IP: &str = "169.254.1.1";
 
 impl Network {
 	pub fn new(options: Options) -> tg::Result<Self> {
@@ -123,6 +124,8 @@ impl Network {
 			.arg("none") // no TCP port forwarding guest → host
 			.arg("-U")
 			.arg("none") // no UDP port forwarding guest → host
+			.arg("--dns-forward")
+			.arg(DNS_FORWARD_IP)
 			.arg("--quiet");
 		if let Some(interface) = interface {
 			command.arg("-i").arg(interface);
