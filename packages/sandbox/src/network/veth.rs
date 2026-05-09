@@ -140,6 +140,14 @@ fn gateway_ip() -> Ipv4Addr {
 	Ipv4Addr::new(172, 18, 0, 1)
 }
 
+pub(crate) fn guest_ip_min() -> Ipv4Addr {
+	Ipv4Addr::new(172, 18, 0, 4)
+}
+
+pub(crate) fn guest_ip_max() -> Ipv4Addr {
+	Ipv4Addr::new(172, 18, 255, 255)
+}
+
 fn ensure_bridge_iptables_rules(bridge: &str, addr: Ipv4Addr) -> tg::Result<()> {
 	let octets = addr.octets();
 	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);

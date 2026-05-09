@@ -52,14 +52,14 @@ impl Pool {
 		}
 	}
 
-	pub(crate) fn try_reserve(&self) -> tg::Result<Lease> {
-		let block = Arc::new(self.reserve_block()?);
+	pub(crate) fn try_reserve_in(&self, min: Ipv4Addr, max: Ipv4Addr) -> tg::Result<Lease> {
+		let block = Arc::new(self.reserve_block(Some((min.to_bits(), max.to_bits())))?);
 		let addr = Ipv4Addr::from_bits(block.base + 1);
 		Ok(Lease { addr, block })
 	}
 
 	pub(crate) fn try_reserve_pair(&self) -> tg::Result<(Lease, Lease)> {
-		let block = Arc::new(self.reserve_block()?);
+		let block = Arc::new(self.reserve_block(None)?);
 		let host = Lease {
 			addr: Ipv4Addr::from_bits(block.base + 1),
 			block: Arc::clone(&block),
@@ -71,7 +71,7 @@ impl Pool {
 		Ok((host, guest))
 	}
 
-	fn reserve_block(&self) -> tg::Result<Block> {
+	fn reserve_block(&self, bounds: Option<(u32, u32)>) -> tg::Result<Block> {
 		let used = host_used_ranges();
 		let mut state = self.state.lock().unwrap();
 		if state.ranges.is_empty() {
@@ -80,7 +80,12 @@ impl Pool {
 		for index in 0..state.ranges.len() {
 			loop {
 				let range = &mut state.ranges[index];
-				if let Some(base) = range.blocks.pop() {
+				if let Some(position) = range
+					.blocks
+					.iter()
+					.rposition(|&base| block_fits_bounds(base, bounds))
+				{
+					let base = range.blocks.swap_remove(position);
 					let overlaps = used
 						.iter()
 						.any(|&(start, last)| base <= last && base + 3 >= start);
@@ -93,11 +98,22 @@ impl Pool {
 					}
 					continue;
 				}
-				let next = range.next;
+				let mut next = range.next;
+				if let Some((min, _)) = bounds
+					&& next < min
+				{
+					next = min
+						.checked_add(3)
+						.ok_or_else(|| tg::error!("out of ip addresses"))?
+						& !3;
+				}
 				let end = next
 					.checked_add(4)
 					.ok_or_else(|| tg::error!("out of ip addresses"))?;
 				if end - 1 > range.max {
+					break;
+				}
+				if !block_fits_bounds(next, bounds) {
 					break;
 				}
 				let conflict_end = used
@@ -125,6 +141,13 @@ impl Pool {
 		}
 		Err(tg::error!("out of ip addresses"))
 	}
+}
+
+fn block_fits_bounds(base: u32, bounds: Option<(u32, u32)>) -> bool {
+	let Some((min, max)) = bounds else {
+		return true;
+	};
+	base >= min && base.checked_add(3).is_some_and(|end| end <= max)
 }
 
 fn host_used_ranges() -> Vec<(u32, u32)> {

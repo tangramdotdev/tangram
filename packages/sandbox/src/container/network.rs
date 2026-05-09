@@ -12,7 +12,7 @@ pub(crate) fn create(
 		crate::Network::Bridge | crate::Network::Default => {
 			if crate::network::root() {
 				crate::network::veth::setup()?;
-				let guest = pool.try_reserve()?;
+				let guest = reserve_veth_guest(pool)?;
 				let network = crate::network::veth::Network::new(guest);
 				let network = crate::network::Network::Veth(network);
 				Ok(Some(network))
@@ -28,4 +28,17 @@ pub(crate) fn create(
 		},
 		crate::Network::Host => Ok(Some(crate::network::Network::Host)),
 	}
+}
+
+fn reserve_veth_guest(pool: &crate::network::ip::Pool) -> tg::Result<crate::network::ip::Lease> {
+	pool.try_reserve_in(
+		crate::network::veth::guest_ip_min(),
+		crate::network::veth::guest_ip_max(),
+	)
+	.map_err(|source| {
+		tg::error!(
+			!source,
+			"failed to reserve a veth address in the bridge subnet"
+		)
+	})
 }
