@@ -151,18 +151,6 @@ fn block_fits_bounds(base: u32, bounds: Option<(u32, u32)>) -> bool {
 }
 
 fn host_used_ranges() -> Vec<(u32, u32)> {
-	#[cfg(target_os = "linux")]
-	{
-		host_used_ranges_linux()
-	}
-	#[cfg(target_os = "macos")]
-	{
-		Vec::new()
-	}
-}
-
-#[cfg(target_os = "linux")]
-fn host_used_ranges_linux() -> Vec<(u32, u32)> {
 	let ignore_bridge = super::root();
 	let is_ignored = |name: &str| ignore_bridge && name == super::veth::BRIDGE_NAME;
 	let mut ranges = Vec::new();

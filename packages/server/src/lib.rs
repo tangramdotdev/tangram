@@ -89,6 +89,7 @@ pub struct State {
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
+	#[cfg(target_os = "linux")]
 	ip_pool: tangram_sandbox::network::ip::Pool,
 	library: Mutex<Option<Arc<Temp>>>,
 	lock: Mutex<Option<tokio::fs::File>>,
@@ -487,6 +488,7 @@ impl Server {
 		};
 
 		// Create the IP pool.
+		#[cfg(target_os = "linux")]
 		let ip_pool = tangram_sandbox::network::ip::Pool::new(
 			config
 				.sandbox
@@ -613,6 +615,7 @@ impl Server {
 			diagnostics,
 			index,
 			index_tasks,
+			#[cfg(target_os = "linux")]
 			ip_pool,
 			library,
 			lock,

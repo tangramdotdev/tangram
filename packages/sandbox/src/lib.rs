@@ -21,6 +21,7 @@ mod util;
 
 #[cfg(target_os = "linux")]
 pub mod container;
+#[cfg(target_os = "linux")]
 pub mod network;
 pub mod root;
 #[cfg(target_os = "macos")]
@@ -37,6 +38,7 @@ pub struct State {
 
 	client: Client,
 
+	#[cfg(target_os = "linux")]
 	#[expect(dead_code)]
 	network: Option<crate::network::Network>,
 
@@ -66,6 +68,7 @@ pub struct Arg {
 	pub dns: Vec<Ipv4Addr>,
 	pub hostname: Option<String>,
 	pub id: tg::sandbox::Id,
+	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
 	pub isolation: Isolation,
 	pub memory: Option<u64>,
@@ -221,17 +224,14 @@ impl Sandbox {
 			},
 		};
 		#[cfg(target_os = "macos")]
-		let (mut process, network) = {
-			let process = match &arg.isolation {
-				Isolation::Container(_) => {
-					return Err(tg::error!("container isolation is not supported on macos"));
-				},
-				Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
-				Isolation::Vm(_) => {
-					return Err(tg::error!("vm isolation is not supported on macos"));
-				},
-			};
-			(process, None)
+		let mut process = match &arg.isolation {
+			Isolation::Container(_) => {
+				return Err(tg::error!("container isolation is not supported on macos"));
+			},
+			Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
+			Isolation::Vm(_) => {
+				return Err(tg::error!("vm isolation is not supported on macos"));
+			},
 		};
 
 		let connect = match listener.as_ref() {
@@ -281,6 +281,7 @@ impl Sandbox {
 		let sandbox = Self(Arc::new(State {
 			arg,
 			client,
+			#[cfg(target_os = "linux")]
 			network,
 			process,
 		}));
