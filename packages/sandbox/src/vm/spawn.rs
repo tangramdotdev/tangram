@@ -1,6 +1,10 @@
 use {crate::serve, tangram_client::prelude::*};
 
-pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<tokio::process::Child> {
+pub(crate) fn spawn(
+	arg: &crate::Arg,
+	serve_arg: &serve::Arg,
+	network: Option<&crate::network::Network>,
+) -> tg::Result<tokio::process::Child> {
 	if !serve_arg.library_paths.is_empty() {
 		return Err(tg::error!(
 			"vm sandboxes do not support additional library paths"
@@ -27,33 +31,46 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		.arg(&arg.tangram_path)
 		.arg("--url")
 		.arg(serve_arg.url.to_string());
-	match &arg.network {
-		None => (),
-		Some(crate::Network::Host) => {
-			return Err(tg::error!("vm sandboxes do not support host networking"));
-		},
-		Some(crate::Network::Bridge(_)) => {
-			return Err(tg::error!("vm sandboxes do not support bridge networking"));
-		},
-		Some(crate::Network::Pasta | crate::Network::Tap) => {
-			let host_ip = arg
-				.host_ip
-				.ok_or_else(|| tg::error!("expected a host IP"))?;
-			let guest_ip = arg
-				.guest_ip
-				.ok_or_else(|| tg::error!("expected a guest IP"))?;
-			let kind = match arg.network {
-				Some(crate::Network::Pasta) => "pasta",
-				Some(crate::Network::Tap) => "tap",
-				_ => unreachable!(),
-			};
-			command.arg("--network").arg(kind);
-			command.arg("--host-ip").arg(host_ip.to_string());
-			command.arg("--guest-ip").arg(guest_ip.to_string());
-			for server in &arg.dns {
-				command.arg("--dns").arg(server.to_string());
-			}
-		},
+	if let Some(network) = network {
+		match network {
+			crate::network::Network::Host => {
+				return Err(tg::error!("vm sandboxes do not support host networking"));
+			},
+			crate::network::Network::Passt(_) => {
+				let host_ip = network
+					.host_ip()
+					.ok_or_else(|| tg::error!("missing host IP address"))?;
+				let guest_ip = network
+					.guest_ip()
+					.ok_or_else(|| tg::error!("missing guest IP address"))?;
+				command.arg("--network").arg(network.kind());
+				command.arg("--host-ip").arg(host_ip.to_string());
+				command.arg("--guest-ip").arg(guest_ip.to_string());
+				for server in &arg.dns {
+					command.arg("--dns").arg(server.to_string());
+				}
+			},
+			crate::network::Network::Pasta(_) => {
+				return Err(tg::error!("vm sandboxes do not support pasta networking"));
+			},
+			crate::network::Network::Tap(_) => {
+				let host_ip = network
+					.host_ip()
+					.ok_or_else(|| tg::error!("missing host IP address"))?;
+				let guest_ip = network
+					.guest_ip()
+					.ok_or_else(|| tg::error!("missing guest IP address"))?;
+				command.arg("--network").arg(network.kind());
+				command.arg("--host-ip").arg(host_ip.to_string());
+				command.arg("--guest-ip").arg(guest_ip.to_string());
+				for server in &arg.dns {
+					command.arg("--dns").arg(server.to_string());
+				}
+			},
+			crate::network::Network::Veth(_) => {
+				return Err(tg::error!("vm sandboxes do not support veth networking"));
+			},
+		}
 	}
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);

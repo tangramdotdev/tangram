@@ -21,49 +21,43 @@ struct User {
 pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
-) -> tg::Result<(
-	tokio::process::Child,
-	Option<crate::network::pasta::Network>,
-)> {
+	network: Option<&mut crate::network::Network>,
+) -> tg::Result<tokio::process::Child> {
 	let crate::Isolation::Container(_) = &arg.isolation else {
 		unreachable!()
 	};
-	let network_arg = match &arg.network {
+	let network_arg = match network.as_deref() {
 		None => None,
-		Some(crate::Network::Host) => Some("host".to_owned()),
-		Some(crate::Network::Bridge(bridge)) => Some(format!("bridge={}", bridge.name)),
-		Some(crate::Network::Pasta) => Some("pasta".to_owned()),
-		Some(crate::Network::Tap) => {
+		Some(crate::network::Network::Host) => Some("host".to_owned()),
+		Some(crate::network::Network::Passt(_)) => {
+			return Err(tg::error!(
+				"container sandboxes do not support passt networking"
+			));
+		},
+		Some(crate::network::Network::Pasta(_)) => Some("pasta".to_owned()),
+		Some(crate::network::Network::Tap(_)) => {
 			return Err(tg::error!(
 				"container sandboxes do not support tap networking"
 			));
 		},
+		Some(crate::network::Network::Veth(_)) => Some("veth".to_owned()),
 	};
-	let mut bridge = if let Some(crate::Network::Bridge(bridge)) = &arg.network {
-		let id = arg.id.clone();
-		let bridge_name = bridge.name.clone();
-		Some(
-			tokio::task::spawn_blocking(move || crate::network::Bridge::new(&id, &bridge_name))
+	let mut veth = match network.as_deref() {
+		Some(crate::network::Network::Veth(network)) => {
+			let id = arg.id.clone();
+			let bridge_name = network.bridge_name().to_owned();
+			Some(
+				tokio::task::spawn_blocking(move || {
+					crate::network::veth::Pair::new(&id, &bridge_name)
+				})
 				.await
-				.map_err(|error| tg::error!(!error, "the bridge creation task panicked"))??,
-		)
-	} else {
-		None
-	};
-	let mut pasta = if matches!(&arg.network, Some(crate::Network::Pasta)) {
-		Some(crate::network::pasta::Network::new(
-			crate::network::pasta::Options::default(),
-		)?)
-	} else {
-		None
+				.map_err(|error| tg::error!(!error, "the veth creation task panicked"))??,
+			)
+		},
+		_ => None,
 	};
 	prepare_sandbox_directory(&arg.path)?;
-	let user = prepare_etc_files(
-		&arg.path,
-		arg.network.as_ref(),
-		arg.user.as_deref(),
-		&arg.dns,
-	)?;
+	let user = prepare_etc_files(&arg.path, network.as_deref(), arg.user.as_deref(), &arg.dns)?;
 	let upper_path = Sandbox::host_upper_path_from_root(&arg.path);
 	for mount in &arg.mounts {
 		crate::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
@@ -105,21 +99,27 @@ pub(crate) async fn spawn(
 	if let Some(network_arg) = &network_arg {
 		command.arg("--network").arg(network_arg);
 	}
-	if let Some(bridge) = bridge.as_ref() {
+	if let Some(crate::network::Network::Pasta(network)) = network.as_deref()
+		&& let Some(guest_pipe) = network.guest_pipe()
+	{
 		command
 			.arg("--network-fd")
-			.arg(bridge.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
+			.arg(guest_pipe.as_raw_fd().to_string());
 	}
-	if let Some(pasta) = pasta.as_ref() {
+	if let Some(veth) = veth.as_ref() {
 		command
 			.arg("--network-fd")
-			.arg(pasta.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
+			.arg(veth.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
 	}
-	if let Some(crate::Network::Bridge(bridge)) = &arg.network {
-		command.arg("--bridge-ip").arg(bridge.ip.to_string());
+	if let Some(crate::network::Network::Veth(network)) = network.as_deref() {
+		command
+			.arg("--gateway-ip")
+			.arg(network.gateway_ip().to_string());
 	}
-	if let Some(guest_ip) = arg.guest_ip {
-		command.arg("--guest-ip").arg(guest_ip.to_string());
+	if let Some(crate::network::Network::Veth(network)) = network.as_deref() {
+		command
+			.arg("--guest-ip")
+			.arg(network.guest_ip().to_string());
 	}
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
@@ -213,23 +213,23 @@ pub(crate) async fn spawn(
 	let child = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
-	if let Some(bridge) = bridge.as_mut() {
-		drop(bridge.guest_pipe.take());
-		let pid = child
-			.id()
-			.ok_or_else(|| tg::error!("no child pid available"))?;
-		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
-		bridge.connect(pid).await?;
-	}
-	if let Some(pasta) = pasta.as_mut() {
-		drop(pasta.guest_pipe.take());
+	if let Some(crate::network::Network::Pasta(network)) = network {
+		network.take_guest_pipe();
 		let pid = child
 			.id()
 			.ok_or_else(|| tg::error!("no child pid available"))?;
 		let pid = i32::try_from(pid).map_err(|source| tg::error!(!source, "invalid child pid"))?;
-		pasta.start_netns(pid).await?;
+		network.start_netns(pid).await?;
 	}
-	Ok((child, pasta))
+	if let Some(veth) = veth.as_mut() {
+		drop(veth.guest_pipe.take());
+		let pid = child
+			.id()
+			.ok_or_else(|| tg::error!("no child pid available"))?;
+		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
+		veth.connect(pid).await?;
+	}
+	Ok(child)
 }
 
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
@@ -269,7 +269,7 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 
 fn prepare_etc_files(
 	sandbox_path: &Path,
-	network: Option<&crate::Network>,
+	network: Option<&crate::network::Network>,
 	user: Option<&str>,
 	dns: &[Ipv4Addr],
 ) -> tg::Result<User> {
@@ -290,7 +290,22 @@ fn prepare_etc_files(
 	)
 	.map_err(|error| tg::error!(!error, "failed to write /etc/nsswitch.conf"))?;
 	match network {
-		Some(crate::Network::Bridge(_)) => {
+		Some(crate::network::Network::Host) if Path::new("/etc/resolv.conf").exists() => {
+			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+			std::fs::copy("/etc/resolv.conf", path)
+				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+		},
+		Some(crate::network::Network::Pasta(_)) => {
+			let contents = if dns.is_empty() {
+				String::new()
+			} else {
+				format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP)
+			};
+			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+			std::fs::write(path, contents)
+				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
+		},
+		Some(crate::network::Network::Veth(_)) => {
 			let mut contents = String::new();
 			for server in dns {
 				use std::fmt::Write as _;
@@ -299,19 +314,6 @@ fn prepare_etc_files(
 			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
 			std::fs::write(path, contents)
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
-		},
-		Some(crate::Network::Host) if Path::new("/etc/resolv.conf").exists() => {
-			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::copy("/etc/resolv.conf", path)
-				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
-		},
-		Some(crate::Network::Pasta) => {
-			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::write(
-				path,
-				&format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP),
-			)
-			.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
 		_ => (),
 	}

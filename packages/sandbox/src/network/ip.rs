@@ -1,117 +1,147 @@
 use {
 	std::{
+		ffi::CStr,
 		net::Ipv4Addr,
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 };
 
-pub struct Network {
-	inner: Arc<Mutex<Inner>>,
-	ignored_ifaces: Vec<String>,
+#[derive(Clone, Debug)]
+pub struct Pool {
+	state: Arc<Mutex<State>>,
 }
 
-struct Inner {
+#[derive(Debug)]
+struct State {
+	ranges: Vec<Range>,
+}
+
+#[derive(Debug)]
+struct Range {
 	blocks: Vec<u32>,
 	max: u32,
 	next: u32,
 }
 
-pub struct Ip {
-	pub addr: Ipv4Addr,
-	_block: Arc<Block>,
+pub(crate) struct Lease {
+	pub(crate) addr: Ipv4Addr,
+	#[expect(dead_code)]
+	block: Arc<Block>,
 }
 
 struct Block {
 	base: u32,
-	inner: Arc<Mutex<Inner>>,
+	range: usize,
+	state: Arc<Mutex<State>>,
 }
 
-impl Network {
-	pub fn new(min: u32, max: u32, ignored_ifaces: Vec<String>) -> Self {
-		let next = (min + 3) & !3;
-		Self {
-			inner: Arc::new(Mutex::new(Inner {
+impl Pool {
+	#[must_use]
+	pub fn new(ranges: impl IntoIterator<Item = (u32, u32)>) -> Self {
+		let ranges = ranges
+			.into_iter()
+			.map(|(min, max)| Range {
 				blocks: Vec::new(),
 				max,
-				next,
-			})),
-			ignored_ifaces,
+				next: (min + 3) & !3,
+			})
+			.collect();
+		Self {
+			state: Arc::new(Mutex::new(State { ranges })),
 		}
 	}
 
-	pub fn try_reserve(&self) -> tg::Result<Ip> {
+	pub(crate) fn try_reserve(&self) -> tg::Result<Lease> {
 		let block = Arc::new(self.reserve_block()?);
 		let addr = Ipv4Addr::from_bits(block.base + 1);
-		Ok(Ip {
-			addr,
-			_block: block,
-		})
+		Ok(Lease { addr, block })
 	}
 
-	pub fn try_reserve_pair(&self) -> tg::Result<(Ip, Ip)> {
+	pub(crate) fn try_reserve_pair(&self) -> tg::Result<(Lease, Lease)> {
 		let block = Arc::new(self.reserve_block()?);
-		let host = Ip {
+		let host = Lease {
 			addr: Ipv4Addr::from_bits(block.base + 1),
-			_block: Arc::clone(&block),
+			block: Arc::clone(&block),
 		};
-		let guest = Ip {
+		let guest = Lease {
 			addr: Ipv4Addr::from_bits(block.base + 2),
-			_block: block,
+			block,
 		};
 		Ok((host, guest))
 	}
 
 	fn reserve_block(&self) -> tg::Result<Block> {
-		let used = host_used_ranges(&self.ignored_ifaces);
-		loop {
-			let mut inner = self.inner.lock().unwrap();
-			if let Some(base) = inner.blocks.pop() {
-				let overlaps = used
-					.iter()
-					.any(|&(start, last)| base <= last && base + 3 >= start);
-				if !overlaps {
-					return Ok(Block {
-						base,
-						inner: Arc::clone(&self.inner),
-					});
-				}
-				continue;
-			}
-			let next = inner.next;
-			let end = next
-				.checked_add(4)
-				.ok_or_else(|| tg::error!("out of ip addresses"))?;
-			if end - 1 > inner.max {
-				return Err(tg::error!("out of ip addresses"));
-			}
-			let conflict_end = used
-				.iter()
-				.filter_map(|&(start, last)| (next <= last && end > start).then_some(last))
-				.max();
-			if let Some(conflict_end) = conflict_end {
-				let advanced = conflict_end
-					.checked_add(1)
-					.ok_or_else(|| tg::error!("out of ip addresses"))?;
-				let aligned = advanced
-					.checked_add(3)
-					.ok_or_else(|| tg::error!("out of ip addresses"))?
-					& !3;
-				inner.next = aligned;
-				continue;
-			}
-			inner.next = end;
-			return Ok(Block {
-				base: next,
-				inner: Arc::clone(&self.inner),
-			});
+		let used = host_used_ranges();
+		let mut state = self.state.lock().unwrap();
+		if state.ranges.is_empty() {
+			return Err(tg::error!("no networks are configured"));
 		}
+		for index in 0..state.ranges.len() {
+			loop {
+				let range = &mut state.ranges[index];
+				if let Some(base) = range.blocks.pop() {
+					let overlaps = used
+						.iter()
+						.any(|&(start, last)| base <= last && base + 3 >= start);
+					if !overlaps {
+						return Ok(Block {
+							base,
+							range: index,
+							state: Arc::clone(&self.state),
+						});
+					}
+					continue;
+				}
+				let next = range.next;
+				let end = next
+					.checked_add(4)
+					.ok_or_else(|| tg::error!("out of ip addresses"))?;
+				if end - 1 > range.max {
+					break;
+				}
+				let conflict_end = used
+					.iter()
+					.filter_map(|&(start, last)| (next <= last && end > start).then_some(last))
+					.max();
+				if let Some(conflict_end) = conflict_end {
+					let advanced = conflict_end
+						.checked_add(1)
+						.ok_or_else(|| tg::error!("out of ip addresses"))?;
+					let aligned = advanced
+						.checked_add(3)
+						.ok_or_else(|| tg::error!("out of ip addresses"))?
+						& !3;
+					range.next = aligned;
+					continue;
+				}
+				range.next = end;
+				return Ok(Block {
+					base: next,
+					range: index,
+					state: Arc::clone(&self.state),
+				});
+			}
+		}
+		Err(tg::error!("out of ip addresses"))
+	}
+}
+
+fn host_used_ranges() -> Vec<(u32, u32)> {
+	#[cfg(target_os = "linux")]
+	{
+		host_used_ranges_linux()
+	}
+	#[cfg(target_os = "macos")]
+	{
+		Vec::new()
 	}
 }
 
 #[cfg(target_os = "linux")]
-fn host_used_ranges(ignored: &[String]) -> Vec<(u32, u32)> {
-	let is_ignored = |name: &str| ignored.iter().any(|s| s == name);
+fn host_used_ranges_linux() -> Vec<(u32, u32)> {
+	let ignore_bridge = super::root();
+	let is_ignored = |name: &str| ignore_bridge && name == super::veth::BRIDGE_NAME;
 	let mut ranges = Vec::new();
 	if let Ok(content) = std::fs::read_to_string("/proc/net/route") {
 		for line in content.lines().skip(1) {
@@ -169,7 +199,7 @@ fn host_used_ranges(ignored: &[String]) -> Vec<(u32, u32)> {
 					continue;
 				}
 				let ignored_match = !entry.ifa_name.is_null()
-					&& std::ffi::CStr::from_ptr(entry.ifa_name)
+					&& CStr::from_ptr(entry.ifa_name)
 						.to_str()
 						.is_ok_and(is_ignored);
 				if !ignored_match {
@@ -207,15 +237,12 @@ fn host_used_ranges(ignored: &[String]) -> Vec<(u32, u32)> {
 	ranges
 }
 
-#[cfg(not(target_os = "linux"))]
-fn host_used_ranges(_ignored: &[String]) -> Vec<(u32, u32)> {
-	Vec::new()
-}
-
 impl Drop for Block {
 	fn drop(&mut self) {
-		if let Ok(mut inner) = self.inner.lock() {
-			inner.blocks.push(self.base);
+		if let Ok(mut state) = self.state.lock()
+			&& let Some(range) = state.ranges.get_mut(self.range)
+		{
+			range.blocks.push(self.base);
 		}
 	}
 }

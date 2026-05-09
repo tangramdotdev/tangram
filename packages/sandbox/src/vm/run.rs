@@ -7,7 +7,7 @@ use {
 		hash::{Hash as _, Hasher as _},
 		net::Ipv4Addr,
 		os::{
-			fd::{AsRawFd as _, IntoRawFd as _, RawFd},
+			fd::{IntoRawFd as _, RawFd},
 			unix::{
 				ffi::OsStrExt as _,
 				process::{CommandExt as _, ExitStatusExt as _},
@@ -25,7 +25,6 @@ const HELPER_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
 const ROOTFS_TAG: &str = "root";
 const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
-const PASST_SOCKET_NAME: &str = "passt.sock";
 
 #[derive(Clone, Debug)]
 pub struct Arg {
@@ -49,8 +48,8 @@ pub struct Arg {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NetworkKind {
+	Passt,
 	Tap,
-	Pasta,
 }
 
 impl std::str::FromStr for NetworkKind {
@@ -58,8 +57,8 @@ impl std::str::FromStr for NetworkKind {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		match s {
+			"passt" => Ok(Self::Passt),
 			"tap" => Ok(Self::Tap),
-			"pasta" => Ok(Self::Pasta),
 			s => Err(tg::error!(option = %s, "invalid vm network option")),
 		}
 	}
@@ -73,16 +72,8 @@ struct User {
 }
 
 enum Network {
-	Tap(crate::network::Tap),
-	Pasta {
-		#[expect(dead_code)]
-		inner: crate::network::pasta::Network,
-		mac: String,
-		socket: PathBuf,
-		host_ip: Ipv4Addr,
-		guest_ip: Ipv4Addr,
-		netmask: Ipv4Addr,
-	},
+	Passt(crate::network::passt::Device),
+	Tap(crate::network::tap::Device),
 }
 
 pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
@@ -148,10 +139,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	if let Some(network) = network.as_ref() {
 		command.arg("--net");
 		let arg = match network {
-			Network::Tap(tap) => format!("fd={},mac={}", tap.fd.as_raw_fd(), tap.mac),
-			Network::Pasta { socket, mac, .. } => {
-				format!("vhost_user=true,socket={},mac={mac}", socket.display())
-			},
+			Network::Passt(passt) => passt.cloud_hypervisor_arg(),
+			Network::Tap(tap) => tap.cloud_hypervisor_arg(),
 		};
 		command.arg(arg);
 	}
@@ -238,7 +227,6 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 	container::run::Arg {
 		as_pid_1: false,
 		binds,
-		bridge_ip: None,
 		cgroup: None,
 		cgroup_cpu: None,
 		cgroup_memory: None,
@@ -247,6 +235,7 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		command: Vec::new(),
 		devs: Vec::new(),
 		die_with_parent: false,
+		gateway_ip: None,
 		gid: 0,
 		guest_ip: None,
 		hostname: None,
@@ -386,8 +375,10 @@ fn kernel_cmdline(arg: &Arg, user: &User, network: Option<&Network>) -> String {
 		)
 		.unwrap();
 		match network {
-			Network::Pasta { host_ip, .. } => {
-				write!(&mut cmdline, " --dns {host_ip}").unwrap();
+			Network::Passt(passt) => {
+				if !arg.dns.is_empty() {
+					write!(&mut cmdline, " --dns {}", passt.host_ip()).unwrap();
+				}
 			},
 			Network::Tap(_) => {
 				for dns in &arg.dns {
@@ -619,6 +610,21 @@ fn exit_code_from_status(status: libc::c_int) -> u8 {
 impl Network {
 	fn new(arg: &Arg) -> tg::Result<Option<Self>> {
 		match &arg.network {
+			Some(NetworkKind::Passt) => {
+				let host_ip = arg
+					.host_ip
+					.ok_or_else(|| tg::error!("--host-ip is required when --network is set"))?;
+				let guest_ip = arg
+					.guest_ip
+					.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
+				let passt = crate::network::passt::Device::new(
+					&host_vm_path_from_root(&arg.path),
+					&arg.dns,
+					host_ip,
+					guest_ip,
+				)?;
+				Ok(Some(Network::Passt(passt)))
+			},
 			Some(NetworkKind::Tap) => {
 				let host_ip = arg
 					.host_ip
@@ -629,42 +635,8 @@ impl Network {
 				let mut hasher = DefaultHasher::new();
 				arg.path.hash(&mut hasher);
 				let id = format!("{:x}", hasher.finish());
-				let tap = crate::network::Tap::new(&id, host_ip, guest_ip)?;
+				let tap = crate::network::tap::Device::new(&id, host_ip, guest_ip)?;
 				Ok(Some(Network::Tap(tap)))
-			},
-			Some(NetworkKind::Pasta) => {
-				let host_ip = arg
-					.host_ip
-					.ok_or_else(|| tg::error!("--host-ip is required when --network is set"))?;
-				let guest_ip = arg
-					.guest_ip
-					.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
-				let netmask = Ipv4Addr::new(255, 255, 255, 252);
-				let socket = host_vm_path_from_root(&arg.path).join(PASST_SOCKET_NAME);
-				let bytes = rand::random::<[u8; 5]>();
-				let mac = format!(
-					"{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-					0x02, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4],
-				);
-				let mut inner =
-					crate::network::pasta::Network::new(crate::network::pasta::Options {
-						executable: None,
-						mode: crate::network::pasta::Mode::VhostUser {
-							socket: socket.clone(),
-							address: guest_ip,
-							netmask,
-							gateway: host_ip,
-						},
-					})?;
-				inner.start_vhost_user()?;
-				Ok(Some(Network::Pasta {
-					inner,
-					mac,
-					socket,
-					host_ip,
-					guest_ip,
-					netmask,
-				}))
 			},
 			None => Ok(None),
 		}
@@ -672,22 +644,22 @@ impl Network {
 
 	fn host_ip(&self) -> Ipv4Addr {
 		match self {
-			Self::Tap(tap) => tap.host_ip,
-			Self::Pasta { host_ip, .. } => *host_ip,
+			Self::Passt(passt) => passt.host_ip(),
+			Self::Tap(tap) => tap.host_ip(),
 		}
 	}
 
 	fn guest_ip(&self) -> Ipv4Addr {
 		match self {
-			Self::Tap(tap) => tap.guest_ip,
-			Self::Pasta { guest_ip, .. } => *guest_ip,
+			Self::Passt(passt) => passt.guest_ip(),
+			Self::Tap(tap) => tap.guest_ip(),
 		}
 	}
 
 	fn netmask(&self) -> Ipv4Addr {
 		match self {
-			Self::Tap(tap) => tap.netmask,
-			Self::Pasta { netmask, .. } => *netmask,
+			Self::Passt(passt) => passt.netmask(),
+			Self::Tap(tap) => tap.netmask(),
 		}
 	}
 }

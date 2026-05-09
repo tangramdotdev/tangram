@@ -226,10 +226,10 @@ pub struct Http {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HttpListener {
-	pub url: Uri,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tls: Option<HttpTls>,
+
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -563,20 +563,14 @@ pub enum JsEngine {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
-	#[serde(default = "default_network")]
-	pub network: Network,
-
-	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
-	pub dns: Vec<Ipv4Addr>,
-
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_finalizer")]
 	pub finalizer: Option<Finalizer>,
 
 	pub isolation: SandboxIsolation,
 
-	#[serde(default = "default_networks", skip_serializing_if = "Vec::is_empty")]
-	pub networks: Vec<SandboxNetwork>,
+	#[serde(default)]
+	pub network: SandboxNetwork,
 
 	pub nice: u8,
 }
@@ -585,56 +579,35 @@ pub struct Sandbox {
 #[serde(deny_unknown_fields)]
 pub struct SandboxIsolation {
 	pub container: Option<ContainerSandboxIsolation>,
+
 	pub seatbelt: Option<SeatbeltSandboxIsolation>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub vm: Option<VmSandboxIsolation>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(default, deny_unknown_fields)]
 pub struct SandboxNetwork {
-	pub ip: IpRange,
+	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
+	pub dns: Vec<Ipv4Addr>,
+
+	#[serde(default = "default_ip_ranges", skip_serializing_if = "Vec::is_empty")]
+	pub ip_ranges: Vec<IpRange>,
 }
 
 #[derive(
 	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
 pub struct IpRange {
-	pub min: Ipv4Addr,
 	pub max: Ipv4Addr,
+
+	pub min: Ipv4Addr,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ContainerSandboxIsolation {}
-
-#[derive(Clone, Debug, Default, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum ContainerNetwork {
-	#[default]
-	Host,
-	Bridge(Bridge),
-}
-
-#[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum Network {
-	Bridge(Bridge),
-	Pasta(Pasta),
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Bridge {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ip: Option<Ipv4Addr>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct Pasta {}
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -1122,11 +1095,9 @@ impl Default for Runner {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			network: default_network(),
-			dns: default_dns(),
 			finalizer: Some(Finalizer::default()),
 			isolation: SandboxIsolation::default(),
-			networks: default_networks(),
+			network: SandboxNetwork::default(),
 			nice: 5,
 		}
 	}
@@ -1152,6 +1123,15 @@ impl Default for SandboxIsolation {
 				seatbelt: None,
 				vm: None,
 			}
+		}
+	}
+}
+
+impl Default for SandboxNetwork {
+	fn default() -> Self {
+		Self {
+			dns: default_dns(),
+			ip_ranges: default_ip_ranges(),
 		}
 	}
 }
@@ -1287,7 +1267,7 @@ impl Default for Write {
 }
 
 mod ip_range {
-	use {super::IpRange, std::net::Ipv4Addr, tangram_client as tg};
+	use {super::IpRange, std::net::Ipv4Addr, tangram_client::prelude::*};
 
 	impl std::fmt::Display for IpRange {
 		fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1308,7 +1288,7 @@ mod ip_range {
 					.trim()
 					.parse()
 					.map_err(|error| tg::error!(!error, "invalid maximum address"))?;
-				Ok(IpRange { min, max })
+				Ok(IpRange { max, min })
 			} else if let Some((addr, prefix)) = s.split_once('/') {
 				let addr: Ipv4Addr = addr
 					.trim()
@@ -1329,7 +1309,7 @@ mod ip_range {
 				};
 				let min = Ipv4Addr::from(bits & mask);
 				let max = Ipv4Addr::from((bits & mask) | !mask);
-				Ok(IpRange { min, max })
+				Ok(IpRange { max, min })
 			} else {
 				Err(tg::error!(%s, "invalid IP range"))
 			}
@@ -1342,22 +1322,12 @@ fn default_finalizer() -> Option<Finalizer> {
 	Some(Finalizer::default())
 }
 
-fn default_networks() -> Vec<SandboxNetwork> {
-	vec![SandboxNetwork {
-		ip: "172.18.0.4-172.31.255.255".parse().unwrap(),
-	}]
+fn default_ip_ranges() -> Vec<IpRange> {
+	vec!["172.18.0.4-172.31.255.255".parse().unwrap()]
 }
 
 fn default_dns() -> Vec<Ipv4Addr> {
 	vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)]
-}
-
-fn default_network() -> Network {
-	Network::Pasta(Pasta::default())
-}
-
-pub(crate) fn default_bridge_ip() -> Ipv4Addr {
-	Ipv4Addr::new(172, 18, 0, 1)
 }
 
 fn default_process_store() -> Database {

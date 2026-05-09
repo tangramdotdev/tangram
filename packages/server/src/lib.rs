@@ -1,6 +1,6 @@
 use {
 	self::{context::Context, database::Database, index::Index, messenger::Messenger},
-	crate::{network::Network, temp::Temp, watch::Watch},
+	crate::{temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::{formatdoc, indoc},
@@ -42,7 +42,6 @@ mod log;
 mod messenger;
 mod module;
 mod namespace;
-mod network;
 mod object;
 mod process;
 mod pull;
@@ -90,11 +89,11 @@ pub struct State {
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
+	ip_pool: tangram_sandbox::network::ip::Pool,
 	library: Mutex<Option<Arc<Temp>>>,
 	lock: Mutex<Option<tokio::fs::File>>,
 	log_store: self::log::Store,
 	messenger: Messenger,
-	networks: Vec<Network>,
 	object_get_tasks: ObjectGetTasks,
 	object_store: self::object::Store,
 	path: PathBuf,
@@ -487,25 +486,15 @@ impl Server {
 			},
 		};
 
-		// Create the networks
-		let ignored_ifaces: Vec<String> = match &config.sandbox.network {
-			crate::config::Network::Bridge(bridge) => {
-				vec![bridge.name.as_deref().unwrap_or("tangram0").to_owned()]
-			},
-			crate::config::Network::Pasta(_) => vec![],
-		};
-		let networks = config
-			.sandbox
-			.networks
-			.iter()
-			.map(|network| {
-				Network::new(
-					network.ip.min.to_bits(),
-					network.ip.max.to_bits(),
-					ignored_ifaces.clone(),
-				)
-			})
-			.collect();
+		// Create the IP pool.
+		let ip_pool = tangram_sandbox::network::ip::Pool::new(
+			config
+				.sandbox
+				.network
+				.ip_ranges
+				.iter()
+				.map(|range| (range.min.to_bits(), range.max.to_bits())),
+		);
 
 		// Create the regions.
 		let regions = DashMap::default();
@@ -624,11 +613,11 @@ impl Server {
 			diagnostics,
 			index,
 			index_tasks,
+			ip_pool,
 			library,
 			lock,
 			log_store,
 			messenger,
-			networks,
 			object_get_tasks,
 			object_store,
 			path,
@@ -990,42 +979,6 @@ impl Server {
 				}
 			})
 		});
-
-		// Remove host-wide iptables rules left behind by previous runs of the server, then create the bridge. Bridge setup requires root; if the server is not running as root, log a warning and skip. Pasta networking has no host-side bridge, so the setup is skipped entirely in that mode.
-		#[cfg(target_os = "linux")]
-		{
-			let bridge_config = match &server.config.sandbox.network {
-				crate::config::Network::Bridge(bridge) => Some(bridge),
-				crate::config::Network::Pasta(_) => None,
-			};
-			let create_bridge = !matches!(
-				server.config.sandbox.network,
-				crate::config::Network::Pasta(_)
-			);
-			let bridge_name = bridge_config
-				.and_then(|bridge| bridge.name.as_deref())
-				.unwrap_or("tangram0")
-				.to_owned();
-			let bridge_ip = bridge_config
-				.and_then(|bridge| bridge.ip)
-				.unwrap_or_else(crate::config::default_bridge_ip);
-			if create_bridge {
-				if unsafe { libc::geteuid() } == 0 {
-					if let Err(error) =
-						tangram_sandbox::network::cleanup_persistent_rules(Some(&bridge_name))
-					{
-						tracing::warn!(%error, "failed to clean up persistent sandbox rules");
-					}
-					tangram_sandbox::network::create_bridge(&bridge_name, bridge_ip)
-						.map_err(|source| tg::error!(!source, "failed to create the bridge"))?;
-				} else {
-					tracing::warn!(
-						bridge = %bridge_name,
-						"the server is not running as root; skipping bridge setup",
-					);
-				}
-			}
-		}
 
 		// Spawn the runner task.
 		let runner_task = if server.config.runner.is_some() {

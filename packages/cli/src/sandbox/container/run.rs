@@ -14,9 +14,6 @@ pub struct Args {
 	pub binds: Vec<PathBuf>,
 
 	#[arg(long)]
-	pub bridge_ip: Option<Ipv4Addr>,
-
-	#[arg(long)]
 	pub cgroup: Option<String>,
 
 	#[arg(long)]
@@ -39,6 +36,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub die_with_parent: bool,
+
+	#[arg(long)]
+	pub gateway_ip: Option<Ipv4Addr>,
 
 	#[arg(long)]
 	pub gid: u32,
@@ -116,7 +116,6 @@ impl Args {
 		tangram_sandbox::container::run::Arg {
 			as_pid_1: self.as_pid_1,
 			binds,
-			bridge_ip: self.bridge_ip,
 			cgroup: self.cgroup,
 			cgroup_cpu: self.cgroup_cpu,
 			cgroup_memory: self.cgroup_memory,
@@ -125,9 +124,11 @@ impl Args {
 			command: self.command,
 			devs: self.devs,
 			die_with_parent: self.die_with_parent,
+			gateway_ip: self.gateway_ip,
 			gid: self.gid,
 			guest_ip: self.guest_ip,
 			hostname: self.hostname,
+			id: self.id,
 			network: self.network,
 			network_fd: self.network_fd,
 			new_session: self.new_session,
@@ -136,7 +137,6 @@ impl Args {
 			overlays,
 			procs: self.procs,
 			ro_binds,
-			id: self.id,
 			setenvs,
 			tmpfs: self.tmpfs,
 			uid: self.uid,
