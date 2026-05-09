@@ -80,34 +80,6 @@ impl Session {
 		if state.status.is_finished() {
 			return Ok(());
 		}
-		let isolation = self.server.resolve_sandbox_isolation()?;
-
-		// Associate the permit with the sandbox.
-		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
-		self.server.sandbox_permits.insert(id.clone(), permit);
-		scopeguard::defer! {
-			self.server.sandbox_permits.remove(id);
-		}
-
-		// Create the temp.
-		let temp = Temp::new(&self.server);
-		tokio::fs::create_dir_all(temp.path())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
-
-		// Create the listener.
-		let (listener, guest_uri) = Server::run_create_listener(temp.path(), &isolation)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to create the tangram listener"))?;
-
-		// Create the sandbox. Include the artifacts directory as a readonly mount.
-		let artifacts_path = self.server.artifacts_path();
-		let mut mounts = state.mounts.clone();
-		mounts.push(tg::sandbox::Mount {
-			source: artifacts_path.clone(),
-			target: artifacts_path.clone(),
-			readonly: true,
-		});
 
 		let isolation = match &state.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
@@ -131,60 +103,48 @@ impl Session {
 			},
 			None => self.server.resolve_sandbox_isolation()?,
 		};
-		let network = match (state.network.as_ref(), &isolation) {
-			(tg::Either::Left(false), _) => None,
-			(
-				tg::Either::Left(true),
-				tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Seatbelt(_),
-			) => Some(tangram_sandbox::Network::Host),
-			(tg::Either::Left(true), tangram_sandbox::Isolation::Vm(_)) => {
-				Some(tangram_sandbox::Network::Tap)
+
+		// Associate the permit with the sandbox.
+		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
+		self.server.sandbox_permits.insert(id.clone(), permit);
+		scopeguard::defer! {
+			self.server.sandbox_permits.remove(id);
+		}
+
+		// Create the temp.
+		let temp = Temp::new(&self.server);
+		tokio::fs::create_dir_all(temp.path())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
+
+		// Create the listener.
+		let (listener, guest_uri) = Server::run_create_listener(temp.path(), &isolation)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to create the tangram listener"))?;
+
+		// Create the sandbox. Include the artifacts directory as a readonly mount.
+		let artifacts_path = self.server.artifacts_path();
+		let mut mounts = state.mounts.clone();
+		mounts.push(tg::sandbox::Mount {
+			readonly: true,
+			source: artifacts_path.clone(),
+			target: artifacts_path.clone(),
+		});
+		let network = match state.network.as_ref() {
+			tg::Either::Left(false) => None,
+			tg::Either::Left(true) => Some(tangram_sandbox::Network::Default),
+			tg::Either::Right(tg::sandbox::Network::Bridge) => {
+				Some(tangram_sandbox::Network::Bridge)
 			},
-			(tg::Either::Right(tg::sandbox::Network::Host), _) => {
-				Some(tangram_sandbox::Network::Host)
-			},
-			(tg::Either::Right(tg::sandbox::Network::Bridge), _) => {
-				let ip = self
-					.server
-					.config
-					.sandbox
-					.bridge
-					.as_ref()
-					.and_then(|bridge| bridge.ip)
-					.unwrap_or_else(crate::config::default_bridge_ip);
-				let name = self
-					.server
-					.config()
-					.sandbox
-					.bridge
-					.as_ref()
-					.and_then(|bridge| bridge.name.clone())
-					.unwrap_or_else(|| "tangram0".to_owned());
-				Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
-					ip,
-					name,
-				}))
-			},
-		};
-		let (host_ip, guest_ip) = match (&isolation, network.as_ref()) {
-			(
-				tangram_sandbox::Isolation::Container(_),
-				Some(tangram_sandbox::Network::Bridge(_)),
-			) => (None, Some(self.server.allocate_guest_ip()?)),
-			(tangram_sandbox::Isolation::Vm(_), Some(_)) => {
-				let (host, guest) = self.server.allocate_guest_ip_pair()?;
-				(Some(host), Some(guest))
-			},
-			_ => (None, None),
+			tg::Either::Right(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
 		};
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
-			dns: self.server.config.sandbox.dns.clone(),
-			host_ip: host_ip.as_ref().map(|ip| ip.addr),
-			guest_ip: guest_ip.as_ref().map(|ip| ip.addr),
+			dns: self.server.config.sandbox.network.dns.clone(),
 			hostname: state.hostname.clone(),
 			id: id.clone(),
+			ip_pool: self.server.ip_pool.clone(),
 			isolation,
 			memory: state.memory,
 			mounts,
@@ -204,8 +164,6 @@ impl Session {
 		let session = self.clone();
 		scopeguard::defer! {
 			session.server.sandboxes.remove(id);
-			drop(host_ip);
-			drop(guest_ip);
 		}
 
 		// Spawn the serve task.
@@ -213,8 +171,8 @@ impl Session {
 			let session = self.clone();
 			let id = id.clone();
 			let config = crate::config::HttpListener {
-				url: guest_uri.clone(),
 				tls: None,
+				url: guest_uri.clone(),
 			};
 			|stop| async move {
 				session

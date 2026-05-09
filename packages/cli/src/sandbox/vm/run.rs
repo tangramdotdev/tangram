@@ -38,7 +38,7 @@ pub struct Args {
 	pub mounts: Vec<tg::sandbox::Mount>,
 
 	#[arg(long)]
-	pub network: bool,
+	pub network: Option<tangram_sandbox::vm::run::NetworkKind>,
 
 	#[arg(long)]
 	pub path: PathBuf,

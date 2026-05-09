@@ -208,20 +208,6 @@ where
 	let command_id = command.store_with_handle(handle).await?;
 	let command = tg::Referent::new(command_id, options);
 
-	let sandbox_arg = match sandbox.clone() {
-		Some(tg::Either::Left(arg)) => Some(arg),
-		Some(tg::Either::Right(_)) | None => None,
-	};
-	if sandbox_arg
-		.as_ref()
-		.is_some_and(|arg| !matches!(arg.network, tg::Either::Left(false)))
-		&& checksum.is_none()
-	{
-		return Err(tg::error!(
-			"a checksum is required to build with network enabled"
-		));
-	}
-
 	let spawn_arg = tg::process::spawn::Arg {
 		cached: arg.cached,
 		cache_location: arg.cache_location,

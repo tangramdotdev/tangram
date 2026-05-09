@@ -4,6 +4,8 @@ mod spawn;
 
 pub(crate) use self::spawn::spawn;
 
+pub(crate) mod network;
+
 pub mod init;
 pub mod run;
 

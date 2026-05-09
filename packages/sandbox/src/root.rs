@@ -34,7 +34,7 @@ impl Sandbox {
 	pub fn host_path_for_guest_path(&self, path: &Path) -> Option<PathBuf> {
 		#[cfg(target_os = "macos")]
 		{
-			match self.0.isolation {
+			match self.0.arg.isolation {
 				Isolation::Seatbelt(_) => Some(path.to_owned()),
 				_ => unreachable!(),
 			}
@@ -44,15 +44,16 @@ impl Sandbox {
 		{
 			let mut path_maps = self
 				.0
+				.arg
 				.mounts
 				.iter()
 				.map(|mount| (mount.target.clone(), mount.source.clone()))
 				.collect::<Vec<_>>();
-			if matches!(self.0.isolation, Isolation::Container(_)) {
+			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
 				path_maps.extend([
 					(
-						Self::guest_listen_path_from_root(&self.0.path),
-						Self::host_listen_path_from_root(&self.0.path),
+						Self::guest_listen_path_from_root(&self.0.arg.path),
+						Self::host_listen_path_from_root(&self.0.arg.path),
 					),
 					(
 						self.guest_tangram_socket_path(),
@@ -63,15 +64,18 @@ impl Sandbox {
 			path_maps.extend([
 				(
 					self.guest_tmp_path(),
-					Self::host_tmp_path_from_root(&self.0.path),
+					Self::host_tmp_path_from_root(&self.0.arg.path),
 				),
 				(self.guest_output_path(), self.host_output_path()),
-				(self.guest_artifacts_path(), self.0.artifacts_path.clone()),
+				(
+					self.guest_artifacts_path(),
+					self.0.arg.artifacts_path.clone(),
+				),
 			]);
-			if matches!(self.0.isolation, Isolation::Container(_)) {
+			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
 				path_maps.push((
 					PathBuf::from("/"),
-					Self::host_upper_path_from_root(&self.0.path),
+					Self::host_upper_path_from_root(&self.0.arg.path),
 				));
 			}
 			Self::map_path(
@@ -85,12 +89,12 @@ impl Sandbox {
 
 	#[must_use]
 	pub fn guest_artifacts_path(&self) -> PathBuf {
-		Self::guest_artifacts_path_from_host_artifacts_path(&self.0.artifacts_path)
+		Self::guest_artifacts_path_from_host_artifacts_path(&self.0.arg.artifacts_path)
 	}
 
 	#[must_use]
 	pub fn guest_output_path(&self) -> PathBuf {
-		Self::guest_output_path_from_root(&self.0.path)
+		Self::guest_output_path_from_root(&self.0.arg.path)
 	}
 
 	#[must_use]
@@ -102,7 +106,7 @@ impl Sandbox {
 	pub fn guest_path_for_host_path(&self, path: &Path) -> Option<PathBuf> {
 		#[cfg(target_os = "macos")]
 		{
-			match self.0.isolation {
+			match self.0.arg.isolation {
 				Isolation::Seatbelt(_) => Some(path.to_owned()),
 				_ => unreachable!(),
 			}
@@ -112,15 +116,16 @@ impl Sandbox {
 		{
 			let mut path_maps = self
 				.0
+				.arg
 				.mounts
 				.iter()
 				.map(|mount| (mount.source.clone(), mount.target.clone()))
 				.collect::<Vec<_>>();
-			if matches!(self.0.isolation, Isolation::Container(_)) {
+			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
 				path_maps.extend([
 					(
-						Self::host_listen_path_from_root(&self.0.path),
-						Self::guest_listen_path_from_root(&self.0.path),
+						Self::host_listen_path_from_root(&self.0.arg.path),
+						Self::guest_listen_path_from_root(&self.0.arg.path),
 					),
 					(
 						self.host_tangram_socket_path(),
@@ -130,15 +135,18 @@ impl Sandbox {
 			}
 			path_maps.extend([
 				(
-					Self::host_tmp_path_from_root(&self.0.path),
+					Self::host_tmp_path_from_root(&self.0.arg.path),
 					self.guest_tmp_path(),
 				),
 				(self.host_output_path(), self.guest_output_path()),
-				(self.0.artifacts_path.clone(), self.guest_artifacts_path()),
+				(
+					self.0.arg.artifacts_path.clone(),
+					self.guest_artifacts_path(),
+				),
 			]);
-			if matches!(self.0.isolation, Isolation::Container(_)) {
+			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
 				path_maps.push((
-					Self::host_upper_path_from_root(&self.0.path),
+					Self::host_upper_path_from_root(&self.0.arg.path),
 					PathBuf::from("/"),
 				));
 			}
@@ -153,22 +161,22 @@ impl Sandbox {
 
 	#[must_use]
 	pub fn guest_tangram_socket_path(&self) -> PathBuf {
-		Self::guest_tangram_socket_path_from_root(&self.0.path)
+		Self::guest_tangram_socket_path_from_root(&self.0.arg.path)
 	}
 
 	#[must_use]
 	pub fn guest_tangram_path(&self) -> PathBuf {
-		Self::guest_tangram_path_from_host_tangram_path(&self.0.tangram_path)
+		Self::guest_tangram_path_from_host_tangram_path(&self.0.arg.tangram_path)
 	}
 
 	#[must_use]
 	pub fn guest_tmp_path(&self) -> PathBuf {
-		Self::guest_tmp_path_from_root(&self.0.path)
+		Self::guest_tmp_path_from_root(&self.0.arg.path)
 	}
 
 	#[must_use]
 	pub fn host_output_path(&self) -> PathBuf {
-		Self::host_output_path_from_root(&self.0.path)
+		Self::host_output_path_from_root(&self.0.arg.path)
 	}
 
 	#[must_use]
@@ -178,12 +186,12 @@ impl Sandbox {
 
 	#[must_use]
 	pub fn host_scratch_path(&self) -> PathBuf {
-		Self::host_scratch_path_from_root(&self.0.path)
+		Self::host_scratch_path_from_root(&self.0.arg.path)
 	}
 
 	#[must_use]
 	pub fn host_tangram_socket_path(&self) -> PathBuf {
-		Self::host_tangram_socket_path_from_root(&self.0.path)
+		Self::host_tangram_socket_path_from_root(&self.0.arg.path)
 	}
 
 	#[must_use]

@@ -74,10 +74,17 @@ pub struct Network {
 		long,
 		num_args = 0..=1,
 		overrides_with = "no_network",
+		require_equals = true,
 	)]
 	network: Option<tg::Either<bool, tg::sandbox::Network>>,
 
-	#[arg(long, overrides_with = "network")]
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "network",
+		require_equals = true,
+	)]
 	no_network: bool,
 }
 

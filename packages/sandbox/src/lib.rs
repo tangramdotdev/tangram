@@ -33,15 +33,15 @@ pub mod vm;
 pub struct Sandbox(Arc<State>);
 
 pub struct State {
-	artifacts_path: PathBuf,
+	arg: Arg,
+
 	client: Client,
-	isolation: Isolation,
-	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
-	mounts: Vec<tg::sandbox::Mount>,
-	path: PathBuf,
+
+	#[expect(dead_code)]
+	network: Option<crate::network::Network>,
+
 	#[expect(dead_code)]
 	process: tokio::process::Child,
-	tangram_path: PathBuf,
 }
 
 pub struct Process {
@@ -64,10 +64,9 @@ pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
-	pub host_ip: Option<Ipv4Addr>,
-	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
 	pub id: tg::sandbox::Id,
+	pub ip_pool: crate::network::ip::Pool,
 	pub isolation: Isolation,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
@@ -101,6 +100,14 @@ pub enum Isolation {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ContainerIsolation {}
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct SeatbeltIsolation {}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct VmIsolation {
+	pub kernel_path: PathBuf,
+}
+
 #[derive(
 	Clone,
 	Debug,
@@ -113,24 +120,12 @@ pub struct ContainerIsolation {}
 )]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Network {
+	Bridge,
+
 	#[default]
+	Default,
+
 	Host,
-	Bridge(Bridge),
-	Tap,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct Bridge {
-	pub ip: Ipv4Addr,
-	pub name: String,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct SeatbeltIsolation {}
-
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct VmIsolation {
-	pub kernel_path: PathBuf,
 }
 
 #[derive(
@@ -205,26 +200,38 @@ impl Sandbox {
 			tangram_path: Self::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			url,
 		};
-
-		let mut process = match arg.isolation {
-			#[cfg(target_os = "linux")]
-			Isolation::Container(_) => self::container::spawn(&arg, &serve_arg).await?,
-			#[cfg(target_os = "linux")]
+		#[cfg(target_os = "linux")]
+		let (mut process, network) = match &arg.isolation {
+			Isolation::Container(_) => {
+				let mut network = crate::container::network::create(
+					&arg.dns,
+					arg.network.as_ref(),
+					&arg.ip_pool,
+				)?;
+				let process = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
+				(process, network)
+			},
 			Isolation::Seatbelt(_) => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
 			},
-			#[cfg(target_os = "macos")]
-			Isolation::Container(_) => {
-				return Err(tg::error!("container isolation is not supported on macos"));
-			},
-			#[cfg(target_os = "macos")]
-			Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
-			#[cfg(target_os = "linux")]
-			Isolation::Vm(_) => self::vm::spawn(&arg, &serve_arg)?,
-			#[cfg(target_os = "macos")]
 			Isolation::Vm(_) => {
-				return Err(tg::error!("vm isolation is not supported on macos"));
+				let network = crate::vm::network::create(arg.network.as_ref(), &arg.ip_pool)?;
+				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
+				(process, network)
 			},
+		};
+		#[cfg(target_os = "macos")]
+		let (mut process, network) = {
+			let process = match &arg.isolation {
+				Isolation::Container(_) => {
+					return Err(tg::error!("container isolation is not supported on macos"));
+				},
+				Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
+				Isolation::Vm(_) => {
+					return Err(tg::error!("vm isolation is not supported on macos"));
+				},
+			};
+			(process, None)
 		};
 
 		let connect = match listener.as_ref() {
@@ -272,13 +279,10 @@ impl Sandbox {
 		};
 
 		let sandbox = Self(Arc::new(State {
-			artifacts_path: arg.artifacts_path,
+			arg,
 			client,
-			isolation: arg.isolation,
-			mounts: arg.mounts,
-			path: arg.path,
+			network,
 			process,
-			tangram_path: arg.tangram_path,
 		}));
 
 		Ok(sandbox)
