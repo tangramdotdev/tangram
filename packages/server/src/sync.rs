@@ -1,7 +1,6 @@
 use {
 	crate::{Session, sync::graph::Graph},
 	futures::{prelude::*, stream::BoxStream},
-	num::ToPrimitive as _,
 	std::{
 		panic::AssertUnwindSafe,
 		sync::{Arc, Mutex},
@@ -117,7 +116,7 @@ impl Session {
 			..arg
 		};
 		let stream = client
-			.sync(arg, stream)
+			.sync_with_max_frame_size(arg, stream, self.server.config.sync.max_frame_size)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to sync"))?;
 		Ok(stream.boxed())
@@ -138,7 +137,7 @@ impl Session {
 			..arg
 		};
 		let stream = client
-			.sync(arg, stream)
+			.sync_with_max_frame_size(arg, stream, self.server.config.sync.max_frame_size)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to sync"))?;
 		Ok(stream.boxed())
@@ -276,16 +275,17 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to read the sync arg"))?
 		};
+		let max_frame_size = self.server.config.sync.max_frame_size;
 		let stream = stream::try_unfold(reader, move |mut reader| async move {
 			// Read a message.
 			let Some(len) = reader
 				.try_read_uvarint()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to read the length"))?
-				.map(|value| value.to_usize().unwrap())
 			else {
 				return Ok(None);
 			};
+			let len = tg::sync::validate_frame_len(len, max_frame_size)?;
 			let mut bytes = vec![0; len];
 			reader
 				.read_exact(&mut bytes)
@@ -331,15 +331,14 @@ impl Session {
 
 		// Create the response body.
 		let content_type = Some(tg::sync::CONTENT_TYPE);
-		let stream = stream.then(|result| async {
+		let max_frame_size = self.server.config.sync.max_frame_size;
+		let stream = stream.then(move |result| async move {
 			let frame = match result {
 				Ok(message) => {
 					let message = tangram_serialize::to_vec(&message).unwrap();
+					let len = tg::sync::validate_message_len(message.len(), max_frame_size)?;
 					let mut bytes = Vec::with_capacity(9 + message.len());
-					bytes
-						.write_uvarint(message.len().to_u64().unwrap())
-						.await
-						.unwrap();
+					bytes.write_uvarint(len).await.unwrap();
 					bytes.write_all(&message).await.unwrap();
 					hyper::body::Frame::data(bytes.into())
 				},

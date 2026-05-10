@@ -619,11 +619,14 @@ pub struct VmSandboxIsolation {
 	pub kernel_path: PathBuf,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sync {
 	#[serde(default)]
 	pub get: SyncGet,
+
+	#[serde(default = "default_sync_max_frame_size")]
+	pub max_frame_size: u64,
 
 	#[serde(default)]
 	pub put: SyncPut,
@@ -1134,6 +1137,20 @@ impl Default for SandboxNetwork {
 			ip_ranges: default_ip_ranges(),
 		}
 	}
+}
+
+impl Default for Sync {
+	fn default() -> Self {
+		Self {
+			get: SyncGet::default(),
+			max_frame_size: default_sync_max_frame_size(),
+			put: SyncPut::default(),
+		}
+	}
+}
+
+fn default_sync_max_frame_size() -> u64 {
+	tangram_client::sync::DEFAULT_MAX_FRAME_SIZE
 }
 
 impl Default for SyncGetIndex {
