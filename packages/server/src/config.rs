@@ -680,7 +680,7 @@ pub struct IpRange {
 	pub min: Ipv4Addr,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sync {
 	#[serde(default)]
@@ -688,6 +688,9 @@ pub struct Sync {
 
 	#[serde(default)]
 	pub put: SyncPut,
+
+	#[serde(default = "sync_retry_default")]
+	pub retry: Retry,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1210,6 +1213,16 @@ impl Default for SandboxNetwork {
 	}
 }
 
+impl Default for Sync {
+	fn default() -> Self {
+		Self {
+			get: SyncGet::default(),
+			put: SyncPut::default(),
+			retry: sync_retry_default(),
+		}
+	}
+}
+
 impl Default for SyncGetIndex {
 	fn default() -> Self {
 		Self {
@@ -1445,6 +1458,16 @@ fn default_process_grant_time_to_live() -> Duration {
 
 fn default_time_to_touch() -> Duration {
 	Duration::from_hours(1)
+}
+
+fn sync_retry_default() -> Retry {
+	let options = tangram_futures::retry::Options::default();
+	Retry {
+		backoff: options.backoff,
+		jitter: options.jitter,
+		max_delay: options.max_delay,
+		max_retries: options.max_retries,
+	}
 }
 
 #[expect(clippy::unnecessary_wraps)]
