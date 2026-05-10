@@ -16,6 +16,18 @@ use {
 
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
 
+pub fn validate_put_item_object_message_id(message: &PutItemObjectMessage) -> tg::Result<()> {
+	let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
+	if message.id != actual {
+		return Err(tg::error!(
+			expected = %message.id,
+			actual = %actual,
+			"invalid object id"
+		));
+	}
+	Ok(())
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -403,6 +415,12 @@ impl tg::Session {
 				.map_err(|error| tg::error!(!error, "failed to read the message"))?;
 			let message = tangram_serialize::from_slice(&bytes)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
+			if let tg::sync::Message::Put(tg::sync::PutMessage::Item(
+				tg::sync::PutItemMessage::Object(message),
+			)) = &message
+			{
+				tg::sync::validate_put_item_object_message_id(message)?;
+			}
 			Ok(Some((message, reader)))
 		});
 
@@ -431,5 +449,22 @@ impl tg::Session {
 		let stream = stream::select(data_messages, trailer_messages).attach(task);
 
 		Ok(stream)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn validate_put_item_object_message_id_rejects_a_mismatched_id() {
+		let bytes = Bytes::from_static(b"actual");
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"expected"));
+		let message = PutItemObjectMessage {
+			id,
+			bytes,
+			metadata: None,
+		};
+		assert!(validate_put_item_object_message_id(&message).is_err());
 	}
 }

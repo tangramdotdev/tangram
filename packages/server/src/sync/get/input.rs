@@ -18,6 +18,7 @@ impl Session {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
+					tg::sync::validate_put_item_object_message_id(&message)?;
 					let eager = state
 						.graph
 						.lock()

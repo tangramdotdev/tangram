@@ -294,17 +294,11 @@ impl Session {
 			let message = tangram_serialize::from_slice(&bytes)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
 
-			// Validate object IDs.
 			if let tg::sync::Message::Put(tg::sync::PutMessage::Item(
-				tg::sync::PutItemMessage::Object(tg::sync::PutItemObjectMessage {
-					id, bytes, ..
-				}),
+				tg::sync::PutItemMessage::Object(message),
 			)) = &message
 			{
-				let actual = tg::object::Id::new(id.kind(), bytes);
-				if id != &actual {
-					return Err(tg::error!(expected = %id, %actual, "invalid object id"));
-				}
+				tg::sync::validate_put_item_object_message_id(message)?;
 			}
 
 			Ok(Some((message, reader)))
