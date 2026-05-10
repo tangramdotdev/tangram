@@ -548,6 +548,45 @@ impl Graph {
 			self.propagate_process_remote_field(&path, |stored| stored.node_command = true);
 		}
 
+		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_error)
+		{
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.remote_stored.get_or_insert_default().subtree_error = true;
+			self.propagate_process_remote_field(&path, |stored| stored.subtree_error = true);
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.remote_stored.get_or_insert_default().node_error = true;
+			self.propagate_process_remote_field(&path, |stored| stored.node_error = true);
+		}
+
+		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_log) {
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.remote_stored.get_or_insert_default().subtree_log = true;
+			self.propagate_process_remote_field(&path, |stored| stored.subtree_log = true);
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.remote_stored.get_or_insert_default().node_log = true;
+			self.propagate_process_remote_field(&path, |stored| stored.node_log = true);
+		}
+
 		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_output)
 		{
 			let node = self
@@ -684,11 +723,13 @@ impl Graph {
 			if let Some(child_stored) = child_stored {
 				stored.subtree = stored.subtree && child_stored.subtree;
 				stored.subtree_command = stored.subtree_command && child_stored.subtree_command;
+				stored.subtree_error = stored.subtree_error && child_stored.subtree_error;
 				stored.subtree_log = stored.subtree_log && child_stored.subtree_log;
 				stored.subtree_output = stored.subtree_output && child_stored.subtree_output;
 			} else {
 				stored.subtree = false;
 				stored.subtree_command = false;
+				stored.subtree_error = false;
 				stored.subtree_log = false;
 				stored.subtree_output = false;
 			}
@@ -1025,5 +1066,75 @@ impl petgraph::visit::Visitable for Graph {
 	fn reset_map(&self, map: &mut Self::Map) {
 		map.clear();
 		map.reserve(self.nodes.len());
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn compute_process_local_stored_includes_child_subtree_error() {
+		let child = tg::process::Id::new();
+		let mut graph = Graph::default();
+		let child_index = graph
+			.nodes
+			.insert_full(
+				Id::Process(child),
+				Node::Process(ProcessNode {
+					local_stored: Some(tangram_index::ProcessStored {
+						subtree: true,
+						subtree_command: true,
+						subtree_error: false,
+						subtree_log: true,
+						subtree_output: true,
+						node_command: true,
+						node_error: true,
+						node_log: true,
+						node_output: true,
+					}),
+					..Default::default()
+				}),
+			)
+			.0;
+
+		let stored = graph.compute_process_local_stored(&[child_index], &[]);
+
+		assert!(!stored.subtree_error);
+	}
+
+	#[test]
+	fn update_process_remote_propagates_error_and_log_fields_from_ancestor() {
+		let root = tg::process::Id::new();
+		let child = tg::process::Id::new();
+		let mut graph = Graph::default();
+		graph.update_process_remote(
+			&root,
+			None,
+			Some(&tangram_index::ProcessStored {
+				subtree_error: true,
+				subtree_log: true,
+				..Default::default()
+			}),
+		);
+		graph.update_process_remote(
+			&child,
+			Some(Id::Process(root)),
+			Some(&tangram_index::ProcessStored::default()),
+		);
+
+		let stored = graph
+			.nodes
+			.get(&Id::Process(child))
+			.unwrap()
+			.unwrap_process_ref()
+			.remote_stored
+			.as_ref()
+			.unwrap();
+
+		assert!(stored.subtree_error);
+		assert!(stored.node_error);
+		assert!(stored.subtree_log);
+		assert!(stored.node_log);
 	}
 }
