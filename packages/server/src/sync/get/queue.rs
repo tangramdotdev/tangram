@@ -399,18 +399,17 @@ impl Session {
 		}
 
 		// Enqueue the log if necessary.
-		if state.arg.logs && !stored.is_some_and(|stored| stored.node_log) {
-			if let Some(log) = data.log.clone() {
-				let item = ObjectItem {
-					parent: Some(tg::Either::Right(id.clone())),
-					id: log.into(),
-					kind: Some(crate::sync::queue::ObjectKind::Log),
-					eager: state.arg.eager,
-				};
-				state.queue.enqueue_object(item);
-			} else {
-				tracing::warn!(process = %id, "cannot sync logs: missing log id");
-			}
+		if state.arg.logs
+			&& !stored.is_some_and(|stored| stored.node_log)
+			&& let Some(log) = data.log.clone()
+		{
+			let item = ObjectItem {
+				parent: Some(tg::Either::Right(id.clone())),
+				id: log.into(),
+				kind: Some(crate::sync::queue::ObjectKind::Log),
+				eager: state.arg.eager,
+			};
+			state.queue.enqueue_object(item);
 		}
 
 		// Enqueue the output if necessary.
