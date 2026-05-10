@@ -204,12 +204,15 @@ impl Session {
 
 		// Touch the processes and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let outputs = self
-			.server
-			.index
-			.touch_processes(&ids, touched_at, self.server.config.process.time_to_touch)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+		let outputs = if state.arg.force {
+			vec![None; ids.len()]
+		} else {
+			self.server
+				.index
+				.touch_processes(&ids, touched_at, self.server.config.process.time_to_touch)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to touch the processes"))?
+		};
 
 		// Handle each item and output.
 		for (item, output) in std::iter::zip(items, outputs) {
