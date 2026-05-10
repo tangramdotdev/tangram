@@ -548,6 +548,45 @@ impl Graph {
 			self.propagate_process_remote_field(&path, |stored| stored.node_command = true);
 		}
 
+		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_error)
+		{
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.remote_stored.get_or_insert_default().subtree_error = true;
+			self.propagate_process_remote_field(&path, |stored| stored.subtree_error = true);
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.remote_stored.get_or_insert_default().node_error = true;
+			self.propagate_process_remote_field(&path, |stored| stored.node_error = true);
+		}
+
+		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_log) {
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.remote_stored.get_or_insert_default().subtree_log = true;
+			self.propagate_process_remote_field(&path, |stored| stored.subtree_log = true);
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.remote_stored.get_or_insert_default().node_log = true;
+			self.propagate_process_remote_field(&path, |stored| stored.node_log = true);
+		}
+
 		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_output)
 		{
 			let node = self
@@ -684,11 +723,13 @@ impl Graph {
 			if let Some(child_stored) = child_stored {
 				stored.subtree = stored.subtree && child_stored.subtree;
 				stored.subtree_command = stored.subtree_command && child_stored.subtree_command;
+				stored.subtree_error = stored.subtree_error && child_stored.subtree_error;
 				stored.subtree_log = stored.subtree_log && child_stored.subtree_log;
 				stored.subtree_output = stored.subtree_output && child_stored.subtree_output;
 			} else {
 				stored.subtree = false;
 				stored.subtree_command = false;
+				stored.subtree_error = false;
 				stored.subtree_log = false;
 				stored.subtree_output = false;
 			}
