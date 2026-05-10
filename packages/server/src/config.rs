@@ -524,6 +524,18 @@ pub struct Retry {
 	pub max_retries: u64,
 }
 
+impl Default for Retry {
+	fn default() -> Self {
+		let options = tangram_futures::retry::Options::default();
+		Self {
+			backoff: options.backoff,
+			jitter: options.jitter,
+			max_delay: options.max_delay,
+			max_retries: options.max_retries,
+		}
+	}
+}
+
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -627,6 +639,9 @@ pub struct Sync {
 
 	#[serde(default)]
 	pub put: SyncPut,
+
+	#[serde(default)]
+	pub retry: Retry,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

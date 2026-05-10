@@ -2,6 +2,7 @@ use {
 	crate::Session,
 	futures::{prelude::*, stream::BoxStream, stream::FuturesUnordered},
 	std::{
+		ops::ControlFlow,
 		panic::AssertUnwindSafe,
 		pin::pin,
 		sync::{Arc, Mutex},
@@ -264,130 +265,152 @@ impl Session {
 		source: tg::location::Location,
 		destination: tg::location::Location,
 	) -> tg::Result<tg::push::Output> {
-		let output = Arc::new(Mutex::new(tg::push::Output::default()));
+		let retry = &self.server.config.sync.retry;
+		let retry = tangram_futures::retry::Options {
+			backoff: retry.backoff,
+			jitter: retry.jitter,
+			max_delay: retry.max_delay,
+			max_retries: retry.max_retries,
+		};
+		let session = self.clone();
+		let output = tangram_futures::retry::retry(&retry, || {
+			let arg = arg.clone();
+			let destination = destination.clone();
+			let progress = progress.clone();
+			let session = session.clone();
+			let source = source.clone();
+			async move {
+				let output = Arc::new(Mutex::new(tg::push::Output::default()));
 
-		// Set the progress to zero.
-		progress.set("processes", 0);
-		progress.set("objects", 0);
-		progress.set("bytes", 0);
+				// Set the progress to zero.
+				progress.set("processes", 0);
+				progress.set("objects", 0);
+				progress.set("bytes", 0);
 
-		// Wrap each sync in a retry loop if the end message is never delivered.
-		loop {
-			// Create the channels.
-			let (push_output_sender, push_output_receiver) = tokio::sync::mpsc::channel(1024);
-			let (pull_output_sender, pull_output_receiver) = tokio::sync::mpsc::channel(1024);
+				// Create the channels.
+				let (push_output_sender, push_output_receiver) = tokio::sync::mpsc::channel(1024);
+				let (pull_output_sender, pull_output_receiver) = tokio::sync::mpsc::channel(1024);
 
-			// Start the push.
-			let push_arg = tg::sync::Arg {
-				commands: arg.commands,
-				errors: arg.errors,
-				eager: arg.eager,
-				force: arg.force,
-				get: Vec::new(),
-				location: Some(source.clone().into()),
-				logs: arg.logs,
-				metadata: arg.metadata,
-				outputs: arg.outputs,
-				put: Vec::new(),
-				recursive: arg.recursive,
-			};
-			let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
-			let push_output_stream = self
-				.sync(push_arg, push_input_stream)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the push stream"))?;
+				// Start the push.
+				let push_arg = tg::sync::Arg {
+					commands: arg.commands,
+					errors: arg.errors,
+					eager: arg.eager,
+					force: arg.force,
+					get: Vec::new(),
+					location: Some(source.clone().into()),
+					logs: arg.logs,
+					metadata: arg.metadata,
+					outputs: arg.outputs,
+					put: Vec::new(),
+					recursive: arg.recursive,
+				};
+				let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
+				let push_output_stream = session
+					.sync(push_arg, push_input_stream)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to create the push stream"))?;
 
-			// Start the pull.
-			let pull_arg = tg::sync::Arg {
-				commands: arg.commands,
-				errors: arg.errors,
-				eager: arg.eager,
-				force: arg.force,
-				get: arg.items.clone(),
-				location: Some(destination.clone().into()),
-				logs: arg.logs,
-				metadata: arg.metadata,
-				outputs: arg.outputs,
-				put: Vec::new(),
-				recursive: arg.recursive,
-			};
-			let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
-			let pull_output_stream = self
-				.sync(pull_arg, pull_input_stream)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the pull stream"))?;
+				// Start the pull.
+				let pull_arg = tg::sync::Arg {
+					commands: arg.commands,
+					errors: arg.errors,
+					eager: arg.eager,
+					force: arg.force,
+					get: arg.items.clone(),
+					location: Some(destination.clone().into()),
+					logs: arg.logs,
+					metadata: arg.metadata,
+					outputs: arg.outputs,
+					put: Vec::new(),
+					recursive: arg.recursive,
+				};
+				let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
+				let pull_output_stream = session
+					.sync(pull_arg, pull_input_stream)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to create the pull stream"))?;
 
-			// Create the push future.
-			let push_future = async {
-				let mut push_output_stream = pin!(push_output_stream);
-				while let Some(message) = push_output_stream.try_next().await? {
-					match message {
-						tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
-							let processes =
-								message.skipped.processes + message.transferred.processes;
-							let objects = message.skipped.objects + message.transferred.objects;
-							let bytes = message.skipped.bytes + message.transferred.bytes;
-							progress.increment("processes", processes);
-							progress.increment("objects", objects);
-							progress.increment("bytes", bytes);
-							*output.lock().unwrap() += &message;
-						},
-						tg::sync::Message::End => {
-							return Ok::<_, tg::Error>(true);
-						},
-						_ => {
-							push_output_sender
-								.send(message.clone())
-								.await
-								.map_err(|_| tg::error!("failed to send the message"))?;
-						},
+				// Create the push future.
+				let push_future = async {
+					let mut push_output_stream = pin!(push_output_stream);
+					while let Some(message) = push_output_stream.try_next().await? {
+						match message {
+							tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
+								let processes =
+									message.skipped.processes + message.transferred.processes;
+								let objects = message.skipped.objects + message.transferred.objects;
+								let bytes = message.skipped.bytes + message.transferred.bytes;
+								progress.increment("processes", processes);
+								progress.increment("objects", objects);
+								progress.increment("bytes", bytes);
+								*output.lock().unwrap() += &message;
+							},
+							tg::sync::Message::End => {
+								return Ok::<_, tg::Error>(true);
+							},
+							_ => {
+								push_output_sender
+									.send(message.clone())
+									.await
+									.map_err(|_| tg::error!("failed to send the message"))?;
+							},
+						}
 					}
-				}
-				Ok(false)
-			};
+					Ok(false)
+				};
 
-			// Create the pull future.
-			let pull_future = async {
-				let mut pull_output_stream = pin!(pull_output_stream);
-				while let Some(message) = pull_output_stream.try_next().await? {
-					match message {
-						tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
-							let processes =
-								message.skipped.processes + message.transferred.processes;
-							let objects = message.skipped.objects + message.transferred.objects;
-							let bytes = message.skipped.bytes + message.transferred.bytes;
-							progress.increment("processes", processes);
-							progress.increment("objects", objects);
-							progress.increment("bytes", bytes);
-							*output.lock().unwrap() += &message;
-						},
-						tg::sync::Message::End => {
-							return Ok::<_, tg::Error>(true);
-						},
-						_ => {
-							pull_output_sender
-								.send(message.clone())
-								.await
-								.map_err(|_| tg::error!("failed to send the message"))?;
-						},
+				// Create the pull future.
+				let pull_future = async {
+					let mut pull_output_stream = pin!(pull_output_stream);
+					while let Some(message) = pull_output_stream.try_next().await? {
+						match message {
+							tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
+								let processes =
+									message.skipped.processes + message.transferred.processes;
+								let objects = message.skipped.objects + message.transferred.objects;
+								let bytes = message.skipped.bytes + message.transferred.bytes;
+								progress.increment("processes", processes);
+								progress.increment("objects", objects);
+								progress.increment("bytes", bytes);
+								*output.lock().unwrap() += &message;
+							},
+							tg::sync::Message::End => {
+								return Ok::<_, tg::Error>(true);
+							},
+							_ => {
+								pull_output_sender
+									.send(message.clone())
+									.await
+									.map_err(|_| tg::error!("failed to send the message"))?;
+							},
+						}
 					}
+					Ok(false)
+				};
+
+				let (push_completed, pull_completed) =
+					future::try_join(push_future, pull_future).await?;
+
+				if push_completed && pull_completed {
+					let output = output.lock().unwrap().clone();
+					Ok(ControlFlow::Break(output))
+				} else {
+					Ok(ControlFlow::Continue(tg::error!(
+						push_completed = %push_completed,
+						pull_completed = %pull_completed,
+						"sync ended before receiving all end messages"
+					)))
 				}
-				Ok(false)
-			};
-
-			let (push_completed, pull_completed) =
-				future::try_join(push_future, pull_future).await?;
-
-			if push_completed && pull_completed {
-				break;
 			}
-		}
+		})
+		.await?;
 
 		progress.finish("processes");
 		progress.finish("objects");
 		progress.finish("bytes");
 
-		Ok(output.lock().unwrap().clone())
+		Ok(output)
 	}
 
 	pub(crate) async fn push_request(
