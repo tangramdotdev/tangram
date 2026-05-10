@@ -42,7 +42,23 @@ impl Cli {
 		let location = Some(tg::Location::Local(tg::location::Local::default()));
 
 		// Get the references.
-		let referents = self.get_references(&args.references).await?;
+		let reference_location = source.clone().map(Into::into);
+		let references = args
+			.references
+			.iter()
+			.map(|reference| {
+				let mut options = reference.options().clone();
+				if options.location.is_none() {
+					options.location.clone_from(&reference_location);
+				}
+				tg::Reference::new(
+					reference.item().clone(),
+					options,
+					reference.export().map(ToOwned::to_owned),
+				)
+			})
+			.collect::<Vec<_>>();
+		let referents = self.get_references(&references).await?;
 		let items: Vec<_> = referents
 			.into_iter()
 			.map(|referent| match referent.item {
