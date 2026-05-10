@@ -235,7 +235,7 @@ impl Session {
 					&item.id,
 					&data,
 					Some(&process.stored),
-				);
+				)?;
 			}
 		}
 

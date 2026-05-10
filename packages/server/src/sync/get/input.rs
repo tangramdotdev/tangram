@@ -127,7 +127,7 @@ impl Session {
 							&message.id,
 							&data,
 							stored.as_ref(),
-						);
+						)?;
 					}
 
 					// Send to the store task.

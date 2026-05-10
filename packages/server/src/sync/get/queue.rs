@@ -274,7 +274,7 @@ impl Session {
 					);
 
 					// Enqueue the children as necessary.
-					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(stored));
+					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(stored))?;
 
 					// Send a stored message if necessary.
 					if stored.subtree
@@ -337,7 +337,7 @@ impl Session {
 		id: &tg::process::Id,
 		data: &tg::process::Data,
 		stored: Option<&tangram_index::ProcessStored>,
-	) {
+	) -> tg::Result<()> {
 		// Enqueue the children if necessary.
 		if state.arg.recursive
 			&& (!stored.is_some_and(|stored| stored.subtree)
@@ -408,7 +408,7 @@ impl Session {
 				};
 				state.queue.enqueue_object(item);
 			} else {
-				tracing::warn!(process = %id, "cannot sync logs: missing log id");
+				return Err(tg::error!(process = %id, "failed to find the log"));
 			}
 		}
 
@@ -427,5 +427,7 @@ impl Session {
 					eager: state.arg.eager,
 				}));
 		}
+
+		Ok(())
 	}
 }

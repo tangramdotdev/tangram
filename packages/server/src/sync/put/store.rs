@@ -159,7 +159,7 @@ impl Session {
 			};
 
 			// Compact the log if needed before sending the process data.
-			if item.eager && state.arg.logs && output.data.log.is_none() {
+			if state.arg.logs && output.data.log.is_none() {
 				self.compact_process_log(&item.id).boxed().await.map_err(
 					|error| tg::error!(!error, process = %item.id, "failed to compact the log"),
 				)?;
