@@ -164,6 +164,7 @@ impl Cli {
 			pool,
 			reconnect,
 			retry,
+			sync: tg::sync::Config::default(),
 		};
 
 		let client = tg::Client::new(arg)?;

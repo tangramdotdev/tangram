@@ -36,6 +36,7 @@ impl Session {
 			pool: Some(self.client.pool_options),
 			reconnect: Some(self.client.reconnect.clone()),
 			retry: Some(self.client.retry.clone()),
+			sync: self.client.sync,
 		}
 	}
 

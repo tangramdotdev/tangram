@@ -74,6 +74,9 @@ impl Server {
 			pool: None,
 			reconnect: None,
 			retry: None,
+			sync: tg::sync::Config {
+				max_frame_size: self.config().sync.max_frame_size,
+			},
 		})
 	}
 }

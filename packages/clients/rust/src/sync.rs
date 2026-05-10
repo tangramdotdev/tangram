@@ -2,7 +2,6 @@ use {
 	crate::prelude::*,
 	bytes::Bytes,
 	futures::{prelude::*, stream::BoxStream},
-	num::ToPrimitive as _,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::body::BodyStream,
@@ -15,6 +14,11 @@ use {
 };
 
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
+
+#[derive(Clone, Copy, Debug)]
+pub struct Config {
+	pub max_frame_size: u64,
+}
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -283,6 +287,7 @@ impl tg::Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
+		let max_frame_size = self.client().sync.max_frame_size;
 		let method = http::Method::POST;
 		let (arg_in_body, uri) = match Uri::builder().path("/sync").query_params(&arg) {
 			Ok(builder) => (false, builder.build().unwrap()),
@@ -294,15 +299,23 @@ impl tg::Session {
 		};
 
 		// Create the body.
-		let stream = stream.then(|result| async {
+		let stream = stream.then(move |result| async move {
 			let frame = match result {
 				Ok(message) => {
 					let message = tangram_serialize::to_vec(&message).unwrap();
+					let message_len = message.len();
+					let len = u64::try_from(message_len).map_err(
+						|error| tg::error!(!error, len = %message_len, "sync frame length out of range"),
+					)?;
+					if len > max_frame_size {
+						return Err(tg::error!(
+							len = %len,
+							max = %max_frame_size,
+							"sync frame too large"
+						));
+					}
 					let mut bytes = Vec::with_capacity(9 + message.len());
-					bytes
-						.write_uvarint(message.len().to_u64().unwrap())
-						.await
-						.unwrap();
+					bytes.write_uvarint(len).await.unwrap();
 					bytes.write_all(&message).await.unwrap();
 					hyper::body::Frame::data(bytes.into())
 				},
@@ -387,15 +400,24 @@ impl tg::Session {
 
 		let reader =
 			StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
-		let data_messages = stream::try_unfold(reader, |mut reader| async move {
+		let data_messages = stream::try_unfold(reader, move |mut reader| async move {
 			let Some(len) = reader
 				.try_read_uvarint()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to read the length"))?
-				.map(|value| value.to_usize().unwrap())
 			else {
 				return Ok(None);
 			};
+			if len > max_frame_size {
+				return Err(tg::error!(
+					len = %len,
+					max = %max_frame_size,
+					"sync frame too large"
+				));
+			}
+			let len = usize::try_from(len).map_err(
+				|error| tg::error!(!error, len = %len, "sync frame length out of range"),
+			)?;
 			let mut bytes = vec![0; len];
 			reader
 				.read_exact(&mut bytes)
@@ -431,5 +453,13 @@ impl tg::Session {
 		let stream = stream::select(data_messages, trailer_messages).attach(task);
 
 		Ok(stream)
+	}
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			max_frame_size: 64 * 1024 * 1024,
+		}
 	}
 }

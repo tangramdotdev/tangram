@@ -61,6 +61,9 @@ impl Server {
 			pool: None,
 			reconnect,
 			retry,
+			sync: tg::sync::Config {
+				max_frame_size: self.config().sync.max_frame_size,
+			},
 		})?;
 		self.regions.insert(region.to_owned(), client.clone());
 		Ok(Some(client))

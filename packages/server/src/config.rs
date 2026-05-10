@@ -1,6 +1,7 @@
 use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::{collections::BTreeMap, net::Ipv4Addr, path::PathBuf, time::Duration},
+	tangram_client::prelude::*,
 	tangram_uri::Uri,
 	tangram_util::serde::BoolOptionDefault,
 };
@@ -686,6 +687,9 @@ pub struct Sync {
 	#[serde(default)]
 	pub get: SyncGet,
 
+	#[serde(default = "default_sync_max_frame_size")]
+	pub max_frame_size: u64,
+
 	#[serde(default)]
 	pub put: SyncPut,
 
@@ -1217,6 +1221,7 @@ impl Default for Sync {
 	fn default() -> Self {
 		Self {
 			get: SyncGet::default(),
+			max_frame_size: default_sync_max_frame_size(),
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
 		}
@@ -1458,6 +1463,10 @@ fn default_process_grant_time_to_live() -> Duration {
 
 fn default_time_to_touch() -> Duration {
 	Duration::from_hours(1)
+}
+
+fn default_sync_max_frame_size() -> u64 {
+	tg::sync::Config::default().max_frame_size
 }
 
 fn sync_retry_default() -> Retry {

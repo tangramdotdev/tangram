@@ -126,6 +126,7 @@ pub struct Arg {
 	pub pool: Option<tangram_pool::Options>,
 	pub reconnect: Option<tangram_futures::retry::Options>,
 	pub retry: Option<tangram_futures::retry::Options>,
+	pub sync: tg::sync::Config,
 }
 
 #[derive(Clone, Debug)]
@@ -138,6 +139,7 @@ pub struct State {
 	reconnect: tangram_futures::retry::Options,
 	retry: tangram_futures::retry::Options,
 	service: self::http::Service,
+	sync: tg::sync::Config,
 	url: Uri,
 	version: String,
 }
@@ -159,6 +161,7 @@ impl Client {
 		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
 		let reconnect = arg.reconnect.unwrap_or_default();
 		let retry = arg.retry.unwrap_or_default();
+		let sync = arg.sync;
 		let context = Context { token: arg.token };
 		let pool = Self::pool(pool_options, &reconnect, &url);
 		let service = Self::service(&version, &pool);
@@ -169,6 +172,7 @@ impl Client {
 			reconnect,
 			retry,
 			service,
+			sync,
 			url,
 			version,
 		}));
@@ -208,6 +212,7 @@ impl Client {
 		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
 		let reconnect = arg.reconnect.unwrap_or_default();
 		let retry = arg.retry.unwrap_or_default();
+		let sync = arg.sync;
 		let context = Context { token: arg.token };
 		let sender = Self::handshake_h2(stream).await?;
 		let options = tangram_pool::Options {
@@ -228,6 +233,7 @@ impl Client {
 			reconnect,
 			retry,
 			service,
+			sync,
 			url,
 			version,
 		}));
@@ -306,6 +312,7 @@ impl fmt::Debug for State {
 			.field("pool_options", &self.pool_options)
 			.field("reconnect", &self.reconnect)
 			.field("retry", &self.retry)
+			.field("sync", &self.sync)
 			.field("url", &self.url)
 			.field("version", &self.version)
 			.finish_non_exhaustive()
