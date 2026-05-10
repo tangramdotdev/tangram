@@ -18,12 +18,15 @@ impl Session {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
-					let eager = state
-						.graph
-						.lock()
-						.unwrap()
-						.get_object_requested(&message.id)
-						.is_none_or(|requested| requested.eager);
+					// Validate the ID.
+					let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
+					if message.id != actual {
+						return Err(tg::error!(
+							expected = %message.id,
+							actual = %actual,
+							"invalid object id"
+						));
+					}
 
 					// Deserialize the object.
 					let data =
@@ -44,6 +47,13 @@ impl Session {
 					if state.graph.lock().unwrap().end_local(&state.arg) {
 						state.queue.close();
 					}
+
+					let eager = state
+						.graph
+						.lock()
+						.unwrap()
+						.get_object_requested(&message.id)
+						.is_none_or(|requested| requested.eager);
 
 					if eager {
 						// Send to the index task.

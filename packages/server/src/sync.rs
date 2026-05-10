@@ -277,7 +277,6 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to read the sync arg"))?
 		};
 		let stream = stream::try_unfold(reader, move |mut reader| async move {
-			// Read a message.
 			let Some(len) = reader
 				.try_read_uvarint()
 				.await
@@ -293,20 +292,6 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to read the message"))?;
 			let message = tangram_serialize::from_slice(&bytes)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-
-			// Validate object IDs.
-			if let tg::sync::Message::Put(tg::sync::PutMessage::Item(
-				tg::sync::PutItemMessage::Object(tg::sync::PutItemObjectMessage {
-					id, bytes, ..
-				}),
-			)) = &message
-			{
-				let actual = tg::object::Id::new(id.kind(), bytes);
-				if id != &actual {
-					return Err(tg::error!(expected = %id, %actual, "invalid object id"));
-				}
-			}
-
 			Ok(Some((message, reader)))
 		})
 		.boxed();
