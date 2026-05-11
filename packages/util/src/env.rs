@@ -11,7 +11,7 @@ pub fn current_exe() -> std::io::Result<PathBuf> {
 		let path = OsStr::from_bytes(path);
 		PathBuf::from(path)
 	} else {
-		path
+		std::fs::canonicalize(&path)?
 	};
 	Ok(path)
 }
