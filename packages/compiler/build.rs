@@ -162,8 +162,15 @@ mod typescript {
 
 		// Build typescript.
 		println!("cargo:rerun-if-changed=../../packages/typescript");
-		let manifest_directory_path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-		let typescript_path = format!("{manifest_directory_path}/../../packages/typescript");
+		let manifest_directory_path = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+		// tsgo rejects include globs containing `..` segments (TS18003), so resolve
+		// to the workspace root manually and join from there.
+		let typescript_path = manifest_directory_path
+			.parent()
+			.and_then(Path::parent)
+			.unwrap()
+			.join("packages/typescript");
+		let typescript_path = typescript_path.display();
 		if let Ok(node_path) = std::env::var("NODE_PATH") {
 			std::fs::write(
 				out_dir_path.join("tsconfig.json"),
@@ -182,31 +189,13 @@ mod typescript {
 				),
 			)
 			.unwrap();
-			let tsgo_output = std::process::Command::new("bunx")
+			std::process::Command::new("bunx")
 				.args(["tsgo", "--project", out_dir_path.to_str().unwrap()])
-				.output()
+				.status()
+				.unwrap()
+				.success()
+				.then_some(())
 				.unwrap();
-			if !tsgo_output.status.success() {
-				eprintln!("--- bunx tsgo failed (status: {:?}) ---", tsgo_output.status);
-				eprintln!(
-					"PATH={:?}",
-					std::env::var("PATH").unwrap_or_default()
-				);
-				eprintln!(
-					"NODE_PATH={:?}",
-					std::env::var("NODE_PATH").unwrap_or_default()
-				);
-				eprintln!("tsconfig at: {:?}", out_dir_path.join("tsconfig.json"));
-				if let Ok(tsconfig) = std::fs::read_to_string(out_dir_path.join("tsconfig.json")) {
-					eprintln!("--- tsconfig.json ---");
-					eprintln!("{tsconfig}");
-				}
-				eprintln!("--- tsgo stdout ---");
-				eprintln!("{}", String::from_utf8_lossy(&tsgo_output.stdout));
-				eprintln!("--- tsgo stderr ---");
-				eprintln!("{}", String::from_utf8_lossy(&tsgo_output.stderr));
-				panic!("bunx tsgo failed");
-			}
 		} else {
 			std::process::Command::new("bun")
 				.args(["run", "--cwd", "../../packages/typescript", "check"])
