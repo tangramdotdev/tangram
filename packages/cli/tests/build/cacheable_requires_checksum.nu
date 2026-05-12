@@ -14,7 +14,7 @@ def assert_cacheable_error [source: string] {
 
 assert_cacheable_error '
 	export default async () => {
-		return await tg.build(() => tg.file("Hello, World!")).network(true);
+		return await tg.build(() => tg.file("Hello, World!")).network();
 	};
 '
 

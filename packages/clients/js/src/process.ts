@@ -649,11 +649,11 @@ export namespace Process {
 		}
 
 		network(
-			network: tg.Unresolved<
+			network?: tg.Unresolved<
 				tg.MaybeMutation<boolean | tg.Sandbox.Network | undefined>
 			>,
 		): this {
-			this.#args.push({ network });
+			this.#args.push({ network: network ?? true });
 			return this;
 		}
 
