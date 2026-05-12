@@ -170,7 +170,6 @@ impl Session {
 	pub(crate) async fn delete_tags_request(
 		&self,
 		request: http::Request<BoxBody>,
-		_tag: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request

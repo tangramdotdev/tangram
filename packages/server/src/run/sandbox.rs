@@ -26,6 +26,7 @@ impl Server {
 					// Run the sandbox task.
 					let result = session
 						.sandbox_task(&id, location.clone(), permit, process)
+						.boxed()
 						.await;
 
 					// If the sandbox task fails, then destroy the sandbox with an error.

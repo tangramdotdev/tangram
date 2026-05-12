@@ -163,7 +163,6 @@ impl Session {
 	pub(crate) async fn put_tag_request(
 		&self,
 		request: http::Request<BoxBody>,
-		tag: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -171,17 +170,12 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
-		// Parse the tag.
-		let tag = tag.join("/");
-		let tag = tag
-			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
-
 		// Get the arg.
-		let arg: tg::tag::put::Arg = request
+		let mut arg: tg::tag::put::Arg = request
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+		let tag = arg.tag.take().ok_or_else(|| tg::error!("expected a tag"))?;
 
 		// Put the tag.
 		self.put_tag(&tag, arg).await?;

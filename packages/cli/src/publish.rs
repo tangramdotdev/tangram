@@ -147,6 +147,7 @@ impl Cli {
 						item: tg::Either::Left(id),
 						location: None,
 						replicate: false,
+						tag: None,
 					};
 					client.put_tag(&tag, arg).await.map_err(
 						|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
@@ -165,6 +166,7 @@ impl Cli {
 							item: tg::Either::Left(id),
 							location: None,
 							replicate: false,
+							tag: None,
 						};
 						client.put_tag(&item.tag, arg).await.map_err(
 							|error| tg::error!(!error, tag = %item.tag, "failed to put local tag"),
@@ -182,6 +184,7 @@ impl Cli {
 							item: tg::Either::Left(id),
 							location: None,
 							replicate: false,
+							tag: None,
 						};
 						client.put_tag(&tag, arg).await.map_err(
 							|error| tg::error!(!error, tag = %tag, "failed to put local tag"),

@@ -20,12 +20,16 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) => self.login_user_local(arg.email).await,
+			tg::Location::Local(_) => self.login_user_local(arg.email, arg.handle).await,
 			tg::Location::Remote(remote) => self.login_user_remote(arg, remote).await,
 		}
 	}
 
-	async fn login_user_local(&self, email: String) -> tg::Result<tg::user::login::Output> {
+	async fn login_user_local(
+		&self,
+		email: String,
+		requested_handle: Option<String>,
+	) -> tg::Result<tg::user::login::Output> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -44,14 +48,16 @@ impl Session {
 		// Get or create the user.
 		#[derive(db::row::Deserialize)]
 		struct UserRow {
+			handle: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
 		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select user_emails.\"user\" as id
+				select users.id, users.handle
 				from user_emails
+				join users on users.id = user_emails.\"user\"
 				where user_emails.email = {p}1;
 			"
 		);
@@ -60,8 +66,8 @@ impl Session {
 			.query_optional_into::<UserRow>(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let id = if let Some(user) = user {
-			user.id
+		let (id, mut handle) = if let Some(user) = user {
+			(user.id, user.handle)
 		} else {
 			let id = tg::user::Id::new();
 			let statement = formatdoc!(
@@ -88,8 +94,63 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-			id
+			(id, None)
 		};
+
+		if let Some(requested_handle) = requested_handle {
+			if let Some(handle) = &handle {
+				if handle != &requested_handle {
+					return Err(tg::error!("user already has a handle"));
+				}
+			} else {
+				let namespace = Self::namespace_for_handle(&requested_handle)?;
+
+				let statement = formatdoc!(
+					"
+						select 1
+						from groups
+						where handle = {p}1;
+					"
+				);
+				let params = db::params![requested_handle.clone()];
+				if transaction
+					.query_optional(statement.into(), params)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+					.is_some()
+				{
+					return Err(tg::error!("handle is already in use"));
+				}
+
+				let statement = formatdoc!(
+					"
+						update users
+						set handle = {p}2
+						where id = {p}1;
+					"
+				);
+				let params = db::params![id.to_string(), requested_handle.clone()];
+				transaction
+					.execute(statement.into(), params)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+
+				let namespace_id =
+					Self::get_or_create_namespace_with_transaction(&transaction, &namespace)
+						.await?;
+				Self::grant_namespace_to_user_with_transaction(
+					&transaction,
+					&namespace,
+					namespace_id,
+					&id,
+					tg::Permission::Write,
+					Some(&id),
+				)
+				.await?;
+
+				handle = Some(requested_handle);
+			}
+		}
 
 		// Create the token.
 		let token = Self::create_user_token();
@@ -132,8 +193,9 @@ impl Session {
 		drop(connection);
 
 		let user = tg::User {
-			id,
 			emails,
+			handle,
+			id,
 			location: None,
 		};
 		let output = tg::user::login::Output { token, user };

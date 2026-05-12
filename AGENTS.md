@@ -19,3 +19,5 @@ To run all tests, run `bun run test`. The most important tests are the CLI tests
 Please do not omit articles in error messages and comments. Comments should be complete sentences that end in periods and do not use contractions. Error messages should be sentence fragments that start with lowercase letters.
 
 Please keep Rust modules organized in the following order: a single `use` statement like `use { foo::a, bar::b };`, then `mod` statements, the a single `pub use` statement, then `pub mod` statements, then all structs and enums, in topological order, so top parent types appear before child types. Then all inherent impls, in the struct declaration order, then trait impls.
+
+This is prerelease software. Please do not add any backwards compatability when you change database schemas, API contracts, configuration formats, etc. Please do not add any migrations. Leave the schema versions at 1.

@@ -1,6 +1,7 @@
 use {crate::Session, tangram_client::prelude::*};
 
 mod current;
+mod grant;
 mod login;
 
 impl Session {
@@ -19,16 +20,6 @@ impl Session {
 		if !self.server.config().authorization {
 			return Ok(Some(None));
 		}
-		let Some(token) = self.context.token.as_ref() else {
-			return Ok(None);
-		};
-		let Some(user) = self
-			.get_current_user_local(token)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the current user"))?
-		else {
-			return Ok(None);
-		};
-		Ok(Some(Some(user)))
+		Ok(self.context.user.clone().map(Some))
 	}
 }

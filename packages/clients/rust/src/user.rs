@@ -1,6 +1,7 @@
 use crate::prelude::*;
 
 pub mod current;
+pub mod grant;
 pub mod login;
 
 #[derive(
@@ -22,7 +23,11 @@ pub struct Id(tg::Id);
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct User {
 	pub id: Id,
+
 	pub emails: Vec<String>,
+
+	#[serde(default)]
+	pub handle: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,

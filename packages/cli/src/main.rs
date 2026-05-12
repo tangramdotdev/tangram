@@ -25,6 +25,7 @@ mod error;
 mod extract;
 mod format;
 mod get;
+mod group;
 mod health;
 mod id;
 mod index;
@@ -262,6 +263,9 @@ enum Command {
 	Format(self::format::Args),
 
 	Get(self::get::Args),
+
+	#[command(alias = "groups")]
+	Group(self::group::Args),
 
 	Health(self::health::Args),
 
@@ -577,6 +581,7 @@ impl Cli {
 			Command::Extract(args) => self.command_extract(args).boxed_local(),
 			Command::Format(args) => self.command_format(args).boxed_local(),
 			Command::Get(args) => self.command_get(args).boxed_local(),
+			Command::Group(args) => self.command_group(args).boxed_local(),
 			Command::Health(args) => self.command_health(args).boxed_local(),
 			Command::Id(args) => self.command_id(args).boxed_local(),
 			Command::Index(args) => self.command_index(args).boxed_local(),

@@ -32,6 +32,8 @@ mod directory;
 mod document;
 mod format;
 mod get;
+mod grant;
+mod group;
 mod handle;
 mod health;
 mod http;

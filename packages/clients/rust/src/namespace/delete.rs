@@ -4,11 +4,23 @@ use {
 	tangram_uri::Uri,
 };
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	pub namespace: tg::Namespace,
+}
+
 impl tg::Session {
 	pub async fn try_delete_namespace(&self, namespace: &tg::Namespace) -> tg::Result<Option<()>> {
 		let method = http::Method::DELETE;
-		let path = format!("/namespaces/{namespace}");
-		let uri = Uri::builder().path(&path).build().unwrap();
+		let arg = tg::namespace::delete::Arg {
+			namespace: namespace.clone(),
+		};
+		let uri = Uri::builder()
+			.path("/namespaces")
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

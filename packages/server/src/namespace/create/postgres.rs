@@ -1,33 +1,9 @@
 use {
-	crate::Session,
-	indoc::indoc,
-	std::collections::HashMap,
-	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	crate::Session, indoc::indoc, std::collections::HashMap, tangram_client::prelude::*,
+	tangram_database as db,
 };
 
 impl Session {
-	pub(crate) async fn create_namespace_postgres(
-		&self,
-		database: &db::postgres::Database,
-		namespace: &tg::Namespace,
-	) -> tg::Result<()> {
-		let mut connection = database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		Self::get_or_create_namespace_postgres(&transaction, namespace).await?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(())
-	}
-
 	pub(crate) async fn get_or_create_namespace_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,

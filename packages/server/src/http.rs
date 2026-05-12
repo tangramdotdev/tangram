@@ -484,6 +484,7 @@ impl Server {
 		context.id = Some(id.clone());
 		context.token = request.token(None).map(ToOwned::to_owned);
 		context.untrusted = true;
+		context.user = None;
 
 		let span = tracing::Span::current();
 		span.record("id", id.to_string());
@@ -492,6 +493,28 @@ impl Server {
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
+
+		if let Some(token) = context.token.clone() {
+			let session = self.session(&context);
+			match session.get_current_user_local(&token).await {
+				Ok(Some(user)) => {
+					context.user = Some(user);
+				},
+				Ok(None) => (),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to authenticate the request");
+					let bytes = match error.to_data_or_id() {
+						tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
+						tg::Either::Right(id) => id.to_string(),
+					};
+					return http::Response::builder()
+						.status(http::StatusCode::INTERNAL_SERVER_ERROR)
+						.bytes(bytes)
+						.unwrap()
+						.boxed_body();
+				},
+			}
+		}
 
 		if let Err(response) = self
 			.handle_request_context_for_process(request.headers(), &mut context)
@@ -522,6 +545,28 @@ impl Server {
 			(http::Method::POST, ["write"]) => session.write_request(request).boxed(),
 			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
 
+			// Groups.
+			(http::Method::GET, ["groups"]) => session.list_groups_request(request).boxed(),
+			(http::Method::POST, ["groups"]) => session.create_group_request(request).boxed(),
+			(http::Method::GET, ["groups", group]) => {
+				session.try_get_group_request(request, group).boxed()
+			},
+			(http::Method::DELETE, ["groups", group]) => {
+				session.try_delete_group_request(request, group).boxed()
+			},
+			(http::Method::GET, ["groups", group, "members"]) => {
+				session.list_group_members_request(request, group).boxed()
+			},
+			(http::Method::PUT, ["groups", group, "members", user]) => session
+				.add_group_member_request(request, group, user)
+				.boxed(),
+			(http::Method::DELETE, ["groups", group, "members", user]) => session
+				.remove_group_member_request(request, group, user)
+				.boxed(),
+			(http::Method::PUT, ["groups", group, "grants"]) => session
+				.grant_group_namespace_permission_request(request, group)
+				.boxed(),
+
 			// Modules.
 			(http::Method::POST, ["modules", "load"]) => {
 				session.load_module_request(request).boxed()
@@ -532,17 +577,14 @@ impl Server {
 
 			// Namespaces.
 			(http::Method::GET, ["namespaces"]) => {
-				session.try_get_namespace_request(request, &[]).boxed()
+				session.try_get_namespace_request(request).boxed()
 			},
-			(http::Method::GET, ["namespaces", namespace @ ..]) => session
-				.try_get_namespace_request(request, namespace)
-				.boxed(),
-			(http::Method::PUT, ["namespaces", namespace @ ..]) => {
-				session.create_namespace_request(request, namespace).boxed()
+			(http::Method::PUT, ["namespaces"]) => {
+				session.create_namespace_request(request).boxed()
 			},
-			(http::Method::DELETE, ["namespaces", namespace @ ..]) => session
-				.try_delete_namespace_request(request, namespace)
-				.boxed(),
+			(http::Method::DELETE, ["namespaces"]) => {
+				session.try_delete_namespace_request(request).boxed()
+			},
 
 			// Objects.
 			(http::Method::GET, ["objects", object, "metadata"]) => session
@@ -659,14 +701,13 @@ impl Server {
 			(http::Method::POST, ["tags", "batch"]) => {
 				session.post_tag_batch_request(request).boxed()
 			},
-			(http::Method::PUT, ["tags", tag @ ..]) => {
-				session.put_tag_request(request, tag).boxed()
-			},
-			(http::Method::DELETE, ["tags", tag @ ..]) => {
-				session.delete_tags_request(request, tag).boxed()
-			},
+			(http::Method::PUT, ["tags"]) => session.put_tag_request(request).boxed(),
+			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
 
 			// Users.
+			(http::Method::PUT, ["users", user, "grants"]) => session
+				.grant_user_namespace_permission_request(request, user)
+				.boxed(),
 			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
 			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
 

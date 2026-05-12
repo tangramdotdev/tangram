@@ -51,6 +51,7 @@ impl Cli {
 			item,
 			location: args.location.get(),
 			replicate: false,
+			tag: None,
 		};
 		let tag = args.tag.unwrap();
 		client

@@ -32,6 +32,7 @@ impl Session {
 							item: item.clone(),
 							location: None,
 							replicate: false,
+							tag: None,
 						};
 						Self::put_tag_sqlite_sync(&transaction, cache, tag, &arg)
 							.map_err(|error| tg::error!(!error, %tag, "failed to put tag"))?;

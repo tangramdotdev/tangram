@@ -33,20 +33,22 @@ impl Session {
 	pub(crate) async fn try_delete_namespace_request(
 		&self,
 		request: http::Request<BoxBody>,
-		namespace: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let namespace: tg::Namespace = namespace
-			.join("/")
-			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?;
+		let arg: tg::namespace::delete::Arg = request
+			.query_params()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.ok_or_else(|| tg::error!("expected query params"))?;
 		if self
-			.try_delete_namespace(&namespace)
+			.try_delete_namespace(&arg.namespace)
 			.await
-			.map_err(|error| tg::error!(!error, %namespace, "failed to delete the namespace"))?
+			.map_err(
+				|error| tg::error!(!error, namespace = %arg.namespace, "failed to delete the namespace"),
+			)?
 			.is_none()
 		{
 			return Ok(http::Response::builder()

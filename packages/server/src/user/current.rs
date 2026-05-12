@@ -51,13 +51,14 @@ impl Session {
 		// Get the user ID for the token.
 		#[derive(db::row::Deserialize)]
 		struct UserRow {
+			handle: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select users.id
+				select users.id, users.handle
 				from users
 				join tokens on tokens.\"user\" = users.id
 				where tokens.id = {p}1;
@@ -92,8 +93,9 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let emails = rows.into_iter().map(|row| row.email).collect();
 		let user = tg::User {
-			id: user.id,
 			emails,
+			handle: user.handle,
+			id: user.id,
 			location: None,
 		};
 

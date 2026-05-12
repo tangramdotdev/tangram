@@ -1,37 +1,9 @@
 use {
-	crate::Session,
-	indoc::indoc,
-	rusqlite as sqlite,
-	std::collections::HashMap,
+	crate::Session, indoc::indoc, rusqlite as sqlite, std::collections::HashMap,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 };
 
 impl Session {
-	pub(crate) async fn create_namespace_sqlite(
-		&self,
-		database: &db::sqlite::Database,
-		namespace: &tg::Namespace,
-	) -> tg::Result<()> {
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let namespace = namespace.clone();
-		connection
-			.with(move |connection, _cache| {
-				let transaction = connection
-					.transaction()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				Self::get_or_create_namespace_sqlite_sync(&transaction, &namespace)?;
-				transaction
-					.commit()
-					.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-				Ok(())
-			})
-			.await
-	}
-
 	pub(crate) fn get_or_create_namespace_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		namespace: &tg::Namespace,

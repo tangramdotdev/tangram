@@ -106,6 +106,7 @@ impl Cli {
 						item: item.clone(),
 						location: location.clone().map(Into::into),
 						replicate: false,
+						tag: None,
 					};
 					client
 						.put_tag(&tag, arg)

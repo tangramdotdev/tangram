@@ -28,6 +28,7 @@ impl Session {
 				item: item.clone(),
 				location: None,
 				replicate: false,
+				tag: None,
 			};
 			Self::put_tag_postgres_inner(&mut transaction, tag, &arg)
 				.await

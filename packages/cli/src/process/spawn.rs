@@ -434,6 +434,7 @@ impl Cli {
 				item,
 				location: location.clone(),
 				replicate: false,
+				tag: None,
 			};
 			client
 				.put_tag(&tag, arg)

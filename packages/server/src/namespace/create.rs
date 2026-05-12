@@ -1,6 +1,7 @@
 use {
-	crate::{Database, Session},
+	crate::Session,
 	tangram_client::prelude::*,
+	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -16,35 +17,55 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		match &self.server.database {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => {
-				self.create_namespace_postgres(database, namespace).await?;
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(database) => {
-				self.create_namespace_sqlite(database, namespace).await?;
-			},
+		self.authorize()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		let created_by = self.context.user.as_ref().map(|user| user.id.clone());
+		let mut connection = self
+			.server
+			.database
+			.write_connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let namespace_id =
+			Self::get_or_create_namespace_with_transaction(&transaction, namespace).await?;
+		if let Some(user) = created_by.as_ref() {
+			Self::grant_namespace_to_user_with_transaction(
+				&transaction,
+				namespace,
+				namespace_id,
+				user,
+				tg::Permission::Write,
+				created_by.as_ref(),
+			)
+			.await?;
 		}
+		transaction
+			.commit()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(())
 	}
 
 	pub(crate) async fn create_namespace_request(
 		&self,
 		request: http::Request<BoxBody>,
-		namespace: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let namespace: tg::Namespace = namespace
-			.join("/")
-			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?;
-		self.create_namespace(&namespace)
+		let arg: tg::namespace::create::Arg = request
+			.json()
 			.await
-			.map_err(|error| tg::error!(!error, %namespace, "failed to create the namespace"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+		self.create_namespace(&arg.namespace).await.map_err(
+			|error| tg::error!(!error, namespace = %arg.namespace, "failed to create the namespace"),
+		)?;
 		match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))

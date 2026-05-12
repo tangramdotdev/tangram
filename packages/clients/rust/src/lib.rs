@@ -21,7 +21,9 @@ pub use {
 		directory::Handle as Directory,
 		error::{Error, Result, ok},
 		file::Handle as File,
+		grant::Grant,
 		graph::Handle as Graph,
+		group::Group,
 		handle::{HANDLE, Handle, init, init_with, try_handle},
 		health::Health,
 		id::Id,
@@ -30,6 +32,7 @@ pub use {
 		mutation::Mutation,
 		namespace::Namespace,
 		object::Handle as Object,
+		permission::Permission,
 		placeholder::Placeholder,
 		position::Position,
 		process::{Process, build, exec, run, spawn},
@@ -67,7 +70,9 @@ pub mod error;
 pub mod file;
 pub mod format;
 pub mod get;
+pub mod grant;
 pub mod graph;
+pub mod group;
 pub mod handle;
 pub mod health;
 pub mod host;
@@ -79,6 +84,7 @@ pub mod module;
 pub mod mutation;
 pub mod namespace;
 pub mod object;
+pub mod permission;
 pub mod placeholder;
 pub mod position;
 pub mod process;

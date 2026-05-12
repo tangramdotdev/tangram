@@ -6,6 +6,9 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tag: Option<tg::Tag>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 
@@ -19,9 +22,10 @@ pub struct Arg {
 }
 
 impl tg::Session {
-	pub async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
+	pub async fn put_tag(&self, tag: &tg::Tag, mut arg: tg::tag::put::Arg) -> tg::Result<()> {
 		let method = http::Method::PUT;
-		let uri = format!("/tags/{tag}");
+		let uri = "/tags".to_owned();
+		arg.tag = Some(tag.clone());
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

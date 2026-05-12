@@ -1,8 +1,61 @@
-create table remotes (
-	name text primary key,
-	url text not null,
-	token text
+create table users (
+	id text primary key,
+	handle text
 );
+
+create unique index users_handle_index on users (handle);
+
+create table user_emails (
+	"user" text not null,
+	email text not null unique,
+	primary key ("user", email)
+);
+
+create table tokens (
+	id text primary key,
+	"user" text not null
+);
+
+create table groups (
+	id text primary key,
+	handle text
+);
+
+create unique index groups_handle_index on groups (handle);
+
+create table group_members (
+	"group" text not null,
+	"user" text not null,
+	primary key ("group", "user")
+);
+
+create index group_members_user_index on group_members ("user");
+
+create table namespace_grants (
+	namespace integer not null default 0,
+	"user" text,
+	"group" text,
+	permission text not null,
+	created_at integer not null,
+	created_by text,
+	check (("user" is null) != ("group" is null))
+);
+
+create unique index namespace_grants_user_index
+	on namespace_grants (namespace, "user", permission)
+	where "user" is not null;
+
+create unique index namespace_grants_group_index
+	on namespace_grants (namespace, "group", permission)
+	where "group" is not null;
+
+create index namespace_grants_user_lookup_index
+	on namespace_grants ("user", namespace, permission)
+	where "user" is not null;
+
+create index namespace_grants_group_lookup_index
+	on namespace_grants ("group", namespace, permission)
+	where "group" is not null;
 
 create table namespaces (
 	id integer primary key autoincrement,
@@ -32,17 +85,8 @@ create table list_cache (
 
 create unique index list_cache_arg_index on list_cache (arg);
 
-create table users (
-	id text primary key
-);
-
-create table user_emails (
-	"user" text not null,
-	email text not null unique,
-	primary key ("user", email)
-);
-
-create table tokens (
-	id text primary key,
-	"user" text not null
+create table remotes (
+	name text primary key,
+	url text not null,
+	token text
 );

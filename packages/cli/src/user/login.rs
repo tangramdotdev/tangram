@@ -7,6 +7,9 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub email: String,
 
+	#[arg(long)]
+	pub handle: Option<String>,
+
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
@@ -21,6 +24,7 @@ impl Cli {
 		let output = client
 			.login_user(tg::user::login::Arg {
 				email: args.email,
+				handle: args.handle,
 				location: location.clone().map(Into::into),
 			})
 			.await

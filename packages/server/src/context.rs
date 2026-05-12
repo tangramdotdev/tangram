@@ -8,6 +8,7 @@ pub struct Context {
 	pub stopper: Option<Stopper>,
 	pub token: Option<String>,
 	pub untrusted: bool,
+	pub user: Option<tg::User>,
 }
 
 #[derive(Clone, Debug)]
