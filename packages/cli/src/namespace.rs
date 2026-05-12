@@ -3,6 +3,7 @@ use {crate::Cli, tangram_client::prelude::*};
 pub mod create;
 pub mod delete;
 pub mod get;
+pub mod grants;
 
 /// Manage namespaces.
 #[derive(Clone, Debug, clap::Args)]
@@ -21,6 +22,8 @@ pub enum Command {
 	Delete(self::delete::Args),
 
 	Get(self::get::Args),
+
+	Grants(self::grants::Args),
 }
 
 impl Cli {
@@ -34,6 +37,9 @@ impl Cli {
 			},
 			Command::Get(args) => {
 				self.command_namespace_get(args).await?;
+			},
+			Command::Grants(args) => {
+				self.command_namespace_grants(args).await?;
 			},
 		}
 		Ok(())

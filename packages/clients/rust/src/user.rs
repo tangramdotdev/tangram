@@ -2,7 +2,9 @@ use crate::prelude::*;
 
 pub mod current;
 pub mod grant;
+pub mod grants;
 pub mod login;
+pub mod permissions;
 
 #[derive(
 	Clone,

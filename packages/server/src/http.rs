@@ -554,6 +554,9 @@ impl Server {
 			(http::Method::DELETE, ["groups", group]) => {
 				session.try_delete_group_request(request, group).boxed()
 			},
+			(http::Method::GET, ["groups", group, "grants"]) => session
+				.list_group_namespace_grants_request(request, group)
+				.boxed(),
 			(http::Method::GET, ["groups", group, "members"]) => {
 				session.list_group_members_request(request, group).boxed()
 			},
@@ -576,6 +579,9 @@ impl Server {
 			},
 
 			// Namespaces.
+			(http::Method::GET, ["namespaces", "grants"]) => {
+				session.list_namespace_grants_request(request).boxed()
+			},
 			(http::Method::GET, ["namespaces"]) => {
 				session.try_get_namespace_request(request).boxed()
 			},
@@ -705,8 +711,14 @@ impl Server {
 			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
 
 			// Users.
+			(http::Method::GET, ["users", user, "grants"]) => session
+				.list_user_namespace_grants_request(request, user)
+				.boxed(),
 			(http::Method::PUT, ["users", user, "grants"]) => session
 				.grant_user_namespace_permission_request(request, user)
+				.boxed(),
+			(http::Method::GET, ["users", user, "permissions"]) => session
+				.list_user_namespace_permissions_request(request, user)
 				.boxed(),
 			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
 			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),

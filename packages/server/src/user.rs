@@ -2,7 +2,9 @@ use {crate::Session, tangram_client::prelude::*};
 
 mod current;
 mod grant;
+mod grants;
 mod login;
+mod permissions;
 
 impl Session {
 	pub(crate) async fn authorize(&self) -> tg::Result<Option<tg::User>> {
