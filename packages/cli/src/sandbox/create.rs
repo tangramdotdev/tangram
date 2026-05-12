@@ -33,17 +33,7 @@ impl Cli {
 	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let ports = args.arg.ports;
-		let network = match args.arg.network.get() {
-			Some(tg::Either::Left(false)) if !ports.is_empty() => {
-				return Err(tg::error!("ports require networking"));
-			},
-			Some(tg::Either::Right(tg::sandbox::Network::Host)) if !ports.is_empty() => {
-				return Err(tg::error!("ports are not supported with host networking"));
-			},
-			Some(network) => network,
-			None if !ports.is_empty() => tg::Either::Left(true),
-			None => tg::Either::Left(false),
-		};
+		let network = crate::sandbox::normalize_network(&args.arg.network, ports)?;
 		let arg = tg::sandbox::create::Arg {
 			cpu: args.arg.cpu,
 			hostname: args.arg.hostname,
@@ -52,7 +42,6 @@ impl Cli {
 			memory: args.arg.memory,
 			mounts: args.arg.mounts,
 			network,
-			ports,
 			ttl: args.ttl.get(),
 			user: args.arg.user,
 		};

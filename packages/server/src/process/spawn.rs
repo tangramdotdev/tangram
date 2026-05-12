@@ -144,9 +144,7 @@ impl Session {
 
 		// Determine if the process is cacheable.
 		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
-			sandbox.mounts.is_empty()
-				&& sandbox.ports.is_empty()
-				&& matches!(&sandbox.network, tg::Either::Left(false))
+			sandbox.mounts.is_empty() && sandbox.network.is_none()
 		} else {
 			false
 		};
@@ -1354,7 +1352,6 @@ impl Session {
 					memory,
 					mounts,
 					network,
-					ports,
 					started_at,
 					status,
 					ttl,
@@ -1373,8 +1370,7 @@ impl Session {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13,
-					{p}14
+					{p}13
 				);
 			"
 		);
@@ -1404,8 +1400,7 @@ impl Session {
 			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			db::value::Json(arg.network.clone()),
-			(!arg.ports.is_empty()).then(|| db::value::Json(arg.ports.clone())),
+			arg.network.clone().map(db::value::Json),
 			started_at,
 			status.to_string(),
 			db::value::DurationSeconds(ttl),

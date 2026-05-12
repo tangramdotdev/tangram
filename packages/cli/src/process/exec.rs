@@ -1,8 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-pub use crate::process::spawn::Args;
-
-pub type Options = crate::process::spawn::Options;
+pub use crate::process::spawn::{Args, Options};
 
 impl Cli {
 	pub async fn command_process_exec(&mut self, args: Args) -> tg::Result<()> {

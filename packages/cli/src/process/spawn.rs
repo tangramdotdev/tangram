@@ -17,7 +17,7 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	/// The reference to the command.
-	#[arg(index = 1)]
+	#[arg(index = 1, value_terminator = "--")]
 	pub reference: Option<tg::Reference>,
 
 	/// Set arguments.
@@ -805,17 +805,7 @@ impl Cli {
 			|| options.sandbox.ttl.ttl.is_some()
 			|| options.sandbox.ttl.no_ttl;
 		let ports = options.sandbox.arg.ports.clone();
-		let network = match options.sandbox.arg.network.get() {
-			Some(tg::Either::Left(false)) if !ports.is_empty() => {
-				return Err(tg::error!("ports require networking"));
-			},
-			Some(tg::Either::Right(tg::sandbox::Network::Host)) if !ports.is_empty() => {
-				return Err(tg::error!("ports are not supported with host networking"));
-			},
-			Some(network) => network,
-			None if !ports.is_empty() => tg::Either::Left(true),
-			None => tg::Either::Left(false),
-		};
+		let network = crate::sandbox::normalize_network(&options.sandbox.arg.network, ports)?;
 
 		// Get the mounts.
 		let mut mounts = Vec::new();
@@ -848,7 +838,6 @@ impl Cli {
 						memory: options.sandbox.arg.memory,
 						mounts,
 						network,
-						ports,
 						ttl: Some(options.sandbox.ttl.get()),
 						user: options.sandbox.arg.user.clone(),
 					},

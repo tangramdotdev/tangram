@@ -2,11 +2,13 @@ mod id;
 mod isolation;
 mod mount;
 mod network;
-mod port;
 
 pub use self::{
-	id::Id, isolation::Isolation, mount::Mount, network::Network, port::Port,
-	port::Protocol as PortProtocol, port::Range as PortRange, status::Status,
+	id::Id,
+	isolation::Isolation,
+	mount::Mount,
+	network::{Bridge, Network, Port, Protocol as PortProtocol, Range as PortRange},
+	status::Status,
 };
 
 pub mod create;

@@ -755,12 +755,13 @@ let normalizeSandbox = (
 		) {
 			return undefined;
 		}
-		sandbox = { network: false };
+		sandbox = {};
 	}
 	if (sandbox === true) {
-		sandbox = { network: false };
+		sandbox = {};
 	}
-	let output: tg.Handle.SandboxArg = { network: false };
+	let output: tg.Handle.SandboxArg = {};
+	let sandboxNetwork: boolean | tg.Sandbox.Network | undefined;
 	if (isSandboxArg(sandbox)) {
 		if (sandbox.cpu !== undefined) {
 			output.cpu = sandbox.cpu;
@@ -780,13 +781,8 @@ let normalizeSandbox = (
 		if (sandbox.mounts !== undefined) {
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
-		if (sandbox.ports !== undefined) {
-			output.ports = sandbox.ports.map(tg.Sandbox.Port.toDataString);
-		}
-		output.network = normalizeNetworkForPorts(
-			sandbox.network,
-			(output.ports ?? []).length > 0,
-		);
+		sandboxNetwork = sandbox.network;
+		output.network = normalizeNetwork(sandbox.network);
 		if ("ttl" in sandbox) {
 			output.ttl = sandbox.ttl;
 		} else if (defaultTtl) {
@@ -808,38 +804,32 @@ let normalizeSandbox = (
 			...mounts.map(tg.Sandbox.Mount.toDataString),
 		];
 	}
-	if (hasPorts) {
-		output.ports = [
-			...(output.ports ?? []),
-			...ports.map(tg.Sandbox.Port.toDataString),
-		];
-	}
-	let outputHasPorts = (output.ports ?? []).length > 0;
-	if (hasNetwork) {
-		output.network = normalizeNetworkForPorts(network, outputHasPorts);
-	} else if (outputHasPorts) {
-		output.network = true;
+	if (hasNetwork || hasPorts) {
+		output.network = normalizeNetworkForPorts(
+			hasNetwork ? network : sandboxNetwork,
+			ports,
+		);
 	}
 	return output;
 };
 
 let normalizeNetwork = (
 	value: boolean | tg.Sandbox.Network | undefined,
-): boolean | tg.Sandbox.Network.Data => {
-	if (value === undefined) {
-		return false;
+): tg.Sandbox.Network.Data | undefined => {
+	if (value === undefined || value === false) {
+		return undefined;
 	}
 	if (typeof value === "boolean") {
-		return value;
+		return { kind: "default" };
 	}
 	return tg.Sandbox.Network.toData(value);
 };
 
 let normalizeNetworkForPorts = (
 	value: boolean | tg.Sandbox.Network | undefined,
-	hasPorts: boolean,
-): boolean | tg.Sandbox.Network.Data => {
-	if (!hasPorts) {
+	ports: Array<tg.Sandbox.Port>,
+): tg.Sandbox.Network.Data | undefined => {
+	if (ports.length === 0) {
 		return normalizeNetwork(value);
 	}
 	if (value === false) {
@@ -848,8 +838,19 @@ let normalizeNetworkForPorts = (
 	if (value === "host") {
 		throw new Error("ports are not supported with host networking");
 	}
-	if (value === undefined) {
-		return true;
+	let network = normalizeNetwork(value);
+	let portData = ports.map(tg.Sandbox.Port.toDataString);
+	if (network?.kind === "host") {
+		throw new Error("ports are not supported with host networking");
 	}
-	return normalizeNetwork(value);
+	if (network?.kind === "bridge") {
+		return {
+			...network,
+			ports: [...(network.ports ?? []), ...portData],
+		};
+	}
+	return {
+		kind: "bridge",
+		ports: portData,
+	};
 };

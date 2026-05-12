@@ -58,7 +58,6 @@ impl Session {
 					memory,
 					mounts,
 					network,
-					ports,
 					status,
 					ttl,
 					\"user\"
@@ -74,8 +73,7 @@ impl Session {
 					{p}8,
 					{p}9,
 					{p}10,
-					{p}11,
-					{p}12
+					{p}11
 				);
 			"
 		);
@@ -102,8 +100,7 @@ impl Session {
 			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			db::value::Json(arg.network.clone()),
-			(!arg.ports.is_empty()).then(|| db::value::Json(arg.ports.clone())),
+			arg.network.clone().map(db::value::Json),
 			tg::sandbox::Status::Created.to_string(),
 			db::value::DurationSeconds(ttl),
 			arg.user.clone(),
@@ -203,18 +200,9 @@ impl Session {
 	pub(crate) fn normalize_sandbox_create_arg(
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Arg> {
-		if !arg.ports.is_empty() {
-			match arg.network {
-				tg::Either::Left(false) => {
-					arg.network = tg::Either::Left(true);
-				},
-				tg::Either::Right(tg::sandbox::Network::Host) => {
-					return Err(tg::error!("ports are not supported with host networking"));
-				},
-				_ => (),
-			}
+		if let Some(tg::sandbox::Network::Bridge(bridge)) = &mut arg.network {
+			bridge.ports = resolve_sandbox_ports(std::mem::take(&mut bridge.ports))?;
 		}
-		arg.ports = resolve_sandbox_ports(arg.ports)?;
 		Ok(arg)
 	}
 }
@@ -258,7 +246,7 @@ fn validate_sandbox_port(
 	let host = port
 		.host
 		.ok_or_else(|| tg::error!("expected a resolved host port"))?;
-	if !host.is_single() || !port.container.is_single() {
+	if !host.is_single() || !port.guest.is_single() {
 		return Err(tg::error!("expected resolved port mappings"));
 	}
 	let host_port = host.start;

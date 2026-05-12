@@ -9,7 +9,7 @@ pub(crate) fn create(
 		return Ok(None);
 	};
 	match network {
-		crate::Network::Bridge | crate::Network::Default => {
+		crate::Network::Bridge(_) | crate::Network::Default => {
 			let (host, guest) = pool.try_reserve_pair()?;
 			let network = if crate::network::root() {
 				crate::network::tap::setup()?;

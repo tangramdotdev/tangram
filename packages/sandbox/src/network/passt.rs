@@ -158,7 +158,7 @@ fn port_spec(port: &tg::sandbox::Port) -> tg::Result<String> {
 	let host = port
 		.host
 		.ok_or_else(|| tg::error!("expected a resolved host port"))?;
-	if !host.is_single() || !port.container.is_single() {
+	if !host.is_single() || !port.guest.is_single() {
 		return Err(tg::error!("expected resolved port mappings"));
 	}
 	let mut spec = String::new();
@@ -168,7 +168,7 @@ fn port_spec(port: &tg::sandbox::Port) -> tg::Result<String> {
 	}
 	spec.push_str(&host.start.to_string());
 	spec.push(':');
-	spec.push_str(&port.container.start.to_string());
+	spec.push_str(&port.guest.start.to_string());
 	Ok(spec)
 }
 

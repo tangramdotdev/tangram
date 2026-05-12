@@ -354,14 +354,18 @@ export class Process<O extends tg.Value = tg.Value> {
 	get network(): Promise<boolean> {
 		return (async () => {
 			let sandbox = await this.#getSandbox();
-			return sandbox?.network ?? false;
+			return sandbox?.network !== undefined;
 		})();
 	}
 
 	get ports(): Promise<Array<tg.Sandbox.Port>> {
 		return (async () => {
 			let sandbox = await this.#getSandbox();
-			return (sandbox?.ports ?? []).map(tg.Sandbox.Port.fromDataString);
+			let network = sandbox?.network;
+			if (network?.kind !== "bridge") {
+				return [];
+			}
+			return (network.ports ?? []).map(tg.Sandbox.Port.fromDataString);
 		})();
 	}
 
@@ -644,7 +648,11 @@ export namespace Process {
 			return this;
 		}
 
-		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this {
+		network(
+			network: tg.Unresolved<
+				tg.MaybeMutation<boolean | tg.Sandbox.Network | undefined>
+			>,
+		): this {
 			this.#args.push({ network });
 			return this;
 		}

@@ -155,7 +155,7 @@ pub(crate) fn add_port_forwarding_rules(
 		let host = port
 			.host
 			.ok_or_else(|| tg::error!("expected a resolved host port"))?;
-		if !host.is_single() || !port.container.is_single() {
+		if !host.is_single() || !port.guest.is_single() {
 			return Err(tg::error!("expected resolved port mappings"));
 		}
 		let protocol = match port.protocol {
@@ -169,14 +169,14 @@ pub(crate) fn add_port_forwarding_rules(
 				port.host_ip,
 				host.start,
 				guest_ip,
-				port.container.start,
+				port.guest.start,
 			))?);
 		}
 		guards.push(IptablesRuleGuard::new(port_forward_rule(
 			out_interface,
 			protocol,
 			guest_ip,
-			port.container.start,
+			port.guest.start,
 		))?);
 	}
 	Ok(guards)
@@ -188,7 +188,7 @@ fn port_nat_rule(
 	host_ip: Option<Ipv4Addr>,
 	host_port: u16,
 	guest_ip: Ipv4Addr,
-	container_port: u16,
+	guest_port: u16,
 ) -> IptablesRule {
 	let mut rule = vec![
 		chain.to_owned(),
@@ -212,7 +212,7 @@ fn port_nat_rule(
 		"-j".to_owned(),
 		"DNAT".to_owned(),
 		"--to-destination".to_owned(),
-		format!("{guest_ip}:{container_port}"),
+		format!("{guest_ip}:{guest_port}"),
 	]);
 	IptablesRule::with_rule(NAT_TABLE, rule)
 }
@@ -221,7 +221,7 @@ fn port_forward_rule(
 	out_interface: &str,
 	protocol: &str,
 	guest_ip: Ipv4Addr,
-	container_port: u16,
+	guest_port: u16,
 ) -> IptablesRule {
 	IptablesRule::with_rule(
 		FILTER_TABLE,
@@ -236,7 +236,7 @@ fn port_forward_rule(
 			"-d".to_owned(),
 			guest_ip.to_string(),
 			"--dport".to_owned(),
-			container_port.to_string(),
+			guest_port.to_string(),
 			"-j".to_owned(),
 			"ACCEPT".to_owned(),
 		],

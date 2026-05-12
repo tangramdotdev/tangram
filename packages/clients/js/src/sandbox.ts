@@ -17,7 +17,6 @@ export namespace Sandbox {
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 		network?: boolean | tg.Sandbox.Network | undefined;
-		ports?: Array<tg.Sandbox.Port> | undefined;
 		ttl?: number | undefined;
 		user?: string | undefined;
 	};
@@ -40,21 +39,51 @@ export namespace Sandbox {
 		};
 	}
 
-	export type Network = "host" | "bridge";
+	export type Network =
+		| "default"
+		| "host"
+		| "bridge"
+		| tg.Sandbox.Network.Bridge;
 
 	export namespace Network {
-		export type Data = { kind: tg.Sandbox.Network };
+		export type Bridge = {
+			kind?: "bridge" | undefined;
+			ports?: Array<tg.Sandbox.Port> | undefined;
+		};
+
+		export type Data =
+			| { kind: "default" }
+			| { kind: "host" }
+			| {
+					kind: "bridge";
+					ports?: Array<tg.Sandbox.Port.Data> | undefined;
+			  };
 
 		export let toData = (
 			value: tg.Sandbox.Network,
 		): tg.Sandbox.Network.Data => {
-			return { kind: value };
+			if (typeof value === "string") {
+				return { kind: value };
+			}
+			return {
+				kind: "bridge",
+				ports: value.ports?.map(tg.Sandbox.Port.toDataString),
+			};
 		};
 
 		export let fromData = (
 			data: tg.Sandbox.Network.Data,
 		): tg.Sandbox.Network => {
-			return data.kind;
+			if (data.kind !== "bridge") {
+				return data.kind;
+			}
+			if (data.ports === undefined || data.ports.length === 0) {
+				return "bridge";
+			}
+			return {
+				kind: "bridge",
+				ports: data.ports.map(tg.Sandbox.Port.fromDataString),
+			};
 		};
 	}
 

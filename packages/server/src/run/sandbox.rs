@@ -130,13 +130,15 @@ impl Session {
 			source: artifacts_path.clone(),
 			target: artifacts_path.clone(),
 		});
-		let network = match state.network.as_ref() {
-			tg::Either::Left(false) => None,
-			tg::Either::Left(true) => Some(tangram_sandbox::Network::Default),
-			tg::Either::Right(tg::sandbox::Network::Bridge) => {
-				Some(tangram_sandbox::Network::Bridge)
+		let network = match state.network.clone() {
+			None => None,
+			Some(tg::sandbox::Network::Default) => Some(tangram_sandbox::Network::Default),
+			Some(tg::sandbox::Network::Bridge(bridge)) => {
+				Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
+					ports: bridge.ports,
+				}))
 			},
-			tg::Either::Right(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
+			Some(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
 		};
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
@@ -152,7 +154,6 @@ impl Session {
 			network,
 			nice: self.server.config.sandbox.nice,
 			path: temp.path().to_owned(),
-			ports: state.ports.clone(),
 			rootfs_path: self.server.sandbox_rootfs.clone(),
 			tangram_path: self.server.tangram_path.clone(),
 			user: state.user.clone(),

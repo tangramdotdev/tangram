@@ -10,7 +10,7 @@ pub(crate) fn create(
 		return Ok(None);
 	};
 	match network {
-		crate::Network::Bridge | crate::Network::Default => {
+		crate::Network::Bridge(_) | crate::Network::Default => {
 			if crate::network::root() {
 				crate::network::veth::setup()?;
 				let guest = reserve_veth_guest(pool)?;

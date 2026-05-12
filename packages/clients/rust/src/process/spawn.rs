@@ -1053,17 +1053,7 @@ fn normalize_sandbox(
 	let ports = arg.ports.clone();
 	let has_network = arg.network.is_some();
 	let has_ports = !ports.is_empty();
-	let network = match arg.network.clone() {
-		Some(tg::Either::Left(false)) if has_ports => {
-			return Err(tg::error!("ports require networking"));
-		},
-		Some(tg::Either::Right(tg::sandbox::Network::Host)) if has_ports => {
-			return Err(tg::error!("ports are not supported with host networking"));
-		},
-		Some(network) => network,
-		None if has_ports => tg::Either::Left(true),
-		None => tg::Either::Left(false),
-	};
+	let network = normalize_network(arg.network.clone(), ports.clone())?;
 	let has_resource_fields =
 		has_cpu || has_memory || !mounts.is_empty() || has_network || has_ports;
 	match arg.sandbox.clone() {
@@ -1078,13 +1068,10 @@ fn normalize_sandbox(
 			if !mounts.is_empty() {
 				sandbox.mounts.extend(mounts);
 			}
-			if has_network {
+			if has_network || has_ports {
 				sandbox.network = network.clone();
 			}
-			if has_ports {
-				sandbox.ports.extend(ports);
-			}
-			let sandbox = normalize_sandbox_create_arg(sandbox)?;
+			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
 		Some(tg::process::SandboxArg::Arg(mut sandbox)) => {
@@ -1099,11 +1086,10 @@ fn normalize_sandbox(
 			}
 			if has_network {
 				sandbox.network = network.clone();
+			} else if has_ports {
+				sandbox.network = normalize_network(sandbox.network, ports)?;
 			}
-			if has_ports {
-				sandbox.ports.extend(ports);
-			}
-			let sandbox = normalize_sandbox_create_arg(sandbox)?;
+			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
 		Some(tg::process::SandboxArg::Id(sandbox)) => {
@@ -1126,7 +1112,6 @@ fn normalize_sandbox(
 				memory,
 				mounts,
 				network,
-				ports,
 				ttl: Some(Duration::ZERO),
 				user: None,
 			};
@@ -1137,30 +1122,41 @@ fn normalize_sandbox(
 
 fn normalize_sandbox_create_arg(
 	sandbox: tg::process::SandboxCreateArg,
-) -> tg::Result<tg::sandbox::create::Arg> {
-	let network = if sandbox.ports.is_empty() {
-		sandbox.network
-	} else {
-		match sandbox.network {
-			tg::Either::Left(false) => tg::Either::Left(true),
-			tg::Either::Right(tg::sandbox::Network::Host) => {
-				return Err(tg::error!("ports are not supported with host networking"));
-			},
-			network => network,
-		}
-	};
-	Ok(tg::sandbox::create::Arg {
+) -> tg::sandbox::create::Arg {
+	tg::sandbox::create::Arg {
 		cpu: sandbox.cpu,
 		hostname: sandbox.hostname,
 		isolation: sandbox.isolation,
 		location: sandbox.location,
 		memory: sandbox.memory,
 		mounts: sandbox.mounts,
-		network,
-		ports: sandbox.ports,
+		network: sandbox.network,
 		ttl: sandbox.ttl.unwrap_or(Some(Duration::ZERO)),
 		user: sandbox.user,
-	})
+	}
+}
+
+fn normalize_network(
+	network: Option<tg::sandbox::Network>,
+	ports: Vec<tg::sandbox::Port>,
+) -> tg::Result<Option<tg::sandbox::Network>> {
+	if ports.is_empty() {
+		return Ok(network);
+	}
+	match network {
+		Some(tg::sandbox::Network::Host) => {
+			Err(tg::error!("ports are not supported with host networking"))
+		},
+		Some(tg::sandbox::Network::Bridge(mut bridge)) => {
+			bridge.ports.extend(ports);
+			Ok(Some(tg::sandbox::Network::Bridge(bridge)))
+		},
+		Some(tg::sandbox::Network::Default) | None => {
+			Ok(Some(tg::sandbox::Network::Bridge(tg::sandbox::Bridge {
+				ports,
+			})))
+		},
+	}
 }
 
 fn normalize_debug(

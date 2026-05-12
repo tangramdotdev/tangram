@@ -6,13 +6,13 @@ let sandbox = (tg sandbox create -p 80 -p 127.0.0.1::53/udp | str trim)
 assert ($sandbox | str starts-with "sbx_")
 
 let get = tg sandbox get $sandbox | from json
-assert ($get.network == true)
-assert (($get.ports | where { |port| $port =~ '^[0-9]+:80$' } | length) == 1)
-assert (($get.ports | where { |port| $port =~ '^127\.0\.0\.1:[0-9]+:53/udp$' } | length) == 1)
+assert ($get.network.kind == "bridge")
+assert (($get.network.ports | where { |port| $port =~ '^[0-9]+:80$' } | length) == 1)
+assert (($get.network.ports | where { |port| $port =~ '^127\.0\.0\.1:[0-9]+:53/udp$' } | length) == 1)
 
 let list = tg sandbox list | from json
 let listed = ($list | where id == $sandbox | first)
-assert equal $listed.ports $get.ports
+assert equal $listed.network.ports $get.network.ports
 
 let output = tg sandbox create --no-network -p 8080:80 | complete
 failure $output
