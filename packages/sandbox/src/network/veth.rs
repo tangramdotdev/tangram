@@ -14,7 +14,7 @@ pub(crate) struct Network {
 	bridge_name: String,
 	gateway_ip: Ipv4Addr,
 	guest: ip::Lease,
-	_port_forwarding_rules: Vec<host::IptablesRuleGuard>,
+	_port_forwarding_rules: Vec<host::FirewallRuleGuard>,
 }
 
 #[derive(Debug)]
@@ -124,13 +124,7 @@ impl Pair {
 pub(crate) fn setup() -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
 	SETUP
-		.get_or_init(|| {
-			if let Err(error) = host::cleanup_persistent_rules(Some(BRIDGE_NAME)) {
-				tracing::warn!(%error, "failed to clean up persistent sandbox rules");
-			}
-			host::setup_port_forwarding()?;
-			create_bridge(BRIDGE_NAME, gateway_ip())
-		})
+		.get_or_init(|| create_bridge(BRIDGE_NAME, gateway_ip()))
 		.clone()
 }
 
@@ -143,7 +137,7 @@ pub(crate) fn create_bridge(name: &str, ip: Ipv4Addr) -> tg::Result<()> {
 	netlink.link_set_up(name)?;
 	host::enable_ipv4_forwarding()?;
 	host::enable_route_localnet(name)?;
-	ensure_bridge_iptables_rules(name, ip)?;
+	host::setup_bridge_networking(name, ip)?;
 	Ok(())
 }
 
@@ -157,39 +151,4 @@ pub(crate) fn guest_ip_min() -> Ipv4Addr {
 
 pub(crate) fn guest_ip_max() -> Ipv4Addr {
 	Ipv4Addr::new(172, 18, 255, 255)
-}
-
-fn ensure_bridge_iptables_rules(bridge: &str, addr: Ipv4Addr) -> tg::Result<()> {
-	let octets = addr.octets();
-	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);
-	let cidr = format!("{subnet}/16");
-	host::get_or_set_iptables_rule(
-		&["-t", "nat"],
-		&[
-			"POSTROUTING",
-			"-s",
-			cidr.as_str(),
-			"!",
-			"-o",
-			bridge,
-			"-j",
-			"MASQUERADE",
-		],
-	)?;
-	host::get_or_set_iptables_rule(&[], &["FORWARD", "-i", bridge, "-j", "ACCEPT"])?;
-	host::get_or_set_iptables_rule(
-		&[],
-		&[
-			"FORWARD",
-			"-o",
-			bridge,
-			"-m",
-			"conntrack",
-			"--ctstate",
-			"ESTABLISHED,RELATED",
-			"-j",
-			"ACCEPT",
-		],
-	)?;
-	Ok(())
 }

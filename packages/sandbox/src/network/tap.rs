@@ -15,7 +15,7 @@ const TUNSETIFF: libc::c_ulong = 0x4004_54ca;
 pub(crate) struct Network {
 	guest: ip::Lease,
 	host: ip::Lease,
-	_port_forwarding_rules: Vec<host::IptablesRuleGuard>,
+	_port_forwarding_rules: Vec<host::FirewallRuleGuard>,
 }
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ impl Network {
 		guest: ip::Lease,
 		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
-		let prefix = format!("{}+", host::TAP_INTERFACE_NAME_PREFIX);
+		let prefix = format!("{}*", host::TAP_INTERFACE_NAME_PREFIX);
 		let port_forwarding_rules =
 			host::add_port_forwarding_rules(id, &prefix, host.addr, guest.addr, ports)?;
 		Ok(Self {
@@ -125,55 +125,7 @@ impl Drop for Device {
 
 pub(crate) fn setup() -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
-	SETUP
-		.get_or_init(|| {
-			if let Err(error) = host::cleanup_persistent_rules(None) {
-				tracing::warn!(%error, "failed to clean up persistent sandbox rules");
-			}
-			host::setup_port_forwarding()?;
-			ensure_iptables_rules()
-		})
-		.clone()
-}
-
-fn ensure_iptables_rules() -> tg::Result<()> {
-	let prefix = format!("{}+", host::TAP_INTERFACE_NAME_PREFIX);
-
-	// This rule makes guest VM traffic appear to come from the host IP, which prevents networks such as Wi-Fi access points from rejecting the packets.
-	host::get_or_set_iptables_rule(
-		&["-t", "nat"],
-		&[
-			"POSTROUTING",
-			"-s",
-			"172.16.0.0/12",
-			"!",
-			"-o",
-			prefix.as_str(),
-			"-j",
-			"MASQUERADE",
-		],
-	)?;
-
-	// Forward the packets out of the guest.
-	host::get_or_set_iptables_rule(&[], &["FORWARD", "-i", prefix.as_str(), "-j", "ACCEPT"])?;
-
-	// Allow response packets to come back to the guest. Two rules instead of one to avoid outside connections from reaching the guest.
-	host::get_or_set_iptables_rule(
-		&[],
-		&[
-			"FORWARD",
-			"-o",
-			prefix.as_str(),
-			"-m",
-			"conntrack",
-			"--ctstate",
-			"ESTABLISHED,RELATED",
-			"-j",
-			"ACCEPT",
-		],
-	)?;
-
-	Ok(())
+	SETUP.get_or_init(host::setup_tap_networking).clone()
 }
 
 fn open_tap(name: &str) -> tg::Result<OwnedFd> {
