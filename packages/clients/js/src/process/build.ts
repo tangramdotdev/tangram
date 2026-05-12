@@ -14,6 +14,7 @@ export let builder = (...args: any): any => {
 			typeof sandbox !== "string" &&
 			(sandboxArg?.mounts?.length ?? 0) === 0 &&
 			(arg.mounts?.length ?? 0) === 0 &&
+			(arg.ports?.length ?? 0) === 0 &&
 			!spawn.isNetworkEnabled(network) &&
 			arg.stdin === "null" &&
 			arg.stdout === "log" &&

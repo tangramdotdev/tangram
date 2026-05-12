@@ -62,6 +62,9 @@ pub struct Options {
 	#[clap(flatten)]
 	pub network: Network,
 
+	#[arg(action = clap::ArgAction::Append, long = "port", num_args = 1, short = 'p')]
+	pub ports: Vec<tg::sandbox::Port>,
+
 	#[arg(long)]
 	pub user: Option<String>,
 }
@@ -70,13 +73,14 @@ pub struct Options {
 pub struct Network {
 	/// Enable networking.
 	#[arg(
-		default_missing_value = "true",
+		default_missing_value = "",
 		long,
 		num_args = 0..=1,
 		overrides_with = "no_network",
 		require_equals = true,
+		value_parser = parse_network,
 	)]
-	network: Option<tg::Either<bool, tg::sandbox::Network>>,
+	network: Option<tg::sandbox::Network>,
 
 	#[arg(
 		default_missing_value = "true",
@@ -91,17 +95,26 @@ pub struct Network {
 impl Network {
 	pub fn with_network(network: tg::sandbox::Network) -> Self {
 		Self {
-			network: Some(tg::Either::Right(network)),
+			network: Some(network),
 			no_network: false,
 		}
 	}
 
-	pub fn get(&self) -> Option<tg::Either<bool, tg::sandbox::Network>> {
+	pub fn get(&self) -> Option<tg::sandbox::Network> {
 		if self.no_network {
-			Some(tg::Either::Left(false))
+			None
 		} else {
 			self.network.clone()
 		}
+	}
+}
+
+fn parse_network(s: &str) -> tg::Result<tg::sandbox::Network> {
+	match s {
+		"" | "default" | "true" => Ok(tg::sandbox::Network::Default),
+		"bridge" => Ok(tg::sandbox::Network::Bridge(tg::sandbox::Bridge::default())),
+		"host" => Ok(tg::sandbox::Network::Host),
+		_ => Err(tg::error!(%s, "invalid network")),
 	}
 }
 
@@ -113,6 +126,7 @@ impl Options {
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.get().is_none()
+			&& self.ports.is_empty()
 			&& self.user.is_none()
 	}
 }
@@ -149,5 +163,33 @@ impl Cli {
 			},
 		}
 		Ok(())
+	}
+}
+
+pub fn normalize_network(
+	network: &Network,
+	ports: Vec<tg::sandbox::Port>,
+) -> tg::Result<Option<tg::sandbox::Network>> {
+	if network.no_network {
+		return if ports.is_empty() {
+			Ok(None)
+		} else {
+			Err(tg::error!("ports require networking"))
+		};
+	}
+	if ports.is_empty() {
+		return Ok(network.network.clone());
+	}
+	match network.network.clone() {
+		Some(tg::sandbox::Network::Host) => {
+			Err(tg::error!("ports are not supported with host networking"))
+		},
+		Some(tg::sandbox::Network::Bridge(mut bridge)) => {
+			bridge.ports.extend(ports);
+			Ok(Some(tg::sandbox::Network::Bridge(bridge)))
+		},
+		_ => Ok(Some(tg::sandbox::Network::Bridge(tg::sandbox::Bridge {
+			ports,
+		}))),
 	}
 }

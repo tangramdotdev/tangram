@@ -144,7 +144,7 @@ impl Session {
 
 		// Determine if the process is cacheable.
 		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
-			sandbox.mounts.is_empty() && matches!(&sandbox.network, tg::Either::Left(false))
+			sandbox.mounts.is_empty() && sandbox.network.is_none()
 		} else {
 			false
 		};
@@ -1166,8 +1166,9 @@ impl Session {
 				} else {
 					tg::sandbox::Status::Created
 				};
+				let arg = Self::normalize_sandbox_create_arg(arg.clone())?;
 				let sandbox = self
-					.create_local_sandbox_with_transaction(transaction, arg, status)
+					.create_local_sandbox_with_transaction(transaction, &arg, status)
 					.await?;
 				(sandbox, status, permit)
 			},
@@ -1399,7 +1400,7 @@ impl Session {
 			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			db::value::Json(arg.network.clone()),
+			arg.network.clone().map(db::value::Json),
 			started_at,
 			status.to_string(),
 			db::value::DurationSeconds(ttl),

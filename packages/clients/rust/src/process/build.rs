@@ -34,14 +34,14 @@ impl<O> tg::Process<O> {
 			.unwrap_or(tg::process::SandboxArg::Bool(true));
 		let cacheable = match &sandbox {
 			tg::process::SandboxArg::Bool(true) => {
-				arg.mounts.is_empty()
-					&& matches!(arg.network.as_ref(), None | Some(tg::Either::Left(false)))
+				arg.mounts.is_empty() && arg.ports.is_empty() && arg.network.is_none()
 			},
 			tg::process::SandboxArg::Arg(sandbox) => {
-				let network = arg.network.as_ref().unwrap_or(&sandbox.network);
 				sandbox.mounts.is_empty()
+					&& sandbox.network.is_none()
 					&& arg.mounts.is_empty()
-					&& matches!(network, tg::Either::Left(false))
+					&& arg.ports.is_empty()
+					&& arg.network.is_none()
 			},
 			tg::process::SandboxArg::Bool(false) | tg::process::SandboxArg::Id(_) => false,
 		} && arg.stdin.is_null()

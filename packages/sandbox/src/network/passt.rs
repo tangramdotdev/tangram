@@ -51,6 +51,7 @@ impl Device {
 		dns: &[Ipv4Addr],
 		host_ip: Ipv4Addr,
 		guest_ip: Ipv4Addr,
+		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
 		let netmask = Ipv4Addr::new(255, 255, 255, 252);
 		let socket = path.join(SOCKET_NAME);
@@ -80,6 +81,7 @@ impl Device {
 			.arg(netmask.to_string())
 			.arg("-g")
 			.arg(host_ip.to_string());
+		append_port_args(&mut command, ports)?;
 		if !dns.is_empty() {
 			command.arg("--dns-forward").arg(host_ip.to_string());
 			for dns_host in dns {
@@ -127,6 +129,47 @@ impl Device {
 	pub(crate) fn netmask(&self) -> Ipv4Addr {
 		self.netmask
 	}
+}
+
+fn append_port_args(command: &mut Command, ports: &[tg::sandbox::Port]) -> tg::Result<()> {
+	append_port_args_for_protocol(command, ports, tg::sandbox::PortProtocol::Tcp, "-t")?;
+	append_port_args_for_protocol(command, ports, tg::sandbox::PortProtocol::Udp, "-u")?;
+	Ok(())
+}
+
+fn append_port_args_for_protocol(
+	command: &mut Command,
+	ports: &[tg::sandbox::Port],
+	protocol: tg::sandbox::PortProtocol,
+	flag: &str,
+) -> tg::Result<()> {
+	let mut found = false;
+	for port in ports.iter().filter(|port| port.protocol == protocol) {
+		found = true;
+		command.arg(flag).arg(port_spec(port)?);
+	}
+	if !found {
+		command.arg(flag).arg("none");
+	}
+	Ok(())
+}
+
+fn port_spec(port: &tg::sandbox::Port) -> tg::Result<String> {
+	let host = port
+		.host
+		.ok_or_else(|| tg::error!("expected a resolved host port"))?;
+	if !host.is_single() || !port.guest.is_single() {
+		return Err(tg::error!("expected resolved port mappings"));
+	}
+	let mut spec = String::new();
+	if let Some(host_ip) = port.host_ip {
+		spec.push_str(&host_ip.to_string());
+		spec.push('/');
+	}
+	spec.push_str(&host.start.to_string());
+	spec.push(':');
+	spec.push_str(&port.guest.start.to_string());
+	Ok(spec)
 }
 
 impl Drop for Device {

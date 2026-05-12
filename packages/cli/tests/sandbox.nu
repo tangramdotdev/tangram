@@ -16,7 +16,7 @@ let list = tg sandbox list | from json
 let sandbox = ($list | where id == $create | first)
 assert ($sandbox.hostname == "sandbox-test")
 assert (($sandbox.mounts | first) == "/tmp:/sandbox,ro")
-assert ($sandbox.network == false)
+assert (($sandbox.network? | is-empty))
 assert ($sandbox.user == "nobody")
 
 tg sandbox delete $create

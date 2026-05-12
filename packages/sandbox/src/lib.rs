@@ -123,12 +123,28 @@ pub struct VmIsolation {
 )]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Network {
-	Bridge,
+	Bridge(Bridge),
 
 	#[default]
 	Default,
 
 	Host,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct Bridge {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub ports: Vec<tg::sandbox::Port>,
+}
+
+impl Network {
+	#[must_use]
+	pub fn ports(&self) -> &[tg::sandbox::Port] {
+		match self {
+			Self::Bridge(bridge) => &bridge.ports,
+			Self::Default | Self::Host => &[],
+		}
+	}
 }
 
 #[derive(
@@ -206,10 +222,12 @@ impl Sandbox {
 		#[cfg(target_os = "linux")]
 		let (mut process, network) = match &arg.isolation {
 			Isolation::Container(_) => {
+				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let mut network = crate::container::network::create(
 					&arg.dns,
 					arg.network.as_ref(),
 					&arg.ip_pool,
+					ports,
 				)?;
 				let process = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
 				(process, network)
@@ -218,7 +236,9 @@ impl Sandbox {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
 			},
 			Isolation::Vm(_) => {
-				let network = crate::vm::network::create(arg.network.as_ref(), &arg.ip_pool)?;
+				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
+				let network =
+					crate::vm::network::create(arg.network.as_ref(), &arg.ip_pool, ports)?;
 				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
 				(process, network)
 			},

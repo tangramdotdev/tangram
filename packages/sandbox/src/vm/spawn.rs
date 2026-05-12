@@ -87,6 +87,14 @@ pub(crate) fn spawn(
 	for mount in &arg.mounts {
 		command.arg("--mount").arg(mount.to_string());
 	}
+	let ports = arg
+		.network
+		.as_ref()
+		.map(crate::Network::ports)
+		.unwrap_or_default();
+	for port in ports {
+		command.arg("--port").arg(port.to_string());
+	}
 	command
 		.kill_on_drop(true)
 		.stdin(std::process::Stdio::null())

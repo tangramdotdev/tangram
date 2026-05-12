@@ -8,7 +8,7 @@ pub struct Args {
 	pub options: Options,
 
 	/// The reference to the command.
-	#[arg(index = 1)]
+	#[arg(index = 1, value_terminator = "--")]
 	pub reference: Option<tg::Reference>,
 
 	/// Set arguments.

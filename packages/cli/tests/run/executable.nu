@@ -20,6 +20,10 @@ let output = tg run --executable $executable --arg-string run | complete
 success $output
 assert (($output.stdout | str trim) == "hello run")
 
+let output = tg run --executable /bin/sh -- -c "echo trailing" | complete
+success $output
+assert (($output.stdout | str trim) == "trailing")
+
 let output = tg exec --executable $executable --arg-string exec | complete
 success $output
 assert (($output.stdout | str trim) == "hello exec")

@@ -32,6 +32,8 @@ impl Ttl {
 impl Cli {
 	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let ports = args.arg.ports;
+		let network = crate::sandbox::normalize_network(&args.arg.network, ports)?;
 		let arg = tg::sandbox::create::Arg {
 			cpu: args.arg.cpu,
 			hostname: args.arg.hostname,
@@ -39,7 +41,7 @@ impl Cli {
 			location: args.location.get(),
 			memory: args.arg.memory,
 			mounts: args.arg.mounts,
-			network: args.arg.network.get().unwrap_or(tg::Either::Left(false)),
+			network,
 			ttl: args.ttl.get(),
 			user: args.arg.user,
 		};

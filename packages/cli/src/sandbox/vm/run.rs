@@ -43,6 +43,9 @@ pub struct Args {
 	#[arg(long)]
 	pub path: PathBuf,
 
+	#[arg(action = clap::ArgAction::Append, long = "port", num_args = 1)]
+	pub ports: Vec<tg::sandbox::Port>,
+
 	#[arg(long)]
 	pub rootfs_path: PathBuf,
 
@@ -71,6 +74,7 @@ impl Cli {
 			mounts: args.mounts,
 			network: args.network,
 			path: args.path,
+			ports: args.ports,
 			rootfs_path: args.rootfs_path,
 			tangram_path: args.tangram_path,
 			url: args.url,

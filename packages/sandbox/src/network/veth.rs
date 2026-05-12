@@ -14,6 +14,7 @@ pub(crate) struct Network {
 	bridge_name: String,
 	gateway_ip: Ipv4Addr,
 	guest: ip::Lease,
+	_port_forwarding_rules: Vec<host::IptablesRuleGuard>,
 }
 
 #[derive(Debug)]
@@ -25,12 +26,16 @@ pub(crate) struct Pair {
 }
 
 impl Network {
-	pub(crate) fn new(guest: ip::Lease) -> Self {
-		Self {
-			bridge_name: BRIDGE_NAME.to_owned(),
+	pub(crate) fn new(guest: ip::Lease, ports: &[tg::sandbox::Port]) -> tg::Result<Self> {
+		let bridge_name = BRIDGE_NAME.to_owned();
+		let port_forwarding_rules =
+			host::add_port_forwarding_rules(&bridge_name, guest.addr, ports)?;
+		Ok(Self {
+			_port_forwarding_rules: port_forwarding_rules,
+			bridge_name,
 			gateway_ip: gateway_ip(),
 			guest,
-		}
+		})
 	}
 
 	pub(crate) fn bridge_name(&self) -> &str {

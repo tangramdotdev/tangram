@@ -723,7 +723,7 @@ export let isNetworkEnabled = (
 let normalizeSandbox = (
 	arg: Pick<
 		tg.Process.ArgObject,
-		"cpu" | "memory" | "mounts" | "network" | "sandbox"
+		"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
 	>,
 ): Exclude<tg.Handle.SpawnArg["sandbox"], undefined> | undefined => {
 	let hasCpu = "cpu" in arg;
@@ -732,27 +732,36 @@ let normalizeSandbox = (
 	let memory = arg.memory;
 	let mounts = arg.mounts ?? [];
 	let hasNetwork = "network" in arg;
-	let network = arg.network ?? false;
+	let network = arg.network;
+	let ports = arg.ports ?? [];
+	let hasPorts = ports.length > 0;
 	let sandbox = arg.sandbox;
 	let defaultTtl = typeof sandbox !== "string";
 	if (typeof sandbox === "string") {
-		if (hasCpu || hasMemory || mounts.length > 0 || hasNetwork) {
+		if (hasCpu || hasMemory || mounts.length > 0 || hasNetwork || hasPorts) {
 			throw new Error(
-				"cpu, memory, mounts, and network are not supported for existing sandboxes",
+				"cpu, memory, mounts, network, and ports are not supported for existing sandboxes",
 			);
 		}
 		return sandbox;
 	}
 	if (sandbox === undefined || sandbox === false) {
-		if (!hasCpu && !hasMemory && mounts.length === 0 && !hasNetwork) {
+		if (
+			!hasCpu &&
+			!hasMemory &&
+			mounts.length === 0 &&
+			!hasNetwork &&
+			!hasPorts
+		) {
 			return undefined;
 		}
-		sandbox = { network: false };
+		sandbox = {};
 	}
 	if (sandbox === true) {
-		sandbox = { network: false };
+		sandbox = {};
 	}
-	let output: tg.Handle.SandboxArg = { network: false };
+	let output: tg.Handle.SandboxArg = {};
+	let sandboxNetwork: boolean | tg.Sandbox.Network | undefined;
 	if (isSandboxArg(sandbox)) {
 		if (sandbox.cpu !== undefined) {
 			output.cpu = sandbox.cpu;
@@ -772,6 +781,7 @@ let normalizeSandbox = (
 		if (sandbox.mounts !== undefined) {
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
+		sandboxNetwork = sandbox.network;
 		output.network = normalizeNetwork(sandbox.network);
 		if ("ttl" in sandbox) {
 			output.ttl = sandbox.ttl;
@@ -794,20 +804,53 @@ let normalizeSandbox = (
 			...mounts.map(tg.Sandbox.Mount.toDataString),
 		];
 	}
-	if (hasNetwork) {
-		output.network = normalizeNetwork(network);
+	if (hasNetwork || hasPorts) {
+		output.network = normalizeNetworkForPorts(
+			hasNetwork ? network : sandboxNetwork,
+			ports,
+		);
 	}
 	return output;
 };
 
 let normalizeNetwork = (
 	value: boolean | tg.Sandbox.Network | undefined,
-): boolean | tg.Sandbox.Network.Data => {
-	if (value === undefined) {
-		return false;
+): tg.Sandbox.Network.Data | undefined => {
+	if (value === undefined || value === false) {
+		return undefined;
 	}
 	if (typeof value === "boolean") {
-		return value;
+		return { kind: "default" };
 	}
 	return tg.Sandbox.Network.toData(value);
+};
+
+let normalizeNetworkForPorts = (
+	value: boolean | tg.Sandbox.Network | undefined,
+	ports: Array<tg.Sandbox.Port>,
+): tg.Sandbox.Network.Data | undefined => {
+	if (ports.length === 0) {
+		return normalizeNetwork(value);
+	}
+	if (value === false) {
+		throw new Error("ports require networking");
+	}
+	if (value === "host") {
+		throw new Error("ports are not supported with host networking");
+	}
+	let network = normalizeNetwork(value);
+	let portData = ports.map(tg.Sandbox.Port.toDataString);
+	if (network?.kind === "host") {
+		throw new Error("ports are not supported with host networking");
+	}
+	if (network?.kind === "bridge") {
+		return {
+			...network,
+			ports: [...(network.ports ?? []), ...portData],
+		};
+	}
+	return {
+		kind: "bridge",
+		ports: portData,
+	};
 };

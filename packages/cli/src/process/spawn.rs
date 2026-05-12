@@ -17,7 +17,7 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	/// The reference to the command.
-	#[arg(index = 1)]
+	#[arg(index = 1, value_terminator = "--")]
 	pub reference: Option<tg::Reference>,
 
 	/// Set arguments.
@@ -804,12 +804,8 @@ impl Cli {
 		let has_sandbox_arg = !options.sandbox.arg.is_empty()
 			|| options.sandbox.ttl.ttl.is_some()
 			|| options.sandbox.ttl.no_ttl;
-		let network = options
-			.sandbox
-			.arg
-			.network
-			.get()
-			.unwrap_or(tg::Either::Left(false));
+		let ports = options.sandbox.arg.ports.clone();
+		let network = crate::sandbox::normalize_network(&options.sandbox.arg.network, ports)?;
 
 		// Get the mounts.
 		let mut mounts = Vec::new();

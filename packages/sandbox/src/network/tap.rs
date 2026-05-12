@@ -15,6 +15,7 @@ const TUNSETIFF: libc::c_ulong = 0x4004_54ca;
 pub(crate) struct Network {
 	guest: ip::Lease,
 	host: ip::Lease,
+	_port_forwarding_rules: Vec<host::IptablesRuleGuard>,
 }
 
 #[derive(Debug)]
@@ -29,8 +30,18 @@ pub(crate) struct Device {
 }
 
 impl Network {
-	pub(crate) fn new(host: ip::Lease, guest: ip::Lease) -> Self {
-		Self { guest, host }
+	pub(crate) fn new(
+		host: ip::Lease,
+		guest: ip::Lease,
+		ports: &[tg::sandbox::Port],
+	) -> tg::Result<Self> {
+		let prefix = format!("{}+", host::TAP_INTERFACE_NAME_PREFIX);
+		let port_forwarding_rules = host::add_port_forwarding_rules(&prefix, guest.addr, ports)?;
+		Ok(Self {
+			_port_forwarding_rules: port_forwarding_rules,
+			guest,
+			host,
+		})
 	}
 
 	pub(crate) fn guest_ip(&self) -> Ipv4Addr {

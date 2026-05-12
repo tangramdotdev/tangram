@@ -24,6 +24,7 @@ pub(crate) struct Network {
 	host_pipe: Option<tokio::net::UnixStream>,
 	interface: Option<String>,
 	pid_file: PathBuf,
+	ports: Vec<tg::sandbox::Port>,
 }
 
 #[derive(Default)]
@@ -31,6 +32,7 @@ pub struct Options {
 	pub dns: Vec<Ipv4Addr>,
 	pub executable: Option<PathBuf>,
 	pub interface: Option<String>,
+	pub ports: Vec<tg::sandbox::Port>,
 }
 
 impl Network {
@@ -67,6 +69,7 @@ impl Network {
 			host_pipe: Some(host_pipe),
 			interface: options.interface,
 			pid_file,
+			ports: options.ports,
 		})
 	}
 
@@ -98,11 +101,9 @@ impl Network {
 		command
 			.arg("--foreground") // run pasta in the foreground, die
 			.arg("--config-net") // setup addr/routes in the net namespace
-			.arg("--no-map-gw") // disable loopback to the host
-			.arg("-t")
-			.arg("none") // no TCP port forwarding host -> guest
-			.arg("-u")
-			.arg("none") // no UDP port forwarding host -> guest
+			.arg("--no-map-gw"); // disable loopback to the host
+		append_port_args(&mut command, &self.ports)?;
+		command
 			.arg("-T")
 			.arg("none") // no TCP port forwarding guest -> host
 			.arg("-U")
@@ -134,6 +135,47 @@ impl Network {
 			.map_err(|source| tg::error!(!source, "child process failed"))?;
 		Ok(())
 	}
+}
+
+fn append_port_args(command: &mut Command, ports: &[tg::sandbox::Port]) -> tg::Result<()> {
+	append_port_args_for_protocol(command, ports, tg::sandbox::PortProtocol::Tcp, "-t")?;
+	append_port_args_for_protocol(command, ports, tg::sandbox::PortProtocol::Udp, "-u")?;
+	Ok(())
+}
+
+fn append_port_args_for_protocol(
+	command: &mut Command,
+	ports: &[tg::sandbox::Port],
+	protocol: tg::sandbox::PortProtocol,
+	flag: &str,
+) -> tg::Result<()> {
+	let mut found = false;
+	for port in ports.iter().filter(|port| port.protocol == protocol) {
+		found = true;
+		command.arg(flag).arg(port_spec(port)?);
+	}
+	if !found {
+		command.arg(flag).arg("none");
+	}
+	Ok(())
+}
+
+fn port_spec(port: &tg::sandbox::Port) -> tg::Result<String> {
+	let host = port
+		.host
+		.ok_or_else(|| tg::error!("expected a resolved host port"))?;
+	if !host.is_single() || !port.guest.is_single() {
+		return Err(tg::error!("expected resolved port mappings"));
+	}
+	let mut spec = String::new();
+	if let Some(host_ip) = port.host_ip {
+		spec.push_str(&host_ip.to_string());
+		spec.push('/');
+	}
+	spec.push_str(&host.start.to_string());
+	spec.push(':');
+	spec.push_str(&port.guest.start.to_string());
+	Ok(spec)
 }
 
 impl Drop for Network {
