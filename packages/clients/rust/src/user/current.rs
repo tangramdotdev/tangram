@@ -11,7 +11,10 @@ pub struct Arg {
 }
 
 impl tg::Session {
-	pub async fn get_user(&self, arg: tg::user::get::Arg) -> tg::Result<Option<tg::User>> {
+	pub async fn get_current_user(
+		&self,
+		arg: tg::user::current::Arg,
+	) -> tg::Result<Option<tg::User>> {
 		let method = http::Method::GET;
 		let uri = Uri::builder()
 			.path("/user")

@@ -9,9 +9,9 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn get_user(
+	pub(crate) async fn get_current_user(
 		&self,
-		arg: tg::user::get::Arg,
+		arg: tg::user::current::Arg,
 	) -> tg::Result<Option<tg::user::User>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
@@ -26,13 +26,16 @@ impl Session {
 				let Some(token) = self.context.token.as_deref() else {
 					return Ok(None);
 				};
-				self.get_user_local(token).await
+				self.get_current_user_local(token).await
 			},
-			tg::Location::Remote(remote) => self.get_user_remote(remote).await,
+			tg::Location::Remote(remote) => self.get_current_user_remote(remote).await,
 		}
 	}
 
-	pub(crate) async fn get_user_local(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
+	pub(crate) async fn get_current_user_local(
+		&self,
+		token: &str,
+	) -> tg::Result<Option<tg::user::User>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -100,7 +103,7 @@ impl Session {
 		Ok(Some(user))
 	}
 
-	async fn get_user_remote(
+	async fn get_current_user_remote(
 		&self,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<tg::user::User>> {
@@ -114,14 +117,14 @@ impl Session {
 					"failed to get the remote client"
 				)
 			})?;
-		let arg = tg::user::get::Arg {
+		let arg = tg::user::current::Arg {
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 		};
-		let mut user = client.get_user(arg).await.map_err(|error| {
+		let mut user = client.get_current_user(arg).await.map_err(|error| {
 			tg::error!(
 				!error,
 				remote = %remote.name,
-				"failed to get the user"
+				"failed to get the current user"
 			)
 		})?;
 		if let Some(user) = &mut user {
@@ -133,7 +136,7 @@ impl Session {
 		Ok(user)
 	}
 
-	pub(crate) async fn get_user_request(
+	pub(crate) async fn get_current_user_request(
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
@@ -150,8 +153,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
-		// Get the user.
-		let Some(output) = self.get_user(arg).await? else {
+		// Get the current user.
+		let Some(output) = self.get_current_user(arg).await? else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
 				.empty()

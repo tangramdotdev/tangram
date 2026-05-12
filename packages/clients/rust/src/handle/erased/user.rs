@@ -4,7 +4,10 @@ use {
 };
 
 pub trait User: Send + Sync + 'static {
-	fn get_user(&self, arg: tg::user::get::Arg) -> BoxFuture<'_, tg::Result<Option<tg::User>>>;
+	fn get_current_user(
+		&self,
+		arg: tg::user::current::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<tg::User>>>;
 
 	fn login_user(
 		&self,
@@ -16,8 +19,11 @@ impl<T> User for T
 where
 	T: tg::handle::User,
 {
-	fn get_user(&self, arg: tg::user::get::Arg) -> BoxFuture<'_, tg::Result<Option<tg::User>>> {
-		self.get_user(arg).boxed()
+	fn get_current_user(
+		&self,
+		arg: tg::user::current::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<tg::User>>> {
+		self.get_current_user(arg).boxed()
 	}
 
 	fn login_user(

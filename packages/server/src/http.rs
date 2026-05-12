@@ -670,7 +670,7 @@ impl Server {
 			},
 
 			// Users.
-			(http::Method::GET, ["user"]) => session.get_user_request(request).boxed(),
+			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
 			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
 
 			(_, _) => future::ok(

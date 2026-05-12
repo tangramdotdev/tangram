@@ -19,7 +19,7 @@ impl Cli {
 		}
 		let client = self.client().await?;
 		let user = client
-			.get_user(tg::user::get::Arg {
+			.get_current_user(tg::user::current::Arg {
 				location: location.map(Into::into),
 			})
 			.await

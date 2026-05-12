@@ -1,11 +1,11 @@
 use crate::prelude::*;
 
 impl tg::handle::User for tg::Session {
-	fn get_user(
+	fn get_current_user(
 		&self,
-		arg: tg::user::get::Arg,
+		arg: tg::user::current::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
-		self.get_user(arg)
+		self.get_current_user(arg)
 	}
 
 	fn login_user(

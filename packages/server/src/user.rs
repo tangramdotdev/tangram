@@ -1,6 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
-mod get;
+mod current;
 mod login;
 
 impl Session {
@@ -23,9 +23,9 @@ impl Session {
 			return Ok(None);
 		};
 		let Some(user) = self
-			.get_user_local(token)
+			.get_current_user_local(token)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the user"))?
+			.map_err(|error| tg::error!(!error, "failed to get the current user"))?
 		else {
 			return Ok(None);
 		};

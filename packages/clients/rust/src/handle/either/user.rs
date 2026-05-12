@@ -5,13 +5,13 @@ where
 	L: tg::handle::User,
 	R: tg::handle::User,
 {
-	fn get_user(
+	fn get_current_user(
 		&self,
-		arg: tg::user::get::Arg,
+		arg: tg::user::current::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
 		match self {
-			tg::Either::Left(s) => s.get_user(arg).left_future(),
-			tg::Either::Right(s) => s.get_user(arg).right_future(),
+			tg::Either::Left(s) => s.get_current_user(arg).left_future(),
+			tg::Either::Right(s) => s.get_current_user(arg).right_future(),
 		}
 	}
 
