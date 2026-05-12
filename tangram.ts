@@ -89,6 +89,7 @@ export const run = async (...args: std.Args<Arg>) => {
 		env_,
 		bunEnvArg(host),
 		librustyv8(cargoLock, host),
+		sandboxRootfs(host),
 		{
 			WATERMARK: "9",
 			TGRUSTC_RUNNER_PASSTHROUGH: "v8",
@@ -107,6 +108,7 @@ export const run = async (...args: std.Args<Arg>) => {
 	});
 };
 
+// FIXME remove bisect helpers.
 // Bisect helpers for debugging the proxy=true segfault.
 export const runNightlyNoProxy = async () =>
 	cargo.run({
