@@ -17,6 +17,7 @@ export namespace Sandbox {
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 		network?: boolean | tg.Sandbox.Network | undefined;
+		ports?: Array<tg.Sandbox.Port> | undefined;
 		ttl?: number | undefined;
 		user?: string | undefined;
 	};
@@ -58,6 +59,24 @@ export namespace Sandbox {
 	}
 
 	export type Status = "created" | "started" | "finished";
+
+	export type Port = string;
+
+	export namespace Port {
+		export type Data = string;
+
+		export let toDataString = (
+			value: tg.Sandbox.Port,
+		): tg.Sandbox.Port.Data => {
+			return value;
+		};
+
+		export let fromDataString = (
+			data: tg.Sandbox.Port.Data,
+		): tg.Sandbox.Port => {
+			return data;
+		};
+	}
 
 	export type Mount = {
 		source: string;

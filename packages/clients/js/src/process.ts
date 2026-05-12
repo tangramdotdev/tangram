@@ -172,6 +172,7 @@ export class Process<O extends tg.Value = tg.Value> {
 				args: "append",
 				env: "merge",
 				mounts: "append",
+				ports: "append",
 			},
 		});
 	}
@@ -354,6 +355,13 @@ export class Process<O extends tg.Value = tg.Value> {
 		return (async () => {
 			let sandbox = await this.#getSandbox();
 			return sandbox?.network ?? false;
+		})();
+	}
+
+	get ports(): Promise<Array<tg.Sandbox.Port>> {
+		return (async () => {
+			let sandbox = await this.#getSandbox();
+			return (sandbox?.ports ?? []).map(tg.Sandbox.Port.fromDataString);
 		})();
 	}
 
@@ -641,6 +649,18 @@ export namespace Process {
 			return this;
 		}
 
+		port(...ports: Array<tg.Unresolved<tg.Sandbox.Port>>): this {
+			this.#args.push({ ports });
+			return this;
+		}
+
+		ports(
+			...ports: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Port>>>>
+		): this {
+			this.#args.push(...ports.map((ports) => ({ ports })));
+			return this;
+		}
+
 		sandbox(
 			sandbox?: tg.Unresolved<
 				tg.MaybeMutation<boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined>
@@ -834,6 +854,9 @@ export namespace Process {
 		name?: string | undefined;
 		/** Configure network. */
 		network?: boolean | tg.Sandbox.Network | undefined;
+
+		/** Configure port forwarding. */
+		ports?: Array<tg.Sandbox.Port> | undefined;
 
 		/** Configure or select the sandbox for this process. */
 		sandbox?: boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined;

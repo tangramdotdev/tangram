@@ -152,6 +152,7 @@ impl Session {
 			network,
 			nice: self.server.config.sandbox.nice,
 			path: temp.path().to_owned(),
+			ports: state.ports.clone(),
 			rootfs_path: self.server.sandbox_rootfs.clone(),
 			tangram_path: self.server.tangram_path.clone(),
 			user: state.user.clone(),

@@ -62,6 +62,9 @@ pub struct Options {
 	#[clap(flatten)]
 	pub network: Network,
 
+	#[arg(action = clap::ArgAction::Append, long = "port", num_args = 1, short = 'p')]
+	pub ports: Vec<tg::sandbox::Port>,
+
 	#[arg(long)]
 	pub user: Option<String>,
 }
@@ -113,6 +116,7 @@ impl Options {
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.get().is_none()
+			&& self.ports.is_empty()
 			&& self.user.is_none()
 	}
 }

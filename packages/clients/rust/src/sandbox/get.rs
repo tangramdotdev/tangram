@@ -41,6 +41,9 @@ pub struct Output {
 	)]
 	pub network: tg::Either<bool, tg::sandbox::Network>,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub ports: Vec<tg::sandbox::Port>,
+
 	pub status: tg::sandbox::Status,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

@@ -69,6 +69,8 @@ impl Session {
 			mounts: Option<Vec<tg::sandbox::Mount>>,
 			#[tangram_database(as = "db::value::Json<tg::Either<bool, tg::sandbox::Network>>")]
 			network: tg::Either<bool, tg::sandbox::Network>,
+			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Port>>>")]
+			ports: Option<Vec<tg::sandbox::Port>>,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
 			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
@@ -91,6 +93,7 @@ impl Session {
 					memory,
 					mounts,
 					network,
+					ports,
 					status,
 					ttl,
 					\"user\" as user
@@ -129,6 +132,7 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?,
 					mounts: row.mounts.unwrap_or_default(),
 					network: row.network,
+					ports: row.ports.unwrap_or_default(),
 					status: row.status,
 					ttl: row.ttl,
 					user: row.user,

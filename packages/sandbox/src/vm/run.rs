@@ -40,6 +40,7 @@ pub struct Arg {
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<NetworkKind>,
 	pub path: PathBuf,
+	pub ports: Vec<tg::sandbox::Port>,
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub url: tangram_uri::Uri,
@@ -622,6 +623,7 @@ impl Network {
 					&arg.dns,
 					host_ip,
 					guest_ip,
+					&arg.ports,
 				)?;
 				Ok(Some(Network::Passt(passt)))
 			},

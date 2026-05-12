@@ -76,6 +76,7 @@ pub struct Arg {
 	pub network: Option<Network>,
 	pub nice: u8,
 	pub path: PathBuf,
+	pub ports: Vec<tg::sandbox::Port>,
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub user: Option<String>,
@@ -210,6 +211,7 @@ impl Sandbox {
 					&arg.dns,
 					arg.network.as_ref(),
 					&arg.ip_pool,
+					&arg.ports,
 				)?;
 				let process = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
 				(process, network)
@@ -218,7 +220,8 @@ impl Sandbox {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
 			},
 			Isolation::Vm(_) => {
-				let network = crate::vm::network::create(arg.network.as_ref(), &arg.ip_pool)?;
+				let network =
+					crate::vm::network::create(arg.network.as_ref(), &arg.ip_pool, &arg.ports)?;
 				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
 				(process, network)
 			},

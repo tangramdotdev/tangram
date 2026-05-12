@@ -59,6 +59,7 @@ impl Cli {
 
 		let network = args.options.spawn.sandbox.arg.network.get();
 		let cacheable = args.options.spawn.sandbox.arg.mounts.is_empty()
+			&& args.options.spawn.sandbox.arg.ports.is_empty()
 			&& matches!(network, None | Some(tg::Either::Left(false)))
 			&& matches!(args.options.spawn.stdin, Some(tg::process::Stdio::Null))
 			&& matches!(args.options.spawn.stdout, Some(tg::process::Stdio::Log))

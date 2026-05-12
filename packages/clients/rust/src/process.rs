@@ -90,6 +90,7 @@ pub struct Arg {
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub name: Option<String>,
 	pub network: Option<tg::Either<bool, tg::sandbox::Network>>,
+	pub ports: Vec<tg::sandbox::Port>,
 	pub retry: bool,
 	pub sandbox: Option<tg::process::SandboxArg>,
 	pub stderr: tg::process::Stdio,
@@ -115,6 +116,7 @@ pub struct SandboxCreateArg {
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: tg::Either<bool, tg::sandbox::Network>,
+	pub ports: Vec<tg::sandbox::Port>,
 	pub ttl: Option<Option<Duration>>,
 	pub user: Option<String>,
 }
@@ -129,6 +131,7 @@ impl Default for SandboxCreateArg {
 			memory: None,
 			mounts: Vec::new(),
 			network: tg::Either::Left(false),
+			ports: Vec::new(),
 			ttl: None,
 			user: None,
 		}

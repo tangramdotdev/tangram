@@ -1,4 +1,4 @@
-use tangram_client::prelude::*;
+use {std::net::Ipv4Addr, tangram_client::prelude::*};
 
 const FILTER_TABLE: &[&str] = &[];
 const NAT_TABLE: &[&str] = &["-t", "nat"];
@@ -10,12 +10,29 @@ struct IptablesRule {
 	rule: Vec<String>,
 }
 
+#[derive(Debug)]
+pub(crate) struct IptablesRuleGuard {
+	rule: IptablesRule,
+}
+
 impl IptablesRule {
 	fn new<const N: usize>(table: &'static [&'static str], rule: [&str; N]) -> Self {
 		Self {
 			table,
 			rule: rule.into_iter().map(str::to_owned).collect(),
 		}
+	}
+
+	fn with_rule(table: &'static [&'static str], rule: Vec<String>) -> Self {
+		Self { table, rule }
+	}
+}
+
+impl IptablesRuleGuard {
+	fn new(rule: IptablesRule) -> tg::Result<Self> {
+		let rule_args = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
+		insert_iptables_rule(rule.table, &rule_args)?;
+		Ok(Self { rule })
 	}
 }
 
@@ -128,6 +145,122 @@ pub(crate) fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Res
 	Ok(())
 }
 
+pub(crate) fn add_port_forwarding_rules(
+	out_interface: &str,
+	guest_ip: Ipv4Addr,
+	ports: &[tg::sandbox::Port],
+) -> tg::Result<Vec<IptablesRuleGuard>> {
+	let mut guards = Vec::new();
+	for port in ports {
+		let host = port
+			.host
+			.ok_or_else(|| tg::error!("expected a resolved host port"))?;
+		if !host.is_single() || !port.container.is_single() {
+			return Err(tg::error!("expected resolved port mappings"));
+		}
+		let protocol = match port.protocol {
+			tg::sandbox::PortProtocol::Tcp => "tcp",
+			tg::sandbox::PortProtocol::Udp => "udp",
+		};
+		for chain in ["PREROUTING", "OUTPUT"] {
+			guards.push(IptablesRuleGuard::new(port_nat_rule(
+				chain,
+				protocol,
+				port.host_ip,
+				host.start,
+				guest_ip,
+				port.container.start,
+			))?);
+		}
+		guards.push(IptablesRuleGuard::new(port_forward_rule(
+			out_interface,
+			protocol,
+			guest_ip,
+			port.container.start,
+		))?);
+	}
+	Ok(guards)
+}
+
+fn port_nat_rule(
+	chain: &str,
+	protocol: &str,
+	host_ip: Option<Ipv4Addr>,
+	host_port: u16,
+	guest_ip: Ipv4Addr,
+	container_port: u16,
+) -> IptablesRule {
+	let mut rule = vec![
+		chain.to_owned(),
+		"-p".to_owned(),
+		protocol.to_owned(),
+		"-m".to_owned(),
+		protocol.to_owned(),
+		"--dport".to_owned(),
+		host_port.to_string(),
+	];
+	if let Some(host_ip) = host_ip.filter(|host_ip| !host_ip.is_unspecified()) {
+		rule.push("-d".to_owned());
+		rule.push(host_ip.to_string());
+	} else {
+		rule.push("-m".to_owned());
+		rule.push("addrtype".to_owned());
+		rule.push("--dst-type".to_owned());
+		rule.push("LOCAL".to_owned());
+	}
+	rule.extend([
+		"-j".to_owned(),
+		"DNAT".to_owned(),
+		"--to-destination".to_owned(),
+		format!("{guest_ip}:{container_port}"),
+	]);
+	IptablesRule::with_rule(NAT_TABLE, rule)
+}
+
+fn port_forward_rule(
+	out_interface: &str,
+	protocol: &str,
+	guest_ip: Ipv4Addr,
+	container_port: u16,
+) -> IptablesRule {
+	IptablesRule::with_rule(
+		FILTER_TABLE,
+		vec![
+			"FORWARD".to_owned(),
+			"-o".to_owned(),
+			out_interface.to_owned(),
+			"-p".to_owned(),
+			protocol.to_owned(),
+			"-m".to_owned(),
+			protocol.to_owned(),
+			"-d".to_owned(),
+			guest_ip.to_string(),
+			"--dport".to_owned(),
+			container_port.to_string(),
+			"-j".to_owned(),
+			"ACCEPT".to_owned(),
+		],
+	)
+}
+
+fn insert_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
+	let mut insert: Vec<&str> = Vec::with_capacity(table.len() + 1 + rule.len());
+	insert.extend_from_slice(table);
+	insert.push("-I");
+	insert.extend_from_slice(rule);
+	let output = std::process::Command::new("iptables")
+		.args(&insert)
+		.stderr(std::process::Stdio::piped())
+		.output()
+		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		let rule = rule.join(" ");
+		return Err(tg::error!(%stderr, %rule, "failed to install iptables rule"));
+	}
+	Ok(())
+}
+
 fn delete_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	loop {
 		let mut args: Vec<&str> = Vec::with_capacity(table.len() + 1 + rule.len());
@@ -158,6 +291,35 @@ fn delete_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 		}
 		return Ok(());
 	}
+}
+
+fn delete_iptables_rule_once(table: &[&str], rule: &[&str]) -> tg::Result<()> {
+	let mut args: Vec<&str> = Vec::with_capacity(table.len() + 1 + rule.len());
+	args.extend_from_slice(table);
+	args.push("-D");
+	args.extend_from_slice(rule);
+	let output = match std::process::Command::new("iptables")
+		.args(&args)
+		.stderr(std::process::Stdio::piped())
+		.output()
+	{
+		Ok(output) => output,
+		Err(error) => {
+			if error.kind() == std::io::ErrorKind::NotFound {
+				tracing::warn!("iptables not found; skipping rule cleanup");
+				return Ok(());
+			}
+			return Err(tg::error!(!error, "failed to spawn iptables"));
+		},
+	};
+	if output.status.success() {
+		return Ok(());
+	}
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	if is_iptables_permission_error(&stderr) {
+		tracing::warn!(rule = %rule.join(" "), %stderr, "iptables cleanup denied");
+	}
+	Ok(())
 }
 
 fn delete_bridge_masquerade_rules(bridge: &str) -> tg::Result<()> {
@@ -218,4 +380,18 @@ fn is_iptables_permission_error(stderr: &str) -> bool {
 	stderr.contains("permission denied")
 		|| stderr.contains("operation not permitted")
 		|| stderr.contains("you must be root")
+}
+
+impl Drop for IptablesRuleGuard {
+	fn drop(&mut self) {
+		let rule_args = self
+			.rule
+			.rule
+			.iter()
+			.map(String::as_str)
+			.collect::<Vec<_>>();
+		if let Err(error) = delete_iptables_rule_once(self.rule.table, &rule_args) {
+			tracing::error!(%error, "failed to clean up the sandbox port forwarding rule");
+		}
+	}
 }

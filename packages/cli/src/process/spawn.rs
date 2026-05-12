@@ -804,12 +804,18 @@ impl Cli {
 		let has_sandbox_arg = !options.sandbox.arg.is_empty()
 			|| options.sandbox.ttl.ttl.is_some()
 			|| options.sandbox.ttl.no_ttl;
-		let network = options
-			.sandbox
-			.arg
-			.network
-			.get()
-			.unwrap_or(tg::Either::Left(false));
+		let ports = options.sandbox.arg.ports.clone();
+		let network = match options.sandbox.arg.network.get() {
+			Some(tg::Either::Left(false)) if !ports.is_empty() => {
+				return Err(tg::error!("ports require networking"));
+			},
+			Some(tg::Either::Right(tg::sandbox::Network::Host)) if !ports.is_empty() => {
+				return Err(tg::error!("ports are not supported with host networking"));
+			},
+			Some(network) => network,
+			None if !ports.is_empty() => tg::Either::Left(true),
+			None => tg::Either::Left(false),
+		};
 
 		// Get the mounts.
 		let mut mounts = Vec::new();
@@ -842,6 +848,7 @@ impl Cli {
 						memory: options.sandbox.arg.memory,
 						mounts,
 						network,
+						ports,
 						ttl: Some(options.sandbox.ttl.get()),
 						user: options.sandbox.arg.user.clone(),
 					},

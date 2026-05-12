@@ -2,8 +2,12 @@ mod id;
 mod isolation;
 mod mount;
 mod network;
+mod port;
 
-pub use self::{id::Id, isolation::Isolation, mount::Mount, network::Network, status::Status};
+pub use self::{
+	id::Id, isolation::Isolation, mount::Mount, network::Network, port::Port,
+	port::Protocol as PortProtocol, port::Range as PortRange, status::Status,
+};
 
 pub mod create;
 pub mod delete;

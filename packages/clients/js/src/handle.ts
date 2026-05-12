@@ -36,6 +36,7 @@ export namespace Handle {
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
 		network: boolean | tg.Sandbox.Network.Data;
+		ports?: Array<tg.Sandbox.Port.Data> | undefined;
 		ttl?: number | undefined;
 		user?: string | undefined;
 	};
@@ -48,6 +49,7 @@ export namespace Handle {
 		memory?: number | undefined;
 		mounts: Array<tg.Sandbox.Mount.Data>;
 		network: boolean;
+		ports: Array<tg.Sandbox.Port.Data>;
 		status: tg.Sandbox.Status;
 		ttl?: number | undefined;
 		user?: string | undefined;

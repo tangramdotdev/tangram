@@ -4,6 +4,7 @@ pub(crate) fn create(
 	dns: &[Ipv4Addr],
 	network: Option<&crate::Network>,
 	pool: &crate::network::ip::Pool,
+	ports: &[tg::sandbox::Port],
 ) -> tg::Result<Option<crate::network::Network>> {
 	let Some(network) = network else {
 		return Ok(None);
@@ -13,12 +14,13 @@ pub(crate) fn create(
 			if crate::network::root() {
 				crate::network::veth::setup()?;
 				let guest = reserve_veth_guest(pool)?;
-				let network = crate::network::veth::Network::new(guest);
+				let network = crate::network::veth::Network::new(guest, ports)?;
 				let network = crate::network::Network::Veth(network);
 				Ok(Some(network))
 			} else {
 				let options = crate::network::pasta::Options {
 					dns: dns.to_owned(),
+					ports: ports.to_owned(),
 					..Default::default()
 				};
 				let network = crate::network::pasta::Network::new(options)?;

@@ -9,6 +9,7 @@ create table sandboxes (
 	memory int8,
 	mounts text,
 	network text,
+	ports text,
 	started_at int8,
 	status text not null,
 	ttl int8,

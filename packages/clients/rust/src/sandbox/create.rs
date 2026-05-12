@@ -32,6 +32,9 @@ pub struct Arg {
 	)]
 	pub network: tg::Either<bool, tg::sandbox::Network>,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub ports: Vec<tg::sandbox::Port>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub ttl: Option<Duration>,
