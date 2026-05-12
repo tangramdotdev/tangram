@@ -18,6 +18,7 @@ use crate::prelude::*;
 #[from_str(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
+	Admin,
 	Read,
 	Write,
 }
@@ -26,8 +27,10 @@ impl tg::Permission {
 	#[must_use]
 	pub fn implies(self, permission: Self) -> bool {
 		match (self, permission) {
-			(Self::Write, Self::Read | Self::Write) | (Self::Read, Self::Read) => true,
-			(Self::Read, Self::Write) => false,
+			(Self::Admin, Self::Admin | Self::Read | Self::Write)
+			| (Self::Write, Self::Read | Self::Write)
+			| (Self::Read, Self::Read) => true,
+			(Self::Read | Self::Write, Self::Admin) | (Self::Read, Self::Write) => false,
 		}
 	}
 }

@@ -5,6 +5,7 @@ pub mod grant;
 pub mod grants;
 pub mod login;
 pub mod permissions;
+pub mod revoke;
 
 #[derive(
 	Clone,

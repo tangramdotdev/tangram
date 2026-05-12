@@ -7,6 +7,7 @@ pub mod grant;
 pub mod grants;
 pub mod list;
 pub mod member;
+pub mod revoke;
 
 #[derive(
 	Clone,

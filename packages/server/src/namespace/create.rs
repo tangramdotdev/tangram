@@ -39,7 +39,7 @@ impl Session {
 				namespace,
 				namespace_id,
 				user,
-				tg::Permission::Write,
+				tg::Permission::Admin,
 				created_by.as_ref(),
 			)
 			.await?;

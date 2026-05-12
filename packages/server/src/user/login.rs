@@ -143,7 +143,7 @@ impl Session {
 					&namespace,
 					namespace_id,
 					&id,
-					tg::Permission::Write,
+					tg::Permission::Admin,
 					Some(&id),
 				)
 				.await?;

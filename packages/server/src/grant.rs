@@ -215,6 +215,48 @@ impl Session {
 		.await
 	}
 
+	pub(crate) async fn revoke_namespace_from_user_with_transaction(
+		transaction: &Transaction<'_>,
+		namespace_id: i64,
+		user: &tg::user::Id,
+		permission: tg::Permission,
+	) -> tg::Result<Option<()>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				delete from namespace_grants
+				where namespace = {p}1 and \"user\" = {p}2 and permission = {p}3;
+			"
+		);
+		let params = db::params![namespace_id, user.to_string(), permission.to_string()];
+		let n = transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok((n > 0).then_some(()))
+	}
+
+	pub(crate) async fn revoke_namespace_from_group_with_transaction(
+		transaction: &Transaction<'_>,
+		namespace_id: i64,
+		group: &tg::group::Id,
+		permission: tg::Permission,
+	) -> tg::Result<Option<()>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				delete from namespace_grants
+				where namespace = {p}1 and \"group\" = {p}2 and permission = {p}3;
+			"
+		);
+		let params = db::params![namespace_id, group.to_string(), permission.to_string()];
+		let n = transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok((n > 0).then_some(()))
+	}
+
 	pub(crate) async fn list_namespace_grants_for_user_with_transaction(
 		transaction: &Transaction<'_>,
 		user: &tg::user::Id,
@@ -412,7 +454,11 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			for row in rows {
-				for permission in [tg::Permission::Read, tg::Permission::Write] {
+				for permission in [
+					tg::Permission::Admin,
+					tg::Permission::Read,
+					tg::Permission::Write,
+				] {
 					if row.permission.implies(permission) {
 						permissions.insert(permission);
 					}
@@ -420,6 +466,56 @@ impl Session {
 			}
 		}
 		Ok(permissions.into_iter().collect())
+	}
+
+	pub(crate) async fn user_has_namespace_permission_with_transaction(
+		transaction: &Transaction<'_>,
+		user: &tg::user::Id,
+		namespace: &tg::Namespace,
+		permission: tg::Permission,
+	) -> tg::Result<bool> {
+		let permissions = Self::list_effective_namespace_permissions_for_user_with_transaction(
+			transaction,
+			user,
+			namespace,
+		)
+		.await?;
+		Ok(permissions.contains(&permission))
+	}
+
+	pub(crate) async fn authorize_namespace(
+		&self,
+		namespace: &tg::Namespace,
+		permission: tg::Permission,
+	) -> tg::Result<()> {
+		let Some(user) = self
+			.authorize()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize"))?
+		else {
+			return Ok(());
+		};
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		if Self::user_has_namespace_permission_with_transaction(
+			&transaction,
+			&user.id,
+			namespace,
+			permission,
+		)
+		.await?
+		{
+			return Ok(());
+		}
+		Err(tg::error!("forbidden"))
 	}
 
 	async fn get_user_namespace_grant_with_transaction(

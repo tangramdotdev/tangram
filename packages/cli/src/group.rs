@@ -7,6 +7,7 @@ pub mod grant;
 pub mod grants;
 pub mod list;
 pub mod member;
+pub mod revoke;
 
 /// Manage groups.
 #[derive(Clone, Debug, clap::Args)]
@@ -35,6 +36,9 @@ pub enum Command {
 
 	#[command(alias = "members")]
 	Member(self::member::Args),
+
+	#[command(alias = "ungrant")]
+	Revoke(self::revoke::Args),
 }
 
 impl Cli {
@@ -47,6 +51,7 @@ impl Cli {
 			Command::Grants(args) => self.command_group_grants(args).await?,
 			Command::List(args) => self.command_group_list(args).await?,
 			Command::Member(args) => self.command_group_member(args).await?,
+			Command::Revoke(args) => self.command_group_revoke(args).await?,
 		}
 		Ok(())
 	}

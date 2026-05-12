@@ -5,6 +5,7 @@ pub mod grants;
 pub mod login;
 pub mod logout;
 pub mod permissions;
+pub mod revoke;
 pub mod whoami;
 
 /// Manage the user.
@@ -22,6 +23,8 @@ pub enum Command {
 	Login(self::login::Args),
 	Logout(self::logout::Args),
 	Permissions(self::permissions::Args),
+	#[command(alias = "ungrant")]
+	Revoke(self::revoke::Args),
 	Whoami(self::whoami::Args),
 }
 
@@ -42,6 +45,9 @@ impl Cli {
 			},
 			Command::Permissions(args) => {
 				self.command_user_permissions(args).await?;
+			},
+			Command::Revoke(args) => {
+				self.command_user_revoke(args).await?;
 			},
 			Command::Whoami(args) => {
 				self.command_user_whoami(args).await?;
