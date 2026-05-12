@@ -13,5 +13,6 @@ pub fn current_exe() -> std::io::Result<PathBuf> {
 	} else {
 		path
 	};
+	let path = std::fs::canonicalize(path)?;
 	Ok(path)
 }
