@@ -26,10 +26,14 @@ pub(crate) struct Pair {
 }
 
 impl Network {
-	pub(crate) fn new(guest: ip::Lease, ports: &[tg::sandbox::Port]) -> tg::Result<Self> {
+	pub(crate) fn new(
+		id: &tg::sandbox::Id,
+		guest: ip::Lease,
+		ports: &[tg::sandbox::Port],
+	) -> tg::Result<Self> {
 		let bridge_name = BRIDGE_NAME.to_owned();
 		let port_forwarding_rules =
-			host::add_port_forwarding_rules(&bridge_name, guest.addr, ports)?;
+			host::add_port_forwarding_rules(id, &bridge_name, gateway_ip(), guest.addr, ports)?;
 		Ok(Self {
 			_port_forwarding_rules: port_forwarding_rules,
 			bridge_name,
@@ -124,6 +128,7 @@ pub(crate) fn setup() -> tg::Result<()> {
 			if let Err(error) = host::cleanup_persistent_rules(Some(BRIDGE_NAME)) {
 				tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 			}
+			host::setup_port_forwarding()?;
 			create_bridge(BRIDGE_NAME, gateway_ip())
 		})
 		.clone()
@@ -137,6 +142,7 @@ pub(crate) fn create_bridge(name: &str, ip: Ipv4Addr) -> tg::Result<()> {
 	netlink.addr_replace_v4(name, ip, 16)?;
 	netlink.link_set_up(name)?;
 	host::enable_ipv4_forwarding()?;
+	host::enable_route_localnet(name)?;
 	ensure_bridge_iptables_rules(name, ip)?;
 	Ok(())
 }

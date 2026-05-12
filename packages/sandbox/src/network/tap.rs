@@ -31,12 +31,14 @@ pub(crate) struct Device {
 
 impl Network {
 	pub(crate) fn new(
+		id: &tg::sandbox::Id,
 		host: ip::Lease,
 		guest: ip::Lease,
 		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
 		let prefix = format!("{}+", host::TAP_INTERFACE_NAME_PREFIX);
-		let port_forwarding_rules = host::add_port_forwarding_rules(&prefix, guest.addr, ports)?;
+		let port_forwarding_rules =
+			host::add_port_forwarding_rules(id, &prefix, host.addr, guest.addr, ports)?;
 		Ok(Self {
 			_port_forwarding_rules: port_forwarding_rules,
 			guest,
@@ -70,6 +72,7 @@ impl Device {
 		netlink.addr_add_v4(&name, host_ip, 30)?;
 
 		host::enable_ipv4_forwarding()?;
+		host::enable_route_localnet(&name)?;
 		setup()?;
 
 		// Clear FD_CLOEXEC so the fd survives exec() into cloud-hypervisor.
@@ -127,6 +130,7 @@ pub(crate) fn setup() -> tg::Result<()> {
 			if let Err(error) = host::cleanup_persistent_rules(None) {
 				tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 			}
+			host::setup_port_forwarding()?;
 			ensure_iptables_rules()
 		})
 		.clone()
@@ -203,5 +207,7 @@ fn open_tap(name: &str) -> tg::Result<OwnedFd> {
 
 fn tap_name(id: &str) -> String {
 	let (_, id) = id.split_at(3);
+	let max_len = libc::IFNAMSIZ - 1 - host::TAP_INTERFACE_NAME_PREFIX.len();
+	let id = &id[..id.len().min(max_len)];
 	format!("{}{}", host::TAP_INTERFACE_NAME_PREFIX, id)
 }

@@ -37,6 +37,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 	if let Some(network) = &arg.network {
 		configure_network(network)?;
+		prime_network(network);
 		write_resolv_conf(&network.dns_servers)?;
 	}
 
@@ -237,6 +238,14 @@ fn open_network_socket() -> tg::Result<OwnedFd> {
 	}
 	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 	Ok(fd)
+}
+
+fn prime_network(network: &Network) {
+	// Send one packet so user-mode backends can learn the guest endpoint before port forwards arrive.
+	let Ok(socket) = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) else {
+		return;
+	};
+	let _ = socket.send_to(&[0], (network.gateway_ip, 9));
 }
 
 fn resolve_home(uid: libc::uid_t) -> Option<PathBuf> {
