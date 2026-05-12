@@ -34,19 +34,12 @@ impl tg::handle::Sandbox for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_sandboxes(arg)) }
 	}
 
-	fn try_delete_sandbox(
+	fn try_destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_delete_sandbox(id)) }
-	}
-
-	fn try_finish_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_finish_sandbox(id, arg)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_destroy_sandbox(id, arg)) }
 	}
 
 	fn try_heartbeat_sandbox(

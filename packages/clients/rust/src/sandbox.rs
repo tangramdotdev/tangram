@@ -12,8 +12,7 @@ pub use self::{
 };
 
 pub mod create;
-pub mod delete;
-pub mod finish;
+pub mod destroy;
 pub mod get;
 pub mod heartbeat;
 pub mod list;

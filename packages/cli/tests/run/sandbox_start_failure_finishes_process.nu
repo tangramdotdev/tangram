@@ -35,12 +35,12 @@ for _ in 0..100 {
 		break
 	}
 	let state = $output.stdout | from json
-	if $state.status == "finished" {
+	if $state.status == "destroyed" {
 		break
 	}
 	sleep 0.05sec
 }
 if $output.exit_code == 0 {
 	let state = $output.stdout | from json
-	assert ($state.status == "finished")
+	assert ($state.status == "destroyed")
 }

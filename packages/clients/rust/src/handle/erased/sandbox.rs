@@ -25,15 +25,10 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::list::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::sandbox::list::Output>>;
 
-	fn try_delete_sandbox<'a>(
+	fn try_destroy_sandbox<'a>(
 		&'a self,
 		id: &'a tg::sandbox::Id,
-	) -> BoxFuture<'a, tg::Result<Option<()>>>;
-
-	fn try_finish_sandbox<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
 
 	fn try_heartbeat_sandbox<'a>(
@@ -88,19 +83,12 @@ where
 		self.list_sandboxes(arg).boxed()
 	}
 
-	fn try_delete_sandbox<'a>(
+	fn try_destroy_sandbox<'a>(
 		&'a self,
 		id: &'a tg::sandbox::Id,
-	) -> BoxFuture<'a, tg::Result<Option<()>>> {
-		self.try_delete_sandbox(id).boxed()
-	}
-
-	fn try_finish_sandbox<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
-		self.try_finish_sandbox(id, arg).boxed()
+		self.try_destroy_sandbox(id, arg).boxed()
 	}
 
 	fn try_heartbeat_sandbox<'a>(

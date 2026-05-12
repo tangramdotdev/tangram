@@ -30,16 +30,12 @@ impl tg::handle::Sandbox for Session {
 		self.list_sandboxes(arg).await
 	}
 
-	async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
-		self.try_delete_sandbox(id).await
-	}
-
-	async fn try_finish_sandbox(
+	async fn try_destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
-		self.try_finish_sandbox(id, arg).await
+		self.try_destroy_sandbox(id, arg).await
 	}
 
 	async fn try_heartbeat_sandbox(

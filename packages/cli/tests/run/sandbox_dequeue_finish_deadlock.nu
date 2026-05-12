@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Reproduces an async deadlock between an in-flight dequeue_sandbox_process and finish_sandbox.
+# Reproduces an async deadlock between an in-flight dequeue_sandbox_process and destroy_sandbox.
 
 let server = spawn --config {
 	runner: {
@@ -23,4 +23,4 @@ let parent = artifact {
 }
 
 let output = timeout 45s tg build $parent | complete
-success $output "fan-out build should not deadlock between dequeue_sandbox_process and finish_sandbox"
+success $output "fan-out build should not deadlock between dequeue_sandbox_process and destroy_sandbox"

@@ -46,24 +46,14 @@ where
 		}
 	}
 
-	fn try_delete_sandbox(
+	fn try_destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
-		match self {
-			tg::Either::Left(s) => s.try_delete_sandbox(id).left_future(),
-			tg::Either::Right(s) => s.try_delete_sandbox(id).right_future(),
-		}
-	}
-
-	fn try_finish_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		match self {
-			tg::Either::Left(s) => s.try_finish_sandbox(id, arg).left_future(),
-			tg::Either::Right(s) => s.try_finish_sandbox(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_destroy_sandbox(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_destroy_sandbox(id, arg).right_future(),
 		}
 	}
 

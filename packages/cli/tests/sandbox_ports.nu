@@ -34,4 +34,4 @@ let output = tg spawn $"--sandbox=($sandbox)" -p 8080:80 --executable $executabl
 failure $output
 assert ($output.stderr | str contains 'sandbox options are not supported for existing sandboxes') "the error should mention the existing sandbox"
 
-tg sandbox delete $sandbox
+tg sandbox destroy $sandbox

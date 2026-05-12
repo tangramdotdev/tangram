@@ -26,15 +26,15 @@ struct InnerArg {
 }
 
 struct InnerOutput {
-	finished: bool,
+	destroyed: bool,
 	unfinished_processes: Vec<tg::process::Id>,
 }
 
 impl Session {
-	pub(crate) async fn try_finish_sandbox(
+	pub(crate) async fn try_destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
@@ -49,27 +49,27 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_finish_sandbox_local(id, arg.error.clone(), None)
+					.try_destroy_sandbox_local(id, arg.error.clone(), None)
 					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to finish the sandbox"))?
+					.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
 			{
 				return Ok(Some(output));
 			}
 
 			if let Some(output) = self
-				.try_finish_sandbox_regions(id, &arg, &local.regions)
+				.try_destroy_sandbox_regions(id, &arg, &local.regions)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to finish the sandbox in another region"),
+					|error| tg::error!(!error, %id, "failed to destroy the sandbox in another region"),
 				)? {
 				return Ok(Some(output));
 			}
 		}
 
 		if let Some(output) = self
-			.try_finish_sandbox_remotes(id, &arg, &locations.remotes)
+			.try_destroy_sandbox_remotes(id, &arg, &locations.remotes)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to finish the sandbox in a remote"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox in a remote"))?
 		{
 			return Ok(Some(output));
 		}
@@ -77,7 +77,7 @@ impl Session {
 		Ok(None)
 	}
 
-	pub(crate) async fn try_finish_sandbox_local(
+	pub(crate) async fn try_destroy_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
@@ -110,13 +110,13 @@ impl Session {
 		let arg = InnerArg { condition, now };
 
 		let InnerOutput {
-			finished,
+			destroyed,
 			unfinished_processes,
 		} = self
-			.try_finish_sandbox_inner(&transaction, id, arg)
+			.try_destroy_sandbox_inner(&transaction, id, arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to finish the sandbox"))?;
-		if !finished {
+			.map_err(|error| tg::error!(!error, "failed to destroy the sandbox"))?;
+		if !destroyed {
 			return Ok(Some(false));
 		}
 
@@ -189,7 +189,7 @@ impl Session {
 		Ok(Some(true))
 	}
 
-	async fn try_finish_sandbox_inner(
+	async fn try_destroy_sandbox_inner(
 		&self,
 		transaction: &Transaction<'_>,
 		id: &tg::sandbox::Id,
@@ -198,26 +198,26 @@ impl Session {
 		match transaction {
 			#[cfg(feature = "postgres")]
 			Transaction::Postgres(transaction) => {
-				self.try_finish_sandbox_inner_postgres(transaction, id, arg)
+				self.try_destroy_sandbox_inner_postgres(transaction, id, arg)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
 			Transaction::Sqlite(transaction) => {
-				self.try_finish_sandbox_inner_sqlite(transaction, id, arg)
+				self.try_destroy_sandbox_inner_sqlite(transaction, id, arg)
 					.await
 			},
 		}
 	}
 
-	async fn try_finish_sandbox_regions(
+	async fn try_destroy_sandbox_regions(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: &tg::sandbox::finish::Arg,
+		arg: &tg::sandbox::destroy::Arg,
 		regions: &[String],
 	) -> tg::Result<Option<bool>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_finish_sandbox_region(id, arg, region))
+			.map(|region| self.try_destroy_sandbox_region(id, arg, region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -238,10 +238,10 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	async fn try_finish_sandbox_region(
+	async fn try_destroy_sandbox_region(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: &tg::sandbox::finish::Arg,
+		arg: &tg::sandbox::destroy::Arg,
 		region: &str,
 	) -> tg::Result<Option<bool>> {
 		let client = self.get_region_session(region.to_owned()).await.map_err(
@@ -250,28 +250,28 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
-		let arg = tg::sandbox::finish::Arg {
+		let arg = tg::sandbox::destroy::Arg {
 			location: Some(location.into()),
 			..arg.clone()
 		};
-		let Some(finished) = client.try_finish_sandbox(id, arg).await.map_err(
-			|error| tg::error!(!error, region = %region, "failed to finish the sandbox"),
+		let Some(destroyed) = client.try_destroy_sandbox(id, arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to destroy the sandbox"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(finished))
+		Ok(Some(destroyed))
 	}
 
-	async fn try_finish_sandbox_remotes(
+	async fn try_destroy_sandbox_remotes(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: &tg::sandbox::finish::Arg,
+		arg: &tg::sandbox::destroy::Arg,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<Option<bool>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_finish_sandbox_remote(id, arg, remote))
+			.map(|remote| self.try_destroy_sandbox_remote(id, arg, remote))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -292,16 +292,16 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	async fn try_finish_sandbox_remote(
+	async fn try_destroy_sandbox_remote(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: &tg::sandbox::finish::Arg,
+		arg: &tg::sandbox::destroy::Arg,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<bool>> {
 		let client = self.get_remote_session(remote.name.clone()).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
-		let arg = tg::sandbox::finish::Arg {
+		let arg = tg::sandbox::destroy::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
@@ -309,16 +309,16 @@ impl Session {
 			])),
 			..arg.clone()
 		};
-		let Some(finished) = client.try_finish_sandbox(id, arg).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to finish the sandbox"),
+		let Some(destroyed) = client.try_destroy_sandbox(id, arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to destroy the sandbox"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(finished))
+		Ok(Some(destroyed))
 	}
 
-	pub(crate) async fn try_finish_sandbox_request(
+	pub(crate) async fn try_destroy_sandbox_request(
 		&self,
 		request: http::Request<BoxBody>,
 		id: &str,
@@ -335,10 +335,10 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
-		let Some(finished) = self
-			.try_finish_sandbox(&id, arg)
+		let Some(destroyed) = self
+			.try_destroy_sandbox(&id, arg)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to finish the sandbox"))?
+			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()
@@ -346,7 +346,7 @@ impl Session {
 				.unwrap()
 				.boxed_body());
 		};
-		if !finished {
+		if !destroyed {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::CONFLICT)
 				.empty()

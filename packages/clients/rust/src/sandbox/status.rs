@@ -14,7 +14,6 @@ use {
 	Eq,
 	PartialEq,
 	derive_more::Display,
-	derive_more::FromStr,
 	derive_more::IsVariant,
 	derive_more::Unwrap,
 	derive_more::TryUnwrap,
@@ -24,12 +23,11 @@ use {
 	tangram_serialize::Serialize,
 )]
 #[display(rename_all = "snake_case")]
-#[from_str(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Status {
 	Created,
 	Started,
-	Finished,
+	Destroyed,
 }
 
 #[serde_as]
@@ -113,6 +111,19 @@ impl tg::Session {
 				)
 			});
 		Ok(Some(stream))
+	}
+}
+
+impl std::str::FromStr for Status {
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"created" => Ok(Self::Created),
+			"started" => Ok(Self::Started),
+			"destroyed" => Ok(Self::Destroyed),
+			_ => Err(tg::error!(%value, "invalid sandbox status")),
+		}
 	}
 }
 

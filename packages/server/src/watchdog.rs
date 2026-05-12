@@ -163,28 +163,28 @@ impl Server {
 								Some(tg::error::Code::HeartbeatExpiration) => (),
 								Some(code) => {
 									return Err(
-										tg::error!(%code, "invalid sandbox finish condition"),
+										tg::error!(%code, "invalid sandbox destroy condition"),
 									);
 								},
 								None => {
-									return Err(tg::error!("invalid sandbox finish condition"));
+									return Err(tg::error!("invalid sandbox destroy condition"));
 								},
 							}
-							let condition = crate::sandbox::finish::Condition::HeartbeatExpired {
+							let condition = crate::sandbox::destroy::Condition::HeartbeatExpired {
 								max_heartbeat_at,
 							};
-							let finished = session
-								.try_finish_sandbox_local(
+							let destroyed = session
+								.try_destroy_sandbox_local(
 									&id,
 									Some(tg::Either::Left(error)),
 									Some(condition),
 								)
 								.await
 								.map_err(
-									|error| tg::error!(!error, %id, "failed to finish the sandbox"),
+									|error| tg::error!(!error, %id, "failed to destroy the sandbox"),
 								)?
 								.unwrap_or(false);
-							Ok::<_, tg::Error>(finished)
+							Ok::<_, tg::Error>(destroyed)
 						},
 					}
 				}

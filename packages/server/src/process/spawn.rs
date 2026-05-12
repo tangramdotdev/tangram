@@ -769,7 +769,7 @@ impl Session {
 		let token = if status == tg::process::Status::Finished {
 			None
 		} else {
-			if sandbox_status.is_some_and(|status| status.is_finished()) {
+			if sandbox_status.is_some_and(|status| status.is_destroyed()) {
 				return Ok(None);
 			}
 
@@ -777,7 +777,7 @@ impl Session {
 				"
 					update sandboxes
 					set heartbeat_at = heartbeat_at
-					where id = {p}1 and status != 'finished';
+					where id = {p}1 and status != 'destroyed';
 				"
 			);
 			let params = db::params![sandbox.to_string()];
@@ -1177,8 +1177,8 @@ impl Session {
 					.try_get_sandbox_status_with_transaction(transaction, sandbox)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
-				if status.is_finished() {
-					return Err(tg::error!("the sandbox is finished"));
+				if status.is_destroyed() {
+					return Err(tg::error!("the sandbox is destroyed"));
 				}
 				(sandbox.clone(), status, None)
 			},

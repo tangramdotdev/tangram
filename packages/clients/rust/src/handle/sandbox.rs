@@ -45,37 +45,24 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::sandbox::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::sandbox::list::Output>> + Send;
 
-	fn delete_sandbox(&self, id: &tg::sandbox::Id) -> impl Future<Output = tg::Result<()>> + Send {
-		async move {
-			self.try_delete_sandbox(id)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the sandbox"))
-		}
-	}
-
-	fn try_delete_sandbox(
+	fn destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
-
-	fn finish_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			match self.try_finish_sandbox(id, arg).await? {
+			match self.try_destroy_sandbox(id, arg).await? {
 				Some(true) => Ok(()),
-				Some(false) => Err(tg::error!("the sandbox was already finished")),
+				Some(false) => Err(tg::error!("the sandbox was already destroyed")),
 				None => Err(tg::error!("failed to find the sandbox")),
 			}
 		}
 	}
 
-	fn try_finish_sandbox(
+	fn try_destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
 	fn heartbeat_sandbox(
@@ -155,17 +142,13 @@ impl tg::handle::Sandbox for tg::Client {
 		self.session(&self.context).list_sandboxes(arg).await
 	}
 
-	async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
-		self.session(&self.context).try_delete_sandbox(id).await
-	}
-
-	async fn try_finish_sandbox(
+	async fn try_destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
 		self.session(&self.context)
-			.try_finish_sandbox(id, arg)
+			.try_destroy_sandbox(id, arg)
 			.await
 	}
 

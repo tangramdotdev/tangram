@@ -7,9 +7,8 @@ use {
 };
 
 pub mod create;
-pub mod delete;
+pub mod destroy;
 pub mod finalize;
-pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod isolation;

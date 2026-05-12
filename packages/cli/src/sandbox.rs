@@ -3,7 +3,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[cfg(target_os = "linux")]
 pub mod container;
 pub mod create;
-pub mod delete;
+pub mod destroy;
 pub mod get;
 pub mod list;
 #[cfg(target_os = "macos")]
@@ -26,8 +26,7 @@ pub enum Command {
 	#[command(hide = true)]
 	Container(self::container::Args),
 	Create(self::create::Args),
-	#[command(alias = "remove", alias = "rm")]
-	Delete(self::delete::Args),
+	Destroy(self::destroy::Args),
 	Get(self::get::Args),
 	#[command(hide = true)]
 	Serve(self::serve::Args),
@@ -141,8 +140,8 @@ impl Cli {
 			Command::Create(args) => {
 				self.command_sandbox_create(args).await?;
 			},
-			Command::Delete(args) => {
-				self.command_sandbox_delete(args).await?;
+			Command::Destroy(args) => {
+				self.command_sandbox_destroy(args).await?;
 			},
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;

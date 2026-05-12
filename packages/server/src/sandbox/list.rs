@@ -71,7 +71,7 @@ impl Session {
 			"
 				select id, cpu, hostname, memory, mounts, network, status, ttl, \"user\" as user
 				from sandboxes
-				where status != 'finished'
+				where status != 'destroyed'
 				order by created_at;
 			"
 		);

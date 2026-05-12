@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Session,
-		sandbox::finish::{Condition, InnerArg, InnerOutput},
+		sandbox::destroy::{Condition, InnerArg, InnerOutput},
 	},
 	indoc::indoc,
 	tangram_client::prelude::*,
@@ -9,7 +9,7 @@ use {
 };
 
 impl Session {
-	pub(super) async fn try_finish_sandbox_inner_postgres(
+	pub(super) async fn try_destroy_sandbox_inner_postgres(
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
 		id: &tg::sandbox::Id,
@@ -23,7 +23,7 @@ impl Session {
 		};
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			finished: bool,
+			destroyed: bool,
 			#[tangram_database(as = "db::value::Json<Vec<tg::process::Id>>")]
 			unfinished_processes: Vec<tg::process::Id>,
 		}
@@ -37,7 +37,7 @@ impl Session {
 						status = $2
 					where
 						id = $3 and
-						status != 'finished' and
+						status != 'destroyed' and
 						(
 							$5::text is null or
 							($5 = 'heartbeat_expired' and status = 'started' and heartbeat_at < $6)
@@ -58,7 +58,7 @@ impl Session {
 						processes.status != 'finished'
 				)
 				select
-					exists(select 1 from updated) as finished,
+					exists(select 1 from updated) as destroyed,
 					(
 						select coalesce(
 							json_agg(id order by created_at, id),
@@ -70,21 +70,21 @@ impl Session {
 		);
 		let params = db::params![
 			arg.now,
-			tg::sandbox::Status::Finished.to_string(),
+			tg::sandbox::Status::Destroyed.to_string(),
 			id.to_string(),
 			"created",
 			condition,
 			max_heartbeat_at,
 		];
 		let Row {
-			finished,
+			destroyed,
 			unfinished_processes,
 		} = transaction
 			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let output = InnerOutput {
-			finished,
+			destroyed,
 			unfinished_processes,
 		};
 		Ok(output)

@@ -122,7 +122,7 @@ impl Server {
 		);
 		let params = db::params![
 			entry.sandbox.to_string(),
-			tg::sandbox::Status::Finished.to_string()
+			tg::sandbox::Status::Destroyed.to_string()
 		];
 		let n = transaction
 			.execute(statement.into(), params)
@@ -142,7 +142,7 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if exists {
-				return Err(tg::error!("failed to delete the finished sandbox"));
+				return Err(tg::error!("failed to delete the destroyed sandbox"));
 			}
 		}
 

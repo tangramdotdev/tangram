@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Session,
-		sandbox::finish::{Condition, InnerArg, InnerOutput},
+		sandbox::destroy::{Condition, InnerArg, InnerOutput},
 	},
 	indoc::indoc,
 	rusqlite as sqlite,
@@ -10,7 +10,7 @@ use {
 };
 
 impl Session {
-	pub(super) async fn try_finish_sandbox_inner_sqlite(
+	pub(super) async fn try_destroy_sandbox_inner_sqlite(
 		&self,
 		transaction: &db::sqlite::Transaction<'_>,
 		id: &tg::sandbox::Id,
@@ -19,12 +19,12 @@ impl Session {
 		let id = id.clone();
 		transaction
 			.with(move |transaction, _cache| {
-				Self::try_finish_sandbox_inner_sqlite_sync(transaction, &id, &arg)
+				Self::try_destroy_sandbox_inner_sqlite_sync(transaction, &id, &arg)
 			})
 			.await
 	}
 
-	fn try_finish_sandbox_inner_sqlite_sync(
+	fn try_destroy_sandbox_inner_sqlite_sync(
 		transaction: &mut sqlite::Transaction<'_>,
 		id: &tg::sandbox::Id,
 		arg: &InnerArg,
@@ -44,7 +44,7 @@ impl Session {
 					status = ?2
 				where
 					id = ?3 and
-					status != 'finished' and
+					status != 'destroyed' and
 					(
 						?4 is null or
 						(?4 = 'heartbeat_expired' and status = 'started' and heartbeat_at < ?5)
@@ -56,7 +56,7 @@ impl Session {
 				statement,
 				sqlite::params![
 					arg.now,
-					tg::sandbox::Status::Finished.to_string(),
+					tg::sandbox::Status::Destroyed.to_string(),
 					id.to_string(),
 					condition,
 					max_heartbeat_at,
@@ -65,7 +65,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if n != 1 {
 			let output = InnerOutput {
-				finished: false,
+				destroyed: false,
 				unfinished_processes: Vec::new(),
 			};
 			return Ok(output);
@@ -114,7 +114,7 @@ impl Session {
 		}
 
 		let output = InnerOutput {
-			finished: true,
+			destroyed: true,
 			unfinished_processes,
 		};
 

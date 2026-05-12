@@ -87,7 +87,7 @@ export namespace Sandbox {
 		};
 	}
 
-	export type Status = "created" | "started" | "finished";
+	export type Status = "created" | "started" | "destroyed";
 
 	export type Port = string;
 

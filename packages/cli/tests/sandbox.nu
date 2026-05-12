@@ -19,7 +19,7 @@ assert (($sandbox.mounts | first) == "/tmp:/sandbox,ro")
 assert (($sandbox.network? | is-empty))
 assert ($sandbox.user == "nobody")
 
-tg sandbox delete $create
+tg sandbox destroy $create
 
 let list = tg sandbox list | from json
 assert (($list | where id == $create | is-empty))

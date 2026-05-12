@@ -169,7 +169,7 @@ pub trait Ext: tg::Handle {
 			.inspect_ok({
 				let state = state.clone();
 				move |status| {
-					state.lock().unwrap().end = status.is_finished();
+					state.lock().unwrap().end = status.is_destroyed();
 				}
 			});
 			Ok(Some(stream))

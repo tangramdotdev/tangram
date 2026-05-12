@@ -13,13 +13,13 @@ pub struct Arg {
 }
 
 impl tg::Session {
-	pub async fn try_finish_sandbox(
+	pub async fn try_destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
+		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
 		let method = http::Method::POST;
-		let uri = format!("/sandboxes/{id}/finish");
+		let uri = format!("/sandboxes/{id}/destroy");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

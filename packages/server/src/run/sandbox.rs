@@ -28,7 +28,7 @@ impl Server {
 						.sandbox_task(&id, location.clone(), permit, process)
 						.await;
 
-					// If the sandbox task fails, then finish the sandbox with an error.
+					// If the sandbox task fails, then destroy the sandbox with an error.
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
 						let mut error = error.to_data_or_id();
@@ -37,16 +37,16 @@ impl Server {
 						{
 							error.remove_internal_locations();
 						}
-						let arg = tg::sandbox::finish::Arg {
+						let arg = tg::sandbox::destroy::Arg {
 							error: Some(error),
 							location: Some(location.into()),
 						};
-						let result = session.finish_sandbox(&id, arg).await;
+						let result = session.destroy_sandbox(&id, arg).await;
 						if let Err(error) = result {
 							tracing::error!(
 								error = %error.trace(),
 								sandbox = %id,
-								"failed to finish the sandbox after the sandbox failed"
+								"failed to destroy the sandbox after the sandbox failed"
 							);
 						}
 					}
@@ -77,7 +77,7 @@ impl Session {
 		let Some(state) = state else {
 			return Ok(());
 		};
-		if state.status.is_finished() {
+		if state.status.is_destroyed() {
 			return Ok(());
 		}
 
@@ -234,7 +234,7 @@ impl Session {
 		// Start dequeueing a process.
 		let mut dequeue = self.dequeue_sandbox_process(id, &location).boxed();
 
-		let mut finish = false;
+		let mut destroy = false;
 		loop {
 			let timer_future = timer.as_mut().map_or_else(
 				|| future::pending().left_future(),
@@ -256,13 +256,13 @@ impl Session {
 					dequeue = self.dequeue_sandbox_process(id, &location).boxed();
 				},
 
-				// If the sandbox finishes, then break.
+				// If the sandbox is destroyed, then break.
 				result = status.try_next() => {
 					let option = result.map_err(|error| tg::error!(!error, "failed to read the sandbox status"))?;
 					let Some(status) = option else {
 						break;
 					};
-					if status.is_finished() {
+					if status.is_destroyed() {
 						break;
 					}
 				},
@@ -278,9 +278,9 @@ impl Session {
 					}
 				},
 
-				// If the timer fires, then break and finish the sandbox.
+				// If the timer fires, then break and destroy the sandbox.
 				() = timer_future => {
-					finish = true;
+					destroy = true;
 					break;
 				},
 			}
@@ -289,13 +289,13 @@ impl Session {
 		// Drop the dequeue future.
 		drop(dequeue);
 
-		// Finish.
-		if finish {
-			let arg = tg::sandbox::finish::Arg {
+		// Destroy the sandbox.
+		if destroy {
+			let arg = tg::sandbox::destroy::Arg {
 				error: None,
 				location: Some(location.clone().into()),
 			};
-			self.finish_sandbox(id, arg).await?;
+			self.destroy_sandbox(id, arg).await?;
 		}
 
 		// Stop and await the process tasks.
@@ -357,7 +357,7 @@ impl Session {
 			};
 			let result = self.heartbeat_sandbox(id, arg).await;
 			if let Ok(output) = result
-				&& output.status.is_finished()
+				&& output.status.is_destroyed()
 			{
 				break;
 			}

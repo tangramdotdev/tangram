@@ -138,7 +138,7 @@ impl Session {
 			let status = self
 				.try_get_sandbox_status_local(id)
 				.await?
-				.unwrap_or(tg::sandbox::Status::Finished);
+				.unwrap_or(tg::sandbox::Status::Destroyed);
 			if previous != Some(status) {
 				previous.replace(status);
 				let event = tg::sandbox::status::Event::Status(status);
@@ -146,7 +146,7 @@ impl Session {
 					return Ok(());
 				}
 			}
-			if status.is_finished() {
+			if status.is_destroyed() {
 				sender.send(Ok(tg::sandbox::status::Event::End)).await.ok();
 				return Ok(());
 			}

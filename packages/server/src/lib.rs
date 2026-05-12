@@ -656,11 +656,11 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
 		}
 
-		// Finish unfinished sandboxes if single process mode is enabled.
+		// Destroy unfinished sandboxes if single process mode is enabled.
 		if server.config().advanced.single_process {
-			let result = server.finish_unfinished_sandboxes().await;
+			let result = server.destroy_unfinished_sandboxes().await;
 			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "failed to finish unfinished sandboxes");
+				tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
 			}
 		}
 
@@ -1209,7 +1209,7 @@ impl Server {
 		Ok(owned)
 	}
 
-	async fn finish_unfinished_sandboxes(&self) -> tg::Result<()> {
+	async fn destroy_unfinished_sandboxes(&self) -> tg::Result<()> {
 		let session = self.session(&self.context);
 		let outputs = session
 			.list_sandboxes_local()
@@ -1227,10 +1227,10 @@ impl Server {
 					};
 					let error = Some(tg::Either::Left(error));
 					if let Err(error) = session
-						.try_finish_sandbox_local(&output.id, error, None)
+						.try_destroy_sandbox_local(&output.id, error, None)
 						.await
 					{
-						tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to finish the sandbox");
+						tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
 					}
 				}
 			})

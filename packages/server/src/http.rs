@@ -621,15 +621,12 @@ impl Server {
 			(http::Method::GET, ["sandboxes", sandbox]) => {
 				session.try_get_sandbox_request(request, sandbox).boxed()
 			},
-			(http::Method::DELETE, ["sandboxes", sandbox]) => {
-				session.try_delete_sandbox_request(request, sandbox).boxed()
-			},
 			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => session
 				.try_dequeue_sandbox_process_request(request, sandbox)
 				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "finish"]) => {
-				session.try_finish_sandbox_request(request, sandbox).boxed()
-			},
+			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => session
+				.try_destroy_sandbox_request(request, sandbox)
+				.boxed(),
 			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => session
 				.try_heartbeat_sandbox_request(request, sandbox)
 				.boxed(),
