@@ -1,7 +1,17 @@
-use {std::net::Ipv4Addr, tangram_client::prelude::*};
+use {
+	std::{
+		collections::BTreeSet,
+		net::Ipv4Addr,
+		os::unix::ffi::OsStrExt as _,
+		path::{Path, PathBuf},
+		sync::Mutex,
+	},
+	tangram_client::prelude::*,
+};
 
-const DYNAMIC_RULE_COMMENT_PREFIX: &str = "tangram:sandbox=";
+const DYNAMIC_RULE_COMMENT_PREFIX: &str = "tangram:identity=";
 const FORWARD_CHAIN: &str = "forward";
+const LEGACY_DYNAMIC_RULE_COMMENT_PREFIX: &str = "tangram:path=";
 const NFT_TABLE: &str = "tangram";
 const OUTPUT_CHAIN: &str = "output";
 const POSTROUTING_CHAIN: &str = "postrouting";
@@ -114,15 +124,17 @@ pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Resul
 
 pub(crate) fn add_port_forwarding_rules(
 	id: &tg::sandbox::Id,
+	identity: &Path,
 	out_interface: &str,
 	host_ip: Ipv4Addr,
 	guest_ip: Ipv4Addr,
 	ports: &[tg::sandbox::Port],
 ) -> tg::Result<Vec<FirewallRuleGuard>> {
+	let identity = hash_identity(identity);
 	setup_firewall()?;
-	cleanup_dynamic_port_forwarding_rules()?;
+	cleanup_dynamic_port_forwarding_rules(&identity)?;
 	let mut guards = Vec::new();
-	let comment = sandbox_rule_comment(id);
+	let comment = sandbox_rule_comment(&identity, id);
 	for port in ports {
 		let host = port
 			.host
@@ -176,11 +188,22 @@ fn setup_firewall() -> tg::Result<()> {
 	SETUP.get_or_init(setup_firewall_inner).clone()
 }
 
-fn cleanup_dynamic_port_forwarding_rules() -> tg::Result<()> {
-	static CLEANUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
-	CLEANUP
-		.get_or_init(cleanup_dynamic_port_forwarding_rules_inner)
-		.clone()
+fn cleanup_dynamic_port_forwarding_rules(identity: &str) -> tg::Result<()> {
+	static CLEANED: std::sync::OnceLock<Mutex<BTreeSet<String>>> = std::sync::OnceLock::new();
+	let cleaned = CLEANED.get_or_init(Mutex::default);
+	if cleaned
+		.lock()
+		.map_err(|_| tg::error!("failed to lock the firewall cleanup state"))?
+		.contains(identity)
+	{
+		return Ok(());
+	}
+	cleanup_dynamic_port_forwarding_rules_inner(identity)?;
+	cleaned
+		.lock()
+		.map_err(|_| tg::error!("failed to lock the firewall cleanup state"))?
+		.insert(identity.to_owned());
+	Ok(())
 }
 
 fn setup_firewall_inner() -> tg::Result<()> {
@@ -204,15 +227,20 @@ fn setup_firewall_inner() -> tg::Result<()> {
 	Ok(())
 }
 
-fn cleanup_dynamic_port_forwarding_rules_inner() -> tg::Result<()> {
+fn cleanup_dynamic_port_forwarding_rules_inner(identity: &str) -> tg::Result<()> {
 	setup_firewall()?;
-	for chain in [
-		PREROUTING_CHAIN,
-		OUTPUT_CHAIN,
-		POSTROUTING_CHAIN,
-		FORWARD_CHAIN,
+	for prefix in [
+		dynamic_rule_comment_prefix(DYNAMIC_RULE_COMMENT_PREFIX, identity),
+		dynamic_rule_comment_prefix(LEGACY_DYNAMIC_RULE_COMMENT_PREFIX, identity),
 	] {
-		delete_rules_by_comment(chain, CommentMatcher::Prefix(DYNAMIC_RULE_COMMENT_PREFIX))?;
+		for chain in [
+			PREROUTING_CHAIN,
+			OUTPUT_CHAIN,
+			POSTROUTING_CHAIN,
+			FORWARD_CHAIN,
+		] {
+			delete_rules_by_comment(chain, CommentMatcher::Prefix(&prefix))?;
+		}
 	}
 	Ok(())
 }
@@ -461,8 +489,29 @@ impl CommentMatcher<'_> {
 	}
 }
 
-fn sandbox_rule_comment(id: &tg::sandbox::Id) -> String {
-	format!("{DYNAMIC_RULE_COMMENT_PREFIX}{id}")
+fn sandbox_rule_comment(identity: &str, id: &tg::sandbox::Id) -> String {
+	format!(
+		"{}sandbox={id}",
+		dynamic_rule_comment_prefix(DYNAMIC_RULE_COMMENT_PREFIX, identity)
+	)
+}
+
+fn dynamic_rule_comment_prefix(prefix: &str, identity: &str) -> String {
+	format!("{prefix}{identity}:")
+}
+
+fn hash_identity(identity: &Path) -> String {
+	let identity = canonicalize_identity(identity);
+	let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+	for byte in identity.as_os_str().as_bytes() {
+		hash ^= u64::from(*byte);
+		hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+	}
+	format!("{hash:016x}")
+}
+
+fn canonicalize_identity(identity: &Path) -> PathBuf {
+	std::fs::canonicalize(identity).unwrap_or_else(|_| identity.to_owned())
 }
 
 fn quote(value: &str) -> String {

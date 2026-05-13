@@ -68,6 +68,7 @@ pub struct Arg {
 	pub dns: Vec<Ipv4Addr>,
 	pub hostname: Option<String>,
 	pub id: tg::sandbox::Id,
+	pub identity: PathBuf,
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
 	pub isolation: Isolation,
@@ -226,6 +227,7 @@ impl Sandbox {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let mut network = crate::container::network::create(
 					&arg.id,
+					&arg.identity,
 					&arg.dns,
 					arg.network.as_ref(),
 					&arg.ip_pool,
@@ -239,8 +241,13 @@ impl Sandbox {
 			},
 			Isolation::Vm(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
-				let network =
-					crate::vm::network::create(&arg.id, arg.network.as_ref(), &arg.ip_pool, ports)?;
+				let network = crate::vm::network::create(
+					&arg.id,
+					&arg.identity,
+					arg.network.as_ref(),
+					&arg.ip_pool,
+					ports,
+				)?;
 				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
 				(process, network)
 			},

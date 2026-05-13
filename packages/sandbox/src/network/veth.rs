@@ -3,7 +3,7 @@ use {
 		netlink::Netlink,
 		network::{host, ip},
 	},
-	std::{net::Ipv4Addr, os::fd::AsRawFd as _},
+	std::{net::Ipv4Addr, os::fd::AsRawFd as _, path::Path},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncReadExt, AsyncWriteExt},
 };
@@ -28,12 +28,19 @@ pub(crate) struct Pair {
 impl Network {
 	pub(crate) fn new(
 		id: &tg::sandbox::Id,
+		identity: &Path,
 		guest: ip::Lease,
 		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
 		let bridge_name = BRIDGE_NAME.to_owned();
-		let port_forwarding_rules =
-			host::add_port_forwarding_rules(id, &bridge_name, gateway_ip(), guest.addr, ports)?;
+		let port_forwarding_rules = host::add_port_forwarding_rules(
+			id,
+			identity,
+			&bridge_name,
+			gateway_ip(),
+			guest.addr,
+			ports,
+		)?;
 		Ok(Self {
 			_port_forwarding_rules: port_forwarding_rules,
 			bridge_name,

@@ -148,6 +148,7 @@ impl Session {
 			dns: self.server.config.sandbox.network.dns.clone(),
 			hostname: state.hostname.clone(),
 			id: id.clone(),
+			identity: self.server.path.clone(),
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
 			isolation,

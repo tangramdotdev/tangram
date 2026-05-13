@@ -6,6 +6,7 @@ use {
 	std::{
 		net::Ipv4Addr,
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+		path::Path,
 	},
 	tangram_client::prelude::*,
 };
@@ -32,13 +33,14 @@ pub(crate) struct Device {
 impl Network {
 	pub(crate) fn new(
 		id: &tg::sandbox::Id,
+		identity: &Path,
 		host: ip::Lease,
 		guest: ip::Lease,
 		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
 		let prefix = format!("{}*", host::TAP_INTERFACE_NAME_PREFIX);
 		let port_forwarding_rules =
-			host::add_port_forwarding_rules(id, &prefix, host.addr, guest.addr, ports)?;
+			host::add_port_forwarding_rules(id, identity, &prefix, host.addr, guest.addr, ports)?;
 		Ok(Self {
 			_port_forwarding_rules: port_forwarding_rules,
 			guest,

@@ -1,7 +1,8 @@
-use tangram_client::prelude::*;
+use {std::path::Path, tangram_client::prelude::*};
 
 pub(crate) fn create(
 	id: &tg::sandbox::Id,
+	identity: &Path,
 	network: Option<&crate::Network>,
 	pool: &crate::network::ip::Pool,
 	ports: &[tg::sandbox::Port],
@@ -14,7 +15,7 @@ pub(crate) fn create(
 			let (host, guest) = pool.try_reserve_pair()?;
 			let network = if crate::network::root() {
 				crate::network::tap::setup()?;
-				let network = crate::network::tap::Network::new(id, host, guest, ports)?;
+				let network = crate::network::tap::Network::new(id, identity, host, guest, ports)?;
 				crate::network::Network::Tap(network)
 			} else {
 				let network = crate::network::passt::Network::new(host, guest);

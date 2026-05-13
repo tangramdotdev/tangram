@@ -1,7 +1,11 @@
-use {std::net::Ipv4Addr, tangram_client::prelude::*};
+use {
+	std::{net::Ipv4Addr, path::Path},
+	tangram_client::prelude::*,
+};
 
 pub(crate) fn create(
 	id: &tg::sandbox::Id,
+	identity: &Path,
 	dns: &[Ipv4Addr],
 	network: Option<&crate::Network>,
 	pool: &crate::network::ip::Pool,
@@ -15,7 +19,7 @@ pub(crate) fn create(
 			if crate::network::root() {
 				crate::network::veth::setup()?;
 				let guest = reserve_veth_guest(pool)?;
-				let network = crate::network::veth::Network::new(id, guest, ports)?;
+				let network = crate::network::veth::Network::new(id, identity, guest, ports)?;
 				let network = crate::network::Network::Veth(network);
 				Ok(Some(network))
 			} else {
