@@ -35,7 +35,8 @@ impl<O> tg::Process<O> {
 			tg::Process::<tg::Value>::prepare_unsandboxed_command(handle, &arg, output_path)
 				.await?;
 
-		let mut command = std::process::Command::new(&prepared.executable);
+		let executable = super::spawn::resolve_executable(&prepared.executable, &prepared.env)?;
+		let mut command = std::process::Command::new(&executable);
 		command.args(&prepared.args);
 		command.env_clear();
 		command.envs(&prepared.env);

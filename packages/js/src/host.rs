@@ -130,7 +130,8 @@ impl Host {
 		validate_exec_stdio(arg.stdout, "stdout")?;
 		validate_exec_stdio(arg.stderr, "stderr")?;
 
-		let mut command = std::process::Command::new(&arg.executable);
+		let executable = resolve_executable(&arg.executable, &arg.env)?;
+		let mut command = std::process::Command::new(&executable);
 		command.args(&arg.args);
 		command.env_clear();
 		command.envs(&arg.env);
@@ -320,7 +321,8 @@ impl Host {
 	}
 
 	pub async fn spawn(&self, arg: SpawnArg) -> tg::Result<SpawnOutput> {
-		let mut command = tokio::process::Command::new(&arg.executable);
+		let executable = resolve_executable(&arg.executable, &arg.env)?;
+		let mut command = tokio::process::Command::new(&executable);
 		command.args(&arg.args);
 		command.env_clear();
 		command.envs(&arg.env);
@@ -689,6 +691,38 @@ fn raw_termios(termios: &libc::termios) -> libc::termios {
 		libc::cfmakeraw(std::ptr::addr_of_mut!(termios));
 	}
 	termios
+}
+
+fn resolve_executable(executable: &str, env: &BTreeMap<String, String>) -> tg::Result<PathBuf> {
+	let executable = PathBuf::from(executable);
+	if executable.is_absolute() || executable.components().count() > 1 {
+		return Ok(executable);
+	}
+	let path = env.get("PATH").ok_or_else(|| {
+		tg::error!(
+			executable = %executable.display(),
+			"failed to find the executable in PATH"
+		)
+	})?;
+	which(std::path::Path::new(path), &executable).ok_or_else(|| {
+		tg::error!(
+			executable = %executable.display(),
+			"failed to find the executable in PATH"
+		)
+	})
+}
+
+fn which(path: &std::path::Path, executable: &std::path::Path) -> Option<PathBuf> {
+	if executable.is_absolute() {
+		return Some(executable.to_owned());
+	}
+	for directory in std::env::split_paths(path) {
+		let candidate = directory.join(executable);
+		if candidate.is_file() {
+			return Some(candidate);
+		}
+	}
+	None
 }
 
 fn set_termios(fd: i32, termios: &libc::termios) -> tg::Result<()> {

@@ -11,7 +11,7 @@ let path = artifact {
 			tg.assert(typeof host === "string");
 			return await tg.run({
 				args: ["-c", tg`mkdir -p ${tg.output} && printf "Hello, World!\n" > ${tg.output}/message.txt`],
-				executable: "/bin/sh",
+				executable: "sh",
 				host,
 				env: tg.build(busybox),
 			});

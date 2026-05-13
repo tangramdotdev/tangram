@@ -546,7 +546,8 @@ impl<O: 'static> tg::Process<O> {
 	{
 		let prepared = Self::prepare_unsandboxed_command(handle, &arg, None).await?;
 
-		let mut command_ = tokio::process::Command::new(&prepared.executable);
+		let executable = resolve_executable(&prepared.executable, &prepared.env)?;
+		let mut command_ = tokio::process::Command::new(&executable);
 		command_.args(&prepared.args);
 		command_.env_clear();
 		command_.envs(&prepared.env);
@@ -853,6 +854,40 @@ fn render_executable(
 		tg::command::data::Executable::Module(_) => Err(tg::error!("invalid executable")),
 		tg::command::data::Executable::Path(executable) => Ok(executable.path.clone()),
 	}
+}
+
+pub(super) fn resolve_executable(
+	executable: &Path,
+	env: &BTreeMap<String, String>,
+) -> tg::Result<PathBuf> {
+	if executable.is_absolute() || executable.components().count() > 1 {
+		return Ok(executable.to_owned());
+	}
+	let path = env.get("PATH").ok_or_else(|| {
+		tg::error!(
+			executable = %executable.display(),
+			"failed to find the executable in PATH"
+		)
+	})?;
+	which(Path::new(path), executable).ok_or_else(|| {
+		tg::error!(
+			executable = %executable.display(),
+			"failed to find the executable in PATH"
+		)
+	})
+}
+
+fn which(path: &Path, executable: &Path) -> Option<PathBuf> {
+	if executable.is_absolute() {
+		return Some(executable.to_owned());
+	}
+	for directory in std::env::split_paths(path) {
+		let candidate = directory.join(executable);
+		if candidate.is_file() {
+			return Some(candidate);
+		}
+	}
+	None
 }
 
 fn render_args_string(

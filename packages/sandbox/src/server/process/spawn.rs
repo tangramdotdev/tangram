@@ -95,14 +95,7 @@ impl Server {
 		}
 
 		// Create the command.
-		let executable = arg
-			.command
-			.env
-			.get("PATH")
-			.and_then(|path| {
-				crate::util::which(std::path::Path::new(path), &arg.command.executable)
-			})
-			.unwrap_or_else(|| arg.command.executable.clone());
+		let executable = resolve_executable(&arg.command.executable, &arg.command.env)?;
 		let mut command = tokio::process::Command::new(&executable);
 		command
 			.kill_on_drop(true)
@@ -235,6 +228,27 @@ impl Server {
 			.boxed_body();
 		Ok(response)
 	}
+}
+
+fn resolve_executable(
+	executable: &Path,
+	env: &std::collections::BTreeMap<String, String>,
+) -> tg::Result<std::path::PathBuf> {
+	if executable.is_absolute() || executable.components().count() > 1 {
+		return Ok(executable.to_owned());
+	}
+	let path = env.get("PATH").ok_or_else(|| {
+		tg::error!(
+			executable = %executable.display(),
+			"failed to find the executable in PATH"
+		)
+	})?;
+	crate::util::which(Path::new(path), executable).ok_or_else(|| {
+		tg::error!(
+			executable = %executable.display(),
+			"failed to find the executable in PATH"
+		)
+	})
 }
 
 fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> tg::Result<()> {

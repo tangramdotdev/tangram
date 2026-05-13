@@ -1,6 +1,6 @@
 use {
 	crate::Cli, num::ToPrimitive as _, std::os::unix::fs::PermissionsExt as _,
-	tangram_client::prelude::*,
+	tangram_client::prelude::*, tangram_futures::stream::Ext as _,
 };
 
 /// Remove unused processes and objects.
@@ -86,9 +86,8 @@ impl Cli {
 
 		// Spawn the blocking task to clean the directory.
 		let progress_ = progress.clone();
-		tokio::task::spawn_blocking(move || {
+		let task = tokio::task::spawn_blocking(move || {
 			if !path.exists() {
-				progress_.output(());
 				return Ok(());
 			}
 
@@ -108,19 +107,20 @@ impl Cli {
 					let mut perms = metadata.permissions();
 					#[cfg(unix)]
 					{
-						let mode = perms.mode();
 						if metadata.is_dir() {
+							let mode = perms.mode();
 							perms.set_mode(mode | 0o700);
-						} else {
-							perms.set_mode(mode | 0o600);
+							std::fs::set_permissions(&path, perms).map_err(|error| {
+								tg::error!(!error, "failed to set the permissions")
+							})?;
 						}
 					}
 					#[cfg(not(unix))]
 					{
 						perms.set_readonly(false);
+						std::fs::set_permissions(&path, perms)
+							.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 					}
-					std::fs::set_permissions(&path, perms)
-						.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 				}
 				if metadata.is_dir() {
 					let entries = std::fs::read_dir(&path)
@@ -155,13 +155,26 @@ impl Cli {
 			}
 			progress_.finish("cleaning");
 
-			progress_.output(());
-
 			Ok::<_, tg::Error>(())
+		});
+		let progress_ = progress.clone();
+		let task = tokio::spawn(async move {
+			match task.await {
+				Ok(Ok(())) => {
+					progress_.output(());
+				},
+				Ok(Err(error)) => {
+					progress_.error(error);
+				},
+				Err(error) => {
+					progress_.error(tg::error!(!error, "the clean task panicked"));
+				},
+			}
 		});
 
 		// Render the progress stream.
-		self.render_progress_stream(progress.stream()).await?;
+		self.render_progress_stream(progress.stream().attach(task))
+			.await?;
 
 		Ok(())
 	}
