@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let server = spawn --config { authorization: true }
+let server = spawn --config { authentication: true }
 
 def current_token [] {
 	open $env.TANGRAM_CONFIG | get token
@@ -26,8 +26,11 @@ assert_forbidden $output "Bob should not inherit the team's permissions before b
 let output = tg --token $bob group member add team bob | complete
 assert_forbidden $output "Bob should not be able to add himself to the team."
 
+let output = tg --token $bob group grants team | complete
+assert_forbidden $output "Bob should not be able to inspect the team's grants before becoming a member."
+
 tg --token $alice group member add team bob
+tg --token $bob group grants team
 tg --token $bob namespace create team/project
 tg --token $bob group member add team carol
 tg --token $carol namespace create team/carol
-

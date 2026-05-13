@@ -388,21 +388,8 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 	if not ($config | is-empty) {
 		$config | to json | save -f ($temp_path | path join "config.json")
 	}
-	let dyld_fallback_library_path = if $nu.os-info.name == 'macos' {
-		[
-			'/opt/homebrew/lib'
-			'/usr/local/lib'
-			($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')
-		]
-		| where { |path| $path != '' }
-		| str join (char esep)
-	} else {
-		$env.DYLD_FALLBACK_LIBRARY_PATH? | default ''
-	}
 	let output = with-env {
 		SHELL: "/bin/sh",
-		DYLD_LIBRARY_PATH: $dyld_fallback_library_path,
-		DYLD_FALLBACK_LIBRARY_PATH: $dyld_fallback_library_path,
 		TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 		TANGRAM_MODE: client,
 		TANGRAM_QUIET: true,
@@ -953,8 +940,6 @@ export def --env spawn [
 					done
 					kill -9 -$SELF_PID
 				\) &
-				export DYLD_LIBRARY_PATH=\"($env.DYLD_LIBRARY_PATH? | default '')\"
-				export DYLD_FALLBACK_LIBRARY_PATH=\"($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')\"
 				exec 3>\"($ready_path)\"
 				tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
 			" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }

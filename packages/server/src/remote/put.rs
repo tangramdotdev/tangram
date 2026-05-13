@@ -13,6 +13,7 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+		self.authorize_remote_management()?;
 
 		let connection = self
 			.server
@@ -50,6 +51,7 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+		self.authorize_remote_management()?;
 
 		let connection = self
 			.server

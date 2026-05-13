@@ -17,6 +17,13 @@ pub(crate) struct Remote {
 }
 
 impl Session {
+	pub(crate) fn authorize_remote_management(&self) -> tg::Result<()> {
+		if self.server.config().authentication.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+		Ok(())
+	}
+
 	pub async fn get_remote_session(&self, remote: String) -> tg::Result<tg::Session> {
 		let client = self.get_remote_client(remote).await?;
 		Ok(client.session(client.context()))

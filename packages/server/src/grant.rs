@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Transaction},
+	crate::{Session, context::Authentication, database::Transaction},
 	indoc::formatdoc,
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
@@ -575,16 +575,16 @@ impl Session {
 	}
 
 	fn namespace_read_subject(&self) -> tg::Result<NamespaceReadSubject> {
-		if !self.server.config().authorization {
-			return Ok(NamespaceReadSubject::All);
+		match &self.context.authentication {
+			Authentication::Authenticated(user) => Ok(NamespaceReadSubject::User(user.id.clone())),
+			Authentication::Root => Ok(NamespaceReadSubject::All),
+			Authentication::Unauthenticated => {
+				if self.context.token.is_some() {
+					return Err(tg::error!("failed to authorize"));
+				}
+				Ok(NamespaceReadSubject::Public)
+			},
 		}
-		if let Some(user) = self.context.user.as_ref() {
-			return Ok(NamespaceReadSubject::User(user.id.clone()));
-		}
-		if self.context.token.is_some() {
-			return Err(tg::error!("failed to authorize"));
-		}
-		Ok(NamespaceReadSubject::Public)
 	}
 
 	pub(crate) fn authorize_list(&self) -> tg::Result<()> {
@@ -597,12 +597,10 @@ impl Session {
 		permission: tg::Permission,
 	) -> tg::Result<()> {
 		if permission != tg::Permission::Read {
-			let Some(user) = self
-				.authorize()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to authorize"))?
-			else {
-				return Ok(());
+			let user = match &self.context.authentication {
+				Authentication::Authenticated(user) => user,
+				Authentication::Root => return Ok(()),
+				Authentication::Unauthenticated => return Err(tg::error!("failed to authorize")),
 			};
 			let mut connection = self
 				.server

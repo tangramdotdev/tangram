@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -29,7 +29,10 @@ impl Session {
 		}
 		self.authorize_namespace(&arg.namespace, tg::Permission::Admin)
 			.await?;
-		let created_by = self.context.user.as_ref().map(|user| user.id.clone());
+		let created_by = match &self.context.authentication {
+			Authentication::Authenticated(user) => Some(user.id.clone()),
+			Authentication::Root | Authentication::Unauthenticated => None,
+		};
 
 		let mut connection = self
 			.server
@@ -96,9 +99,8 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		self.authorize_namespace(&arg.namespace, tg::Permission::Admin)
+			.await?;
 
 		let mut connection = self
 			.server

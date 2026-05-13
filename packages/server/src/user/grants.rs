@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -16,9 +16,10 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		let authentication = &self.context.authentication;
+		if matches!(authentication, Authentication::Unauthenticated) {
+			return Err(tg::error!("failed to authorize"));
+		}
 
 		let mut connection = self
 			.server
@@ -33,8 +34,26 @@ impl Session {
 		let Some(user) = Self::try_get_user_with_transaction(&transaction, user).await? else {
 			return Ok(None);
 		};
-		let data =
+		let mut data =
 			Self::list_namespace_grants_for_user_with_transaction(&transaction, &user.id).await?;
+		if let Authentication::Authenticated(current_user) = authentication
+			&& current_user.id != user.id
+		{
+			let mut filtered = Vec::new();
+			for grant in data {
+				if Self::user_has_namespace_permission_with_transaction(
+					&transaction,
+					&current_user.id,
+					&grant.namespace,
+					tg::Permission::Admin,
+				)
+				.await?
+				{
+					filtered.push(grant);
+				}
+			}
+			data = filtered;
+		}
 		Ok(Some(tg::user::grants::Output { data }))
 	}
 

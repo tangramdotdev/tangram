@@ -1,5 +1,9 @@
 use ../test.nu *
 
+if $nu.os-info.name != 'linux' {
+	return
+}
+
 let server = spawn
 
 let sandbox = (tg sandbox create -p 80 -p 127.0.0.1::53/udp | str trim)

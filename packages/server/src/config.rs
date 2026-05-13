@@ -17,9 +17,6 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 
 	#[serde(default)]
-	pub authorization: bool,
-
-	#[serde(default)]
 	pub checkin: Checkin,
 
 	#[serde_as(as = "BoolOptionDefault")]
@@ -856,7 +853,6 @@ impl Default for Config {
 		Self {
 			advanced: Advanced::default(),
 			authentication: None,
-			authorization: false,
 			checkin: Checkin::default(),
 			cleaner: None,
 			database: Database::default(),

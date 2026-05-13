@@ -7,7 +7,7 @@ fn main() {
 	if let Ok(fdb_lib_path) = std::env::var("FDB_LIB_PATH") {
 		let lib_path = Path::new(&fdb_lib_path);
 		if lib_path.exists() {
-			println!("cargo:rustc-link-search=native={}", lib_path.display());
+			emit_link_path(lib_path);
 			return;
 		}
 		panic!("FDB_LIB_PATH directory does not exist: {fdb_lib_path}");
@@ -15,6 +15,13 @@ fn main() {
 
 	let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 	let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
+	if target_os == "macos" {
+		let lib_path = Path::new("/usr/local/lib");
+		if lib_path.join("libfdb_c.dylib").exists() {
+			emit_link_path(lib_path);
+			return;
+		}
+	}
 	let out_dir = std::env::var("OUT_DIR").unwrap();
 	let fdb_dir = Path::new(&out_dir).join("fdb");
 	std::fs::create_dir_all(&fdb_dir).unwrap();
@@ -30,7 +37,7 @@ fn main() {
 				.status()
 				.unwrap();
 			assert!(status.success());
-			println!("cargo:rustc-link-search=native={}", fdb_dir.display());
+			emit_link_path(&fdb_dir);
 		},
 		"macos" => {
 			let arch = match target_arch.as_str() {
@@ -68,11 +75,12 @@ fn main() {
 			assert!(status.success());
 			let status = archive.wait().unwrap();
 			assert!(status.success());
-			println!(
-				"cargo:rustc-link-search=native={}",
-				fdb_dir.join("usr/local/lib").display()
-			);
+			emit_link_path(&fdb_dir.join("usr/local/lib"));
 		},
 		_ => unreachable!(),
 	}
+}
+
+fn emit_link_path(path: &Path) {
+	println!("cargo:rustc-link-search=native={}", path.display());
 }

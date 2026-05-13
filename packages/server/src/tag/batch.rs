@@ -1,7 +1,9 @@
 use {
-	crate::{Database, Session},
+	crate::{Database, Session, context::Authentication},
 	futures::TryStreamExt as _,
+	std::collections::BTreeSet,
 	tangram_client::prelude::*,
+	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -48,9 +50,7 @@ impl Session {
 
 	async fn post_tag_batch_local(&self, arg: &tg::tag::batch::Arg) -> tg::Result<()> {
 		// Authorize.
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		self.authorize_tag_batch(arg).await?;
 
 		// Insert the tags into the database unless this is a replicated request.
 		if !arg.replicate {
@@ -115,6 +115,43 @@ impl Session {
 			}
 		}
 
+		Ok(())
+	}
+
+	async fn authorize_tag_batch(&self, arg: &tg::tag::batch::Arg) -> tg::Result<()> {
+		let user = match &self.context.authentication {
+			Authentication::Authenticated(user) => user,
+			Authentication::Root => return Ok(()),
+			Authentication::Unauthenticated => return Err(tg::error!("failed to authorize")),
+		};
+
+		let namespaces = arg
+			.tags
+			.iter()
+			.map(|item| item.tag.namespace.clone())
+			.collect::<BTreeSet<_>>();
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		for namespace in namespaces {
+			if !Self::user_has_namespace_permission_with_transaction(
+				&transaction,
+				&user.id,
+				&namespace,
+				tg::Permission::Write,
+			)
+			.await?
+			{
+				return Err(tg::error!("forbidden"));
+			}
+		}
 		Ok(())
 	}
 

@@ -79,7 +79,13 @@ impl Session {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let isolation = self.server.resolve_sandbox_isolation()?;
-		Server::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
+		Server::validate_sandbox_resources(
+			&isolation,
+			arg.cpu,
+			arg.memory,
+			arg.hostname.as_deref(),
+			arg.user.as_deref(),
+		)?;
 		let cpu = arg
 			.cpu
 			.map(i64::try_from)

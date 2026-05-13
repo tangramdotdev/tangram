@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::{Context, Server, context::Authentication},
 	futures::{FutureExt as _, future},
 	std::{
 		convert::Infallible,
@@ -481,10 +481,14 @@ impl Server {
 		mut context: Context,
 	) -> http::Response<BoxBody> {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
+		context.authentication = if self.config().authentication.is_some() {
+			Authentication::Unauthenticated
+		} else {
+			Authentication::Root
+		};
 		context.id = Some(id.clone());
 		context.token = request.token(None).map(ToOwned::to_owned);
 		context.untrusted = true;
-		context.user = None;
 
 		let span = tracing::Span::current();
 		span.record("id", id.to_string());
@@ -498,7 +502,7 @@ impl Server {
 			let session = self.session(&context);
 			match session.get_current_user_local(&token).await {
 				Ok(Some(user)) => {
-					context.user = Some(user);
+					context.authentication = Authentication::Authenticated(user);
 				},
 				Ok(None) => (),
 				Err(error) => {

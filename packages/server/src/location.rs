@@ -62,7 +62,7 @@ impl Server {
 		&self,
 		arg: Option<&tg::location::Arg>,
 	) -> tg::Result<tg::Location> {
-		if arg.is_some() || self.config().authorization {
+		if arg.is_some() || self.config().authentication.is_some() {
 			return self.location(arg);
 		}
 

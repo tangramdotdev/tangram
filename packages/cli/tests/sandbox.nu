@@ -2,22 +2,22 @@ use ../test.nu *
 
 let server = spawn
 
-let create = (
-	tg sandbox create
-		--hostname sandbox-test
-		--mount /tmp:/sandbox,ro
-		--no-network
-		--user nobody
-)
+let create = if $nu.os-info.name == 'linux' {
+	tg sandbox create --hostname sandbox-test --mount /tmp:/sandbox,ro --no-network --user nobody
+} else {
+	tg sandbox create --mount /tmp:/sandbox,ro --no-network
+}
 let create = $create | str trim
 assert ($create | str starts-with "sbx_")
 
 let list = tg sandbox list | from json
 let sandbox = ($list | where id == $create | first)
-assert ($sandbox.hostname == "sandbox-test")
+if $nu.os-info.name == 'linux' {
+	assert ($sandbox.hostname == "sandbox-test")
+	assert ($sandbox.user == "nobody")
+}
 assert (($sandbox.mounts | first) == "/tmp:/sandbox,ro")
 assert (($sandbox.network? | is-empty))
-assert ($sandbox.user == "nobody")
 
 tg sandbox destroy $create
 

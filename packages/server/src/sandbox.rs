@@ -91,6 +91,8 @@ impl Server {
 		isolation: &tangram_sandbox::Isolation,
 		cpu: Option<u64>,
 		memory: Option<u64>,
+		hostname: Option<&str>,
+		user: Option<&str>,
 	) -> tg::Result<()> {
 		if cpu == Some(0) {
 			return Err(tg::error!("sandbox cpu must be greater than zero"));
@@ -104,6 +106,18 @@ impl Server {
 			return Err(tg::error!(
 				"sandbox cpu and memory are not supported with seatbelt isolation"
 			));
+		}
+		if matches!(isolation, tangram_sandbox::Isolation::Seatbelt(_)) {
+			if hostname.is_some() {
+				return Err(tg::error!(
+					"setting a hostname is not supported with seatbelt isolation"
+				));
+			}
+			if user.is_some() {
+				return Err(tg::error!(
+					"setting a user is not supported with seatbelt isolation"
+				));
+			}
 		}
 		Ok(())
 	}

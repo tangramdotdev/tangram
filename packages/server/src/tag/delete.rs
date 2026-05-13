@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Session, context::Authentication, database::Database},
 	futures::TryStreamExt as _,
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
@@ -132,12 +132,10 @@ impl Session {
 			));
 		}
 
-		let Some(user) = self
-			.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?
-		else {
-			return Ok(());
+		let user = match &self.context.authentication {
+			Authentication::Authenticated(user) => user,
+			Authentication::Root => return Ok(()),
+			Authentication::Unauthenticated => return Err(tg::error!("failed to authorize")),
 		};
 
 		let tags = if let Some(deleted) = &arg.replicate {

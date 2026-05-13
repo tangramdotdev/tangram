@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let server = spawn --config { authorization: true }
+let server = spawn --config { authentication: true }
 
 def current_token [] {
 	open $env.TANGRAM_CONFIG | get token
@@ -40,6 +40,15 @@ tg --token $alice namespace grant alice/project write --user bob
 tg --token $bob namespace get alice/project
 tg --token $bob tag put alice/project/pkg $id
 
+let output = tg --token $bob namespace grants alice/project | complete
+assert_forbidden $output "Write permission should not allow Bob to inspect namespace grants."
+
+let bob_grants = tg --token $bob user grants bob | from json
+assert (($bob_grants | length) > 0) "Bob should be able to inspect his own grants."
+
+let output = tg --token $bob user permissions carol alice/project | complete
+assert_forbidden $output "Write permission should not allow Bob to inspect Carol's permissions."
+
 let output = tg --token $carol namespace get alice/project | complete
 assert_forbidden $output "Carol should not be able to get a namespace without read permission."
 
@@ -49,7 +58,7 @@ assert ($output.stderr | str contains "no tag was found") "The tag should not be
 
 let output = tg --token invalid list --no-namespaces --recursive alice/project | complete
 failure $output "An invalid token should not be able to list private entries."
-assert ($output.stderr | str contains "failed to authorize") "The error should mention authorization."
+assert ($output.stderr | str contains "failed to authorize") "The error should mention authentication."
 
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-namespaces --recursive alice/project | complete }
@@ -75,6 +84,15 @@ tg --token $alice namespace grant alice/project read --user carol
 tg --token $carol namespace get alice/project
 tg --token $carol tag get alice/project/pkg
 
+let output = tg --token $carol namespace grants alice/project | complete
+assert_forbidden $output "Read permission should not allow Carol to inspect namespace grants."
+
+let carol_grants = tg --token $carol user grants carol | from json
+assert (($carol_grants | length) > 0) "Carol should be able to inspect her own grants."
+
+let bob_grants = tg --token $carol user grants bob | from json
+assert equal ($bob_grants | length) 0 "Carol should not see Bob's grants without admin permission."
+
 let output = tg --token $carol tag put alice/project/carol $id | complete
 assert_forbidden $output "Read permission should not allow Carol to put a tag."
 
@@ -82,6 +100,8 @@ let output = tg --token $carol tag delete alice/project/pkg | complete
 assert_forbidden $output "Read permission should not allow Carol to delete a tag."
 
 tg --token $alice namespace grant alice/project admin --user bob
+tg --token $bob namespace grants alice/project
+tg --token $bob user permissions carol alice/project
 tg --token $bob namespace grant alice/project write --user carol
 tg --token $carol tag put alice/project/carol $id
 tg --token $carol tag delete alice/project/carol

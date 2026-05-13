@@ -1378,7 +1378,13 @@ impl Session {
 		let heartbeat_at = (status == tg::sandbox::Status::Started).then_some(now);
 		let started_at = (status == tg::sandbox::Status::Started).then_some(now);
 		let isolation = self.server.resolve_sandbox_isolation()?;
-		Server::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
+		Server::validate_sandbox_resources(
+			&isolation,
+			arg.cpu,
+			arg.memory,
+			arg.hostname.as_deref(),
+			arg.user.as_deref(),
+		)?;
 		let cpu = arg
 			.cpu
 			.map(i64::try_from)

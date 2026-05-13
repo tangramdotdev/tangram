@@ -1,6 +1,10 @@
 use ../../test.nu *
 use ../lib/lsp.nu
 
+if $nu.os-info.name != 'linux' {
+	return
+}
+
 let server_path = mktemp -d
 let server = spawn --directory $server_path --config { vfs: {} }
 

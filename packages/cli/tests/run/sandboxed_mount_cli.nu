@@ -1,5 +1,9 @@
 use ../../test.nu *
 
+if $nu.os-info.name != 'linux' {
+	return
+}
+
 let server = spawn
 let mount = artifact {
 	file: "mounted"

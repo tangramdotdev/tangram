@@ -167,6 +167,7 @@ pub enum Stdio {
 impl Sandbox {
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
 		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
+		validate_options(&arg)?;
 
 		// Validate the mounts.
 		let mut targets = BTreeSet::new();
@@ -538,6 +539,22 @@ fn validate_resources(
 		return Err(tg::error!(
 			"sandbox cpu and memory are not supported with seatbelt isolation"
 		));
+	}
+	Ok(())
+}
+
+fn validate_options(arg: &Arg) -> tg::Result<()> {
+	if matches!(arg.isolation, Isolation::Seatbelt(_)) {
+		if arg.hostname.is_some() {
+			return Err(tg::error!(
+				"setting a hostname is not supported with seatbelt isolation"
+			));
+		}
+		if arg.user.is_some() {
+			return Err(tg::error!(
+				"setting a user is not supported with seatbelt isolation"
+			));
+		}
 	}
 	Ok(())
 }

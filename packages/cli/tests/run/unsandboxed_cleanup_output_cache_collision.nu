@@ -12,10 +12,10 @@ let path = artifact {
 		import busybox from "busybox";
 		export let a = () =>
 			tg.run`mkdir -p ${tg.output}/sub && printf hello > ${tg.output}/sub/msg`
-				.env({ VARIANT: "a" }).env(tg.build(busybox));
+				.executable("/bin/sh").env({ VARIANT: "a" }).env(tg.build(busybox));
 		export let b = () =>
 			tg.run`mkdir -p ${tg.output}/sub && printf hello > ${tg.output}/sub/msg`
-				.env({ VARIANT: "b" }).env(tg.build(busybox));
+				.executable("/bin/sh").env({ VARIANT: "b" }).env(tg.build(busybox));
 	',
 }
 

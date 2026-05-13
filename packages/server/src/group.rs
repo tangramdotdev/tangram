@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -17,10 +17,11 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
-		let created_by = self.context.user.as_ref().map(|user| user.id.clone());
+		let created_by = match &self.context.authentication {
+			Authentication::Authenticated(user) => Some(user.id.clone()),
+			Authentication::Root => None,
+			Authentication::Unauthenticated => return Err(tg::error!("failed to authorize")),
+		};
 		let namespace = Self::namespace_for_handle(&arg.handle)?;
 
 		let mut connection = self
@@ -112,9 +113,12 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		if matches!(
+			&self.context.authentication,
+			Authentication::Unauthenticated
+		) {
+			return Err(tg::error!("failed to authorize"));
+		}
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -156,9 +160,12 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		if matches!(
+			&self.context.authentication,
+			Authentication::Unauthenticated
+		) {
+			return Err(tg::error!("failed to authorize"));
+		}
 
 		let mut connection = self
 			.server
@@ -177,10 +184,10 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		let current_user = self
-			.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		let authentication = &self.context.authentication;
+		if matches!(authentication, Authentication::Unauthenticated) {
+			return Err(tg::error!("failed to authorize"));
+		}
 
 		let mut connection = self
 			.server
@@ -195,7 +202,7 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Some(user) = current_user.as_ref() {
+		if let Authentication::Authenticated(user) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
@@ -250,10 +257,10 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		let current_user = self
-			.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		let authentication = &self.context.authentication;
+		if matches!(authentication, Authentication::Unauthenticated) {
+			return Err(tg::error!("failed to authorize"));
+		}
 
 		let mut connection = self
 			.server
@@ -268,7 +275,7 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Some(user) = current_user.as_ref() {
+		if let Authentication::Authenticated(user) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
@@ -328,10 +335,10 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		let current_user = self
-			.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		let authentication = &self.context.authentication;
+		if matches!(authentication, Authentication::Unauthenticated) {
+			return Err(tg::error!("failed to authorize"));
+		}
 
 		let mut connection = self
 			.server
@@ -346,7 +353,7 @@ impl Session {
 		let group = Self::try_get_group_with_transaction(&transaction, group)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if let Some(current_user) = current_user.as_ref() {
+		if let Authentication::Authenticated(current_user) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
@@ -391,10 +398,10 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		let current_user = self
-			.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		let authentication = &self.context.authentication;
+		if matches!(authentication, Authentication::Unauthenticated) {
+			return Err(tg::error!("failed to authorize"));
+		}
 
 		let mut connection = self
 			.server
@@ -409,7 +416,7 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Some(current_user) = current_user.as_ref() {
+		if let Authentication::Authenticated(current_user) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
@@ -453,9 +460,10 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		let authentication = &self.context.authentication;
+		if matches!(authentication, Authentication::Unauthenticated) {
+			return Err(tg::error!("failed to authorize"));
+		}
 
 		let mut connection = self
 			.server
@@ -470,6 +478,19 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
+		if let Authentication::Authenticated(current_user) = authentication {
+			let namespace = Self::namespace_for_handle(&group.handle)?;
+			if !Self::user_has_namespace_permission_with_transaction(
+				&transaction,
+				&current_user.id,
+				&namespace,
+				tg::Permission::Admin,
+			)
+			.await?
+			{
+				return Err(tg::error!("forbidden"));
+			}
+		}
 		let data =
 			Self::list_namespace_grants_for_group_with_transaction(&transaction, &group.id).await?;
 		Ok(Some(tg::group::grants::Output { data }))

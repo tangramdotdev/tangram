@@ -114,7 +114,7 @@ impl Session {
 		};
 		let key_json = serde_json::to_string(&key).unwrap();
 
-		let use_cache = !self.server.config().authorization;
+		let use_cache = self.server.config().authentication.is_none();
 		if use_cache
 			&& arg.ttl != Some(Duration::ZERO)
 			&& let Some((cached_output, timestamp)) = self
@@ -173,7 +173,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?;
 
-		if !self.server.config().authorization {
+		if self.server.config().authentication.is_none() {
 			let key = serde_json::to_string(&RemoteListTaskKey { remote, arg }).unwrap();
 			let output_json = serde_json::to_string(&output.data).unwrap();
 			let now = OffsetDateTime::now_utc().unix_timestamp();
