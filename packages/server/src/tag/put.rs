@@ -50,9 +50,8 @@ impl Session {
 
 	async fn try_put_tag_local(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		// Authorize.
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		self.authorize_namespace(&tag.namespace, tg::Permission::Write)
+			.await?;
 
 		// Insert the tag into the database unless this is a replicated request.
 		if !arg.replicate {

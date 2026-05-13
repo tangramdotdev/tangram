@@ -35,10 +35,16 @@ create table namespace_grants (
 	namespace int8 not null default 0,
 	"user" text,
 	"group" text,
+	"public" boolean not null default false,
 	permission text not null,
 	created_at int8 not null,
 	created_by text,
-	check (("user" is null) != ("group" is null))
+	check (
+		("user" is not null and "group" is null and not "public")
+		or ("user" is null and "group" is not null and not "public")
+		or ("user" is null and "group" is null and "public")
+	),
+	check (not "public" or permission = 'read')
 );
 
 create unique index namespace_grants_user_index
@@ -48,6 +54,10 @@ create unique index namespace_grants_user_index
 create unique index namespace_grants_group_index
 	on namespace_grants (namespace, "group", permission)
 	where "group" is not null;
+
+create unique index namespace_grants_public_index
+	on namespace_grants (namespace, permission)
+	where "public";
 
 create index namespace_grants_user_lookup_index
 	on namespace_grants ("user", namespace, permission)

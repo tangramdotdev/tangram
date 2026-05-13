@@ -5,7 +5,6 @@ mod grant;
 mod grants;
 mod login;
 mod permissions;
-mod revoke;
 
 impl Session {
 	pub(crate) async fn authorize(&self) -> tg::Result<Option<tg::User>> {

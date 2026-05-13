@@ -3,11 +3,9 @@ use crate::prelude::*;
 pub mod create;
 pub mod delete;
 pub mod get;
-pub mod grant;
 pub mod grants;
 pub mod list;
 pub mod member;
-pub mod revoke;
 
 #[derive(
 	Clone,

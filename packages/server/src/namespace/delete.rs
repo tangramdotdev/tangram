@@ -19,6 +19,8 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+		self.authorize_namespace(namespace, tg::Permission::Admin)
+			.await?;
 		match &self.server.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {

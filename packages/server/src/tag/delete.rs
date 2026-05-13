@@ -2,6 +2,7 @@ use {
 	crate::{Session, database::Database},
 	futures::TryStreamExt as _,
 	tangram_client::prelude::*,
+	tangram_database::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 };
@@ -46,9 +47,7 @@ impl Session {
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
 		// Authorize.
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		self.authorize_delete_tags(&arg).await?;
 
 		let output = if arg.replicate.is_none() {
 			// Delete the tags from the database.
@@ -121,6 +120,75 @@ impl Session {
 		}
 
 		Ok(output)
+	}
+
+	async fn authorize_delete_tags(&self, arg: &tg::tag::delete::Arg) -> tg::Result<()> {
+		if arg.pattern.is_empty() {
+			return Err(tg::error!("cannot delete an empty pattern"));
+		}
+		if !arg.recursive && arg.pattern.contains_operators() {
+			return Err(tg::error!(
+				"cannot delete multiple tags without --recursive"
+			));
+		}
+
+		let Some(user) = self
+			.authorize()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize"))?
+		else {
+			return Ok(());
+		};
+
+		let tags = if let Some(deleted) = &arg.replicate {
+			deleted.clone()
+		} else {
+			let output = self
+				.list_local(tg::list::Arg {
+					cached: false,
+					length: None,
+					location: None,
+					namespaces: false,
+					pattern: arg.pattern.clone(),
+					recursive: arg.recursive,
+					reverse: false,
+					tags: true,
+					ttl: None,
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list the tags"))?;
+			output
+				.data
+				.into_iter()
+				.filter_map(|entry| match entry {
+					tg::list::Entry::Tag { tag, .. } => Some(tag),
+					tg::list::Entry::Namespace { .. } => None,
+				})
+				.collect()
+		};
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		for tag in tags {
+			if !Self::user_has_namespace_permission_with_transaction(
+				&transaction,
+				&user.id,
+				&tag.namespace,
+				tg::Permission::Write,
+			)
+			.await?
+			{
+				return Err(tg::error!("forbidden"));
+			}
+		}
+		Ok(())
 	}
 
 	async fn delete_tags_region(

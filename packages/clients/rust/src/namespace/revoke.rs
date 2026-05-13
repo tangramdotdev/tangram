@@ -2,38 +2,48 @@ use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
+	tangram_util::serde::is_false,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub namespace: tg::Namespace,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub user: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub group: Option<String>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub public: bool,
+
 	pub permission: tg::Permission,
 }
 
 impl tg::Session {
-	pub async fn grant_group_namespace_permission(
+	pub async fn revoke_namespace_permission(
 		&self,
-		group: &str,
-		arg: tg::group::grant::Arg,
-	) -> tg::Result<tg::Grant> {
-		let path = format!("/groups/{group}/grants");
-		let uri = Uri::builder().path(&path).build().unwrap();
-		let request = http::request::Builder::default()
-			.method(http::Method::PUT)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.json(arg)
+		arg: tg::namespace::revoke::Arg,
+	) -> tg::Result<Option<()>> {
+		let uri = Uri::builder()
+			.path("/namespaces/grants")
+			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
+		let request = http::request::Builder::default()
+			.method(http::Method::DELETE)
+			.uri(uri)
+			.empty()
 			.unwrap();
 		let response = self
 			.send_with_retry(request)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let status = response.status();
 			let error = response
@@ -43,22 +53,17 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		let output = response
-			.json()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
-		Ok(output)
+		Ok(Some(()))
 	}
 }
 
 impl tg::Client {
-	pub async fn grant_group_namespace_permission(
+	pub async fn revoke_namespace_permission(
 		&self,
-		group: &str,
-		arg: tg::group::grant::Arg,
-	) -> tg::Result<tg::Grant> {
+		arg: tg::namespace::revoke::Arg,
+	) -> tg::Result<Option<()>> {
 		self.session(self.context())
-			.grant_group_namespace_permission(group, arg)
+			.revoke_namespace_permission(arg)
 			.await
 	}
 }

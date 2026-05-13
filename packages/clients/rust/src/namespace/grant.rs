@@ -2,23 +2,31 @@ use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
+	tangram_util::serde::is_false,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub namespace: tg::Namespace,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub user: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub group: Option<String>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub public: bool,
+
 	pub permission: tg::Permission,
 }
 
 impl tg::Session {
-	pub async fn grant_user_namespace_permission(
+	pub async fn grant_namespace_permission(
 		&self,
-		user: &str,
-		arg: tg::user::grant::Arg,
+		arg: tg::namespace::grant::Arg,
 	) -> tg::Result<tg::Grant> {
-		let path = format!("/users/{user}/grants");
-		let uri = Uri::builder().path(&path).build().unwrap();
+		let uri = Uri::builder().path("/namespaces/grants").build().unwrap();
 		let request = http::request::Builder::default()
 			.method(http::Method::PUT)
 			.uri(uri)
@@ -52,13 +60,12 @@ impl tg::Session {
 }
 
 impl tg::Client {
-	pub async fn grant_user_namespace_permission(
+	pub async fn grant_namespace_permission(
 		&self,
-		user: &str,
-		arg: tg::user::grant::Arg,
+		arg: tg::namespace::grant::Arg,
 	) -> tg::Result<tg::Grant> {
 		self.session(self.context())
-			.grant_user_namespace_permission(user, arg)
+			.grant_namespace_permission(arg)
 			.await
 	}
 }

@@ -17,9 +17,8 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		self.authorize()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		self.authorize_namespace(namespace, tg::Permission::Write)
+			.await?;
 		let created_by = self.context.user.as_ref().map(|user| user.id.clone());
 		let mut connection = self
 			.server

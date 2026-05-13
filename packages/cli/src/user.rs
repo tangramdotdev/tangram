@@ -1,11 +1,9 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-pub mod grant;
 pub mod grants;
 pub mod login;
 pub mod logout;
 pub mod permissions;
-pub mod revoke;
 pub mod whoami;
 
 /// Manage the user.
@@ -18,22 +16,16 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	Grant(self::grant::Args),
 	Grants(self::grants::Args),
 	Login(self::login::Args),
 	Logout(self::logout::Args),
 	Permissions(self::permissions::Args),
-	#[command(alias = "ungrant")]
-	Revoke(self::revoke::Args),
 	Whoami(self::whoami::Args),
 }
 
 impl Cli {
 	pub async fn command_user(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			Command::Grant(args) => {
-				self.command_user_grant(args).await?;
-			},
 			Command::Grants(args) => {
 				self.command_user_grants(args).await?;
 			},
@@ -45,9 +37,6 @@ impl Cli {
 			},
 			Command::Permissions(args) => {
 				self.command_user_permissions(args).await?;
-			},
-			Command::Revoke(args) => {
-				self.command_user_revoke(args).await?;
 			},
 			Command::Whoami(args) => {
 				self.command_user_whoami(args).await?;

@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use {crate::prelude::*, tangram_util::serde::is_false};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Grant {
@@ -9,6 +9,9 @@ pub struct Grant {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub group: Option<tg::group::Id>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub public: bool,
 
 	pub permission: tg::Permission,
 	pub created_at: i64,

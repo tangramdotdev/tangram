@@ -52,6 +52,9 @@ impl Session {
 	}
 
 	async fn list_inner(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+		self.authorize_list()
+			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+
 		let mut data = Vec::new();
 		let locations = self
 			.server
@@ -67,7 +70,10 @@ impl Session {
 				})
 				.await
 				.map_err(|error| tg::error!(!error, "failed to list local entries"))?;
-			data.extend(output.data);
+			data.extend(
+				self.filter_list_entries_by_read_permission(output.data)
+					.await?,
+			);
 		}
 
 		let remote_results = locations
@@ -87,7 +93,7 @@ impl Session {
 		Ok(truncate(tg::list::Output { data }, arg.length))
 	}
 
-	async fn list_local(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+	pub(crate) async fn list_local(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
 		match &self.server.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => self.list_postgres(database, arg).await,
@@ -108,7 +114,9 @@ impl Session {
 		};
 		let key_json = serde_json::to_string(&key).unwrap();
 
-		if arg.ttl != Some(Duration::ZERO)
+		let use_cache = !self.server.config().authorization;
+		if use_cache
+			&& arg.ttl != Some(Duration::ZERO)
 			&& let Some((cached_output, timestamp)) = self
 				.list_cache_get(&key_json)
 				.await
@@ -165,12 +173,14 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?;
 
-		let key = serde_json::to_string(&RemoteListTaskKey { remote, arg }).unwrap();
-		let output_json = serde_json::to_string(&output.data).unwrap();
-		let now = OffsetDateTime::now_utc().unix_timestamp();
-		self.list_cache_put(&key, &output_json, now)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the list cache"))?;
+		if !self.server.config().authorization {
+			let key = serde_json::to_string(&RemoteListTaskKey { remote, arg }).unwrap();
+			let output_json = serde_json::to_string(&output.data).unwrap();
+			let now = OffsetDateTime::now_utc().unix_timestamp();
+			self.list_cache_put(&key, &output_json, now)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the list cache"))?;
+		}
 
 		Ok(output.data)
 	}
