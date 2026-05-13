@@ -14,9 +14,6 @@ pub struct Args {
 impl Cli {
 	pub async fn command_user_whoami(&mut self, args: Args) -> tg::Result<()> {
 		let location = args.location.to_location()?;
-		if !location.as_ref().is_some_and(tg::Location::is_remote) && self.user_token().is_none() {
-			return Err(tg::error!("not logged in"));
-		}
 		let client = self.client().await?;
 		let user = client
 			.get_current_user(tg::user::current::Arg {

@@ -29,7 +29,13 @@ impl Cli {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to log in"))?;
-		if !location.as_ref().is_some_and(tg::Location::is_remote) {
+		if !location.as_ref().is_some_and(tg::Location::is_remote)
+			&& !output
+				.user
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
+		{
 			self.write_token(output.token)?;
 		}
 		self.print_serde(output.user, args.print).await?;

@@ -58,6 +58,20 @@ impl Server {
 		Ok(location)
 	}
 
+	pub(crate) fn identity_location(
+		&self,
+		arg: Option<&tg::location::Arg>,
+	) -> tg::Result<tg::Location> {
+		if arg.is_some() || self.config().authorization {
+			return self.location(arg);
+		}
+
+		Ok(tg::Location::Remote(tg::location::Remote {
+			name: "default".to_owned(),
+			region: None,
+		}))
+	}
+
 	pub(crate) async fn locations(&self, arg: Option<&tg::location::Arg>) -> tg::Result<Output> {
 		let current_region = self.config().region.as_deref();
 		let configured_regions = self.config().regions.as_deref();
