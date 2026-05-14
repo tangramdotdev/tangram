@@ -348,7 +348,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 	let serial_socket_path = host_vm_path_from_root(&arg.path).join(SERIAL_SOCKET_NAME);
 	let deadline = Instant::now() + Duration::from_secs(10);
-	let mut serial_stream = loop {
+	let serial_stream = loop {
 		match std::os::unix::net::UnixStream::connect(&serial_socket_path) {
 			Ok(stream) => break stream,
 			Err(error)
@@ -384,7 +384,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		let mut stream = serial_reader;
 		let mut buf = [0u8; 4096];
 		let mut window: Vec<u8> = Vec::with_capacity(8192);
-		const MARKER: &[u8] = b"waiting for ready signal";
+		const MARKER: &[u8] = b"waiting for virtiofs tags";
 		let mut signaled = false;
 		let stderr = std::io::stderr();
 		loop {
@@ -480,8 +480,9 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 
 	// In restore mode the snapshot was taken without per-sandbox devices;
-	// hot-add the sandbox and artifacts virtiofs devices and, if networking
-	// is requested, the net device, before signaling init to proceed.
+	// hot-add the sandbox and artifacts virtiofs devices and, if
+	// networking is requested, the net device. The kernel's virtio-fs
+	// probe will emit a uevent for each tag, which is what init blocks on.
 	if arg.snapshot.is_some() {
 		let api_socket = host_vm_path_from_root(&arg.path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME);
 		let ch_remote_bin = find_in_path("ch-remote")
@@ -513,32 +514,9 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		eprintln!("[vm-restore] devices hot-added");
 	}
 
-	// In cold-boot mode init prints the ready marker before it blocks on
-	// stdin; wait for that marker so the host knows the guest is parked.
-	// In restore mode init is already parked (the marker was emitted before
-	// the snapshot was taken), so skip the wait and signal immediately.
-	if arg.snapshot.is_none() {
-		eprintln!("[vm-bringup] waiting for guest ready signal");
-		if ready_rx.recv_timeout(Duration::from_secs(60)).is_err() {
-			return Err(tg::error!(
-				"timed out waiting for the guest ready signal"
-			));
-		}
-	}
-	// Write the ready byte a handful of times because the freshly-restored
-	// cloud-hypervisor SerialManager has a race between its accept() and
-	// epoll registration of the accepted fd — a single write can land in
-	// the window where the byte is dropped instead of queued to the guest
-	// UART. Multiple spaced writes defeat the race; extra bytes after init
-	// has woken up are harmless (init reads exactly one byte).
-	eprintln!("[vm-bringup] signaling guest ready");
-	for attempt in 0..5 {
-		if attempt > 0 {
-			std::thread::sleep(Duration::from_millis(100));
-		}
-		std::io::Write::write_all(&mut serial_stream, b"\n")
-			.map_err(|error| tg::error!(!error, "failed to signal the guest"))?;
-	}
+	// No explicit ready signal is needed: the guest blocks on a netlink
+	// uevent socket and wakes the instant the kernel's virtio-fs probe
+	// emits the add event for each hot-added device.
 
 	loop {
 		if let Some(code) = cloud_hypervisor.try_wait()? {

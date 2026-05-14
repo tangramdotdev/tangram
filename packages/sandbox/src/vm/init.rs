@@ -2,7 +2,6 @@ use {
 	crate::{Sandbox, vm::Network},
 	std::{
 		ffi::{CStr, CString},
-		io::Read as _,
 		net::Ipv4Addr,
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
@@ -57,17 +56,17 @@ pub fn run() -> tg::Result<ExitCode> {
 	mount_dev(Path::new("/dev"))?;
 	eprintln!("[tg-init] mounted /dev");
 
-	// Per-sandbox virtiofs devices are not present in the snapshot; the
-	// host attaches them and then writes a byte to the serial console to
-	// unblock this read.
-	eprintln!("[tg-init] waiting for ready signal");
-	let mut buf = [0u8; 1];
-	std::io::stdin().read_exact(&mut buf).map_err(|error| {
-		tg::error!(!error, "failed to read the ready signal from the console")
-	})?;
-	eprintln!("[tg-init] received ready signal");
-
+	// In bake mode no virtiofs devices exist, so the recv inside
+	// wait_for_virtiofs_tags blocks the guest at a stable point for the
+	// host to snapshot. In restore mode the host hot-adds the devices
+	// after resuming, and the kernel's virtio-fs probe emits a uevent for
+	// each tag — the recv returns the instant a matching event arrives.
+	// In cold-boot mode the tags were registered before init opened the
+	// socket, so the initial sysfs scan picks them up and the recv loop is
+	// skipped entirely. No explicit ready signal from the host required.
+	eprintln!("[tg-init] waiting for virtiofs tags");
 	wait_for_virtiofs_tags(&[SANDBOX_FS_TAG, ARTIFACTS_FS_TAG])?;
+	eprintln!("[tg-init] virtiofs tags ready");
 
 	let source = CString::new(SANDBOX_FS_TAG).unwrap();
 	let target = CString::new(SANDBOX_MOUNT_POINT).unwrap();
@@ -203,35 +202,90 @@ pub fn run() -> tg::Result<ExitCode> {
 	}
 }
 
-fn wait_for_virtiofs_tags(tags: &[&str]) -> tg::Result<()> {
-	const MAX_RETRIES: usize = 20;
-	const INTERVAL: Duration = Duration::from_millis(1);
-	let visible = |tag: &str| -> bool {
-		let Ok(entries) = std::fs::read_dir("/sys/fs/virtiofs") else {
-			return false;
-		};
+fn wait_for_virtiofs_tags(expected: &[&str]) -> tg::Result<()> {
+	// Open the netlink uevent socket BEFORE scanning sysfs so we cannot
+	// miss an event for a tag that gets registered between the scan and
+	// the recv loop. The socket is bound to multicast group 1 which
+	// receives the kernel's broadcast uevents.
+	const NETLINK_KOBJECT_UEVENT: libc::c_int = 15;
+	let socket = unsafe {
+		libc::socket(
+			libc::AF_NETLINK,
+			libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
+			NETLINK_KOBJECT_UEVENT,
+		)
+	};
+	if socket < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to open the uevent socket"));
+	}
+	let mut addr: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
+	addr.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+	addr.nl_groups = 1;
+	let result = unsafe {
+		libc::bind(
+			socket,
+			std::ptr::addr_of!(addr).cast(),
+			std::mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+		)
+	};
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		unsafe { libc::close(socket) };
+		return Err(tg::error!(!error, "failed to bind the uevent socket"));
+	}
+
+	let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+	if let Ok(entries) = std::fs::read_dir("/sys/fs/virtiofs") {
 		for entry in entries.flatten() {
 			let tag_path = entry.path().join("tag");
-			if let Ok(content) = std::fs::read_to_string(&tag_path)
-				&& content.trim() == tag
-			{
-				return true;
+			if let Ok(content) = std::fs::read_to_string(&tag_path) {
+				let tag = content.trim();
+				if expected.iter().any(|&t| t == tag) {
+					seen.insert(tag.to_owned());
+				}
 			}
 		}
-		false
-	};
-	for attempt in 0..MAX_RETRIES {
-		if tags.iter().all(|tag| visible(tag)) {
-			return Ok(());
+	}
+
+	let mut buf = [0u8; 8192];
+	while seen.len() < expected.len() {
+		let n = unsafe { libc::recv(socket, buf.as_mut_ptr().cast(), buf.len(), 0) };
+		if n < 0 {
+			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::EINTR) {
+				continue;
+			}
+			unsafe { libc::close(socket) };
+			return Err(tg::error!(!error, "failed to read a uevent"));
 		}
-		if attempt + 1 < MAX_RETRIES {
-			std::thread::sleep(INTERVAL);
+		let message = &buf[..n as usize];
+		let mut subsystem: Option<&[u8]> = None;
+		let mut tag: Option<&[u8]> = None;
+		let mut action: Option<&[u8]> = None;
+		for entry in message.split(|&b| b == 0) {
+			if let Some(value) = entry.strip_prefix(b"SUBSYSTEM=") {
+				subsystem = Some(value);
+			} else if let Some(value) = entry.strip_prefix(b"TAG=") {
+				tag = Some(value);
+			} else if let Some(value) = entry.strip_prefix(b"ACTION=") {
+				action = Some(value);
+			}
+		}
+		if action != Some(b"add".as_ref()) || subsystem != Some(b"virtiofs".as_ref()) {
+			continue;
+		}
+		let Some(tag) = tag else { continue };
+		let Ok(tag) = std::str::from_utf8(tag) else {
+			continue;
+		};
+		if expected.iter().any(|&t| t == tag) {
+			seen.insert(tag.to_owned());
 		}
 	}
-	Err(tg::error!(
-		?tags,
-		"timed out waiting for virtio-fs tags to appear in sysfs"
-	))
+
+	unsafe { libc::close(socket) };
+	Ok(())
 }
 
 fn mount_proc(target: &Path) -> tg::Result<()> {
