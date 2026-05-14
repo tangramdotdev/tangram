@@ -33,6 +33,9 @@ pub(crate) fn spawn(
 		.arg(&arg.tangram_path)
 		.arg("--url")
 		.arg(serve_arg.url.to_string());
+	if let Some(snapshot) = &vm.snapshot {
+		command.arg("--snapshot").arg(snapshot);
+	}
 	if let Some(network) = network {
 		match network {
 			crate::network::Network::Host => {

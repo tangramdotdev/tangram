@@ -46,6 +46,7 @@ impl Server {
 			return Some(tangram_sandbox::Isolation::Vm(
 				tangram_sandbox::VmIsolation {
 					kernel_path: vm.kernel_path.clone(),
+					snapshot: vm.snapshot.clone(),
 				},
 			));
 		}

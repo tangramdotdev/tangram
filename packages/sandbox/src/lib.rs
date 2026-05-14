@@ -132,6 +132,7 @@ pub struct SeatbeltIsolation {}
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct VmIsolation {
 	pub kernel_path: PathBuf,
+	pub snapshot: Option<PathBuf>,
 }
 
 #[derive(

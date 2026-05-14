@@ -110,12 +110,8 @@ impl Device {
 		})
 	}
 
-	pub(crate) fn cloud_hypervisor_arg(&self) -> String {
-		format!(
-			"vhost_user=true,socket={},mac={}",
-			self.socket.display(),
-			self.mac
-		)
+	pub(crate) fn mac(&self) -> &str {
+		&self.mac
 	}
 
 	pub(crate) fn guest_ip(&self) -> Ipv4Addr {

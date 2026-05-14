@@ -101,18 +101,20 @@ impl Session {
 				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
 			},
 			Some(tg::sandbox::Isolation::Vm) => {
-				let kernel_path = self
+				let vm = self
 					.server
 					.config()
 					.sandbox
 					.isolation
 					.vm
 					.as_ref()
-					.ok_or_else(|| tg::error!("no vm image configured"))?
-					.kernel_path
-					.clone();
-				let isolation = tangram_sandbox::VmIsolation { kernel_path };
-				tangram_sandbox::Isolation::Vm(isolation)
+					.ok_or_else(|| tg::error!("no vm image configured"))?;
+				let kernel_path = vm.kernel_path.clone();
+				let snapshot = vm.snapshot.clone();
+				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
+					kernel_path,
+					snapshot,
+				})
 			},
 			None => self.server.resolve_sandbox_isolation()?,
 		};

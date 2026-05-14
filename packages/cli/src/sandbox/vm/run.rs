@@ -10,6 +10,9 @@ pub struct Args {
 	#[arg(long)]
 	pub artifacts_path: PathBuf,
 
+	#[arg(long, hide = true, value_name = "DIR")]
+	pub bake: Option<PathBuf>,
+
 	#[arg(long)]
 	pub cpu: Option<u64>,
 
@@ -53,6 +56,9 @@ pub struct Args {
 	pub rootfs_path: PathBuf,
 
 	#[arg(long)]
+	pub snapshot: Option<PathBuf>,
+
+	#[arg(long)]
 	pub tangram_path: PathBuf,
 
 	#[arg(long)]
@@ -66,6 +72,7 @@ impl Cli {
 	pub fn command_sandbox_vm_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::vm::run::Arg {
 			artifacts_path: args.artifacts_path,
+			bake: args.bake,
 			cpu: args.cpu,
 			dns: args.dns,
 			firewall: args.firewall,
@@ -80,6 +87,7 @@ impl Cli {
 			path: args.path,
 			ports: args.ports,
 			rootfs_path: args.rootfs_path,
+			snapshot: args.snapshot,
 			tangram_path: args.tangram_path,
 			url: args.url,
 			user: args.user,

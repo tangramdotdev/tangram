@@ -2,6 +2,7 @@ use {
 	crate::{Sandbox, vm::Network},
 	std::{
 		ffi::{CStr, CString},
+		io::Read as _,
 		net::Ipv4Addr,
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
@@ -17,47 +18,220 @@ use {
 const NETWORK_INTERFACE_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 const NETWORK_INTERFACE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Clone, Debug)]
-pub struct Arg {
-	pub gid: libc::gid_t,
+const INIT_CONFIG_PATH: &str = "/etc/init.json";
+const SANDBOX_FS_TAG: &str = "sandbox";
+const SANDBOX_MOUNT_POINT: &str = "/run/sandbox";
+const SANDBOX_INIT_CONFIG_PATH: &str = "/run/sandbox/init.json";
+const SANDBOX_OUTPUT_PATH: &str = "/run/sandbox/output";
+const GUEST_OUTPUT_PATH: &str = "/opt/tangram/output";
+const ARTIFACTS_FS_TAG: &str = "artifacts";
+const ARTIFACTS_MOUNT_POINT: &str = "/opt/tangram/artifacts";
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Config {
+	pub gid: u32,
 	pub hostname: Option<String>,
-	pub network: Option<Network>,
-	pub serve: crate::serve::Arg,
-	pub uid: libc::uid_t,
+	#[serde(default)]
+	pub library_paths: Vec<PathBuf>,
+	pub network: Option<NetworkConfig>,
+	pub output_path: PathBuf,
+	pub tangram_path: PathBuf,
+	pub uid: u32,
+	pub url: String,
 }
 
-pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
-	if let Some(hostname) = &arg.hostname {
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct NetworkConfig {
+	pub dns_servers: Vec<Ipv4Addr>,
+	pub gateway_ip: Ipv4Addr,
+	pub guest_ip: Ipv4Addr,
+	pub netmask: Ipv4Addr,
+}
+
+pub fn run() -> tg::Result<ExitCode> {	
+	eprintln!("[tg-init] starting");
+	mount_proc(Path::new("/proc"))?;
+	eprintln!("[tg-init] mounted /proc");
+	mount_sys(Path::new("/sys"))?;
+	eprintln!("[tg-init] mounted /sys");
+	mount_dev(Path::new("/dev"))?;
+	eprintln!("[tg-init] mounted /dev");
+
+	// Per-sandbox virtiofs devices are not present in the snapshot; the
+	// host attaches them and then writes a byte to the serial console to
+	// unblock this read.
+	eprintln!("[tg-init] waiting for ready signal");
+	let mut buf = [0u8; 1];
+	std::io::stdin().read_exact(&mut buf).map_err(|error| {
+		tg::error!(!error, "failed to read the ready signal from the console")
+	})?;
+	eprintln!("[tg-init] received ready signal");
+
+	wait_for_virtiofs_tags(&[SANDBOX_FS_TAG, ARTIFACTS_FS_TAG])?;
+
+	let source = CString::new(SANDBOX_FS_TAG).unwrap();
+	let target = CString::new(SANDBOX_MOUNT_POINT).unwrap();
+	let fstype = CString::new("virtiofs").unwrap();
+	let result = unsafe {
+		libc::mount(
+			source.as_ptr(),
+			target.as_ptr(),
+			fstype.as_ptr(),
+			0,
+			std::ptr::null(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to mount the sandbox virtio-fs"));
+	}
+	eprintln!("[tg-init] mounted {SANDBOX_MOUNT_POINT}");
+
+	let source = CString::new(ARTIFACTS_FS_TAG).unwrap();
+	let target = CString::new(ARTIFACTS_MOUNT_POINT).unwrap();
+	let fstype = CString::new("virtiofs").unwrap();
+	let result = unsafe {
+		libc::mount(
+			source.as_ptr(),
+			target.as_ptr(),
+			fstype.as_ptr(),
+			0,
+			std::ptr::null(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(
+			!error,
+			"failed to mount the artifacts virtio-fs"
+		));
+	}
+	eprintln!("[tg-init] mounted {ARTIFACTS_MOUNT_POINT}");
+
+	let source = CString::new(SANDBOX_OUTPUT_PATH).unwrap();
+	let target = CString::new(GUEST_OUTPUT_PATH).unwrap();
+	let result = unsafe {
+		libc::mount(
+			source.as_ptr(),
+			target.as_ptr(),
+			std::ptr::null(),
+			libc::MS_BIND,
+			std::ptr::null(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to bind {GUEST_OUTPUT_PATH}"));
+	}
+	eprintln!("[tg-init] bound {GUEST_OUTPUT_PATH}");
+
+	let source = CString::new(SANDBOX_INIT_CONFIG_PATH).unwrap();
+	let target = CString::new(INIT_CONFIG_PATH).unwrap();
+	let result = unsafe {
+		libc::mount(
+			source.as_ptr(),
+			target.as_ptr(),
+			std::ptr::null(),
+			libc::MS_BIND,
+			std::ptr::null(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to bind the init config"));
+	}
+	let bytes = std::fs::read(INIT_CONFIG_PATH)
+		.map_err(|error| tg::error!(!error, "failed to read the init config"))?;
+	eprintln!("[tg-init] read {} bytes from {INIT_CONFIG_PATH}", bytes.len());
+	let config: Config = serde_json::from_slice(&bytes)
+		.map_err(|error| tg::error!(!error, "failed to parse the init config"))?;
+
+	eprintln!("[tg-init] loaded config: uid={} gid={}", config.uid, config.gid);
+
+	let url = config
+		.url
+		.parse()
+		.map_err(|error| tg::error!(!error, "failed to parse the init config url"))?;
+	let network = config.network.map(|n| Network {
+		dns_servers: n.dns_servers,
+		gateway_ip: n.gateway_ip,
+		guest_ip: n.guest_ip,
+		netmask: n.netmask,
+	});
+
+	if let Some(hostname) = &config.hostname {
+		eprintln!("[tg-init] setting hostname={hostname}");
 		set_hostname(hostname)?;
 	}
 
-	mount_proc(Path::new("/proc"))?;
-	mount_sys(Path::new("/sys"))?;
-	mount_dev(Path::new("/dev"))?;
-
-	if let Some(network) = &arg.network {
+	if let Some(network) = &network {
+		eprintln!("[tg-init] configuring network guest_ip={}", network.guest_ip);
 		configure_network(network)?;
 		prime_network(network);
 		write_resolv_conf(&network.dns_servers)?;
 	}
 
-	let home = resolve_home(arg.uid);
+	let home = resolve_home(config.uid);
 
-	setresgid(arg.gid)?;
-	setresuid(arg.uid)?;
+	eprintln!("[tg-init] setting uid={} gid={}", config.uid, config.gid);
+	setresgid(config.gid)?;
+	setresuid(config.uid)?;
 
-	let child = spawn_server(&arg.serve, home.as_deref())?;
+	let serve = crate::serve::Arg {
+		library_paths: config.library_paths,
+		listen: false,
+		output_path: config.output_path,
+		tangram_path: config.tangram_path,
+		url,
+	};
+
+	eprintln!("[tg-init] spawning sandbox server");
+	let child = spawn_server(&serve, home.as_deref())?;
 	let pid: libc::pid_t = child
 		.id()
 		.try_into()
 		.map_err(|_| tg::error!("failed to get the sandbox server pid"))?;
+	
+	eprintln!("[tg-init] sandbox server spawned pid={pid}; entering reap loop");
 
 	loop {
 		let (reaped_pid, status) = wait_for_child()?;
 		if reaped_pid == pid {
+			eprintln!("[tg-init] sandbox server exited status={status}");
 			return Ok(ExitCode::from(status));
 		}
 	}
+}
+
+fn wait_for_virtiofs_tags(tags: &[&str]) -> tg::Result<()> {
+	const MAX_RETRIES: usize = 20;
+	const INTERVAL: Duration = Duration::from_millis(1);
+	let visible = |tag: &str| -> bool {
+		let Ok(entries) = std::fs::read_dir("/sys/fs/virtiofs") else {
+			return false;
+		};
+		for entry in entries.flatten() {
+			let tag_path = entry.path().join("tag");
+			if let Ok(content) = std::fs::read_to_string(&tag_path)
+				&& content.trim() == tag
+			{
+				return true;
+			}
+		}
+		false
+	};
+	for attempt in 0..MAX_RETRIES {
+		if tags.iter().all(|tag| visible(tag)) {
+			return Ok(());
+		}
+		if attempt + 1 < MAX_RETRIES {
+			std::thread::sleep(INTERVAL);
+		}
+	}
+	Err(tg::error!(
+		?tags,
+		"timed out waiting for virtio-fs tags to appear in sysfs"
+	))
 }
 
 fn mount_proc(target: &Path) -> tg::Result<()> {

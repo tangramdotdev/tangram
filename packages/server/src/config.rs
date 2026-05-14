@@ -620,6 +620,9 @@ pub struct SeatbeltSandboxIsolation {}
 #[serde(deny_unknown_fields)]
 pub struct VmSandboxIsolation {
 	pub kernel_path: PathBuf,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub snapshot: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
