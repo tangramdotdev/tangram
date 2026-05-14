@@ -95,7 +95,7 @@ impl Session {
 		});
 
 		let Some(arg) = arg else {
-			let owner = self.remote_owner_for_lookup().await?;
+			let user = self.remote_user_for_lookup().await?;
 			let connection = self
 				.server
 				.database
@@ -108,17 +108,18 @@ impl Session {
 			}
 			let p = connection.p();
 			let statement = formatdoc!(
-				"
+				r#"
 					select name
 					from remotes
 					where (
-						(\"user\" is null and {p}1 is null)
-						or \"user\" = {p}1
+						("user" is null and {p}1 is null)
+						or "user" = {p}1
 					)
 					order by name;
-				",
+				"#,
 			);
-			let params = db::params![owner];
+			let user = user.as_ref().map(ToString::to_string);
+			let params = db::params![user];
 			let remotes = connection
 				.query_all_into::<Row>(statement.into(), params)
 				.await

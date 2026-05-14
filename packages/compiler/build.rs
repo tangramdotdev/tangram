@@ -96,7 +96,7 @@ mod library {
 			.unwrap();
 		let declarations = std::fs::read_to_string("../../packages/js/src/tangram.d.ts")
 			.unwrap()
-			.replace("\"@tangramdotdev/client\"", "\"./tangram/index.ts\"");
+			.replace(r#""@tangramdotdev/client""#, r#""./tangram/index.ts""#);
 		std::fs::write(lib_path.join("tangram.d.ts"), declarations).unwrap();
 
 		// Copy the typescript libraries.

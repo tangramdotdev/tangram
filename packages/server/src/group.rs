@@ -46,7 +46,7 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r"
 				select 1
 				from users
 				where handle = {p}1;
@@ -64,7 +64,7 @@ impl Session {
 
 		let id = tg::group::Id::new();
 		let statement = formatdoc!(
-			"
+			r"
 				insert into groups (id, handle)
 				values ({p}1, {p}2);
 			"
@@ -77,11 +77,11 @@ impl Session {
 
 		if let Some(user) = &created_by {
 			let statement = formatdoc!(
-				"
-					insert into group_members (\"group\", \"user\")
+				r#"
+					insert into group_members ("group", "user")
 					values ({p}1, {p}2)
-					on conflict (\"group\", \"user\") do nothing;
-				"
+					on conflict ("group", "user") do nothing;
+				"#
 			);
 			let params = db::params![id.to_string(), user.to_string()];
 			transaction
@@ -235,19 +235,19 @@ impl Session {
 		let p = transaction.p();
 		for statement in [
 			formatdoc!(
-				"
+				r#"
 					delete from namespace_grants
-					where \"group\" = {p}1;
-				"
+					where "group" = {p}1;
+				"#
 			),
 			formatdoc!(
-				"
+				r#"
 					delete from group_members
-					where \"group\" = {p}1;
-				"
+					where "group" = {p}1;
+				"#
 			),
 			formatdoc!(
-				"
+				r"
 					delete from groups
 					where id = {p}1;
 				"
@@ -318,14 +318,14 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select users.id, users.handle, user_emails.email
 				from group_members
-				join users on users.id = group_members.\"user\"
-				left join user_emails on user_emails.\"user\" = users.id
-				where group_members.\"group\" = {p}1
+				join users on users.id = group_members."user"
+				left join user_emails on user_emails."user" = users.id
+				where group_members."group" = {p}1
 				order by users.handle, users.id, user_emails.email;
-			"
+			"#
 		);
 		let rows = transaction
 			.query_all_into::<Row>(statement.into(), db::params![group.id.to_string()])
@@ -394,11 +394,11 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
-				insert into group_members (\"group\", \"user\")
+			r#"
+				insert into group_members ("group", "user")
 				values ({p}1, {p}2)
-				on conflict (\"group\", \"user\") do nothing;
-			"
+				on conflict ("group", "user") do nothing;
+			"#
 		);
 		let params = db::params![group.id.to_string(), user.id.to_string()];
 		transaction
@@ -460,10 +460,10 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				delete from group_members
-				where \"group\" = {p}1 and \"user\" = {p}2;
-			"
+				where "group" = {p}1 and "user" = {p}2;
+			"#
 		);
 		let params = db::params![group.id.to_string(), user.id.to_string()];
 		let n = transaction
@@ -539,22 +539,22 @@ impl Session {
 		let (statement, params) = if let Ok(id) = group.parse::<tg::group::Id>() {
 			(
 				formatdoc!(
-					"
-						select id, handle
-						from groups
-						where id = {p}1 and handle is not null;
-					"
+					r"
+							select id, handle
+							from groups
+							where id = {p}1 and handle is not null;
+				"
 				),
 				db::params![id.to_string()],
 			)
 		} else {
 			(
 				formatdoc!(
-					"
+					r"
 						select id, handle
 						from groups
 						where handle = {p}1;
-					"
+			"
 				),
 				db::params![group],
 			)

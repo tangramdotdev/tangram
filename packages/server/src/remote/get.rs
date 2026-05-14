@@ -11,7 +11,8 @@ use {
 
 impl Session {
 	pub(crate) async fn try_get_remote_config(&self, name: &str) -> tg::Result<Option<Remote>> {
-		let owner = self.remote_owner_for_lookup().await?;
+		let user = self.remote_user_for_lookup().await?;
+		let user = user.as_ref().map(ToString::to_string);
 
 		let connection = self
 			.server
@@ -28,17 +29,17 @@ impl Session {
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select name, url, token
 				from remotes
 				where name = {p}1
 					and (
-						(\"user\" is null and {p}2 is null)
-						or \"user\" = {p}2
+						("user" is null and {p}2 is null)
+						or "user" = {p}2
 					);
-			",
+			"#,
 		);
-		let params = db::params![&name, owner];
+		let params = db::params![&name, user];
 		let row = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await

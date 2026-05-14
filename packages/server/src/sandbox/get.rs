@@ -82,7 +82,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select
 					cpu,
 					hostname,
@@ -92,10 +92,10 @@ impl Session {
 					network,
 					status,
 					ttl,
-					\"user\" as user
+					"user" as user
 				from sandboxes
 				where id = {p}1;
-			"
+			"#
 		);
 		let params = db::params![id.to_string()];
 		let row = connection

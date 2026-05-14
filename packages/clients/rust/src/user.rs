@@ -17,7 +17,7 @@ pub mod permissions;
 	serde::Deserialize,
 	serde::Serialize,
 )]
-#[debug("tg::user::Id(\"{_0}\")]")]
+#[debug(r#"tg::user::Id("{_0}")"#)]
 #[serde(into = "tg::Id", try_from = "tg::Id")]
 pub struct Id(tg::Id);
 

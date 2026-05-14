@@ -1364,7 +1364,7 @@ impl Session {
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
 		let statement = formatdoc!(
-			"
+			r#"
 				insert into sandboxes (
 					id,
 					cpu,
@@ -1379,7 +1379,7 @@ impl Session {
 					started_at,
 					status,
 					ttl,
-					\"user\"
+					"user"
 				)
 				values (
 					{p}1,
@@ -1397,7 +1397,7 @@ impl Session {
 					{p}13,
 					{p}14
 				);
-			"
+			"#
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let heartbeat_at = (status == tg::sandbox::Status::Started).then_some(now);

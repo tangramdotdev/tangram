@@ -12,7 +12,8 @@ impl Session {
 		&self,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		let owner = self.remote_owner()?;
+		let user = self.remote_user()?;
+		let user = user.as_ref().map(ToString::to_string);
 
 		let connection = self
 			.server
@@ -29,17 +30,17 @@ impl Session {
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select name, url
 				from remotes
 				where (
-					(\"user\" is null and {p}1 is null)
-					or \"user\" = {p}1
+					("user" is null and {p}1 is null)
+					or "user" = {p}1
 				)
 				order by name;
-			",
+			"#,
 		);
-		let params = db::params![owner];
+		let params = db::params![user];
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await

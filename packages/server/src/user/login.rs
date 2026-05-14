@@ -54,12 +54,12 @@ impl Session {
 		}
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select users.id, users.handle
 				from user_emails
-				join users on users.id = user_emails.\"user\"
+				join users on users.id = user_emails."user"
 				where user_emails.email = {p}1;
-			"
+			"#
 		);
 		let params = db::params![email.clone()];
 		let user = transaction
@@ -83,10 +83,10 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			let statement = formatdoc!(
-				"
-					insert into user_emails (\"user\", email)
+				r#"
+					insert into user_emails ("user", email)
 					values ({p}1, {p}2);
-				"
+				"#
 			);
 			let params = db::params![id.to_string(), email];
 			transaction
@@ -155,10 +155,10 @@ impl Session {
 		// Create the token.
 		let token = Self::create_user_token();
 		let statement = formatdoc!(
-			"
-				insert into user_tokens (id, \"user\")
+			r#"
+				insert into user_tokens (id, "user")
 				values ({p}1, {p}2);
-			"
+			"#
 		);
 		let params = db::params![token.clone(), id.to_string()];
 		transaction
@@ -172,12 +172,12 @@ impl Session {
 			email: String,
 		}
 		let statement = formatdoc!(
-			"
+			r#"
 				select email
 				from user_emails
-				where user_emails.\"user\" = {p}1
+				where user_emails."user" = {p}1
 				order by email;
-			"
+			"#
 		);
 		let params = db::params![id.to_string()];
 		let rows = transaction

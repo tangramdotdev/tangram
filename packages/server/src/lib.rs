@@ -680,11 +680,11 @@ impl Server {
 				token: Option<String>,
 			}
 			let statement = indoc!(
-				"
-					select name, token
-					from remotes
-					where \"user\" is null;
-				",
+				r#"
+						select name, token
+						from remotes
+						where "user" is null;
+					"#,
 			);
 			let params = db::params![];
 			let tokens = connection
@@ -695,10 +695,10 @@ impl Server {
 				.map(|row| (row.name, row.token))
 				.collect::<std::collections::BTreeMap<_, _>>();
 			let statement = indoc!(
-				"
-					delete from remotes
-					where \"user\" is null;
-				",
+				r#"
+						delete from remotes
+						where "user" is null;
+					"#,
 			);
 			let params = db::params![];
 			connection
@@ -708,10 +708,10 @@ impl Server {
 			for remote in remotes {
 				let p = connection.p();
 				let statement = formatdoc!(
-					"
-						insert into remotes (name, \"user\", url, token)
-						values ({p}1, null, {p}2, {p}3);
-					",
+					r#"
+							insert into remotes (name, "user", url, token)
+							values ({p}1, null, {p}2, {p}3);
+						"#,
 				);
 				let token = remote
 					.token

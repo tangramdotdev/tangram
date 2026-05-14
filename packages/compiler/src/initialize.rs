@@ -57,7 +57,7 @@ impl Compiler {
 					resolve_provider: Some(true),
 					trigger_characters: Some(vec![
 						".".to_owned(),
-						"\"".to_owned(),
+						r#"""#.to_owned(),
 						"'".to_owned(),
 						"`".to_owned(),
 						"/".to_owned(),

@@ -25,13 +25,13 @@ impl Session {
 			("users.handle", user.to_owned())
 		};
 		let statement = formatdoc!(
-			"
+			r#"
 				select users.id, users.handle, user_emails.email
 				from users
-				left join user_emails on user_emails.\"user\" = users.id
+				left join user_emails on user_emails."user" = users.id
 				where {where_} = {p}1
 				order by user_emails.email;
-			"
+			"#
 		);
 		let rows = transaction
 			.query_all_into::<Row>(statement.into(), db::params![param])

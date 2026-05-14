@@ -11,7 +11,7 @@ use {crate::prelude::*, sha2::Digest, std::pin::Pin};
 	tangram_serialize::Serialize,
 )]
 #[tangram_serialize(display, from_str)]
-#[debug("tg::Checksum(\"{self}\")")]
+#[debug(r#"tg::Checksum("{self}")"#)]
 pub struct Checksum {
 	algorithm: Algorithm,
 	body: Body,

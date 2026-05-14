@@ -14,7 +14,8 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		self.authorize_remote_management()?;
-		let owner = self.remote_owner()?;
+		let user = self.remote_user()?;
+		let user = user.as_ref().map(ToString::to_string);
 
 		let remote = self.try_get_remote_config(name).await?;
 		let connection = self
@@ -25,16 +26,16 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				delete from remotes
 				where name = {p}1
 					and (
-						(\"user\" is null and {p}2 is null)
-						or \"user\" = {p}2
+						("user" is null and {p}2 is null)
+						or "user" = {p}2
 					);
-			",
+			"#,
 		);
-		let params = db::params![&name, owner];
+		let params = db::params![&name, user];
 		let n = connection
 			.execute(statement.into(), params)
 			.await

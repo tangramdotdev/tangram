@@ -20,7 +20,7 @@ pub(crate) struct Remote {
 
 impl Session {
 	pub(crate) fn authorize_remote_management(&self) -> tg::Result<()> {
-		self.remote_owner()?;
+		self.remote_user()?;
 		Ok(())
 	}
 
@@ -54,30 +54,30 @@ impl Session {
 		Ok(Some(client))
 	}
 
-	pub(crate) fn remote_owner(&self) -> tg::Result<Option<String>> {
+	pub(crate) fn remote_user(&self) -> tg::Result<Option<tg::user::Id>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		self.remote_owner_from_authentication()
+		self.remote_user_from_authentication()
 	}
 
-	pub(crate) async fn remote_owner_for_lookup(&self) -> tg::Result<Option<String>> {
+	pub(crate) async fn remote_user_for_lookup(&self) -> tg::Result<Option<tg::user::Id>> {
 		if self.context.authentication.is_none() && self.context.token.is_none() {
 			return Ok(None);
 		}
-		match self.remote_owner_from_authentication() {
-			Ok(owner) => Ok(owner),
+		match self.remote_user_from_authentication() {
+			Ok(user) => Ok(user),
 			Err(error) if self.context.process.is_some() => {
 				let _ = error;
-				self.try_get_process_remote_owner().await
+				self.try_get_process_remote_user().await
 			},
 			Err(error) => Err(error),
 		}
 	}
 
-	fn remote_owner_from_authentication(&self) -> tg::Result<Option<String>> {
+	fn remote_user_from_authentication(&self) -> tg::Result<Option<tg::user::Id>> {
 		match &self.context.authentication {
-			Some(Authentication::User(user)) => Ok(Some(user.id.to_string())),
+			Some(Authentication::User(user)) => Ok(Some(user.id.clone())),
 			Some(authentication) if authentication.is_root() => Ok(None),
 			Some(authentication) if authentication.is_runner() || authentication.is_sandbox() => {
 				Err(tg::error!("forbidden"))
@@ -86,7 +86,7 @@ impl Session {
 		}
 	}
 
-	async fn try_get_process_remote_owner(&self) -> tg::Result<Option<String>> {
+	async fn try_get_process_remote_user(&self) -> tg::Result<Option<tg::user::Id>> {
 		let Some(process) = &self.context.process else {
 			return Err(tg::error!("forbidden"));
 		};
@@ -98,7 +98,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			created_by: Option<String>,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			created_by: Option<tg::user::Id>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(

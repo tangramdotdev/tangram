@@ -25,13 +25,13 @@ use {super::Kind, crate::prelude::*, bytes::Bytes};
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Id {
-	#[debug("tg::artifact::Id(\"{_0}\")")]
+	#[debug(r#"tg::artifact::Id("{_0}")"#)]
 	#[display("{_0}")]
 	Directory(tg::directory::Id),
-	#[debug("tg::artifact::Id(\"{_0}\")")]
+	#[debug(r#"tg::artifact::Id("{_0}")"#)]
 	#[display("{_0}")]
 	File(tg::file::Id),
-	#[debug("tg::artifact::Id(\"{_0}\")")]
+	#[debug(r#"tg::artifact::Id("{_0}")"#)]
 	#[display("{_0}")]
 	Symlink(tg::symlink::Id),
 }

@@ -67,12 +67,12 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let statement = formatdoc!(
-			"
-				select id, cpu, hostname, memory, mounts, network, status, ttl, \"user\" as user
+			r#"
+				select id, cpu, hostname, memory, mounts, network, status, ttl, "user" as user
 				from sandboxes
 				where status != 'destroyed'
 				order by created_at;
-			"
+			"#
 		);
 		let params = db::params![];
 		let rows = connection

@@ -24,19 +24,19 @@ use {super::Kind, crate::prelude::*, bytes::Bytes};
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Id {
-	#[debug("tg::object::Id(\"{_0}\")")]
+	#[debug(r#"tg::object::Id("{_0}")"#)]
 	Blob(tg::blob::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
+	#[debug(r#"tg::object::Id("{_0}")"#)]
 	Directory(tg::directory::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
+	#[debug(r#"tg::object::Id("{_0}")"#)]
 	File(tg::file::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
+	#[debug(r#"tg::object::Id("{_0}")"#)]
 	Symlink(tg::symlink::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
+	#[debug(r#"tg::object::Id("{_0}")"#)]
 	Graph(tg::graph::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
+	#[debug(r#"tg::object::Id("{_0}")"#)]
 	Command(tg::command::Id),
-	#[debug("tg::object::Id(\"{_0}\")")]
+	#[debug(r#"tg::object::Id("{_0}")"#)]
 	Error(tg::error::Id),
 }
 

@@ -19,7 +19,7 @@ pub mod member;
 	serde::Deserialize,
 	serde::Serialize,
 )]
-#[debug("tg::group::Id(\"{_0}\")]")]
+#[debug(r#"tg::group::Id("{_0}")"#)]
 #[serde(into = "tg::Id", try_from = "tg::Id")]
 pub struct Id(tg::Id);
 

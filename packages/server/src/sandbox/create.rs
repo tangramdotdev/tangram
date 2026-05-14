@@ -54,7 +54,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				insert into sandboxes (
 					id,
 					cpu,
@@ -67,7 +67,7 @@ impl Session {
 					network,
 					status,
 					ttl,
-					\"user\"
+					"user"
 				)
 				values (
 					{p}1,
@@ -83,7 +83,7 @@ impl Session {
 					{p}11,
 					{p}12
 				);
-			"
+			"#
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let isolation = self.server.resolve_sandbox_isolation()?;

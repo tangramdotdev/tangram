@@ -57,12 +57,12 @@ impl Session {
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select users.id, users.handle
 				from users
-				join user_tokens on user_tokens.\"user\" = users.id
+				join user_tokens on user_tokens."user" = users.id
 				where user_tokens.id = {p}1;
-			"
+			"#
 		);
 		let params = db::params![token];
 		let user = connection
@@ -79,12 +79,12 @@ impl Session {
 			email: String,
 		}
 		let statement = formatdoc!(
-			"
+			r#"
 				select email
 				from user_emails
-				where user_emails.\"user\" = {p}1
+				where user_emails."user" = {p}1
 				order by email;
-			"
+			"#
 		);
 		let params = db::params![user.id.to_string()];
 		let rows = connection

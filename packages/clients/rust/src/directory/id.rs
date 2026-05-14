@@ -15,7 +15,7 @@ use crate::prelude::*;
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[debug("tg::directory::Id(\"{_0}\")")]
+#[debug(r#"tg::directory::Id("{_0}")"#)]
 #[serde(into = "tg::Id", try_from = "tg::Id")]
 #[tangram_serialize(into = "tg::Id", try_from = "tg::Id")]
 pub struct Id(tg::Id);

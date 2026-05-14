@@ -23,7 +23,7 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r"
 				select id
 				from namespaces
 				where name = {p}1;
@@ -49,7 +49,7 @@ impl Session {
 			}
 			name.push_str(component);
 			let statement = formatdoc!(
-				"
+				r"
 					select id
 					from namespaces
 					where name = {p}1;
@@ -85,7 +85,7 @@ impl Session {
 			name.push_str(component);
 
 			let statement = formatdoc!(
-				"
+				r"
 					select id
 					from namespaces
 					where name = {p}1;
@@ -102,7 +102,7 @@ impl Session {
 			}
 
 			let statement = formatdoc!(
-				"
+				r"
 					insert into namespaces (parent, component, name)
 					values ({p}1, {p}2, {p}3)
 					on conflict (name) do nothing;
@@ -115,7 +115,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 			let statement = formatdoc!(
-				"
+				r"
 					select id
 					from namespaces
 					where name = {p}1;
@@ -144,15 +144,15 @@ impl Session {
 		let permission = permission.to_string();
 		let created_by = created_by.map(ToString::to_string);
 		let statement = formatdoc!(
-			"
-				insert into namespace_grants (namespace, \"user\", permission, created_at, created_by)
+			r#"
+				insert into namespace_grants (namespace, "user", permission, created_at, created_by)
 				select {p}1, {p}2, {p}3, {p}4, {p}5
 				where not exists (
 					select 1
 					from namespace_grants
-					where namespace = {p}1 and \"user\" = {p}2 and permission = {p}3
+					where namespace = {p}1 and "user" = {p}2 and permission = {p}3
 				);
-			"
+			"#
 		);
 		let params = db::params![
 			namespace_id,
@@ -189,15 +189,15 @@ impl Session {
 		let permission = permission.to_string();
 		let created_by = created_by.map(ToString::to_string);
 		let statement = formatdoc!(
-			"
-				insert into namespace_grants (namespace, \"group\", permission, created_at, created_by)
+			r#"
+				insert into namespace_grants (namespace, "group", permission, created_at, created_by)
 				select {p}1, {p}2, {p}3, {p}4, {p}5
 				where not exists (
 					select 1
 					from namespace_grants
-					where namespace = {p}1 and \"group\" = {p}2 and permission = {p}3
+					where namespace = {p}1 and "group" = {p}2 and permission = {p}3
 				);
-			"
+			"#
 		);
 		let params = db::params![
 			namespace_id,
@@ -231,15 +231,15 @@ impl Session {
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let created_by = created_by.map(ToString::to_string);
 		let statement = formatdoc!(
-			"
-				insert into namespace_grants (namespace, \"public\", permission, created_at, created_by)
+			r#"
+				insert into namespace_grants (namespace, "public", permission, created_at, created_by)
 				select {p}1, true, 'read', {p}2, {p}3
 				where not exists (
 					select 1
 					from namespace_grants
-					where namespace = {p}1 and \"public\" and permission = 'read'
+					where namespace = {p}1 and "public" and permission = 'read'
 				);
-			"
+			"#
 		);
 		let params = db::params![namespace_id, created_at, created_by];
 		transaction
@@ -259,10 +259,10 @@ impl Session {
 	) -> tg::Result<Option<()>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				delete from namespace_grants
-				where namespace = {p}1 and \"user\" = {p}2 and permission = {p}3;
-			"
+				where namespace = {p}1 and "user" = {p}2 and permission = {p}3;
+			"#
 		);
 		let params = db::params![namespace_id, user.to_string(), permission.to_string()];
 		let n = transaction
@@ -280,10 +280,10 @@ impl Session {
 	) -> tg::Result<Option<()>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				delete from namespace_grants
-				where namespace = {p}1 and \"group\" = {p}2 and permission = {p}3;
-			"
+				where namespace = {p}1 and "group" = {p}2 and permission = {p}3;
+			"#
 		);
 		let params = db::params![namespace_id, group.to_string(), permission.to_string()];
 		let n = transaction
@@ -299,10 +299,10 @@ impl Session {
 	) -> tg::Result<Option<()>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				delete from namespace_grants
-				where namespace = {p}1 and \"public\" and permission = 'read';
-			"
+				where namespace = {p}1 and "public" and permission = 'read';
+			"#
 		);
 		let n = transaction
 			.execute(statement.into(), db::params![namespace_id])
@@ -333,20 +333,20 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select
 					coalesce(namespaces.name, '') as namespace,
-					namespace_grants.\"user\" as \"user\",
-					namespace_grants.\"group\" as \"group\",
-					namespace_grants.\"public\" as public,
+					namespace_grants."user" as "user",
+					namespace_grants."group" as "group",
+					namespace_grants."public" as public,
 					namespace_grants.permission,
 					namespace_grants.created_at,
 					namespace_grants.created_by
 				from namespace_grants
 				left join namespaces on namespaces.id = namespace_grants.namespace
-				where namespace_grants.\"user\" = {p}1
+				where namespace_grants."user" = {p}1
 				order by namespace_grants.namespace, namespace_grants.permission;
-			"
+			"#
 		);
 		let params = db::params![user.to_string()];
 		let rows = transaction
@@ -389,20 +389,20 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select
 					coalesce(namespaces.name, '') as namespace,
-					namespace_grants.\"user\" as \"user\",
-					namespace_grants.\"group\" as \"group\",
-					namespace_grants.\"public\" as public,
+					namespace_grants."user" as "user",
+					namespace_grants."group" as "group",
+					namespace_grants."public" as public,
 					namespace_grants.permission,
 					namespace_grants.created_at,
 					namespace_grants.created_by
 				from namespace_grants
 				left join namespaces on namespaces.id = namespace_grants.namespace
-				where namespace_grants.\"group\" = {p}1
+				where namespace_grants."group" = {p}1
 				order by namespace_grants.namespace, namespace_grants.permission;
-			"
+			"#
 		);
 		let params = db::params![group.to_string()];
 		let rows = transaction
@@ -445,20 +445,20 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select
 					coalesce(namespaces.name, '') as namespace,
-					namespace_grants.\"user\" as \"user\",
-					namespace_grants.\"group\" as \"group\",
-					namespace_grants.\"public\" as public,
+					namespace_grants."user" as "user",
+					namespace_grants."group" as "group",
+					namespace_grants."public" as public,
 					namespace_grants.permission,
 					namespace_grants.created_at,
 					namespace_grants.created_by
 				from namespace_grants
 				left join namespaces on namespaces.id = namespace_grants.namespace
 				where namespace_grants.namespace = {p}1
-				order by namespace_grants.\"user\", namespace_grants.\"group\", namespace_grants.permission;
-			"
+				order by namespace_grants."user", namespace_grants."group", namespace_grants.permission;
+			"#
 		);
 		let params = db::params![namespace_id];
 		let rows = transaction
@@ -496,21 +496,21 @@ impl Session {
 			Self::get_namespace_ancestor_ids_with_transaction(transaction, namespace).await?
 		{
 			let statement = formatdoc!(
-				"
+				r#"
 					select namespace_grants.permission
 					from namespace_grants
 					where namespace_grants.namespace = {p}1
 						and (
-							namespace_grants.\"user\" = {p}2
-							or namespace_grants.\"public\"
+							namespace_grants."user" = {p}2
+							or namespace_grants."public"
 							or exists (
 								select 1
 								from group_members
-								where group_members.\"group\" = namespace_grants.\"group\"
-									and group_members.\"user\" = {p}2
+								where group_members."group" = namespace_grants."group"
+									and group_members."user" = {p}2
 							)
 						);
-				"
+				"#
 			);
 			let params = db::params![namespace_id, user.to_string()];
 			let rows = transaction
@@ -556,11 +556,11 @@ impl Session {
 			Self::get_namespace_ancestor_ids_with_transaction(transaction, namespace).await?
 		{
 			let statement = formatdoc!(
-				"
+				r#"
 					select 1
 					from namespace_grants
-					where namespace = {p}1 and \"public\" and permission = 'read';
-				"
+					where namespace = {p}1 and "public" and permission = 'read';
+				"#
 			);
 			if transaction
 				.query_optional(statement.into(), db::params![namespace_id])
@@ -763,11 +763,11 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select created_at, created_by
 				from namespace_grants
-				where namespace = {p}1 and \"user\" = {p}2 and permission = {p}3;
-			"
+				where namespace = {p}1 and "user" = {p}2 and permission = {p}3;
+			"#
 		);
 		let params = db::params![namespace_id, user.to_string(), permission];
 		let row = transaction
@@ -803,11 +803,11 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select created_at, created_by
 				from namespace_grants
-				where namespace = {p}1 and \"group\" = {p}2 and permission = {p}3;
-			"
+				where namespace = {p}1 and "group" = {p}2 and permission = {p}3;
+			"#
 		);
 		let params = db::params![namespace_id, group.to_string(), permission];
 		let row = transaction
@@ -841,11 +841,11 @@ impl Session {
 
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				select created_at, created_by
 				from namespace_grants
-				where namespace = {p}1 and \"public\" and permission = 'read';
-			"
+				where namespace = {p}1 and "public" and permission = 'read';
+			"#
 		);
 		let row = transaction
 			.query_one_into::<Row>(statement.into(), db::params![namespace_id])

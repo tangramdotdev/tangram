@@ -14,7 +14,8 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		self.authorize_remote_management()?;
-		let owner = self.remote_owner()?;
+		let user = self.remote_user()?;
+		let user = user.as_ref().map(ToString::to_string);
 
 		let previous_remote = self.try_get_remote_config(name).await?;
 		let connection = self
@@ -25,29 +26,29 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				update remotes
 				set url = {p}3
 				where name = {p}1
 					and (
-						(\"user\" is null and {p}2 is null)
-						or \"user\" = {p}2
+						("user" is null and {p}2 is null)
+						or "user" = {p}2
 					);
-			",
+			"#,
 		);
-		let params = db::params![&name, owner.clone(), &arg.url.to_string()];
+		let params = db::params![&name, user.clone(), &arg.url.to_string()];
 		let n = connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to insert the remote"))?;
 		if n == 0 {
 			let statement = formatdoc!(
-				"
-					insert into remotes (name, \"user\", url)
+				r#"
+					insert into remotes (name, "user", url)
 					values ({p}1, {p}2, {p}3);
-				",
+				"#,
 			);
-			let params = db::params![&name, owner.clone(), &arg.url.to_string()];
+			let params = db::params![&name, user.clone(), &arg.url.to_string()];
 			connection
 				.execute(statement.into(), params)
 				.await
@@ -70,7 +71,8 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		self.authorize_remote_management()?;
-		let owner = self.remote_owner()?;
+		let user = self.remote_user()?;
+		let user = user.as_ref().map(ToString::to_string);
 
 		let previous_remote = self.try_get_remote_config(name).await?;
 		let connection = self
@@ -81,17 +83,17 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			"
+			r#"
 				update remotes
 				set token = {p}2
 				where name = {p}1
 					and (
-						(\"user\" is null and {p}3 is null)
-						or \"user\" = {p}3
+						("user" is null and {p}3 is null)
+						or "user" = {p}3
 					);
-			",
+			"#,
 		);
-		let params = db::params![&name, token, owner];
+		let params = db::params![&name, token, user];
 		let n = connection
 			.execute(statement.into(), params)
 			.await

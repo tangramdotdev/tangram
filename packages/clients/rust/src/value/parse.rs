@@ -64,7 +64,7 @@ fn string(input: &mut Input) -> ModalResult<String> {
 }
 
 fn char_(input: &mut Input) -> ModalResult<char> {
-	let c = none_of('\"').parse_next(input)?;
+	let c = none_of('"').parse_next(input)?;
 	if c == '\\' {
 		let c = alt((
 			any.try_map(|c| {
