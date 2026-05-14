@@ -146,8 +146,16 @@ impl Session {
 			artifacts_path,
 			cpu: state.cpu,
 			dns: self.server.config.sandbox.network.dns.clone(),
+			#[cfg(target_os = "linux")]
+			firewall: match self.server.config.sandbox.network.firewall {
+				crate::config::SandboxNetworkFirewall::Iptables => {
+					tangram_sandbox::Firewall::Iptables
+				},
+				crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
+			},
 			hostname: state.hostname.clone(),
 			id: id.clone(),
+			identity: self.server.path.clone(),
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
 			isolation,
