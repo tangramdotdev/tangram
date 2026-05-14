@@ -66,6 +66,8 @@ pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
+	#[cfg(target_os = "linux")]
+	pub firewall: Firewall,
 	pub hostname: Option<String>,
 	pub id: tg::sandbox::Id,
 	pub identity: PathBuf,
@@ -82,6 +84,14 @@ pub struct Arg {
 	pub user: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, derive_more::Display, derive_more::FromStr)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
+pub enum Firewall {
+	Iptables,
+	Nft,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Command {
 	pub args: Vec<String>,
@@ -91,6 +101,12 @@ pub struct Command {
 	pub stderr: Stdio,
 	pub stdin: Stdio,
 	pub stdout: Stdio,
+}
+
+impl Default for Firewall {
+	fn default() -> Self {
+		Self::Nft
+	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -229,6 +245,7 @@ impl Sandbox {
 					&arg.id,
 					&arg.identity,
 					&arg.dns,
+					arg.firewall,
 					arg.network.as_ref(),
 					&arg.ip_pool,
 					ports,
@@ -244,6 +261,7 @@ impl Sandbox {
 				let network = crate::vm::network::create(
 					&arg.id,
 					&arg.identity,
+					arg.firewall,
 					arg.network.as_ref(),
 					&arg.ip_pool,
 					ports,

@@ -34,13 +34,21 @@ impl Network {
 	pub(crate) fn new(
 		id: &tg::sandbox::Id,
 		identity: &Path,
+		firewall: crate::Firewall,
 		host: ip::Lease,
 		guest: ip::Lease,
 		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
 		let prefix = format!("{}*", host::TAP_INTERFACE_NAME_PREFIX);
-		let port_forwarding_rules =
-			host::add_port_forwarding_rules(id, identity, &prefix, host.addr, guest.addr, ports)?;
+		let port_forwarding_rules = host::add_port_forwarding_rules(
+			firewall,
+			id,
+			identity,
+			&prefix,
+			host.addr,
+			guest.addr,
+			ports,
+		)?;
 		Ok(Self {
 			_port_forwarding_rules: port_forwarding_rules,
 			guest,
@@ -125,9 +133,11 @@ impl Drop for Device {
 	}
 }
 
-pub(crate) fn setup() -> tg::Result<()> {
+pub(crate) fn setup(firewall: crate::Firewall) -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
-	SETUP.get_or_init(host::setup_tap_networking).clone()
+	SETUP
+		.get_or_init(|| host::setup_tap_networking(firewall))
+		.clone()
 }
 
 fn open_tap(name: &str) -> tg::Result<OwnedFd> {

@@ -29,11 +29,13 @@ impl Network {
 	pub(crate) fn new(
 		id: &tg::sandbox::Id,
 		identity: &Path,
+		firewall: crate::Firewall,
 		guest: ip::Lease,
 		ports: &[tg::sandbox::Port],
 	) -> tg::Result<Self> {
 		let bridge_name = BRIDGE_NAME.to_owned();
 		let port_forwarding_rules = host::add_port_forwarding_rules(
+			firewall,
 			id,
 			identity,
 			&bridge_name,
@@ -128,14 +130,18 @@ impl Pair {
 	}
 }
 
-pub(crate) fn setup() -> tg::Result<()> {
+pub(crate) fn setup(firewall: crate::Firewall) -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
 	SETUP
-		.get_or_init(|| create_bridge(BRIDGE_NAME, gateway_ip()))
+		.get_or_init(|| create_bridge(firewall, BRIDGE_NAME, gateway_ip()))
 		.clone()
 }
 
-pub(crate) fn create_bridge(name: &str, ip: Ipv4Addr) -> tg::Result<()> {
+pub(crate) fn create_bridge(
+	firewall: crate::Firewall,
+	name: &str,
+	ip: Ipv4Addr,
+) -> tg::Result<()> {
 	let mut netlink = Netlink::new()?;
 	if !netlink.link_exists(name)? {
 		netlink.link_add_bridge(name)?;
@@ -144,7 +150,7 @@ pub(crate) fn create_bridge(name: &str, ip: Ipv4Addr) -> tg::Result<()> {
 	netlink.link_set_up(name)?;
 	host::enable_ipv4_forwarding()?;
 	host::enable_route_localnet(name)?;
-	host::setup_bridge_networking(name, ip)?;
+	host::setup_bridge_networking(firewall, name, ip)?;
 	Ok(())
 }
 

@@ -584,8 +584,20 @@ pub struct SandboxNetwork {
 	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
 	pub dns: Vec<Ipv4Addr>,
 
+	#[serde(default)]
+	pub firewall: SandboxNetworkFirewall,
+
 	#[serde(default = "default_ip_ranges", skip_serializing_if = "Vec::is_empty")]
 	pub ip_ranges: Vec<IpRange>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxNetworkFirewall {
+	Iptables,
+
+	#[default]
+	Nft,
 }
 
 #[derive(
@@ -1122,6 +1134,7 @@ impl Default for SandboxNetwork {
 	fn default() -> Self {
 		Self {
 			dns: default_dns(),
+			firewall: SandboxNetworkFirewall::default(),
 			ip_ranges: default_ip_ranges(),
 		}
 	}
