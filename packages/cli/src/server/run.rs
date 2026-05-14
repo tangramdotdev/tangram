@@ -84,8 +84,6 @@ impl Cli {
 							name: name.to_owned(),
 							url,
 							token: None,
-							reconnect: None,
-							retry: None,
 						})
 					})
 					.collect(),

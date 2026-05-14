@@ -145,6 +145,9 @@ impl Server {
 				return Err(tg::error!("failed to delete the destroyed sandbox"));
 			}
 		}
+		self.delete_sandbox_tokens(&entry.sandbox)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?;
 
 		let statement = formatdoc!(
 			"

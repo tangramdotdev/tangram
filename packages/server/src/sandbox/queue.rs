@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Session, context::Authentication, database::Database},
 	futures::{StreamExt as _, future, stream},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -14,6 +14,11 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
+pub(super) struct LocalOutput {
+	process: Option<tg::process::Id>,
+	sandbox: tg::sandbox::Id,
+}
+
 impl Session {
 	pub(crate) async fn try_dequeue_sandbox(
 		&self,
@@ -21,6 +26,20 @@ impl Session {
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
+		}
+		if self.server.config().authentication.is_some()
+			&& !(self
+				.context
+				.authentication
+				.as_ref()
+				.is_some_and(Authentication::is_root)
+				|| self
+					.context
+					.authentication
+					.as_ref()
+					.is_some_and(Authentication::is_runner))
+		{
+			return Err(tg::error!("failed to authorize"));
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;
@@ -89,6 +108,12 @@ impl Session {
 				Database::Sqlite(process_store) => self.try_dequeue_sandbox_sqlite(process_store).await?,
 			};
 			if let Some(output) = output {
+				let token = self.create_sandbox_token(&output.sandbox).await?;
+				let output = tg::sandbox::queue::Output {
+					process: output.process,
+					sandbox: output.sandbox,
+					token,
+				};
 				self.server
 					.spawn_publish_sandbox_status_task(&output.sandbox);
 				if let Some(process) = &output.process {

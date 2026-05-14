@@ -1,6 +1,8 @@
 use {
-	crate::{Server, config},
+	crate::{Server, Session, config},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 };
 
 pub(crate) struct Output {
@@ -71,10 +73,12 @@ impl Server {
 			region: None,
 		}))
 	}
+}
 
+impl Session {
 	pub(crate) async fn locations(&self, arg: Option<&tg::location::Arg>) -> tg::Result<Output> {
-		let current_region = self.config().region.as_deref();
-		let configured_regions = self.config().regions.as_deref();
+		let current_region = self.server.config().region.as_deref();
+		let configured_regions = self.server.config().regions.as_deref();
 		validate_region_config(current_region, configured_regions)?;
 
 		let regions = configured_regions.map_or_else(Vec::new, |regions| {
@@ -91,16 +95,37 @@ impl Server {
 		});
 
 		let Some(arg) = arg else {
-			let mut remotes = self
-				.remotes
-				.iter()
-				.map(|remote| remote.key().clone())
-				.collect::<Vec<_>>();
-			remotes.sort();
-			let remotes = remotes
+			let owner = self.remote_owner_for_lookup().await?;
+			let connection = self
+				.server
+				.database
+				.connection()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+			#[derive(db::row::Deserialize)]
+			struct Row {
+				name: String,
+			}
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					select name
+					from remotes
+					where (
+						(\"user\" is null and {p}1 is null)
+						or \"user\" = {p}1
+					)
+					order by name;
+				",
+			);
+			let params = db::params![owner];
+			let remotes = connection
+				.query_all_into::<Row>(statement.into(), params)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 				.into_iter()
-				.map(|remote| Remote {
-					name: remote,
+				.map(|row| Remote {
+					name: row.name,
 					regions: None,
 				})
 				.collect();

@@ -15,7 +15,7 @@ let config = {
 		}
 	],
 	runner: {
-		remotes: ["default"],
+		remote: "default",
 	}
 }
 let runner = spawn -n runner --config $config

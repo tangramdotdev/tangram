@@ -85,7 +85,6 @@ impl Session {
 		if !arg.replicate {
 			let location = tg::Location::Local(tg::location::Local::default()).into();
 			let locations = self
-				.server
 				.locations(Some(&location))
 				.await
 				.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;

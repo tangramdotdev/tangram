@@ -17,7 +17,7 @@ mod sqlite;
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Condition {
 	DepthExceeded { max_depth: i64 },
-	TokenCountZero,
+	LeaseCountZero,
 }
 
 pub(crate) struct InnerArg {
@@ -41,7 +41,6 @@ impl Session {
 		}
 
 		let locations = self
-			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
@@ -287,11 +286,11 @@ impl Session {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			child: tg::process::Id,
-			token: Option<String>,
+			lease: Option<String>,
 		}
 		let statement = formatdoc!(
 			"
-				select process_children.child, process_children.token
+				select process_children.child, process_children.lease
 				from process_children
 				inner join processes on processes.id = process_children.child
 				where process_children.process = {p}1 and processes.status != 'finished'
@@ -310,14 +309,14 @@ impl Session {
 			.into_iter()
 			.map(|row| {
 				let id = row.child;
-				let token = row.token;
+				let lease = row.lease;
 				async move {
-					if let Some(token) = token {
+					if let Some(lease) = lease {
 						let arg = tg::process::cancel::Arg {
 							location: Some(
 								tg::Location::Local(tg::location::Local::default()).into(),
 							),
-							token,
+							lease,
 						};
 						self.cancel_process(&id, arg).await.ok();
 					}

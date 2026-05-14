@@ -16,7 +16,6 @@ impl Session {
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
 		let locations = self
-			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
@@ -84,34 +83,34 @@ impl Session {
 			return Ok(None);
 		};
 
-		// Delete the process token.
+		// Delete the process lease.
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
-				delete from process_tokens
-				where process = {p}1 and token = {p}2;
+				delete from process_leases
+				where process = {p}1 and lease = {p}2;
 			"
 		);
-		let params = db::params![id.to_string(), arg.token];
+		let params = db::params![id.to_string(), arg.lease];
 		let deleted = transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-		// If no token was removed, then validate whether the token was stale or invalid.
+		// If no lease was removed, then validate whether the lease was stale or invalid.
 		if deleted == 0 && !status.is_finished() {
 			transaction
 				.rollback()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to roll back the transaction"))?;
-			return Err(tg::error!("the process token was not found"));
+			return Err(tg::error!("the process lease was not found"));
 		}
 
-		// Update the token count.
+		// Update the lease count.
 		self.server
-			.update_process_token_count_with_transaction(&transaction, id)
+			.update_process_lease_count_with_transaction(&transaction, id)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to update the token count"))?;
+			.map_err(|error| tg::error!(!error, "failed to update the lease count"))?;
 
 		// Commit the transaction.
 		transaction
@@ -121,7 +120,7 @@ impl Session {
 
 		drop(connection);
 
-		// Publish the watchdog message if a token was removed.
+		// Publish the watchdog message if a lease was removed.
 		if deleted > 0 {
 			self.server.spawn_publish_watchdog_message_task();
 		}

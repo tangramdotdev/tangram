@@ -575,15 +575,33 @@ impl Session {
 	}
 
 	fn namespace_read_subject(&self) -> tg::Result<NamespaceReadSubject> {
-		match &self.context.authentication {
-			Authentication::Authenticated(user) => Ok(NamespaceReadSubject::User(user.id.clone())),
-			Authentication::Root => Ok(NamespaceReadSubject::All),
-			Authentication::Unauthenticated => {
-				if self.context.token.is_some() {
-					return Err(tg::error!("failed to authorize"));
-				}
-				Ok(NamespaceReadSubject::Public)
-			},
+		if let Some(user) = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+		{
+			Ok(NamespaceReadSubject::User(user.id.clone()))
+		} else if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_root)
+		{
+			Ok(NamespaceReadSubject::All)
+		} else if self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_sandbox_ref().ok())
+			.is_some()
+		{
+			Ok(NamespaceReadSubject::Public)
+		} else {
+			if self.context.token.is_some() {
+				return Err(tg::error!("failed to authorize"));
+			}
+			Ok(NamespaceReadSubject::Public)
 		}
 	}
 
@@ -597,11 +615,20 @@ impl Session {
 		permission: tg::Permission,
 	) -> tg::Result<()> {
 		if permission != tg::Permission::Read {
-			let user = match &self.context.authentication {
-				Authentication::Authenticated(user) => user,
-				Authentication::Root => return Ok(()),
-				Authentication::Unauthenticated => return Err(tg::error!("failed to authorize")),
-			};
+			if self
+				.context
+				.authentication
+				.as_ref()
+				.is_some_and(Authentication::is_root)
+			{
+				return Ok(());
+			}
+			let user = self
+				.context
+				.authentication
+				.as_ref()
+				.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+				.ok_or_else(|| tg::error!("failed to authorize"))?;
 			let mut connection = self
 				.server
 				.database

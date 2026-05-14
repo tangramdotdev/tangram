@@ -29,7 +29,7 @@ struct LocalOutput {
 	sandbox: tg::sandbox::Id,
 	sandbox_status: Option<tg::sandbox::Status>,
 	status: tg::process::Status,
-	token: Option<String>,
+	lease: Option<String>,
 	wait: Option<tg::process::wait::Output>,
 }
 
@@ -275,7 +275,6 @@ impl Session {
 			}
 			if cacheable && matches!(arg.cached, None | Some(true)) {
 				let locations = self
-					.server
 					.locations(arg.cache_location.as_ref())
 					.await
 					.map_err(|error| tg::error!(!error, "failed to resolve the cache locations"))?;
@@ -309,7 +308,7 @@ impl Session {
 						cached: output.cached,
 						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: tg::Either::Right(output.id),
-						token: output.token,
+						lease: output.lease,
 						wait: Some(wait),
 					}
 				} else {
@@ -322,7 +321,7 @@ impl Session {
 			future::Either::Right((result, _)) => {
 				if let Ok(Some(cached_output)) = result {
 					if let Some(output) = output
-						&& let Some(token) = output.token
+						&& let Some(lease) = output.lease
 					{
 						tokio::spawn({
 							let session = self.clone();
@@ -331,7 +330,7 @@ impl Session {
 									location: Some(
 										tg::Location::Local(tg::location::Local::default()).into(),
 									),
-									token,
+									lease,
 								};
 								session.cancel_process(&output.id, arg).boxed().await.ok();
 							}
@@ -346,7 +345,7 @@ impl Session {
 						cached: output.cached,
 						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: tg::Either::Right(output.id),
-						token: output.token,
+						lease: output.lease,
 						wait: output.wait,
 					}
 				}
@@ -360,7 +359,7 @@ impl Session {
 				output.cached,
 				child,
 				&arg.command.options,
-				output.token.as_ref(),
+				output.lease.as_ref(),
 			)
 			.await
 			.map_err(
@@ -765,8 +764,8 @@ impl Session {
 			None
 		};
 
-		// If the process is not finished, then create a process token.
-		let token = if status == tg::process::Status::Finished {
+		// If the process is not finished, then create a process lease.
+		let lease = if status == tg::process::Status::Finished {
 			None
 		} else {
 			if sandbox_status.is_some_and(|status| status.is_destroyed()) {
@@ -801,26 +800,26 @@ impl Session {
 				return Ok(None);
 			}
 
-			let token = Self::create_process_token();
+			let lease = Self::create_process_lease();
 			let statement = formatdoc!(
 				"
-					insert into process_tokens (process, token)
+					insert into process_leases (process, lease)
 					values ({p}1, {p}2);
 				"
 			);
-			let params = db::params![id.to_string(), token];
+			let params = db::params![id.to_string(), lease];
 			transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-			// Update token count.
+			// Update lease count.
 			self.server
-				.update_process_token_count_with_transaction(transaction, &id)
+				.update_process_lease_count_with_transaction(transaction, &id)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to update the token count"))?;
+				.map_err(|error| tg::error!(!error, "failed to update the lease count"))?;
 
-			Some(token)
+			Some(lease)
 		};
 
 		Ok(Some(LocalOutput {
@@ -830,7 +829,7 @@ impl Session {
 			sandbox,
 			sandbox_status,
 			status,
-			token,
+			lease,
 			wait,
 		}))
 	}
@@ -1003,6 +1002,7 @@ impl Session {
 					finished_at,
 					host,
 					id,
+					lease_count,
 					output,
 					retry,
 					sandbox,
@@ -1011,7 +1011,7 @@ impl Session {
 					stdin_open,
 					stdout_open,
 					stored_at,
-					token_count,
+					created_by,
 					tty
 				)
 				values (
@@ -1028,6 +1028,7 @@ impl Session {
 					{p}11,
 					{p}12,
 					{p}13,
+					{p}22,
 					{p}14,
 					{p}15,
 					{p}16,
@@ -1036,8 +1037,8 @@ impl Session {
 					{p}19,
 					{p}20,
 					{p}21,
-					{p}22,
-					{p}23
+					{p}23,
+					{p}24
 				);
 			"
 		);
@@ -1064,6 +1065,12 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))?,
 			),
 		};
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.to_string());
 		let params = db::params![
 			actual_checksum.to_string(),
 			true,
@@ -1087,6 +1094,7 @@ impl Session {
 			stdout_open,
 			now,
 			0,
+			created_by,
 			tty.map(db::value::Json),
 		];
 		transaction
@@ -1103,7 +1111,7 @@ impl Session {
 					cached,
 					child,
 					options,
-					token
+					lease
 				)
 				select
 					{p}1,
@@ -1111,7 +1119,7 @@ impl Session {
 					cached,
 					child,
 					options,
-					token
+					lease
 				from process_children
 				where process = {p}2
 				on conflict (process, child) do nothing;
@@ -1130,7 +1138,7 @@ impl Session {
 			sandbox,
 			sandbox_status,
 			status,
-			token: None,
+			lease: None,
 			wait: Some(tg::process::wait::Output {
 				error: error.as_ref().map(tg::Error::to_data_or_id),
 				exit,
@@ -1152,8 +1160,8 @@ impl Session {
 		// Create an ID.
 		let id = tg::process::Id::new();
 
-		// Create a token.
-		let token = Self::create_process_token();
+		// Create a lease.
+		let lease = Self::create_process_lease();
 
 		let parent_sandbox = parent_sandbox.cloned();
 
@@ -1223,6 +1231,7 @@ impl Session {
 					expected_checksum,
 					host,
 					id,
+					lease_count,
 					retry,
 					sandbox,
 					started_at,
@@ -1234,7 +1243,7 @@ impl Session {
 					stdout,
 					stdout_open,
 					stored_at,
-					token_count,
+					created_by,
 					tty
 				)
 				values (
@@ -1246,6 +1255,7 @@ impl Session {
 					{p}6,
 					{p}7,
 					{p}8,
+					{p}20,
 					{p}9,
 					{p}10,
 					{p}11,
@@ -1257,8 +1267,8 @@ impl Session {
 					{p}17,
 					{p}18,
 					{p}19,
-					{p}20,
-					{p}21
+					{p}21,
+					{p}22
 				);
 			"
 		);
@@ -1273,6 +1283,12 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))?,
 			),
 		};
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.to_string());
 		let params = db::params![
 			cacheable,
 			arg.command.item.to_string(),
@@ -1294,6 +1310,7 @@ impl Session {
 			stdout_open,
 			now,
 			0,
+			created_by,
 			tty.map(db::value::Json),
 		];
 		transaction
@@ -1301,24 +1318,24 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-		// Insert the process token.
+		// Insert the process lease.
 		let statement = formatdoc!(
 			"
-				insert into process_tokens (process, token)
+				insert into process_leases (process, lease)
 				values ({p}1, {p}2);
 			"
 		);
-		let params = db::params![id.to_string(), token];
+		let params = db::params![id.to_string(), lease];
 		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-		// Update token count.
+		// Update lease count.
 		self.server
-			.update_process_token_count_with_transaction(transaction, &id)
+			.update_process_lease_count_with_transaction(transaction, &id)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to update the token count"))?;
+			.map_err(|error| tg::error!(!error, "failed to update the lease count"))?;
 
 		Ok(LocalOutput {
 			cached: false,
@@ -1327,7 +1344,7 @@ impl Session {
 			sandbox,
 			sandbox_status: Some(sandbox_status),
 			status,
-			token: Some(token),
+			lease: Some(lease),
 			wait: None,
 		})
 	}
@@ -1340,12 +1357,19 @@ impl Session {
 	) -> tg::Result<tg::sandbox::Id> {
 		let p = transaction.p();
 		let id = tg::sandbox::Id::new();
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.clone());
 		let statement = formatdoc!(
 			"
 				insert into sandboxes (
 					id,
 					cpu,
 					created_at,
+					created_by,
 					heartbeat_at,
 					hostname,
 					isolation,
@@ -1370,7 +1394,8 @@ impl Session {
 					{p}10,
 					{p}11,
 					{p}12,
-					{p}13
+					{p}13,
+					{p}14
 				);
 			"
 		);
@@ -1401,6 +1426,7 @@ impl Session {
 			id.to_string(),
 			cpu,
 			now,
+			created_by.map(|user| user.to_string()),
 			heartbeat_at,
 			arg.hostname.clone(),
 			arg.isolation.map(db::value::Json),
@@ -1470,7 +1496,7 @@ impl Session {
 		cached: bool,
 		child: &tg::process::Id,
 		options: &tg::referent::Options,
-		token: Option<&String>,
+		lease: Option<&String>,
 	) -> tg::Result<()> {
 		// Get a process store connection.
 		let mut connection = self
@@ -1493,7 +1519,7 @@ impl Session {
 			cached,
 			child,
 			options,
-			token,
+			lease,
 		)
 		.await
 		.map_err(
@@ -1525,7 +1551,7 @@ impl Session {
 		cached: bool,
 		child: &tg::process::Id,
 		options: &tg::referent::Options,
-		token: Option<&String>,
+		lease: Option<&String>,
 	) -> tg::Result<()> {
 		let p = transaction.p();
 
@@ -1616,7 +1642,7 @@ impl Session {
 					cached,
 					child,
 					options,
-					token
+					lease
 				) values (
 					{p}1,
 					(select coalesce(max(position) + 1, 0) from process_children where process = {p}1),
@@ -1633,7 +1659,7 @@ impl Session {
 			cached,
 			child.to_string(),
 			db::value::Json(options),
-			token
+			lease
 		];
 		transaction
 			.execute(statement.into(), params)
@@ -1742,7 +1768,7 @@ impl Session {
 		});
 	}
 
-	fn create_process_token() -> String {
+	fn create_process_lease() -> String {
 		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 		};

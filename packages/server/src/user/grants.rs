@@ -17,7 +17,10 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		let authentication = &self.context.authentication;
-		if matches!(authentication, Authentication::Unauthenticated) {
+		if authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -36,7 +39,7 @@ impl Session {
 		};
 		let mut data =
 			Self::list_namespace_grants_for_user_with_transaction(&transaction, &user.id).await?;
-		if let Authentication::Authenticated(current_user) = authentication
+		if let Some(Authentication::User(current_user)) = authentication
 			&& current_user.id != user.id
 		{
 			let mut filtered = Vec::new();

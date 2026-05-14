@@ -293,3 +293,17 @@ pub fn encode_query_value(value: &str) -> String {
 pub fn decode_query_value(value: &str) -> Result<Cow<'_, str>, std::str::Utf8Error> {
 	percent_encoding::percent_decode_str(value).decode_utf8()
 }
+
+impl PartialEq for Uri {
+	fn eq(&self, other: &Self) -> bool {
+		self.string == other.string
+	}
+}
+
+impl Eq for Uri {}
+
+impl std::hash::Hash for Uri {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		std::hash::Hash::hash(&self.string, state);
+	}
+}

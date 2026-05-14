@@ -40,6 +40,12 @@ impl Session {
 	) -> tg::Result<tg::sandbox::create::Output> {
 		arg = Self::normalize_sandbox_create_arg(arg)?;
 		let id = tg::sandbox::Id::new();
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.clone());
 		let connection = self
 			.server
 			.process_store
@@ -53,6 +59,7 @@ impl Session {
 					id,
 					cpu,
 					created_at,
+					created_by,
 					hostname,
 					isolation,
 					memory,
@@ -73,7 +80,8 @@ impl Session {
 					{p}8,
 					{p}9,
 					{p}10,
-					{p}11
+					{p}11,
+					{p}12
 				);
 			"
 		);
@@ -102,6 +110,7 @@ impl Session {
 			id.to_string(),
 			cpu,
 			now,
+			created_by.map(|user| user.to_string()),
 			arg.hostname.clone(),
 			arg.isolation.map(db::value::Json),
 			memory,

@@ -89,7 +89,6 @@ impl Session {
 		if arg.replicate.is_none() {
 			let location = tg::Location::Local(tg::location::Local::default()).into();
 			let locations = self
-				.server
 				.locations(Some(&location))
 				.await
 				.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
@@ -132,11 +131,20 @@ impl Session {
 			));
 		}
 
-		let user = match &self.context.authentication {
-			Authentication::Authenticated(user) => user,
-			Authentication::Root => return Ok(()),
-			Authentication::Unauthenticated => return Err(tg::error!("failed to authorize")),
-		};
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_root)
+		{
+			return Ok(());
+		}
+		let user = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.ok_or_else(|| tg::error!("failed to authorize"))?;
 
 		let tags = if let Some(deleted) = &arg.replicate {
 			deleted.clone()

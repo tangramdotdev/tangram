@@ -13,7 +13,7 @@ let path = artifact {
 }
 
 let process = tg build -dv $path | from json
-tg cancel $process.process $process.token
+tg cancel $process.process $process.lease
 let output = tg output $process.process | complete
 failure $output
 let stderr = $output.stderr | ansi strip | str trim | str replace -r 'id = pcs_[a-z0-9]+' 'id = <process>'

@@ -15,7 +15,6 @@ impl Session {
 		arg: tg::object::metadata::Arg,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let locations = self
-			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;

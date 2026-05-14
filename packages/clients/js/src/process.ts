@@ -29,7 +29,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stdin: tg.Process.Stdio.Writer;
 	#stdioPromise: Promise<void> | undefined;
 	#stdout: tg.Process.Stdio.Reader;
-	#token: string | undefined;
+	#lease: string | undefined;
 	#wait: tg.Process.Wait | undefined;
 
 	static build<
@@ -232,7 +232,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stdin = arg.stdin;
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
-		this.#token = arg.token;
+		this.#lease = arg.lease;
 		this.#wait = arg.wait;
 		this.#stdin.setProcess(this);
 		this.#stdout.setProcess(this);
@@ -438,7 +438,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 		let arg: tg.Handle.WaitArg = {
 			location: this.#location,
-			token: this.#token,
+			lease: this.#lease,
 		};
 		let data = await tg.handle.waitProcess(this.#id, arg);
 		let wait = tg.Process.Wait.fromData(data);
@@ -797,7 +797,7 @@ export namespace Process {
 		stdin: tg.Process.Stdio.Writer;
 		stdioPromise?: Promise<void> | undefined;
 		stdout: tg.Process.Stdio.Reader;
-		token?: string | undefined;
+		lease?: string | undefined;
 		wait?: tg.Process.Wait | undefined;
 	};
 

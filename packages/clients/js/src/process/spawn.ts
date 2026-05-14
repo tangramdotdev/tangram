@@ -248,7 +248,7 @@ export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
 		state: undefined,
 		stderr,
 		stdin,
-		token: undefined,
+		lease: undefined,
 		stdout,
 	});
 };
@@ -506,7 +506,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			stream: "stdin",
 		}),
 		stdioPromise,
-		token: output.token,
+		lease: output.lease,
 		stdout: new tg.Process.Stdio.Reader({
 			unavailable: !provideStdout,
 			stream: "stdout",

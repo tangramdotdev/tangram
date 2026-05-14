@@ -30,5 +30,5 @@ let output = tg log $process.process --position 41 --length='-20'
 snapshot $output 'bbbbbbbbbbbbbbbbbbbb'
 
 # Cancel the process.
-tg cancel $process.process $process.token
+tg cancel $process.process $process.lease
 tg wait $process.process

@@ -11,7 +11,7 @@ pub struct Args {
 	pub process: tg::process::Id,
 
 	#[arg(index = 2)]
-	pub token: String,
+	pub lease: String,
 }
 
 impl Cli {
@@ -22,7 +22,7 @@ impl Cli {
 			args.location.get(),
 			None,
 			None,
-			Some(args.token),
+			Some(args.lease),
 			None,
 		);
 		process.cancel_with_handle(&client).await.map_err(

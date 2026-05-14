@@ -12,24 +12,12 @@ let remote = spawn -n remote --cloud --config $config --url http://localhost:847
 # Spawn a remote runner.
 let runner = spawn -n runner --config {
 	runner: {
-		remotes: ["default"]
+		remote: "default"
 	}
 	remotes: [
 		{
 			name: "default"
 			url: $remote.url
-			reconnect: {
-				backoff: 0.1,
-				jitter: 0.05,
-				max_delay: 5,
-				max_retries: 32,
-			}
-			retry: {
-				backoff: 0.1,
-				jitter: 0.05,
-				max_delay: 5,
-				max_retries: 32,
-			}
 		}
 	]
 }
@@ -40,18 +28,6 @@ let local = spawn -n local --config {
 		{
 			name: "default",
 			url: $remote.url
-			reconnect: {
-				backoff: 0.1,
-				jitter: 0.05,
-				max_delay: 5,
-				max_retries: 32,
-			}
-			retry: {
-				backoff: 0.1,
-				jitter: 0.05,
-				max_delay: 5,
-				max_retries: 32,
-			}
 		}
 	]
 }
@@ -70,18 +46,20 @@ let path = artifact {
 # Run the process.
 let process = tg -u $local.url run -d $path --remote
 
-# In the background perform a long lived task.
-job spawn {
-	tg -u $local.url log --no-timeout $process | complete | job send 0
-}
+# Wait for the process to finish.
+let output = tg -u $local.url process wait $process | complete
+success $output
+snapshot ($output.stdout | from json) '
+	exit: 0
 
-# Kill the server after one second.
-sleep 1sec
+'
+
+# Kill the server.
 print 'killing remote'
 let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 2 $pid
 
-# Wait for the process to finish.
+# Wait for the server to stop.
 if $nu.os-info.name == "linux" { ^tail --pid $pid -f /dev/null } else { while (ps | where pid == $pid | is-not-empty) { sleep 10ms } }
 print 'server stopped.'
 
@@ -92,15 +70,8 @@ spawn --directory $remote.directory -n remote --cloud --config $config --url $re
 let health = tg -u $remote.url health | complete
 success $health
 
-let output = tg -u $local.url process wait $process | complete
-success $output
-snapshot ($output.stdout | from json) '
-	exit: 0
-
-'
-
 # Get the output.
-let output = job recv
+let output = tg -u $local.url log --no-timeout $process | complete
 success $output
 snapshot $output.stdout '
 	log line 0

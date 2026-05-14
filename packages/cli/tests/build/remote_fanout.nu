@@ -18,7 +18,7 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 		],
 		runner: {
 			concurrency: 1,
-			remotes: ["default"],
+			remote: "default",
 		}
 	}
 	spawn -n $name --config $config

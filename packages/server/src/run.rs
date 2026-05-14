@@ -1,6 +1,5 @@
 use {
 	crate::{SandboxPermit, Server},
-	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::time::Duration,
 	tangram_client::prelude::*,
 };
@@ -28,39 +27,27 @@ impl Server {
 				.unwrap();
 			let permit = SandboxPermit(tg::Either::Left(permit));
 
-			let location = tg::Location::Local(tg::location::Local::default());
+			let location = self
+				.config
+				.runner
+				.as_ref()
+				.and_then(|config| config.remote.as_ref())
+				.map_or_else(
+					|| tg::Location::Local(tg::location::Local::default()),
+					|name| {
+						tg::Location::Remote(tg::location::Remote {
+							name: name.to_owned(),
+							region: None,
+						})
+					},
+				);
 			let arg = tg::sandbox::queue::Arg {
 				location: Some(location.clone().into()),
 				timeout: None,
 			};
-			let server = self.clone();
-			let futures = std::iter::once(
-				server
-					.dequeue_sandbox(arg)
-					.map_ok(move |output| (output, location.clone()))
-					.boxed(),
-			)
-			.chain(self.config.runner.iter().flat_map(|config| {
-				config.remotes.iter().map(|name| {
-					let server = self.clone();
-					let location = tg::Location::Remote(tg::location::Remote {
-						name: name.to_owned(),
-						region: None,
-					});
-					async move {
-						let arg = tg::sandbox::queue::Arg {
-							location: Some(location.clone().into()),
-							timeout: None,
-						};
-						let output = server.dequeue_sandbox(arg).await?;
-						Ok::<_, tg::Error>((output, location))
-					}
-					.boxed()
-				})
-			}));
-
-			let (output, location) = match future::select_ok(futures).await {
-				Ok((output, _)) => output,
+			let result = self.dequeue_sandbox(arg).await;
+			let output = match result {
+				Ok(output) => output,
 				Err(error) => {
 					tracing::error!(error = %error.trace(), "failed to dequeue a sandbox");
 					tokio::time::sleep(Duration::from_secs(1)).await;

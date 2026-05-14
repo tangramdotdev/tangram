@@ -152,8 +152,8 @@ impl Server {
 		&self,
 		listener: Listener,
 		config: crate::config::HttpListener,
-		process: Option<Arc<crate::context::Process>>,
 		sandbox: Option<tg::sandbox::Id>,
+		process: Option<Arc<crate::context::Process>>,
 		stopper: Stopper,
 	) {
 		#[cfg(feature = "tls")]
@@ -314,17 +314,13 @@ impl Server {
 				let sandbox = sandbox.clone();
 				let stopper = stopper.clone();
 				async move {
-					let response = server
-						.handle_request(
-							request,
-							Context {
-								process,
-								sandbox,
-								stopper: Some(stopper),
-								..Default::default()
-							},
-						)
-						.await;
+					let context = Context {
+						process,
+						sandbox,
+						stopper: Some(stopper),
+						..Default::default()
+					};
+					let response = server.handle_request(request, context).await;
 					Ok::<_, Infallible>(response)
 				}
 			}
@@ -482,9 +478,9 @@ impl Server {
 	) -> http::Response<BoxBody> {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		context.authentication = if self.config().authentication.is_some() {
-			Authentication::Unauthenticated
+			None
 		} else {
-			Authentication::Root
+			Some(Authentication::Root)
 		};
 		context.id = Some(id.clone());
 		context.token = request.token(None).map(ToOwned::to_owned);
@@ -498,26 +494,8 @@ impl Server {
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
 
-		if let Some(token) = context.token.clone() {
-			let session = self.session(&context);
-			match session.get_current_user_local(&token).await {
-				Ok(Some(user)) => {
-					context.authentication = Authentication::Authenticated(user);
-				},
-				Ok(None) => (),
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to authenticate the request");
-					let bytes = match error.to_data_or_id() {
-						tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
-						tg::Either::Right(id) => id.to_string(),
-					};
-					return http::Response::builder()
-						.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-						.bytes(bytes)
-						.unwrap()
-						.boxed_body();
-				},
-			}
+		if let Some(response) = self.authenticate_request(&mut context).await {
+			return response;
 		}
 
 		if let Err(response) = self

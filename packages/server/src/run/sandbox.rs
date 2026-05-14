@@ -100,7 +100,8 @@ impl Session {
 					.ok_or_else(|| tg::error!("no vm image configured"))?
 					.kernel_path
 					.clone();
-				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation { kernel_path })
+				let isolation = tangram_sandbox::VmIsolation { kernel_path };
+				tangram_sandbox::Isolation::Vm(isolation)
 			},
 			None => self.server.resolve_sandbox_isolation()?,
 		};
@@ -163,32 +164,29 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to create the sandbox"))?;
 
-		let _temp = temp;
 		self.server.sandboxes.insert(id.clone(), sandbox.clone());
-		let session = self.clone();
 		scopeguard::defer! {
-			session.server.sandboxes.remove(id);
+			self.server.sandboxes.remove(id);
 		}
 
 		// Spawn the serve task.
 		let serve_task = Task::spawn({
-			let session = self.clone();
+			let server = self.server.clone();
 			let id = id.clone();
 			let config = crate::config::HttpListener {
 				tls: None,
 				url: guest_uri.clone(),
 			};
 			|stop| async move {
-				session
-					.server
-					.serve(listener, config, None, Some(id.clone()), stop)
+				server
+					.serve(listener, config, Some(id.clone()), None, stop)
 					.await;
 			}
 		});
 
 		// Spawn the heartbeat task.
 		let heartbeat_task = Task::spawn({
-			let session = session.clone();
+			let session = self.clone();
 			let id = id.clone();
 			let location = location.clone();
 			move |stopper| async move {
@@ -198,14 +196,12 @@ impl Session {
 			}
 		});
 
-		let status = session
-			.get_sandbox_status(
-				id,
-				tg::sandbox::status::Arg {
-					location: Some(location.clone().into()),
-					timeout: None,
-				},
-			)
+		let arg = tg::sandbox::status::Arg {
+			location: Some(location.clone().into()),
+			timeout: None,
+		};
+		let status = self
+			.get_sandbox_status(id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox status stream"))?;
 		let mut status = pin!(status);

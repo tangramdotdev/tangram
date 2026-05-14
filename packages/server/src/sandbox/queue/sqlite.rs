@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, sandbox::queue::LocalOutput},
 	indoc::indoc,
 	rusqlite::{self as sqlite, OptionalExtension as _},
 	tangram_client::prelude::*,
@@ -7,10 +7,10 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn try_dequeue_sandbox_sqlite(
+	pub(super) async fn try_dequeue_sandbox_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+	) -> tg::Result<Option<LocalOutput>> {
 		let connection = process_store
 			.write_connection()
 			.await
@@ -22,7 +22,7 @@ impl Session {
 
 	fn try_dequeue_sandbox_sqlite_sync(
 		connection: &mut sqlite::Connection,
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+	) -> tg::Result<Option<LocalOutput>> {
 		let transaction = connection
 			.transaction()
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
@@ -38,13 +38,13 @@ impl Session {
 		let sandbox = transaction
 			.query_row(statement, [], |row| row.get::<_, String>(0))
 			.optional()
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.map(|id| id.parse::<tg::sandbox::Id>())
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(sandbox) = sandbox else {
 			return Ok(None);
 		};
+		let sandbox = sandbox
+			.parse::<tg::sandbox::Id>()
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let statement = indoc!(
 			"
@@ -110,7 +110,7 @@ impl Session {
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
-		let output = tg::sandbox::queue::Output { sandbox, process };
+		let output = LocalOutput { process, sandbox };
 
 		Ok(Some(output))
 	}

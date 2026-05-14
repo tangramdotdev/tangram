@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Session, context::Authentication, database::Database},
 	futures::{StreamExt as _, future, stream},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -22,6 +22,20 @@ impl Session {
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
+		}
+		if self.server.config().authentication.is_some()
+			&& !(self
+				.context
+				.authentication
+				.as_ref()
+				.is_some_and(Authentication::is_root)
+				|| self
+					.context
+					.authentication
+					.as_ref()
+					.is_some_and(Authentication::is_runner))
+		{
+			return Err(tg::error!("failed to authorize"));
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;

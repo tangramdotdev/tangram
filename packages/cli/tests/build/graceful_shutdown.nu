@@ -12,7 +12,7 @@ let config = {
 	],
 	runner: {
 		concurrency: 1,
-		remotes: ["default"],
+		remote: "default",
 	}
 }
 let runner = spawn -n runner --config $config

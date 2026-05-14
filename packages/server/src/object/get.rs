@@ -38,7 +38,6 @@ impl Session {
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let locations = self
-			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
@@ -157,7 +156,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
 		let locations = self
-			.server
 			.locations(None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;

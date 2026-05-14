@@ -125,7 +125,7 @@ impl Server {
 		Ok(status.map(|status| status.0))
 	}
 
-	pub(crate) async fn update_process_token_count_with_transaction(
+	pub(crate) async fn update_process_lease_count_with_transaction(
 		&self,
 		transaction: &database::Transaction<'_>,
 		id: &tg::process::Id,
@@ -134,9 +134,9 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				update processes
-				set token_count = (
+				set lease_count = (
 					select count(*)
-					from process_tokens
+					from process_leases
 					where process = {p}1
 				)
 				where id = {p}1;

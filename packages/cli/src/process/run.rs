@@ -148,7 +148,7 @@ impl Cli {
 						.location()
 						.and_then(|location| location.to_location()),
 					process: process.item().id().cloned(),
-					token: process.item().token().cloned(),
+					lease: process.item().lease().cloned(),
 					wait: None,
 				};
 				let value = serde_json::to_value(output)
@@ -228,7 +228,7 @@ impl Cli {
 
 		// Await the process.
 		let arg = tg::process::wait::Arg {
-			token: process.item().token().cloned(),
+			lease: process.item().lease().cloned(),
 			..tg::process::wait::Arg::default()
 		};
 		let wait = process

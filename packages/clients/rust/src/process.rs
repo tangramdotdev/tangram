@@ -68,7 +68,7 @@ pub struct Inner {
 	stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
 	task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
-	token: Option<String>,
+	lease: Option<String>,
 	wait: Mutex<Option<Wait>>,
 }
 
@@ -127,7 +127,7 @@ impl<O> Process<O> {
 		location: Option<tg::location::Arg>,
 		metadata: Option<Metadata>,
 		state: Option<State>,
-		token: Option<String>,
+		lease: Option<String>,
 		cached: Option<bool>,
 	) -> Self {
 		let location = Arc::new(RwLock::new(location));
@@ -147,7 +147,7 @@ impl<O> Process<O> {
 			stdio_task: None,
 			stdout,
 			task: None,
-			token,
+			lease,
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, PhantomData);
@@ -193,8 +193,8 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn token(&self) -> Option<&String> {
-		self.token.as_ref()
+	pub fn lease(&self) -> Option<&String> {
+		self.lease.as_ref()
 	}
 
 	#[must_use]
@@ -375,8 +375,8 @@ impl<O> Process<O> {
 		if arg.location.is_none() {
 			arg.location = self.location();
 		}
-		if arg.token.is_none() {
-			arg.token = self.token().cloned();
+		if arg.lease.is_none() {
+			arg.lease = self.lease().cloned();
 		}
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
@@ -404,7 +404,7 @@ impl<O> Process<O> {
 	{
 		let arg = tg::process::wait::Arg {
 			location: self.location(),
-			token: self.token().cloned(),
+			lease: self.lease().cloned(),
 		};
 		let wait = self.wait_with_handle(handle, arg).await?;
 		let output = wait.into_output()?;

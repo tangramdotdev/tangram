@@ -11,10 +11,21 @@ create table user_emails (
 	primary key ("user", email)
 );
 
-create table tokens (
+create table user_tokens (
 	id text primary key,
 	"user" text not null
 );
+
+create table runner_tokens (
+	id text primary key
+);
+
+create table sandbox_tokens (
+	sandbox text not null,
+	token text primary key
+);
+
+create index sandbox_tokens_sandbox_index on sandbox_tokens (sandbox);
 
 create table groups (
 	id text primary key,
@@ -96,7 +107,10 @@ create table list_cache (
 create unique index list_cache_arg_index on list_cache (arg);
 
 create table remotes (
-	name text primary key,
+	"user" text,
+	name text not null,
 	url text not null,
 	token text
 );
+
+create unique index remotes_user_name_index on remotes (coalesce("user", ''), name);

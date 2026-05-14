@@ -17,7 +17,10 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		let authentication = &self.context.authentication;
-		if matches!(authentication, Authentication::Unauthenticated) {
+		if authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -34,7 +37,7 @@ impl Session {
 		let Some(user) = Self::try_get_user_with_transaction(&transaction, user).await? else {
 			return Ok(None);
 		};
-		if let Authentication::Authenticated(current_user) = authentication
+		if let Some(Authentication::User(current_user)) = authentication
 			&& current_user.id != user.id
 			&& !Self::user_has_namespace_permission_with_transaction(
 				&transaction,

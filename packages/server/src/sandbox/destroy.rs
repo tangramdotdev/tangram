@@ -41,7 +41,6 @@ impl Session {
 		}
 
 		let locations = self
-			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
@@ -175,6 +174,11 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		drop(connection);
+
+		self.server
+			.delete_sandbox_tokens(id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?;
 
 		// Spawn a task to publish the status message.
 		self.server.spawn_publish_sandbox_status_task(id);

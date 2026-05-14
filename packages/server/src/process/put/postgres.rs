@@ -54,6 +54,7 @@ impl Session {
 		let mut finished_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut hosts: Vec<String> = Vec::with_capacity(items.len());
 		let mut ids = Vec::with_capacity(items.len());
+		let mut lease_counts = Vec::with_capacity(items.len());
 		let mut logs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
@@ -67,7 +68,6 @@ impl Session {
 		let mut stdouts: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut stdout_opens: Vec<Option<bool>> = Vec::with_capacity(items.len());
 		let mut stored_ats = Vec::with_capacity(items.len());
-		let mut token_counts = Vec::with_capacity(items.len());
 		let mut ttys: Vec<Option<String>> = Vec::with_capacity(items.len());
 
 		for (id, data) in items {
@@ -99,6 +99,7 @@ impl Session {
 			finished_ats.push(data.finished_at);
 			hosts.push(data.host.clone());
 			ids.push(id.to_string());
+			lease_counts.push(0i64);
 			logs.push(data.log.as_ref().map(ToString::to_string));
 			outputs.push(
 				data.output
@@ -143,7 +144,6 @@ impl Session {
 			stdouts.push((!data.stdout.is_null()).then(|| data.stdout.to_string()));
 			stdout_opens.push(stdout_open);
 			stored_ats.push(stored_at);
-			token_counts.push(0i64);
 			ttys.push(
 				data.tty
 					.as_ref()
@@ -160,6 +160,7 @@ impl Session {
 					command,
 					created_at,
 					debug,
+					depth,
 					error,
 					error_code,
 					exit,
@@ -167,6 +168,7 @@ impl Session {
 					finished_at,
 					host,
 					id,
+					lease_count,
 					log,
 					output,
 					retry,
@@ -180,7 +182,7 @@ impl Session {
 					stdout,
 					stdout_open,
 					stored_at,
-					token_count,
+					created_by,
 					tty
 				)
 				select
@@ -189,6 +191,7 @@ impl Session {
 					unnest($3::text[]),
 					unnest($4::int8[]),
 					unnest($5::text[]),
+					null::int8,
 					unnest($6::text[]),
 					unnest($7::text[]),
 					unnest($8::int8[]),
@@ -196,20 +199,21 @@ impl Session {
 					unnest($10::int8[]),
 					unnest($11::text[]),
 					unnest($12::text[]),
-					unnest($13::text[]),
+					unnest($13::int8[]),
 					unnest($14::text[]),
-					unnest($15::bool[]),
-					unnest($16::text[]),
-					unnest($17::int8[]),
-					unnest($18::text[]),
+					unnest($15::text[]),
+					unnest($16::bool[]),
+					unnest($17::text[]),
+					unnest($18::int8[]),
 					unnest($19::text[]),
-					unnest($20::bool[]),
-					unnest($21::text[]),
-					unnest($22::bool[]),
-					unnest($23::text[]),
-					unnest($24::bool[]),
-					unnest($25::int8[]),
+					unnest($20::text[]),
+					unnest($21::bool[]),
+					unnest($22::text[]),
+					unnest($23::bool[]),
+					unnest($24::text[]),
+					unnest($25::bool[]),
 					unnest($26::int8[]),
+					null::text,
 					unnest($27::text[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
@@ -223,6 +227,7 @@ impl Session {
 					expected_checksum = excluded.expected_checksum,
 					finished_at = excluded.finished_at,
 					host = excluded.host,
+					lease_count = excluded.lease_count,
 					log = excluded.log,
 					output = excluded.output,
 					retry = excluded.retry,
@@ -236,7 +241,6 @@ impl Session {
 					stdout = excluded.stdout,
 					stdout_open = excluded.stdout_open,
 					stored_at = excluded.stored_at,
-					token_count = excluded.token_count,
 					tty = excluded.tty;
 			"
 		);
@@ -256,6 +260,7 @@ impl Session {
 					&finished_ats,
 					&hosts,
 					&ids,
+					&lease_counts,
 					&logs,
 					&outputs,
 					&retries,
@@ -269,7 +274,6 @@ impl Session {
 					&stdouts,
 					&stdout_opens,
 					&stored_ats,
-					&token_counts,
 					&ttys,
 				],
 			)

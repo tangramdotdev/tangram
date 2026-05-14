@@ -1,15 +1,15 @@
 use {
-	crate::Session,
+	crate::{Session, sandbox::queue::LocalOutput},
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
 impl Session {
-	pub(crate) async fn try_dequeue_sandbox_postgres(
+	pub(super) async fn try_dequeue_sandbox_postgres(
 		&self,
 		process_store: &db::postgres::Database,
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+	) -> tg::Result<Option<LocalOutput>> {
 		let mut connection = process_store
 			.write_connection()
 			.await
@@ -89,7 +89,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
-		let output = tg::sandbox::queue::Output { sandbox, process };
+		let output = LocalOutput { process, sandbox };
 
 		Ok(Some(output))
 	}

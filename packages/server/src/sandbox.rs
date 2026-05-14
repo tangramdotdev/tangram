@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Server, Session},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -18,6 +18,27 @@ pub mod queue;
 pub mod status;
 
 impl Server {
+	pub(crate) async fn delete_sandbox_tokens(&self, sandbox: &tg::sandbox::Id) -> tg::Result<()> {
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				delete from sandbox_tokens
+				where sandbox = {p}1;
+			"
+		);
+		let params = db::params![sandbox.to_string()];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(())
+	}
+
 	pub(crate) async fn get_sandbox_exists_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
 			.process_store
@@ -120,5 +141,40 @@ impl Server {
 			}
 		}
 		Ok(())
+	}
+}
+
+impl Session {
+	pub(crate) async fn create_sandbox_token(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<String> {
+		let token = Self::create_sandbox_token_string();
+		let connection = self
+			.server
+			.database
+			.write_connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into sandbox_tokens (sandbox, token)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![sandbox.to_string(), token.clone()];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(token)
+	}
+
+	fn create_sandbox_token_string() -> String {
+		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
+			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
+		};
+		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
 	}
 }

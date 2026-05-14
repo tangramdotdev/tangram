@@ -2,7 +2,7 @@ use {std::sync::Arc, tangram_client::prelude::*, tangram_futures::task::Stopper}
 
 #[derive(Clone, Debug)]
 pub struct Context {
-	pub authentication: Authentication,
+	pub authentication: Option<Authentication>,
 	pub id: Option<tg::Id>,
 	pub process: Option<Arc<Process>>,
 	pub sandbox: Option<tg::sandbox::Id>,
@@ -11,12 +11,13 @@ pub struct Context {
 	pub untrusted: bool,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap)]
+#[try_unwrap(ref)]
 pub enum Authentication {
-	Authenticated(tg::User),
 	Root,
-	#[default]
-	Unauthenticated,
+	Runner,
+	Sandbox(tg::sandbox::Id),
+	User(tg::User),
 }
 
 #[derive(Clone, Debug)]
@@ -31,7 +32,7 @@ impl Context {
 	#[must_use]
 	pub fn root() -> Self {
 		Self {
-			authentication: Authentication::Root,
+			authentication: Some(Authentication::Root),
 			id: None,
 			process: None,
 			sandbox: None,

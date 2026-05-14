@@ -14,7 +14,9 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		self.authorize_remote_management()?;
+		let owner = self.remote_owner()?;
 
+		let remote = self.try_get_remote_config(name).await?;
 		let connection = self
 			.server
 			.database
@@ -25,10 +27,14 @@ impl Session {
 		let statement = formatdoc!(
 			"
 				delete from remotes
-				where name = {p}1;
+				where name = {p}1
+					and (
+						(\"user\" is null and {p}2 is null)
+						or \"user\" = {p}2
+					);
 			",
 		);
-		let params = db::params![&name];
+		let params = db::params![&name, owner];
 		let n = connection
 			.execute(statement.into(), params)
 			.await
@@ -38,7 +44,9 @@ impl Session {
 			return Ok(None);
 		}
 
-		self.server.remotes.remove(name);
+		if let Some(remote) = remote {
+			self.server.remote_clients.remove(&remote.url);
+		}
 
 		Ok(Some(()))
 	}

@@ -30,7 +30,7 @@ impl Session {
 			Some(Condition::DepthExceeded { max_depth }) => {
 				(Some("depth_exceeded"), Some(max_depth))
 			},
-			Some(Condition::TokenCountZero) => (Some("token_count_zero"), None),
+			Some(Condition::LeaseCountZero) => (Some("lease_count_zero"), None),
 			None => (None, None),
 		};
 		let statement = indoc!(
@@ -44,25 +44,25 @@ impl Session {
 						error_code = $3,
 						exit = $4,
 						finished_at = $5,
+						lease_count = 0,
 						output = $6,
 						status = $7,
 						stderr_open = case when stderr_open is null then null else false end,
 						stdin_open = case when stdin_open is null then null else false end,
 						stdout_open = case when stdout_open is null then null else false end,
-						stored_at = $5,
-						token_count = 0
+						stored_at = $5
 					where
 						id = $8 and
 						status != 'finished' and
 						(
 							$10::text is null or
 							($10 = 'depth_exceeded' and depth > $11) or
-							($10 = 'token_count_zero' and token_count = 0)
+							($10 = 'lease_count_zero' and lease_count = 0)
 						)
 					returning id
 				),
 				deleted_tokens as (
-					delete from process_tokens
+					delete from process_leases
 					where process in (select id from updated)
 					returning process
 				),

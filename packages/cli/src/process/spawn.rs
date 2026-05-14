@@ -380,7 +380,7 @@ impl Cli {
 					.location()
 					.and_then(|location| location.to_location()),
 				process: output.item().id().cloned(),
-				token: output.item().token().cloned(),
+				lease: output.item().lease().cloned(),
 				wait: None,
 			};
 			self.print_serde(output, args.print).await?;
@@ -411,8 +411,8 @@ impl Cli {
 			self.render_progress_stream_with_output(stream, |cli, output| {
 				if print && sandboxed {
 					let mut message = output.process.to_string();
-					if let Some(token) = &output.token {
-						write!(message, " {token}").unwrap();
+					if let Some(lease) = &output.lease {
+						write!(message, " {lease}").unwrap();
 					}
 					cli.print_info_message(&message);
 				}

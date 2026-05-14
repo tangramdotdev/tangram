@@ -16,7 +16,7 @@ let process = tg build -dv $path | from json
 
 let output = do { tg cancel $process.process invalidtoken } | complete
 failure $output
-assert ($output.stderr | str contains 'the process token was not found') "the error should mention the missing token"
+assert ($output.stderr | str contains 'the process lease was not found') "the error should mention the missing lease"
 
-tg cancel $process.process $process.token
+tg cancel $process.process $process.lease
 tg wait $process.process

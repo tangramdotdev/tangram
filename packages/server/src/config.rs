@@ -469,12 +469,6 @@ pub struct Remote {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub reconnect: Option<Reconnect>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub retry: Option<Retry>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -534,7 +528,8 @@ pub struct Runner {
 	#[serde(default)]
 	pub js: Js,
 
-	pub remotes: Vec<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1083,7 +1078,7 @@ impl Default for Runner {
 			concurrency: None,
 			heartbeat_interval: Duration::from_secs(1),
 			js: Js::default(),
-			remotes: Vec::new(),
+			remote: None,
 		}
 	}
 }

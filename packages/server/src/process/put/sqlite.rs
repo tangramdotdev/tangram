@@ -70,6 +70,7 @@ impl Session {
 					command,
 					created_at,
 					debug,
+					depth,
 					error,
 					error_code,
 					exit,
@@ -77,6 +78,7 @@ impl Session {
 					finished_at,
 					host,
 					id,
+					lease_count,
 					log,
 					output,
 					retry,
@@ -90,7 +92,7 @@ impl Session {
 					stdout,
 					stdout_open,
 					stored_at,
-					token_count,
+					created_by,
 					tty
 				)
 				values (
@@ -99,6 +101,7 @@ impl Session {
 					?3,
 					?4,
 					?5,
+					null,
 					?6,
 					?7,
 					?8,
@@ -106,6 +109,7 @@ impl Session {
 					?10,
 					?11,
 					?12,
+					?26,
 					?13,
 					?14,
 					?15,
@@ -119,7 +123,7 @@ impl Session {
 					?23,
 					?24,
 					?25,
-					?26,
+					null,
 					?27
 				)
 				on conflict (id) do update set
@@ -134,6 +138,7 @@ impl Session {
 					expected_checksum = ?9,
 					finished_at = ?10,
 					host = ?11,
+					lease_count = ?26,
 					log = ?13,
 					output = ?14,
 					retry = ?15,
@@ -147,7 +152,6 @@ impl Session {
 					stdout = ?23,
 					stdout_open = ?24,
 					stored_at = ?25,
-					token_count = ?26,
 					tty = ?27
 			"
 		);

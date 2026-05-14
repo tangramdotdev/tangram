@@ -15,7 +15,6 @@ impl Session {
 		arg: tg::object::touch::Arg,
 	) -> tg::Result<Option<()>> {
 		let locations = self
-			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;

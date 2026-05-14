@@ -156,7 +156,7 @@ impl Session {
 		let token = Self::create_user_token();
 		let statement = formatdoc!(
 			"
-				insert into tokens (id, \"user\")
+				insert into user_tokens (id, \"user\")
 				values ({p}1, {p}2);
 			"
 		);

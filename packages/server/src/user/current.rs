@@ -60,8 +60,8 @@ impl Session {
 			"
 				select users.id, users.handle
 				from users
-				join tokens on tokens.\"user\" = users.id
-				where tokens.id = {p}1;
+				join user_tokens on user_tokens.\"user\" = users.id
+				where user_tokens.id = {p}1;
 			"
 		);
 		let params = db::params![token];

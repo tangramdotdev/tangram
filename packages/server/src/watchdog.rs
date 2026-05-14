@@ -85,7 +85,7 @@ impl Server {
 
 					select 1 as priority, id, 'cancellation' as code, 'the process was canceled' as message
 					from processes
-					where status != 'finished' and token_count = 0
+					where status != 'finished' and lease_count = 0
 
 					union all
 
@@ -132,7 +132,7 @@ impl Server {
 									crate::process::finish::Condition::DepthExceeded { max_depth }
 								},
 								Some(tg::error::Code::Cancellation) => {
-									crate::process::finish::Condition::TokenCountZero
+									crate::process::finish::Condition::LeaseCountZero
 								},
 								Some(code) => {
 									return Err(

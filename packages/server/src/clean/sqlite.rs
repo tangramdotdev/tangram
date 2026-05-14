@@ -67,13 +67,13 @@ impl Server {
 
 			let statement = indoc!(
 				"
-					delete from process_tokens
+					delete from process_leases
 					where process = ?1;
 				"
 			);
 			transaction
 				.execute(statement, sqlite::params![process])
-				.map_err(|error| tg::error!(!error, "failed to delete process_tokens"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete process_leases"))?;
 
 			let statement = indoc!(
 				"

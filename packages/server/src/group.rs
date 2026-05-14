@@ -17,11 +17,20 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let created_by = match &self.context.authentication {
-			Authentication::Authenticated(user) => Some(user.id.clone()),
-			Authentication::Root => None,
-			Authentication::Unauthenticated => return Err(tg::error!("failed to authorize")),
-		};
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
+			return Err(tg::error!("failed to authorize"));
+		}
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.clone());
 		let namespace = Self::namespace_for_handle(&arg.handle)?;
 
 		let mut connection = self
@@ -113,10 +122,12 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		if matches!(
-			&self.context.authentication,
-			Authentication::Unauthenticated
-		) {
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -160,10 +171,12 @@ impl Session {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		if matches!(
-			&self.context.authentication,
-			Authentication::Unauthenticated
-		) {
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -185,7 +198,10 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		let authentication = &self.context.authentication;
-		if matches!(authentication, Authentication::Unauthenticated) {
+		if authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -202,7 +218,7 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Authentication::Authenticated(user) = authentication {
+		if let Some(Authentication::User(user)) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
@@ -258,7 +274,10 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		let authentication = &self.context.authentication;
-		if matches!(authentication, Authentication::Unauthenticated) {
+		if authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -275,7 +294,7 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Authentication::Authenticated(user) = authentication {
+		if let Some(Authentication::User(user)) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
@@ -336,7 +355,10 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		let authentication = &self.context.authentication;
-		if matches!(authentication, Authentication::Unauthenticated) {
+		if authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -353,7 +375,7 @@ impl Session {
 		let group = Self::try_get_group_with_transaction(&transaction, group)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if let Authentication::Authenticated(current_user) = authentication {
+		if let Some(Authentication::User(current_user)) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
@@ -399,7 +421,10 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		let authentication = &self.context.authentication;
-		if matches!(authentication, Authentication::Unauthenticated) {
+		if authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -416,7 +441,7 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Authentication::Authenticated(current_user) = authentication {
+		if let Some(Authentication::User(current_user)) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
@@ -461,7 +486,10 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		let authentication = &self.context.authentication;
-		if matches!(authentication, Authentication::Unauthenticated) {
+		if authentication
+			.as_ref()
+			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
+		{
 			return Err(tg::error!("failed to authorize"));
 		}
 
@@ -478,7 +506,7 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Authentication::Authenticated(current_user) = authentication {
+		if let Some(Authentication::User(current_user)) = authentication {
 			let namespace = Self::namespace_for_handle(&group.handle)?;
 			if !Self::user_has_namespace_permission_with_transaction(
 				&transaction,

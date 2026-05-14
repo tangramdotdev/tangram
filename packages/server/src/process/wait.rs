@@ -53,7 +53,6 @@ impl Session {
 		stopper: Option<Stopper>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		let locations = self
-			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
@@ -212,7 +211,7 @@ impl Session {
 		});
 		let arg = tg::process::wait::Arg {
 			location: Some(location.into()),
-			token: None,
+			lease: None,
 		};
 		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to wait for the process"),
@@ -275,7 +274,7 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			token: None,
+			lease: None,
 		};
 		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to wait for the process"),
@@ -294,8 +293,8 @@ impl Session {
 		stopper: Option<Stopper>,
 		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
 	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
-		// If a token is provided, attach a cancellation guard.
-		if let Some(token) = arg.token.clone() {
+		// If a lease is provided, attach a cancellation guard.
+		if let Some(lease) = arg.lease.clone() {
 			let cancel = Arc::new(AtomicBool::new(true));
 			let future = {
 				let cancel = cancel.clone();
@@ -314,7 +313,7 @@ impl Session {
 				{
 					let arg = tg::process::cancel::Arg {
 						location: location.clone(),
-						token,
+						lease,
 					};
 					tokio::spawn(async move {
 						session.cancel_process(&id, arg).await.ok();

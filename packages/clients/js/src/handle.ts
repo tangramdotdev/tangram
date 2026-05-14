@@ -84,13 +84,13 @@ export namespace Handle {
 		cached: boolean;
 		location: tg.Location | undefined;
 		process: tg.Process.Id;
-		token: string | undefined;
+		lease: string | undefined;
 		wait: tg.Process.Wait.Data | undefined;
 	};
 
 	export type WaitArg = {
 		location?: tg.Location.Arg | undefined;
-		token: string | undefined;
+		lease: string | undefined;
 	};
 
 	export type CheckoutArg = {

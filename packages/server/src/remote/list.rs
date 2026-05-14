@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	indoc::indoc,
+	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -12,9 +12,7 @@ impl Session {
 		&self,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
+		let owner = self.remote_owner()?;
 
 		let connection = self
 			.server
@@ -29,14 +27,19 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			url: Uri,
 		}
-		let statement = indoc!(
+		let p = connection.p();
+		let statement = formatdoc!(
 			"
 				select name, url
 				from remotes
+				where (
+					(\"user\" is null and {p}1 is null)
+					or \"user\" = {p}1
+				)
 				order by name;
 			",
 		);
-		let params = db::params![];
+		let params = db::params![owner];
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await

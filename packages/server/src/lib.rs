@@ -19,6 +19,7 @@ use {
 	tracing::Instrument as _,
 };
 
+mod authentication;
 mod cache;
 mod check;
 mod checkin;
@@ -103,7 +104,7 @@ pub struct State {
 	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_list_tasks: RemoteListTasks,
-	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_permits: SandboxPermits,
 	sandbox_rootfs: PathBuf,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
@@ -506,8 +507,8 @@ impl Server {
 		// Create the object get tasks.
 		let object_get_tasks = tangram_futures::task::Map::default();
 
-		// Create the remotes.
-		let remotes = DashMap::default();
+		// Create the remote clients.
+		let remote_clients = DashMap::default();
 
 		// Create the remote list tasks.
 		let remote_list_tasks = tangram_futures::task::Map::default();
@@ -629,7 +630,7 @@ impl Server {
 			process_store,
 			regions,
 			remote_list_tasks,
-			remotes,
+			remote_clients,
 			sandbox_permits,
 			sandbox_rootfs,
 			sandbox_semaphore,
@@ -681,7 +682,8 @@ impl Server {
 			let statement = indoc!(
 				"
 					select name, token
-					from remotes;
+					from remotes
+					where \"user\" is null;
 				",
 			);
 			let params = db::params![];
@@ -694,7 +696,8 @@ impl Server {
 				.collect::<std::collections::BTreeMap<_, _>>();
 			let statement = indoc!(
 				"
-					delete from remotes;
+					delete from remotes
+					where \"user\" is null;
 				",
 			);
 			let params = db::params![];
@@ -706,8 +709,8 @@ impl Server {
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
-						insert into remotes (name, url, token)
-						values ({p}1, {p}2, {p}3);
+						insert into remotes (name, \"user\", url, token)
+						values ({p}1, null, {p}2, {p}3);
 					",
 				);
 				let token = remote
@@ -721,35 +724,7 @@ impl Server {
 					.map_err(|error| tg::error!(!error, "failed to insert the remote"))?;
 			}
 		}
-		server.remotes.clear();
-		let connection = server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		#[derive(db::row::Deserialize)]
-		struct RemoteRow {
-			name: String,
-			#[tangram_database(as = "db::value::FromStr")]
-			url: Uri,
-			token: Option<String>,
-		}
-		let statement = indoc!(
-			"
-				select name, url, token
-				from remotes
-				order by name;
-			",
-		);
-		let params = db::params![];
-		let remotes = connection
-			.query_all_into::<RemoteRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		for remote in remotes {
-			let client = server.create_remote_client(&remote.name, remote.url, remote.token)?;
-			server.remotes.insert(remote.name, client);
-		}
+		server.remote_clients.clear();
 
 		// Spawn the indexer task.
 		let indexer_task = server.config.indexer.clone().map(|config| {

@@ -57,7 +57,6 @@ impl Session {
 
 		let mut data = Vec::new();
 		let locations = self
-			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;

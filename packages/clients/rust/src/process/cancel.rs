@@ -9,7 +9,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	pub token: String,
+	pub lease: String,
 }
 
 impl<O> tg::Process<O> {
@@ -30,11 +30,11 @@ impl<O> tg::Process<O> {
 		self.ensure_location_with_handle(handle).await?;
 		let id = self.id().unwrap_right();
 		let location = self.location();
-		let token = self
-			.token()
-			.ok_or_else(|| tg::error!("missing token"))?
+		let lease = self
+			.lease()
+			.ok_or_else(|| tg::error!("missing lease"))?
 			.clone();
-		handle.cancel_process(id, Arg { location, token }).await?;
+		handle.cancel_process(id, Arg { location, lease }).await?;
 		Ok(())
 	}
 }

@@ -19,7 +19,7 @@ let long = artifact {
 
 for i in 0..20 {
 	let process = tg build -dv $"($long)#default" -a $"iter-($i)" | from json
-	tg cancel $process.process $process.token
+	tg cancel $process.process $process.lease
 }
 
 let short = artifact {
