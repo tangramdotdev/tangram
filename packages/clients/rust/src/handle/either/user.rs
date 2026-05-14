@@ -24,4 +24,15 @@ where
 			tg::Either::Right(s) => s.login_user(arg).right_future(),
 		}
 	}
+
+	fn list_user_namespace_grants(
+		&self,
+		user: &str,
+		arg: tg::user::grants::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::user::grants::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.list_user_namespace_grants(user, arg).left_future(),
+			tg::Either::Right(s) => s.list_user_namespace_grants(user, arg).right_future(),
+		}
+	}
 }

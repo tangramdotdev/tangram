@@ -4,6 +4,7 @@ use {
 	tangram_futures::{BoxAsyncBufRead, BoxAsyncRead, BoxAsyncWrite},
 };
 
+mod group;
 mod module;
 mod namespace;
 mod object;
@@ -15,12 +16,13 @@ mod user;
 mod watch;
 
 pub use self::{
-	module::Module, namespace::Namespace, object::Object, process::Process, remote::Remote,
-	sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
+	group::Group, module::Module, namespace::Namespace, object::Object, process::Process,
+	remote::Remote, sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
 };
 
 pub trait Handle:
-	Module
+	Group
+	+ Module
 	+ Namespace
 	+ Object
 	+ Process

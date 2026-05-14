@@ -33,7 +33,7 @@ mod directory;
 mod document;
 mod format;
 mod get;
-mod grant;
+mod grants;
 mod group;
 mod handle;
 mod health;

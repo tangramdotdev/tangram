@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Grant permission on a namespace.
+/// Delete a namespace grant.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -18,16 +18,13 @@ pub struct Args {
 
 	#[arg(long)]
 	pub public: bool,
-
-	#[command(flatten)]
-	pub print: crate::print::Options,
 }
 
 impl Cli {
-	pub async fn command_namespace_grant(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_namespace_grants_delete(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let grant = client
-			.grant_namespace_permission(tg::namespace::grant::Arg {
+		client
+			.delete_namespace_grant(tg::namespace::grants::delete::Arg {
 				namespace: args.namespace.clone(),
 				user: args.user,
 				group: args.group,
@@ -36,9 +33,9 @@ impl Cli {
 			})
 			.await
 			.map_err(
-				|error| tg::error!(!error, namespace = %args.namespace, "failed to grant the namespace permission"),
-			)?;
-		self.print_serde(grant, args.print).await?;
+				|error| tg::error!(!error, namespace = %args.namespace, "failed to delete the namespace grant"),
+			)?
+			.ok_or_else(|| tg::error!("failed to find the namespace grant"))?;
 		Ok(())
 	}
 }

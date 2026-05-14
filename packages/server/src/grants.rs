@@ -131,7 +131,7 @@ impl Session {
 		Ok(parent)
 	}
 
-	pub(crate) async fn grant_namespace_to_user_with_transaction(
+	pub(crate) async fn create_namespace_grant_for_user_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		namespace_id: i64,
@@ -166,7 +166,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-		Self::get_user_namespace_grant_with_transaction(
+		Self::get_namespace_grant_for_user_with_transaction(
 			transaction,
 			namespace,
 			namespace_id,
@@ -176,7 +176,7 @@ impl Session {
 		.await
 	}
 
-	pub(crate) async fn grant_namespace_to_group_with_transaction(
+	pub(crate) async fn create_namespace_grant_for_group_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		namespace_id: i64,
@@ -211,7 +211,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-		Self::get_group_namespace_grant_with_transaction(
+		Self::get_namespace_grant_for_group_with_transaction(
 			transaction,
 			namespace,
 			namespace_id,
@@ -221,7 +221,7 @@ impl Session {
 		.await
 	}
 
-	pub(crate) async fn grant_namespace_public_read_with_transaction(
+	pub(crate) async fn create_namespace_grant_for_public_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		namespace_id: i64,
@@ -247,11 +247,11 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-		Self::get_public_namespace_grant_with_transaction(transaction, namespace, namespace_id)
+		Self::get_namespace_grant_for_public_with_transaction(transaction, namespace, namespace_id)
 			.await
 	}
 
-	pub(crate) async fn revoke_namespace_from_user_with_transaction(
+	pub(crate) async fn delete_namespace_grant_for_user_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace_id: i64,
 		user: &tg::user::Id,
@@ -272,7 +272,7 @@ impl Session {
 		Ok((n > 0).then_some(()))
 	}
 
-	pub(crate) async fn revoke_namespace_from_group_with_transaction(
+	pub(crate) async fn delete_namespace_grant_for_group_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace_id: i64,
 		group: &tg::group::Id,
@@ -293,7 +293,7 @@ impl Session {
 		Ok((n > 0).then_some(()))
 	}
 
-	pub(crate) async fn revoke_public_namespace_read_with_transaction(
+	pub(crate) async fn delete_namespace_grant_for_public_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace_id: i64,
 	) -> tg::Result<Option<()>> {
@@ -747,7 +747,7 @@ impl Session {
 		Ok(filtered)
 	}
 
-	async fn get_user_namespace_grant_with_transaction(
+	async fn get_namespace_grant_for_user_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		namespace_id: i64,
@@ -787,7 +787,7 @@ impl Session {
 		})
 	}
 
-	async fn get_group_namespace_grant_with_transaction(
+	async fn get_namespace_grant_for_group_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		namespace_id: i64,
@@ -827,7 +827,7 @@ impl Session {
 		})
 	}
 
-	async fn get_public_namespace_grant_with_transaction(
+	async fn get_namespace_grant_for_public_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		namespace_id: i64,

@@ -55,15 +55,3 @@ impl tg::Session {
 		Ok(Some(output))
 	}
 }
-
-impl tg::Client {
-	pub async fn list_user_namespace_grants(
-		&self,
-		user: &str,
-		arg: tg::user::grants::Arg,
-	) -> tg::Result<Option<tg::user::grants::Output>> {
-		self.session(self.context())
-			.list_user_namespace_grants(user, arg)
-			.await
-	}
-}

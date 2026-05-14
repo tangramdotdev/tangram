@@ -7,6 +7,7 @@ use {
 
 mod either;
 mod ext;
+mod group;
 mod module;
 mod namespace;
 mod object;
@@ -18,7 +19,7 @@ mod user;
 mod watch;
 
 pub use self::{
-	ext::Ext, module::Module, namespace::Namespace, object::Object, process::Process,
+	ext::Ext, group::Group, module::Module, namespace::Namespace, object::Object, process::Process,
 	remote::Remote, sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
 };
 
@@ -51,7 +52,8 @@ pub(crate) fn handle() -> tg::Result<&'static tg::Client> {
 }
 
 pub trait Handle:
-	Module
+	Group
+	+ Module
 	+ Namespace
 	+ Object
 	+ Process

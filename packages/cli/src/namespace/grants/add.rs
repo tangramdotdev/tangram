@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Revoke permission on a namespace.
+/// Add a namespace grant.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -18,13 +18,16 @@ pub struct Args {
 
 	#[arg(long)]
 	pub public: bool,
+
+	#[command(flatten)]
+	pub print: crate::print::Options,
 }
 
 impl Cli {
-	pub async fn command_namespace_revoke(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_namespace_grants_add(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		client
-			.revoke_namespace_permission(tg::namespace::revoke::Arg {
+		let grant = client
+			.create_namespace_grant(tg::namespace::grants::create::Arg {
 				namespace: args.namespace.clone(),
 				user: args.user,
 				group: args.group,
@@ -33,9 +36,9 @@ impl Cli {
 			})
 			.await
 			.map_err(
-				|error| tg::error!(!error, namespace = %args.namespace, "failed to revoke the namespace permission"),
-			)?
-			.ok_or_else(|| tg::error!("failed to find the namespace grant"))?;
+				|error| tg::error!(!error, namespace = %args.namespace, "failed to add the namespace grant"),
+			)?;
+		self.print_serde(grant, args.print).await?;
 		Ok(())
 	}
 }

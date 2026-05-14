@@ -109,8 +109,8 @@ pub mod write;
 pub mod prelude {
 	pub use {
 		super::handle::{
-			Ext as _, Handle as _, Module as _, Namespace as _, Object as _, Process as _,
-			Remote as _, Sandbox as _, Tag as _, User as _, Watch as _,
+			Ext as _, Group as _, Handle as _, Module as _, Namespace as _, Object as _,
+			Process as _, Remote as _, Sandbox as _, Tag as _, User as _, Watch as _,
 		},
 		crate as tg,
 	};

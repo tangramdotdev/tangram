@@ -10,6 +10,12 @@ pub trait User: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		arg: tg::user::login::Arg,
 	) -> impl Future<Output = tg::Result<tg::user::login::Output>> + Send;
+
+	fn list_user_namespace_grants(
+		&self,
+		user: &str,
+		arg: tg::user::grants::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::user::grants::Output>>> + Send;
 }
 
 impl tg::handle::User for tg::Client {
@@ -19,5 +25,15 @@ impl tg::handle::User for tg::Client {
 
 	async fn login_user(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {
 		self.session(&self.context).login_user(arg).await
+	}
+
+	async fn list_user_namespace_grants(
+		&self,
+		user: &str,
+		arg: tg::user::grants::Arg,
+	) -> tg::Result<Option<tg::user::grants::Output>> {
+		self.session(&self.context)
+			.list_user_namespace_grants(user, arg)
+			.await
 	}
 }

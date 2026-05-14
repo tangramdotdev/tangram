@@ -36,11 +36,11 @@ assert_forbidden $output "Bob should not be able to create a child namespace wit
 let output = tg --token $bob tag put alice/project/pkg $id | complete
 assert_forbidden $output "Bob should not be able to put a tag without write permission."
 
-tg --token $alice namespace grant alice/project write --user bob
+tg --token $alice namespace grants add alice/project write --user bob
 tg --token $bob namespace get alice/project
 tg --token $bob tag put alice/project/pkg $id
 
-let output = tg --token $bob namespace grants alice/project | complete
+let output = tg --token $bob namespace grants list alice/project | complete
 assert_forbidden $output "Write permission should not allow Bob to inspect namespace grants."
 
 let bob_grants = tg --token $bob user grants bob | from json
@@ -65,26 +65,26 @@ let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-namespaces --re
 success $output "An anonymous user should be able to list readable entries."
 assert (not ($output.stdout | str contains "alice/project/pkg")) "The private tag should not be visible without public read."
 
-tg --token $alice namespace grant alice/project read --public
+tg --token $alice namespace grants add alice/project read --public
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-namespaces --recursive alice/project | complete }
 success $output "An anonymous user should be able to list public entries."
 assert ($output.stdout | str contains "alice/project/pkg") "The public tag should be visible without a token."
 
-tg --token $alice namespace revoke alice/project read --public
+tg --token $alice namespace grants delete alice/project read --public
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-namespaces --recursive alice/project | complete }
 success $output "An anonymous user should be able to list readable entries after revocation."
 assert (not ($output.stdout | str contains "alice/project/pkg")) "The tag should stop being visible after public read is revoked."
 
-let output = tg --token $bob namespace grant alice/project read --user carol | complete
+let output = tg --token $bob namespace grants add alice/project read --user carol | complete
 assert_forbidden $output "Write permission should not allow Bob to manage grants."
 
-tg --token $alice namespace grant alice/project read --user carol
+tg --token $alice namespace grants add alice/project read --user carol
 tg --token $carol namespace get alice/project
 tg --token $carol tag get alice/project/pkg
 
-let output = tg --token $carol namespace grants alice/project | complete
+let output = tg --token $carol namespace grants list alice/project | complete
 assert_forbidden $output "Read permission should not allow Carol to inspect namespace grants."
 
 let carol_grants = tg --token $carol user grants carol | from json
@@ -99,9 +99,9 @@ assert_forbidden $output "Read permission should not allow Carol to put a tag."
 let output = tg --token $carol tag delete alice/project/pkg | complete
 assert_forbidden $output "Read permission should not allow Carol to delete a tag."
 
-tg --token $alice namespace grant alice/project admin --user bob
-tg --token $bob namespace grants alice/project
+tg --token $alice namespace grants add alice/project admin --user bob
+tg --token $bob namespace grants list alice/project
 tg --token $bob user permissions carol alice/project
-tg --token $bob namespace grant alice/project write --user carol
+tg --token $bob namespace grants add alice/project write --user carol
 tg --token $carol tag put alice/project/carol $id
 tg --token $carol tag delete alice/project/carol

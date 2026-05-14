@@ -16,6 +16,31 @@ impl tg::handle::Namespace for Server {
 			.await
 	}
 
+	async fn create_namespace_grant(
+		&self,
+		arg: tg::namespace::grants::create::Arg,
+	) -> tg::Result<tg::Grant> {
+		self.session(&self.context)
+			.create_namespace_grant(arg)
+			.await
+	}
+
+	async fn list_namespace_grants(
+		&self,
+		arg: tg::namespace::grants::list::Arg,
+	) -> tg::Result<Option<tg::namespace::grants::list::Output>> {
+		self.session(&self.context).list_namespace_grants(arg).await
+	}
+
+	async fn delete_namespace_grant(
+		&self,
+		arg: tg::namespace::grants::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.delete_namespace_grant(arg)
+			.await
+	}
+
 	async fn try_delete_namespace(&self, namespace: &tg::Namespace) -> tg::Result<Option<()>> {
 		self.session(&self.context)
 			.try_delete_namespace(namespace)

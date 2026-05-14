@@ -138,7 +138,7 @@ impl Session {
 				let namespace_id =
 					Self::get_or_create_namespace_with_transaction(&transaction, &namespace)
 						.await?;
-				Self::grant_namespace_to_user_with_transaction(
+				Self::create_namespace_grant_for_user_with_transaction(
 					&transaction,
 					&namespace,
 					namespace_id,

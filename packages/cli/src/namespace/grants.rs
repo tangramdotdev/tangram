@@ -1,31 +1,35 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// List grants for a namespace.
+pub mod add;
+pub mod delete;
+pub mod list;
+
+/// Manage namespace grants.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
-	pub namespace: tg::Namespace,
+	#[command(subcommand)]
+	pub command: Command,
+}
 
-	#[command(flatten)]
-	pub print: crate::print::Options,
+#[derive(Clone, Debug, clap::Subcommand)]
+pub enum Command {
+	Add(self::add::Args),
+
+	#[command(alias = "remove", alias = "revoke", alias = "rm")]
+	Delete(self::delete::Args),
+
+	#[command(alias = "ls")]
+	List(self::list::Args),
 }
 
 impl Cli {
 	pub async fn command_namespace_grants(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let output = client
-			.list_namespace_grants(tg::namespace::grants::Arg {
-				namespace: args.namespace.clone(),
-			})
-			.await
-			.map_err(
-				|error| tg::error!(!error, namespace = %args.namespace, "failed to list the namespace grants"),
-			)?
-			.ok_or_else(
-				|| tg::error!(namespace = %args.namespace, "failed to find the namespace"),
-			)?;
-		self.print_serde(output, args.print).await?;
+		match args.command {
+			Command::Add(args) => self.command_namespace_grants_add(args).await?,
+			Command::Delete(args) => self.command_namespace_grants_delete(args).await?,
+			Command::List(args) => self.command_namespace_grants_list(args).await?,
+		}
 		Ok(())
 	}
 }

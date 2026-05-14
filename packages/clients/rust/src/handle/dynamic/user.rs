@@ -14,4 +14,14 @@ impl tg::handle::User for Handle {
 	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.login_user(arg)) }
 	}
+
+	fn list_user_namespace_grants(
+		&self,
+		user: &str,
+		arg: tg::user::grants::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::user::grants::Output>>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_user_namespace_grants(user, arg))
+		}
+	}
 }

@@ -1,5 +1,5 @@
 mod current;
-mod grant;
+mod get;
 mod grants;
 mod login;
 mod permissions;

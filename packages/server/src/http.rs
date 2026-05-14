@@ -561,10 +561,10 @@ impl Server {
 				session.list_namespace_grants_request(request).boxed()
 			},
 			(http::Method::PUT, ["namespaces", "grants"]) => {
-				session.grant_namespace_permission_request(request).boxed()
+				session.create_namespace_grant_request(request).boxed()
 			},
 			(http::Method::DELETE, ["namespaces", "grants"]) => {
-				session.revoke_namespace_permission_request(request).boxed()
+				session.delete_namespace_grant_request(request).boxed()
 			},
 			(http::Method::GET, ["namespaces"]) => {
 				session.try_get_namespace_request(request).boxed()

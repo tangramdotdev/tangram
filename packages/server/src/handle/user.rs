@@ -8,4 +8,14 @@ impl tg::handle::User for Server {
 	async fn login_user(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {
 		self.session(&self.context).login_user(arg).await
 	}
+
+	async fn list_user_namespace_grants(
+		&self,
+		user: &str,
+		arg: tg::user::grants::Arg,
+	) -> tg::Result<Option<tg::user::grants::Output>> {
+		self.session(&self.context)
+			.list_user_namespace_grants(user, arg)
+			.await
+	}
 }

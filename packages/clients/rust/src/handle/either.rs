@@ -4,6 +4,7 @@ use {
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
+mod group;
 mod module;
 mod namespace;
 mod object;
