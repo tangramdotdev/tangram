@@ -9,7 +9,7 @@ use {
 	std::{
 		ops::Deref,
 		os::fd::AsRawFd as _,
-		path::PathBuf,
+		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
@@ -108,6 +108,7 @@ pub struct State {
 	sandbox_permits: self::sandbox::Permits,
 	sandbox_listeners: Option<self::sandbox::Listeners>,
 	sandbox_rootfs: PathBuf,
+	sandbox_rootfs_image: Option<PathBuf>,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
 	sandbox_tasks: self::sandbox::Tasks,
 	sandboxes: self::sandbox::Map,
@@ -115,6 +116,7 @@ pub struct State {
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
+	vm_snapshot_bake: tokio::sync::Mutex<()>,
 	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
 }
 
@@ -475,14 +477,23 @@ impl Server {
 		// Create the remote list tasks.
 		let remote_list_tasks = tangram_futures::task::Map::default();
 
-		// Create the sandbox rootfs.
+		// Create the sandbox rootfs. If the config declares a VM isolation,
+		// also build a squashfs image of the rootfs alongside it for use as
+		// the VM disk.
 		let sandbox_rootfs_path = path.join("rootfs");
 		let tangram_path = tangram_util::env::current_exe()
 			.map_err(|error| tg::error!(!error, "failed to get the tangram executable path"))?;
 		let sandbox_rootfs = sandbox_rootfs_path.clone();
+		let sandbox_rootfs_image = config
+			.sandbox
+			.isolation
+			.vm
+			.as_ref()
+			.map(|_| path.join("vm/rootfs.squashfs"));
 		tangram_sandbox::root::prepare(&tangram_sandbox::root::Arg {
 			path: sandbox_rootfs.clone(),
 			tangram_path: tangram_path.clone(),
+			image_path: sandbox_rootfs_image.clone(),
 		})?;
 
 		// Create the log store.
@@ -603,6 +614,7 @@ impl Server {
 			sandbox_permits,
 			sandbox_listeners,
 			sandbox_rootfs,
+			sandbox_rootfs_image,
 			sandbox_semaphore,
 			sandbox_tasks,
 			sandboxes,
@@ -610,6 +622,7 @@ impl Server {
 			temps,
 			version,
 			vfs,
+			vm_snapshot_bake: tokio::sync::Mutex::new(()),
 			watches,
 		}));
 
@@ -1343,6 +1356,83 @@ impl Server {
 	#[must_use]
 	fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
+	}
+
+	#[must_use]
+	pub fn vm_snapshot_path(&self) -> PathBuf {
+		self.path.join("vm/snapshot")
+	}
+
+	/// Bake the VM snapshot at `snapshot_path` if it does not already exist.
+	/// Concurrent callers serialize on `vm_snapshot_bake` so the bake runs
+	/// at most once at a time.
+	pub(crate) async fn ensure_vm_snapshot(
+		&self,
+		snapshot_path: &Path,
+		kernel_path: &Path,
+	) -> tg::Result<()> {
+		if snapshot_path.exists() {
+			return Ok(());
+		}
+		let _guard = self.vm_snapshot_bake.lock().await;
+		if snapshot_path.exists() {
+			return Ok(());
+		}
+		if let Some(parent) = snapshot_path.parent() {
+			tokio::fs::create_dir_all(parent).await.map_err(|error| {
+				tg::error!(!error, path = %parent.display(), "failed to create the vm snapshot parent directory")
+			})?;
+		}
+		let temp = Temp::new(self);
+		tokio::fs::create_dir_all(temp.path())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the vm bake temp directory"))?;
+		let rootfs_path = self.sandbox_rootfs_image.as_ref().ok_or_else(|| {
+			tg::error!(
+				"cannot bake the vm snapshot without a rootfs image; ensure vm isolation is configured"
+			)
+		})?;
+		let bake_id = tg::sandbox::Id::new();
+		tracing::info!(
+			snapshot = %snapshot_path.display(),
+			sandbox = %bake_id,
+			"baking vm snapshot",
+		);
+		let status = tokio::process::Command::new(&self.tangram_path)
+			.arg("sandbox")
+			.arg("vm")
+			.arg("run")
+			.arg("--bake")
+			.arg(snapshot_path)
+			.arg("--id")
+			.arg(bake_id.to_string())
+			.arg("--artifacts-path")
+			.arg(self.artifacts_path())
+			.arg("--kernel-path")
+			.arg(kernel_path)
+			.arg("--rootfs-path")
+			.arg(rootfs_path)
+			.arg("--tangram-path")
+			.arg(&self.tangram_path)
+			.arg("--path")
+			.arg(temp.path())
+			.arg("--url")
+			.arg("http+vsock://2:6748")
+			.status()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to spawn the bake process"))?;
+		if !status.success() {
+			return Err(tg::error!(
+				%status,
+				snapshot = %snapshot_path.display(),
+				"the bake process exited with a non-zero status",
+			));
+		}
+		tracing::info!(
+			snapshot = %snapshot_path.display(),
+			"vm snapshot baked",
+		);
+		Ok(())
 	}
 }
 

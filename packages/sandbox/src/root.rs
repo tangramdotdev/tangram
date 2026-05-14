@@ -16,6 +16,10 @@ pub(crate) use self::linux::ensure_mount_target;
 pub struct Arg {
 	pub path: PathBuf,
 	pub tangram_path: PathBuf,
+
+	/// If `Some`, also build a squashfs image of the prepared rootfs at this
+	/// path for use as the VM disk. Linux-only; ignored on macOS.
+	pub image_path: Option<PathBuf>,
 }
 
 pub fn prepare(arg: &Arg) -> tg::Result<()> {

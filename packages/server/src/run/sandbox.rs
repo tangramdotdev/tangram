@@ -110,13 +110,42 @@ impl Session {
 					.as_ref()
 					.ok_or_else(|| tg::error!("no vm image configured"))?;
 				let kernel_path = vm.kernel_path.clone();
-				let snapshot = vm.snapshot.clone();
+				let snapshot = Some(
+					vm.snapshot
+						.clone()
+						.unwrap_or_else(|| self.server.vm_snapshot_path()),
+				);
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
 					kernel_path,
 					snapshot,
 				})
 			},
 			None => self.server.resolve_sandbox_isolation()?,
+		};
+
+		// If this is a VM sandbox, ensure the snapshot exists; bake it now
+		// if this is the first time we are using it on this server.
+		if let tangram_sandbox::Isolation::Vm(vm) = &isolation
+			&& let Some(snapshot_path) = vm.snapshot.as_deref()
+		{
+			self.server
+				.ensure_vm_snapshot(snapshot_path, &vm.kernel_path)
+				.await?;
+		}
+
+		// VM sandboxes need the squashfs image as the disk; container and
+		// seatbelt sandboxes use the directory tree directly.
+		let rootfs_path = if matches!(isolation, tangram_sandbox::Isolation::Vm(_)) {
+			self.server
+				.sandbox_rootfs_image
+				.clone()
+				.ok_or_else(|| {
+					tg::error!(
+						"vm isolation requested but no rootfs image was prepared; check the server config"
+					)
+				})?
+		} else {
+			self.server.sandbox_rootfs.clone()
 		};
 
 		// Associate the permit with the sandbox.
@@ -184,7 +213,7 @@ impl Session {
 			network,
 			nice: self.server.config.sandbox.nice,
 			path: temp.path().to_owned(),
-			rootfs_path: self.server.sandbox_rootfs.clone(),
+			rootfs_path,
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
 			user: state.user.clone(),
