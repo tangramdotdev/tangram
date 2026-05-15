@@ -31,6 +31,7 @@ pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
+	pub firewall: crate::Firewall,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub host_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
@@ -637,7 +638,7 @@ impl Network {
 				let mut hasher = DefaultHasher::new();
 				arg.path.hash(&mut hasher);
 				let id = format!("{:x}", hasher.finish());
-				let tap = crate::network::tap::Device::new(&id, host_ip, guest_ip)?;
+				let tap = crate::network::tap::Device::new(&id, arg.firewall, host_ip, guest_ip)?;
 				Ok(Some(Network::Tap(tap)))
 			},
 			None => Ok(None),

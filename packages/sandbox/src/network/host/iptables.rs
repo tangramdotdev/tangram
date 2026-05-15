@@ -243,17 +243,6 @@ fn cleanup_persistent_rule_commands(bridge: Option<&str>) -> Vec<IptablesRule> {
 	rules
 }
 
-pub(crate) fn enable_ipv4_forwarding() -> tg::Result<()> {
-	std::fs::write("/proc/sys/net/ipv4/ip_forward", "1\n")
-		.map_err(|error| tg::error!(!error, "failed to enable ipv4 forwarding"))
-}
-
-pub(crate) fn enable_route_localnet(interface: &str) -> tg::Result<()> {
-	let path = format!("/proc/sys/net/ipv4/conf/{interface}/route_localnet");
-	std::fs::write(&path, "1\n")
-		.map_err(|error| tg::error!(!error, %path, "failed to enable route_localnet"))
-}
-
 fn ensure_iptables_chain(table: &[&str], chain: &str) -> tg::Result<()> {
 	let mut check = iptables_args(table, "-S");
 	check.push(chain);

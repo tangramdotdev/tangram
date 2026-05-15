@@ -67,17 +67,6 @@ impl FirewallRuleGuard {
 	}
 }
 
-pub(crate) fn enable_ipv4_forwarding() -> tg::Result<()> {
-	std::fs::write("/proc/sys/net/ipv4/ip_forward", "1\n")
-		.map_err(|error| tg::error!(!error, "failed to enable ipv4 forwarding"))
-}
-
-pub(crate) fn enable_route_localnet(interface: &str) -> tg::Result<()> {
-	let path = format!("/proc/sys/net/ipv4/conf/{interface}/route_localnet");
-	std::fs::write(&path, "1\n")
-		.map_err(|error| tg::error!(!error, %path, "failed to enable route_localnet"))
-}
-
 pub(crate) fn setup_tap_networking() -> tg::Result<()> {
 	let interface = format!("{TAP_INTERFACE_NAME_PREFIX}*");
 	setup_firewall()?;

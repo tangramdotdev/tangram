@@ -60,7 +60,12 @@ impl Network {
 }
 
 impl Device {
-	pub(crate) fn new(id: &str, host_ip: Ipv4Addr, guest_ip: Ipv4Addr) -> tg::Result<Self> {
+	pub(crate) fn new(
+		id: &str,
+		firewall: crate::Firewall,
+		host_ip: Ipv4Addr,
+		guest_ip: Ipv4Addr,
+	) -> tg::Result<Self> {
 		let netmask = Ipv4Addr::new(255, 255, 255, 252);
 		let name = tap_name(id);
 		let bytes = rand::random::<[u8; 5]>();
@@ -77,7 +82,7 @@ impl Device {
 
 		host::enable_ipv4_forwarding()?;
 		host::enable_route_localnet(&name)?;
-		setup()?;
+		setup(firewall)?;
 
 		// Clear FD_CLOEXEC so the fd survives exec() into cloud-hypervisor.
 		let raw = fd.as_raw_fd();

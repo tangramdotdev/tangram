@@ -23,6 +23,8 @@ pub(crate) fn spawn(
 		.arg(&arg.artifacts_path)
 		.arg("--kernel-path")
 		.arg(&vm.kernel_path)
+		.arg("--firewall")
+		.arg(arg.firewall.to_string())
 		.arg("--path")
 		.arg(&arg.path)
 		.arg("--rootfs-path")
