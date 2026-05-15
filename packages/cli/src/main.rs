@@ -369,8 +369,40 @@ enum Command {
 	Write(self::write::Args),
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> std::process::ExitCode {
+fn main() -> std::process::ExitCode {
+	// The sandbox helper subcommand must run before any tokio threads are
+	// spawned, because `unshare(CLONE_NEWUSER)` requires the calling process to
+	// be single-threaded. Detect it from the raw argv and dispatch synchronously
+	// before initializing the async runtime.
+	#[cfg(target_os = "linux")]
+	{
+		let raw_args: Vec<String> = std::env::args().collect();
+		if raw_args.len() >= 3 && raw_args[1] == "sandbox" && raw_args[2] == "helper" {
+			let matches = Args::command().get_matches();
+			let args = Args::from_arg_matches(&matches).unwrap();
+			if let Command::Sandbox(self::sandbox::Args {
+				command: self::sandbox::Command::Helper(helper_args),
+				..
+			}) = &args.command
+			{
+				return match Cli::command_sandbox_helper(helper_args) {
+					Ok(exit) => exit,
+					Err(error) => {
+						Cli::print_error_basic(tg::Referent::with_item(error));
+						std::process::ExitCode::FAILURE
+					},
+				};
+			}
+		}
+	}
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.enable_all()
+		.build()
+		.expect("failed to build the tokio runtime");
+	runtime.block_on(async_main())
+}
+
+async fn async_main() -> std::process::ExitCode {
 	// Parse the args.
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();

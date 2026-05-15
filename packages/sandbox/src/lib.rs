@@ -24,6 +24,8 @@ pub mod container;
 #[cfg(target_os = "linux")]
 pub mod network;
 pub mod root;
+#[cfg(target_os = "linux")]
+pub mod rootless;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;

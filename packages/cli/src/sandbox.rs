@@ -5,6 +5,8 @@ pub mod container;
 pub mod create;
 pub mod destroy;
 pub mod get;
+#[cfg(target_os = "linux")]
+pub mod helper;
 pub mod list;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
@@ -28,6 +30,9 @@ pub enum Command {
 	Create(self::create::Args),
 	Destroy(self::destroy::Args),
 	Get(self::get::Args),
+	#[cfg(target_os = "linux")]
+	#[command(hide = true)]
+	Helper(self::helper::Args),
 	#[command(hide = true)]
 	Serve(self::serve::Args),
 	#[command(alias = "ls")]
@@ -145,6 +150,11 @@ impl Cli {
 			},
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
+			},
+			#[cfg(target_os = "linux")]
+			Command::Helper(args) => {
+				let exit = Self::command_sandbox_helper(&args)?;
+				self.exit.replace(exit);
 			},
 			Command::Serve(args) => {
 				self.command_sandbox_serve(args).await?;

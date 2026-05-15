@@ -531,6 +531,14 @@ impl Server {
 			tangram_path: tangram_path.clone(),
 		})?;
 
+		// Verify subordinate uid/gid ranges are configured. They are required
+		// for rootless container networking. Fail fast with an actionable error
+		// so the user is not surprised mid-build.
+		#[cfg(target_os = "linux")]
+		if unsafe { libc::geteuid() } != 0 {
+			let _ = tangram_sandbox::rootless::subuid::UserRanges::lookup()?;
+		}
+
 		// Create the log store.
 		let log_store = match &config.logs.store {
 			config::LogStore::Fdb(options) => {
