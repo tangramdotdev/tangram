@@ -221,6 +221,14 @@ fn setup_rootfs() -> tg::Result<()> {
 		rbind(&source, &target)?;
 	}
 
+	// Bind the host-share output directory directly over its overlay
+	// position so writes pass through virtiofs to the host instead of
+	// landing in the overlay's tmpfs upperdir (where they would be lost
+	// when the VM exits).
+	let output_source = Path::new(HOST_MOUNT_POINT).join("opt/tangram/output");
+	let output_target = Path::new(ROOTVIEW_MERGED).join("opt/tangram/output");
+	rbind(&output_source, &output_target)?;
+
 	Ok(())
 }
 
