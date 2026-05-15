@@ -5,6 +5,7 @@ use {
 
 /// Encode a request payload of the form
 /// `[u32 LE id_len][id bytes][u32 LE argc][per arg: u32 LE arg_len, arg bytes]`.
+#[must_use]
 pub fn encode_spawn_payload(sandbox_id: &str, argv: &[String]) -> Vec<u8> {
 	let mut out =
 		Vec::with_capacity(sandbox_id.len() + 8 + argv.iter().map(|s| s.len() + 4).sum::<usize>());

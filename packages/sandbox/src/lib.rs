@@ -15,6 +15,7 @@ use {
 mod client;
 #[cfg(target_os = "linux")]
 mod netlink;
+mod process;
 mod pty;
 mod server;
 mod util;
@@ -45,7 +46,7 @@ pub struct State {
 	network: Option<crate::network::Network>,
 
 	#[expect(dead_code)]
-	process: tokio::process::Child,
+	process: crate::process::ProcessHandle,
 }
 
 pub struct Process {
@@ -179,7 +180,10 @@ pub enum Stdio {
 }
 
 impl Sandbox {
-	pub async fn new(arg: Arg) -> tg::Result<Self> {
+	pub async fn new(
+		arg: Arg,
+		#[cfg(target_os = "linux")] helper: Option<Arc<crate::rootless::client::Helper>>,
+	) -> tg::Result<Self> {
 		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
 		validate_options(&arg)?;
 
@@ -213,19 +217,32 @@ impl Sandbox {
 			}
 		};
 
-		let (listener, url) = match arg.isolation {
-			Isolation::Container(_) | Isolation::Seatbelt(_) => {
-				let uri = Uri::builder()
-					.scheme("http+stdio")
-					.path("")
-					.build()
-					.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
-				(None, uri)
-			},
-			Isolation::Vm(_) => {
-				let (listener, uri) = Self::listen(&arg.isolation, &arg.path).await?;
-				(Some(listener), uri)
-			},
+		// The helper-driven container path can't use http+stdio because the
+		// wrapper is forked from the helper, not from us — we have no
+		// stdin/stdout pipe to it. Fall back to a unix socket listener, which
+		// is bind-mounted into the sandbox by the wrapper command line.
+		#[cfg(target_os = "linux")]
+		let need_listener = helper.is_some();
+		#[cfg(not(target_os = "linux"))]
+		let need_listener = false;
+		let (listener, url) = if need_listener {
+			let (listener, uri) = Self::listen_unix(&arg.path).await?;
+			(Some(listener), uri)
+		} else {
+			match arg.isolation {
+				Isolation::Container(_) | Isolation::Seatbelt(_) => {
+					let uri = Uri::builder()
+						.scheme("http+stdio")
+						.path("")
+						.build()
+						.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
+					(None, uri)
+				},
+				Isolation::Vm(_) => {
+					let (listener, uri) = Self::listen(&arg.isolation, &arg.path).await?;
+					(Some(listener), uri)
+				},
+			}
 		};
 		let serve_arg = self::serve::Arg {
 			library_paths,
@@ -247,7 +264,9 @@ impl Sandbox {
 					&arg.ip_pool,
 					ports,
 				)?;
-				let process = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
+				let process =
+					self::container::spawn(&arg, &serve_arg, network.as_mut(), helper.as_ref())
+						.await?;
 				(process, network)
 			},
 			Isolation::Seatbelt(_) => {
@@ -263,7 +282,11 @@ impl Sandbox {
 					&arg.ip_pool,
 					ports,
 				)?;
-				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
+				let process = crate::process::ProcessHandle::Direct(self::vm::spawn(
+					&arg,
+					&serve_arg,
+					network.as_ref(),
+				)?);
 				(process, network)
 			},
 		};
@@ -272,7 +295,9 @@ impl Sandbox {
 			Isolation::Container(_) => {
 				return Err(tg::error!("container isolation is not supported on macos"));
 			},
-			Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
+			Isolation::Seatbelt(_) => {
+				crate::process::ProcessHandle::Direct(self::seatbelt::spawn(&arg, &serve_arg)?)
+			},
 			Isolation::Vm(_) => {
 				return Err(tg::error!("vm isolation is not supported on macos"));
 			},
@@ -281,12 +306,10 @@ impl Sandbox {
 		let connect = match listener.as_ref() {
 			None => {
 				let stdin = process
-					.stdin
-					.take()
+					.take_stdin()
 					.ok_or_else(|| tg::error!("failed to take the sandbox stdin"))?;
 				let stdout = process
-					.stdout
-					.take()
+					.take_stdout()
 					.ok_or_else(|| tg::error!("failed to take the sandbox stdout"))?;
 				let stream = tokio::io::join(stdout, stdin);
 				Client::with_stream(stream).left_future()
@@ -384,6 +407,23 @@ impl Sandbox {
 				.build()
 				.map_err(|error| tg::error!(source = error, "failed to build the URL"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
+			// The socket may be connected to by a sandbox process whose host-side
+			// uid is a subordinate uid (via the rootless helper's user namespace),
+			// not the server's uid. Open `world` write so DAC does not reject the
+			// connect. The parent directory's permissions still restrict who can
+			// reach the path.
+			#[cfg(target_os = "linux")]
+			{
+				use std::os::unix::fs::PermissionsExt as _;
+				let permissions = std::fs::Permissions::from_mode(0o666);
+				if let Err(error) = std::fs::set_permissions(&host_path, permissions) {
+					return Err(tg::error!(
+						!error,
+						path = %host_path.display(),
+						"failed to chmod the listen socket"
+					));
+				}
+			}
 			let url = {
 				#[cfg(target_os = "linux")]
 				{

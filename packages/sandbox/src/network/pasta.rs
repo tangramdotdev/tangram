@@ -81,6 +81,76 @@ impl Network {
 		drop(self.guest_pipe.take());
 	}
 
+	/// Build a pasta argv targeting an existing network namespace file at
+	/// `netns_path`. Mirrors the direct-path command construction in
+	/// `start_netns`, but with `--netns <PATH>` in place of the trailing
+	/// `<pid>` argument so the helper-spawned pasta can attach via path (the
+	/// `nsfs_t`-labeled inode `SELinux` permits) rather than `/proc/<pid>/ns`.
+	pub fn build_argv_for_netns(&self, netns_path: &std::path::Path) -> tg::Result<Vec<String>> {
+		let executable = self
+			.executable
+			.as_deref()
+			.unwrap_or_else(|| std::path::Path::new("pasta"))
+			.to_owned();
+		let mut argv: Vec<String> = Vec::new();
+		argv.push(
+			executable
+				.to_str()
+				.ok_or_else(|| tg::error!("the pasta executable path is not valid utf-8"))?
+				.to_owned(),
+		);
+		argv.push("--foreground".into());
+		argv.push("--config-net".into());
+		argv.push("--no-map-gw".into());
+		append_port_argv(&mut argv, &self.ports)?;
+		argv.extend([
+			"-T".into(),
+			"none".into(),
+			"-U".into(),
+			"none".into(),
+			"--pid".into(),
+		]);
+		argv.push(
+			self.pid_file
+				.to_str()
+				.ok_or_else(|| tg::error!("the pid file path is not valid utf-8"))?
+				.to_owned(),
+		);
+		argv.push("--quiet".into());
+		if !self.dns.is_empty() {
+			argv.push("--dns-forward".into());
+			argv.push(DNS_FORWARD_IP.into());
+			for dns_host in &self.dns {
+				argv.push("--dns-host".into());
+				argv.push(dns_host.to_string());
+			}
+		}
+		if let Some(interface) = &self.interface {
+			argv.push("-i".into());
+			argv.push(interface.clone());
+		}
+		argv.push("--netns".into());
+		argv.push(
+			netns_path
+				.to_str()
+				.ok_or_else(|| tg::error!("the netns path is not valid utf-8"))?
+				.to_owned(),
+		);
+		Ok(argv)
+	}
+
+	/// Wait for the pasta pid file to be written. Used by the helper-driven
+	/// path to confirm pasta has finished initializing before the wrapper is
+	/// forked.
+	pub async fn wait_for_pid_file(&self) -> tg::Result<()> {
+		let executable = self
+			.executable
+			.as_deref()
+			.unwrap_or_else(|| std::path::Path::new("pasta"))
+			.to_owned();
+		wait_for_pid_file_async(self.pid_file.clone(), executable).await
+	}
+
 	pub async fn start_netns(&mut self, pid: libc::pid_t) -> tg::Result<()> {
 		let host_pipe = self
 			.host_pipe
@@ -140,6 +210,31 @@ impl Network {
 fn append_port_args(command: &mut Command, ports: &[tg::sandbox::Port]) -> tg::Result<()> {
 	append_port_args_for_protocol(command, ports, tg::sandbox::PortProtocol::Tcp, "-t")?;
 	append_port_args_for_protocol(command, ports, tg::sandbox::PortProtocol::Udp, "-u")?;
+	Ok(())
+}
+
+fn append_port_argv(argv: &mut Vec<String>, ports: &[tg::sandbox::Port]) -> tg::Result<()> {
+	append_port_argv_for_protocol(argv, ports, tg::sandbox::PortProtocol::Tcp, "-t")?;
+	append_port_argv_for_protocol(argv, ports, tg::sandbox::PortProtocol::Udp, "-u")?;
+	Ok(())
+}
+
+fn append_port_argv_for_protocol(
+	argv: &mut Vec<String>,
+	ports: &[tg::sandbox::Port],
+	protocol: tg::sandbox::PortProtocol,
+	flag: &str,
+) -> tg::Result<()> {
+	let mut found = false;
+	for port in ports.iter().filter(|port| port.protocol == protocol) {
+		found = true;
+		argv.push(flag.to_owned());
+		argv.push(port_spec(port)?);
+	}
+	if !found {
+		argv.push(flag.to_owned());
+		argv.push("none".to_owned());
+	}
 	Ok(())
 }
 

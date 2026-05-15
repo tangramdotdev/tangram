@@ -90,6 +90,8 @@ pub struct State {
 	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
+	#[cfg(target_os = "linux")]
+	helper: tokio::sync::OnceCell<Arc<tangram_sandbox::rootless::client::Helper>>,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
 	#[cfg(target_os = "linux")]
@@ -632,6 +634,8 @@ impl Server {
 			context,
 			database,
 			diagnostics,
+			#[cfg(target_os = "linux")]
+			helper: tokio::sync::OnceCell::new(),
 			index,
 			index_tasks,
 			#[cfg(target_os = "linux")]
@@ -1304,6 +1308,26 @@ impl Server {
 	#[must_use]
 	fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
+	}
+
+	/// Lazily start and return the rootless helper subprocess. The helper is
+	/// shared across all sandboxes that need rootless pasta networking, and is
+	/// reused for the lifetime of the server. Returns an `Arc<Helper>` so
+	/// individual sandboxes can hold their own references.
+	#[cfg(target_os = "linux")]
+	async fn rootless_helper(&self) -> tg::Result<Arc<tangram_sandbox::rootless::client::Helper>> {
+		let tangram_path = self.tangram_path.clone();
+		self.helper
+			.get_or_try_init(|| async move {
+				let helper = tokio::task::spawn_blocking(move || {
+					tangram_sandbox::rootless::client::Helper::start(&tangram_path)
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "the helper start task panicked"))??;
+				Ok::<_, tg::Error>(Arc::new(helper))
+			})
+			.await
+			.cloned()
 	}
 }
 

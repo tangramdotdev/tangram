@@ -168,9 +168,29 @@ impl Session {
 			tangram_path: self.server.tangram_path.clone(),
 			user: state.user.clone(),
 		};
-		let sandbox = tangram_sandbox::Sandbox::new(arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to create the sandbox"))?;
+
+		// On Linux, the rootless helper is required for pasta networking
+		// (rootless container isolation with Bridge or Default networking).
+		// Start it lazily here so other configurations do not pay the cost.
+		#[cfg(target_os = "linux")]
+		let helper = if matches!(arg.isolation, tangram_sandbox::Isolation::Container(_))
+			&& unsafe { libc::geteuid() } != 0
+			&& matches!(
+				arg.network,
+				Some(tangram_sandbox::Network::Bridge(_) | tangram_sandbox::Network::Default)
+			) {
+			Some(self.server.rootless_helper().await?)
+		} else {
+			None
+		};
+
+		let sandbox = tangram_sandbox::Sandbox::new(
+			arg,
+			#[cfg(target_os = "linux")]
+			helper,
+		)
+		.await
+		.map_err(|error| tg::error!(!error, %id, "failed to create the sandbox"))?;
 
 		self.server.sandboxes.insert(id.clone(), sandbox.clone());
 		scopeguard::defer! {
