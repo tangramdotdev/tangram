@@ -41,13 +41,7 @@ impl Network {
 	) -> tg::Result<Self> {
 		let prefix = format!("{}*", host::TAP_INTERFACE_NAME_PREFIX);
 		let port_forwarding_rules = host::add_port_forwarding_rules(
-			firewall,
-			id,
-			identity,
-			&prefix,
-			host.addr,
-			guest.addr,
-			ports,
+			firewall, id, identity, &prefix, host.addr, guest.addr, ports,
 		)?;
 		Ok(Self {
 			_port_forwarding_rules: port_forwarding_rules,

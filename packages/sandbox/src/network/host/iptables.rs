@@ -88,7 +88,10 @@ pub(crate) fn setup_tap_networking() -> tg::Result<()> {
 	)?;
 
 	// Forward the packets out of the guest.
-	get_or_set_iptables_rule(FILTER_TABLE, &["FORWARD", "-i", prefix.as_str(), "-j", "ACCEPT"])?;
+	get_or_set_iptables_rule(
+		FILTER_TABLE,
+		&["FORWARD", "-i", prefix.as_str(), "-j", "ACCEPT"],
+	)?;
 
 	// Allow response packets to come back to the guest. Two rules instead of one to avoid outside connections from reaching the guest.
 	get_or_set_iptables_rule(

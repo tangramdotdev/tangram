@@ -137,11 +137,7 @@ pub(crate) fn setup(firewall: crate::Firewall) -> tg::Result<()> {
 		.clone()
 }
 
-pub(crate) fn create_bridge(
-	firewall: crate::Firewall,
-	name: &str,
-	ip: Ipv4Addr,
-) -> tg::Result<()> {
+pub(crate) fn create_bridge(firewall: crate::Firewall, name: &str, ip: Ipv4Addr) -> tg::Result<()> {
 	let mut netlink = Netlink::new()?;
 	if !netlink.link_exists(name)? {
 		netlink.link_add_bridge(name)?;

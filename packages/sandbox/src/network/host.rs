@@ -59,20 +59,10 @@ pub(crate) fn add_port_forwarding_rules(
 			guest_ip,
 			ports,
 		)
-		.map(|rules| {
-			rules
-				.into_iter()
-				.map(FirewallRuleGuard::Iptables)
-				.collect()
-		}),
-		crate::Firewall::Nft => nft::add_port_forwarding_rules(
-			id,
-			identity,
-			out_interface,
-			host_ip,
-			guest_ip,
-			ports,
-		)
-		.map(|rules| rules.into_iter().map(FirewallRuleGuard::Nft).collect()),
+		.map(|rules| rules.into_iter().map(FirewallRuleGuard::Iptables).collect()),
+		crate::Firewall::Nft => {
+			nft::add_port_forwarding_rules(id, identity, out_interface, host_ip, guest_ip, ports)
+				.map(|rules| rules.into_iter().map(FirewallRuleGuard::Nft).collect())
+		},
 	}
 }

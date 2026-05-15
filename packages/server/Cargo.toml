@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [package.metadata.cargo-shear]
-ignored = ["tangram_js", "tokio-postgres"]
+ignored = ["tangram_js"]
 
 [features]
 foundationdb = ["tangram_index/foundationdb", "tangram_log_store/foundationdb"]

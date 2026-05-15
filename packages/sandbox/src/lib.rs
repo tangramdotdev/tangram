@@ -84,11 +84,12 @@ pub struct Arg {
 	pub user: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, derive_more::Display, derive_more::FromStr)]
+#[derive(Clone, Copy, Debug, Default, derive_more::Display, derive_more::FromStr)]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
 pub enum Firewall {
 	Iptables,
+	#[default]
 	Nft,
 }
 
@@ -101,12 +102,6 @@ pub struct Command {
 	pub stderr: Stdio,
 	pub stdin: Stdio,
 	pub stdout: Stdio,
-}
-
-impl Default for Firewall {
-	fn default() -> Self {
-		Self::Nft
-	}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
