@@ -185,11 +185,25 @@ pub enum Database {
 	Sqlite(SqliteDatabase),
 }
 
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DatabasePool {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub min: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PostgresDatabase {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
+	pub pool: DatabasePool,
 
 	pub url: Uri,
 }
@@ -197,8 +211,7 @@ pub struct PostgresDatabase {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SqliteDatabase {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
+	pub pool: DatabasePool,
 
 	pub path: PathBuf,
 }
@@ -469,18 +482,6 @@ pub struct Remote {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Client {
-	/// Configure reconnect retry options.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub reconnect: Option<Reconnect>,
-
-	/// Configure request retry options.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub retry: Option<Retry>,
 }
 
 #[serde_as]
@@ -936,7 +937,7 @@ impl Default for Cleaner {
 impl Default for PostgresDatabase {
 	fn default() -> Self {
 		Self {
-			connections: None,
+			pool: DatabasePool::default(),
 			url: "postgres://localhost:5432".parse().unwrap(),
 		}
 	}
@@ -945,7 +946,7 @@ impl Default for PostgresDatabase {
 impl Default for SqliteDatabase {
 	fn default() -> Self {
 		Self {
-			connections: None,
+			pool: DatabasePool::default(),
 			path: PathBuf::from("database"),
 		}
 	}
@@ -1336,7 +1337,7 @@ fn default_dns() -> Vec<Ipv4Addr> {
 
 fn default_process_store() -> Database {
 	Database::Sqlite(SqliteDatabase {
-		connections: None,
+		pool: DatabasePool::default(),
 		path: PathBuf::from("processes"),
 	})
 }

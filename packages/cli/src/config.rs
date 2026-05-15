@@ -1,9 +1,9 @@
 use {
 	crate::Cli,
-	serde_with::serde_as,
-	std::{collections::BTreeMap, path::PathBuf},
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::{collections::BTreeMap, path::PathBuf, time::Duration},
 	tangram_client::prelude::*,
-	tangram_server::config as server,
+	tangram_server::config::{Reconnect, Retry},
 	tangram_util::serde::{BoolOptionDefault, is_false},
 };
 
@@ -13,7 +13,7 @@ use {
 pub struct Config {
 	/// Configure the client.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub client: Option<server::Client>,
+	pub client: Option<Client>,
 
 	/// Configure the server.
 	#[serde(flatten)]
@@ -47,6 +47,44 @@ pub struct Config {
 	/// Set the V8 thread pool size.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub v8_thread_pool_size: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Client {
+	/// Configure the client connection pool.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<Pool>,
+
+	/// Configure reconnect retry options.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+
+	/// Configure request retry options.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Pool {
+	/// The minimum number of connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub min: Option<usize>,
+
+	/// The maximum number of connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max: Option<usize>,
+
+	/// The maximum number of concurrent requests per connection.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub shared: Option<usize>,
+
+	/// The time to live for a connection.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

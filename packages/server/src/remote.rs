@@ -130,6 +130,7 @@ impl Server {
 			version: Some(self.version.clone()),
 			token,
 			process: None,
+			pool: None,
 			reconnect: None,
 			retry: None,
 		})

@@ -70,6 +70,7 @@ impl Server {
 			version: Some(self.version.clone()),
 			token: None,
 			process: None,
+			pool: None,
 			reconnect,
 			retry,
 		})?;

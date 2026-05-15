@@ -9,12 +9,12 @@ use {
 };
 
 pub use {
-	self::{pool::Priority, row::Row, value::Value},
+	self::{row::Row, value::Value},
 	tangram_either::Either,
+	tangram_pool::Priority,
 };
 
 pub mod either;
-pub mod pool;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod row;

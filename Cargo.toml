@@ -15,6 +15,7 @@ members = [
   "packages/js",
   "packages/stores/log",
   "packages/messenger",
+  "packages/pool",
   "packages/stores/object",
   "packages/sandbox",
   "packages/serialize",
@@ -171,6 +172,7 @@ tangram_js = { path = "packages/js" }
 tangram_log_store = { path = "packages/stores/log" }
 tangram_messenger = { path = "packages/messenger" }
 tangram_object_store = { path = "packages/stores/object" }
+tangram_pool = { path = "packages/pool" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }

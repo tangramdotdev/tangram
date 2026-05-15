@@ -144,6 +144,19 @@ impl Cli {
 				max_retries: retry.max_retries,
 			});
 
+		// Get the pool options.
+		let pool = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.pool.clone())
+			.map(|pool| tangram_pool::Options {
+				min: pool.min.unwrap_or(0),
+				max: pool.max.unwrap_or(1),
+				shared: pool.shared.unwrap_or(usize::MAX),
+				ttl: pool.ttl,
+			});
+
 		// Get the process.
 		let process = std::env::var("TANGRAM_PROCESS")
 			.ok()
@@ -159,6 +172,7 @@ impl Cli {
 			version: Some(version()),
 			token,
 			process,
+			pool,
 			reconnect,
 			retry,
 		};

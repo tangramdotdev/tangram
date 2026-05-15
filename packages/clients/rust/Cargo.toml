@@ -58,6 +58,7 @@ sha2 = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
+tangram_pool = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }

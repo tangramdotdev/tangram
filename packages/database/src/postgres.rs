@@ -1,11 +1,9 @@
 use {
-	crate::{
-		CacheKey,
-		pool::{self, Pool},
-	},
+	crate::CacheKey,
 	futures::{Stream, TryStreamExt as _, future},
 	indexmap::IndexMap,
-	std::{borrow::Cow, collections::HashMap},
+	std::{borrow::Cow, collections::HashMap, time::Duration},
+	tangram_pool::{self as pool, Pool},
 	tangram_uri::Uri,
 	tokio_postgres as postgres,
 };
@@ -24,7 +22,9 @@ pub enum Error {
 
 #[derive(Clone, Debug)]
 pub struct DatabaseOptions {
-	pub connections: usize,
+	pub max: usize,
+	pub min: usize,
+	pub ttl: Option<Duration>,
 	pub url: Uri,
 }
 
@@ -39,7 +39,7 @@ pub struct Cache {
 }
 
 pub struct Database {
-	pool: Pool<Connection>,
+	pool: Pool<Connection, Error>,
 }
 
 pub struct Connection {
@@ -71,12 +71,27 @@ impl Cache {
 
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
-		let pool = Pool::new();
-		for _ in 0..options.connections {
-			let options = ConnectionOptions {
-				url: options.url.clone(),
-			};
-			let connection = Connection::connect(options).await?;
+		let connection_options = ConnectionOptions {
+			url: options.url.clone(),
+		};
+		let create = {
+			let connection_options = connection_options.clone();
+			move || {
+				let connection_options = connection_options.clone();
+				async move { Connection::connect(connection_options).await }
+			}
+		};
+		let pool = Pool::new(
+			pool::Options {
+				min: options.min,
+				max: options.max,
+				shared: 1,
+				ttl: options.ttl,
+			},
+			create,
+		);
+		for _ in 0..options.min {
+			let connection = Connection::connect(connection_options.clone()).await?;
 			pool.add(connection);
 		}
 		let database = Self { pool };
@@ -84,7 +99,7 @@ impl Database {
 	}
 
 	#[must_use]
-	pub fn pool(&self) -> &Pool<Connection> {
+	pub fn pool(&self) -> &Pool<Connection, Error> {
 		&self.pool
 	}
 
@@ -153,13 +168,13 @@ impl<'a> Transaction<'a> {
 impl super::Database for Database {
 	type Error = Error;
 
-	type Connection = pool::Guard<Connection>;
+	type Connection = pool::ExclusiveGuard<Connection, Error>;
 
 	async fn connection_with_options(
 		&self,
 		options: super::ConnectionOptions,
 	) -> Result<Self::Connection, Self::Error> {
-		let mut connection = self.pool.get(options.priority).await;
+		let mut connection = self.pool.get_exclusive(options.priority).await?;
 		if connection.client.is_closed() {
 			connection.reconnect().await?;
 		}
@@ -186,7 +201,7 @@ impl super::Connection for Connection {
 	}
 }
 
-impl super::Connection for pool::Guard<Connection> {
+impl super::Connection for pool::ExclusiveGuard<Connection, Error> {
 	type Error = Error;
 
 	type Transaction<'t>
@@ -237,7 +252,7 @@ impl super::Query for Connection {
 	}
 }
 
-impl super::Query for pool::Guard<Connection> {
+impl super::Query for pool::ExclusiveGuard<Connection, Error> {
 	type Error = Error;
 
 	fn p(&self) -> &'static str {

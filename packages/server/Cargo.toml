@@ -86,6 +86,7 @@ tangram_js = { workspace = true, optional = true }
 tangram_log_store = { workspace = true }
 tangram_messenger = { workspace = true }
 tangram_object_store = { workspace = true }
+tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }

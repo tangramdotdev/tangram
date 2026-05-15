@@ -7169,6 +7169,7 @@ dependencies = [
  "tangram_fdb",
  "tangram_futures",
  "tangram_js",
+ "tangram_pool",
  "tangram_sandbox",
  "tangram_server",
  "tangram_uri",
@@ -7226,6 +7227,7 @@ dependencies = [
  "tangram_either",
  "tangram_futures",
  "tangram_http",
+ "tangram_pool",
  "tangram_serialize",
  "tangram_uri",
  "tangram_util",
@@ -7294,6 +7296,7 @@ dependencies = [
  "serde_json",
  "tangram_database_macro",
  "tangram_either",
+ "tangram_pool",
  "tangram_uri",
  "tokio",
  "tokio-postgres",
@@ -7487,6 +7490,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_pool"
+version = "0.0.0"
+dependencies = [
+ "derive_more",
+ "futures",
+ "tangram_futures",
+ "tokio",
+]
+
+[[package]]
 name = "tangram_sandbox"
 version = "0.0.0"
 dependencies = [
@@ -7595,6 +7608,7 @@ dependencies = [
  "tangram_log_store",
  "tangram_messenger",
  "tangram_object_store",
+ "tangram_pool",
  "tangram_sandbox",
  "tangram_serialize",
  "tangram_uri",

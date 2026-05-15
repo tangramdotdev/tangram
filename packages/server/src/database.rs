@@ -51,9 +51,9 @@ pub enum DatabaseOptions {
 #[unwrap(ref)]
 pub enum Connection {
 	#[cfg(feature = "postgres")]
-	Postgres(db::pool::Guard<db::postgres::Connection>),
+	Postgres(tangram_pool::ExclusiveGuard<db::postgres::Connection, db::postgres::Error>),
 	#[cfg(feature = "sqlite")]
-	Sqlite(db::pool::Guard<db::sqlite::Connection>),
+	Sqlite(tangram_pool::ExclusiveGuard<db::sqlite::Connection, db::sqlite::Error>),
 }
 
 #[expect(dead_code)]

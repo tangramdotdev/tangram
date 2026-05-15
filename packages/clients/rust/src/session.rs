@@ -29,10 +29,15 @@ impl Session {
 
 	#[must_use]
 	pub fn arg(&self) -> tg::Arg {
-		let mut arg = self.client.arg.clone();
-		arg.process.clone_from(&self.context.process);
-		arg.token.clone_from(&self.context.token);
-		arg
+		tg::Arg {
+			url: Some(self.client.url().clone()),
+			version: Some(self.client.version().to_owned()),
+			token: self.context.token.clone(),
+			process: self.context.process.clone(),
+			pool: Some(self.client.pool_options),
+			reconnect: Some(self.client.reconnect.clone()),
+			retry: Some(self.client.retry.clone()),
+		}
 	}
 
 	#[must_use]

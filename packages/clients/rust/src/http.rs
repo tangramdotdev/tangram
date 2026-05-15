@@ -1,9 +1,16 @@
 #[cfg(feature = "tls")]
 use rustls_platform_verifier::BuilderVerifierExt as _;
+use tangram_http::body::Ext as _;
 use {
 	crate::prelude::*,
 	std::{
-		error::Error as _, ops::ControlFlow, path::Path, str::FromStr, sync::Arc, time::Duration,
+		error::Error as _,
+		ops::ControlFlow,
+		path::Path,
+		pin::Pin,
+		str::FromStr,
+		task::{Context, Poll},
+		time::Duration,
 	},
 	tangram_http::request::Ext as _,
 	tangram_uri::Uri,
@@ -13,15 +20,22 @@ use {
 	tower_http::ServiceBuilderExt as _,
 };
 
-pub(crate) type Sender = Arc<
-	tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>>,
->;
+pub(crate) type Pool = tangram_pool::Pool<Connection, tg::Error>;
 
 pub(crate) type Service = BoxCloneSyncService<
 	http::Request<tangram_http::body::Boxed>,
 	http::Response<tangram_http::body::Boxed>,
 	Error,
 >;
+
+pub(crate) struct Connection {
+	sender: hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>,
+}
+
+struct Body {
+	body: tangram_http::body::Boxed,
+	guard: Option<tangram_pool::SharedGuard<Connection, tg::Error>>,
+}
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
 pub(crate) enum Error {
@@ -30,43 +44,59 @@ pub(crate) enum Error {
 }
 
 impl tg::Client {
-	pub(crate) fn service(arg: &tg::Arg, url: &Uri, sender: &Sender) -> Service {
+	pub(crate) fn pool(
+		options: tangram_pool::Options,
+		reconnect: &tangram_futures::retry::Options,
+		url: &Uri,
+	) -> Pool {
+		let reconnect = reconnect.clone();
 		let url = url.clone();
-		let version = arg.version.clone().unwrap();
-		let reconnect = arg.reconnect.as_ref().unwrap();
-		let service = tower::service_fn({
-			let sender = sender.clone();
+		Pool::new(options, move || {
 			let reconnect = reconnect.clone();
+			let url = url.clone();
+			async move {
+				tangram_futures::retry(&reconnect, || {
+					let url = url.clone();
+					async move {
+						match Self::connect_h2(&url).await {
+							Ok(sender) => Ok(ControlFlow::Break(Connection::new(sender))),
+							Err(error) => Ok(ControlFlow::Continue(error)),
+						}
+					}
+				})
+				.await
+			}
+		})
+	}
+
+	pub(crate) fn service(version: &str, pool: &Pool) -> Service {
+		let service = tower::service_fn({
+			let pool = pool.clone();
 			move |request| {
-				let url = url.clone();
-				let sender = sender.clone();
-				let reconnect = reconnect.clone();
+				let pool = pool.clone();
 				async move {
-					let mut guard = sender.lock().await;
-					let mut sender = match guard.as_ref() {
-						Some(sender) if sender.is_ready() => sender.clone(),
-						_ => {
-							let sender = tangram_futures::retry(&reconnect, || {
-								let url = url.clone();
-								async move {
-									match Self::connect_h2(&url).await {
-										Ok(sender) => Ok(ControlFlow::Break(sender)),
-										Err(error) => Ok(ControlFlow::Continue(error)),
-									}
-								}
-							})
-							.await
-							.map_err(Error::Other)?;
-							guard.replace(sender.clone());
-							sender
-						},
-					};
-					drop(guard);
-					sender
-						.send_request(request)
+					let connection = pool
+						.get_shared(tangram_pool::Priority::default())
 						.await
-						.map(tangram_http::response::Ext::boxed_body)
-						.map_err(Error::Hyper)
+						.map_err(Error::Other)?;
+					match connection.send(request).await {
+						Ok(response) => {
+							let response = response.map(|body| {
+								let body = Body {
+									body,
+									guard: Some(connection),
+								};
+								body.boxed()
+							});
+							Ok(response)
+						},
+						Err(error) => {
+							if is_retryable_error(&error) {
+								connection.discard();
+							}
+							Err(Error::Hyper(error))
+						},
+					}
 				}
 			}
 		});
@@ -91,7 +121,7 @@ impl tg::Client {
 			)
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-version").unwrap(),
-				http::HeaderValue::from_str(&version).unwrap(),
+				http::HeaderValue::from_str(version).unwrap(),
 			)
 			.layer(
 				tangram_http::layer::compression::RequestCompressionLayer::new(|parts, _| {
@@ -117,26 +147,21 @@ impl tg::Client {
 	}
 
 	pub async fn connect(&self) -> tg::Result<()> {
-		let mut guard = self.sender.lock().await;
-		match guard.as_ref() {
-			Some(sender) if sender.is_ready() => (),
-			_ => {
-				let sender =
-					tangram_futures::retry(self.arg.reconnect.as_ref().unwrap(), || async {
-						match Self::connect_h2(self.arg.url.as_ref().unwrap()).await {
-							Ok(sender) => Ok(ControlFlow::Break(sender)),
-							Err(error) => Ok(ControlFlow::Continue(error)),
-						}
-					})
-					.await?;
-				guard.replace(sender.clone());
-			},
+		loop {
+			let guard = self
+				.pool
+				.get_shared(tangram_pool::Priority::default())
+				.await?;
+			if guard.is_closed() {
+				guard.discard();
+				continue;
+			}
+			return Ok(());
 		}
-		Ok(())
 	}
 
 	pub async fn disconnect(&self) {
-		self.sender.lock().await.take();
+		self.pool.clear();
 	}
 
 	pub(crate) async fn connect_h1(
@@ -346,7 +371,7 @@ impl tg::Client {
 		let stream = Self::connect_tcp(host, port).await?;
 
 		// Create the connector.
-		let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
+		let mut config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
 			rustls::crypto::aws_lc_rs::default_provider(),
 		))
 		.with_safe_default_protocol_versions()
@@ -355,7 +380,7 @@ impl tg::Client {
 		.map_err(|error| tg::error!(!error, "failed to create the tls config"))?
 		.with_no_client_auth();
 		config.alpn_protocols = protocols;
-		let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+		let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(config));
 
 		// Create the server name.
 		let server_name = rustls::pki_types::ServerName::try_from(host.to_string().as_str())
@@ -426,6 +451,30 @@ impl tg::Client {
 	}
 }
 
+impl Connection {
+	pub(crate) fn new(
+		sender: hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>,
+	) -> Self {
+		Self { sender }
+	}
+
+	fn is_closed(&self) -> bool {
+		self.sender.is_closed()
+	}
+
+	async fn send(
+		&self,
+		request: http::Request<tangram_http::body::Boxed>,
+	) -> Result<http::Response<tangram_http::body::Boxed>, hyper::Error> {
+		let mut sender = self.sender.clone();
+		sender.ready().await?;
+		sender
+			.send_request(request)
+			.await
+			.map(tangram_http::response::Ext::boxed_body)
+	}
+}
+
 impl tg::Session {
 	pub(crate) fn apply_context_headers<B>(&self, request: &mut http::Request<B>) {
 		let headers = request.headers_mut();
@@ -465,7 +514,7 @@ impl tg::Session {
 	{
 		self.apply_context_headers(&mut request);
 		let session = self.clone();
-		tangram_futures::retry(self.client().arg.retry.as_ref().unwrap(), || {
+		tangram_futures::retry(&self.client().retry, || {
 			let session = session.clone();
 			let request = request.clone();
 			async move {
@@ -476,13 +525,9 @@ impl tg::Session {
 						let response = response.map(Into::into);
 						Ok(ControlFlow::Break(response))
 					},
-					Err(Error::Hyper(error)) if is_retryable_error(&error) => {
-						session.client().disconnect().await;
-						Ok(ControlFlow::Continue(tg::error!(
-							!error,
-							"failed to send the request"
-						)))
-					},
+					Err(Error::Hyper(error)) if is_retryable_error(&error) => Ok(
+						ControlFlow::Continue(tg::error!(!error, "failed to send the request")),
+					),
 					Err(error) => Err(match error {
 						Error::Hyper(source) => {
 							tg::error!(source = source, "failed to send the request")
@@ -493,6 +538,39 @@ impl tg::Session {
 			}
 		})
 		.await
+	}
+}
+
+impl http_body::Body for Body {
+	type Data = bytes::Bytes;
+	type Error = tangram_http::Error;
+
+	fn poll_frame(
+		self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+	) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+		let this = self.get_mut();
+		let result = Pin::new(&mut this.body).poll_frame(cx);
+		match &result {
+			Poll::Ready(None) => {
+				this.guard.take();
+			},
+			Poll::Ready(Some(Err(_))) => {
+				if let Some(guard) = this.guard.take() {
+					guard.discard();
+				}
+			},
+			Poll::Ready(Some(Ok(_))) | Poll::Pending => (),
+		}
+		result
+	}
+
+	fn is_end_stream(&self) -> bool {
+		self.body.is_end_stream()
+	}
+
+	fn size_hint(&self) -> http_body::SizeHint {
+		self.body.size_hint()
 	}
 }
 

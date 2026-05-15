@@ -304,7 +304,9 @@ impl Server {
 				#[cfg(feature = "postgres")]
 				{
 					let options = db::postgres::DatabaseOptions {
-						connections: options.connections.unwrap_or(parallelism),
+						max: options.pool.max.unwrap_or(parallelism),
+						min: options.pool.min.unwrap_or(0),
+						ttl: options.pool.ttl,
 						url: options.url.clone(),
 					};
 					let database = db::postgres::Database::new(options)
@@ -325,9 +327,11 @@ impl Server {
 				{
 					let initialize = Arc::new(self::database::sqlite::initialize);
 					let options = db::sqlite::DatabaseOptions {
-						connections: config.connections.unwrap_or(parallelism),
 						initialize,
+						max: config.pool.max.unwrap_or(parallelism),
+						min: config.pool.min.unwrap_or(0),
 						path: path.join(&config.path),
+						ttl: config.pool.ttl,
 					};
 					let database = db::sqlite::Database::new(options)
 						.await
@@ -350,7 +354,9 @@ impl Server {
 				#[cfg(feature = "postgres")]
 				{
 					let options = db::postgres::DatabaseOptions {
-						connections: options.connections.unwrap_or(parallelism),
+						max: options.pool.max.unwrap_or(parallelism),
+						min: options.pool.min.unwrap_or(0),
+						ttl: options.pool.ttl,
 						url: options.url.clone(),
 					};
 					let process_store =
@@ -374,9 +380,11 @@ impl Server {
 				{
 					let initialize = Arc::new(self::database::sqlite::initialize);
 					let options = db::sqlite::DatabaseOptions {
-						connections: config.connections.unwrap_or(parallelism),
 						initialize,
+						max: config.pool.max.unwrap_or(parallelism),
+						min: config.pool.min.unwrap_or(0),
 						path: path.join(&config.path),
+						ttl: config.pool.ttl,
 					};
 					let process_store =
 						db::sqlite::Database::new(options).await.map_err(|error| {

@@ -1,15 +1,13 @@
 use {
-	crate::{
-		CacheKey, Error as _,
-		pool::{self, Pool},
-	},
+	crate::{CacheKey, Error as _},
 	bytes::Bytes,
 	futures::{Stream, stream},
 	indexmap::IndexMap,
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	rusqlite as sqlite,
-	std::{borrow::Cow, collections::HashMap, path::PathBuf, sync::Arc},
+	std::{borrow::Cow, collections::HashMap, path::PathBuf, sync::Arc, time::Duration},
+	tangram_pool::{self as pool, Pool},
 };
 
 pub mod row;
@@ -24,15 +22,17 @@ pub enum Error {
 type Initialize = Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
 
 pub struct DatabaseOptions {
-	pub connections: usize,
 	pub initialize: Initialize,
+	pub max: usize,
+	pub min: usize,
 	pub path: PathBuf,
+	pub ttl: Option<Duration>,
 }
 
 pub struct Database {
 	options: DatabaseOptions,
-	read_pool: Pool<Connection>,
-	write_pool: Pool<Connection>,
+	read_pool: Pool<Connection, Error>,
+	write_pool: Pool<Connection, Error>,
 }
 
 #[derive(Default)]
@@ -125,7 +125,15 @@ struct QueryAllMessage {
 
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
-		let write_pool = Pool::new();
+		let write_pool = Pool::new(
+			pool::Options {
+				min: 1,
+				max: 1,
+				shared: 1,
+				ttl: None,
+			},
+			|| async { Err(Error::Other("expected a pooled connection".into())) },
+		);
 		let flags = rusqlite::OpenFlags::default();
 		let options_ = ConnectionOptions {
 			flags,
@@ -134,8 +142,36 @@ impl Database {
 		};
 		let connection = Connection::connect(options_).await?;
 		write_pool.add(connection);
-		let read_pool = Pool::new();
-		for _ in 0..options.connections {
+		let create = {
+			let initialize = options.initialize.clone();
+			let path = options.path.clone();
+			move || {
+				let initialize = initialize.clone();
+				let path = path.clone();
+				async move {
+					let mut flags = rusqlite::OpenFlags::default();
+					flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);
+					flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE);
+					flags.insert(rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY);
+					let options = ConnectionOptions {
+						flags,
+						initialize,
+						path,
+					};
+					Connection::connect(options).await
+				}
+			}
+		};
+		let read_pool = Pool::new(
+			pool::Options {
+				min: options.min,
+				max: options.max,
+				shared: 1,
+				ttl: options.ttl,
+			},
+			create,
+		);
+		for _ in 0..options.min {
 			let mut flags = rusqlite::OpenFlags::default();
 			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);
 			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -157,12 +193,12 @@ impl Database {
 	}
 
 	#[must_use]
-	pub fn read_pool(&self) -> &Pool<Connection> {
+	pub fn read_pool(&self) -> &Pool<Connection, Error> {
 		&self.read_pool
 	}
 
 	#[must_use]
-	pub fn write_pool(&self) -> &Pool<Connection> {
+	pub fn write_pool(&self) -> &Pool<Connection, Error> {
 		&self.write_pool
 	}
 
@@ -178,7 +214,10 @@ impl Database {
 	}
 
 	pub async fn sync(&self) -> Result<(), Error> {
-		let connection = self.write_pool.get(crate::pool::Priority::default()).await;
+		let connection = self
+			.write_pool
+			.get_exclusive(tangram_pool::Priority::default())
+			.await?;
 		connection
 			.with(|connection, _cache| {
 				connection.pragma_update(None, "wal_checkpoint", "full")?;
@@ -314,15 +353,15 @@ impl super::Error for Error {
 impl super::Database for Database {
 	type Error = Error;
 
-	type Connection = pool::Guard<Connection>;
+	type Connection = pool::ExclusiveGuard<Connection, Error>;
 
 	async fn connection_with_options(
 		&self,
 		options: super::ConnectionOptions,
 	) -> Result<Self::Connection, Self::Error> {
 		let connection = match options.kind {
-			crate::ConnectionKind::Read => self.read_pool.get(options.priority).await,
-			crate::ConnectionKind::Write => self.write_pool.get(options.priority).await,
+			crate::ConnectionKind::Read => self.read_pool.get_exclusive(options.priority).await?,
+			crate::ConnectionKind::Write => self.write_pool.get_exclusive(options.priority).await?,
 		};
 		Ok(connection)
 	}
@@ -350,7 +389,7 @@ impl super::Connection for Connection {
 	}
 }
 
-impl super::Connection for pool::Guard<Connection> {
+impl super::Connection for pool::ExclusiveGuard<Connection, Error> {
 	type Error = Error;
 
 	type Transaction<'t>
@@ -471,7 +510,7 @@ impl super::Query for Connection {
 	}
 }
 
-impl super::Query for pool::Guard<Connection> {
+impl super::Query for pool::ExclusiveGuard<Connection, Error> {
 	type Error = Error;
 
 	fn p(&self) -> &'static str {

@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	std::{ops::Deref, sync::Arc},
+	std::{fmt, ops::Deref, sync::Arc},
 	tangram_uri::Uri,
 	tokio::io::{AsyncRead, AsyncWrite},
 };
@@ -122,6 +122,7 @@ pub struct Arg {
 	pub version: Option<String>,
 	pub token: Option<String>,
 	pub process: Option<tg::process::Id>,
+	pub pool: Option<tangram_pool::Options>,
 	pub reconnect: Option<tangram_futures::retry::Options>,
 	pub retry: Option<tangram_futures::retry::Options>,
 }
@@ -129,12 +130,15 @@ pub struct Arg {
 #[derive(Clone, Debug)]
 pub struct Client(Arc<State>);
 
-#[derive(Debug)]
 pub struct State {
-	arg: tg::Arg,
 	context: Context,
-	sender: self::http::Sender,
+	pool: self::http::Pool,
+	pool_options: tangram_pool::Options,
+	reconnect: tangram_futures::retry::Options,
+	retry: tangram_futures::retry::Options,
 	service: self::http::Service,
+	url: Uri,
+	version: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -144,43 +148,62 @@ pub struct Context {
 }
 
 impl Client {
-	pub fn new(mut arg: tg::Arg) -> tg::Result<Self> {
+	pub fn new(arg: tg::Arg) -> tg::Result<Self> {
 		let url = match arg.url {
 			Some(url) => url,
 			None => Self::default_url()?,
 		};
-		arg.url = Some(url.clone());
-		arg.version
-			.get_or_insert_with(|| env!("CARGO_PKG_VERSION").to_owned());
-		arg.reconnect.get_or_insert_default();
-		arg.retry.get_or_insert_default();
+		let version = arg
+			.version
+			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
+		let reconnect = arg.reconnect.unwrap_or_default();
+		let retry = arg.retry.unwrap_or_default();
 		let context = Context {
-			process: arg.process.clone(),
-			token: arg.token.clone(),
+			process: arg.process,
+			token: arg.token,
 		};
-		let sender = Arc::new(tokio::sync::Mutex::new(None));
-		let service = Self::service(&arg, &url, &sender);
+		let pool = Self::pool(pool_options, &reconnect, &url);
+		let service = Self::service(&version, &pool);
 		let client = Self(Arc::new(State {
-			arg,
 			context,
-			sender,
+			pool,
+			pool_options,
+			reconnect,
+			retry,
 			service,
+			url,
+			version,
 		}));
 		Ok(client)
 	}
 
-	pub fn with_env(mut arg: tg::Arg) -> tg::Result<Self> {
-		if arg.url.is_none() {
-			arg.url = Self::url_from_env()?;
-		}
-		arg.token = arg.token.or_else(Self::token_from_env);
-		if arg.process.is_none() {
-			arg.process = Self::process_from_env()?;
-		}
+	pub fn with_env(arg: tg::Arg) -> tg::Result<Self> {
+		let url = if let Some(url) = arg.url {
+			Some(url)
+		} else {
+			Self::url_from_env()?
+		};
+		let token = if let Some(token) = arg.token {
+			Some(token)
+		} else {
+			Self::token_from_env()
+		};
+		let process = if let Some(process) = arg.process {
+			Some(process)
+		} else {
+			Self::process_from_env()?
+		};
+		let arg = tg::Arg {
+			url,
+			token,
+			process,
+			..arg
+		};
 		Self::new(arg)
 	}
 
-	pub async fn with_stream<S>(mut arg: tg::Arg, stream: S) -> tg::Result<Self>
+	pub async fn with_stream<S>(arg: tg::Arg, stream: S) -> tg::Result<Self>
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
@@ -192,23 +215,37 @@ impl Client {
 				.build()
 				.map_err(|error| tg::error!(!error, "failed to build the URL"))?,
 		};
-		arg.url = Some(url.clone());
-		arg.version
-			.get_or_insert_with(|| env!("CARGO_PKG_VERSION").to_owned());
-		arg.reconnect.get_or_insert_default();
-		arg.retry.get_or_insert_default();
+		let version = arg
+			.version
+			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
+		let reconnect = arg.reconnect.unwrap_or_default();
+		let retry = arg.retry.unwrap_or_default();
 		let context = Context {
-			process: arg.process.clone(),
-			token: arg.token.clone(),
+			process: arg.process,
+			token: arg.token,
 		};
 		let sender = Self::handshake_h2(stream).await?;
-		let sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
-		let service = Self::service(&arg, &url, &sender);
+		let options = tangram_pool::Options {
+			min: 1,
+			max: 1,
+			shared: pool_options.shared,
+			ttl: None,
+		};
+		let pool = self::http::Pool::new(options, || async {
+			Err(tg::error!("cannot create a connection for a stream client"))
+		});
+		pool.add(self::http::Connection::new(sender));
+		let service = Self::service(&version, &pool);
 		let client = Self(Arc::new(crate::State {
-			arg,
 			context,
-			sender,
+			pool,
+			pool_options,
+			reconnect,
+			retry,
 			service,
+			url,
+			version,
 		}));
 		Ok(client)
 	}
@@ -263,12 +300,12 @@ impl Client {
 
 	#[must_use]
 	pub fn url(&self) -> &Uri {
-		self.0.arg.url.as_ref().unwrap()
+		&self.0.url
 	}
 
 	#[must_use]
 	pub fn process(&self) -> Option<&tg::process::Id> {
-		self.0.arg.process.as_ref()
+		self.0.context.process.as_ref()
 	}
 
 	#[must_use]
@@ -281,7 +318,29 @@ impl Client {
 
 	#[must_use]
 	pub fn version(&self) -> &str {
-		self.0.arg.version.as_deref().unwrap()
+		&self.0.version
+	}
+}
+
+fn default_pool_options() -> tangram_pool::Options {
+	tangram_pool::Options {
+		min: 0,
+		max: 1,
+		shared: usize::MAX,
+		ttl: None,
+	}
+}
+
+impl fmt::Debug for State {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("State")
+			.field("context", &self.context)
+			.field("pool_options", &self.pool_options)
+			.field("reconnect", &self.reconnect)
+			.field("retry", &self.retry)
+			.field("url", &self.url)
+			.field("version", &self.version)
+			.finish_non_exhaustive()
 	}
 }
 

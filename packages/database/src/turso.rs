@@ -1,12 +1,10 @@
 use {
-	crate::{
-		CacheKey,
-		pool::{self, Pool},
-	},
+	crate::CacheKey,
 	bytes::Bytes,
 	futures::{Stream, stream},
 	indexmap::IndexMap,
-	std::{borrow::Cow, collections::HashMap, path::PathBuf},
+	std::{borrow::Cow, collections::HashMap, path::PathBuf, time::Duration},
+	tangram_pool::{self as pool, Pool},
 };
 
 pub mod row;
@@ -19,8 +17,10 @@ pub enum Error {
 }
 
 pub struct DatabaseOptions {
-	pub connections: usize,
+	pub max: usize,
+	pub min: usize,
 	pub path: PathBuf,
+	pub ttl: Option<Duration>,
 }
 
 #[derive(Default)]
@@ -31,7 +31,7 @@ pub struct Cache {
 pub struct Database {
 	#[expect(dead_code)]
 	db: turso::Database,
-	pool: Pool<Connection>,
+	pool: Pool<Connection, Error>,
 }
 
 pub struct Connection {
@@ -67,8 +67,23 @@ impl Database {
 			.to_str()
 			.ok_or_else(|| Error::Other("the path is not valid UTF-8".into()))?;
 		let db = turso::Builder::new_local(path).build().await?;
-		let pool = Pool::new();
-		for _ in 0..options.connections {
+		let create = {
+			let db = db.clone();
+			move || {
+				let db = db.clone();
+				async move { Connection::connect(&db) }
+			}
+		};
+		let pool = Pool::new(
+			pool::Options {
+				min: options.min,
+				max: options.max,
+				shared: 1,
+				ttl: options.ttl,
+			},
+			create,
+		);
+		for _ in 0..options.min {
 			let connection = Connection::connect(&db)?;
 			pool.add(connection);
 		}
@@ -77,7 +92,7 @@ impl Database {
 	}
 
 	#[must_use]
-	pub fn pool(&self) -> &Pool<Connection> {
+	pub fn pool(&self) -> &Pool<Connection, Error> {
 		&self.pool
 	}
 
@@ -121,13 +136,13 @@ impl<'a> Transaction<'a> {
 impl super::Database for Database {
 	type Error = Error;
 
-	type Connection = pool::Guard<Connection>;
+	type Connection = pool::ExclusiveGuard<Connection, Error>;
 
 	async fn connection_with_options(
 		&self,
 		options: super::ConnectionOptions,
 	) -> Result<Self::Connection, Self::Error> {
-		let connection = self.pool.get(options.priority).await;
+		let connection = self.pool.get_exclusive(options.priority).await?;
 		Ok(connection)
 	}
 
@@ -151,7 +166,7 @@ impl super::Connection for Connection {
 	}
 }
 
-impl super::Connection for pool::Guard<Connection> {
+impl super::Connection for pool::ExclusiveGuard<Connection, Error> {
 	type Error = Error;
 
 	type Transaction<'t>
@@ -202,7 +217,7 @@ impl super::Query for Connection {
 	}
 }
 
-impl super::Query for pool::Guard<Connection> {
+impl super::Query for pool::ExclusiveGuard<Connection, Error> {
 	type Error = Error;
 
 	fn p(&self) -> &'static str {
