@@ -1,11 +1,20 @@
 use {
-	super::subuid::UserRanges,
+	super::{
+		protocol::{
+			self, OP_DESTROY, OP_SHUTDOWN, OP_SPAWN_NETNS, OP_SPAWN_PASTA, OP_SPAWN_WRAPPER,
+			OP_WAIT_WRAPPER, Request, Response, decode_spawn_payload,
+		},
+		subuid::UserRanges,
+	},
 	std::{
+		collections::HashMap,
+		ffi::CString,
 		io::{Read as _, Write as _},
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, IntoRawFd as _, RawFd},
-			unix::net::UnixStream,
+			unix::{ffi::OsStrExt as _, net::UnixStream},
 		},
+		path::PathBuf,
 		process::Command,
 	},
 	tangram_client::prelude::*,
@@ -13,6 +22,7 @@ use {
 
 const READY_BYTE: u8 = 0;
 const GO_BYTE: u8 = 1;
+const NETNS_DIR_ENV: &str = "TANGRAM_HELPER_NETNS_DIR";
 
 /// Entry point for the rootless helper subprocess.
 ///
@@ -70,13 +80,343 @@ pub fn helper_main(control_fd: RawFd) -> tg::Result<std::process::ExitCode> {
 		return Err(tg::error!(!error, "failed to unshare the mount namespace"));
 	}
 
-	// For now, pause forever. The request loop will replace this in the next
-	// milestone.
+	// Determine the per-server runtime directory for bind-mounted netns files.
+	let netns_dir = netns_directory();
+	std::fs::create_dir_all(&netns_dir).map_err(
+		|error| tg::error!(!error, path = %netns_dir.display(), "failed to create the netns directory"),
+	)?;
+
+	let mut state = HelperState {
+		netns_dir,
+		sandboxes: HashMap::new(),
+	};
+
+	// Enter the request loop.
+	loop {
+		let Some(request) = protocol::read_request(&mut control)? else {
+			break;
+		};
+		let response = handle_request(&mut state, &request);
+		protocol::write_response(&mut control, &response)?;
+		if request.opcode == OP_SHUTDOWN {
+			break;
+		}
+	}
+
+	state.cleanup();
+	Ok(std::process::ExitCode::SUCCESS)
+}
+
+struct HelperState {
+	netns_dir: PathBuf,
+	sandboxes: HashMap<String, SandboxEntry>,
+}
+
+struct SandboxEntry {
+	netns_holder_pid: libc::pid_t,
+	netns_path: PathBuf,
+	pasta_pid: Option<libc::pid_t>,
+	wrapper_pid: Option<libc::pid_t>,
+}
+
+impl HelperState {
+	fn cleanup(&mut self) {
+		for (_, entry) in self.sandboxes.drain() {
+			cleanup_entry(&entry);
+		}
+	}
+}
+
+fn cleanup_entry(entry: &SandboxEntry) {
+	for pid in [
+		entry.wrapper_pid,
+		entry.pasta_pid,
+		Some(entry.netns_holder_pid),
+	]
+	.into_iter()
+	.flatten()
+	{
+		unsafe {
+			libc::kill(pid, libc::SIGTERM);
+			let mut status = 0;
+			libc::waitpid(pid, &raw mut status, 0);
+		}
+	}
+	if let Ok(path_c) = CString::new(entry.netns_path.as_os_str().as_bytes()) {
+		unsafe {
+			libc::umount2(path_c.as_ptr(), libc::MNT_DETACH);
+		}
+	}
+	std::fs::remove_file(&entry.netns_path).ok();
+}
+
+fn handle_request(state: &mut HelperState, request: &Request) -> Response {
+	let result = match request.opcode {
+		OP_SPAWN_NETNS => handle_spawn_netns(state, &request.payload),
+		OP_SPAWN_PASTA => handle_spawn_pasta(state, &request.payload),
+		OP_SPAWN_WRAPPER => handle_spawn_wrapper(state, &request.payload),
+		OP_WAIT_WRAPPER => handle_wait_wrapper(state, &request.payload),
+		OP_DESTROY => handle_destroy(state, &request.payload),
+		OP_SHUTDOWN => Ok(Vec::new()),
+		other => Err(tg::error!(opcode = %other, "unknown request opcode")),
+	};
+	match result {
+		Ok(payload) => Response::ok(payload),
+		Err(error) => Response::err(format!("{error}")),
+	}
+}
+
+fn handle_spawn_netns(state: &mut HelperState, payload: &[u8]) -> tg::Result<Vec<u8>> {
+	let sandbox_id = std::str::from_utf8(payload)
+		.map_err(|source| tg::error!(!source, "invalid sandbox id encoding"))?
+		.to_owned();
+	if state.sandboxes.contains_key(&sandbox_id) {
+		return Err(tg::error!(id = %sandbox_id, "sandbox netns already exists"));
+	}
+	let netns_path = state.netns_dir.join(format!("sbx-{sandbox_id}"));
+
+	// Create the placeholder file before forking so we can bind-mount onto it.
+	std::fs::File::create(&netns_path).map(drop).map_err(
+		|error| tg::error!(!error, path = %netns_path.display(), "failed to create the netns target file"),
+	)?;
+
+	// CLOEXEC sync pipe — child closes its write end on exec (sleep call) or
+	// on death. The parent reads EOF and knows the child is set up. Here we
+	// reuse the same pattern but with a manual `write` after bind-mount because
+	// the netns holder does not exec — it pauses.
+	let mut sync = [-1 as libc::c_int; 2];
+	if unsafe { libc::pipe2(sync.as_mut_ptr(), libc::O_CLOEXEC) } < 0 {
+		let error = std::io::Error::last_os_error();
+		std::fs::remove_file(&netns_path).ok();
+		return Err(tg::error!(!error, "failed to create the netns sync pipe"));
+	}
+	let sync_read = sync[0];
+	let sync_write = sync[1];
+
+	let pid = unsafe { libc::fork() };
+	if pid < 0 {
+		let error = std::io::Error::last_os_error();
+		unsafe {
+			libc::close(sync_read);
+			libc::close(sync_write);
+		}
+		std::fs::remove_file(&netns_path).ok();
+		return Err(tg::error!(!error, "failed to fork the netns holder"));
+	}
+	if pid == 0 {
+		unsafe {
+			libc::close(sync_read);
+		}
+		netns_holder_child(sync_write, &netns_path);
+	}
+
+	unsafe {
+		libc::close(sync_write);
+	}
+	let mut buf = [0u8; 1];
+	let read_result = unsafe { libc::read(sync_read, buf.as_mut_ptr().cast(), 1) };
+	unsafe {
+		libc::close(sync_read);
+	}
+	if read_result <= 0 {
+		// Child died before bind-mounting; reap it and surface the error.
+		let mut status = 0;
+		unsafe {
+			libc::waitpid(pid, &raw mut status, 0);
+		}
+		std::fs::remove_file(&netns_path).ok();
+		return Err(tg::error!("the netns holder exited before bind-mounting"));
+	}
+
+	let entry = SandboxEntry {
+		netns_holder_pid: pid,
+		netns_path: netns_path.clone(),
+		pasta_pid: None,
+		wrapper_pid: None,
+	};
+	state.sandboxes.insert(sandbox_id, entry);
+
+	Ok(netns_path.as_os_str().as_bytes().to_vec())
+}
+
+fn handle_spawn_pasta(state: &mut HelperState, payload: &[u8]) -> tg::Result<Vec<u8>> {
+	let (sandbox_id, argv) = decode_spawn_payload(payload)?;
+	let entry = state
+		.sandboxes
+		.get_mut(&sandbox_id)
+		.ok_or_else(|| tg::error!(id = %sandbox_id, "unknown sandbox"))?;
+	if entry.pasta_pid.is_some() {
+		return Err(tg::error!(id = %sandbox_id, "pasta already spawned"));
+	}
+	if argv.is_empty() {
+		return Err(tg::error!("pasta argv is empty"));
+	}
+	let pid = fork_exec(None, &argv)?;
+	entry.pasta_pid = Some(pid);
+	Ok(pid.to_le_bytes().to_vec())
+}
+
+fn handle_spawn_wrapper(state: &mut HelperState, payload: &[u8]) -> tg::Result<Vec<u8>> {
+	let (sandbox_id, argv) = decode_spawn_payload(payload)?;
+	let entry = state
+		.sandboxes
+		.get_mut(&sandbox_id)
+		.ok_or_else(|| tg::error!(id = %sandbox_id, "unknown sandbox"))?;
+	if entry.wrapper_pid.is_some() {
+		return Err(tg::error!(id = %sandbox_id, "wrapper already spawned"));
+	}
+	if argv.is_empty() {
+		return Err(tg::error!("wrapper argv is empty"));
+	}
+	let netns_path = entry.netns_path.clone();
+	let pid = fork_exec(Some(&netns_path), &argv)?;
+	entry.wrapper_pid = Some(pid);
+	Ok(pid.to_le_bytes().to_vec())
+}
+
+fn handle_wait_wrapper(state: &mut HelperState, payload: &[u8]) -> tg::Result<Vec<u8>> {
+	let sandbox_id = std::str::from_utf8(payload)
+		.map_err(|source| tg::error!(!source, "invalid sandbox id encoding"))?;
+	let wrapper_pid = state
+		.sandboxes
+		.get(sandbox_id)
+		.and_then(|entry| entry.wrapper_pid)
+		.ok_or_else(|| tg::error!(id = %sandbox_id, "no wrapper to wait on"))?;
+	let mut status = 0;
+	let result = unsafe { libc::waitpid(wrapper_pid, &raw mut status, 0) };
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to waitpid the wrapper"));
+	}
+	if let Some(entry) = state.sandboxes.get_mut(sandbox_id) {
+		entry.wrapper_pid = None;
+	}
+	let exit_code = if libc::WIFEXITED(status) {
+		libc::WEXITSTATUS(status)
+	} else if libc::WIFSIGNALED(status) {
+		128 + libc::WTERMSIG(status)
+	} else {
+		-1
+	};
+	Ok(i32::to_le_bytes(exit_code).to_vec())
+}
+
+/// Fork a child. If `netns_path` is `Some`, the child enters that netns via
+/// `setns` before exec. Then the child `execvp`s `argv[0]` with `argv` as its
+/// argument vector. Returns the new child's pid in the parent.
+fn fork_exec(netns_path: Option<&std::path::Path>, argv: &[String]) -> tg::Result<libc::pid_t> {
+	let argv_c: Vec<CString> = argv
+		.iter()
+		.map(|s| {
+			CString::new(s.as_bytes())
+				.map_err(|source| tg::error!(!source, arg = %s, "argv entry contains a NUL"))
+		})
+		.collect::<tg::Result<Vec<_>>>()?;
+	let argv_ptrs: Vec<*const libc::c_char> = argv_c
+		.iter()
+		.map(|s| s.as_ptr())
+		.chain(std::iter::once(std::ptr::null()))
+		.collect();
+	let netns_c = netns_path
+		.map(|path| CString::new(path.as_os_str().as_bytes()))
+		.transpose()
+		.map_err(|source| tg::error!(!source, "netns path contains a NUL"))?;
+
+	let pid = unsafe { libc::fork() };
+	if pid < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to fork"));
+	}
+	if pid == 0 {
+		// Enter the netns if requested.
+		if let Some(netns_c) = netns_c.as_ref() {
+			let fd = unsafe { libc::open(netns_c.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+			if fd < 0 {
+				unsafe { libc::_exit(110) };
+			}
+			if unsafe { libc::setns(fd, libc::CLONE_NEWNET) } < 0 {
+				unsafe { libc::_exit(111) };
+			}
+			unsafe { libc::close(fd) };
+		}
+		unsafe {
+			libc::execvp(argv_ptrs[0], argv_ptrs.as_ptr());
+		}
+		unsafe { libc::_exit(127) };
+	}
+	Ok(pid)
+}
+
+fn handle_destroy(state: &mut HelperState, payload: &[u8]) -> tg::Result<Vec<u8>> {
+	let sandbox_id = std::str::from_utf8(payload)
+		.map_err(|source| tg::error!(!source, "invalid sandbox id encoding"))?;
+	if let Some(entry) = state.sandboxes.remove(sandbox_id) {
+		cleanup_entry(&entry);
+	}
+	Ok(Vec::new())
+}
+
+/// Body of the netns-holder child. Never returns.
+fn netns_holder_child(sync_write: libc::c_int, netns_path: &std::path::Path) -> ! {
+	let _ = unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) };
+
+	if unsafe { libc::unshare(libc::CLONE_NEWNET) } < 0 {
+		unsafe { libc::_exit(101) };
+	}
+
+	let Ok(target_c) = CString::new(netns_path.as_os_str().as_bytes()) else {
+		unsafe { libc::_exit(102) };
+	};
+	let source_c = c"/proc/self/ns/net";
+	let result = unsafe {
+		libc::mount(
+			source_c.as_ptr(),
+			target_c.as_ptr(),
+			std::ptr::null(),
+			libc::MS_BIND,
+			std::ptr::null(),
+		)
+	};
+	if result < 0 {
+		unsafe { libc::_exit(103) };
+	}
+
+	// Signal the helper that the bind-mount is in place.
+	let ok = 1u8;
+	let written = unsafe { libc::write(sync_write, std::ptr::addr_of!(ok).cast(), 1) };
+	if written != 1 {
+		unsafe { libc::_exit(104) };
+	}
+	unsafe {
+		libc::close(sync_write);
+	}
+
 	loop {
 		unsafe {
 			libc::pause();
 		}
 	}
+}
+
+fn netns_directory() -> PathBuf {
+	if let Ok(dir) = std::env::var(NETNS_DIR_ENV)
+		&& !dir.is_empty()
+	{
+		return PathBuf::from(dir);
+	}
+	let xdg = std::env::var("XDG_RUNTIME_DIR")
+		.ok()
+		.filter(|s| !s.is_empty());
+	let base = if let Some(xdg) = xdg {
+		PathBuf::from(xdg)
+	} else {
+		let uid = unsafe { libc::geteuid() };
+		PathBuf::from(format!("/run/user/{uid}"))
+	};
+	let parent_pid = unsafe { libc::getppid() };
+	base.join("tangram")
+		.join(parent_pid.to_string())
+		.join("netns")
 }
 
 /// Server-side driver: given an open `UnixStream` to a freshly-spawned helper
@@ -176,8 +516,6 @@ pub fn socketpair() -> tg::Result<(UnixStream, RawFd)> {
 			"failed to clear FD_CLOEXEC on the child end"
 		));
 	}
-	// Leak the child end so it stays open across `execve`. The helper takes
-	// ownership via `from_raw_fd(control_fd)`.
 	let child_raw = child.into_raw_fd();
 	Ok((parent, child_raw))
 }

@@ -42,6 +42,14 @@ pub struct Arg {
 	pub procs: Vec<PathBuf>,
 	pub ro_binds: Vec<Bind>,
 	pub setenvs: Vec<SetEnv>,
+	/// When set, the wrapper does not call `unshare(CLONE_NEWNET)` because it
+	/// was placed in the target netns by its parent (the rootless helper).
+	pub skip_netns: bool,
+	/// When set, the wrapper does not call `unshare(CLONE_NEWUSER)` because
+	/// it was placed in the helper's user namespace by its parent. The
+	/// single-uid `uid_map` write also does not happen — the existing
+	/// `newuidmap`/`newgidmap` mapping from the helper is reused.
+	pub skip_user_ns: bool,
 	pub tmpfs: Vec<PathBuf>,
 	pub uid: libc::uid_t,
 	pub unshare_all: bool,
@@ -95,9 +103,15 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.transpose()
 		.map_err(|error| tg::error!(!error, "failed to create the cgroup"))?;
 	if arg.unshare_all {
-		enter_user_namespace(arg.uid, arg.gid)?;
+		if !arg.skip_user_ns {
+			enter_user_namespace(arg.uid, arg.gid)?;
+		}
 		match &arg.network {
 			Some(Network::Host) => (),
+			Some(Network::Pasta) if arg.skip_netns => {
+				// The wrapper was placed in the sandbox netns by the helper. No
+				// unshare or host-side sync is needed.
+			},
 			Some(Network::Pasta) => {
 				// Unshare the network namespace before synchronizing with the host. The child
 				// first signals readiness, then waits for the parent to start pasta. Pasta

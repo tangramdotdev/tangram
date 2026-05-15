@@ -79,6 +79,18 @@ pub struct Args {
 	#[arg(action = clap::ArgAction::Append, long = "setenv", num_args = 2)]
 	pub setenvs: Vec<String>,
 
+	/// Skip the wrapper's own `unshare(CLONE_NEWNET)`. Used by the rootless
+	/// helper, which has already placed the wrapper in the sandbox netns via
+	/// `setns`.
+	#[arg(long)]
+	pub skip_netns: bool,
+
+	/// Skip the wrapper's own `unshare(CLONE_NEWUSER)` and the single-uid
+	/// `uid_map` write. Used by the rootless helper, which has already placed
+	/// the wrapper in its multi-uid user namespace.
+	#[arg(long)]
+	pub skip_user_ns: bool,
+
 	#[arg(action = clap::ArgAction::Append, long = "tmpfs", num_args = 1)]
 	pub tmpfs: Vec<PathBuf>,
 
@@ -138,6 +150,8 @@ impl Args {
 			procs: self.procs,
 			ro_binds,
 			setenvs,
+			skip_netns: self.skip_netns,
+			skip_user_ns: self.skip_user_ns,
 			tmpfs: self.tmpfs,
 			uid: self.uid,
 			unshare_all: self.unshare_all,

@@ -255,6 +255,8 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		procs: Vec::new(),
 		ro_binds,
 		setenvs: Vec::new(),
+		skip_netns: false,
+		skip_user_ns: false,
 		tmpfs: Vec::new(),
 		uid: 0,
 		unshare_all: false,
