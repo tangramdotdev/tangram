@@ -224,10 +224,12 @@ fn setup_rootfs() -> tg::Result<()> {
 	// Bind the host-share output directory directly over its overlay
 	// position so writes pass through virtiofs to the host instead of
 	// landing in the overlay's tmpfs upperdir (where they would be lost
-	// when the VM exits).
+	// when the VM exits). Non-recursive: virtiofsd stages output as a
+	// submount in its private namespace, and the kernel refuses MS_REC
+	// across that boundary (EREMOTE).
 	let output_source = Path::new(HOST_MOUNT_POINT).join("opt/tangram/output");
 	let output_target = Path::new(ROOTVIEW_MERGED).join("opt/tangram/output");
-	rbind(&output_source, &output_target)?;
+	bind(&output_source, &output_target)?;
 
 	Ok(())
 }
@@ -257,16 +259,24 @@ fn mount_overlay() -> tg::Result<()> {
 }
 
 fn rbind(source: &Path, target: &Path) -> tg::Result<()> {
+	bind_with_flags(source, target, libc::MS_BIND | libc::MS_REC)
+}
+
+fn bind(source: &Path, target: &Path) -> tg::Result<()> {
+	bind_with_flags(source, target, libc::MS_BIND)
+}
+
+fn bind_with_flags(source: &Path, target: &Path, flags: libc::c_ulong) -> tg::Result<()> {
 	let source_c = CString::new(source.as_os_str().as_bytes())
-		.map_err(|error| tg::error!(!error, "failed to encode the rbind source"))?;
+		.map_err(|error| tg::error!(!error, "failed to encode the bind source"))?;
 	let target_c = CString::new(target.as_os_str().as_bytes())
-		.map_err(|error| tg::error!(!error, "failed to encode the rbind target"))?;
+		.map_err(|error| tg::error!(!error, "failed to encode the bind target"))?;
 	let result = unsafe {
 		libc::mount(
 			source_c.as_ptr(),
 			target_c.as_ptr(),
 			std::ptr::null(),
-			libc::MS_BIND | libc::MS_REC,
+			flags,
 			std::ptr::null(),
 		)
 	};
@@ -276,7 +286,7 @@ fn rbind(source: &Path, target: &Path) -> tg::Result<()> {
 			!error,
 			source = %source.display(),
 			target = %target.display(),
-			"failed to rbind",
+			"failed to bind",
 		));
 	}
 	Ok(())

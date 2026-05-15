@@ -232,7 +232,14 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		// Build the list of bind mounts virtiofsd will see in its private
 		// mount namespace. Each entry is staged at its canonical guest
 		// path inside the share so the guest can bind it directly into
-		// place without any post-hoc rerouting.
+		// place without any post-hoc rerouting. We deliberately do NOT
+		// bind-mount the output dir here: the kernel refuses to MS_BIND
+		// from a path that lives on a virtiofs-namespace submount
+		// (EREMOTE), so the in-VM init's bind of
+		// /mnt/host/opt/tangram/output → /opt/tangram/output would fail.
+		// Instead, the host stages `arg.path/host/opt/tangram/output` as
+		// a real directory and `prepare_sandbox_directory` symlinks
+		// `arg.path/output` to it so the server reads the same inode.
 		let mut binds: Vec<(PathBuf, PathBuf)> = Vec::new();
 		binds.push((
 			arg.artifacts_path.clone(),
@@ -673,7 +680,6 @@ fn kernel_cmdline(arg: &Arg) -> String {
 
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	for path in [
-		Sandbox::host_output_path_from_root(sandbox_path),
 		Sandbox::host_scratch_path_from_root(sandbox_path),
 		Sandbox::host_tmp_path_from_root(sandbox_path),
 		Sandbox::host_upper_path_from_root(sandbox_path),
@@ -689,6 +695,16 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
+
+	// `Sandbox::host_output_path_from_root` is the path the server reads
+	// xattrs from. Make it a symlink to the virtiofs-served share dir so
+	// the server and the in-VM writes touch the same inode.
+	let host_output = Sandbox::host_output_path_from_root(sandbox_path);
+	std::fs::remove_file(&host_output).ok();
+	std::fs::remove_dir_all(&host_output).ok();
+	std::os::unix::fs::symlink("host/opt/tangram/output", &host_output).map_err(|error| {
+		tg::error!(!error, path = %host_output.display(), "failed to symlink the output dir")
+	})?;
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
 	let tmp_path = Sandbox::host_tmp_path_from_root(sandbox_path);
