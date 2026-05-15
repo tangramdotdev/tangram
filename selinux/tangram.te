@@ -1,0 +1,20 @@
+module tangram 1.0;
+
+require {
+	type pasta_t;
+	type unconfined_t;
+	class dir open;
+}
+
+# Pasta runs as `pasta_t` from the stock `selinux-policy-targeted` package.
+# When Tangram spawns the network sandbox helper, pasta needs to open the
+# helper's `/proc/<pid>/ns` directory to attach to its network namespace. The
+# helper inherits the caller's domain, which is `unconfined_t` for an
+# interactive user, and the stock pasta policy does not grant pasta_t this
+# access for unconfined_t. The container-selinux package permits it for
+# `container_t`, but Tangram's helper is the container runtime, not the
+# contained workload, so it cannot run as container_t without losing access
+# to the host paths it must mediate. This rule grants the specific permission
+# pasta needs without changing the helper's domain.
+
+allow pasta_t unconfined_t:dir open;

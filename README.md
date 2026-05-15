@@ -24,6 +24,8 @@ To get started, run the install script below, or download the [latest release](h
 curl -fsSL https://tangram.dev/install.sh | sh
 ```
 
+On SELinux-enforcing Linux distributions (Fedora, RHEL, CentOS Stream, Rocky, Alma), install the Tangram SELinux policy module so the sandbox's network setup is permitted. See [selinux/README.md](selinux/README.md).
+
 Create a file at the root of your project called `tangram.ts` with the following content:
 
 ```ts
