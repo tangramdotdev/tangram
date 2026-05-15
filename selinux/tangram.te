@@ -1,0 +1,9 @@
+module tangram 1.0;
+
+require {
+	type pasta_t;
+	type unconfined_t;
+	class dir open;
+}
+
+allow pasta_t unconfined_t:dir open;

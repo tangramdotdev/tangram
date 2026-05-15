@@ -24,6 +24,8 @@ To get started, run the install script below, or download the [latest release](h
 curl -fsSL https://tangram.dev/install.sh | sh
 ```
 
+On SELinux-enforcing distributions, install the policy module from [selinux/](selinux/).
+
 Create a file at the root of your project called `tangram.ts` with the following content:
 
 ```ts
