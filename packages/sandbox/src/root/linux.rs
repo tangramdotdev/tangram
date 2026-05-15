@@ -150,24 +150,6 @@ fn build_rootfs_image(
 	}
 	std::fs::remove_file(image_path).ok();
 
-	// Pseudo-file definitions: bind-mount targets the guest's init creates
-	// over at runtime. Without these placeholders the bind mounts inside
-	// the squashfs would fail because the targets do not exist.
-	let pseudo_path = std::env::temp_dir().join(format!(
-		"tangram-rootfs-pseudo-{}.txt",
-		std::process::id()
-	));
-	let pseudo_content = "\
-/etc/init.json f 0644 0 0 true
-/opt/tangram/artifacts d 0755 0 0
-/opt/tangram/output d 0755 0 0
-/run d 0755 0 0
-/run/sandbox d 0755 0 0
-";
-	std::fs::write(&pseudo_path, pseudo_content).map_err(
-		|error| tg::error!(!error, path = %pseudo_path.display(), "failed to write the pseudo-file definitions"),
-	)?;
-
 	let status = std::process::Command::new("mksquashfs")
 		.arg(rootfs_path)
 		.arg(image_path)
@@ -176,11 +158,8 @@ fn build_rootfs_image(
 		.arg("-all-root")
 		.arg("-noappend")
 		.arg("-quiet")
-		.arg("-pf")
-		.arg(&pseudo_path)
 		.status()
 		.map_err(|error| tg::error!(!error, "failed to invoke mksquashfs"))?;
-	std::fs::remove_file(&pseudo_path).ok();
 	if !status.success() {
 		return Err(tg::error!(%status, "mksquashfs failed"));
 	}
@@ -222,27 +201,30 @@ fn set_rootfs_permissions(
 
 fn prepare_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	for path in [
-		Path::new("/dev"),
-		Path::new("/dev/pts"),
-		Path::new("/proc"),
-		Path::new("/sys"),
-		Path::new("/opt/tangram"),
-		Path::new("/tmp"),
-		Path::new("/opt/tangram/artifacts"),
-		Path::new("/opt/tangram/libexec"),
-		Path::new("/opt/tangram/output"),
+		"/dev",
+		"/dev/pts",
+		"/mnt",
+		"/mnt/host",
+		"/mnt/root",
+		"/proc",
+		"/sys",
+		"/opt/tangram",
+		"/tmp",
+		"/opt/tangram/artifacts",
+		"/opt/tangram/libexec",
+		"/opt/tangram/output",
 	] {
-		create_guest_directory(rootfs_path, path)?;
+		create_guest_directory(rootfs_path, Path::new(path))?;
 	}
 	for path in [
-		Path::new("/socket"),
-		Path::new("/etc/passwd"),
-		Path::new("/etc/nsswitch.conf"),
-		Path::new("/etc/resolv.conf"),
-		Path::new("/opt/tangram/libexec/tangram"),
-		Path::new("/opt/tangram/socket"),
+		"/socket",
+		"/etc/passwd",
+		"/etc/nsswitch.conf",
+		"/etc/resolv.conf",
+		"/opt/tangram/libexec/tangram",
+		"/opt/tangram/socket",
 	] {
-		create_guest_file(rootfs_path, path)?;
+		create_guest_file(rootfs_path, Path::new(path))?;
 	}
 	Ok(())
 }

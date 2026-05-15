@@ -385,6 +385,14 @@ async fn main() -> std::process::ExitCode {
 		matches,
 	};
 
+	// Sandbox subcommands run in subprocesses (container init, vm init, vm
+	// run, serve) and bypass the main config/telemetry/tracing setup below.
+	// Initialize tracing for them so their `tracing::*` calls reach stderr,
+	// which the parent forwards to its log or serial console.
+	if matches!(&cli.args.command, Command::Sandbox(_)) {
+		Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
+	}
+
 	// Handle internal commands.
 	let result = match cli.args.command.clone() {
 		Command::Builtin(command_args) => Some(cli.command_builtin(command_args).await),

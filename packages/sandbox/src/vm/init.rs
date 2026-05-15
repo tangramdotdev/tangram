@@ -17,14 +17,13 @@ use {
 const NETWORK_INTERFACE_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 const NETWORK_INTERFACE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 
-const INIT_CONFIG_PATH: &str = "/etc/init.json";
-const SANDBOX_FS_TAG: &str = "sandbox";
-const SANDBOX_MOUNT_POINT: &str = "/run/sandbox";
-const SANDBOX_INIT_CONFIG_PATH: &str = "/run/sandbox/init.json";
-const SANDBOX_OUTPUT_PATH: &str = "/run/sandbox/output";
-const GUEST_OUTPUT_PATH: &str = "/opt/tangram/output";
-const ARTIFACTS_FS_TAG: &str = "artifacts";
-const ARTIFACTS_MOUNT_POINT: &str = "/opt/tangram/artifacts";
+const HOST_FS_TAG: &str = "host";
+const HOST_MOUNT_POINT: &str = "/mnt/host";
+const HOST_INIT_CONFIG_PATH: &str = "/mnt/host/init.json";
+const ROOTVIEW_SCRATCH: &str = "/mnt/root";
+const ROOTVIEW_UPPER: &str = "/mnt/root/upper";
+const ROOTVIEW_WORK: &str = "/mnt/root/work";
+const ROOTVIEW_MERGED: &str = "/mnt/root/merged";
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Config {
@@ -47,105 +46,46 @@ pub struct NetworkConfig {
 	pub netmask: Ipv4Addr,
 }
 
-pub fn run() -> tg::Result<ExitCode> {	
-	eprintln!("[tg-init] starting");
-	mount_proc(Path::new("/proc"))?;
-	eprintln!("[tg-init] mounted /proc");
-	mount_sys(Path::new("/sys"))?;
-	eprintln!("[tg-init] mounted /sys");
-	mount_dev(Path::new("/dev"))?;
-	eprintln!("[tg-init] mounted /dev");
+pub fn run() -> tg::Result<ExitCode> {
+	tracing::trace!("starting");
 
-	// In bake mode no virtiofs devices exist, so the recv inside
-	// wait_for_virtiofs_tags blocks the guest at a stable point for the
-	// host to snapshot. In restore mode the host hot-adds the devices
-	// after resuming, and the kernel's virtio-fs probe emits a uevent for
-	// each tag — the recv returns the instant a matching event arrives.
-	// In cold-boot mode the tags were registered before init opened the
-	// socket, so the initial sysfs scan picks them up and the recv loop is
-	// skipped entirely. No explicit ready signal from the host required.
-	eprintln!("[tg-init] waiting for virtiofs tags");
-	wait_for_virtiofs_tags(&[SANDBOX_FS_TAG, ARTIFACTS_FS_TAG])?;
-	eprintln!("[tg-init] virtiofs tags ready");
+	mount_proc(Path::new("/proc"))
+		.map_err(|source| tg::error!(!source, "failed to mount /proc"))?;
+	tracing::trace!("mounted /proc");
 
-	let source = CString::new(SANDBOX_FS_TAG).unwrap();
-	let target = CString::new(SANDBOX_MOUNT_POINT).unwrap();
-	let fstype = CString::new("virtiofs").unwrap();
-	let result = unsafe {
-		libc::mount(
-			source.as_ptr(),
-			target.as_ptr(),
-			fstype.as_ptr(),
-			0,
-			std::ptr::null(),
+	mount_sys(Path::new("/sys")).map_err(|source| tg::error!(!source, "failed to mount /sys"))?;
+	tracing::trace!("mounted /sys");
+
+	mount_dev(Path::new("/dev")).map_err(|source| tg::error!(!source, "failed to mount /dev"))?;
+	tracing::trace!("mounted /dev");
+
+	wait_for_virtiofs().map_err(|source| {
+		tg::error!(
+			!source,
+			"error waiting for virtiofs to connect {HOST_FS_TAG}"
 		)
-	};
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to mount the sandbox virtio-fs"));
-	}
-	eprintln!("[tg-init] mounted {SANDBOX_MOUNT_POINT}");
+	})?;
+	tracing::trace!("virtiofs tags ready");
 
-	let source = CString::new(ARTIFACTS_FS_TAG).unwrap();
-	let target = CString::new(ARTIFACTS_MOUNT_POINT).unwrap();
-	let fstype = CString::new("virtiofs").unwrap();
-	let result = unsafe {
-		libc::mount(
-			source.as_ptr(),
-			target.as_ptr(),
-			fstype.as_ptr(),
-			0,
-			std::ptr::null(),
-		)
-	};
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(
-			!error,
-			"failed to mount the artifacts virtio-fs"
-		));
-	}
-	eprintln!("[tg-init] mounted {ARTIFACTS_MOUNT_POINT}");
+	mount_virtiofs()?;
+	tracing::trace!("mounted {HOST_MOUNT_POINT}");
 
-	let source = CString::new(SANDBOX_OUTPUT_PATH).unwrap();
-	let target = CString::new(GUEST_OUTPUT_PATH).unwrap();
-	let result = unsafe {
-		libc::mount(
-			source.as_ptr(),
-			target.as_ptr(),
-			std::ptr::null(),
-			libc::MS_BIND,
-			std::ptr::null(),
-		)
-	};
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to bind {GUEST_OUTPUT_PATH}"));
-	}
-	eprintln!("[tg-init] bound {GUEST_OUTPUT_PATH}");
-
-	let source = CString::new(SANDBOX_INIT_CONFIG_PATH).unwrap();
-	let target = CString::new(INIT_CONFIG_PATH).unwrap();
-	let result = unsafe {
-		libc::mount(
-			source.as_ptr(),
-			target.as_ptr(),
-			std::ptr::null(),
-			libc::MS_BIND,
-			std::ptr::null(),
-		)
-	};
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to bind the init config"));
-	}
-	let bytes = std::fs::read(INIT_CONFIG_PATH)
+	let bytes = std::fs::read(HOST_INIT_CONFIG_PATH)
 		.map_err(|error| tg::error!(!error, "failed to read the init config"))?;
-	eprintln!("[tg-init] read {} bytes from {INIT_CONFIG_PATH}", bytes.len());
+	tracing::trace!("read {} bytes from {HOST_INIT_CONFIG_PATH}", bytes.len());
+
 	let config: Config = serde_json::from_slice(&bytes)
 		.map_err(|error| tg::error!(!error, "failed to parse the init config"))?;
+	tracing::trace!("parsed config: uid={} gid={}", config.uid, config.gid);
 
-	eprintln!("[tg-init] loaded config: uid={} gid={}", config.uid, config.gid);
+	setup_rootfs().map_err(|source| tg::error!(!source, "failed to setup rootfs"))?;
+	tracing::trace!("created rootfs");
+
+	make_root_private().map_err(|source| tg::error!(!source, "failed to make rootfs private"))?;
+	tracing::trace!("made rootfs private");
+
+	chroot(ROOTVIEW_MERGED)?;
+	tracing::trace!("chrooted to new rootview");
 
 	let url = config
 		.url
@@ -159,22 +99,24 @@ pub fn run() -> tg::Result<ExitCode> {
 	});
 
 	if let Some(hostname) = &config.hostname {
-		eprintln!("[tg-init] setting hostname={hostname}");
 		set_hostname(hostname)?;
+		tracing::trace!("set hostname={hostname}");
 	}
 
 	if let Some(network) = &network {
-		eprintln!("[tg-init] configuring network guest_ip={}", network.guest_ip);
-		configure_network(network)?;
+		configure_network(network)
+			.map_err(|source| tg::error!(!source, "failed to configure network"))?;
 		prime_network(network);
-		write_resolv_conf(&network.dns_servers)?;
+		write_resolv_conf(&network.dns_servers)
+			.map_err(|source| tg::error!(!source, "failed to write /etc/resolv.conf"))?;
+		tracing::trace!("configured network guest_ip={}", network.guest_ip);
 	}
 
 	let home = resolve_home(config.uid);
 
-	eprintln!("[tg-init] setting uid={} gid={}", config.uid, config.gid);
-	setresgid(config.gid)?;
-	setresuid(config.uid)?;
+	setresgid(config.gid).map_err(|source| tg::error!(!source, "failed to set gid"))?;
+	setresuid(config.uid).map_err(|source| tg::error!(!source, "failed to set uid"))?;
+	tracing::trace!("set uid={} gid={}", config.uid, config.gid);
 
 	let serve = crate::serve::Arg {
 		library_paths: config.library_paths,
@@ -184,29 +126,206 @@ pub fn run() -> tg::Result<ExitCode> {
 		url,
 	};
 
-	eprintln!("[tg-init] spawning sandbox server");
-	let child = spawn_server(&serve, home.as_deref())?;
+	let child = spawn_server(&serve, home.as_deref())
+		.map_err(|source| tg::error!(!source, "failed to spawn server"))?;
+	tracing::trace!("spawned sandbox server");
 	let pid: libc::pid_t = child
 		.id()
 		.try_into()
 		.map_err(|_| tg::error!("failed to get the sandbox server pid"))?;
-	
-	eprintln!("[tg-init] sandbox server spawned pid={pid}; entering reap loop");
-
+	tracing::trace!("spawned pid={pid}; entering reap loop");
 	loop {
 		let (reaped_pid, status) = wait_for_child()?;
 		if reaped_pid == pid {
-			eprintln!("[tg-init] sandbox server exited status={status}");
+			tracing::trace!("sandbox server exited status={status}");
 			return Ok(ExitCode::from(status));
 		}
 	}
 }
 
-fn wait_for_virtiofs_tags(expected: &[&str]) -> tg::Result<()> {
-	// Open the netlink uevent socket BEFORE scanning sysfs so we cannot
-	// miss an event for a tag that gets registered between the scan and
-	// the recv loop. The socket is bound to multicast group 1 which
-	// receives the kernel's broadcast uevents.
+fn mount_virtiofs() -> tg::Result<()> {
+	let source = CString::new(HOST_FS_TAG).unwrap();
+	let target_c = CString::new(HOST_MOUNT_POINT).unwrap();
+	let fstype = CString::new("virtiofs").unwrap();
+	let result = unsafe {
+		libc::mount(
+			source.as_ptr(),
+			target_c.as_ptr(),
+			fstype.as_ptr(),
+			0,
+			std::ptr::null(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, tag = %HOST_FS_TAG, target = %HOST_MOUNT_POINT, "failed to mount virtiofs"));
+	}
+	Ok(())
+}
+
+fn mount_tmpfs(target: &str) -> tg::Result<()> {
+	let source = CString::new("tmpfs").unwrap();
+	let target_c = CString::new(target)
+		.map_err(|error| tg::error!(!error, "failed to encode the tmpfs target"))?;
+	let fstype = CString::new("tmpfs").unwrap();
+	let data = CString::new("mode=0755").unwrap();
+	let result = unsafe {
+		libc::mount(
+			source.as_ptr(),
+			target_c.as_ptr(),
+			fstype.as_ptr(),
+			0,
+			data.as_ptr().cast(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, %target, "failed to mount tmpfs"));
+	}
+	Ok(())
+}
+
+/// Build the chroot rootview as an overlay union of the host share (top
+/// lower) over the squashfs root (bottom lower), with a tmpfs upper. The
+/// kernel does the per-path union; init.json and /mnt are masked in the
+/// upper after the overlay is mounted so they do not leak into the chroot.
+fn setup_rootfs() -> tg::Result<()> {
+	mount_tmpfs(ROOTVIEW_SCRATCH)?;
+	for path in [ROOTVIEW_UPPER, ROOTVIEW_WORK, ROOTVIEW_MERGED] {
+		std::fs::create_dir(path).map_err(
+			|error| tg::error!(!error, %path, "failed to create the overlay scratch directory"),
+		)?;
+	}
+
+	mount_overlay()?;
+
+	// Whiteout init.json so it does not appear at / inside the chroot.
+	let init_json = Path::new(ROOTVIEW_MERGED).join("init.json");
+	std::fs::remove_file(&init_json).map_err(
+		|error| tg::error!(!error, path = %init_json.display(), "failed to mask init.json"),
+	)?;
+
+	// Mask /mnt with a fresh tmpfs so the squashfs's mountpoint placeholders
+	// (/mnt/host, /mnt/root) do not leak into the chroot.
+	let merged_mnt = Path::new(ROOTVIEW_MERGED).join("mnt");
+	mount_tmpfs(
+		merged_mnt
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid /mnt path"))?,
+	)?;
+
+	// Reuse the early /proc, /sys, /dev mounts inside the new rootview.
+	for leaf in ["proc", "sys", "dev"] {
+		let source = Path::new("/").join(leaf);
+		let target = Path::new(ROOTVIEW_MERGED).join(leaf);
+		rbind(&source, &target)?;
+	}
+
+	Ok(())
+}
+
+fn mount_overlay() -> tg::Result<()> {
+	let source = CString::new("overlay").unwrap();
+	let target = CString::new(ROOTVIEW_MERGED).unwrap();
+	let fstype = CString::new("overlay").unwrap();
+	let data = CString::new(format!(
+		"lowerdir={HOST_MOUNT_POINT}:/,upperdir={ROOTVIEW_UPPER},workdir={ROOTVIEW_WORK}"
+	))
+	.map_err(|error| tg::error!(!error, "failed to encode the overlay options"))?;
+	let result = unsafe {
+		libc::mount(
+			source.as_ptr(),
+			target.as_ptr(),
+			fstype.as_ptr(),
+			0,
+			data.as_ptr().cast(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to mount the overlay rootview"));
+	}
+	Ok(())
+}
+
+fn rbind(source: &Path, target: &Path) -> tg::Result<()> {
+	let source_c = CString::new(source.as_os_str().as_bytes())
+		.map_err(|error| tg::error!(!error, "failed to encode the rbind source"))?;
+	let target_c = CString::new(target.as_os_str().as_bytes())
+		.map_err(|error| tg::error!(!error, "failed to encode the rbind target"))?;
+	let result = unsafe {
+		libc::mount(
+			source_c.as_ptr(),
+			target_c.as_ptr(),
+			std::ptr::null(),
+			libc::MS_BIND | libc::MS_REC,
+			std::ptr::null(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(
+			!error,
+			source = %source.display(),
+			target = %target.display(),
+			"failed to rbind",
+		));
+	}
+	Ok(())
+}
+
+fn make_root_private() -> tg::Result<()> {
+	let target = CString::new("/").unwrap();
+	let result = unsafe {
+		libc::mount(
+			std::ptr::null(),
+			target.as_ptr(),
+			std::ptr::null(),
+			libc::MS_REC | libc::MS_PRIVATE,
+			std::ptr::null(),
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to make the rootview private"));
+	}
+	Ok(())
+}
+
+fn chroot(target: &str) -> tg::Result<()> {
+	let target_c = CString::new(target)
+		.map_err(|error| tg::error!(!error, "failed to encode the chroot target"))?;
+	if unsafe { libc::chdir(target_c.as_ptr()) } != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, %target, "failed to chdir before chroot"));
+	}
+	if unsafe { libc::chroot(c".".as_ptr()) } != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, %target, "failed to chroot"));
+	}
+	let root = CString::new("/").unwrap();
+	if unsafe { libc::chdir(root.as_ptr()) } != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to chdir to / post-chroot"));
+	}
+	Ok(())
+}
+
+/// Bake-mode handshake: write a single NUL byte to stderr so the host's
+/// serial-tail thread can recognize that init has reached the snapshot
+/// point. NUL never appears in normal text output, so the host can scan
+/// for it without conflicting with tracing. The byte is forwarded along
+/// with everything else; the host treats the first occurrence as the
+/// signal and otherwise tails the stream verbatim.
+fn signal_ready() {
+	use std::io::Write as _;
+	let stderr = std::io::stderr();
+	let mut handle = stderr.lock();
+	let _ = handle.write_all(&[0]);
+	let _ = handle.flush();
+}
+
+fn wait_for_virtiofs() -> tg::Result<()> {
 	const NETLINK_KOBJECT_UEVENT: libc::c_int = 15;
 	let socket = unsafe {
 		libc::socket(
@@ -220,13 +339,13 @@ fn wait_for_virtiofs_tags(expected: &[&str]) -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to open the uevent socket"));
 	}
 	let mut addr: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
-	addr.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+	addr.nl_family = libc::AF_NETLINK.try_into().unwrap();
 	addr.nl_groups = 1;
 	let result = unsafe {
 		libc::bind(
 			socket,
 			std::ptr::addr_of!(addr).cast(),
-			std::mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+			std::mem::size_of::<libc::sockaddr_nl>().try_into().unwrap(),
 		)
 	};
 	if result < 0 {
@@ -235,21 +354,26 @@ fn wait_for_virtiofs_tags(expected: &[&str]) -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to bind the uevent socket"));
 	}
 
-	let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 	if let Ok(entries) = std::fs::read_dir("/sys/fs/virtiofs") {
 		for entry in entries.flatten() {
 			let tag_path = entry.path().join("tag");
 			if let Ok(content) = std::fs::read_to_string(&tag_path) {
 				let tag = content.trim();
-				if expected.iter().any(|&t| t == tag) {
-					seen.insert(tag.to_owned());
+				if tag == HOST_FS_TAG {
+					unsafe { libc::close(socket) };
+					return Ok(());
 				}
 			}
 		}
 	}
 
+	// The netlink socket is bound and the sysfs scan turned up nothing, so
+	// the next call will block. Signal the host by writing a single NUL
+	// byte to stderr; the host's serial-tail thread scans for it.
+	signal_ready();
+
 	let mut buf = [0u8; 8192];
-	while seen.len() < expected.len() {
+	loop {
 		let n = unsafe { libc::recv(socket, buf.as_mut_ptr().cast(), buf.len(), 0) };
 		if n < 0 {
 			let error = std::io::Error::last_os_error();
@@ -259,7 +383,7 @@ fn wait_for_virtiofs_tags(expected: &[&str]) -> tg::Result<()> {
 			unsafe { libc::close(socket) };
 			return Err(tg::error!(!error, "failed to read a uevent"));
 		}
-		let message = &buf[..n as usize];
+		let message = &buf[..usize::try_from(n).unwrap()];
 		let mut subsystem: Option<&[u8]> = None;
 		let mut tag: Option<&[u8]> = None;
 		let mut action: Option<&[u8]> = None;
@@ -279,13 +403,11 @@ fn wait_for_virtiofs_tags(expected: &[&str]) -> tg::Result<()> {
 		let Ok(tag) = std::str::from_utf8(tag) else {
 			continue;
 		};
-		if expected.iter().any(|&t| t == tag) {
-			seen.insert(tag.to_owned());
+		if tag == HOST_FS_TAG {
+			unsafe { libc::close(socket) };
+			return Ok(());
 		}
 	}
-
-	unsafe { libc::close(socket) };
-	Ok(())
 }
 
 fn mount_proc(target: &Path) -> tg::Result<()> {

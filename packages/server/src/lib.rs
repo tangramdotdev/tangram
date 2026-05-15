@@ -479,7 +479,10 @@ impl Server {
 
 		// Create the sandbox rootfs. If the config declares a VM isolation,
 		// also build a squashfs image of the rootfs alongside it for use as
-		// the VM disk.
+		// the VM disk. The squashfs build and the snapshot bake share the
+		// vm.lock file so any concurrent caller — another async task in
+		// this process or another process pointed at the same data dir —
+		// blocks instead of clobbering the artifacts.
 		let sandbox_rootfs_path = path.join("rootfs");
 		let tangram_path = tangram_util::env::current_exe()
 			.map_err(|error| tg::error!(!error, "failed to get the tangram executable path"))?;
@@ -490,11 +493,17 @@ impl Server {
 			.vm
 			.as_ref()
 			.map(|_| path.join("vm/rootfs.squashfs"));
+		let vm_lock_for_prepare = if sandbox_rootfs_image.is_some() {
+			Some(acquire_vm_lock(&path).await?)
+		} else {
+			None
+		};
 		tangram_sandbox::root::prepare(&tangram_sandbox::root::Arg {
 			path: sandbox_rootfs.clone(),
 			tangram_path: tangram_path.clone(),
 			image_path: sandbox_rootfs_image.clone(),
 		})?;
+		drop(vm_lock_for_prepare);
 
 		// Create the log store.
 		let log_store = match &config.logs.store {
@@ -1364,8 +1373,8 @@ impl Server {
 	}
 
 	/// Bake the VM snapshot at `snapshot_path` if it does not already exist.
-	/// Concurrent callers serialize on `vm_snapshot_bake` so the bake runs
-	/// at most once at a time.
+	/// In-process callers serialize on `vm_snapshot_bake`; cross-process
+	/// callers serialize on `<data_dir>/.tangram/vm.lock` via flock.
 	pub(crate) async fn ensure_vm_snapshot(
 		&self,
 		snapshot_path: &Path,
@@ -1375,6 +1384,10 @@ impl Server {
 			return Ok(());
 		}
 		let _guard = self.vm_snapshot_bake.lock().await;
+		if snapshot_path.exists() {
+			return Ok(());
+		}
+		let _file_lock = acquire_vm_lock(&self.path).await?;
 		if snapshot_path.exists() {
 			return Ok(());
 		}
@@ -1434,6 +1447,36 @@ impl Server {
 		);
 		Ok(())
 	}
+}
+
+/// Acquire `<data_dir>/.tangram/vm.lock` with an exclusive flock. The lock
+/// is released when the returned `File` is dropped. Used to serialize the
+/// rootfs squashfs build and the snapshot bake against any other instance
+/// pointed at the same data directory.
+async fn acquire_vm_lock(data_dir: &Path) -> tg::Result<std::fs::File> {
+	let lock_path = data_dir.join(".tangram/vm.lock");
+	tokio::task::spawn_blocking(move || -> tg::Result<std::fs::File> {
+		if let Some(parent) = lock_path.parent() {
+			std::fs::create_dir_all(parent).map_err(|error| {
+				tg::error!(!error, path = %parent.display(), "failed to create the vm lock parent")
+			})?;
+		}
+		let lock = std::fs::OpenOptions::new()
+			.read(true)
+			.write(true)
+			.create(true)
+			.truncate(false)
+			.open(&lock_path)
+			.map_err(|error| tg::error!(!error, path = %lock_path.display(), "failed to open the vm lock"))?;
+		let ret = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
+		if ret != 0 {
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(!error, "failed to acquire the vm lock"));
+		}
+		Ok(lock)
+	})
+	.await
+	.map_err(|error| tg::error!(!error, "the vm lock task panicked"))?
 }
 
 impl From<Owned> for Shared {
