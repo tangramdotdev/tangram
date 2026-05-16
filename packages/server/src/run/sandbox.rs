@@ -123,7 +123,7 @@ impl Session {
 			None => self.server.resolve_sandbox_isolation()?,
 		};
 
-		// If this is a VM sandbox, ensure the snapshot exists; bake it now
+		// If this is a VM sandbox, ensure the snapshot exists; create it now
 		// if this is the first time we are using it on this server.
 		if let tangram_sandbox::Isolation::Vm(vm) = &isolation
 			&& let Some(snapshot_path) = vm.snapshot.as_deref()
@@ -141,7 +141,7 @@ impl Session {
 				.clone()
 				.ok_or_else(|| {
 					tg::error!(
-						"vm isolation requested but no rootfs image was prepared; check the server config"
+						"vm isolation requested but no rootfs image was created; check the server config"
 					)
 				})?
 		} else {

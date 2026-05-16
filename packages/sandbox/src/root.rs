@@ -14,22 +14,21 @@ pub(crate) use self::linux::ensure_mount_target;
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub path: PathBuf,
-	pub tangram_path: PathBuf,
-
-	/// If `Some`, also build a squashfs image of the prepared rootfs at this
+	/// If `Some`, also build a squashfs image of the created rootfs at this
 	/// path for use as the VM disk. Linux-only; ignored on macOS.
 	pub image_path: Option<PathBuf>,
+	pub path: PathBuf,
+	pub tangram_path: PathBuf,
 }
 
-pub fn prepare(arg: &Arg) -> tg::Result<()> {
+pub fn create(arg: &Arg) -> tg::Result<()> {
 	#[cfg(target_os = "macos")]
 	{
-		self::darwin::prepare_runtime_libraries(arg)
+		self::darwin::create_runtime_libraries(arg)
 	}
 	#[cfg(target_os = "linux")]
 	{
-		self::linux::prepare_runtime_libraries(arg)
+		self::linux::create_runtime_libraries(arg)
 	}
 }
 

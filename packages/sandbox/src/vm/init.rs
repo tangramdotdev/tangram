@@ -329,7 +329,7 @@ fn chroot(target: &str) -> tg::Result<()> {
 	Ok(())
 }
 
-/// Bake-mode handshake: write a single NUL byte to stderr so the host's
+/// Snapshot creation handshake: write a single NUL byte to stderr so the host's
 /// serial-tail thread can recognize that init has reached the snapshot
 /// point. NUL never appears in normal text output, so the host can scan
 /// for it without conflicting with tracing. The byte is forwarded along

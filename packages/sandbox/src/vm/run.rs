@@ -42,7 +42,7 @@ const VMM_ROOTFS_IMAGE_PATH: &str = "/run/vmm/rootfs.img";
 const VMM_SNAPSHOT_PATH: &str = "/run/vmm/snapshot";
 const VMM_CLOUD_HYPERVISOR_BIN: &str = "/usr/local/bin/cloud-hypervisor";
 const VMM_PASST_BIN: &str = "/usr/local/bin/passt";
-const VMM_BAKE_OUTPUT_DIR: &str = "/snapshot";
+const VMM_SNAPSHOT_OUTPUT_DIR: &str = "/snapshot";
 
 // Stable guest vsock CID so the snapshot config.json's CID matches across
 // sandboxes. Lowest legal guest CID (0, 1, and HOST=2 are reserved).
@@ -51,7 +51,7 @@ const VMM_GUEST_CID: u32 = 3;
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub artifacts_path: PathBuf,
-	pub bake: Option<PathBuf>,
+	pub create_snapshot: Option<PathBuf>,
 	pub cpu: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
 	pub firewall: crate::Firewall,
@@ -197,11 +197,11 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			netmask: net.netmask(),
 		}
 	});
-	if arg.bake.is_some() && arg.snapshot.is_some() {
-		return Err(tg::error!("--bake and --snapshot are mutually exclusive"));
+	if arg.create_snapshot.is_some() && arg.snapshot.is_some() {
+		return Err(tg::error!("--create-snapshot and --snapshot are mutually exclusive"));
 	}
 
-	if arg.bake.is_none() {
+	if arg.create_snapshot.is_none() {
 		let init_config = crate::vm::init::Config {
 			gid: user.gid,
 			hostname: arg.hostname.clone(),
@@ -222,7 +222,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 
 	let mut helpers: Vec<ChildProcess> = Vec::new();
-	if arg.bake.is_none() {
+	if arg.create_snapshot.is_none() {
 		let socket_path = host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SOCKET_NAME);
 		tracing::trace!("preparing host virtiofsd socket at {}", socket_path.display());
 		let socket = std::os::unix::net::UnixListener::bind(&socket_path)
@@ -275,7 +275,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		tracing::trace!("host virtiofsd helper pid={pid}");
 		helpers.push(ChildProcess::new(pid));
 	} else {
-		tracing::trace!("bake mode: skipping virtiofsd helper");
+		tracing::trace!("snapshot mode: skipping virtiofsd helper");
 	}
 
 	let cloud_hypervisor_bin = find_in_path("cloud-hypervisor")
@@ -328,7 +328,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		cloud_hypervisor_args.push("--disk".into());
 		cloud_hypervisor_args
 			.push(format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on").into());
-		if arg.bake.is_none() {
+		if arg.create_snapshot.is_none() {
 			cloud_hypervisor_args.push("--fs".into());
 			cloud_hypervisor_args
 				.push(format!("tag={HOST_FS_TAG},socket={VMM_VIRTIOFSD_SOCKET}").into());
@@ -416,7 +416,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		}
 	});
 
-	if let Some(snapshot_output) = arg.bake.as_ref() {
+	if let Some(snapshot_output) = arg.create_snapshot.as_ref() {
 		let api_socket = host_vm_path_from_root(&arg.path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME);
 		let ch_remote_bin = find_in_path("ch-remote")
 			.map_err(|error| tg::error!(!error, "failed to locate ch-remote on PATH"))?;
@@ -436,10 +436,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		ch_remote_run(&ch_remote_bin, &api_socket, &["shutdown-vmm"])?;
 		cloud_hypervisor.wait();
 
-		// Move the produced snapshot from the per-sandbox bake directory to
+		// Move the produced snapshot from the per-sandbox snapshot directory to
 		// the caller's requested location. Fall back to a recursive copy if
 		// the source and destination are on different filesystems.
-		let bake_dir = host_bake_output_path_from_root(&arg.path);
+		let snapshot_dir = host_snapshot_output_path_from_root(&arg.path);
 		if let Some(parent) = snapshot_output.parent()
 			&& !parent.as_os_str().is_empty()
 		{
@@ -453,22 +453,22 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		}
 		std::fs::remove_dir_all(snapshot_output).ok();
 		std::fs::remove_file(snapshot_output).ok();
-		match std::fs::rename(&bake_dir, snapshot_output) {
+		match std::fs::rename(&snapshot_dir, snapshot_output) {
 			Ok(()) => {},
 			Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-				copy_directory(&bake_dir, snapshot_output)?;
-				std::fs::remove_dir_all(&bake_dir).map_err(|error| {
+				copy_directory(&snapshot_dir, snapshot_output)?;
+				std::fs::remove_dir_all(&snapshot_dir).map_err(|error| {
 					tg::error!(
 						!error,
-						path = %bake_dir.display(),
-						"failed to remove the bake directory",
+						path = %snapshot_dir.display(),
+						"failed to remove the snapshot directory",
 					)
 				})?;
 			},
 			Err(error) => {
 				return Err(tg::error!(
 					!error,
-					src = %bake_dir.display(),
+					src = %snapshot_dir.display(),
 					dst = %snapshot_output.display(),
 					"failed to move the snapshot",
 				));
@@ -907,10 +907,10 @@ fn cloud_hypervisor_child_main(
 	std::fs::create_dir_all(&chroot).map_err(|error| {
 		tg::error!(!error, path = %chroot.display(), "failed to create the chroot path")
 	})?;
-	if arg.bake.is_some() {
-		let bake_output = host_bake_output_path_from_root(&arg.path);
-		std::fs::create_dir_all(&bake_output).map_err(|error| {
-			tg::error!(!error, path = %bake_output.display(), "failed to create the bake output directory")
+	if arg.create_snapshot.is_some() {
+		let snapshot_output = host_snapshot_output_path_from_root(&arg.path);
+		std::fs::create_dir_all(&snapshot_output).map_err(|error| {
+			tg::error!(!error, path = %snapshot_output.display(), "failed to create the snapshot output directory")
 		})?;
 	}
 
@@ -958,10 +958,10 @@ fn build_cloud_hypervisor_mount_arg(
 			target: "/proc".into(),
 		},
 	];
-	if arg.bake.is_some() {
+	if arg.create_snapshot.is_some() {
 		binds.push(container::run::Bind {
-			source: host_bake_output_path_from_root(&arg.path),
-			target: VMM_BAKE_OUTPUT_DIR.into(),
+			source: host_snapshot_output_path_from_root(&arg.path),
+			target: VMM_SNAPSHOT_OUTPUT_DIR.into(),
 		});
 	}
 	let mut ro_binds = vec![
@@ -1087,7 +1087,7 @@ fn find_in_path(name: &str) -> tg::Result<PathBuf> {
 	Err(tg::error!(%name, "executable not found on PATH"))
 }
 
-fn host_bake_output_path_from_root(root_path: &Path) -> PathBuf {
+fn host_snapshot_output_path_from_root(root_path: &Path) -> PathBuf {
 	root_path.join("snapshot")
 }
 

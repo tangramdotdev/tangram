@@ -11,7 +11,7 @@ pub struct Args {
 	pub artifacts_path: PathBuf,
 
 	#[arg(long, hide = true, value_name = "DIR")]
-	pub bake: Option<PathBuf>,
+	pub create_snapshot: Option<PathBuf>,
 
 	#[arg(long)]
 	pub cpu: Option<u64>,
@@ -23,13 +23,13 @@ pub struct Args {
 	pub firewall: tangram_sandbox::Firewall,
 
 	#[arg(long)]
+	pub guest_ip: Option<Ipv4Addr>,
+
+	#[arg(long)]
 	pub host_ip: Option<Ipv4Addr>,
 
 	#[arg(long)]
 	pub hostname: Option<String>,
-
-	#[arg(long)]
-	pub guest_ip: Option<Ipv4Addr>,
 
 	#[arg(long)]
 	pub id: tg::sandbox::Id,
@@ -72,12 +72,12 @@ impl Cli {
 	pub fn command_sandbox_vm_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::vm::run::Arg {
 			artifacts_path: args.artifacts_path,
-			bake: args.bake,
+			create_snapshot: args.create_snapshot,
 			cpu: args.cpu,
 			dns: args.dns,
 			firewall: args.firewall,
-			host_ip: args.host_ip,
 			guest_ip: args.guest_ip,
+			host_ip: args.host_ip,
 			hostname: args.hostname,
 			id: args.id,
 			kernel_path: args.kernel_path,

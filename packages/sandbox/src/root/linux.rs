@@ -6,7 +6,7 @@ use {
 
 const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/rootfs");
 
-pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
+pub fn create_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 	std::fs::remove_dir_all(&arg.path).ok();
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
@@ -16,7 +16,7 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 	)?;
 	set_rootfs_permissions(&arg.path, &ROOTFS, &permissions)?;
 	restore_rootfs_symlinks(&arg.path)?;
-	prepare_rootfs_mountpoints(&arg.path)?;
+	create_rootfs_mountpoints(&arg.path)?;
 
 	let lib_path = arg.path.join("opt/tangram/lib");
 	let output = std::process::Command::new("ldd")
@@ -25,7 +25,7 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 		.map_err(|error| {
 			if error.kind() == std::io::ErrorKind::NotFound {
 				tg::error!(
-					"failed to prepare the sandbox rootfs: could not execute `ldd`; install `ldd` on this Linux host"
+					"failed to create the sandbox rootfs: could not execute `ldd`; install `ldd` on this Linux host"
 				)
 			} else {
 				tg::error!(
@@ -199,7 +199,7 @@ fn set_rootfs_permissions(
 	Ok(())
 }
 
-fn prepare_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
+fn create_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	for path in [
 		"/dev",
 		"/dev/pts",

@@ -116,7 +116,7 @@ pub struct State {
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
-	vm_snapshot_bake: tokio::sync::Mutex<()>,
+	vm_snapshot_create: tokio::sync::Mutex<()>,
 	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
 }
 
@@ -479,7 +479,7 @@ impl Server {
 
 		// Create the sandbox rootfs. If the config declares a VM isolation,
 		// also build a squashfs image of the rootfs alongside it for use as
-		// the VM disk. The squashfs build and the snapshot bake share the
+		// the VM disk. The squashfs build and the snapshot create share the
 		// vm.lock file so any concurrent caller — another async task in
 		// this process or another process pointed at the same data dir —
 		// blocks instead of clobbering the artifacts.
@@ -493,17 +493,17 @@ impl Server {
 			.vm
 			.as_ref()
 			.map(|_| path.join("vm/rootfs.squashfs"));
-		let vm_lock_for_prepare = if sandbox_rootfs_image.is_some() {
+		let vm_lock_for_create = if sandbox_rootfs_image.is_some() {
 			Some(acquire_vm_lock(&path).await?)
 		} else {
 			None
 		};
-		tangram_sandbox::root::prepare(&tangram_sandbox::root::Arg {
+		tangram_sandbox::root::create(&tangram_sandbox::root::Arg {
+			image_path: sandbox_rootfs_image.clone(),
 			path: sandbox_rootfs.clone(),
 			tangram_path: tangram_path.clone(),
-			image_path: sandbox_rootfs_image.clone(),
 		})?;
-		drop(vm_lock_for_prepare);
+		drop(vm_lock_for_create);
 
 		// Create the log store.
 		let log_store = match &config.logs.store {
@@ -618,8 +618,8 @@ impl Server {
 			path,
 			process_store,
 			regions,
-			remote_list_tasks,
 			remote_clients,
+			remote_list_tasks,
 			sandbox_permits,
 			sandbox_listeners,
 			sandbox_rootfs,
@@ -631,7 +631,7 @@ impl Server {
 			temps,
 			version,
 			vfs,
-			vm_snapshot_bake: tokio::sync::Mutex::new(()),
+			vm_snapshot_create: tokio::sync::Mutex::new(()),
 			watches,
 		}));
 
@@ -1372,8 +1372,8 @@ impl Server {
 		self.path.join("vm/snapshot")
 	}
 
-	/// Bake the VM snapshot at `snapshot_path` if it does not already exist.
-	/// In-process callers serialize on `vm_snapshot_bake`; cross-process
+	/// Create the VM snapshot at `snapshot_path` if it does not already exist.
+	/// In-process callers serialize on `vm_snapshot_create`; cross-process
 	/// callers serialize on `<data_dir>/.tangram/vm.lock` via flock.
 	pub(crate) async fn ensure_vm_snapshot(
 		&self,
@@ -1383,7 +1383,7 @@ impl Server {
 		if snapshot_path.exists() {
 			return Ok(());
 		}
-		let _guard = self.vm_snapshot_bake.lock().await;
+		let _guard = self.vm_snapshot_create.lock().await;
 		if snapshot_path.exists() {
 			return Ok(());
 		}
@@ -1399,26 +1399,26 @@ impl Server {
 		let temp = Temp::new(self);
 		tokio::fs::create_dir_all(temp.path())
 			.await
-			.map_err(|error| tg::error!(!error, "failed to create the vm bake temp directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the vm snapshot temp directory"))?;
 		let rootfs_path = self.sandbox_rootfs_image.as_ref().ok_or_else(|| {
 			tg::error!(
-				"cannot bake the vm snapshot without a rootfs image; ensure vm isolation is configured"
+				"cannot create the vm snapshot without a rootfs image; ensure vm isolation is configured"
 			)
 		})?;
-		let bake_id = tg::sandbox::Id::new();
+		let snapshot_id = tg::sandbox::Id::new();
 		tracing::info!(
 			snapshot = %snapshot_path.display(),
-			sandbox = %bake_id,
-			"baking vm snapshot",
+			sandbox = %snapshot_id,
+			"creating vm snapshot",
 		);
 		let status = tokio::process::Command::new(&self.tangram_path)
 			.arg("sandbox")
 			.arg("vm")
 			.arg("run")
-			.arg("--bake")
+			.arg("--create-snapshot")
 			.arg(snapshot_path)
 			.arg("--id")
-			.arg(bake_id.to_string())
+			.arg(snapshot_id.to_string())
 			.arg("--artifacts-path")
 			.arg(self.artifacts_path())
 			.arg("--kernel-path")
@@ -1433,17 +1433,17 @@ impl Server {
 			.arg("http+vsock://2:6748")
 			.status()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to spawn the bake process"))?;
+			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"))?;
 		if !status.success() {
 			return Err(tg::error!(
 				%status,
 				snapshot = %snapshot_path.display(),
-				"the bake process exited with a non-zero status",
+				"the snapshot process exited with a non-zero status",
 			));
 		}
 		tracing::info!(
 			snapshot = %snapshot_path.display(),
-			"vm snapshot baked",
+			"vm snapshot created",
 		);
 		Ok(())
 	}
@@ -1451,7 +1451,7 @@ impl Server {
 
 /// Acquire `<data_dir>/.tangram/vm.lock` with an exclusive flock. The lock
 /// is released when the returned `File` is dropped. Used to serialize the
-/// rootfs squashfs build and the snapshot bake against any other instance
+/// rootfs squashfs build and the snapshot creation against any other instance
 /// pointed at the same data directory.
 async fn acquire_vm_lock(data_dir: &Path) -> tg::Result<std::fs::File> {
 	let lock_path = data_dir.join(".tangram/vm.lock");
