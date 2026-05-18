@@ -571,7 +571,7 @@ where
 				over_io_uring: (flags2 & FUSE_OVER_IO_URING_FLAGS2) != 0,
 				passthrough: (flags2 & FUSE_PASSTHROUGH_FLAGS2) != 0,
 			});
-		}
+	}
 	}
 
 	fn init_response_size(minor: u32) -> usize {
