@@ -645,13 +645,29 @@ fn helper_child_main(
 			));
 		}
 		if bind.readonly {
+			#[repr(C)]
+			struct MountAttr {
+				attr_set: u64,
+				attr_clr: u64,
+				propagation: u64,
+				userns_fd: u64,
+			}
+			const MOUNT_ATTR_RDONLY: u64 = 0x0000_0001;
+			const AT_RECURSIVE: libc::c_uint = 0x8000;
+			let attr = MountAttr {
+				attr_set: MOUNT_ATTR_RDONLY,
+				attr_clr: 0,
+				propagation: 0,
+				userns_fd: 0,
+			};
 			let result = unsafe {
-				libc::mount(
-					source_c.as_ptr(),
+				libc::syscall(
+					libc::SYS_mount_setattr,
+					libc::AT_FDCWD,
 					target_c.as_ptr(),
-					std::ptr::null(),
-					libc::MS_BIND | libc::MS_REC | libc::MS_REMOUNT | libc::MS_RDONLY,
-					std::ptr::null(),
+					AT_RECURSIVE,
+					std::ptr::addr_of!(attr),
+					std::mem::size_of::<MountAttr>(),
 				)
 			};
 			if result != 0 {
