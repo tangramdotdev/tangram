@@ -14,7 +14,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const NETWORK_INTERFACE_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 const NETWORK_INTERFACE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 const HOST_FS_TAG: &str = "host";
@@ -187,10 +186,6 @@ fn mount_tmpfs(target: &str) -> tg::Result<()> {
 	Ok(())
 }
 
-/// Build the chroot rootview as an overlay union of the host share (top
-/// lower) over the squashfs root (bottom lower), with a tmpfs upper. The
-/// kernel does the per-path union; init.json and /mnt are masked in the
-/// upper after the overlay is mounted so they do not leak into the chroot.
 fn setup_rootfs() -> tg::Result<()> {
 	mount_tmpfs(ROOTVIEW_SCRATCH)?;
 	for path in [ROOTVIEW_UPPER, ROOTVIEW_WORK, ROOTVIEW_MERGED] {
@@ -201,14 +196,11 @@ fn setup_rootfs() -> tg::Result<()> {
 
 	mount_overlay()?;
 
-	// Whiteout init.json so it does not appear at / inside the chroot.
 	let init_json = Path::new(ROOTVIEW_MERGED).join("init.json");
 	std::fs::remove_file(&init_json).map_err(
 		|error| tg::error!(!error, path = %init_json.display(), "failed to mask init.json"),
 	)?;
 
-	// Mask /mnt with a fresh tmpfs so the squashfs's mountpoint placeholders
-	// (/mnt/host, /mnt/root) do not leak into the chroot.
 	let merged_mnt = Path::new(ROOTVIEW_MERGED).join("mnt");
 	mount_tmpfs(
 		merged_mnt
@@ -216,7 +208,6 @@ fn setup_rootfs() -> tg::Result<()> {
 			.ok_or_else(|| tg::error!("invalid /mnt path"))?,
 	)?;
 
-	// Reuse the early /proc, /sys, /dev mounts inside the new rootview.
 	for leaf in ["proc", "sys", "dev"] {
 		let source = Path::new("/").join(leaf);
 		let target = Path::new(ROOTVIEW_MERGED).join(leaf);
@@ -329,12 +320,6 @@ fn chroot(target: &str) -> tg::Result<()> {
 	Ok(())
 }
 
-/// Snapshot creation handshake: write a single NUL byte to stderr so the host's
-/// serial-tail thread can recognize that init has reached the snapshot
-/// point. NUL never appears in normal text output, so the host can scan
-/// for it without conflicting with tracing. The byte is forwarded along
-/// with everything else; the host treats the first occurrence as the
-/// signal and otherwise tails the stream verbatim.
 fn signal_ready() {
 	use std::io::Write as _;
 	let stderr = std::io::stderr();
@@ -385,9 +370,6 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		}
 	}
 
-	// The netlink socket is bound and the sysfs scan turned up nothing, so
-	// the next call will block. Signal the host by writing a single NUL
-	// byte to stderr; the host's serial-tail thread scans for it.
 	signal_ready();
 
 	let mut buf = [0u8; 8192];
@@ -609,7 +591,6 @@ fn open_network_socket() -> tg::Result<OwnedFd> {
 }
 
 fn prime_network(network: &Network) {
-	// Send one packet so user-mode backends can learn the guest endpoint before port forwards arrive.
 	let Ok(socket) = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) else {
 		return;
 	};
@@ -738,29 +719,107 @@ fn spawn_server(arg: &crate::serve::Arg, home: Option<&Path>) -> tg::Result<std:
 }
 
 fn wait_for_network_interface() -> tg::Result<String> {
-	let start = Instant::now();
+	let inotify = watch_network_interfaces()?;
+	let deadline = Instant::now() + NETWORK_INTERFACE_WAIT_TIMEOUT;
 	loop {
-		let mut interfaces = std::fs::read_dir("/sys/class/net")
-			.map_err(|error| tg::error!(!error, "failed to read the network interfaces"))?
-			.filter_map(|entry| {
-				let entry = entry.ok()?;
-				let name = entry.file_name();
-				let name = name.to_str()?;
-				if name == "lo" {
-					None
-				} else {
-					Some(name.to_owned())
-				}
-			})
-			.collect::<Vec<_>>();
-		interfaces.sort();
-		if let Some(interface) = interfaces.into_iter().next() {
+		if let Some(interface) = find_network_interface()? {
 			return Ok(interface);
 		}
-		if start.elapsed() >= NETWORK_INTERFACE_WAIT_TIMEOUT {
-			return Err(tg::error!("timed out waiting for the network interface"));
+		wait_for_network_interface_event(&inotify, deadline)?;
+	}
+}
+
+fn find_network_interface() -> tg::Result<Option<String>> {
+	let mut interfaces = std::fs::read_dir("/sys/class/net")
+		.map_err(|error| tg::error!(!error, "failed to read the network interfaces"))?
+		.filter_map(|entry| {
+			let entry = entry.ok()?;
+			let name = entry.file_name();
+			let name = name.to_str()?;
+			(name != "lo").then(|| name.to_owned())
+		})
+		.collect::<Vec<_>>();
+	interfaces.sort();
+	Ok(interfaces.into_iter().next())
+}
+
+fn watch_network_interfaces() -> tg::Result<OwnedFd> {
+	let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK) };
+	if fd < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(
+			!error,
+			"failed to create the network interface watcher"
+		));
+	}
+	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+	let result = unsafe {
+		libc::inotify_add_watch(
+			fd.as_raw_fd(),
+			c"/sys/class/net".as_ptr(),
+			libc::IN_CREATE | libc::IN_MOVED_TO | libc::IN_ATTRIB,
+		)
+	};
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to watch the network interfaces"));
+	}
+	Ok(fd)
+}
+
+fn wait_for_network_interface_event(inotify: &OwnedFd, deadline: Instant) -> tg::Result<()> {
+	let now = Instant::now();
+	if now >= deadline {
+		return Err(tg::error!("timed out waiting for the network interface"));
+	}
+	let timeout = deadline.duration_since(now).as_millis();
+	let timeout = i32::try_from(timeout).unwrap_or(i32::MAX);
+	let mut event = libc::pollfd {
+		fd: inotify.as_raw_fd(),
+		events: libc::POLLIN,
+		revents: 0,
+	};
+	let result = unsafe { libc::poll(std::ptr::addr_of_mut!(event), 1, timeout) };
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::EINTR) {
+			return Ok(());
 		}
-		std::thread::sleep(NETWORK_INTERFACE_WAIT_INTERVAL);
+		return Err(tg::error!(
+			!error,
+			"failed to wait for a network interface event"
+		));
+	}
+	if result == 0 {
+		return Err(tg::error!("timed out waiting for the network interface"));
+	}
+	drain_network_interface_events(inotify)
+}
+
+fn drain_network_interface_events(inotify: &OwnedFd) -> tg::Result<()> {
+	let mut buffer = [0u8; 4096];
+	loop {
+		let result = unsafe {
+			libc::read(
+				inotify.as_raw_fd(),
+				buffer.as_mut_ptr().cast(),
+				buffer.len(),
+			)
+		};
+		if result > 0 {
+			continue;
+		}
+		if result == 0 {
+			return Ok(());
+		}
+		let error = std::io::Error::last_os_error();
+		if matches!(error.raw_os_error(), Some(libc::EAGAIN | libc::EINTR)) {
+			return Ok(());
+		}
+		return Err(tg::error!(
+			!error,
+			"failed to read a network interface event"
+		));
 	}
 }
 

@@ -118,26 +118,6 @@ impl ChildProcess {
 		}
 	}
 
-	fn try_wait(&mut self) -> tg::Result<Option<u8>> {
-		let Some(pid) = self.pid else {
-			return Ok(None);
-		};
-		let mut status = 0;
-		let result = unsafe { libc::waitpid(pid, std::ptr::addr_of_mut!(status), libc::WNOHANG) };
-		if result == 0 {
-			return Ok(None);
-		}
-		if result < 0 {
-			let error = std::io::Error::last_os_error();
-			if error.raw_os_error() == Some(libc::EINTR) {
-				return Ok(None);
-			}
-			return Err(tg::error!(!error, "failed to wait for the child process"));
-		}
-		self.pid = None;
-		Ok(Some(exit_code_from_status(status)))
-	}
-
 	fn wait(mut self) {
 		let Some(pid) = self.pid.take() else {
 			return;
@@ -418,9 +398,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		ch_remote_run(&ch_remote_bin, &api_socket, &["shutdown-vmm"])?;
 		cloud_hypervisor.wait();
 
-		// Move the produced snapshot from the per-sandbox snapshot directory to
-		// the caller's requested location. Fall back to a recursive copy if
-		// the source and destination are on different filesystems.
 		let snapshot_dir = host_snapshot_output_path_from_root(&arg.path);
 		if let Some(parent) = snapshot_output.parent()
 			&& !parent.as_os_str().is_empty()
@@ -817,9 +794,6 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		)?;
 	}
 
-	// `Sandbox::host_output_path_from_root` is the path the server reads
-	// xattrs from. Make it a symlink to the virtiofs-served share dir so
-	// the server and the in-VM writes touch the same inode.
 	let host_output = Sandbox::host_output_path_from_root(sandbox_path);
 	std::fs::remove_file(&host_output).ok();
 	std::fs::remove_dir_all(&host_output).ok();
