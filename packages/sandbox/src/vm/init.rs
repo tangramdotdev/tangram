@@ -158,7 +158,9 @@ fn mount_virtiofs() -> tg::Result<()> {
 	};
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, tag = %HOST_FS_TAG, target = %HOST_MOUNT_POINT, "failed to mount virtiofs"));
+		return Err(
+			tg::error!(!error, tag = %HOST_FS_TAG, target = %HOST_MOUNT_POINT, "failed to mount virtiofs"),
+		);
 	}
 	Ok(())
 }

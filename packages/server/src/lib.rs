@@ -1399,7 +1399,9 @@ impl Server {
 		let temp = Temp::new(self);
 		tokio::fs::create_dir_all(temp.path())
 			.await
-			.map_err(|error| tg::error!(!error, "failed to create the vm snapshot temp directory"))?;
+			.map_err(|error| {
+				tg::error!(!error, "failed to create the vm snapshot temp directory")
+			})?;
 		let rootfs_path = self.sandbox_rootfs_image.as_ref().ok_or_else(|| {
 			tg::error!(
 				"cannot create the vm snapshot without a rootfs image; ensure vm isolation is configured"
@@ -1430,6 +1432,8 @@ impl Server {
 			.arg("--kernel-path")
 			.arg(kernel_path)
 			.arg("--rootfs-path")
+			.arg(&self.sandbox_rootfs)
+			.arg("--rootfs-image-path")
 			.arg(rootfs_path)
 			.arg("--tangram-path")
 			.arg(&self.tangram_path)
@@ -1463,9 +1467,9 @@ async fn acquire_vm_lock(data_dir: &Path) -> tg::Result<std::fs::File> {
 	let lock_path = data_dir.join(".tangram/vm.lock");
 	tokio::task::spawn_blocking(move || -> tg::Result<std::fs::File> {
 		if let Some(parent) = lock_path.parent() {
-			std::fs::create_dir_all(parent).map_err(|error| {
-				tg::error!(!error, path = %parent.display(), "failed to create the vm lock parent")
-			})?;
+			std::fs::create_dir_all(parent).map_err(
+				|error| tg::error!(!error, path = %parent.display(), "failed to create the vm lock parent"),
+			)?;
 		}
 		let lock = std::fs::OpenOptions::new()
 			.read(true)
@@ -1473,7 +1477,9 @@ async fn acquire_vm_lock(data_dir: &Path) -> tg::Result<std::fs::File> {
 			.create(true)
 			.truncate(false)
 			.open(&lock_path)
-			.map_err(|error| tg::error!(!error, path = %lock_path.display(), "failed to open the vm lock"))?;
+			.map_err(
+				|error| tg::error!(!error, path = %lock_path.display(), "failed to open the vm lock"),
+			)?;
 		let ret = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
 		if ret != 0 {
 			let error = std::io::Error::last_os_error();

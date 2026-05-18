@@ -8,10 +8,7 @@ use {
 		net::Ipv4Addr,
 		os::{
 			fd::{IntoRawFd as _, RawFd},
-			unix::{
-				ffi::OsStrExt as _,
-				process::CommandExt as _,
-			},
+			unix::{ffi::OsStrExt as _, process::CommandExt as _},
 		},
 		path::{Path, PathBuf},
 		process::ExitCode,
@@ -22,15 +19,13 @@ use {
 
 pub const CLOUD_HYPERVISOR_API_SOCKET_NAME: &str = "cloud-hypervisor-api.sock";
 pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.sock";
+
 const HELPER_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
 const HOST_FS_TAG: &str = "host";
 const SERIAL_SOCKET_NAME: &str = "serial.sock";
 const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
 
-// Stable paths inside the cloud-hypervisor chroot. The snapshot's config.json
-// records these paths; the per-sandbox host paths are bind-mounted onto them
-// so a snapshot taken in one sandbox can be restored in another.
 const VMM_ROOT_DIR: &str = "/run/vmm";
 const VMM_VIRTIOFSD_SOCKET: &str = "/run/vmm/virtiofsd.sock";
 const VMM_API_SOCKET: &str = "/run/vmm/cloud-hypervisor-api.sock";
@@ -40,12 +35,10 @@ const VMM_PASST_SOCKET: &str = "/run/vmm/passt.sock";
 const VMM_KERNEL_PATH: &str = "/run/vmm/kernel";
 const VMM_ROOTFS_IMAGE_PATH: &str = "/run/vmm/rootfs.img";
 const VMM_SNAPSHOT_PATH: &str = "/run/vmm/snapshot";
-const VMM_CLOUD_HYPERVISOR_BIN: &str = "/usr/local/bin/cloud-hypervisor";
-const VMM_PASST_BIN: &str = "/usr/local/bin/passt";
+const VMM_CLOUD_HYPERVISOR_BIN: &str = "/run/vmm/cloud-hypervisor";
+const VMM_PASST_BIN: &str = "/run/vmm/passt";
 const VMM_SNAPSHOT_OUTPUT_DIR: &str = "/snapshot";
 
-// Stable guest vsock CID so the snapshot config.json's CID matches across
-// sandboxes. Lowest legal guest CID (0, 1, and HOST=2 are reserved).
 const VMM_GUEST_CID: u32 = 3;
 
 #[derive(Clone, Debug)]
@@ -65,6 +58,7 @@ pub struct Arg {
 	pub network: Option<NetworkKind>,
 	pub path: PathBuf,
 	pub ports: Vec<tg::sandbox::Port>,
+	pub rootfs_image_path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub snapshot: Option<PathBuf>,
 	pub tangram_path: PathBuf,
@@ -76,6 +70,12 @@ pub struct Arg {
 pub enum NetworkKind {
 	Passt,
 	Tap,
+}
+
+struct VirtiofsBind {
+	source: PathBuf,
+	target: PathBuf,
+	readonly: bool,
 }
 
 impl std::str::FromStr for NetworkKind {
@@ -116,8 +116,7 @@ impl ChildProcess {
 			return Ok(None);
 		};
 		let mut status = 0;
-		let result =
-			unsafe { libc::waitpid(pid, std::ptr::addr_of_mut!(status), libc::WNOHANG) };
+		let result = unsafe { libc::waitpid(pid, std::ptr::addr_of_mut!(status), libc::WNOHANG) };
 		if result == 0 {
 			return Ok(None);
 		}
@@ -198,7 +197,9 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		}
 	});
 	if arg.create_snapshot.is_some() && arg.snapshot.is_some() {
-		return Err(tg::error!("--create-snapshot and --snapshot are mutually exclusive"));
+		return Err(tg::error!(
+			"--create-snapshot and --snapshot are mutually exclusive"
+		));
 	}
 
 	if arg.create_snapshot.is_none() {
@@ -224,40 +225,34 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let mut helpers: Vec<ChildProcess> = Vec::new();
 	if arg.create_snapshot.is_none() {
 		let socket_path = host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SOCKET_NAME);
-		tracing::trace!("preparing host virtiofsd socket at {}", socket_path.display());
+		tracing::trace!(
+			"preparing host virtiofsd socket at {}",
+			socket_path.display()
+		);
 		let socket = std::os::unix::net::UnixListener::bind(&socket_path)
 			.map_err(|error| tg::error!(!error, "failed to open the host virtiofsd socket"))?;
 		let shared_dir = host_share_path_from_root(&arg.path);
 
-		// Build the list of bind mounts virtiofsd will see in its private
-		// mount namespace. Each entry is staged at its canonical guest
-		// path inside the share so the guest can bind it directly into
-		// place without any post-hoc rerouting. We deliberately do NOT
-		// bind-mount the output dir here: the kernel refuses to MS_BIND
-		// from a path that lives on a virtiofs-namespace submount
-		// (EREMOTE), so the in-VM init's bind of
-		// /mnt/host/opt/tangram/output → /opt/tangram/output would fail.
-		// Instead, the host stages `arg.path/host/opt/tangram/output` as
-		// a real directory and `prepare_sandbox_directory` symlinks
-		// `arg.path/output` to it so the server reads the same inode.
-		let mut binds: Vec<(PathBuf, PathBuf)> = Vec::new();
-		binds.push((
-			arg.artifacts_path.clone(),
-			host_share_artifacts_path_from_root(&arg.path),
-		));
-		binds.push((
-			Sandbox::host_tmp_path_from_root(&arg.path),
-			host_share_tmp_path_from_root(&arg.path),
-		));
+		let mut binds = Vec::new();
+		binds.push(VirtiofsBind {
+			source: arg.artifacts_path.clone(),
+			target: host_share_artifacts_path_from_root(&arg.path),
+			readonly: true,
+		});
+		binds.push(VirtiofsBind {
+			source: Sandbox::host_tmp_path_from_root(&arg.path),
+			target: host_share_tmp_path_from_root(&arg.path),
+			readonly: false,
+		});
 		for mount in &arg.mounts {
 			let target_relative = mount
 				.target
 				.strip_prefix("/")
 				.unwrap_or(mount.target.as_path());
 			let target = shared_dir.join(target_relative);
-			let parent = target
-				.parent()
-				.ok_or_else(|| tg::error!(path = %target.display(), "user mount target has no parent"))?;
+			let parent = target.parent().ok_or_else(
+				|| tg::error!(path = %target.display(), "user mount target has no parent"),
+			)?;
 			std::fs::create_dir_all(parent).map_err(|error| {
 				tg::error!(!error, path = %parent.display(), "failed to create the user mount share parent")
 			})?;
@@ -271,7 +266,11 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 					tg::error!(!error, path = %target.display(), "failed to create the user mount share target file")
 				})?;
 			}
-			binds.push((mount.source.clone(), target));
+			binds.push(VirtiofsBind {
+				source: mount.source.clone(),
+				target,
+				readonly: mount.readonly,
+			});
 		}
 
 		tracing::trace!("spawning host virtiofsd helper");
@@ -284,7 +283,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 	let cloud_hypervisor_bin = find_in_path("cloud-hypervisor")
 		.map_err(|error| tg::error!(!error, "failed to locate cloud-hypervisor on PATH"))?;
-	tracing::trace!("cloud-hypervisor binary: {}", cloud_hypervisor_bin.display());
+	tracing::trace!(
+		"cloud-hypervisor binary: {}",
+		cloud_hypervisor_bin.display()
+	);
 	let passt_bin = if matches!(arg.network, Some(NetworkKind::Passt)) {
 		Some(
 			find_in_path("passt")
@@ -330,16 +332,14 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		cloud_hypervisor_args.push("--cmdline".into());
 		cloud_hypervisor_args.push(kernel_cmdline(arg).into());
 		cloud_hypervisor_args.push("--disk".into());
-		cloud_hypervisor_args
-			.push(format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on").into());
+		cloud_hypervisor_args.push(format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on").into());
 		if arg.create_snapshot.is_none() {
 			cloud_hypervisor_args.push("--fs".into());
 			cloud_hypervisor_args
 				.push(format!("tag={HOST_FS_TAG},socket={VMM_VIRTIOFSD_SOCKET}").into());
 		}
 		cloud_hypervisor_args.push("--vsock".into());
-		cloud_hypervisor_args
-			.push(format!("cid={VMM_GUEST_CID},socket={VMM_VSOCK_SOCKET}").into());
+		cloud_hypervisor_args.push(format!("cid={VMM_GUEST_CID},socket={VMM_VSOCK_SOCKET}").into());
 		cloud_hypervisor_args.push("--console".into());
 		cloud_hypervisor_args.push("off".into());
 		cloud_hypervisor_args.push("--serial".into());
@@ -426,9 +426,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			.map_err(|error| tg::error!(!error, "failed to locate ch-remote on PATH"))?;
 
 		if ready_rx.recv_timeout(Duration::from_mins(1)).is_err() {
-			return Err(tg::error!(
-				"timed out waiting for the guest ready signal"
-			));
+			return Err(tg::error!("timed out waiting for the guest ready signal"));
 		}
 
 		ch_remote_run(&ch_remote_bin, &api_socket, &["pause"])?;
@@ -481,10 +479,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		return Ok(ExitCode::SUCCESS);
 	}
 
-	// In restore mode the snapshot was taken without per-sandbox devices;
-	// hot-add the sandbox and artifacts virtiofs devices and, if
-	// networking is requested, the net device. The kernel's virtio-fs
-	// probe will emit a uevent for each tag, which is what init blocks on.
 	if arg.snapshot.is_some() {
 		let api_socket = host_vm_path_from_root(&arg.path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME);
 		let ch_remote_bin = find_in_path("ch-remote")
@@ -501,10 +495,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			ch_remote_run(&ch_remote_bin, &api_socket, &["add-net", net])?;
 		}
 	}
-
-	// No explicit ready signal is needed: the guest blocks on a netlink
-	// uevent socket and wakes the instant the kernel's virtio-fs probe
-	// emits the add event for each hot-added device.
 
 	loop {
 		if let Some(code) = cloud_hypervisor.try_wait()? {
@@ -526,7 +516,7 @@ fn helper_child_main(
 	user: &User,
 	shared_dir: &Path,
 	socket: RawFd,
-	binds: &[(PathBuf, PathBuf)],
+	binds: &[VirtiofsBind],
 ) -> tg::Result<()> {
 	set_parent_death_signal(libc::SIGKILL)?;
 	enter_user_namespace(user.uid, user.gid)?;
@@ -539,8 +529,6 @@ fn helper_child_main(
 		"failed to unshare the network namespace",
 	)?;
 
-	// Make the new mount namespace's mounts private so the binds we set up
-	// for virtiofsd's view do not propagate back to the host namespace.
 	let root = std::ffi::CString::new("/").unwrap();
 	let result = unsafe {
 		libc::mount(
@@ -553,13 +541,16 @@ fn helper_child_main(
 	};
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to make the mount namespace private"));
+		return Err(tg::error!(
+			!error,
+			"failed to make the mount namespace private"
+		));
 	}
 
-	for (source, target) in binds {
-		let source_c = std::ffi::CString::new(source.as_os_str().as_bytes())
+	for bind in binds {
+		let source_c = std::ffi::CString::new(bind.source.as_os_str().as_bytes())
 			.map_err(|error| tg::error!(!error, "failed to encode the bind source path"))?;
-		let target_c = std::ffi::CString::new(target.as_os_str().as_bytes())
+		let target_c = std::ffi::CString::new(bind.target.as_os_str().as_bytes())
 			.map_err(|error| tg::error!(!error, "failed to encode the bind target path"))?;
 		let result = unsafe {
 			libc::mount(
@@ -574,10 +565,30 @@ fn helper_child_main(
 			let error = std::io::Error::last_os_error();
 			return Err(tg::error!(
 				!error,
-				source = %source.display(),
-				target = %target.display(),
+				source = %bind.source.display(),
+				target = %bind.target.display(),
 				"failed to bind the host share entry",
 			));
+		}
+		if bind.readonly {
+			let result = unsafe {
+				libc::mount(
+					source_c.as_ptr(),
+					target_c.as_ptr(),
+					std::ptr::null(),
+					libc::MS_BIND | libc::MS_REC | libc::MS_REMOUNT | libc::MS_RDONLY,
+					std::ptr::null(),
+				)
+			};
+			if result != 0 {
+				let error = std::io::Error::last_os_error();
+				return Err(tg::error!(
+					!error,
+					source = %bind.source.display(),
+					target = %bind.target.display(),
+					"failed to remount the host share entry as read only",
+				));
+			}
 		}
 	}
 
@@ -711,9 +722,9 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	let host_output = Sandbox::host_output_path_from_root(sandbox_path);
 	std::fs::remove_file(&host_output).ok();
 	std::fs::remove_dir_all(&host_output).ok();
-	std::os::unix::fs::symlink("host/opt/tangram/output", &host_output).map_err(|error| {
-		tg::error!(!error, path = %host_output.display(), "failed to symlink the output dir")
-	})?;
+	std::os::unix::fs::symlink("host/opt/tangram/output", &host_output).map_err(
+		|error| tg::error!(!error, path = %host_output.display(), "failed to symlink the output dir"),
+	)?;
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
 	let tmp_path = Sandbox::host_tmp_path_from_root(sandbox_path);
@@ -843,7 +854,7 @@ fn spawn_virtiofsd_helper(
 	user: &User,
 	shared_dir: &Path,
 	socket: RawFd,
-	binds: &[(PathBuf, PathBuf)],
+	binds: &[VirtiofsBind],
 ) -> tg::Result<libc::pid_t> {
 	let child = unsafe { libc::fork() };
 	if child < 0 {
@@ -879,13 +890,8 @@ fn spawn_cloud_hypervisor_helper(
 		));
 	}
 	if child == 0 {
-		match cloud_hypervisor_child_main(
-			arg,
-			user,
-			cloud_hypervisor_bin,
-			passt_bin,
-			command_args,
-		) {
+		match cloud_hypervisor_child_main(arg, user, cloud_hypervisor_bin, passt_bin, command_args)
+		{
 			Ok(()) => std::process::exit(0),
 			Err(error) => {
 				eprintln!("{error}");
@@ -913,9 +919,9 @@ fn cloud_hypervisor_child_main(
 
 	let chroot = host_vmm_chroot_path_from_root(&arg.path);
 	std::fs::remove_dir_all(&chroot).ok();
-	std::fs::create_dir_all(&chroot).map_err(|error| {
-		tg::error!(!error, path = %chroot.display(), "failed to create the chroot path")
-	})?;
+	std::fs::create_dir_all(&chroot).map_err(
+		|error| tg::error!(!error, path = %chroot.display(), "failed to create the chroot path"),
+	)?;
 	if arg.create_snapshot.is_some() {
 		let snapshot_output = host_snapshot_output_path_from_root(&arg.path);
 		std::fs::create_dir_all(&snapshot_output).map_err(|error| {
@@ -975,6 +981,10 @@ fn build_cloud_hypervisor_mount_arg(
 	}
 	let mut ro_binds = vec![
 		container::run::Bind {
+			source: arg.rootfs_path.clone(),
+			target: "/".into(),
+		},
+		container::run::Bind {
 			source: "/sys".into(),
 			target: "/sys".into(),
 		},
@@ -983,7 +993,7 @@ fn build_cloud_hypervisor_mount_arg(
 			target: VMM_KERNEL_PATH.into(),
 		},
 		container::run::Bind {
-			source: arg.rootfs_path.clone(),
+			source: arg.rootfs_image_path.clone(),
 			target: VMM_ROOTFS_IMAGE_PATH.into(),
 		},
 		container::run::Bind {
@@ -1065,7 +1075,8 @@ fn copy_directory(src: &Path, dst: &Path) -> tg::Result<()> {
 	for entry in std::fs::read_dir(src).map_err(
 		|error| tg::error!(!error, path = %src.display(), "failed to read the source directory"),
 	)? {
-		let entry = entry.map_err(|error| tg::error!(!error, "failed to read a directory entry"))?;
+		let entry =
+			entry.map_err(|error| tg::error!(!error, "failed to read a directory entry"))?;
 		let file_type = entry
 			.file_type()
 			.map_err(|error| tg::error!(!error, "failed to read a directory entry type"))?;
@@ -1103,7 +1114,6 @@ fn host_snapshot_output_path_from_root(root_path: &Path) -> PathBuf {
 fn host_vmm_chroot_path_from_root(root_path: &Path) -> PathBuf {
 	root_path.join("vmm-chroot/root")
 }
-
 
 fn unshare(flags: libc::c_int, message: &'static str) -> tg::Result<()> {
 	let result = unsafe { libc::unshare(flags) };

@@ -29,6 +29,8 @@ pub(crate) fn spawn(
 		.arg(&arg.path)
 		.arg("--rootfs-path")
 		.arg(&arg.rootfs_path)
+		.arg("--rootfs-image-path")
+		.arg(&vm.rootfs_image_path)
 		.arg("--tangram-path")
 		.arg(&arg.tangram_path)
 		.arg("--url")

@@ -45,6 +45,7 @@ impl Server {
 			));
 		}
 		if let Some(vm) = &isolation.vm {
+			let rootfs_image_path = self.sandbox_rootfs_image.clone()?;
 			let snapshot = Some(
 				vm.snapshot
 					.clone()
@@ -53,6 +54,7 @@ impl Server {
 			return Some(tangram_sandbox::Isolation::Vm(
 				tangram_sandbox::VmIsolation {
 					kernel_path: vm.kernel_path.clone(),
+					rootfs_image_path,
 					snapshot,
 				},
 			));
