@@ -20,22 +20,12 @@ impl Session {
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::process::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
-		if self.server.config().authentication.is_some()
-			&& !(self
-				.context
-				.authentication
-				.as_ref()
-				.is_some_and(Authentication::is_root)
-				|| self
-					.context
-					.authentication
-					.as_ref()
-					.is_some_and(Authentication::is_runner))
-		{
-			return Err(tg::error!("failed to authorize"));
+		match &self.context.authentication {
+			Some(Authentication::Root | Authentication::Runner) => (),
+			authentication
+				if self.server.config().authentication.is_none()
+					&& !matches!(authentication, Some(Authentication::Process(_))) => {},
+			_ => return Err(tg::error!("unauthorized")),
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;

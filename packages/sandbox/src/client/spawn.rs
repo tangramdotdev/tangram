@@ -11,8 +11,9 @@ pub struct Arg {
 	pub command: Command,
 	pub debug: Option<tg::process::Debug>,
 	pub id: tg::process::Id,
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::Location>,
 	pub retry: bool,
+	pub token: String,
 	pub tty: Option<tg::process::Tty>,
 	pub url: Uri,
 }

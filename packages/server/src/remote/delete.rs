@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -10,14 +10,28 @@ use {
 
 impl Session {
 	pub(crate) async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
-		self.authorize_remote_management()?;
-		let user = self.remote_user()?;
-		let user = user.as_ref().map(ToString::to_string);
 
-		let remote = self.try_get_remote_config(name).await?;
+		let authentication = self
+			.context
+			.authentication
+			.as_ref()
+			.ok_or_else(|| tg::error!("unauthenticated"))?;
+		let user = match authentication {
+			Authentication::Root => None,
+			Authentication::User(user) => Some(&user.id),
+			_ => {
+				return Err(tg::error!("unauthorized"));
+			},
+		};
+
 		let connection = self
 			.server
 			.database
@@ -28,13 +42,13 @@ impl Session {
 		let statement = formatdoc!(
 			r#"
 				delete from remotes
-				where name = {p}1
-					and (
-						("user" is null and {p}2 is null)
-						or "user" = {p}2
-					);
+				where name = {p}1 and (
+					("user" is null and {p}2 is null) or
+					"user" = {p}2
+				);
 			"#,
 		);
+		let user = user.map(ToString::to_string);
 		let params = db::params![&name, user];
 		let n = connection
 			.execute(statement.into(), params)
@@ -43,10 +57,6 @@ impl Session {
 
 		if n == 0 {
 			return Ok(None);
-		}
-
-		if let Some(remote) = remote {
-			self.server.remote_clients.remove(&remote.url);
 		}
 
 		Ok(Some(()))

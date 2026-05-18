@@ -34,7 +34,7 @@ pub struct State {
 struct Process {
 	command: Command,
 	debug: Option<tg::process::Debug>,
-	location: Option<tg::location::Location>,
+	location: Option<tg::Location>,
 	pid: libc::pid_t,
 	pty: Option<Arc<pty::Pty>>,
 	retry: bool,
@@ -46,7 +46,11 @@ struct Process {
 
 pub enum Listener {
 	Tcp(tokio::net::TcpListener),
-	Unix(tokio::net::UnixListener),
+	Unix {
+		listener: tokio::net::UnixListener,
+		#[expect(dead_code)]
+		guard: tangram_util::io::unix::Guard,
+	},
 	#[cfg(feature = "vsock")]
 	Vsock(tokio_vsock::VsockListener),
 }
@@ -70,54 +74,59 @@ impl Server {
 	}
 
 	pub(crate) async fn connect(url: &Uri) -> tg::Result<Stream> {
-		let stream = match url.scheme() {
-			Some("http+stdio") => {
-				Stream::Stdio(tokio::io::join(tokio::io::stdin(), tokio::io::stdout()))
-			},
-			Some("http") => {
-				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				let port = url
-					.port_or_known_default()
-					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				Stream::Tcp(
-					tokio::net::TcpStream::connect((host, port))
-						.await
-						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?,
-				)
-			},
-			Some("http+unix") => {
-				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				Stream::Unix(
-					tokio::net::UnixStream::connect(path)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?,
-				)
-			},
-			Some("http+vsock") => {
-				#[cfg(not(feature = "vsock"))]
-				{
-					return Err(tg::error!("vsock is not enabled"));
-				}
-				#[cfg(feature = "vsock")]
-				{
-					let cid = url
-						.host()
-						.ok_or_else(|| tg::error!(%url, "invalid url"))?
-						.parse::<u32>()
-						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
-					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
-					Stream::Vsock(
-						tokio_vsock::VsockStream::connect(addr)
+		let stream =
+			match url.scheme() {
+				Some("http+stdio") => {
+					Stream::Stdio(tokio::io::join(tokio::io::stdin(), tokio::io::stdout()))
+				},
+				Some("http") => {
+					let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let port = url
+						.port_or_known_default()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					Stream::Tcp(
+						tokio::net::TcpStream::connect((host, port))
 							.await
 							.map_err(|error| {
 								tg::error!(!error, "failed to connect to the socket")
 							})?,
 					)
-				}
-			},
-			_ => return Err(tg::error!(%url, "invalid url")),
-		};
+				},
+				Some("http+unix") => {
+					let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let path = Path::new(path);
+					let path_ = tangram_util::io::unix::resolve(path).map_err(
+						|error| tg::error!(!error, path = %path.display(), "failed to resolve the socket path"),
+					)?;
+					Stream::Unix(
+						tokio::net::UnixStream::connect(path_.as_ref())
+							.await
+							.map_err(
+								|error| tg::error!(!error, path = %path.display(), "failed to connect to the socket"),
+							)?,
+					)
+				},
+				Some("http+vsock") => {
+					#[cfg(not(feature = "vsock"))]
+					{
+						return Err(tg::error!("vsock is not enabled"));
+					}
+					#[cfg(feature = "vsock")]
+					{
+						let cid = url
+							.host()
+							.ok_or_else(|| tg::error!(%url, "invalid url"))?
+							.parse::<u32>()
+							.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
+						let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+						let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+						Stream::Vsock(tokio_vsock::VsockStream::connect(addr).await.map_err(
+							|error| tg::error!(!error, "failed to connect to the socket"),
+						)?)
+					}
+				},
+				_ => return Err(tg::error!(%url, "invalid url")),
+			};
 		Ok(stream)
 	}
 
@@ -137,10 +146,10 @@ impl Server {
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let path = Path::new(path);
-				let listener = tokio::net::UnixListener::bind(path).map_err(
+				let (listener, guard) = tangram_util::io::unix::bind_listener(path).map_err(
 					|error| tg::error!(!error, path = %path.display(), "failed to bind"),
 				)?;
-				Listener::Unix(listener)
+				Listener::Unix { listener, guard }
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -175,7 +184,7 @@ impl Server {
 					};
 					Stream::Tcp(stream)
 				},
-				Listener::Unix(listener) => {
+				Listener::Unix { listener, .. } => {
 					let Ok((stream, _)) = listener.accept().await else {
 						continue;
 					};

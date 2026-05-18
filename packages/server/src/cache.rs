@@ -17,6 +17,20 @@ use {
 	tangram_util::read::InspectReader,
 };
 
+pub type Tasks = tangram_futures::task::Map<
+	tg::artifact::Id,
+	tg::Result<()>,
+	crate::progress::Handle<()>,
+	tg::id::BuildHasher,
+>;
+
+pub type GraphTasks = tangram_futures::task::Map<
+	tg::graph::Id,
+	tg::Result<()>,
+	crate::progress::Handle<()>,
+	tg::id::BuildHasher,
+>;
+
 struct State {
 	artifact: tg::artifact::Id,
 	path: PathBuf,

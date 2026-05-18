@@ -1,6 +1,6 @@
 use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::{net::Ipv4Addr, path::PathBuf, time::Duration},
+	std::{collections::BTreeMap, net::Ipv4Addr, path::PathBuf, time::Duration},
 	tangram_uri::Uri,
 	tangram_util::serde::BoolOptionDefault,
 };
@@ -59,7 +59,7 @@ pub struct Config {
 	pub regions: Option<Vec<Region>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remotes: Option<Vec<Remote>>,
+	pub remotes: Option<BTreeMap<String, Remote>>,
 
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_runner")]
@@ -476,8 +476,6 @@ pub struct Region {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Remote {
-	pub name: String,
-
 	pub url: Uri,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

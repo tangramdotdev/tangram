@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -14,8 +14,13 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<Option<()>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let locations = self

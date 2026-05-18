@@ -3,7 +3,7 @@ use ../../test.nu *
 # Spawn a remote server and a local server.
 let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Create an artifact on the remote.
@@ -118,7 +118,7 @@ assert ($s1 == $s2)
 
 # Test cleaning of cached remote tags.
 let clean_local = spawn -n clean_local -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Cache a remote tag tree by fetching from the remote.

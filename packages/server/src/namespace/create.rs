@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -14,8 +14,13 @@ mod sqlite;
 
 impl Session {
 	pub(crate) async fn create_namespace(&self, namespace: &tg::Namespace) -> tg::Result<()> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		self.authorize_namespace(namespace, tg::Permission::Write)
 			.await?;

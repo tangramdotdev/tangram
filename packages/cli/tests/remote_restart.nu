@@ -14,22 +14,20 @@ let runner = spawn -n runner --config {
 	runner: {
 		remote: "default"
 	}
-	remotes: [
-		{
-			name: "default"
+	remotes: {
+		default: {
 			url: $remote.url
 		}
-	]
+	}
 }
 
 # Spawn a local server.
 let local = spawn -n local --config {
-	remotes: [
-		{
-			name: "default",
+	remotes: {
+		default: {
 			url: $remote.url
 		}
-	]
+	}
 }
 
 let path = artifact {

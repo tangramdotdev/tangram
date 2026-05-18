@@ -69,7 +69,6 @@ impl Server {
 			url: Some(region_config.url.clone()),
 			version: Some(self.version.clone()),
 			token: None,
-			process: None,
 			pool: None,
 			reconnect,
 			retry,

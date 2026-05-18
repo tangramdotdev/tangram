@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, database::Database},
+	crate::{Server, Session, context::Authentication, database::Database},
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -60,10 +60,6 @@ impl Server {
 
 impl Session {
 	pub(crate) async fn health(&self, arg: tg::health::Arg) -> tg::Result<tg::Health> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
-
 		let fields = arg.fields.as_ref();
 		if let Some(fields) = fields {
 			for field in fields {
@@ -72,6 +68,18 @@ impl Session {
 					_ => return Err(tg::error!(%field, "invalid health field")),
 				}
 			}
+		}
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+			&& fields.is_none_or(|fields| {
+				fields
+					.iter()
+					.any(|field| !matches!(field.as_str(), "diagnostics" | "version"))
+			}) {
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let include_field = |name: &str| match fields {

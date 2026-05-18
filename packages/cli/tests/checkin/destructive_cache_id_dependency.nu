@@ -1,10 +1,11 @@
 use ../../test.nu *
 let remote = spawn --name 'remote'
 let server = spawn --name 'local' --config {
-	remotes: [{
-		name: 'default',
-		url: $remote.url
-	}]
+	remotes: {
+		default: {
+			url: $remote.url
+		}
+	}
 }
 
 let dep_path = artifact {

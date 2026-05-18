@@ -21,6 +21,7 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub process: tg::process::Id,
+	pub token: String,
 }
 
 impl tg::Session {

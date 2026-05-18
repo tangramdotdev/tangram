@@ -1,5 +1,5 @@
 use {
-	crate::{SandboxPermit, Server, Session, database},
+	crate::{Server, Session, database},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},
@@ -25,7 +25,7 @@ struct LocalOutput {
 	cached: bool,
 	id: tg::process::Id,
 	#[debug(ignore)]
-	permit: Option<SandboxPermit>,
+	permit: Option<crate::sandbox::Permit>,
 	sandbox: tg::sandbox::Id,
 	sandbox_status: Option<tg::sandbox::Status>,
 	status: tg::process::Status,
@@ -40,14 +40,26 @@ impl Session {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		// If the process context is set, update the parent, location, and retry.
-		if let Some(process) = &self.context.process {
+		// If the authentication is from a process, then update the parent, location, and retry.
+		if let Some(process) = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
+		{
 			arg.debug = process.debug.clone();
 			arg.parent = Some(process.id.clone());
 			arg.location = process.location.clone().map(Into::into);
 			arg.retry = process.retry;
 		}
-		let parent_sandbox = self.context.sandbox.clone();
+
+		// Get the parent sandbox if there is one.
+		let parent_sandbox = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
+			.map(|process| process.sandbox.clone());
 
 		if arg.sandbox.is_none() {
 			return Err(tg::error!(
@@ -222,9 +234,11 @@ impl Session {
 			if let Some(permit) = output.permit.take() {
 				self.server.spawn_sandbox_task(
 					sandbox,
+					None,
 					tg::Location::Local(tg::location::Local::default()),
 					permit,
 					Some(output.id.clone()),
+					None,
 				);
 			} else if output.sandbox_status == Some(tg::sandbox::Status::Created) {
 				self.spawn_publish_sandbox_processes_created_message_task(sandbox);
@@ -469,7 +483,7 @@ impl Session {
 	async fn spawn_process_push_command(
 		&self,
 		command: &tg::command::Id,
-		location: Option<tg::location::Location>,
+		location: Option<tg::Location>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<()> {
 		let push_arg = tg::push::Arg {
@@ -1473,13 +1487,13 @@ impl Session {
 	fn try_acquire_sandbox_permit(
 		&self,
 		parent_sandbox: Option<&tg::sandbox::Id>,
-	) -> Option<SandboxPermit> {
+	) -> Option<crate::sandbox::Permit> {
 		if let Some(parent_sandbox) = parent_sandbox
 			&& let Some(parent_permit) = self.server.sandbox_permits.get(parent_sandbox)
 		{
 			let parent_permit = parent_permit.clone();
 			if let Ok(guard) = parent_permit.try_lock_owned() {
-				return Some(SandboxPermit(tg::Either::Right(guard)));
+				return Some(crate::sandbox::Permit(tg::Either::Right(guard)));
 			}
 		}
 		self.server
@@ -1487,7 +1501,7 @@ impl Session {
 			.clone()
 			.try_acquire_owned()
 			.ok()
-			.map(|permit| SandboxPermit(tg::Either::Left(permit)))
+			.map(|permit| crate::sandbox::Permit(tg::Either::Left(permit)))
 	}
 
 	async fn add_process_child(
@@ -1727,7 +1741,7 @@ impl Session {
 				};
 				let permit = permit
 					.lock_owned()
-					.map(|guard| SandboxPermit(tg::Either::Right(guard)))
+					.map(|guard| crate::sandbox::Permit(tg::Either::Right(guard)))
 					.await;
 
 				let Ok(started) = session
@@ -1760,9 +1774,11 @@ impl Session {
 
 				session.server.spawn_sandbox_task(
 					&sandbox,
+					None,
 					tg::Location::Local(tg::location::Local::default()),
 					permit,
 					Some(process),
+					None,
 				);
 			}
 		});

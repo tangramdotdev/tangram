@@ -36,7 +36,6 @@ impl Server {
 			"TANGRAM_DIRECTORY",
 			"TANGRAM_MODE",
 			"TANGRAM_OUTPUT",
-			"TANGRAM_PROCESS",
 			"TANGRAM_TOKEN",
 			"TANGRAM_TRACING",
 			"TANGRAM_URL",
@@ -53,7 +52,7 @@ impl Server {
 		);
 		arg.command
 			.env
-			.insert("TANGRAM_PROCESS".to_owned(), arg.id.to_string());
+			.insert("TANGRAM_TOKEN".to_owned(), arg.token);
 		arg.command
 			.env
 			.insert("TANGRAM_URL".to_owned(), arg.url.to_string());

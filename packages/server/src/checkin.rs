@@ -27,7 +27,14 @@ mod path;
 mod solve;
 mod store;
 
-pub(crate) use self::{graph::Graph, solve::Solutions};
+pub use self::{graph::Graph, solve::Solutions};
+
+pub type Tasks = tangram_futures::task::Map<
+	crate::checkin::TaskKey,
+	(),
+	crate::progress::Handle<crate::checkin::TaskOutput>,
+	fnv::FnvBuildHasher,
+>;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TaskKey {

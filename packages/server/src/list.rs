@@ -1,5 +1,5 @@
 use {
-	crate::{Database, Session},
+	crate::{Database, Session, context::Authentication},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -13,8 +13,15 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
+pub type RemoteTasks = tangram_futures::task::Map<
+	crate::list::RemoteTaskKey,
+	tg::Result<Vec<tg::list::Entry>>,
+	(),
+	fnv::FnvBuildHasher,
+>;
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
-pub(crate) struct RemoteListTaskKey {
+pub struct RemoteTaskKey {
 	pub remote: String,
 	pub arg: tg::list::Arg,
 }
@@ -22,8 +29,13 @@ pub(crate) struct RemoteListTaskKey {
 impl Session {
 	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		if !arg.pattern.is_empty() && !arg.pattern.contains_operators() {
@@ -52,8 +64,7 @@ impl Session {
 	}
 
 	async fn list_inner(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
-		self.authorize_list()
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
+		self.authorize_list();
 
 		let mut data = Vec::new();
 		let locations = self
@@ -107,7 +118,7 @@ impl Session {
 		arg: &tg::list::Arg,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let remote_arg = remote_arg(arg, remote.regions.clone());
-		let key = RemoteListTaskKey {
+		let key = RemoteTaskKey {
 			remote: remote.name.clone(),
 			arg: remote_arg.clone(),
 		};
@@ -161,8 +172,8 @@ impl Session {
 		Ok(entries)
 	}
 
-	async fn list_remote_task(&self, key: RemoteListTaskKey) -> tg::Result<Vec<tg::list::Entry>> {
-		let RemoteListTaskKey { remote, arg } = key;
+	async fn list_remote_task(&self, key: RemoteTaskKey) -> tg::Result<Vec<tg::list::Entry>> {
+		let RemoteTaskKey { remote, arg } = key;
 		let client = self
 			.get_remote_session(remote.clone())
 			.await
@@ -173,7 +184,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?;
 
 		if self.server.config().authentication.is_none() {
-			let key = serde_json::to_string(&RemoteListTaskKey { remote, arg }).unwrap();
+			let key = serde_json::to_string(&RemoteTaskKey { remote, arg }).unwrap();
 			let output_json = serde_json::to_string(&output.data).unwrap();
 			let now = OffsetDateTime::now_utc().unix_timestamp();
 			self.list_cache_put(&key, &output_json, now)

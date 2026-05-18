@@ -1,6 +1,9 @@
 use {
 	super::Output,
-	crate::Session,
+	crate::{
+		Session,
+		context::{Authentication, Context},
+	},
 	futures::TryStreamExt as _,
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -19,19 +22,24 @@ mod signal;
 mod stdio;
 mod tty;
 
+pub(super) struct ProcessTask {
+	pub(super) process: tg::process::Id,
+	pub(super) token: Option<String>,
+}
+
 impl Session {
-	pub(crate) fn spawn_process_task(
+	pub(super) fn spawn_process_task(
 		&self,
 		process_tasks: &mut JoinSet<tg::Result<()>>,
 		process_stopper: &Stopper,
-		process: tg::process::Id,
-		location: &tg::location::Location,
+		process_task: ProcessTask,
+		location: &tg::Location,
 		sandbox: &tangram_sandbox::Sandbox,
-		guest_uri: &tangram_uri::Uri,
+		guest_url: &tangram_uri::Uri,
 	) {
 		let session = self.clone();
 		let process = tg::Process::new(
-			process,
+			process_task.process,
 			Some(location.clone().into()),
 			None,
 			None,
@@ -39,11 +47,12 @@ impl Session {
 			None,
 		);
 		let sandbox = sandbox.clone();
-		let guest_uri = guest_uri.clone();
+		let token = process_task.token;
+		let guest_url = guest_url.clone();
 		let stopper = process_stopper.clone();
 		process_tasks.spawn(async move {
 			session
-				.process_task(&process, sandbox, guest_uri, stopper)
+				.process_task(&process, token, sandbox, guest_url, stopper)
 				.await
 		});
 	}
@@ -51,12 +60,13 @@ impl Session {
 	pub(crate) async fn process_task(
 		&self,
 		process: &tg::Process,
+		token: Option<String>,
 		sandbox: tangram_sandbox::Sandbox,
-		guest_uri: tangram_uri::Uri,
+		guest_url: tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let result = self
-			.run_process(process, sandbox, &guest_uri, stopper)
+			.run_process(process, token, sandbox, &guest_url, stopper)
 			.await;
 		let output = match result {
 			Ok(output) => output,
@@ -90,7 +100,9 @@ impl Session {
 
 		// Store the error.
 		let error = if let Some(error) = &output.error {
-			Some(self.store_process_error(error.to_data_or_id()).await)
+			let error = error.to_data_or_id();
+			let error = self.store_process_error(error).await;
+			Some(error)
 		} else {
 			None
 		};
@@ -152,8 +164,9 @@ impl Session {
 	async fn run_process(
 		&self,
 		process: &tg::Process,
+		token: Option<String>,
 		sandbox: tangram_sandbox::Sandbox,
-		guest_uri: &tangram_uri::Uri,
+		guest_url: &tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<Output> {
 		let id = process.id().unwrap_right();
@@ -323,6 +336,13 @@ impl Session {
 			stdout,
 			stderr,
 		};
+		let token =
+			match token {
+				Some(token) => token,
+				None => self.server.create_process_token(id).await.map_err(
+					|error| tg::error!(!error, %id, "failed to create the process token"),
+				)?,
+			};
 		let sandbox_process = sandbox
 			.spawn(tangram_sandbox::SpawnArg {
 				command: sandbox_command,
@@ -330,13 +350,18 @@ impl Session {
 				id: id.clone(),
 				location: location.clone(),
 				retry: state.retry,
+				token: token.clone(),
 				tty: state.tty,
-				url: guest_uri.clone(),
+				url: guest_url.clone(),
 			})
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to spawn the process in the sandbox"),
 			)?;
+		let token_for_cleanup = token.clone();
+		scopeguard::defer! {
+			sandbox.remove_process(&token_for_cleanup);
+		}
 		let sandbox_process = Arc::new(sandbox_process);
 		let stdin = state.stdin.clone();
 		let stdout = state.stdout.clone();
@@ -474,20 +499,25 @@ impl Session {
 				.and_then(|r| r.map_err(|error| tg::error!(!error, "failed to send output")))?;
 		}
 
+		// Handle the case where the process was stopped.
 		if stopped {
 			return Err(tg::error!(
 				code = tg::error::Code::Cancellation,
 				"the process was canceled"
 			));
 		}
-		let context = crate::Context {
-			process: Some(Arc::new(crate::context::Process {
-				debug: state.debug.clone(),
-				id: id.clone(),
-				location: location.clone(),
-				retry: state.retry,
-			})),
-			sandbox: Some(state.sandbox.clone()),
+
+		// Create the session.
+		let mut process = self
+			.server
+			.authenticate_process(&token)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to authenticate the process token"))?
+			.ok_or_else(|| tg::error!(%id, "failed to authenticate the process token"))?;
+		process.location = location.clone();
+		let authentication = Authentication::Process(Arc::new(process));
+		let context = Context {
+			authentication: Some(authentication),
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);

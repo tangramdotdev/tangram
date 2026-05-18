@@ -129,12 +129,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
 			// Get the metadata.
-			let metadata = if state.context.untrusted {
-				None
-			} else {
-				item.metadata.clone()
-			}
-			.unwrap_or_else(|| {
+			let metadata = item.metadata.clone().unwrap_or_else(|| {
 				let size = item.bytes.len().to_u64().unwrap();
 				let (node_solvable, node_solved) = match &data {
 					tg::object::Data::File(file) => match file {
@@ -255,11 +250,7 @@ impl Session {
 		// Update the graph.
 		let mut graph = state.graph.lock().unwrap();
 		for (id, data, metadata) in &batch {
-			let metadata = if state.context.untrusted {
-				None
-			} else {
-				metadata.clone()
-			};
+			let metadata = metadata.clone();
 			graph.update_process_local(id, Some(data), None, metadata, Some(true), None);
 		}
 		drop(graph);

@@ -19,8 +19,13 @@ mod sqlite;
 
 impl Session {
 	pub(crate) async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let location = self
@@ -118,20 +123,11 @@ impl Session {
 	}
 
 	async fn authorize_tag_batch(&self, arg: &tg::tag::batch::Arg) -> tg::Result<()> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_root)
-		{
-			return Ok(());
-		}
-		let user = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.ok_or_else(|| tg::error!("failed to authorize"))?;
+		let user = match &self.context.authentication {
+			Some(Authentication::Root) => return Ok(()),
+			Some(Authentication::User(user)) => user,
+			_ => return Err(tg::error!("unauthorized")),
+		};
 
 		let namespaces = arg
 			.tags
@@ -157,7 +153,7 @@ impl Session {
 			)
 			.await?
 			{
-				return Err(tg::error!("forbidden"));
+				return Err(tg::error!("unauthorized"));
 			}
 		}
 		Ok(())

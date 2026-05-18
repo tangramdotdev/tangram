@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session},
+	crate::{Server, Session, context::Authentication},
 	indoc::formatdoc,
 	std::net::{IpAddr, Ipv4Addr, SocketAddr},
 	tangram_client::prelude::*,
@@ -12,8 +12,13 @@ impl Session {
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;

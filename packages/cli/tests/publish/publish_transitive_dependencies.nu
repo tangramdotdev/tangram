@@ -5,7 +5,7 @@ use ../../test.nu *
 
 let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # 1. Create a monorepo with packages A, B, C where A -> B -> C using source dependencies.

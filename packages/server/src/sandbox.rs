@@ -1,10 +1,14 @@
 use {
-	crate::{Server, Session},
+	crate::{Server, Session, database},
+	dashmap::DashMap,
 	indoc::formatdoc,
+	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_messenger::prelude::*,
 };
+
+pub use self::listeners::Listeners;
 
 pub mod create;
 pub mod destroy;
@@ -13,18 +17,39 @@ pub mod get;
 pub mod heartbeat;
 pub mod isolation;
 pub mod list;
+pub mod listeners;
 pub mod process;
 pub mod queue;
 pub mod status;
 
+pub type Map = DashMap<tg::sandbox::Id, tangram_sandbox::Sandbox, tg::id::BuildHasher>;
+
+pub type Permits =
+	DashMap<tg::sandbox::Id, Arc<tokio::sync::Mutex<Option<Permit>>>, tg::id::BuildHasher>;
+
+pub struct Permit(
+	#[expect(dead_code)]
+	pub  tg::Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
+);
+
+pub type Tasks = tangram_futures::task::Map<tg::sandbox::Id, (), (), tg::id::BuildHasher>;
+
+impl Session {
+	pub(super) fn create_sandbox_token_string() -> String {
+		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
+			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
+		};
+		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
+	}
+}
+
 impl Server {
-	pub(crate) async fn delete_sandbox_tokens(&self, sandbox: &tg::sandbox::Id) -> tg::Result<()> {
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+	pub(crate) async fn delete_sandbox_tokens_with_transaction(
+		&self,
+		transaction: &database::Transaction<'_>,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				delete from sandbox_tokens
@@ -32,7 +57,7 @@ impl Server {
 			"
 		);
 		let params = db::params![sandbox.to_string()];
-		connection
+		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
@@ -141,40 +166,5 @@ impl Server {
 			}
 		}
 		Ok(())
-	}
-}
-
-impl Session {
-	pub(crate) async fn create_sandbox_token(
-		&self,
-		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<String> {
-		let token = Self::create_sandbox_token_string();
-		let connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into sandbox_tokens (sandbox, token)
-				values ({p}1, {p}2);
-			"
-		);
-		let params = db::params![sandbox.to_string(), token.clone()];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(token)
-	}
-
-	fn create_sandbox_token_string() -> String {
-		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
-			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
-		};
-		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
 	}
 }

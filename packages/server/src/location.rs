@@ -1,8 +1,6 @@
 use {
 	crate::{Server, Session, config},
-	indoc::formatdoc,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 };
 
 pub(crate) struct Output {
@@ -95,35 +93,20 @@ impl Session {
 		});
 
 		let Some(arg) = arg else {
-			let user = self.remote_user_for_lookup().await?;
-			let connection = self
-				.server
-				.database
-				.connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-			#[derive(db::row::Deserialize)]
-			struct Row {
-				name: String,
+			if self.context.authentication.is_none()
+				&& self.server.config().authentication.is_some()
+			{
+				return Ok(Output {
+					local: Some(Local {
+						current: true,
+						regions,
+					}),
+					remotes: Vec::new(),
+				});
 			}
-			let p = connection.p();
-			let statement = formatdoc!(
-				r#"
-					select name
-					from remotes
-					where (
-						("user" is null and {p}1 is null)
-						or "user" = {p}1
-					)
-					order by name;
-				"#,
-			);
-			let user = user.as_ref().map(ToString::to_string);
-			let params = db::params![user];
-			let remotes = connection
-				.query_all_into::<Row>(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+			let output = self.list_remotes(tg::remote::list::Arg::default()).await?;
+			let remotes = output
+				.data
 				.into_iter()
 				.map(|row| Remote {
 					name: row.name,

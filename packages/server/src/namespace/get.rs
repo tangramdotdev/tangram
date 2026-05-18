@@ -1,5 +1,5 @@
 use {
-	crate::{Database, Session},
+	crate::{Database, Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -16,8 +16,13 @@ impl Session {
 		&self,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Option<tg::namespace::get::Output>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		self.authorize_namespace(namespace, tg::Permission::Read)
 			.await?;

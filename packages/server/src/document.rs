@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
@@ -14,8 +14,13 @@ impl Session {
 
 	#[cfg(feature = "typescript")]
 	pub(crate) async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;

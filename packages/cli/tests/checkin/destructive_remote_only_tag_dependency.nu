@@ -1,10 +1,11 @@
 use ../../test.nu *
 let remote = spawn --name 'remote'
 let server = spawn --name 'local' --config {
-	remotes: [{
-		name: 'default',
-		url: $remote.url
-	}]
+	remotes: {
+		default: {
+			url: $remote.url
+		}
+	}
 }
 
 # Check that destructive checkin fails when a tag dependency is only on the remote and not in the local cache.

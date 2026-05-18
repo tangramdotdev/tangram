@@ -57,6 +57,16 @@ impl Server {
 
 			let statement = indoc!(
 				"
+					delete from process_tokens
+					where process = ?1;
+				"
+			);
+			transaction
+				.execute(statement, sqlite::params![process])
+				.map_err(|error| tg::error!(!error, "failed to delete process_tokens"))?;
+
+			let statement = indoc!(
+				"
 					delete from process_children
 					where process = ?1;
 				"

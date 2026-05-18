@@ -1,6 +1,6 @@
 use {
 	super::Grantee,
-	crate::Session,
+	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -11,8 +11,13 @@ impl Session {
 		&self,
 		arg: tg::namespace::grants::create::Arg,
 	) -> tg::Result<tg::Grant> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let grantee = Self::grantee(arg.user, arg.group, arg.public)?;
 		if matches!(grantee, Grantee::Public) && arg.permission != tg::Permission::Read {

@@ -1,7 +1,7 @@
 use ../../test.nu *
 
 let remote = spawn --config { authentication: true } -n remote
-let local = spawn --config { remotes: [{ name: default, url: $remote.url }] } -n local
+let local = spawn --config { remotes: { default: { url: $remote.url } } } -n local
 
 let login = tg login alice@example.com --handle alice | from json
 assert equal $login.handle alice

@@ -1,8 +1,6 @@
 use {
-	crate::Session,
-	indoc::formatdoc,
+	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -13,96 +11,31 @@ impl Session {
 		&self,
 		arg: tg::user::current::Arg,
 	) -> tg::Result<Option<tg::user::User>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let location = self
 			.server
 			.identity_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
-		match location {
-			tg::Location::Local(_) => {
-				let Some(token) = self.context.token.as_deref() else {
-					return Ok(None);
-				};
-				self.get_current_user_local(token).await
+		let output = match location {
+			tg::Location::Local(_) => match &self.context.authentication {
+				Some(Authentication::User(user)) => Some(user.clone()),
+				_ => None,
 			},
-			tg::Location::Remote(remote) => self.get_current_user_remote(remote).await,
-		}
-	}
-
-	pub(crate) async fn get_current_user_local(
-		&self,
-		token: &str,
-	) -> tg::Result<Option<tg::user::User>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
-
-		// Get a database connection.
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		// Get the user ID for the token.
-		#[derive(db::row::Deserialize)]
-		struct UserRow {
-			handle: Option<String>,
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::user::Id,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select users.id, users.handle
-				from users
-				join user_tokens on user_tokens."user" = users.id
-				where user_tokens.id = {p}1;
-			"#
-		);
-		let params = db::params![token];
-		let user = connection
-			.query_optional_into::<UserRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let Some(user) = user else {
+			tg::Location::Remote(remote) => self.get_current_user_remote(remote).await?,
+		};
+		let Some(output) = output else {
 			return Ok(None);
 		};
 
-		// Get the user's emails.
-		#[derive(db::row::Deserialize)]
-		struct EmailRow {
-			email: String,
-		}
-		let statement = formatdoc!(
-			r#"
-				select email
-				from user_emails
-				where user_emails."user" = {p}1
-				order by email;
-			"#
-		);
-		let params = db::params![user.id.to_string()];
-		let rows = connection
-			.query_all_into::<EmailRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let emails = rows.into_iter().map(|row| row.email).collect();
-		let user = tg::User {
-			emails,
-			handle: user.handle,
-			id: user.id,
-			location: None,
-		};
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(Some(user))
+		Ok(Some(output))
 	}
 
 	async fn get_current_user_remote(

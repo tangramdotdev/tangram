@@ -2,7 +2,7 @@ use ../../test.nu *
 
 let remote = spawn -n remote
 let local = spawn -n local -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Tag the old version of checkin/a on the remote.

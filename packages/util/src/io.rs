@@ -7,6 +7,8 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+pub mod unix;
+
 enum Readiness {
 	Stdin,
 	Stopped,

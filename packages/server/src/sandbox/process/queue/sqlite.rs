@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Server, Session},
 	indoc::indoc,
 	rusqlite::{self as sqlite, OptionalExtension as _},
 	tangram_client::prelude::*,
@@ -71,11 +71,22 @@ impl Session {
 			return Ok(None);
 		}
 
+		let token = Server::create_process_token_string();
+		let statement = indoc!(
+			"
+				insert into process_tokens (process, token)
+				values (?1, ?2);
+			"
+		);
+		transaction
+			.execute(statement, sqlite::params![process.to_string(), &token])
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+
 		transaction
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
-		let output = tg::sandbox::process::queue::Output { process };
+		let output = tg::sandbox::process::queue::Output { process, token };
 
 		Ok(Some(output))
 	}

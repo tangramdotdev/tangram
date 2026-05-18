@@ -574,39 +574,19 @@ impl Session {
 		Ok(false)
 	}
 
-	fn namespace_read_subject(&self) -> tg::Result<NamespaceReadSubject> {
-		if let Some(user) = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-		{
-			Ok(NamespaceReadSubject::User(user.id.clone()))
-		} else if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_root)
-		{
-			Ok(NamespaceReadSubject::All)
-		} else if self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_sandbox_ref().ok())
-			.is_some()
-		{
-			Ok(NamespaceReadSubject::Public)
-		} else {
-			if self.context.token.is_some() {
-				return Err(tg::error!("failed to authorize"));
-			}
-			Ok(NamespaceReadSubject::Public)
+	fn namespace_read_subject(&self) -> NamespaceReadSubject {
+		match &self.context.authentication {
+			Some(Authentication::Root) => NamespaceReadSubject::All,
+			Some(Authentication::User(user)) => NamespaceReadSubject::User(user.id.clone()),
+			None | Some(Authentication::Process(_) | Authentication::Runner) => {
+				NamespaceReadSubject::Public
+			},
+			Some(Authentication::Sandbox(_)) => NamespaceReadSubject::Public,
 		}
 	}
 
-	pub(crate) fn authorize_list(&self) -> tg::Result<()> {
-		self.namespace_read_subject().map(|_| ())
+	pub(crate) fn authorize_list(&self) {
+		let _ = self.namespace_read_subject();
 	}
 
 	pub(crate) async fn authorize_namespace(
@@ -615,20 +595,11 @@ impl Session {
 		permission: tg::Permission,
 	) -> tg::Result<()> {
 		if permission != tg::Permission::Read {
-			if self
-				.context
-				.authentication
-				.as_ref()
-				.is_some_and(Authentication::is_root)
-			{
-				return Ok(());
-			}
-			let user = self
-				.context
-				.authentication
-				.as_ref()
-				.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-				.ok_or_else(|| tg::error!("failed to authorize"))?;
+			let user = match &self.context.authentication {
+				Some(Authentication::Root) => return Ok(()),
+				Some(Authentication::User(user)) => user,
+				_ => return Err(tg::error!("unauthorized")),
+			};
 			let mut connection = self
 				.server
 				.database
@@ -649,10 +620,10 @@ impl Session {
 			{
 				return Ok(());
 			}
-			return Err(tg::error!("forbidden"));
+			return Err(tg::error!("unauthorized"));
 		}
 
-		let subject = self.namespace_read_subject()?;
+		let subject = self.namespace_read_subject();
 		if matches!(subject, NamespaceReadSubject::All) {
 			return Ok(());
 		}
@@ -673,7 +644,7 @@ impl Session {
 				{
 					Ok(())
 				} else {
-					Err(tg::error!("forbidden"))
+					Err(tg::error!("unauthorized"))
 				}
 			},
 			NamespaceReadSubject::User(user) => {
@@ -687,7 +658,7 @@ impl Session {
 				{
 					Ok(())
 				} else {
-					Err(tg::error!("forbidden"))
+					Err(tg::error!("unauthorized"))
 				}
 			},
 		}
@@ -697,7 +668,7 @@ impl Session {
 		&self,
 		data: Vec<tg::list::Entry>,
 	) -> tg::Result<Vec<tg::list::Entry>> {
-		let subject = self.namespace_read_subject()?;
+		let subject = self.namespace_read_subject();
 		if matches!(subject, NamespaceReadSubject::All) {
 			return Ok(data);
 		}

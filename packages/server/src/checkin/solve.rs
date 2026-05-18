@@ -49,7 +49,7 @@ type GraphPointers =
 struct Candidate {
 	index: Option<usize>,
 	#[expect(dead_code)]
-	location: Option<tg::location::Location>,
+	location: Option<tg::Location>,
 	object: tg::object::Id,
 	tag: tg::Tag,
 }

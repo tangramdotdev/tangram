@@ -1,5 +1,6 @@
 use {
 	crate::client::Client,
+	dashmap::DashMap,
 	futures::{FutureExt as _, Stream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -34,6 +35,8 @@ pub mod vm;
 pub struct Sandbox(Arc<State>);
 
 pub struct State {
+	processes: DashMap<String, Process>,
+
 	arg: Arg,
 
 	client: Client,
@@ -46,8 +49,14 @@ pub struct State {
 	process: tokio::process::Child,
 }
 
+#[derive(Clone, Debug)]
 pub struct Process {
+	debug: Option<tg::process::Debug>,
 	id: tg::process::Id,
+	location: Option<tg::Location>,
+	retry: bool,
+	sandbox: tg::sandbox::Id,
+	token: String,
 }
 
 #[derive(Clone, Debug)]
@@ -55,8 +64,9 @@ pub struct SpawnArg {
 	pub command: Command,
 	pub debug: Option<tg::process::Debug>,
 	pub id: tg::process::Id,
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::Location>,
 	pub retry: bool,
+	pub token: String,
 	pub tty: Option<tg::process::Tty>,
 	pub url: tangram_uri::Uri,
 }
@@ -81,6 +91,7 @@ pub struct Arg {
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
+	pub tangram_socket_path: Option<PathBuf>,
 	pub user: Option<String>,
 }
 
@@ -321,6 +332,7 @@ impl Sandbox {
 		};
 
 		let sandbox = Self(Arc::new(State {
+			processes: DashMap::default(),
 			arg,
 			client,
 			#[cfg(target_os = "linux")]
@@ -473,17 +485,41 @@ impl Sandbox {
 
 	pub async fn spawn(&self, arg: SpawnArg) -> tg::Result<Process> {
 		let id = arg.id;
-		let arg = crate::client::spawn::Arg {
+		let spawn_arg = crate::client::spawn::Arg {
 			command: arg.command,
-			debug: arg.debug,
+			debug: arg.debug.clone(),
 			id: id.clone(),
-			location: arg.location,
+			location: arg.location.clone(),
 			retry: arg.retry,
+			token: arg.token.clone(),
 			tty: arg.tty,
 			url: arg.url,
 		};
-		self.0.client.spawn(arg).await?;
-		Ok(Process { id })
+		self.0.client.spawn(spawn_arg).await?;
+		let process = Process {
+			debug: arg.debug.clone(),
+			id: id.clone(),
+			location: arg.location.clone(),
+			retry: arg.retry,
+			sandbox: self.0.arg.id.clone(),
+			token: arg.token.clone(),
+		};
+		self.0
+			.processes
+			.insert(process.token.clone(), process.clone());
+		Ok(process)
+	}
+
+	pub fn remove_process(&self, token: &str) {
+		self.0.processes.remove(token);
+	}
+
+	#[must_use]
+	pub fn get_process(&self, token: &str) -> Option<Process> {
+		self.0
+			.processes
+			.get(token)
+			.map(|process| process.value().clone())
 	}
 
 	pub async fn set_tty_size(
@@ -541,6 +577,38 @@ impl Sandbox {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<crate::client::get::Output>> {
 		self.0.client.try_get_process(id).await
+	}
+}
+
+impl Process {
+	#[must_use]
+	pub fn debug(&self) -> Option<&tg::process::Debug> {
+		self.debug.as_ref()
+	}
+
+	#[must_use]
+	pub fn id(&self) -> &tg::process::Id {
+		&self.id
+	}
+
+	#[must_use]
+	pub fn location(&self) -> Option<&tg::Location> {
+		self.location.as_ref()
+	}
+
+	#[must_use]
+	pub fn retry(&self) -> bool {
+		self.retry
+	}
+
+	#[must_use]
+	pub fn sandbox(&self) -> &tg::sandbox::Id {
+		&self.sandbox
+	}
+
+	#[must_use]
+	pub fn token(&self) -> &str {
+		&self.token
 	}
 }
 

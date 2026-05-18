@@ -26,7 +26,6 @@ struct ObjectBatchObject {
 
 #[derive(serde::Serialize)]
 pub struct HandleArg {
-	process: Option<tg::process::Id>,
 	token: Option<String>,
 	url: Option<String>,
 }
@@ -35,7 +34,6 @@ pub fn arg(ctx: qjs::Ctx<'_>) -> Result<Serde<HandleArg>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let arg = state.handle.arg();
 	Result(Ok(Serde(HandleArg {
-		process: arg.process,
 		token: arg.token,
 		url: arg.url.map(|url| url.to_string()),
 	})))

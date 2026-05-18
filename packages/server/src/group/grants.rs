@@ -13,15 +13,20 @@ impl Session {
 		group: &str,
 		_arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let authentication = &self.context.authentication;
 		if authentication
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
 		{
-			return Err(tg::error!("failed to authorize"));
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let mut connection = self
@@ -47,7 +52,7 @@ impl Session {
 			)
 			.await?
 			{
-				return Err(tg::error!("forbidden"));
+				return Err(tg::error!("unauthorized"));
 			}
 		}
 		let data =

@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -10,8 +10,13 @@ use {
 
 impl Session {
 	pub(crate) async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		// Canonicalize the path's parent.

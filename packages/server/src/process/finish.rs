@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Transaction},
+	crate::{Session, context::Authentication, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -36,8 +36,13 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> tg::Result<Option<bool>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let locations = self

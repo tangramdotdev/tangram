@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -10,14 +10,28 @@ use {
 
 impl Session {
 	pub(crate) async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
-		self.authorize_remote_management()?;
-		let user = self.remote_user()?;
-		let user = user.as_ref().map(ToString::to_string);
 
-		let previous_remote = self.try_get_remote_config(name).await?;
+		let authentication = self
+			.context
+			.authentication
+			.as_ref()
+			.ok_or_else(|| tg::error!("unauthenticated"))?;
+		let user = match authentication {
+			Authentication::Root => None,
+			Authentication::User(user) => Some(&user.id),
+			_ => {
+				return Err(tg::error!("unauthorized"));
+			},
+		};
+
 		let connection = self
 			.server
 			.database
@@ -29,14 +43,14 @@ impl Session {
 			r#"
 				update remotes
 				set url = {p}3
-				where name = {p}1
-					and (
-						("user" is null and {p}2 is null)
-						or "user" = {p}2
-					);
+				where name = {p}1 and (
+					("user" is null and {p}2 is null) or
+					"user" = {p}2
+				);
 			"#,
 		);
-		let params = db::params![&name, user.clone(), &arg.url.to_string()];
+		let user = user.map(ToString::to_string);
+		let params = db::params![&name, user, &arg.url.to_string()];
 		let n = connection
 			.execute(statement.into(), params)
 			.await
@@ -55,56 +69,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to insert the remote"))?;
 		}
 		drop(connection);
-		let remote = self
-			.try_get_remote_config(name)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the remote"))?;
-		if let Some(previous_remote) = previous_remote {
-			self.server.remote_clients.remove(&previous_remote.url);
-		}
-		self.server.remote_clients.remove(&remote.url);
-		Ok(())
-	}
 
-	pub(crate) async fn put_remote_token(&self, name: &str, token: String) -> tg::Result<()> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
-		self.authorize_remote_management()?;
-		let user = self.remote_user()?;
-		let user = user.as_ref().map(ToString::to_string);
-
-		let previous_remote = self.try_get_remote_config(name).await?;
-		let connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				update remotes
-				set token = {p}2
-				where name = {p}1
-					and (
-						("user" is null and {p}3 is null)
-						or "user" = {p}3
-					);
-			"#,
-		);
-		let params = db::params![&name, token, user];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to update the remote"))?;
-		drop(connection);
-		if n == 0 {
-			return Err(tg::error!("failed to find the remote"));
-		}
-		if let Some(previous_remote) = previous_remote {
-			self.server.remote_clients.remove(&previous_remote.url);
-		}
 		Ok(())
 	}
 
@@ -142,6 +107,7 @@ impl Session {
 		}
 
 		let response = http::Response::builder().empty().unwrap().boxed_body();
+
 		Ok(response)
 	}
 }

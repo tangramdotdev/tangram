@@ -15,7 +15,7 @@ impl Cli {
 			Mode::Client => self.client_with_client_mode().await?,
 		};
 
-		if self.health.is_none() && client.process().is_none() {
+		if self.health.is_none() {
 			let arg = tg::health::Arg {
 				fields: Some(vec!["diagnostics".to_owned()]),
 			};
@@ -59,7 +59,7 @@ impl Cli {
 		match client.connect().await {
 			Ok(()) => (),
 			Err(error) => {
-				if client.process().is_some() || !local {
+				if !local {
 					return Err(
 						tg::error!(!error, url = %client.url(), "failed to connect to the server"),
 					);
@@ -70,7 +70,7 @@ impl Cli {
 			},
 		}
 
-		if local && client.process().is_none() {
+		if local {
 			let arg = tg::health::Arg {
 				fields: Some(vec!["version".to_owned(), "diagnostics".to_owned()]),
 			};
@@ -157,21 +157,10 @@ impl Cli {
 				ttl: pool.ttl,
 			});
 
-		// Get the process.
-		let process = std::env::var("TANGRAM_PROCESS")
-			.ok()
-			.map(|value| {
-				value
-					.parse()
-					.map_err(|error| tg::error!(!error, "failed to parse TANGRAM_PROCESS"))
-			})
-			.transpose()?;
-
 		let arg = tg::Arg {
 			url: Some(url),
 			version: Some(version()),
 			token,
-			process,
 			pool,
 			reconnect,
 			retry,

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Create the transitive dependency (C) - no dependencies.

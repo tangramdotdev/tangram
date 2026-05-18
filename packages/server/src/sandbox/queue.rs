@@ -16,7 +16,9 @@ mod sqlite;
 
 pub(super) struct LocalOutput {
 	process: Option<tg::process::Id>,
+	process_token: Option<String>,
 	sandbox: tg::sandbox::Id,
+	token: Option<String>,
 }
 
 impl Session {
@@ -24,22 +26,12 @@ impl Session {
 		&self,
 		arg: tg::sandbox::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
-		if self.server.config().authentication.is_some()
-			&& !(self
-				.context
-				.authentication
-				.as_ref()
-				.is_some_and(Authentication::is_root)
-				|| self
-					.context
-					.authentication
-					.as_ref()
-					.is_some_and(Authentication::is_runner))
-		{
-			return Err(tg::error!("failed to authorize"));
+		match &self.context.authentication {
+			Some(Authentication::Root | Authentication::Runner) => (),
+			authentication
+				if self.server.config().authentication.is_none()
+					&& !matches!(authentication, Some(Authentication::Process(_))) => {},
+			_ => return Err(tg::error!("unauthorized")),
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;
@@ -101,18 +93,25 @@ impl Session {
 
 		// Dequeue.
 		loop {
+			let token = self.server.config.authentication.is_some();
 			let output = match &self.server.process_store {
 				#[cfg(feature = "postgres")]
-				Database::Postgres(process_store) => self.try_dequeue_sandbox_postgres(process_store).await?,
+				Database::Postgres(process_store) => {
+					self.try_dequeue_sandbox_postgres(process_store, token)
+						.await?
+				},
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(process_store) => self.try_dequeue_sandbox_sqlite(process_store).await?,
+				Database::Sqlite(process_store) => {
+					self.try_dequeue_sandbox_sqlite(process_store, token)
+						.await?
+				},
 			};
 			if let Some(output) = output {
-				let token = self.create_sandbox_token(&output.sandbox).await?;
 				let output = tg::sandbox::queue::Output {
 					process: output.process,
+					process_token: output.process_token,
 					sandbox: output.sandbox,
-					token,
+					token: output.token,
 				};
 				self.server
 					.spawn_publish_sandbox_status_task(&output.sandbox);

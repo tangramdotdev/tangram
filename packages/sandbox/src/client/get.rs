@@ -8,7 +8,7 @@ use {
 pub struct Output {
 	pub debug: Option<tg::process::Debug>,
 	pub id: tg::process::Id,
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::Location>,
 	pub retry: bool,
 }
 

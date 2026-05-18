@@ -121,7 +121,6 @@ pub struct Arg {
 	pub url: Option<Uri>,
 	pub version: Option<String>,
 	pub token: Option<String>,
-	pub process: Option<tg::process::Id>,
 	pub pool: Option<tangram_pool::Options>,
 	pub reconnect: Option<tangram_futures::retry::Options>,
 	pub retry: Option<tangram_futures::retry::Options>,
@@ -143,7 +142,6 @@ pub struct State {
 
 #[derive(Clone, Debug, Default)]
 pub struct Context {
-	pub process: Option<tg::process::Id>,
 	pub token: Option<String>,
 }
 
@@ -159,10 +157,7 @@ impl Client {
 		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
 		let reconnect = arg.reconnect.unwrap_or_default();
 		let retry = arg.retry.unwrap_or_default();
-		let context = Context {
-			process: arg.process,
-			token: arg.token,
-		};
+		let context = Context { token: arg.token };
 		let pool = Self::pool(pool_options, &reconnect, &url);
 		let service = Self::service(&version, &pool);
 		let client = Self(Arc::new(State {
@@ -189,17 +184,7 @@ impl Client {
 		} else {
 			Self::token_from_env()
 		};
-		let process = if let Some(process) = arg.process {
-			Some(process)
-		} else {
-			Self::process_from_env()?
-		};
-		let arg = tg::Arg {
-			url,
-			token,
-			process,
-			..arg
-		};
+		let arg = tg::Arg { url, token, ..arg };
 		Self::new(arg)
 	}
 
@@ -221,10 +206,7 @@ impl Client {
 		let pool_options = arg.pool.unwrap_or_else(default_pool_options);
 		let reconnect = arg.reconnect.unwrap_or_default();
 		let retry = arg.retry.unwrap_or_default();
-		let context = Context {
-			process: arg.process,
-			token: arg.token,
-		};
+		let context = Context { token: arg.token };
 		let sender = Self::handshake_h2(stream).await?;
 		let options = tangram_pool::Options {
 			min: 1,
@@ -263,17 +245,6 @@ impl Client {
 			.map_err(|error| tg::error!(source = error, "failed to build the URL"))
 	}
 
-	fn process_from_env() -> tg::Result<Option<tg::process::Id>> {
-		std::env::var("TANGRAM_PROCESS")
-			.ok()
-			.map(|value| {
-				value
-					.parse()
-					.map_err(|error| tg::error!(!error, "failed to parse TANGRAM_PROCESS"))
-			})
-			.transpose()
-	}
-
 	fn token_from_env() -> Option<String> {
 		std::env::var("TANGRAM_TOKEN").ok()
 	}
@@ -301,11 +272,6 @@ impl Client {
 	#[must_use]
 	pub fn url(&self) -> &Uri {
 		&self.0.url
-	}
-
-	#[must_use]
-	pub fn process(&self) -> Option<&tg::process::Id> {
-		self.0.context.process.as_ref()
 	}
 
 	#[must_use]

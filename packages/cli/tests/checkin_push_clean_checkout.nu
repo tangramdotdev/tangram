@@ -5,7 +5,7 @@ let tmp = mktemp -d
 # Spawn a remote and local server.
 let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Create the artifact.

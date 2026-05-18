@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Session, context::Authentication, database::Database},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -15,8 +15,13 @@ impl Session {
 		&self,
 		arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let mut output = tg::process::list::Output { data: Vec::new() };

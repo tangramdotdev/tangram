@@ -8,12 +8,11 @@ let remote = spawn -n remote --cloud --config $config
 
 # Start the runner server.
 let config = {
-	remotes: [
-		{
-			name: "default",
+	remotes: {
+		default: {
 			url: $remote.url
 		}
-	],
+	},
 	runner: {
 		remote: "default",
 	}
@@ -22,12 +21,11 @@ let runner = spawn -n runner --config $config
 
 # Start the local server.
 let config = {
-	remotes: [
-		{
-			name: "default",
+	remotes: {
+		default: {
 			url: $remote.url
 		}
-	]
+	}
 }
 let local = spawn -n local --config $config
 

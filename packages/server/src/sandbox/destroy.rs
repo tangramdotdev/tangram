@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Transaction},
+	crate::{Session, context::Authentication, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
@@ -36,8 +36,13 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let locations = self
@@ -167,6 +172,15 @@ impl Session {
 			}
 		}
 
+		self.server
+			.delete_sandbox_tokens_with_transaction(&transaction, id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?;
+		self.server
+			.delete_sandbox_process_tokens_with_transaction(&transaction, id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the process tokens"))?;
+
 		// Commit the transaction.
 		transaction
 			.commit()
@@ -174,11 +188,6 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		drop(connection);
-
-		self.server
-			.delete_sandbox_tokens(id)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?;
 
 		// Spawn a task to publish the status message.
 		self.server.spawn_publish_sandbox_status_task(id);

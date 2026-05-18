@@ -33,7 +33,6 @@ impl Session {
 			url: Some(self.client.url().clone()),
 			version: Some(self.client.version().to_owned()),
 			token: self.context.token.clone(),
-			process: self.context.process.clone(),
 			pool: Some(self.client.pool_options),
 			reconnect: Some(self.client.reconnect.clone()),
 			retry: Some(self.client.retry.clone()),

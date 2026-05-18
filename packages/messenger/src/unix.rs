@@ -22,6 +22,8 @@ pub struct Messenger {
 }
 
 struct State {
+	#[expect(dead_code)]
+	guard: tangram_util::io::unix::Guard,
 	id: String,
 	path: PathBuf,
 	receiver: broadcast::InactiveReceiver<(String, Bytes)>,
@@ -43,6 +45,7 @@ impl Messenger {
 		.await
 		.map_err(Error::other)??;
 		let id = bound.id;
+		let guard = bound.guard;
 		let socket = bound.socket;
 		let socket = AsyncFd::new(socket).map_err(Error::other)?;
 
@@ -54,6 +57,7 @@ impl Messenger {
 
 		let messenger = Self {
 			state: Arc::new(State {
+				guard,
 				id,
 				path,
 				receiver: receiver.deactivate(),
@@ -123,19 +127,13 @@ impl crate::Messenger for Messenger {
 	}
 }
 
-impl Drop for State {
-	fn drop(&mut self) {
-		cleanup_self(&self.path, &self.id);
-	}
-}
-
 struct BindOutput {
+	guard: tangram_util::io::unix::Guard,
 	id: String,
 	socket: rustix::fd::OwnedFd,
 }
 
 enum BindError {
-	PathTooLong,
 	Retry,
 	Other(Error),
 }
@@ -146,15 +144,11 @@ fn bind(path: &Path) -> Result<BindOutput, Error> {
 		let name = random_name();
 		let entry_path = path.join(&name);
 
-		let result = match bind_direct(&entry_path) {
-			Ok(socket) => Ok(BindOutput { id: name, socket }),
-			Err(BindError::PathTooLong) => bind_indirect(&entry_path, &name),
-			Err(error) => Err(error),
-		};
+		let result = bind_datagram(&entry_path, &name);
 
 		match result {
 			Ok(bound) => return Ok(bound),
-			Err(BindError::Retry | BindError::PathTooLong) => {
+			Err(BindError::Retry) => {
 				last_error = Some(retry_error());
 			},
 			Err(BindError::Other(error)) => last_error = Some(error),
@@ -173,81 +167,19 @@ fn random_name() -> String {
 	format!("{:016x}", rand::random::<u64>())
 }
 
-fn bind_direct(entry_path: &Path) -> Result<rustix::fd::OwnedFd, BindError> {
-	let socket = socket()?;
-	let address =
-		rustix::net::SocketAddrUnix::new(entry_path).map_err(|_| BindError::PathTooLong)?;
-	rustix::net::bind(&socket, &address).map_err(bind_error)?;
-	Ok(socket)
-}
-
-fn bind_indirect(entry_path: &Path, name: &str) -> Result<BindOutput, BindError> {
-	let mut last_error = None;
-	for temp_path in temp_paths() {
-		let socket_path = temp_path.join(name);
-		let socket = socket()?;
-		let Ok(address) = rustix::net::SocketAddrUnix::new(socket_path.as_path()) else {
-			last_error = Some(BindError::PathTooLong);
-			continue;
-		};
-		match rustix::net::bind(&socket, &address) {
-			Ok(()) => {},
-			Err(error) => {
-				last_error = Some(bind_error(error));
-				continue;
-			},
+fn bind_datagram(entry_path: &Path, name: &str) -> Result<BindOutput, BindError> {
+	let (socket, guard) = tangram_util::io::unix::bind_datagram(entry_path).map_err(|error| {
+		if error.kind() == std::io::ErrorKind::AddrInUse {
+			BindError::Retry
+		} else {
+			BindError::Other(Error::other(error))
 		}
-		match std::os::unix::fs::symlink(&socket_path, entry_path) {
-			Ok(()) => {
-				return Ok(BindOutput {
-					id: name.to_owned(),
-					socket,
-				});
-			},
-			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-				std::fs::remove_file(socket_path).ok();
-				return Err(BindError::Retry);
-			},
-			Err(error) => {
-				std::fs::remove_file(socket_path).ok();
-				last_error = Some(BindError::Other(Error::other(error)));
-			},
-		}
-	}
-	Err(last_error.unwrap_or(BindError::Retry))
-}
-
-fn bind_error(error: rustix::io::Errno) -> BindError {
-	if error == rustix::io::Errno::ADDRINUSE {
-		BindError::Retry
-	} else {
-		BindError::Other(Error::other(error))
-	}
-}
-
-fn socket() -> Result<rustix::fd::OwnedFd, BindError> {
-	let socket = rustix::net::socket(
-		rustix::net::AddressFamily::UNIX,
-		rustix::net::SocketType::DGRAM,
-		None,
-	)
-	.map_err(|error| BindError::Other(Error::other(error)))?;
-	set_nonblocking(&socket).map_err(|error| BindError::Other(Error::other(error)))?;
-	Ok(socket)
-}
-
-fn temp_paths() -> Vec<PathBuf> {
-	let mut paths = vec![std::env::temp_dir()];
-	let tmp = PathBuf::from("/tmp");
-	if !paths.iter().any(|path| path == &tmp) {
-		paths.push(tmp);
-	}
-	paths
-}
-
-fn set_nonblocking(socket: &rustix::fd::OwnedFd) -> rustix::io::Result<()> {
-	let flags = rustix::fs::fcntl_getfl(socket)?;
-	rustix::fs::fcntl_setfl(socket, flags | rustix::fs::OFlags::NONBLOCK)
+	})?;
+	Ok(BindOutput {
+		guard,
+		id: name.to_owned(),
+		socket,
+	})
 }
 
 fn spawn_task(
@@ -303,10 +235,11 @@ fn publish(subject: &str, payload: &Bytes, path: &Path, id: &str) -> Result<(), 
 		let (address_path, symlink_target) = if file_type.is_socket() {
 			(peer.clone(), None)
 		} else if file_type.is_symlink() {
-			let Ok(target) = std::fs::read_link(&peer) else {
+			let Ok(target) = tangram_util::io::unix::resolve(&peer) else {
 				std::fs::remove_file(&peer).ok();
 				continue;
 			};
+			let target = target.into_owned();
 			(target.clone(), Some(target))
 		} else {
 			continue;
@@ -344,20 +277,6 @@ fn publish(subject: &str, payload: &Bytes, path: &Path, id: &str) -> Result<(), 
 		}
 	}
 	Ok(())
-}
-
-fn cleanup_self(path: &Path, id: &str) {
-	let entry_path = path.join(id);
-	let symlink_target = std::fs::read_link(&entry_path).ok();
-	let indirect = rustix::net::SocketAddrUnix::new(entry_path.as_path()).is_err();
-	std::fs::remove_file(&entry_path).ok();
-	if let Some(target) = symlink_target {
-		cleanup_peer_target(&entry_path, &target);
-	} else if indirect {
-		for temp_path in temp_paths() {
-			cleanup_peer_target(&entry_path, &temp_path.join(id));
-		}
-	}
 }
 
 fn cleanup_peer(peer: &Path, symlink_target: Option<&Path>) {

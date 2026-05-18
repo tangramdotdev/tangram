@@ -149,6 +149,17 @@ impl Server {
 		}
 		let statement = formatdoc!(
 			"
+				delete from process_tokens
+				where process = {p}1;
+			"
+		);
+		let params = db::params![entry.process.to_string()];
+		transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let statement = formatdoc!(
+			"
 				delete from process_finalize_queue
 				where position = {p}1;
 			"

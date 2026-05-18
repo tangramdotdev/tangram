@@ -1,19 +1,200 @@
 use {
-	crate::Session,
+	crate::{
+		Session,
+		context::{Authentication, Process, Sandbox},
+	},
 	indoc::formatdoc,
+	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_uri::Uri,
 };
 
+#[derive(db::row::Deserialize)]
+struct Row {
+	name: String,
+	#[tangram_database(as = "db::value::FromStr")]
+	url: Uri,
+}
+
 impl Session {
 	pub(crate) async fn list_remotes(
 		&self,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		let user = self.remote_user()?;
-		let user = user.as_ref().map(ToString::to_string);
+		let authentication = self
+			.context
+			.authentication
+			.as_ref()
+			.ok_or_else(|| tg::error!("unauthenticated"))?;
+		match authentication {
+			Authentication::Process(process) => self.list_remotes_process(process).await,
+			Authentication::Root => self.list_remotes_root().await,
+			Authentication::Runner => self.list_remotes_runner().await,
+			Authentication::Sandbox(sandbox) => self.list_remotes_sandbox(sandbox).await,
+			Authentication::User(user) => self.list_remotes_user(user).await,
+		}
+	}
+
+	async fn list_remotes_process(
+		&self,
+		process: &Arc<Process>,
+	) -> tg::Result<tg::remote::list::Output> {
+		let connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let remote = process.location.as_ref().and_then(|location| {
+			let tg::Location::Remote(remote) = location else {
+				return None;
+			};
+			Some(remote.name.clone())
+		});
+		let user = process.created_by.as_ref().map(ToString::to_string);
+		let statement = formatdoc!(
+			r#"
+				select name, url
+				from remotes
+				where
+					({p}1 is null or name = {p}1) and (
+						("user" is null and {p}2 is null) or
+						"user" = {p}2
+					)
+				order by name;
+			"#,
+		);
+		let params = db::params![remote, user];
+		let rows = connection
+			.query_all_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let data = rows
+			.into_iter()
+			.map(|row| tg::remote::get::Output {
+				name: row.name,
+				token: None,
+				url: row.url,
+			})
+			.collect();
+		let output = tg::remote::list::Output { data };
+		Ok(output)
+	}
+
+	async fn list_remotes_root(&self) -> tg::Result<tg::remote::list::Output> {
+		let connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let statement = r#"
+			select name, url
+			from remotes
+			where "user" is null
+			order by name;
+		"#;
+		let rows = connection
+			.query_all_into::<Row>(statement.into(), db::params![])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let data = rows
+			.into_iter()
+			.map(|row| tg::remote::get::Output {
+				name: row.name,
+				token: None,
+				url: row.url,
+			})
+			.collect();
+		let output = tg::remote::list::Output { data };
+		Ok(output)
+	}
+
+	async fn list_remotes_runner(&self) -> tg::Result<tg::remote::list::Output> {
+		let remote = self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.and_then(|runner| runner.remote.as_deref())
+			.ok_or_else(|| tg::error!("missing the runner remote"))?;
+		let connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			r#"
+				select name, url
+				from remotes
+				where name = {p}1 and "user" is null
+				order by name;
+			"#,
+		);
+		let params = db::params![remote];
+		let rows = connection
+			.query_all_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let data = rows
+			.into_iter()
+			.map(|row| tg::remote::get::Output {
+				name: row.name,
+				token: None,
+				url: row.url,
+			})
+			.collect();
+		let output = tg::remote::list::Output { data };
+		Ok(output)
+	}
+
+	async fn list_remotes_sandbox(
+		&self,
+		sandbox: &Sandbox,
+	) -> tg::Result<tg::remote::list::Output> {
+		match &sandbox.location {
+			tg::Location::Local(_) => self.list_remotes_sandbox_local(sandbox).await,
+			tg::Location::Remote(remote) => self.list_remotes_sandbox_remote(&remote.name).await,
+		}
+	}
+
+	async fn list_remotes_sandbox_local(
+		&self,
+		sandbox: &Sandbox,
+	) -> tg::Result<tg::remote::list::Output> {
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		#[derive(db::row::Deserialize)]
+		struct SandboxRow {
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			created_by: Option<tg::user::Id>,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select created_by
+				from sandboxes
+				where id = {p}1;
+			"
+		);
+		let params = db::params![sandbox.id.to_string()];
+		let Some(row) = connection
+			.query_optional_into::<SandboxRow>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		else {
+			return Err(tg::error!(sandbox = %sandbox.id, "failed to find the sandbox"));
+		};
+		drop(connection);
 
 		let connection = self
 			.server
@@ -21,25 +202,18 @@ impl Session {
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			name: String,
-			#[tangram_database(as = "db::value::FromStr")]
-			url: Uri,
-		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			r#"
 				select name, url
 				from remotes
-				where (
-					("user" is null and {p}1 is null)
-					or "user" = {p}1
-				)
+				where
+					("user" is null and {p}1 is null) or
+					"user" = {p}1
 				order by name;
 			"#,
 		);
+		let user = row.created_by.map(|user| user.to_string());
 		let params = db::params![user];
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
@@ -49,12 +223,80 @@ impl Session {
 			.into_iter()
 			.map(|row| tg::remote::get::Output {
 				name: row.name,
+				token: None,
 				url: row.url,
 			})
 			.collect();
-
 		let output = tg::remote::list::Output { data };
+		Ok(output)
+	}
 
+	async fn list_remotes_sandbox_remote(
+		&self,
+		remote: &str,
+	) -> tg::Result<tg::remote::list::Output> {
+		let connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			r#"
+				select name, url
+				from remotes
+				where name = {p}1 and "user" is null
+				order by name;
+			"#,
+		);
+		let params = db::params![remote];
+		let rows = connection
+			.query_all_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let data = rows
+			.into_iter()
+			.map(|row| tg::remote::get::Output {
+				name: row.name,
+				token: None,
+				url: row.url,
+			})
+			.collect();
+		let output = tg::remote::list::Output { data };
+		Ok(output)
+	}
+
+	async fn list_remotes_user(&self, user: &tg::User) -> tg::Result<tg::remote::list::Output> {
+		let connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			r#"
+				select name, url
+				from remotes
+				where "user" = {p}1
+				order by name;
+			"#,
+		);
+		let params = db::params![user.id.to_string()];
+		let rows = connection
+			.query_all_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let data = rows
+			.into_iter()
+			.map(|row| tg::remote::get::Output {
+				name: row.name,
+				token: None,
+				url: row.url,
+			})
+			.collect();
+		let output = tg::remote::list::Output { data };
 		Ok(output)
 	}
 
@@ -101,6 +343,7 @@ impl Session {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
 		let response = response.body(body).unwrap();
+
 		Ok(response)
 	}
 }

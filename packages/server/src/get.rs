@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,
@@ -14,8 +14,13 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + use<>,
 	> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let stream = match reference.item() {
 			tg::reference::Item::Object(edge) => {

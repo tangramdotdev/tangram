@@ -24,6 +24,62 @@ pub(crate) mod tty;
 pub(crate) mod wait;
 
 impl Server {
+	pub(crate) async fn create_process_token(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<String> {
+		let token = Self::create_process_token_string();
+		let connection = self
+			.process_store
+			.write_connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into process_tokens (process, token)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![process.to_string(), token.clone()];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(token)
+	}
+
+	pub(crate) fn create_process_token_string() -> String {
+		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
+			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
+		};
+		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
+	}
+
+	pub(crate) async fn delete_sandbox_process_tokens_with_transaction(
+		&self,
+		transaction: &database::Transaction<'_>,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				delete from process_tokens
+				where process in (
+					select id
+					from processes
+					where sandbox = {p}1
+				);
+			"
+		);
+		let params = db::params![sandbox.to_string()];
+		transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(())
+	}
+
 	async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self

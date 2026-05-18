@@ -10,12 +10,11 @@ let remote = spawn -n remote --cloud --config $config
 let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 	# Start the runner server.
 	let config = {
-		remotes: [
-			{
-				name: "default",
+		remotes: {
+			default: {
 				url: $remote.url
 			}
-		],
+		},
 		runner: {
 			concurrency: 1,
 			remote: "default",
@@ -26,12 +25,11 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 
 # Start the local server.
 let config = {
-	remotes: [
-		{
-			name: "default",
+	remotes: {
+		default: {
 			url: $remote.url
 		}
-	]
+	}
 }
 let local = spawn -n local --config $config
 

@@ -397,9 +397,14 @@ impl tg::Client {
 	}
 
 	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
-		tokio::net::UnixStream::connect(path).await.map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to connect to the socket"),
-		)
+		let path_ = tangram_util::io::unix::resolve(path).map_err(
+			|source| tg::error!(!source, path = %path.display(), "failed to resolve the socket path"),
+		)?;
+		tokio::net::UnixStream::connect(path_.as_ref())
+			.await
+			.map_err(
+				|source| tg::error!(!source, path = %path.display(), "failed to connect to the socket"),
+			)
 	}
 
 	#[cfg(feature = "vsock")]
@@ -484,11 +489,6 @@ impl tg::Session {
 				.or_insert_with(|| {
 					http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap()
 				});
-		}
-		if let Some(process) = &self.context().process {
-			headers
-				.entry(http::HeaderName::from_static("x-tg-process"))
-				.or_insert_with(|| http::HeaderValue::from_str(&process.to_string()).unwrap());
 		}
 	}
 

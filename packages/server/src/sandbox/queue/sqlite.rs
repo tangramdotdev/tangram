@@ -1,5 +1,5 @@
 use {
-	crate::{Session, sandbox::queue::LocalOutput},
+	crate::{Server, Session, sandbox::queue::LocalOutput},
 	indoc::indoc,
 	rusqlite::{self as sqlite, OptionalExtension as _},
 	tangram_client::prelude::*,
@@ -10,18 +10,22 @@ impl Session {
 	pub(super) async fn try_dequeue_sandbox_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,
+		token: bool,
 	) -> tg::Result<Option<LocalOutput>> {
 		let connection = process_store
 			.write_connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		connection
-			.with(move |connection, _cache| Self::try_dequeue_sandbox_sqlite_sync(connection))
+			.with(move |connection, _cache| {
+				Self::try_dequeue_sandbox_sqlite_sync(connection, token)
+			})
 			.await
 	}
 
 	fn try_dequeue_sandbox_sqlite_sync(
 		connection: &mut sqlite::Connection,
+		token: bool,
 	) -> tg::Result<Option<LocalOutput>> {
 		let transaction = connection
 			.transaction()
@@ -99,9 +103,41 @@ impl Session {
 			}
 			Some(
 				process
-					.parse()
+					.parse::<tg::process::Id>()
 					.map_err(|error| tg::error!(!error, "failed to parse the process id"))?,
 			)
+		} else {
+			None
+		};
+
+		let process_token = if let Some(process) = &process {
+			let token = Server::create_process_token_string();
+			let statement = indoc!(
+				"
+					insert into process_tokens (process, token)
+					values (?1, ?2);
+				"
+			);
+			transaction
+				.execute(statement, sqlite::params![process.to_string(), &token])
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			Some(token)
+		} else {
+			None
+		};
+
+		let token = if token {
+			let token = Self::create_sandbox_token_string();
+			let statement = indoc!(
+				"
+					insert into sandbox_tokens (sandbox, token)
+					values (?1, ?2);
+				"
+			);
+			transaction
+				.execute(statement, sqlite::params![sandbox.to_string(), &token])
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			Some(token)
 		} else {
 			None
 		};
@@ -110,7 +146,12 @@ impl Session {
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
-		let output = LocalOutput { process, sandbox };
+		let output = LocalOutput {
+			process,
+			process_token,
+			sandbox,
+			token,
+		};
 
 		Ok(Some(output))
 	}

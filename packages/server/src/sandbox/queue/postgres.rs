@@ -1,5 +1,5 @@
 use {
-	crate::{Session, sandbox::queue::LocalOutput},
+	crate::{Server, Session, sandbox::queue::LocalOutput},
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -9,6 +9,7 @@ impl Session {
 	pub(super) async fn try_dequeue_sandbox_postgres(
 		&self,
 		process_store: &db::postgres::Database,
+		token: bool,
 	) -> tg::Result<Option<LocalOutput>> {
 		let mut connection = process_store
 			.write_connection()
@@ -75,21 +76,62 @@ impl Session {
 			.query(statement, &[&sandbox_string, &now])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let process = rows
+		let process: Option<tg::process::Id> = rows
 			.first()
 			.map(|row| {
 				row.get::<_, String>(0)
-					.parse()
+					.parse::<tg::process::Id>()
 					.map_err(|error| tg::error!(!error, "failed to parse the process id"))
 			})
 			.transpose()?;
+
+		let process_token = if let Some(process) = &process {
+			let token = Server::create_process_token_string();
+			let statement = indoc!(
+				"
+					insert into process_tokens (process, token)
+					values ($1, $2);
+				"
+			);
+			let process_string = process.to_string();
+			transaction
+				.execute(statement, &[&process_string, &token])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			Some(token)
+		} else {
+			None
+		};
+
+		let token = if token {
+			let token = Self::create_sandbox_token_string();
+			let statement = indoc!(
+				"
+					insert into sandbox_tokens (sandbox, token)
+					values ($1, $2);
+				"
+			);
+			let sandbox_string = sandbox.to_string();
+			transaction
+				.execute(statement, &[&sandbox_string, &token])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			Some(token)
+		} else {
+			None
+		};
 
 		transaction
 			.commit()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
-		let output = LocalOutput { process, sandbox };
+		let output = LocalOutput {
+			process,
+			process_token,
+			sandbox,
+			token,
+		};
 
 		Ok(Some(output))
 	}

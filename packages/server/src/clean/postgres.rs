@@ -36,6 +36,11 @@ impl Server {
 					where process in (select id from deleted_processes)
 					returning 1
 				),
+				deleted_process_tokens as (
+					delete from process_tokens
+					where process in (select id from deleted_processes)
+					returning 1
+				),
 				deleted_process_leases as (
 					delete from process_leases
 					where process in (select id from deleted_processes)

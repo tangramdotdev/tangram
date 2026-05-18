@@ -973,7 +973,6 @@ where
 		"TANGRAM_DIRECTORY",
 		"TANGRAM_MODE",
 		"TANGRAM_OUTPUT",
-		"TANGRAM_PROCESS",
 		"TANGRAM_TOKEN",
 		"TANGRAM_TRACING",
 		"TANGRAM_URL",
@@ -985,9 +984,6 @@ where
 		output_path.to_string_lossy().into_owned(),
 	);
 	let arg = handle.arg();
-	if let Some(process) = arg.process {
-		output.insert("TANGRAM_PROCESS".to_owned(), process.to_string());
-	}
 	if let Some(token) = arg.token {
 		output.insert("TANGRAM_TOKEN".to_owned(), token);
 	}

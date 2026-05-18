@@ -9,11 +9,11 @@ tg -u $remote.url tag foo ($foo_path | path join 'contents')
 
 # Create two local servers, both configured with the remote.
 let local1 = spawn -n local1 -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 let local2 = spawn -n local2 -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Create an artifact that imports the tagged object.

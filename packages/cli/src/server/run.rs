@@ -80,11 +80,10 @@ impl Cli {
 					.filter_map(|remote_str| {
 						let (name, url_str) = remote_str.split_once('=')?;
 						let url = url_str.parse().ok()?;
-						Some(tangram_server::config::Remote {
-							name: name.to_owned(),
-							url,
-							token: None,
-						})
+						Some((
+							name.to_owned(),
+							tangram_server::config::Remote { url, token: None },
+						))
 					})
 					.collect(),
 			);

@@ -1,5 +1,6 @@
 use {
-	crate::{SandboxPermit, Server, Session, temp::Temp},
+	super::process::ProcessTask,
+	crate::{Context, Server, Session, context::Authentication, temp::Temp},
 	futures::{FutureExt as _, TryStreamExt as _, future},
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
@@ -7,25 +8,34 @@ use {
 	tokio::task::JoinSet,
 };
 
-mod listener;
-
 impl Server {
 	pub(crate) fn spawn_sandbox_task(
 		&self,
 		id: &tg::sandbox::Id,
+		_token: Option<String>,
 		location: tg::Location,
-		permit: SandboxPermit,
+		permit: crate::sandbox::Permit,
 		process: Option<tg::process::Id>,
+		process_token: Option<String>,
 	) {
-		let session = self.session(&self.context);
 		self.sandbox_tasks
 			.spawn(id.clone(), |_| {
-				let session = session.clone();
+				let server = self.clone();
 				let id = id.clone();
 				async move {
+					// Create the session.
+					let context = Context {
+						authentication: Some(Authentication::Sandbox(crate::context::Sandbox {
+							id: id.clone(),
+							location: location.clone(),
+						})),
+						..server.context.clone()
+					};
+					let session = server.session(&context);
+
 					// Run the sandbox task.
 					let result = session
-						.sandbox_task(&id, location.clone(), permit, process)
+						.sandbox_task(&id, location.clone(), permit, process, process_token)
 						.boxed()
 						.await;
 
@@ -62,8 +72,9 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 		location: tg::Location,
-		permit: SandboxPermit,
+		permit: crate::sandbox::Permit,
 		process: Option<tg::process::Id>,
+		process_token: Option<String>,
 	) -> tg::Result<()> {
 		// Get the sandbox.
 		let state = self
@@ -119,10 +130,17 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
-		// Create the listener.
-		let (listener, guest_uri) = Server::run_create_listener(temp.path(), &isolation)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to create the tangram listener"))?;
+		// Get the Tangram URL and socket path.
+		let guest_url = self
+			.server
+			.sandbox_guest_url(&isolation)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox tangram URL"))?;
+		let tangram_socket_path = self
+			.server
+			.sandbox_tangram_socket_path(&isolation)
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to get the sandbox tangram socket path"),
+			)?;
 
 		// Create the sandbox. Include the artifacts directory as a readonly mount.
 		let artifacts_path = self.server.artifacts_path();
@@ -166,6 +184,7 @@ impl Session {
 			path: temp.path().to_owned(),
 			rootfs_path: self.server.sandbox_rootfs.clone(),
 			tangram_path: self.server.tangram_path.clone(),
+			tangram_socket_path,
 			user: state.user.clone(),
 		};
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
@@ -176,21 +195,6 @@ impl Session {
 		scopeguard::defer! {
 			self.server.sandboxes.remove(id);
 		}
-
-		// Spawn the serve task.
-		let serve_task = Task::spawn({
-			let server = self.server.clone();
-			let id = id.clone();
-			let config = crate::config::HttpListener {
-				tls: None,
-				url: guest_uri.clone(),
-			};
-			|stop| async move {
-				server
-					.serve(listener, config, Some(id.clone()), None, stop)
-					.await;
-			}
-		});
 
 		// Spawn the heartbeat task.
 		let heartbeat_task = Task::spawn({
@@ -227,10 +231,13 @@ impl Session {
 			self.spawn_process_task(
 				&mut process_tasks,
 				&process_stopper,
-				process.clone(),
+				ProcessTask {
+					process: process.clone(),
+					token: process_token,
+				},
 				&location,
 				&sandbox,
-				&guest_uri,
+				&guest_url,
 			);
 		} else if let Some(ttl) = ttl {
 			timer.replace(tokio::time::sleep(ttl).boxed());
@@ -253,10 +260,13 @@ impl Session {
 					self.spawn_process_task(
 						&mut process_tasks,
 						&process_stopper,
-						output.process.clone(),
+						ProcessTask {
+							process: output.process.clone(),
+							token: Some(output.token),
+						},
 						&location,
 						&sandbox,
-						&guest_uri,
+						&guest_url,
 					);
 					dequeue = self.dequeue_sandbox_process(id, &location).boxed();
 				},
@@ -311,13 +321,6 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "a process task failed"))?;
 		}
 
-		// Stop and await the server task.
-		serve_task.stop();
-		serve_task
-			.wait()
-			.await
-			.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
-
 		// Stop and await the heartbeat task.
 		heartbeat_task.stop();
 		heartbeat_task
@@ -332,7 +335,7 @@ impl Session {
 	async fn dequeue_sandbox_process(
 		&self,
 		id: &tg::sandbox::Id,
-		location: &tg::location::Location,
+		location: &tg::Location,
 	) -> tg::Result<tg::sandbox::process::queue::Output> {
 		loop {
 			let arg = tg::sandbox::process::queue::Arg {
@@ -352,7 +355,7 @@ impl Session {
 	async fn sandbox_heartbeat_task(
 		&self,
 		id: &tg::sandbox::Id,
-		location: &tg::location::Location,
+		location: &tg::Location,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let config = self.server.config.runner.clone().unwrap_or_default();

@@ -1,6 +1,6 @@
 use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
-	crate::{Context, Session},
+	crate::Session,
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
@@ -15,7 +15,6 @@ mod store;
 
 struct State {
 	arg: tg::sync::Arg,
-	context: Context,
 	graph: Arc<Mutex<Graph>>,
 	progress: Progress,
 	queue: Queue,
@@ -43,7 +42,6 @@ impl Session {
 		// Create the state.
 		let state = Arc::new(State {
 			arg,
-			context: self.context.clone(),
 			graph,
 			progress,
 			queue,

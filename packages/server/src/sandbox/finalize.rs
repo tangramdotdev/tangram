@@ -145,7 +145,10 @@ impl Server {
 				return Err(tg::error!("failed to delete the destroyed sandbox"));
 			}
 		}
-		self.delete_sandbox_tokens(&entry.sandbox)
+		self.delete_sandbox_process_tokens_with_transaction(&transaction, &entry.sandbox)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the process tokens"))?;
+		self.delete_sandbox_tokens_with_transaction(&transaction, &entry.sandbox)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?;
 

@@ -8,7 +8,7 @@ use ../../test.nu *
 
 let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Create a package "inner" where nodes in a cycle reference nodes outside the cycle.

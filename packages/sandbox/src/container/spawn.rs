@@ -152,7 +152,11 @@ pub(crate) async fn spawn(
 		.arg(&arg.tangram_path)
 		.arg(Sandbox::guest_libexec_tangram_path())
 		.arg("--bind")
-		.arg(Sandbox::host_tangram_socket_path_from_root(&arg.path))
+		.arg(
+			arg.tangram_socket_path
+				.as_ref()
+				.ok_or_else(|| tg::error!("missing the tangram socket path"))?,
+		)
 		.arg(Sandbox::guest_tangram_socket_path_from_root(&arg.path))
 		.arg("--bind")
 		.arg(Sandbox::host_output_path_from_root(&arg.path))

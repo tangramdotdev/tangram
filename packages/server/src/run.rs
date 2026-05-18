@@ -1,8 +1,4 @@
-use {
-	crate::{SandboxPermit, Server},
-	std::time::Duration,
-	tangram_client::prelude::*,
-};
+use {crate::Server, std::time::Duration, tangram_client::prelude::*};
 
 mod process;
 mod progress;
@@ -25,7 +21,7 @@ impl Server {
 				.acquire_owned()
 				.await
 				.unwrap();
-			let permit = SandboxPermit(tg::Either::Left(permit));
+			let permit = crate::sandbox::Permit(tg::Either::Left(permit));
 
 			let location = self
 				.config
@@ -55,7 +51,14 @@ impl Server {
 				},
 			};
 
-			self.spawn_sandbox_task(&output.sandbox, location, permit, output.process);
+			self.spawn_sandbox_task(
+				&output.sandbox,
+				output.token,
+				location,
+				permit,
+				output.process,
+				output.process_token,
+			);
 		}
 	}
 }

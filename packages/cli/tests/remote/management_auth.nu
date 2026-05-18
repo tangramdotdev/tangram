@@ -5,7 +5,7 @@ let alice_server = spawn -n alice-remote
 let bob_server = spawn -n bob-remote
 let auth_enabled = spawn --config {
 	authentication: true,
-	remotes: [{ name: default, url: $root_remote.url }],
+	remotes: { default: { url: $root_remote.url } },
 } -n auth-enabled
 
 def current_token [] {
@@ -14,7 +14,7 @@ def current_token [] {
 
 let output = tg remote put default $alice_server.url | complete
 failure $output "An unauthenticated request should not be able to manage remotes."
-assert ($output.stderr | str contains "forbidden") "The error should mention that the request is forbidden."
+assert ($output.stderr | str contains "unauthenticated") "The error should mention that the request is unauthenticated."
 
 tg user login alice@example.com --handle alice
 let alice = current_token

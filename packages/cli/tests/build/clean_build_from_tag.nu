@@ -3,10 +3,10 @@ use ../../test.nu *
 # Create remote and local servers.
 let remote = spawn --cloud -n remote
 let local1 = spawn -n local_one -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 let local2 = spawn -n local_two -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Create a package with metadata for publishing.

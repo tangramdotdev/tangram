@@ -50,16 +50,16 @@ impl Sandbox {
 				.map(|mount| (mount.target.clone(), mount.source.clone()))
 				.collect::<Vec<_>>();
 			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
-				path_maps.extend([
-					(
-						Self::guest_listen_path_from_root(&self.0.arg.path),
-						Self::host_listen_path_from_root(&self.0.arg.path),
-					),
-					(
+				path_maps.push((
+					Self::guest_listen_path_from_root(&self.0.arg.path),
+					Self::host_listen_path_from_root(&self.0.arg.path),
+				));
+				if let Some(tangram_socket_path) = &self.0.arg.tangram_socket_path {
+					path_maps.push((
 						self.guest_tangram_socket_path(),
-						self.host_tangram_socket_path(),
-					),
-				]);
+						tangram_socket_path.clone(),
+					));
+				}
 			}
 			path_maps.extend([
 				(
@@ -122,16 +122,16 @@ impl Sandbox {
 				.map(|mount| (mount.source.clone(), mount.target.clone()))
 				.collect::<Vec<_>>();
 			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
-				path_maps.extend([
-					(
-						Self::host_listen_path_from_root(&self.0.arg.path),
-						Self::guest_listen_path_from_root(&self.0.arg.path),
-					),
-					(
-						self.host_tangram_socket_path(),
+				path_maps.push((
+					Self::host_listen_path_from_root(&self.0.arg.path),
+					Self::guest_listen_path_from_root(&self.0.arg.path),
+				));
+				if let Some(tangram_socket_path) = &self.0.arg.tangram_socket_path {
+					path_maps.push((
+						tangram_socket_path.clone(),
 						self.guest_tangram_socket_path(),
-					),
-				]);
+					));
+				}
 			}
 			path_maps.extend([
 				(

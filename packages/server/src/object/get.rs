@@ -18,6 +18,13 @@ use {
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
+pub type Tasks = tangram_futures::task::Map<
+	crate::object::get::TaskKey,
+	tg::Result<Option<tg::object::get::Output>>,
+	(),
+	fnv::FnvBuildHasher,
+>;
+
 pub struct CacheFile {
 	pub artifact: tg::artifact::Id,
 	pub path: Option<PathBuf>,
@@ -25,9 +32,9 @@ pub struct CacheFile {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct ObjectGetTaskKey {
+pub(crate) struct TaskKey {
 	pub id: tg::object::Id,
-	pub location: tg::location::Location,
+	pub location: tg::Location,
 	pub metadata: bool,
 }
 
@@ -363,10 +370,10 @@ impl Session {
 	async fn try_get_object_location(
 		&self,
 		id: &tg::object::Id,
-		location: tg::location::Location,
+		location: tg::Location,
 		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let key = ObjectGetTaskKey {
+		let key = TaskKey {
 			id: id.clone(),
 			location,
 			metadata,
@@ -376,7 +383,7 @@ impl Session {
 
 	async fn try_get_object_from_location_task(
 		&self,
-		key: ObjectGetTaskKey,
+		key: TaskKey,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let task = self
 			.server
@@ -392,9 +399,9 @@ impl Session {
 
 	async fn try_get_object_from_location_task_inner(
 		&self,
-		key: ObjectGetTaskKey,
+		key: TaskKey,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let ObjectGetTaskKey {
+		let TaskKey {
 			id,
 			location,
 			metadata,

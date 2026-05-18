@@ -22,6 +22,13 @@ create index sandboxes_status_index on sandboxes (status);
 
 create index sandboxes_queue_index on sandboxes (created_at, id) where status = 'created';
 
+create table sandbox_tokens (
+	sandbox text not null,
+	token text primary key
+);
+
+create index sandbox_tokens_sandbox_index on sandbox_tokens (sandbox);
+
 create table processes (
 	actual_checksum text,
 	cacheable integer not null,
@@ -65,6 +72,13 @@ create index processes_sandbox_index on processes (sandbox);
 create index processes_queue_index on processes (sandbox, created_at, id) where status = 'created';
 
 create index processes_status_index on processes (status);
+
+create table process_tokens (
+	process text not null,
+	token text primary key
+);
+
+create index process_tokens_process_index on process_tokens (process);
 
 create table process_leases (
 	process text not null,

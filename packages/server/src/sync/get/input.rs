@@ -30,11 +30,7 @@ impl Session {
 						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
 
 					// Update the graph with data and metadata.
-					let metadata = if state.context.untrusted {
-						None
-					} else {
-						message.metadata.clone()
-					};
+					let metadata = message.metadata.clone();
 					state.graph.lock().unwrap().update_object_local(
 						&message.id,
 						Some(&data),
@@ -86,11 +82,7 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to deserialize the process"))?;
 
 					// Update the graph with data and metadata.
-					let metadata = if state.context.untrusted {
-						None
-					} else {
-						message.metadata.clone()
-					};
+					let metadata = message.metadata.clone();
 					state.graph.lock().unwrap().update_process_local(
 						&message.id,
 						Some(&data),

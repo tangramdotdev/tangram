@@ -364,7 +364,6 @@ fn ignored(key: &str) -> bool {
 			| "TANGRAM_DIRECTORY"
 			| "TANGRAM_MODE"
 			| "TANGRAM_OUTPUT"
-			| "TANGRAM_PROCESS"
 			| "TANGRAM_TOKEN"
 			| "TANGRAM_TRACING"
 			| "TANGRAM_URL"

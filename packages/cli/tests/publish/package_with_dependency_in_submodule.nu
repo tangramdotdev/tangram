@@ -2,7 +2,7 @@ use ../../test.nu *
 
 let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
-	remotes: [{ name: default, url: $remote.url }]
+	remotes: { default: { url: $remote.url } }
 }
 
 # Import a dependency in a submodule (helper.tg.ts), not in the root tangram.ts.

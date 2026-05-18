@@ -22,7 +22,8 @@ pub struct Arg {
 pub struct Output {
 	pub sandbox: tg::sandbox::Id,
 	pub process: Option<tg::process::Id>,
-	pub token: String,
+	pub process_token: Option<String>,
+	pub token: Option<String>,
 }
 
 impl tg::Session {

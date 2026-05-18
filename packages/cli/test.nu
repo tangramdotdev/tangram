@@ -806,7 +806,7 @@ export def --env spawn [
 				map_size: 10_485_760,
 			},
 		},
-		remotes: [],
+		remotes: {},
 		tokio_single_threaded: true,
 		v8_thread_pool_size: 1,
 	}
@@ -897,7 +897,7 @@ export def --env spawn [
 					url: $'postgres://postgres@localhost:5432/processes_($id)',
 				},
 			},
-			remotes: [],
+			remotes: {},
 			watchdog: {
 				batch_size: 100,
 				interval: 1,

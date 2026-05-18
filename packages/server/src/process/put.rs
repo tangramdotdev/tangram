@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Session, context::Authentication, database::Database},
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -19,8 +19,13 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;

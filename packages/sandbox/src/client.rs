@@ -54,7 +54,7 @@ impl Client {
 					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
 				Self::with_stream(stream).await
 			},
-			crate::server::Listener::Unix(listener) => {
+			crate::server::Listener::Unix { listener, .. } => {
 				let (stream, _) = listener
 					.accept()
 					.await
@@ -167,9 +167,14 @@ impl Client {
 	}
 
 	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
-		tokio::net::UnixStream::connect(path)
+		let path_ = tangram_util::io::unix::resolve(path).map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to resolve the socket path"),
+		)?;
+		tokio::net::UnixStream::connect(path_.as_ref())
 			.await
-			.map_err(|error| tg::error!(!error, "failed to connect to the socket"))
+			.map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to connect to the socket"),
+			)
 	}
 
 	async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {

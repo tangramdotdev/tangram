@@ -7,6 +7,10 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub name: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+
 	pub url: Uri,
 }
 

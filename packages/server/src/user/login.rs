@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -11,18 +11,25 @@ impl Session {
 		&self,
 		arg: tg::user::login::Arg,
 	) -> tg::Result<tg::user::login::Output> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let location = self
 			.server
 			.identity_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
-		match location {
-			tg::Location::Local(_) => self.login_user_local(arg.email, arg.handle).await,
-			tg::Location::Remote(remote) => self.login_user_remote(arg, remote).await,
-		}
+		let output = match location {
+			tg::Location::Local(_) => self.login_user_local(arg.email, arg.handle).await?,
+			tg::Location::Remote(remote) => self.login_user_remote(arg, remote).await?,
+		};
+
+		Ok(output)
 	}
 
 	async fn login_user_local(
@@ -30,8 +37,13 @@ impl Session {
 		email: String,
 		requested_handle: Option<String>,
 	) -> tg::Result<tg::user::login::Output> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let mut connection = self
@@ -218,6 +230,7 @@ impl Session {
 					"failed to get the remote client"
 				)
 			})?;
+
 		let arg = tg::user::login::Arg {
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 			..arg
@@ -229,19 +242,42 @@ impl Session {
 				"failed to log in the user"
 			)
 		})?;
-		self.put_remote_token(&remote.name, output.token.clone())
+
+		let connection = self
+			.server
+			.database
+			.write_connection()
 			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					remote = %remote.name,
-					"failed to update the remote"
-				)
-			})?;
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			r#"
+				update remotes
+				set token = {p}2
+				where name = {p}1 and (
+					("user" is null and {p}3 is null) or
+					"user" = {p}3
+				);
+			"#,
+		);
+		let user = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.to_string());
+		let params = db::params![&remote.name, output.token, user];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to update the remote"))?;
+		drop(connection);
+
 		output.user.location = Some(tg::Location::Remote(tg::location::Remote {
 			name: remote.name,
 			region: None,
 		}));
+
 		Ok(output)
 	}
 

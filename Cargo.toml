@@ -65,7 +65,7 @@ astral-tokio-tar = "0.6"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
-async-nats = "0.47"
+async-nats = "0.48"
 async_zip = { version = "0.0.18", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
 blake3 = "1"
@@ -119,7 +119,7 @@ num-derive = "0.4"
 num-traits = "0.2"
 nu-ansi-term = "0.50"
 oauth2 = "5.0.0"
-octocrab = "0.50"
+octocrab = "0.51"
 owo-colors = "4"
 oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
@@ -194,7 +194,7 @@ tracing = "0.1.44"
 tracing-opentelemetry = "0.32"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 tracing-tree = "0.4.1"
-turso = "0.5.0"
+turso = "0.6.0"
 opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }

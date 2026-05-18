@@ -9,12 +9,13 @@ pub(crate) fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
 ) -> tg::Result<tokio::process::Child> {
+	let tangram_socket_path = arg
+		.tangram_socket_path
+		.as_ref()
+		.ok_or_else(|| tg::error!("missing the tangram socket path"))?;
 	for path in [
 		Sandbox::host_output_path_from_root(&arg.path),
-		Sandbox::host_tangram_socket_path_from_root(&arg.path)
-			.parent()
-			.unwrap()
-			.to_owned(),
+		tangram_socket_path.parent().unwrap().to_owned(),
 		Sandbox::host_scratch_path_from_root(&arg.path),
 		Sandbox::host_profile_path_from_root(&arg.path)
 			.parent()
@@ -79,6 +80,10 @@ pub(crate) fn spawn(
 fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 	let tangram_parent = arg.tangram_path.parent();
 	let home_path = std::env::var_os("HOME").map(std::path::PathBuf::from);
+	let tangram_socket_path = arg
+		.tangram_socket_path
+		.as_ref()
+		.ok_or_else(|| tg::error!("missing the tangram socket path"))?;
 	let mut profile = String::new();
 	writedoc!(
 		profile,
@@ -224,7 +229,7 @@ fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 		arg.tangram_path.display(),
 		arg.rootfs_path.join("lib").display(),
 		arg.rootfs_path.join("bin").display(),
-		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),
+		tangram_socket_path.display(),
 		Sandbox::host_listen_path_from_root(&arg.path).display(),
 	)
 	.unwrap();

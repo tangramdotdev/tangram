@@ -1,19 +1,19 @@
 use {
-	crate::{Context, Server, context::Authentication},
+	crate::{Context, Server},
 	futures::{FutureExt as _, future},
 	std::{
 		convert::Infallible,
 		path::Path,
 		pin::{Pin, pin},
-		sync::Arc,
 		task::Poll,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::{
-		body::Boxed as BoxBody, body::Ext as _, request::Ext as _, response::Ext as _,
-		response::builder::Ext as _,
+		body::{Boxed as BoxBody, Ext as _},
+		request::Ext as _,
+		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_uri::Uri,
 	tokio::io::{AsyncRead, AsyncWrite, ReadBuf},
@@ -22,7 +22,11 @@ use {
 
 pub(crate) enum Listener {
 	Tcp(tokio::net::TcpListener),
-	Unix(tokio::net::UnixListener),
+	Unix {
+		listener: tokio::net::UnixListener,
+		#[expect(dead_code)]
+		guard: tangram_util::io::unix::Guard,
+	},
 	#[cfg(feature = "vsock")]
 	Vsock(tokio_vsock::VsockListener),
 }
@@ -40,54 +44,59 @@ type Service =
 
 impl Server {
 	pub(crate) async fn connect(url: &Uri) -> tg::Result<Stream> {
-		let stream = match url.scheme() {
-			Some("http+stdio") => {
-				Stream::Stdio(tokio::io::join(tokio::io::stdin(), tokio::io::stdout()))
-			},
-			Some("http") => {
-				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				let port = url
-					.port_or_known_default()
-					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				Stream::Tcp(
-					tokio::net::TcpStream::connect((host, port))
-						.await
-						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?,
-				)
-			},
-			Some("http+unix") => {
-				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				Stream::Unix(
-					tokio::net::UnixStream::connect(path)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?,
-				)
-			},
-			Some("http+vsock") => {
-				#[cfg(not(feature = "vsock"))]
-				{
-					return Err(tg::error!("vsock is not enabled"));
-				}
-				#[cfg(feature = "vsock")]
-				{
-					let cid = url
-						.host()
-						.ok_or_else(|| tg::error!(%url, "invalid url"))?
-						.parse::<u32>()
-						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
-					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
-					Stream::Vsock(
-						tokio_vsock::VsockStream::connect(addr)
+		let stream =
+			match url.scheme() {
+				Some("http+stdio") => {
+					Stream::Stdio(tokio::io::join(tokio::io::stdin(), tokio::io::stdout()))
+				},
+				Some("http") => {
+					let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let port = url
+						.port_or_known_default()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					Stream::Tcp(
+						tokio::net::TcpStream::connect((host, port))
 							.await
 							.map_err(|error| {
 								tg::error!(!error, "failed to connect to the socket")
 							})?,
 					)
-				}
-			},
-			_ => return Err(tg::error!(%url, "invalid url")),
-		};
+				},
+				Some("http+unix") => {
+					let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let path = Path::new(path);
+					let path_ = tangram_util::io::unix::resolve(path).map_err(
+						|error| tg::error!(!error, path = %path.display(), "failed to resolve the socket path"),
+					)?;
+					Stream::Unix(
+						tokio::net::UnixStream::connect(path_.as_ref())
+							.await
+							.map_err(
+								|error| tg::error!(!error, path = %path.display(), "failed to connect to the socket"),
+							)?,
+					)
+				},
+				Some("http+vsock") => {
+					#[cfg(not(feature = "vsock"))]
+					{
+						return Err(tg::error!("vsock is not enabled"));
+					}
+					#[cfg(feature = "vsock")]
+					{
+						let cid = url
+							.host()
+							.ok_or_else(|| tg::error!(%url, "invalid url"))?
+							.parse::<u32>()
+							.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
+						let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+						let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+						Stream::Vsock(tokio_vsock::VsockStream::connect(addr).await.map_err(
+							|error| tg::error!(!error, "failed to connect to the socket"),
+						)?)
+					}
+				},
+				_ => return Err(tg::error!(%url, "invalid url")),
+			};
 		Ok(stream)
 	}
 
@@ -117,10 +126,10 @@ impl Server {
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let path = Path::new(path);
-				let listener = tokio::net::UnixListener::bind(path).map_err(
+				let (listener, guard) = tangram_util::io::unix::bind_listener(path).map_err(
 					|error| tg::error!(!error, path = %path.display(), "failed to bind"),
 				)?;
-				Listener::Unix(listener)
+				Listener::Unix { listener, guard }
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -152,8 +161,7 @@ impl Server {
 		&self,
 		listener: Listener,
 		config: crate::config::HttpListener,
-		sandbox: Option<tg::sandbox::Id>,
-		process: Option<Arc<crate::context::Process>>,
+		sandbox: bool,
 		stopper: Stopper,
 	) {
 		#[cfg(feature = "tls")]
@@ -186,14 +194,14 @@ impl Server {
 			.with_description("Number of active HTTP connections")
 			.build();
 
-		let service = self.service(process, sandbox, stopper.clone());
+		let service = self.service(sandbox, stopper.clone());
 
 		loop {
 			// Accept a new connection.
 			let accept = async {
 				let stream = match &listener {
 					Listener::Tcp(listener) => Stream::Tcp(listener.accept().await?.0),
-					Listener::Unix(listener) => Stream::Unix(listener.accept().await?.0),
+					Listener::Unix { listener, .. } => Stream::Unix(listener.accept().await?.0),
 					#[cfg(feature = "vsock")]
 					Listener::Vsock(listener) => Stream::Vsock(listener.accept().await?.0),
 				};
@@ -268,12 +276,7 @@ impl Server {
 		task_tracker.wait().await;
 	}
 
-	fn service(
-		&self,
-		process: Option<Arc<crate::context::Process>>,
-		sandbox: Option<tg::sandbox::Id>,
-		stopper: Stopper,
-	) -> Service {
+	fn service(&self, sandbox: bool, stopper: Stopper) -> Service {
 		let builder = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::metrics::MetricsLayer::new())
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
@@ -310,15 +313,13 @@ impl Server {
 			let server = self.clone();
 			move |request| {
 				let server = server.clone();
-				let process = process.clone();
-				let sandbox = sandbox.clone();
 				let stopper = stopper.clone();
 				async move {
 					let context = Context {
-						process,
+						authentication: None,
+						id: None,
 						sandbox,
 						stopper: Some(stopper),
-						..Default::default()
 					};
 					let response = server.handle_request(request, context).await;
 					Ok::<_, Infallible>(response)
@@ -327,16 +328,11 @@ impl Server {
 		}))
 	}
 
-	pub(crate) async fn serve_stream<S>(
-		&self,
-		stream: S,
-		process: Option<Arc<crate::context::Process>>,
-		sandbox: Option<tg::sandbox::Id>,
-		stopper: Stopper,
-	) where
+	pub(crate) async fn serve_stream<S>(&self, stream: S, sandbox: bool, stopper: Stopper)
+	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
-		let service = self.service(process, sandbox, stopper.clone());
+		let service = self.service(sandbox, stopper.clone());
 		Server::serve_connection(stream, service, stopper).await;
 	}
 
@@ -477,14 +473,7 @@ impl Server {
 		mut context: Context,
 	) -> http::Response<BoxBody> {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
-		context.authentication = if self.config().authentication.is_some() {
-			None
-		} else {
-			Some(Authentication::Root)
-		};
 		context.id = Some(id.clone());
-		context.token = request.token(None).map(ToOwned::to_owned);
-		context.untrusted = true;
 
 		let span = tracing::Span::current();
 		span.record("id", id.to_string());
@@ -494,16 +483,24 @@ impl Server {
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
 
-		if let Some(response) = self.authenticate_request(&mut context).await {
-			return response;
-		}
-
-		if let Err(response) = self
-			.handle_request_context_for_process(request.headers(), &mut context)
-			.await
-		{
-			return response;
-		}
+		// Authenticate.
+		let token = request.token(None).map(str::to_owned);
+		let result = self.authenticate(context.sandbox, token.as_deref()).await;
+		context.authentication = match result {
+			Ok(authentication) => authentication,
+			Err(error) => {
+				let bytes = match error.to_data_or_id() {
+					tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
+					tg::Either::Right(id) => id.to_string(),
+				};
+				let response = http::Response::builder()
+					.status(http::StatusCode::INTERNAL_SERVER_ERROR)
+					.bytes(bytes)
+					.unwrap()
+					.boxed_body();
+				return response;
+			},
+		};
 
 		let session = self.session(&context);
 
@@ -735,130 +732,6 @@ impl Server {
 		response.headers_mut().insert(key, value);
 
 		response
-	}
-
-	async fn handle_request_context_for_process(
-		&self,
-		headers: &http::HeaderMap,
-		context: &mut Context,
-	) -> Result<(), http::Response<BoxBody>> {
-		let process_id = if context.process.is_some() || context.sandbox.is_none() {
-			None
-		} else {
-			match headers.get("x-tg-process") {
-				None => None,
-				Some(value) => {
-					let value = value.to_str().map_err(|error| {
-						let error = tg::error!(!error, "failed to parse the x-tg-process header");
-						tracing::debug!(error = %error.trace(), "failed to update the request context");
-						let bytes = match error.to_data_or_id() {
-							tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
-							tg::Either::Right(id) => id.to_string(),
-						};
-						http::Response::builder()
-							.status(http::StatusCode::BAD_REQUEST)
-							.bytes(bytes)
-							.unwrap()
-							.boxed_body()
-					})?;
-					let value = value.parse::<tg::process::Id>().map_err(|error| {
-						let error = tg::error!(!error, "failed to parse the x-tg-process header");
-						tracing::debug!(error = %error.trace(), "failed to update the request context");
-						let bytes = match error.to_data_or_id() {
-							tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
-							tg::Either::Right(id) => id.to_string(),
-						};
-						http::Response::builder()
-							.status(http::StatusCode::BAD_REQUEST)
-							.bytes(bytes)
-							.unwrap()
-							.boxed_body()
-					})?;
-					Some(value)
-				},
-			}
-		};
-		if context.process.is_some() {
-			return Ok(());
-		}
-		let Some(sandbox_id) = context.sandbox.clone() else {
-			return Ok(());
-		};
-		let Some(process_id) = process_id else {
-			let error = tg::error!("missing x-tg-process header");
-			tracing::debug!(error = %error.trace(), "failed to update the request context");
-			let bytes = match error.to_data_or_id() {
-				tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
-				tg::Either::Right(id) => id.to_string(),
-			};
-			return Err(http::Response::builder()
-				.status(http::StatusCode::BAD_REQUEST)
-				.bytes(bytes)
-				.unwrap()
-				.boxed_body());
-		};
-		let Some(sandbox) = self
-			.sandboxes
-			.get(&sandbox_id)
-			.map(|sandbox| sandbox.value().clone())
-		else {
-			let error = tg::error!(sandbox = %sandbox_id, "failed to get the sandbox");
-			tracing::error!(error = %error.trace(), "failed to update the request context");
-			let bytes = match error.to_data_or_id() {
-				tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
-				tg::Either::Right(id) => id.to_string(),
-			};
-			return Err(http::Response::builder()
-				.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-				.bytes(bytes)
-				.unwrap()
-				.boxed_body());
-		};
-		let process = match sandbox.try_get_process(&process_id).await {
-			Ok(Some(process)) => process,
-			Ok(None) => {
-				let error = tg::error!(
-					process = %process_id,
-					sandbox = %sandbox_id,
-					"failed to find the sandbox process"
-				);
-				tracing::debug!(error = %error.trace(), "failed to update the request context");
-				let bytes = match error.to_data_or_id() {
-					tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
-					tg::Either::Right(id) => id.to_string(),
-				};
-				return Err(http::Response::builder()
-					.status(http::StatusCode::BAD_REQUEST)
-					.bytes(bytes)
-					.unwrap()
-					.boxed_body());
-			},
-			Err(error) => {
-				let error = tg::error!(
-					!error,
-					process = %process_id,
-					sandbox = %sandbox_id,
-					"failed to get the sandbox process"
-				);
-				tracing::error!(error = %error.trace(), "failed to update the request context");
-				let bytes = match error.to_data_or_id() {
-					tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
-					tg::Either::Right(id) => id.to_string(),
-				};
-				return Err(http::Response::builder()
-					.status(http::StatusCode::INTERNAL_SERVER_ERROR)
-					.bytes(bytes)
-					.unwrap()
-					.boxed_body());
-			},
-		};
-		context.process = Some(Arc::new(crate::context::Process {
-			debug: process.debug,
-			id: process.id,
-			location: process.location,
-			retry: process.retry,
-		}));
-		Ok(())
 	}
 }
 

@@ -20,13 +20,6 @@ create table runner_tokens (
 	id text primary key
 );
 
-create table sandbox_tokens (
-	sandbox text not null,
-	token text primary key
-);
-
-create index sandbox_tokens_sandbox_index on sandbox_tokens (sandbox);
-
 create table groups (
 	id text primary key,
 	handle text

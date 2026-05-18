@@ -37,8 +37,8 @@ impl Session {
 	pub(crate) async fn push_or_pull(
 		&self,
 		arg: &tg::push::Arg,
-		source: tg::location::Location,
-		destination: tg::location::Location,
+		source: tg::Location,
+		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
@@ -121,7 +121,7 @@ impl Session {
 
 	async fn push_or_pull_set_indicator_totals(
 		&self,
-		source: tg::location::Location,
+		source: tg::Location,
 		progress: crate::progress::Handle<tg::push::Output>,
 		arg: &tg::push::Arg,
 	) -> tg::Result<()> {
@@ -261,8 +261,8 @@ impl Session {
 		&self,
 		arg: tg::push::Arg,
 		progress: crate::progress::Handle<tg::push::Output>,
-		source: tg::location::Location,
-		destination: tg::location::Location,
+		source: tg::Location,
+		destination: tg::Location,
 	) -> tg::Result<tg::push::Output> {
 		let output = Arc::new(Mutex::new(tg::push::Output::default()));
 

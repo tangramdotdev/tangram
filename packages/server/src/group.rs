@@ -15,8 +15,13 @@ impl Session {
 		&self,
 		arg: tg::group::create::Arg,
 	) -> tg::Result<tg::group::create::Output> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		if self
@@ -25,7 +30,7 @@ impl Session {
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
 		{
-			return Err(tg::error!("failed to authorize"));
+			return Err(tg::error!("unauthorized"));
 		}
 		let created_by = self
 			.context
@@ -121,8 +126,13 @@ impl Session {
 		&self,
 		_arg: tg::group::list::Arg,
 	) -> tg::Result<tg::group::list::Output> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		if self
 			.context
@@ -130,7 +140,7 @@ impl Session {
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
 		{
-			return Err(tg::error!("failed to authorize"));
+			return Err(tg::error!("unauthorized"));
 		}
 
 		#[derive(db::row::Deserialize)]
@@ -170,8 +180,13 @@ impl Session {
 	}
 
 	pub(crate) async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		if self
 			.context
@@ -179,7 +194,7 @@ impl Session {
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
 		{
-			return Err(tg::error!("failed to authorize"));
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let mut connection = self
@@ -196,15 +211,20 @@ impl Session {
 	}
 
 	pub(crate) async fn try_delete_group(&self, group: &str) -> tg::Result<Option<()>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let authentication = &self.context.authentication;
 		if authentication
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
 		{
-			return Err(tg::error!("failed to authorize"));
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let mut connection = self
@@ -230,7 +250,7 @@ impl Session {
 			)
 			.await?
 			{
-				return Err(tg::error!("forbidden"));
+				return Err(tg::error!("unauthorized"));
 			}
 		}
 
@@ -272,15 +292,20 @@ impl Session {
 		group: &str,
 		_arg: tg::group::member::list::Arg,
 	) -> tg::Result<Option<tg::group::member::list::Output>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let authentication = &self.context.authentication;
 		if authentication
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
 		{
-			return Err(tg::error!("failed to authorize"));
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let mut connection = self
@@ -306,7 +331,7 @@ impl Session {
 			)
 			.await?
 			{
-				return Err(tg::error!("forbidden"));
+				return Err(tg::error!("unauthorized"));
 			}
 		}
 
@@ -353,15 +378,20 @@ impl Session {
 	}
 
 	pub(crate) async fn add_group_member(&self, group: &str, user: &str) -> tg::Result<()> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let authentication = &self.context.authentication;
 		if authentication
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
 		{
-			return Err(tg::error!("failed to authorize"));
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let mut connection = self
@@ -387,7 +417,7 @@ impl Session {
 			)
 			.await?
 			{
-				return Err(tg::error!("forbidden"));
+				return Err(tg::error!("unauthorized"));
 			}
 		}
 		let user = Self::try_get_user_with_transaction(&transaction, user)
@@ -419,15 +449,20 @@ impl Session {
 		group: &str,
 		user: &str,
 	) -> tg::Result<Option<()>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let authentication = &self.context.authentication;
 		if authentication
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
 		{
-			return Err(tg::error!("failed to authorize"));
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let mut connection = self
@@ -453,7 +488,7 @@ impl Session {
 			)
 			.await?
 			{
-				return Err(tg::error!("forbidden"));
+				return Err(tg::error!("unauthorized"));
 			}
 		}
 		let Some(user) = Self::try_get_user_with_transaction(&transaction, user).await? else {

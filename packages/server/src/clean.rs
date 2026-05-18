@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, database::Database, temp::Temp},
+	crate::{Server, Session, context::Authentication, database::Database, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
@@ -22,8 +22,13 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + use<>,
 	> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		if !self.server.config.advanced.single_process {

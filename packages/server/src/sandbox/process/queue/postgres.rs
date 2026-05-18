@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Server, Session},
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -11,10 +11,15 @@ impl Session {
 		process_store: &db::postgres::Database,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let connection = process_store
+		let mut connection = process_store
 			.write_connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let transaction = connection
+			.inner_mut()
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let statement = indoc!(
 			"
@@ -35,8 +40,7 @@ impl Session {
 			"
 		);
 		let sandbox = sandbox.to_string();
-		let rows = connection
-			.inner()
+		let rows = transaction
 			.query(statement, &[&sandbox, &now])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
@@ -45,10 +49,28 @@ impl Session {
 		};
 		let process = row
 			.get::<_, String>(0)
-			.parse()
+			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
-		let output = tg::sandbox::process::queue::Output { process };
+		let token = Server::create_process_token_string();
+		let statement = indoc!(
+			"
+				insert into process_tokens (process, token)
+				values ($1, $2);
+			"
+		);
+		let process_string = process.to_string();
+		transaction
+			.execute(statement, &[&process_string, &token])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+
+		transaction
+			.commit()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+
+		let output = tg::sandbox::process::queue::Output { process, token };
 
 		Ok(Some(output))
 	}

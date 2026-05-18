@@ -4,12 +4,11 @@ let config = {
 }
 let remote = spawn -n remote  -c $config
 let config = {
-	remotes: [
-		{
-			name: "default",
+	remotes: {
+		default: {
 			url: $remote.url
-	}
-	],
+		}
+	},
 	runner: {
 		concurrency: 1,
 		remote: "default",
@@ -18,12 +17,11 @@ let config = {
 let runner = spawn -n runner --config $config
 
 let config = {
-	remotes: [
-		{
-			name: "default",
+	remotes: {
+		default: {
 			url: $remote.url
 		}
-	],
+	},
 }
 let local = spawn -n local --config $config
 
