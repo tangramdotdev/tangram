@@ -245,6 +245,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			arg.artifacts_path.clone(),
 			host_share_artifacts_path_from_root(&arg.path),
 		));
+		binds.push((
+			Sandbox::host_tmp_path_from_root(&arg.path),
+			host_share_tmp_path_from_root(&arg.path),
+		));
 		for mount in &arg.mounts {
 			let target_relative = mount
 				.target
@@ -664,6 +668,10 @@ fn host_share_output_path_from_root(root_path: &Path) -> PathBuf {
 	host_share_opt_tangram_path_from_root(root_path).join("output")
 }
 
+fn host_share_tmp_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_path_from_root(root_path).join("tmp")
+}
+
 fn kernel_cmdline(arg: &Arg) -> String {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
 	let mut cmdline = String::from(
@@ -690,6 +698,7 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		host_share_opt_tangram_path_from_root(sandbox_path),
 		host_share_output_path_from_root(sandbox_path),
 		host_share_artifacts_path_from_root(sandbox_path),
+		host_share_tmp_path_from_root(sandbox_path),
 	] {
 		std::fs::create_dir_all(&path).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),

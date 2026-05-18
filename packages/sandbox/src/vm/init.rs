@@ -221,15 +221,13 @@ fn setup_rootfs() -> tg::Result<()> {
 		rbind(&source, &target)?;
 	}
 
-	// Bind the host-share output directory directly over its overlay
-	// position so writes pass through virtiofs to the host instead of
-	// landing in the overlay's tmpfs upperdir (where they would be lost
-	// when the VM exits). Non-recursive: virtiofsd stages output as a
-	// submount in its private namespace, and the kernel refuses MS_REC
-	// across that boundary (EREMOTE).
 	let output_source = Path::new(HOST_MOUNT_POINT).join("opt/tangram/output");
 	let output_target = Path::new(ROOTVIEW_MERGED).join("opt/tangram/output");
 	bind(&output_source, &output_target)?;
+
+	let tmp_source = Path::new(HOST_MOUNT_POINT).join("tmp");
+	let tmp_target = Path::new(ROOTVIEW_MERGED).join("tmp");
+	bind(&tmp_source, &tmp_target)?;
 
 	Ok(())
 }

@@ -1411,6 +1411,10 @@ impl Server {
 			sandbox = %snapshot_id,
 			"creating vm snapshot",
 		);
+		let firewall = match self.config.sandbox.network.firewall {
+			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
+			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
+		};
 		let status = tokio::process::Command::new(&self.tangram_path)
 			.arg("sandbox")
 			.arg("vm")
@@ -1421,6 +1425,8 @@ impl Server {
 			.arg(snapshot_id.to_string())
 			.arg("--artifacts-path")
 			.arg(self.artifacts_path())
+			.arg("--firewall")
+			.arg(firewall.to_string())
 			.arg("--kernel-path")
 			.arg(kernel_path)
 			.arg("--rootfs-path")
