@@ -7,6 +7,14 @@ use {
 const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/rootfs");
 
 pub fn create_runtime_libraries(arg: &Arg) -> tg::Result<()> {
+	// Skip the rebuild when the rootfs already exists, plus the squashfs
+	// image when one is requested. Recreate by deleting them externally.
+	let path_exists = arg.path.exists();
+	let image_exists = arg.image_path.as_ref().is_none_or(|p| p.exists());
+	if path_exists && image_exists {
+		return Ok(());
+	}
+
 	std::fs::remove_dir_all(&arg.path).ok();
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
