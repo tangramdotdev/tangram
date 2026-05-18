@@ -175,7 +175,7 @@ impl Session {
 	async fn list_remote_task(&self, key: RemoteTaskKey) -> tg::Result<Vec<tg::list::Entry>> {
 		let RemoteTaskKey { remote, arg } = key;
 		let client = self
-			.get_remote_session(remote.clone())
+			.get_remote_session(&remote)
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let output = client

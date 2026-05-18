@@ -10,15 +10,15 @@ pub mod list;
 pub mod put;
 
 impl Session {
-	pub async fn get_remote_session(&self, remote: String) -> tg::Result<tg::Session> {
+	pub async fn get_remote_session(&self, remote: &str) -> tg::Result<tg::Session> {
 		self.try_get_remote_session(remote)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the remote"))
 	}
 
-	pub async fn try_get_remote_session(&self, remote: String) -> tg::Result<Option<tg::Session>> {
+	pub async fn try_get_remote_session(&self, remote: &str) -> tg::Result<Option<tg::Session>> {
 		let Some(output) = self
-			.try_get_remote(&remote)
+			.try_get_remote(remote)
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote"))?
 		else {
@@ -30,7 +30,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let mut context = client.context().clone();
 		context.token = output.token;
-		Ok(Some(client.session(&context)))
+		let session = client.session(&context);
+		Ok(Some(session))
 	}
 }
 

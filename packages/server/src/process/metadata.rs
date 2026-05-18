@@ -113,7 +113,7 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		let client = self.get_region_session(region.to_owned()).await.map_err(
+		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
@@ -164,7 +164,7 @@ impl Session {
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		let client = self.get_remote_session(remote.name.clone()).await.map_err(
+		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::metadata::Arg {

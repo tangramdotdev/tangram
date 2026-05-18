@@ -221,7 +221,7 @@ impl Session {
 		remote: tg::location::Remote,
 	) -> tg::Result<tg::user::login::Output> {
 		let client = self
-			.get_remote_session(remote.name.clone())
+			.get_remote_session(&remote.name)
 			.await
 			.map_err(|error| {
 				tg::error!(

@@ -1,41 +1,30 @@
 use {
-	crate::Server,
-	futures::{TryStreamExt as _, stream::FuturesUnordered},
-	std::collections::BTreeMap,
+	crate::{Server, session::Session},
 	tangram_client::prelude::*,
 };
 
-impl Server {
-	pub async fn get_region_clients(&self) -> tg::Result<BTreeMap<String, tg::Client>> {
-		let regions = self
-			.config()
-			.regions
+impl Session {
+	pub(crate) async fn get_region_session(&self, region: &str) -> tg::Result<tg::Session> {
+		let _token = self
+			.context
+			.authentication
 			.as_ref()
-			.map_or_else(Vec::new, |regions| {
-				regions.iter().map(|region| region.name.clone()).collect()
-			});
-		let regions = regions
-			.into_iter()
-			.map(|region| async {
-				let client = self.get_region_client(region.clone()).await.map_err(
-					|error| tg::error!(!error, region = %region, "failed to get the region client"),
-				)?;
-				Ok::<_, tg::Error>((region, client))
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
-		Ok(regions)
+			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
+			.map(|process| process.token.clone());
+		let _client = self.server.get_region_client(region).await?;
+		todo!("propagate process authentication to regions")
 	}
+}
 
-	pub async fn get_region_client(&self, region: String) -> tg::Result<tg::Client> {
+impl Server {
+	pub async fn get_region_client(&self, region: &str) -> tg::Result<tg::Client> {
 		self.try_get_region_client(region)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the region"))
 	}
 
-	pub async fn try_get_region_client(&self, region: String) -> tg::Result<Option<tg::Client>> {
-		if let Some(client) = self.regions.get(&region) {
+	pub async fn try_get_region_client(&self, region: &str) -> tg::Result<Option<tg::Client>> {
+		if let Some(client) = self.regions.get(region) {
 			return Ok(Some(client.clone()));
 		}
 		let region_config = self
@@ -73,7 +62,7 @@ impl Server {
 			reconnect,
 			retry,
 		})?;
-		self.regions.insert(region, client.clone());
+		self.regions.insert(region.to_owned(), client.clone());
 		Ok(Some(client))
 	}
 }

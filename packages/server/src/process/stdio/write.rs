@@ -350,7 +350,7 @@ impl Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		region: String,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
-		let client = self.get_region_session(region.clone()).await.map_err(
+		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
@@ -375,7 +375,7 @@ impl Session {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
-		let client = self.get_remote_session(remote.clone()).await.map_err(
+		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::stdio::write::Arg {

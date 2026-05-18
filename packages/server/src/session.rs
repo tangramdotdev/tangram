@@ -29,17 +29,6 @@ impl Session {
 		Self { server, context }
 	}
 
-	pub(crate) async fn get_region_session(&self, region: String) -> tg::Result<tg::Session> {
-		let _token = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
-			.map(|process| process.token.clone());
-		let _client = self.server.get_region_client(region).await?;
-		todo!("propagate process authentication to regions")
-	}
-
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let Some(sandbox) = self
 			.context
