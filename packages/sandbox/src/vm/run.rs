@@ -7,7 +7,7 @@ use {
 		hash::{Hash as _, Hasher as _},
 		net::Ipv4Addr,
 		os::{
-			fd::{IntoRawFd as _, RawFd},
+			fd::{AsRawFd as _, FromRawFd as _, IntoRawFd as _, OwnedFd, RawFd},
 			unix::{ffi::OsStrExt as _, process::CommandExt as _},
 		},
 		path::{Path, PathBuf},
@@ -19,8 +19,6 @@ use {
 
 pub const CLOUD_HYPERVISOR_API_SOCKET_NAME: &str = "cloud-hypervisor-api.sock";
 pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.sock";
-
-const HELPER_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
 const HOST_FS_TAG: &str = "host";
 const SERIAL_SOCKET_NAME: &str = "serial.sock";
@@ -109,6 +107,15 @@ struct ChildProcess {
 impl ChildProcess {
 	fn new(pid: libc::pid_t) -> Self {
 		Self { pid: Some(pid) }
+	}
+
+	fn take_if_pid(&mut self, pid: libc::pid_t) -> bool {
+		if self.pid == Some(pid) {
+			self.pid = None;
+			true
+		} else {
+			false
+		}
 	}
 
 	fn try_wait(&mut self) -> tg::Result<Option<u8>> {
@@ -363,34 +370,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let mut cloud_hypervisor = ChildProcess::new(cloud_hypervisor_pid);
 
 	let serial_socket_path = host_vm_path_from_root(&arg.path).join(SERIAL_SOCKET_NAME);
-	let deadline = Instant::now() + Duration::from_secs(10);
-	let serial_stream = loop {
-		match std::os::unix::net::UnixStream::connect(&serial_socket_path) {
-			Ok(stream) => break stream,
-			Err(error)
-				if matches!(
-					error.kind(),
-					std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-				) =>
-			{
-				if Instant::now() >= deadline {
-					return Err(tg::error!(
-						!error,
-						path = %serial_socket_path.display(),
-						"timed out waiting for the cloud-hypervisor serial socket",
-					));
-				}
-				std::thread::sleep(HELPER_WAIT_INTERVAL);
-			},
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					path = %serial_socket_path.display(),
-					"failed to connect to the guest serial socket",
-				));
-			},
-		}
-	};
+	let serial_stream = connect_serial_socket(&serial_socket_path, Duration::from_secs(10))?;
 	tracing::trace!("connected to guest serial socket; tailing to stderr");
 	let serial_reader = serial_stream
 		.try_clone()
@@ -496,19 +476,140 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		}
 	}
 
+	wait_for_cloud_hypervisor(&mut cloud_hypervisor, &mut helpers)
+}
+
+fn connect_serial_socket(
+	path: &Path,
+	timeout: Duration,
+) -> tg::Result<std::os::unix::net::UnixStream> {
+	let parent = path.parent().ok_or_else(
+		|| tg::error!(path = %path.display(), "the serial socket path has no parent"),
+	)?;
+	let inotify = watch_directory(parent)?;
+	let deadline = Instant::now() + timeout;
 	loop {
-		if let Some(code) = cloud_hypervisor.try_wait()? {
-			return Ok(ExitCode::from(code));
-		}
-		for helper in &mut helpers {
-			if let Some(code) = helper.try_wait()? {
+		match std::os::unix::net::UnixStream::connect(path) {
+			Ok(stream) => return Ok(stream),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				wait_for_directory_event(&inotify, deadline).map_err(|wait_error| {
+					tg::error!(
+						source = wait_error,
+						!error,
+						path = %path.display(),
+						"timed out waiting for the cloud-hypervisor serial socket",
+					)
+				})?;
+			},
+			Err(error) => {
 				return Err(tg::error!(
-					helper_status = %code,
+					!error,
+					path = %path.display(),
+					"failed to connect to the guest serial socket",
+				));
+			},
+		}
+	}
+}
+
+fn wait_for_cloud_hypervisor(
+	cloud_hypervisor: &mut ChildProcess,
+	helpers: &mut [ChildProcess],
+) -> tg::Result<ExitCode> {
+	loop {
+		let mut status = 0;
+		let pid = unsafe { libc::waitpid(-1, std::ptr::addr_of_mut!(status), 0) };
+		if pid < 0 {
+			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::EINTR) {
+				continue;
+			}
+			return Err(tg::error!(!error, "failed to wait for a child process"));
+		}
+		if cloud_hypervisor.take_if_pid(pid) {
+			return Ok(ExitCode::from(exit_code_from_status(status)));
+		}
+		for helper in helpers.iter_mut() {
+			if helper.take_if_pid(pid) {
+				return Err(tg::error!(
+					helper_status = %exit_code_from_status(status),
 					"the virtiofsd helper exited unexpectedly"
 				));
 			}
 		}
-		std::thread::sleep(HELPER_WAIT_INTERVAL);
+	}
+}
+
+fn watch_directory(path: &Path) -> tg::Result<OwnedFd> {
+	let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK) };
+	if fd < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to create the directory watcher"));
+	}
+	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+	let path = CString::new(path.as_os_str().as_bytes())
+		.map_err(|error| tg::error!(!error, "failed to encode the directory path"))?;
+	let mask = libc::IN_CREATE | libc::IN_MOVED_TO | libc::IN_ATTRIB;
+	let result = unsafe { libc::inotify_add_watch(fd.as_raw_fd(), path.as_ptr(), mask) };
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to watch the directory"));
+	}
+	Ok(fd)
+}
+
+fn wait_for_directory_event(inotify: &OwnedFd, deadline: Instant) -> tg::Result<()> {
+	let now = Instant::now();
+	if now >= deadline {
+		return Err(tg::error!("timed out"));
+	}
+	let timeout = deadline.duration_since(now).as_millis();
+	let timeout = i32::try_from(timeout).unwrap_or(i32::MAX);
+	let mut event = libc::pollfd {
+		fd: inotify.as_raw_fd(),
+		events: libc::POLLIN,
+		revents: 0,
+	};
+	let result = unsafe { libc::poll(std::ptr::addr_of_mut!(event), 1, timeout) };
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::EINTR) {
+			return Ok(());
+		}
+		return Err(tg::error!(
+			!error,
+			"failed to wait for the directory watcher"
+		));
+	}
+	if result == 0 {
+		return Err(tg::error!("timed out"));
+	}
+	let mut buffer = [0u8; 4096];
+	loop {
+		let result = unsafe {
+			libc::read(
+				inotify.as_raw_fd(),
+				buffer.as_mut_ptr().cast(),
+				buffer.len(),
+			)
+		};
+		if result > 0 {
+			continue;
+		}
+		if result == 0 {
+			return Ok(());
+		}
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() == Some(libc::EAGAIN) {
+			return Ok(());
+		}
+		if error.raw_os_error() == Some(libc::EINTR) {
+			continue;
+		}
+		return Err(tg::error!(
+			!error,
+			"failed to read from the directory watcher"
+		));
 	}
 }
 
