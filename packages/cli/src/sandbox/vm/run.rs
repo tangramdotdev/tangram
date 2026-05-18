@@ -40,6 +40,12 @@ pub struct Args {
 	#[arg(long)]
 	pub memory: Option<u64>,
 
+	#[arg(long, default_value_t = 8, hide = true)]
+	pub max_cpu: u64,
+
+	#[arg(long, default_value_t = 8 * 1024 * 1024 * 1024, hide = true)]
+	pub max_memory: u64,
+
 	#[arg(action = clap::ArgAction::Append, long = "mount", num_args = 1)]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
@@ -60,6 +66,12 @@ pub struct Args {
 
 	#[arg(long)]
 	pub snapshot: Option<PathBuf>,
+
+	#[arg(long, default_value_t = 1, hide = true)]
+	pub snapshot_cpu: u64,
+
+	#[arg(long, default_value_t = 512 * 1024 * 1024, hide = true)]
+	pub snapshot_memory: u64,
 
 	#[arg(long)]
 	pub tangram_path: PathBuf,
@@ -84,6 +96,8 @@ impl Cli {
 			hostname: args.hostname,
 			id: args.id,
 			kernel_path: args.kernel_path,
+			max_cpu: args.max_cpu,
+			max_memory: args.max_memory,
 			memory: args.memory,
 			mounts: args.mounts,
 			network: args.network,
@@ -92,6 +106,8 @@ impl Cli {
 			rootfs_image_path: args.rootfs_image_path,
 			rootfs_path: args.rootfs_path,
 			snapshot: args.snapshot,
+			snapshot_cpu: args.snapshot_cpu,
+			snapshot_memory: args.snapshot_memory,
 			tangram_path: args.tangram_path,
 			url: args.url,
 			user: args.user,

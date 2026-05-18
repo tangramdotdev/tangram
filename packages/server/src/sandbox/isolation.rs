@@ -54,8 +54,12 @@ impl Server {
 			return Some(tangram_sandbox::Isolation::Vm(
 				tangram_sandbox::VmIsolation {
 					kernel_path: vm.kernel_path.clone(),
+					max_cpu: vm.max_cpu,
+					max_memory: vm.max_memory,
 					rootfs_image_path,
 					snapshot,
+					snapshot_cpu: vm.snapshot_cpu,
+					snapshot_memory: vm.snapshot_memory,
 				},
 			));
 		}

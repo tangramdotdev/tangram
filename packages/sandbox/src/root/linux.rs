@@ -7,11 +7,10 @@ use {
 const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/rootfs");
 
 pub fn create_runtime_libraries(arg: &Arg) -> tg::Result<()> {
-	// Skip the rebuild when the rootfs already exists, plus the squashfs
-	// image when one is requested. Recreate by deleting them externally.
-	let path_exists = arg.path.exists();
-	let image_exists = arg.image_path.as_ref().is_none_or(|p| p.exists());
-	if path_exists && image_exists {
+	if arg.path.exists() {
+		if let Some(image_path) = &arg.image_path {
+			build_rootfs_image(&arg.path, &arg.tangram_path, image_path)?;
+		}
 		return Ok(());
 	}
 
@@ -139,6 +138,8 @@ fn build_rootfs_image(
 	tangram_path: &Path,
 	image_path: &Path,
 ) -> tg::Result<()> {
+	restore_runtime_library_links(rootfs_path)?;
+
 	// Stage the running tangram binary into the libexec slot so the
 	// /opt/tangram/bin/tangram wrapper has something to exec inside the VM.
 	let libexec_path = rootfs_path.join("opt/tangram/libexec/tangram");
@@ -156,11 +157,12 @@ fn build_rootfs_image(
 			tg::error!(!error, path = %parent.display(), "failed to create the rootfs image parent directory")
 		})?;
 	}
-	std::fs::remove_file(image_path).ok();
+	let temp_image_path = image_path.with_extension("squashfs.tmp");
+	std::fs::remove_file(&temp_image_path).ok();
 
 	let status = std::process::Command::new("mksquashfs")
 		.arg(rootfs_path)
-		.arg(image_path)
+		.arg(&temp_image_path)
 		.arg("-comp")
 		.arg("zstd")
 		.arg("-all-root")
@@ -171,6 +173,34 @@ fn build_rootfs_image(
 	if !status.success() {
 		return Err(tg::error!(%status, "mksquashfs failed"));
 	}
+	std::fs::rename(&temp_image_path, image_path).map_err(|error| {
+		tg::error!(
+			!error,
+			src = %temp_image_path.display(),
+			dst = %image_path.display(),
+			"failed to move the rootfs image into place",
+		)
+	})?;
+	Ok(())
+}
+
+fn restore_runtime_library_links(rootfs_path: &Path) -> tg::Result<()> {
+	let lib64_path = rootfs_path.join("lib64");
+	std::fs::remove_file(&lib64_path).ok();
+	std::fs::remove_dir_all(&lib64_path).ok();
+	std::os::unix::fs::symlink("/opt/tangram/lib", &lib64_path)
+		.map_err(|error| tg::error!(!error, "failed to restore the lib64 symlink"))?;
+
+	let usr_path = rootfs_path.join("usr");
+	std::fs::create_dir_all(&usr_path).map_err(
+		|error| tg::error!(!error, path = %usr_path.display(), "failed to create the usr directory"),
+	)?;
+	let usr_lib_path = usr_path.join("lib");
+	std::fs::remove_file(&usr_lib_path).ok();
+	std::fs::remove_dir_all(&usr_lib_path).ok();
+	std::os::unix::fs::symlink("/opt/tangram/lib", &usr_lib_path)
+		.map_err(|error| tg::error!(!error, "failed to restore the usr lib symlink"))?;
+
 	Ok(())
 }
 

@@ -30,11 +30,21 @@ pub struct Config {
 	pub hostname: Option<String>,
 	#[serde(default)]
 	pub library_paths: Vec<PathBuf>,
+	#[serde(default)]
+	pub mounts: Vec<MountConfig>,
 	pub network: Option<NetworkConfig>,
 	pub output_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub uid: u32,
 	pub url: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct MountConfig {
+	pub directory: bool,
+	pub readonly: bool,
+	pub source: PathBuf,
+	pub target: PathBuf,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -58,6 +68,9 @@ pub fn run() -> tg::Result<ExitCode> {
 	mount_dev(Path::new("/dev")).map_err(|source| tg::error!(!source, "failed to mount /dev"))?;
 	tracing::trace!("mounted /dev");
 
+	configure_memory_hotplug();
+	online_cpus();
+
 	wait_for_virtiofs().map_err(|source| {
 		tg::error!(
 			!source,
@@ -65,6 +78,7 @@ pub fn run() -> tg::Result<ExitCode> {
 		)
 	})?;
 	tracing::trace!("virtiofs tags ready");
+	online_cpus();
 
 	mount_virtiofs()?;
 	tracing::trace!("mounted {HOST_MOUNT_POINT}");
@@ -77,7 +91,7 @@ pub fn run() -> tg::Result<ExitCode> {
 		.map_err(|error| tg::error!(!error, "failed to parse the init config"))?;
 	tracing::trace!("parsed config: uid={} gid={}", config.uid, config.gid);
 
-	setup_rootfs().map_err(|source| tg::error!(!source, "failed to setup rootfs"))?;
+	setup_rootfs(&config).map_err(|source| tg::error!(!source, "failed to setup rootfs"))?;
 	tracing::trace!("created rootfs");
 
 	make_root_private().map_err(|source| tg::error!(!source, "failed to make rootfs private"))?;
@@ -186,7 +200,7 @@ fn mount_tmpfs(target: &str) -> tg::Result<()> {
 	Ok(())
 }
 
-fn setup_rootfs() -> tg::Result<()> {
+fn setup_rootfs(config: &Config) -> tg::Result<()> {
 	mount_tmpfs(ROOTVIEW_SCRATCH)?;
 	for path in [ROOTVIEW_UPPER, ROOTVIEW_WORK, ROOTVIEW_MERGED] {
 		std::fs::create_dir(path).map_err(
@@ -197,9 +211,15 @@ fn setup_rootfs() -> tg::Result<()> {
 	mount_overlay()?;
 
 	let init_json = Path::new(ROOTVIEW_MERGED).join("init.json");
-	std::fs::remove_file(&init_json).map_err(
-		|error| tg::error!(!error, path = %init_json.display(), "failed to mask init.json"),
-	)?;
+	if let Err(error) = std::fs::remove_file(&init_json)
+		&& error.kind() != std::io::ErrorKind::NotFound
+	{
+		return Err(tg::error!(
+			!error,
+			path = %init_json.display(),
+			"failed to mask init.json",
+		));
+	}
 
 	let merged_mnt = Path::new(ROOTVIEW_MERGED).join("mnt");
 	mount_tmpfs(
@@ -222,6 +242,42 @@ fn setup_rootfs() -> tg::Result<()> {
 	let tmp_target = Path::new(ROOTVIEW_MERGED).join("tmp");
 	bind(&tmp_source, &tmp_target)?;
 
+	for (source, target, directory, readonly) in [
+		(
+			Path::new(HOST_MOUNT_POINT).join("etc/passwd"),
+			Path::new(ROOTVIEW_MERGED).join("etc/passwd"),
+			false,
+			true,
+		),
+		(
+			Path::new(HOST_MOUNT_POINT).join("etc/nsswitch.conf"),
+			Path::new(ROOTVIEW_MERGED).join("etc/nsswitch.conf"),
+			false,
+			true,
+		),
+		(
+			Path::new(HOST_MOUNT_POINT).join("opt/tangram/artifacts"),
+			Path::new(ROOTVIEW_MERGED).join("opt/tangram/artifacts"),
+			true,
+			true,
+		),
+	] {
+		ensure_mount_target(&target, directory)?;
+		bind(&source, &target)?;
+		if readonly {
+			remount_readonly(&source, &target)?;
+		}
+	}
+
+	for mount in &config.mounts {
+		let target = guest_target_in_rootview(&mount.target)?;
+		ensure_mount_target(&target, mount.directory)?;
+		bind(&mount.source, &target)?;
+		if mount.readonly {
+			remount_readonly(&mount.source, &target)?;
+		}
+	}
+
 	Ok(())
 }
 
@@ -230,7 +286,7 @@ fn mount_overlay() -> tg::Result<()> {
 	let target = CString::new(ROOTVIEW_MERGED).unwrap();
 	let fstype = CString::new("overlay").unwrap();
 	let data = CString::new(format!(
-		"lowerdir={HOST_MOUNT_POINT}:/,upperdir={ROOTVIEW_UPPER},workdir={ROOTVIEW_WORK}"
+		"lowerdir=/,upperdir={ROOTVIEW_UPPER},workdir={ROOTVIEW_WORK}"
 	))
 	.map_err(|error| tg::error!(!error, "failed to encode the overlay options"))?;
 	let result = unsafe {
@@ -257,6 +313,14 @@ fn bind(source: &Path, target: &Path) -> tg::Result<()> {
 	bind_with_flags(source, target, libc::MS_BIND)
 }
 
+fn remount_readonly(source: &Path, target: &Path) -> tg::Result<()> {
+	bind_with_flags(
+		source,
+		target,
+		libc::MS_BIND | libc::MS_REC | libc::MS_REMOUNT | libc::MS_RDONLY,
+	)
+}
+
 fn bind_with_flags(source: &Path, target: &Path, flags: libc::c_ulong) -> tg::Result<()> {
 	let source_c = CString::new(source.as_os_str().as_bytes())
 		.map_err(|error| tg::error!(!error, "failed to encode the bind source"))?;
@@ -281,6 +345,55 @@ fn bind_with_flags(source: &Path, target: &Path, flags: libc::c_ulong) -> tg::Re
 		));
 	}
 	Ok(())
+}
+
+fn ensure_mount_target(target: &Path, directory: bool) -> tg::Result<()> {
+	if let Ok(metadata) = std::fs::metadata(target) {
+		if metadata.is_dir() != directory {
+			let expected = if directory { "a directory" } else { "a file" };
+			let found = if metadata.is_dir() {
+				"a directory"
+			} else {
+				"a file"
+			};
+			return Err(tg::error!(
+				path = %target.display(),
+				"expected mount target to be {expected}, but found {found}",
+			));
+		}
+		return Ok(());
+	}
+	if directory {
+		std::fs::create_dir_all(target).map_err(
+			|error| tg::error!(!error, path = %target.display(), "failed to create a guest directory"),
+		)?;
+	} else {
+		if let Some(parent) = target.parent() {
+			std::fs::create_dir_all(parent).map_err(
+				|error| tg::error!(!error, path = %parent.display(), "failed to create a guest parent directory"),
+			)?;
+		}
+		std::fs::OpenOptions::new()
+			.create(true)
+			.write(true)
+			.truncate(false)
+			.open(target)
+			.map_err(
+				|error| tg::error!(!error, path = %target.display(), "failed to create a guest file"),
+			)?;
+	}
+	Ok(())
+}
+
+fn guest_target_in_rootview(target: &Path) -> tg::Result<PathBuf> {
+	let suffix = target.strip_prefix("/").map_err(|error| {
+		tg::error!(
+			!error,
+			path = %target.display(),
+			"expected an absolute guest path",
+		)
+	})?;
+	Ok(Path::new(ROOTVIEW_MERGED).join(suffix))
 }
 
 fn make_root_private() -> tg::Result<()> {
@@ -326,6 +439,24 @@ fn signal_ready() {
 	let mut handle = stderr.lock();
 	let _ = handle.write_all(&[0]);
 	let _ = handle.flush();
+}
+
+fn configure_memory_hotplug() {
+	let _ = std::fs::write("/sys/devices/system/memory/auto_online_blocks", "online\n");
+}
+
+fn online_cpus() {
+	let Ok(entries) = std::fs::read_dir("/sys/devices/system/cpu") else {
+		return;
+	};
+	for entry in entries.flatten() {
+		let name = entry.file_name();
+		let Some(name) = name.to_str() else { continue };
+		if !name.starts_with("cpu") || name[3..].parse::<u64>().is_err() {
+			continue;
+		}
+		let _ = std::fs::write(entry.path().join("online"), "1\n");
+	}
 }
 
 fn wait_for_virtiofs() -> tg::Result<()> {

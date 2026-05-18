@@ -503,6 +503,14 @@ impl Server {
 			path: sandbox_rootfs.clone(),
 			tangram_path: tangram_path.clone(),
 		})?;
+		if let Some(vm) = &config.sandbox.isolation.vm {
+			let snapshot_path = vm
+				.snapshot
+				.clone()
+				.unwrap_or_else(|| path.join("vm/snapshot"));
+			std::fs::remove_dir_all(&snapshot_path).ok();
+			std::fs::remove_file(&snapshot_path).ok();
+		}
 		drop(vm_lock_for_create);
 
 		// Create the log store.
@@ -1379,6 +1387,7 @@ impl Server {
 		&self,
 		snapshot_path: &Path,
 		kernel_path: &Path,
+		vm: &tangram_sandbox::VmIsolation,
 	) -> tg::Result<()> {
 		if snapshot_path.exists() {
 			return Ok(());
@@ -1431,10 +1440,18 @@ impl Server {
 			.arg(firewall.to_string())
 			.arg("--kernel-path")
 			.arg(kernel_path)
+			.arg("--max-cpu")
+			.arg(vm.max_cpu.to_string())
+			.arg("--max-memory")
+			.arg(vm.max_memory.to_string())
 			.arg("--rootfs-path")
 			.arg(&self.sandbox_rootfs)
 			.arg("--rootfs-image-path")
 			.arg(rootfs_path)
+			.arg("--snapshot-cpu")
+			.arg(vm.snapshot_cpu.to_string())
+			.arg("--snapshot-memory")
+			.arg(vm.snapshot_memory.to_string())
 			.arg("--tangram-path")
 			.arg(&self.tangram_path)
 			.arg("--path")

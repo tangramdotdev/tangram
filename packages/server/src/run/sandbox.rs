@@ -123,8 +123,12 @@ impl Session {
 				);
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
 					kernel_path,
+					max_cpu: vm.max_cpu,
+					max_memory: vm.max_memory,
 					rootfs_image_path,
 					snapshot,
+					snapshot_cpu: vm.snapshot_cpu,
+					snapshot_memory: vm.snapshot_memory,
 				})
 			},
 			None => self.server.resolve_sandbox_isolation()?,
@@ -136,7 +140,7 @@ impl Session {
 			&& let Some(snapshot_path) = vm.snapshot.as_deref()
 		{
 			self.server
-				.ensure_vm_snapshot(snapshot_path, &vm.kernel_path)
+				.ensure_vm_snapshot(snapshot_path, &vm.kernel_path, vm)
 				.await?;
 		}
 

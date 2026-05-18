@@ -21,6 +21,7 @@ pub const CLOUD_HYPERVISOR_API_SOCKET_NAME: &str = "cloud-hypervisor-api.sock";
 pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.sock";
 
 const HOST_FS_TAG: &str = "host";
+const HOST_MOUNT_POINT: &str = "/mnt/host";
 const SERIAL_SOCKET_NAME: &str = "serial.sock";
 const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
 
@@ -53,12 +54,16 @@ pub struct Arg {
 	pub kernel_path: PathBuf,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
+	pub max_cpu: u64,
+	pub max_memory: u64,
 	pub network: Option<NetworkKind>,
 	pub path: PathBuf,
 	pub ports: Vec<tg::sandbox::Port>,
 	pub rootfs_image_path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub snapshot: Option<PathBuf>,
+	pub snapshot_cpu: u64,
+	pub snapshot_memory: u64,
 	pub tangram_path: PathBuf,
 	pub url: tangram_uri::Uri,
 	pub user: Option<String>,
@@ -73,7 +78,6 @@ pub enum NetworkKind {
 struct VirtiofsBind {
 	source: PathBuf,
 	target: PathBuf,
-	readonly: bool,
 }
 
 impl std::str::FromStr for NetworkKind {
@@ -149,6 +153,34 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	if arg.memory == Some(0) {
 		return Err(tg::error!("sandbox memory must be greater than zero"));
 	}
+	if arg.snapshot_cpu == 0 {
+		return Err(tg::error!("vm snapshot cpu must be greater than zero"));
+	}
+	if arg.snapshot_memory == 0 {
+		return Err(tg::error!("vm snapshot memory must be greater than zero"));
+	}
+	if arg.max_cpu < arg.snapshot_cpu {
+		return Err(tg::error!(
+			"vm max cpu must be greater than or equal to the snapshot cpu"
+		));
+	}
+	if arg.max_memory < arg.snapshot_memory {
+		return Err(tg::error!(
+			"vm max memory must be greater than or equal to the snapshot memory"
+		));
+	}
+	let requested_cpu = arg.cpu.unwrap_or(arg.snapshot_cpu);
+	if requested_cpu < arg.snapshot_cpu || requested_cpu > arg.max_cpu {
+		return Err(tg::error!(
+			"requested vm cpu must be within the configured snapshot resize envelope"
+		));
+	}
+	let requested_memory = arg.memory.unwrap_or(arg.snapshot_memory);
+	if requested_memory < arg.snapshot_memory || requested_memory > arg.max_memory {
+		return Err(tg::error!(
+			"requested vm memory must be within the configured snapshot resize envelope"
+		));
+	}
 
 	if let Some(hostname) = &arg.hostname
 		&& hostname.chars().any(char::is_whitespace)
@@ -190,10 +222,33 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 
 	if arg.create_snapshot.is_none() {
+		let mounts = arg
+			.mounts
+			.iter()
+			.enumerate()
+			.map(|(index, mount)| {
+				let metadata = std::fs::metadata(&mount.source).map_err(|error| {
+					tg::error!(
+						!error,
+						source = %mount.source.display(),
+						"failed to stat the user mount source",
+					)
+				})?;
+				Ok(crate::vm::init::MountConfig {
+					directory: metadata.is_dir(),
+					readonly: mount.readonly,
+					source: Path::new(HOST_MOUNT_POINT)
+						.join("mounts")
+						.join(index.to_string()),
+					target: mount.target.clone(),
+				})
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 		let init_config = crate::vm::init::Config {
 			gid: user.gid,
 			hostname: arg.hostname.clone(),
 			library_paths: Vec::new(),
+			mounts,
 			network: network_config,
 			output_path: Sandbox::guest_output_path_from_root(&arg.path),
 			tangram_path: Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
@@ -224,21 +279,13 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		binds.push(VirtiofsBind {
 			source: arg.artifacts_path.clone(),
 			target: host_share_artifacts_path_from_root(&arg.path),
-			readonly: true,
 		});
-
-		for mount in &arg.mounts {
-			let target_relative = mount
-				.target
-				.strip_prefix("/")
-				.unwrap_or(mount.target.as_path());
-			let target = shared_dir.join(target_relative);
-			let parent = target.parent().ok_or_else(
-				|| tg::error!(path = %target.display(), "user mount target has no parent"),
-			)?;
-			std::fs::create_dir_all(parent).map_err(|error| {
-				tg::error!(!error, path = %parent.display(), "failed to create the user mount share parent")
-			})?;
+		binds.push(VirtiofsBind {
+			source: Sandbox::host_tmp_path_from_root(&arg.path),
+			target: host_share_tmp_path_from_root(&arg.path),
+		});
+		for (index, mount) in arg.mounts.iter().enumerate() {
+			let target = host_share_mounts_path_from_root(&arg.path).join(index.to_string());
 			let source_is_dir = mount.source.is_dir();
 			if source_is_dir {
 				std::fs::create_dir_all(&target).map_err(|error| {
@@ -252,7 +299,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			binds.push(VirtiofsBind {
 				source: mount.source.clone(),
 				target,
-				readonly: mount.readonly,
 			});
 		}
 
@@ -302,16 +348,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	} else {
 		cloud_hypervisor_args.push("--kernel".into());
 		cloud_hypervisor_args.push(VMM_KERNEL_PATH.into());
-		if let Some(cpu) = arg.cpu {
-			cloud_hypervisor_args.push("--cpus".into());
-			cloud_hypervisor_args.push(format!("boot={cpu},max={cpu}").into());
-		}
+		cloud_hypervisor_args.push("--cpus".into());
+		cloud_hypervisor_args.push(format!("boot={},max={}", arg.snapshot_cpu, arg.max_cpu).into());
 		cloud_hypervisor_args.push("--memory".into());
-		cloud_hypervisor_args.push(
-			arg.memory
-				.map_or_else(|| "shared=on".to_owned(), |m| format!("size={m},shared=on"))
-				.into(),
-		);
+		cloud_hypervisor_args.push(memory_arg(arg).into());
 		cloud_hypervisor_args.push("--cmdline".into());
 		cloud_hypervisor_args.push(kernel_cmdline(arg).into());
 		cloud_hypervisor_args.push("--disk".into());
@@ -436,6 +476,25 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		let api_socket = host_vm_path_from_root(&arg.path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME);
 		let ch_remote_bin = find_in_path("ch-remote")
 			.map_err(|error| tg::error!(!error, "failed to locate ch-remote on PATH"))?;
+		if requested_cpu != arg.snapshot_cpu {
+			let requested_cpu = requested_cpu.to_string();
+			ch_remote_run(
+				&ch_remote_bin,
+				&api_socket,
+				&["resize", "--cpus", &requested_cpu],
+			)?;
+		}
+		if requested_memory != arg.snapshot_memory {
+			let requested_memory = requested_memory.to_string();
+			ch_remote_run(
+				&ch_remote_bin,
+				&api_socket,
+				&["resize", "--memory", &requested_memory],
+			)?;
+		}
+		if let Some(net) = &net_arg {
+			ch_remote_run(&ch_remote_bin, &api_socket, &["add-net", net])?;
+		}
 		ch_remote_run(
 			&ch_remote_bin,
 			&api_socket,
@@ -444,9 +503,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				&format!("tag={HOST_FS_TAG},socket={VMM_VIRTIOFSD_SOCKET}"),
 			],
 		)?;
-		if let Some(net) = &net_arg {
-			ch_remote_run(&ch_remote_bin, &api_socket, &["add-net", net])?;
-		}
 	}
 
 	wait_for_cloud_hypervisor(&mut cloud_hypervisor, &mut helpers)
@@ -644,49 +700,15 @@ fn helper_child_main(
 				"failed to bind the host share entry",
 			));
 		}
-		if bind.readonly {
-			#[repr(C)]
-			struct MountAttr {
-				attr_set: u64,
-				attr_clr: u64,
-				propagation: u64,
-				userns_fd: u64,
-			}
-			const MOUNT_ATTR_RDONLY: u64 = 0x0000_0001;
-			const AT_RECURSIVE: libc::c_uint = 0x8000;
-			let attr = MountAttr {
-				attr_set: MOUNT_ATTR_RDONLY,
-				attr_clr: 0,
-				propagation: 0,
-				userns_fd: 0,
-			};
-			let result = unsafe {
-				libc::syscall(
-					libc::SYS_mount_setattr,
-					libc::AT_FDCWD,
-					target_c.as_ptr(),
-					AT_RECURSIVE,
-					std::ptr::addr_of!(attr),
-					std::mem::size_of::<MountAttr>(),
-				)
-			};
-			if result != 0 {
-				let error = std::io::Error::last_os_error();
-				return Err(tg::error!(
-					!error,
-					source = %bind.source.display(),
-					target = %bind.target.display(),
-					"failed to remount the host share entry as read only",
-				));
-			}
-		}
 	}
+	let virtiofsd_path =
+		find_virtiofsd().map_err(|source| tg::error!(!source, "failed to locate virtiofsd"))?;
 
 	set_no_new_privs()?;
 	setresgid(user.gid)?;
 	setresuid(user.uid)?;
 
-	let mut command = std::process::Command::new("virtiofsd");
+	let mut command = std::process::Command::new(virtiofsd_path);
 	command
 		.arg("--shared-dir")
 		.arg(shared_dir)
@@ -774,6 +796,10 @@ fn host_share_tmp_path_from_root(root_path: &Path) -> PathBuf {
 	host_share_path_from_root(root_path).join("tmp")
 }
 
+fn host_share_mounts_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_path_from_root(root_path).join("mounts")
+}
+
 fn kernel_cmdline(arg: &Arg) -> String {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
 	let mut cmdline = String::from(
@@ -788,6 +814,15 @@ fn kernel_cmdline(arg: &Arg) -> String {
 	cmdline
 }
 
+fn memory_arg(arg: &Arg) -> String {
+	let mut memory = format!("size={},shared=on", arg.snapshot_memory);
+	let hotplug_size = arg.max_memory - arg.snapshot_memory;
+	if hotplug_size > 0 {
+		write!(&mut memory, ",hotplug_size={hotplug_size}").unwrap();
+	}
+	memory
+}
+
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	for path in [
 		Sandbox::host_scratch_path_from_root(sandbox_path),
@@ -800,6 +835,7 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		host_share_output_path_from_root(sandbox_path),
 		host_share_artifacts_path_from_root(sandbox_path),
 		host_share_tmp_path_from_root(sandbox_path),
+		host_share_mounts_path_from_root(sandbox_path),
 	] {
 		std::fs::create_dir_all(&path).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
@@ -816,9 +852,9 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	let host_tmp = Sandbox::host_tmp_path_from_root(sandbox_path);
 	std::fs::remove_file(&host_tmp).ok();
 	std::fs::remove_dir_all(&host_tmp).ok();
-	std::os::unix::fs::symlink("host/tmp", &host_tmp).map_err(|error| {
-		tg::error!(!error, path = %host_tmp.display(), "failed to symlink the tmp dir")
-	})?;
+	std::os::unix::fs::symlink("host/tmp", &host_tmp).map_err(
+		|error| tg::error!(!error, path = %host_tmp.display(), "failed to symlink the tmp dir"),
+	)?;
 
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
@@ -1200,6 +1236,19 @@ fn find_in_path(name: &str) -> tg::Result<PathBuf> {
 		}
 	}
 	Err(tg::error!(%name, "executable not found on PATH"))
+}
+
+fn find_virtiofsd() -> tg::Result<PathBuf> {
+	if let Ok(path) = find_in_path("virtiofsd") {
+		return Ok(path);
+	}
+	for path in ["/usr/lib/virtiofsd", "/usr/libexec/virtiofsd"] {
+		let path = PathBuf::from(path);
+		if path.is_file() {
+			return Ok(path);
+		}
+	}
+	Err(tg::error!("virtiofsd not found"))
 }
 
 fn host_snapshot_output_path_from_root(root_path: &Path) -> PathBuf {
