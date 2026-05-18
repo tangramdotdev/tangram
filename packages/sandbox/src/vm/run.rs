@@ -226,11 +226,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			target: host_share_artifacts_path_from_root(&arg.path),
 			readonly: true,
 		});
-		binds.push(VirtiofsBind {
-			source: Sandbox::host_tmp_path_from_root(&arg.path),
-			target: host_share_tmp_path_from_root(&arg.path),
-			readonly: false,
-		});
+
 		for mount in &arg.mounts {
 			let target_relative = mount
 				.target
@@ -688,6 +684,7 @@ fn helper_child_main(
 		.arg("--xattr")
 		.arg("--log-level")
 		.arg("warn")
+		.arg("--no-announce-submounts")
 		.env("HOME", &user.home)
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
@@ -778,7 +775,6 @@ fn kernel_cmdline(arg: &Arg) -> String {
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	for path in [
 		Sandbox::host_scratch_path_from_root(sandbox_path),
-		Sandbox::host_tmp_path_from_root(sandbox_path),
 		Sandbox::host_upper_path_from_root(sandbox_path),
 		Sandbox::host_work_path_from_root(sandbox_path),
 		host_vm_path_from_root(sandbox_path),
@@ -800,13 +796,21 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	std::os::unix::fs::symlink("host/opt/tangram/output", &host_output).map_err(
 		|error| tg::error!(!error, path = %host_output.display(), "failed to symlink the output dir"),
 	)?;
+
+	let host_tmp = Sandbox::host_tmp_path_from_root(sandbox_path);
+	std::fs::remove_file(&host_tmp).ok();
+	std::fs::remove_dir_all(&host_tmp).ok();
+	std::os::unix::fs::symlink("host/tmp", &host_tmp).map_err(|error| {
+		tg::error!(!error, path = %host_tmp.display(), "failed to symlink the tmp dir")
+	})?;
+
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
-	let tmp_path = Sandbox::host_tmp_path_from_root(sandbox_path);
-	std::fs::set_permissions(&tmp_path, permissions).map_err(|error| {
+	let share_tmp = host_share_tmp_path_from_root(sandbox_path);
+	std::fs::set_permissions(&share_tmp, permissions).map_err(|error| {
 		tg::error!(
 			!error,
-			path = %tmp_path.display(),
+			path = %share_tmp.display(),
 			"failed to set sandbox path permissions"
 		)
 	})?;
