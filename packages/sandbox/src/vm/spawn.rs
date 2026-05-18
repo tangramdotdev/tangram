@@ -23,16 +23,29 @@ pub(crate) fn spawn(
 		.arg(&arg.artifacts_path)
 		.arg("--kernel-path")
 		.arg(&vm.kernel_path)
+		.arg("--max-cpu")
+		.arg(vm.max_cpu.to_string())
+		.arg("--max-memory")
+		.arg(vm.max_memory.to_string())
 		.arg("--firewall")
 		.arg(arg.firewall.to_string())
 		.arg("--path")
 		.arg(&arg.path)
 		.arg("--rootfs-path")
 		.arg(&arg.rootfs_path)
+		.arg("--rootfs-image-path")
+		.arg(&vm.rootfs_image_path)
+		.arg("--snapshot-cpu")
+		.arg(vm.snapshot_cpu.to_string())
+		.arg("--snapshot-memory")
+		.arg(vm.snapshot_memory.to_string())
 		.arg("--tangram-path")
 		.arg(&arg.tangram_path)
 		.arg("--url")
 		.arg(serve_arg.url.to_string());
+	if let Some(snapshot) = &vm.snapshot {
+		command.arg("--snapshot").arg(snapshot);
+	}
 	if let Some(network) = network {
 		match network {
 			crate::network::Network::Host => {

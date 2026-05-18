@@ -2,7 +2,8 @@ use {crate::Server, tangram_client::prelude::*};
 
 impl Server {
 	pub(crate) fn resolve_sandbox_isolation(&self) -> tg::Result<tangram_sandbox::Isolation> {
-		let isolation = Self::sandbox_isolation_from_config(&self.config.sandbox.isolation)
+		let isolation = self
+			.sandbox_isolation_from_config(&self.config.sandbox.isolation)
 			.ok_or_else(|| tg::error!("at least one isolation level must be configured"))?;
 		#[cfg(target_os = "linux")]
 		{
@@ -30,6 +31,7 @@ impl Server {
 	}
 
 	fn sandbox_isolation_from_config(
+		&self,
 		isolation: &crate::config::SandboxIsolation,
 	) -> Option<tangram_sandbox::Isolation> {
 		if isolation.container.is_some() {
@@ -43,9 +45,21 @@ impl Server {
 			));
 		}
 		if let Some(vm) = &isolation.vm {
+			let rootfs_image_path = self.sandbox_rootfs_image.clone()?;
+			let snapshot = Some(
+				vm.snapshot
+					.clone()
+					.unwrap_or_else(|| self.vm_snapshot_path()),
+			);
 			return Some(tangram_sandbox::Isolation::Vm(
 				tangram_sandbox::VmIsolation {
 					kernel_path: vm.kernel_path.clone(),
+					max_cpu: vm.max_cpu,
+					max_memory: vm.max_memory,
+					rootfs_image_path,
+					snapshot,
+					snapshot_cpu: vm.snapshot_cpu,
+					snapshot_memory: vm.snapshot_memory,
 				},
 			));
 		}

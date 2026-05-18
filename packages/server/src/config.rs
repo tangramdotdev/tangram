@@ -620,6 +620,21 @@ pub struct SeatbeltSandboxIsolation {}
 #[serde(deny_unknown_fields)]
 pub struct VmSandboxIsolation {
 	pub kernel_path: PathBuf,
+
+	#[serde(default = "default_vm_max_cpu")]
+	pub max_cpu: u64,
+
+	#[serde(default = "default_vm_max_memory")]
+	pub max_memory: u64,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub snapshot: Option<PathBuf>,
+
+	#[serde(default = "default_vm_snapshot_cpu")]
+	pub snapshot_cpu: u64,
+
+	#[serde(default = "default_vm_snapshot_memory")]
+	pub snapshot_memory: u64,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1331,6 +1346,22 @@ fn default_ip_ranges() -> Vec<IpRange> {
 
 fn default_dns() -> Vec<Ipv4Addr> {
 	vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)]
+}
+
+fn default_vm_snapshot_cpu() -> u64 {
+	1
+}
+
+fn default_vm_snapshot_memory() -> u64 {
+	512 * 1024 * 1024
+}
+
+fn default_vm_max_cpu() -> u64 {
+	8
+}
+
+fn default_vm_max_memory() -> u64 {
+	8 * 1024 * 1024 * 1024
 }
 
 fn default_process_store() -> Database {

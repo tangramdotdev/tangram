@@ -6,7 +6,14 @@ use {
 
 const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/rootfs");
 
-pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
+pub fn create_runtime_libraries(arg: &Arg) -> tg::Result<()> {
+	if arg.path.exists() {
+		if let Some(image_path) = &arg.image_path {
+			build_rootfs_image(&arg.path, &arg.tangram_path, image_path)?;
+		}
+		return Ok(());
+	}
+
 	std::fs::remove_dir_all(&arg.path).ok();
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
@@ -16,7 +23,7 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 	)?;
 	set_rootfs_permissions(&arg.path, &ROOTFS, &permissions)?;
 	restore_rootfs_symlinks(&arg.path)?;
-	prepare_rootfs_mountpoints(&arg.path)?;
+	create_rootfs_mountpoints(&arg.path)?;
 
 	let lib_path = arg.path.join("opt/tangram/lib");
 	let output = std::process::Command::new("ldd")
@@ -25,7 +32,7 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 		.map_err(|error| {
 			if error.kind() == std::io::ErrorKind::NotFound {
 				tg::error!(
-					"failed to prepare the sandbox rootfs: could not execute `ldd`; install `ldd` on this Linux host"
+					"failed to create the sandbox rootfs: could not execute `ldd`; install `ldd` on this Linux host"
 				)
 			} else {
 				tg::error!(
@@ -119,6 +126,81 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 		})?;
 	}
 
+	if let Some(image_path) = &arg.image_path {
+		build_rootfs_image(&arg.path, &arg.tangram_path, image_path)?;
+	}
+
+	Ok(())
+}
+
+fn build_rootfs_image(
+	rootfs_path: &Path,
+	tangram_path: &Path,
+	image_path: &Path,
+) -> tg::Result<()> {
+	restore_runtime_library_links(rootfs_path)?;
+
+	// Stage the running tangram binary into the libexec slot so the
+	// /opt/tangram/bin/tangram wrapper has something to exec inside the VM.
+	let libexec_path = rootfs_path.join("opt/tangram/libexec/tangram");
+	std::fs::copy(tangram_path, &libexec_path).map_err(|error| {
+		tg::error!(
+			!error,
+			src = %tangram_path.display(),
+			dst = %libexec_path.display(),
+			"failed to stage the tangram binary into the rootfs",
+		)
+	})?;
+
+	if let Some(parent) = image_path.parent() {
+		std::fs::create_dir_all(parent).map_err(|error| {
+			tg::error!(!error, path = %parent.display(), "failed to create the rootfs image parent directory")
+		})?;
+	}
+	let temp_image_path = image_path.with_extension("squashfs.tmp");
+	std::fs::remove_file(&temp_image_path).ok();
+
+	let status = std::process::Command::new("mksquashfs")
+		.arg(rootfs_path)
+		.arg(&temp_image_path)
+		.arg("-comp")
+		.arg("zstd")
+		.arg("-all-root")
+		.arg("-noappend")
+		.arg("-quiet")
+		.status()
+		.map_err(|error| tg::error!(!error, "failed to invoke mksquashfs"))?;
+	if !status.success() {
+		return Err(tg::error!(%status, "mksquashfs failed"));
+	}
+	std::fs::rename(&temp_image_path, image_path).map_err(|error| {
+		tg::error!(
+			!error,
+			src = %temp_image_path.display(),
+			dst = %image_path.display(),
+			"failed to move the rootfs image into place",
+		)
+	})?;
+	Ok(())
+}
+
+fn restore_runtime_library_links(rootfs_path: &Path) -> tg::Result<()> {
+	let lib64_path = rootfs_path.join("lib64");
+	std::fs::remove_file(&lib64_path).ok();
+	std::fs::remove_dir_all(&lib64_path).ok();
+	std::os::unix::fs::symlink("/opt/tangram/lib", &lib64_path)
+		.map_err(|error| tg::error!(!error, "failed to restore the lib64 symlink"))?;
+
+	let usr_path = rootfs_path.join("usr");
+	std::fs::create_dir_all(&usr_path).map_err(
+		|error| tg::error!(!error, path = %usr_path.display(), "failed to create the usr directory"),
+	)?;
+	let usr_lib_path = usr_path.join("lib");
+	std::fs::remove_file(&usr_lib_path).ok();
+	std::fs::remove_dir_all(&usr_lib_path).ok();
+	std::os::unix::fs::symlink("/opt/tangram/lib", &usr_lib_path)
+		.map_err(|error| tg::error!(!error, "failed to restore the usr lib symlink"))?;
+
 	Ok(())
 }
 
@@ -155,29 +237,35 @@ fn set_rootfs_permissions(
 	Ok(())
 }
 
-fn prepare_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
+fn create_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	for path in [
-		Path::new("/dev"),
-		Path::new("/dev/pts"),
-		Path::new("/proc"),
-		Path::new("/sys"),
-		Path::new("/opt/tangram"),
-		Path::new("/tmp"),
-		Path::new("/opt/tangram/artifacts"),
-		Path::new("/opt/tangram/libexec"),
-		Path::new("/opt/tangram/output"),
+		"/dev",
+		"/dev/pts",
+		"/mnt",
+		"/mnt/host",
+		"/mnt/root",
+		"/proc",
+		"/run",
+		"/run/vmm",
+		"/snapshot",
+		"/sys",
+		"/opt/tangram",
+		"/tmp",
+		"/opt/tangram/artifacts",
+		"/opt/tangram/libexec",
+		"/opt/tangram/output",
 	] {
-		create_guest_directory(rootfs_path, path)?;
+		create_guest_directory(rootfs_path, Path::new(path))?;
 	}
 	for path in [
-		Path::new("/socket"),
-		Path::new("/etc/passwd"),
-		Path::new("/etc/nsswitch.conf"),
-		Path::new("/etc/resolv.conf"),
-		Path::new("/opt/tangram/libexec/tangram"),
-		Path::new("/opt/tangram/socket"),
+		"/socket",
+		"/etc/passwd",
+		"/etc/nsswitch.conf",
+		"/etc/resolv.conf",
+		"/opt/tangram/libexec/tangram",
+		"/opt/tangram/socket",
 	] {
-		create_guest_file(rootfs_path, path)?;
+		create_guest_file(rootfs_path, Path::new(path))?;
 	}
 	Ok(())
 }

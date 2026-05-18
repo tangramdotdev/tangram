@@ -1,89 +1,11 @@
-use {
-	crate::Cli,
-	std::{net::Ipv4Addr, path::PathBuf},
-	tangram_client::prelude::*,
-};
+use {crate::Cli, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
-pub struct Args {
-	#[arg(action = clap::ArgAction::Append, long = "dns", num_args = 1)]
-	pub dns_servers: Vec<Ipv4Addr>,
-
-	#[arg(long)]
-	pub gateway_ip: Option<Ipv4Addr>,
-
-	#[arg(long)]
-	pub gid: u32,
-
-	#[arg(long)]
-	pub guest_ip: Option<Ipv4Addr>,
-
-	#[arg(long)]
-	pub hostname: Option<String>,
-
-	#[arg(long)]
-	pub netmask: Option<Ipv4Addr>,
-
-	#[arg(long)]
-	pub network: bool,
-
-	#[arg(long)]
-	pub output_path: PathBuf,
-
-	#[arg(long)]
-	pub tangram_path: PathBuf,
-
-	#[arg(long)]
-	pub uid: u32,
-
-	#[arg(long)]
-	pub url: tangram_uri::Uri,
-}
-
-impl Args {
-	fn into_arg(self) -> tg::Result<tangram_sandbox::vm::init::Arg> {
-		let network = if self.network {
-			let guest_ip = self
-				.guest_ip
-				.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
-			let gateway_ip = self
-				.gateway_ip
-				.ok_or_else(|| tg::error!("--gateway-ip is required when --network is set"))?;
-			let netmask = self
-				.netmask
-				.ok_or_else(|| tg::error!("--netmask is required when --network is set"))?;
-			if self.dns_servers.is_empty() {
-				return Err(tg::error!("--dns is required when --network is set"));
-			}
-			Some(tangram_sandbox::vm::Network {
-				dns_servers: self.dns_servers,
-				gateway_ip,
-				guest_ip,
-				netmask,
-			})
-		} else {
-			None
-		};
-		Ok(tangram_sandbox::vm::init::Arg {
-			gid: self.gid,
-			hostname: self.hostname,
-			network,
-			serve: tangram_sandbox::serve::Arg {
-				library_paths: Vec::new(),
-				listen: false,
-				output_path: self.output_path,
-				tangram_path: self.tangram_path,
-				url: self.url,
-			},
-			uid: self.uid,
-		})
-	}
-}
+pub struct Args {}
 
 impl Cli {
-	pub fn command_sandbox_vm_init(args: Args) -> tg::Result<std::process::ExitCode> {
-		let arg = args.into_arg()?;
-		tangram_sandbox::vm::init::run(&arg)
+	pub fn command_sandbox_vm_init(_args: Args) -> tg::Result<std::process::ExitCode> {
+		tangram_sandbox::vm::init::run()
 	}
 }

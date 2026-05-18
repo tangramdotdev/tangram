@@ -101,21 +101,48 @@ impl Session {
 				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
 			},
 			Some(tg::sandbox::Isolation::Vm) => {
-				let kernel_path = self
+				let vm = self
 					.server
 					.config()
 					.sandbox
 					.isolation
 					.vm
 					.as_ref()
-					.ok_or_else(|| tg::error!("no vm image configured"))?
-					.kernel_path
-					.clone();
-				let isolation = tangram_sandbox::VmIsolation { kernel_path };
-				tangram_sandbox::Isolation::Vm(isolation)
+					.ok_or_else(|| tg::error!("no vm image configured"))?;
+				let kernel_path = vm.kernel_path.clone();
+				let rootfs_image_path =
+					self.server.sandbox_rootfs_image.clone().ok_or_else(|| {
+						tg::error!(
+							"vm isolation requested but no rootfs image was created; check the server config"
+						)
+					})?;
+				let snapshot = Some(
+					vm.snapshot
+						.clone()
+						.unwrap_or_else(|| self.server.vm_snapshot_path()),
+				);
+				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
+					kernel_path,
+					max_cpu: vm.max_cpu,
+					max_memory: vm.max_memory,
+					rootfs_image_path,
+					snapshot,
+					snapshot_cpu: vm.snapshot_cpu,
+					snapshot_memory: vm.snapshot_memory,
+				})
 			},
 			None => self.server.resolve_sandbox_isolation()?,
 		};
+
+		// If this is a VM sandbox, ensure the snapshot exists; create it now
+		// if this is the first time we are using it on this server.
+		if let tangram_sandbox::Isolation::Vm(vm) = &isolation
+			&& let Some(snapshot_path) = vm.snapshot.as_deref()
+		{
+			self.server
+				.ensure_vm_snapshot(snapshot_path, &vm.kernel_path, vm)
+				.await?;
+		}
 
 		// Associate the permit with the sandbox.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
