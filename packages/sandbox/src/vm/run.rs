@@ -199,13 +199,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let network = Network::new(arg)?;
 	let network_config = network.as_ref().map(|net| {
 		let dns_servers = match net {
-			Network::Passt(passt) => {
-				if arg.dns.is_empty() {
-					Vec::new()
-				} else {
-					vec![passt.host_ip()]
-				}
-			},
+			Network::Passt(passt) => vec![passt.host_ip()],
 			Network::Tap(_) => arg.dns.clone(),
 		};
 		crate::vm::init::NetworkConfig {

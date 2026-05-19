@@ -300,11 +300,7 @@ fn prepare_etc_files(
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
 		},
 		Some(crate::network::Network::Pasta(_)) => {
-			let contents = if dns.is_empty() {
-				String::new()
-			} else {
-				format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP)
-			};
+			let contents = format!("nameserver {}\n", crate::network::pasta::DNS_FORWARD_IP);
 			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
 			std::fs::write(path, contents)
 				.map_err(|error| tg::error!(!error, "failed to stage /etc/resolv.conf"))?;
