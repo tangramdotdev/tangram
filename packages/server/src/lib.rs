@@ -105,18 +105,20 @@ pub struct State {
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_list_tasks: self::list::RemoteTasks,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
-	sandbox_permits: self::sandbox::Permits,
+	sandbox_container_root: PathBuf,
 	sandbox_listeners: Option<self::sandbox::Listeners>,
-	sandbox_rootfs: PathBuf,
-	sandbox_rootfs_image: Option<PathBuf>,
+	sandbox_permits: self::sandbox::Permits,
+	sandbox_seatbelt_root: PathBuf,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
 	sandbox_tasks: self::sandbox::Tasks,
+	sandbox_vm_image: Option<PathBuf>,
+	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
+	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	sandboxes: self::sandbox::Map,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
-	vm_snapshot_create: tokio::sync::Mutex<()>,
 	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
 }
 
@@ -477,41 +479,31 @@ impl Server {
 		// Create the remote list tasks.
 		let remote_list_tasks = tangram_futures::task::Map::default();
 
-		// Create the sandbox rootfs. If the config declares a VM isolation,
-		// also build a squashfs image of the rootfs alongside it for use as
-		// the VM disk. The squashfs build and the snapshot create share the
-		// vm.lock file so any concurrent caller — another async task in
-		// this process or another process pointed at the same data dir —
-		// blocks instead of clobbering the artifacts.
-		let sandbox_rootfs_path = path.join("rootfs");
+		// Create the sandbox container root. If the config declares a VM isolation,
+		// record the path where the squashfs image will be built when the
+		// first VM sandbox actually needs it.
+		let sandbox_container_root_path = path.join("container/root");
+		let sandbox_seatbelt_root_path = path.join("seatbelt/root");
 		let tangram_path = tangram_util::env::current_exe()
 			.map_err(|error| tg::error!(!error, "failed to get the tangram executable path"))?;
-		let sandbox_rootfs = sandbox_rootfs_path.clone();
-		let sandbox_rootfs_image = config
+		let sandbox_container_root = sandbox_container_root_path.clone();
+		let sandbox_seatbelt_root = sandbox_seatbelt_root_path.clone();
+		let sandbox_vm_image = config
 			.sandbox
 			.isolation
 			.vm
 			.as_ref()
-			.map(|_| path.join("vm/rootfs.squashfs"));
-		let vm_lock_for_create = if sandbox_rootfs_image.is_some() {
-			Some(acquire_vm_lock(&path).await?)
-		} else {
-			None
-		};
-		tangram_sandbox::root::create(&tangram_sandbox::root::Arg {
-			image_path: sandbox_rootfs_image.clone(),
-			path: sandbox_rootfs.clone(),
+			.map(|_| path.join("vm/image.squashfs"));
+		#[cfg(target_os = "linux")]
+		tangram_sandbox::container::root::create(&tangram_sandbox::container::root::Arg {
+			path: sandbox_container_root.clone(),
 			tangram_path: tangram_path.clone(),
 		})?;
-		if let Some(vm) = &config.sandbox.isolation.vm {
-			let snapshot_path = vm
-				.snapshot
-				.clone()
-				.unwrap_or_else(|| path.join("vm/snapshot"));
-			std::fs::remove_dir_all(&snapshot_path).ok();
-			std::fs::remove_file(&snapshot_path).ok();
-		}
-		drop(vm_lock_for_create);
+		#[cfg(target_os = "macos")]
+		tangram_sandbox::seatbelt::root::create(&tangram_sandbox::seatbelt::root::Arg {
+			path: sandbox_seatbelt_root.clone(),
+			tangram_path: tangram_path.clone(),
+		})?;
 
 		// Create the log store.
 		let log_store = match &config.logs.store {
@@ -599,7 +591,7 @@ impl Server {
 
 		// Create the sandbox listeners.
 		let sandbox_listeners = if config.runner.is_some() {
-			Some(self::sandbox::Listeners::new(&path).await?)
+			Some(self::sandbox::Listeners::new(&path, &config.sandbox.isolation).await?)
 		} else {
 			None
 		};
@@ -628,18 +620,20 @@ impl Server {
 			regions,
 			remote_clients,
 			remote_list_tasks,
-			sandbox_permits,
+			sandbox_container_root,
 			sandbox_listeners,
-			sandbox_rootfs,
-			sandbox_rootfs_image,
+			sandbox_permits,
+			sandbox_seatbelt_root,
 			sandbox_semaphore,
 			sandbox_tasks,
+			sandbox_vm_image,
+			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
+			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			sandboxes,
 			tangram_path,
 			temps,
 			version,
 			vfs,
-			vm_snapshot_create: tokio::sync::Mutex::new(()),
 			watches,
 		}));
 
@@ -865,10 +859,10 @@ impl Server {
 			}
 			if let Some(sandbox_listeners) = server.sandbox_listeners.as_ref() {
 				#[cfg(target_os = "linux")]
-				{
+				if let Some(container) = &sandbox_listeners.container {
 					let listener_config = crate::config::HttpListener {
 						tls: None,
-						url: sandbox_listeners.container.host_url.clone(),
+						url: container.host_url.clone(),
 					};
 					let listener = Self::listen(&listener_config.url).await.map_err(|error| {
 						tg::error!(
@@ -877,14 +871,13 @@ impl Server {
 							"failed to listen on the sandbox http url"
 						)
 					})?;
-					tracing::info!("listening on {}", listener_config.url);
 					listeners.push((listener, listener_config, true));
 				}
 				#[cfg(target_os = "macos")]
-				{
+				if let Some(seatbelt) = &sandbox_listeners.seatbelt {
 					let listener_config = crate::config::HttpListener {
 						tls: None,
-						url: sandbox_listeners.seatbelt.host_url.clone(),
+						url: seatbelt.host_url.clone(),
 					};
 					let listener = Self::listen(&listener_config.url).await.map_err(|error| {
 						tg::error!(
@@ -893,14 +886,13 @@ impl Server {
 							"failed to listen on the sandbox http url"
 						)
 					})?;
-					tracing::info!("listening on {}", listener_config.url);
 					listeners.push((listener, listener_config, true));
 				}
 				#[cfg(all(target_os = "linux", feature = "vsock"))]
-				{
+				if let Some(vm) = &sandbox_listeners.vm {
 					let listener_config = crate::config::HttpListener {
 						tls: None,
-						url: sandbox_listeners.vm.host_url.clone(),
+						url: vm.host_url.clone(),
 					};
 					let listener = Self::listen(&listener_config.url).await.map_err(|error| {
 						tg::error!(
@@ -909,7 +901,6 @@ impl Server {
 							"failed to listen on the sandbox http url"
 						)
 					})?;
-					tracing::info!("listening on {}", listener_config.url);
 					listeners.push((listener, listener_config, true));
 				}
 			}
@@ -1273,9 +1264,23 @@ impl Server {
 			.ok_or_else(|| tg::error!("missing sandbox listeners"))?;
 		match isolation {
 			#[cfg(target_os = "linux")]
-			tangram_sandbox::Isolation::Container(_) => Ok(Some(listeners.container.socket_path.clone())),
+			tangram_sandbox::Isolation::Container(_) => Ok(Some(
+				listeners
+					.container
+					.as_ref()
+					.ok_or_else(|| tg::error!("missing the sandbox container listener"))?
+					.socket_path
+					.clone(),
+			)),
 			#[cfg(target_os = "macos")]
-			tangram_sandbox::Isolation::Seatbelt(_) => Ok(Some(listeners.seatbelt.socket_path.clone())),
+			tangram_sandbox::Isolation::Seatbelt(_) => Ok(Some(
+				listeners
+					.seatbelt
+					.as_ref()
+					.ok_or_else(|| tg::error!("missing the sandbox seatbelt listener"))?
+					.socket_path
+					.clone(),
+			)),
 			tangram_sandbox::Isolation::Vm(_) => Ok(None),
 			_ => Err(tg::error!("unsupported sandbox isolation")),
 		}
@@ -1291,11 +1296,26 @@ impl Server {
 			.ok_or_else(|| tg::error!("missing sandbox listeners"))?;
 		match isolation {
 			#[cfg(target_os = "linux")]
-			tangram_sandbox::Isolation::Container(_) => Ok(listeners.container.guest_url.clone()),
+			tangram_sandbox::Isolation::Container(_) => Ok(listeners
+				.container
+				.as_ref()
+				.ok_or_else(|| tg::error!("missing the sandbox container listener"))?
+				.guest_url
+				.clone()),
 			#[cfg(target_os = "macos")]
-			tangram_sandbox::Isolation::Seatbelt(_) => Ok(listeners.seatbelt.guest_url.clone()),
+			tangram_sandbox::Isolation::Seatbelt(_) => Ok(listeners
+				.seatbelt
+				.as_ref()
+				.ok_or_else(|| tg::error!("missing the sandbox seatbelt listener"))?
+				.guest_url
+				.clone()),
 			#[cfg(all(target_os = "linux", feature = "vsock"))]
-			tangram_sandbox::Isolation::Vm(_) => Ok(listeners.vm.guest_url.clone()),
+			tangram_sandbox::Isolation::Vm(_) => Ok(listeners
+				.vm
+				.as_ref()
+				.ok_or_else(|| tg::error!("missing the sandbox vm listener"))?
+				.guest_url
+				.clone()),
 			#[cfg(not(all(target_os = "linux", feature = "vsock")))]
 			tangram_sandbox::Isolation::Vm(_) => Err(tg::error!("vsock is not enabled")),
 			_ => Err(tg::error!("unsupported sandbox isolation")),
@@ -1381,7 +1401,7 @@ impl Server {
 	}
 
 	/// Create the VM snapshot at `snapshot_path` if it does not already exist.
-	/// In-process callers serialize on `vm_snapshot_create`; cross-process
+	/// In-process callers serialize on `sandbox_vm_snapshot_lock`; cross-process
 	/// callers serialize on `<data_dir>/.tangram/vm.lock` via flock.
 	pub(crate) async fn ensure_vm_snapshot(
 		&self,
@@ -1392,7 +1412,7 @@ impl Server {
 		if snapshot_path.exists() {
 			return Ok(());
 		}
-		let _guard = self.vm_snapshot_create.lock().await;
+		let _guard = self.sandbox_vm_snapshot_lock.lock().await;
 		if snapshot_path.exists() {
 			return Ok(());
 		}
@@ -1411,9 +1431,9 @@ impl Server {
 			.map_err(|error| {
 				tg::error!(!error, "failed to create the vm snapshot temp directory")
 			})?;
-		let rootfs_path = self.sandbox_rootfs_image.as_ref().ok_or_else(|| {
+		let image_path = self.sandbox_vm_image.as_ref().ok_or_else(|| {
 			tg::error!(
-				"cannot create the vm snapshot without a rootfs image; ensure vm isolation is configured"
+				"cannot create the vm snapshot without an image; ensure vm isolation is configured"
 			)
 		})?;
 		let snapshot_id = tg::sandbox::Id::new();
@@ -1445,9 +1465,9 @@ impl Server {
 			.arg("--max-memory")
 			.arg(vm.max_memory.to_string())
 			.arg("--rootfs-path")
-			.arg(&self.sandbox_rootfs)
-			.arg("--rootfs-image-path")
-			.arg(rootfs_path)
+			.arg(&self.sandbox_container_root)
+			.arg("--image-path")
+			.arg(image_path)
 			.arg("--snapshot-cpu")
 			.arg(vm.snapshot_cpu.to_string())
 			.arg("--snapshot-memory")
@@ -1480,7 +1500,7 @@ impl Server {
 /// is released when the returned `File` is dropped. Used to serialize the
 /// rootfs squashfs build and the snapshot creation against any other instance
 /// pointed at the same data directory.
-async fn acquire_vm_lock(data_dir: &Path) -> tg::Result<std::fs::File> {
+pub(crate) async fn acquire_vm_lock(data_dir: &Path) -> tg::Result<std::fs::File> {
 	let lock_path = data_dir.join(".tangram/vm.lock");
 	tokio::task::spawn_blocking(move || -> tg::Result<std::fs::File> {
 		if let Some(parent) = lock_path.parent() {

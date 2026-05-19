@@ -110,12 +110,11 @@ impl Session {
 					.as_ref()
 					.ok_or_else(|| tg::error!("no vm image configured"))?;
 				let kernel_path = vm.kernel_path.clone();
-				let rootfs_image_path =
-					self.server.sandbox_rootfs_image.clone().ok_or_else(|| {
-						tg::error!(
-							"vm isolation requested but no rootfs image was created; check the server config"
-						)
-					})?;
+				let image_path = self.server.sandbox_vm_image.clone().ok_or_else(|| {
+					tg::error!(
+						"vm isolation requested but no image path was configured; check the server config"
+					)
+				})?;
 				let snapshot = Some(
 					vm.snapshot
 						.clone()
@@ -125,7 +124,7 @@ impl Session {
 					kernel_path,
 					max_cpu: vm.max_cpu,
 					max_memory: vm.max_memory,
-					rootfs_image_path,
+					image_path,
 					snapshot,
 					snapshot_cpu: vm.snapshot_cpu,
 					snapshot_memory: vm.snapshot_memory,
@@ -134,15 +133,38 @@ impl Session {
 			None => self.server.resolve_sandbox_isolation()?,
 		};
 
-		// If this is a VM sandbox, ensure the snapshot exists; create it now
-		// if this is the first time we are using it on this server.
 		if let tangram_sandbox::Isolation::Vm(vm) = &isolation
 			&& let Some(snapshot_path) = vm.snapshot.as_deref()
 		{
+			let mut image_created = self.server.sandbox_vm_image_lock.lock().await;
+			if !*image_created {
+				let _file_lock = crate::acquire_vm_lock(&self.server.path).await?;
+				let arg = tangram_sandbox::vm::image::Arg {
+					image_path: vm.image_path.clone(),
+					path: self.server.sandbox_container_root.clone(),
+					tangram_path: self.server.tangram_path.clone(),
+				};
+				let created =
+					tokio::task::spawn_blocking(move || tangram_sandbox::vm::image::ensure(&arg))
+						.await
+						.map_err(|error| tg::error!(!error, "the vm image task panicked"))??;
+				if created {
+					std::fs::remove_dir_all(snapshot_path).ok();
+					std::fs::remove_file(snapshot_path).ok();
+				}
+				*image_created = true;
+			}
 			self.server
 				.ensure_vm_snapshot(snapshot_path, &vm.kernel_path, vm)
 				.await?;
 		}
+
+		let rootfs_path = match &isolation {
+			tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Vm(_) => {
+				self.server.sandbox_container_root.clone()
+			},
+			tangram_sandbox::Isolation::Seatbelt(_) => self.server.sandbox_seatbelt_root.clone(),
+		};
 
 		// Associate the permit with the sandbox.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
@@ -209,7 +231,7 @@ impl Session {
 			network,
 			nice: self.server.config.sandbox.nice,
 			path: temp.path().to_owned(),
-			rootfs_path: self.server.sandbox_rootfs.clone(),
+			rootfs_path,
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
 			user: state.user.clone(),

@@ -1,5 +1,4 @@
 use {
-	super::Arg,
 	std::{
 		os::unix::ffi::OsStrExt as _,
 		path::{Path, PathBuf},
@@ -7,7 +6,13 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub fn create_runtime_libraries(arg: &Arg) -> tg::Result<()> {
+#[derive(Clone, Debug)]
+pub struct Arg {
+	pub path: PathBuf,
+	pub tangram_path: PathBuf,
+}
+
+pub fn create(arg: &Arg) -> tg::Result<()> {
 	std::fs::remove_dir_all(&arg.path).ok();
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;

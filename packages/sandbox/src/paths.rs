@@ -4,34 +4,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[cfg(target_os = "macos")]
-mod darwin;
-#[cfg(target_os = "linux")]
-mod linux;
-
-#[cfg(target_os = "linux")]
-pub(crate) use self::linux::ensure_mount_target;
-
-#[derive(Clone, Debug)]
-pub struct Arg {
-	/// If `Some`, also build a squashfs image of the created rootfs at this
-	/// path for use as the VM disk. Linux-only; ignored on macOS.
-	pub image_path: Option<PathBuf>,
-	pub path: PathBuf,
-	pub tangram_path: PathBuf,
-}
-
-pub fn create(arg: &Arg) -> tg::Result<()> {
-	#[cfg(target_os = "macos")]
-	{
-		self::darwin::create_runtime_libraries(arg)
-	}
-	#[cfg(target_os = "linux")]
-	{
-		self::linux::create_runtime_libraries(arg)
-	}
-}
-
 impl Sandbox {
 	#[must_use]
 	pub fn host_path_for_guest_path(&self, path: &Path) -> Option<PathBuf> {

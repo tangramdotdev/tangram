@@ -3,13 +3,13 @@ use {std::path::PathBuf, tangram_client::prelude::*, tangram_uri::Uri};
 #[derive(Clone)]
 pub struct Listeners {
 	#[cfg(target_os = "linux")]
-	pub container: UnixListener,
+	pub container: Option<UnixListener>,
 
 	#[cfg(target_os = "macos")]
-	pub seatbelt: UnixListener,
+	pub seatbelt: Option<UnixListener>,
 
 	#[cfg(all(target_os = "linux", feature = "vsock"))]
-	pub vm: VsockListener,
+	pub vm: Option<VsockListener>,
 }
 
 #[derive(Clone)]
@@ -27,23 +27,38 @@ pub struct VsockListener {
 }
 
 impl Listeners {
-	pub async fn new(server_path: &std::path::Path) -> tg::Result<Self> {
+	pub async fn new(
+		server_path: &std::path::Path,
+		isolation: &crate::config::SandboxIsolation,
+	) -> tg::Result<Self> {
 		Ok(Self {
 			#[cfg(target_os = "linux")]
-			container: UnixListener::new(
-				server_path.join("container.socket"),
-				tangram_sandbox::Sandbox::guest_tangram_socket_path_from_root(
-					std::path::Path::new(""),
-				),
-			)
-			.await?,
+			container: if isolation.container.is_some() {
+				Some(
+					UnixListener::new(
+						server_path.join("container.socket"),
+						tangram_sandbox::Sandbox::guest_tangram_socket_path_from_root(
+							std::path::Path::new(""),
+						),
+					)
+					.await?,
+				)
+			} else {
+				None
+			},
 			#[cfg(target_os = "macos")]
-			seatbelt: {
+			seatbelt: if isolation.seatbelt.is_some() {
 				let socket_path = server_path.join("seatbelt.socket");
-				UnixListener::new(socket_path.clone(), socket_path).await?
+				Some(UnixListener::new(socket_path.clone(), socket_path).await?)
+			} else {
+				None
 			},
 			#[cfg(all(target_os = "linux", feature = "vsock"))]
-			vm: VsockListener::new()?,
+			vm: isolation
+				.vm
+				.is_some()
+				.then(VsockListener::new)
+				.transpose()?,
 		})
 	}
 }

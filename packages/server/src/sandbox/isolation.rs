@@ -45,7 +45,7 @@ impl Server {
 			));
 		}
 		if let Some(vm) = &isolation.vm {
-			let rootfs_image_path = self.sandbox_rootfs_image.clone()?;
+			let image_path = self.sandbox_vm_image.clone()?;
 			let snapshot = Some(
 				vm.snapshot
 					.clone()
@@ -56,7 +56,7 @@ impl Server {
 					kernel_path: vm.kernel_path.clone(),
 					max_cpu: vm.max_cpu,
 					max_memory: vm.max_memory,
-					rootfs_image_path,
+					image_path,
 					snapshot,
 					snapshot_cpu: vm.snapshot_cpu,
 					snapshot_memory: vm.snapshot_memory,

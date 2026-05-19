@@ -60,7 +60,7 @@ pub(crate) async fn spawn(
 	let user = prepare_etc_files(&arg.path, network.as_deref(), arg.user.as_deref(), &arg.dns)?;
 	let upper_path = Sandbox::host_upper_path_from_root(&arg.path);
 	for mount in &arg.mounts {
-		crate::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
+		crate::container::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
 	}
 	let stdio = matches!(serve_arg.url.scheme(), Some("http+stdio"));
 	let init_arg = super::init::Arg {

@@ -24,7 +24,7 @@ mod util;
 pub mod container;
 #[cfg(target_os = "linux")]
 pub mod network;
-pub mod root;
+mod paths;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
@@ -134,7 +134,7 @@ pub struct VmIsolation {
 	pub kernel_path: PathBuf,
 	pub max_cpu: u64,
 	pub max_memory: u64,
-	pub rootfs_image_path: PathBuf,
+	pub image_path: PathBuf,
 	pub snapshot: Option<PathBuf>,
 	pub snapshot_cpu: u64,
 	pub snapshot_memory: u64,

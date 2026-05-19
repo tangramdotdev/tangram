@@ -59,7 +59,7 @@ pub struct Arg {
 	pub network: Option<NetworkKind>,
 	pub path: PathBuf,
 	pub ports: Vec<tg::sandbox::Port>,
-	pub rootfs_image_path: PathBuf,
+	pub image_path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub snapshot: Option<PathBuf>,
 	pub snapshot_cpu: u64,
@@ -1124,7 +1124,7 @@ fn build_cloud_hypervisor_mount_arg(
 			target: VMM_KERNEL_PATH.into(),
 		},
 		container::run::Bind {
-			source: arg.rootfs_image_path.clone(),
+			source: arg.image_path.clone(),
 			target: VMM_ROOTFS_IMAGE_PATH.into(),
 		},
 		container::run::Bind {

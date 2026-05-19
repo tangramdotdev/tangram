@@ -59,7 +59,7 @@ pub struct Args {
 	pub ports: Vec<tg::sandbox::Port>,
 
 	#[arg(long, hide = true, value_name = "PATH")]
-	pub rootfs_image_path: PathBuf,
+	pub image_path: PathBuf,
 
 	#[arg(long)]
 	pub rootfs_path: PathBuf,
@@ -103,7 +103,7 @@ impl Cli {
 			network: args.network,
 			path: args.path,
 			ports: args.ports,
-			rootfs_image_path: args.rootfs_image_path,
+			image_path: args.image_path,
 			rootfs_path: args.rootfs_path,
 			snapshot: args.snapshot,
 			snapshot_cpu: args.snapshot_cpu,

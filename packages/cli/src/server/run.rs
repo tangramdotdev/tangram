@@ -93,7 +93,7 @@ impl Cli {
 
 		let future = async move {
 			// Start the server.
-			let server: Server = tangram_server::Server::start(config)
+			let server: Server = Box::pin(tangram_server::Server::start(config))
 				.await
 				.map_err(|error| tg::error!(!error, "failed to start the server"))?
 				.into();
