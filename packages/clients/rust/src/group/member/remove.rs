@@ -7,23 +7,25 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub group: String,
+
+	pub user: String,
 }
 
 impl tg::Session {
-	pub async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		let arg = tg::group::get::Arg {
+	pub async fn remove_group_member(&self, group: &str, user: &str) -> tg::Result<Option<()>> {
+		let arg = tg::group::member::remove::Arg {
 			group: group.to_owned(),
+			user: user.to_owned(),
 		};
 		let uri = Uri::builder()
-			.path("/groups")
+			.path("/groups/members")
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();
 		let request = http::request::Builder::default()
-			.method(http::Method::GET)
+			.method(http::Method::DELETE)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.empty()
 			.unwrap();
 		let response = self
@@ -42,16 +44,14 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		let output = response
-			.json()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
-		Ok(Some(output))
+		Ok(Some(()))
 	}
 }
 
 impl tg::Client {
-	pub async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		self.session(self.context()).try_get_group(group).await
+	pub async fn remove_group_member(&self, group: &str, user: &str) -> tg::Result<Option<()>> {
+		self.session(self.context())
+			.remove_group_member(group, user)
+			.await
 	}
 }

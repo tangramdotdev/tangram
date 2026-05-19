@@ -17,11 +17,11 @@ def anonymous_config [] {
 	$path
 }
 
-tg user login alice@example.com --handle alice
+tg user login alice@example.com --namespace alice
 let alice = current_token
-tg user login bob@example.com --handle bob
+tg user login bob@example.com --namespace bob
 let bob = current_token
-tg user login carol@example.com --handle carol
+tg user login carol@example.com --namespace carol
 let carol = current_token
 
 let path = artifact 'test'

@@ -26,21 +26,17 @@ impl tg::handle::Group for Handle {
 	fn list_group_namespace_grants(
 		&self,
 		group: &str,
-		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, _>>(
-				self.0.list_group_namespace_grants(group, arg),
-			)
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_group_namespace_grants(group))
 		}
 	}
 
 	fn list_group_members(
 		&self,
 		group: &str,
-		arg: tg::group::member::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::group::member::list::Output>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_group_members(group, arg)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_group_members(group)) }
 	}
 
 	fn add_group_member(&self, group: &str, user: &str) -> impl Future<Output = tg::Result<()>> {

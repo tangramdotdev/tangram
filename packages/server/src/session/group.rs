@@ -23,17 +23,12 @@ impl tg::handle::Group for Session {
 	async fn list_group_namespace_grants(
 		&self,
 		group: &str,
-		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		self.list_group_namespace_grants(group, arg).await
+		self.list_group_namespace_grants(group).await
 	}
 
-	async fn list_group_members(
-		&self,
-		group: &str,
-		arg: tg::group::member::list::Arg,
-	) -> tg::Result<tg::group::member::list::Output> {
-		self.list_group_members(group, arg)
+	async fn list_group_members(&self, group: &str) -> tg::Result<tg::group::member::list::Output> {
+		self.list_group_members(group)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the group"))
 	}

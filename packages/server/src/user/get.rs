@@ -13,7 +13,7 @@ impl Session {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			email: Option<String>,
-			handle: Option<String>,
+			namespace: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
 		}
@@ -22,11 +22,11 @@ impl Session {
 		let (where_, param) = if let Ok(id) = user.parse::<tg::user::Id>() {
 			("users.id", id.to_string())
 		} else {
-			("users.handle", user.to_owned())
+			("users.namespace", user.to_owned())
 		};
 		let statement = formatdoc!(
 			r#"
-				select users.id, users.handle, user_emails.email
+				select users.id, users.namespace, user_emails.email
 				from users
 				left join user_emails on user_emails."user" = users.id
 				where {where_} = {p}1
@@ -41,11 +41,16 @@ impl Session {
 			return Ok(None);
 		};
 		let id = first.id.clone();
-		let handle = first.handle.clone();
+		let namespace = first
+			.namespace
+			.clone()
+			.map(|namespace| namespace.parse())
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?;
 		let user = tg::User {
 			id,
 			emails: rows.into_iter().filter_map(|row| row.email).collect(),
-			handle,
+			namespace,
 			location: None,
 		};
 		Ok(Some(user))

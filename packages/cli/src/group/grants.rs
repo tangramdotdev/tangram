@@ -15,7 +15,7 @@ impl Cli {
 	pub async fn command_group_grants(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let output = client
-			.list_group_namespace_grants(&args.group, tg::group::grants::Arg::default())
+			.list_group_namespace_grants(&args.group)
 			.await
 			.map_err(
 				|error| tg::error!(!error, group = %args.group, "failed to list the namespace grants"),

@@ -8,7 +8,7 @@ pub struct Args {
 	pub email: String,
 
 	#[arg(long)]
-	pub handle: Option<String>,
+	pub namespace: Option<String>,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
@@ -24,7 +24,11 @@ impl Cli {
 		let output = client
 			.login_user(tg::user::login::Arg {
 				email: args.email,
-				handle: args.handle,
+				namespace: args
+					.namespace
+					.map(|namespace| namespace.parse())
+					.transpose()
+					.map_err(|error| tg::error!(!error, "invalid namespace"))?,
 				location: location.clone().map(Into::into),
 			})
 			.await

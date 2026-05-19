@@ -11,7 +11,6 @@ impl Session {
 	pub(crate) async fn list_group_namespace_grants(
 		&self,
 		group: &str,
-		_arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
 		if self
 			.context
@@ -42,18 +41,16 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Some(Authentication::User(current_user)) = authentication {
-			let namespace = Self::namespace_for_handle(&group.handle)?;
-			if !Self::user_has_namespace_permission_with_transaction(
+		if let Some(Authentication::User(current_user)) = authentication
+			&& !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
 				&current_user.id,
-				&namespace,
+				&group.namespace,
 				tg::Permission::Admin,
 			)
 			.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let data =
 			Self::list_namespace_grants_for_group_with_transaction(&transaction, &group.id).await?;
@@ -63,21 +60,19 @@ impl Session {
 	pub(crate) async fn list_group_namespace_grants_request(
 		&self,
 		request: http::Request<BoxBody>,
-		group: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let arg = request
-			.query_params()
+			.query_params::<tg::group::grants::Arg>()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
-		let Some(output) = self
-			.list_group_namespace_grants(group, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %group, "failed to list the namespace grants"))?
+			.ok_or_else(|| tg::error!("expected query params"))?;
+		let Some(output) = self.list_group_namespace_grants(&arg.group).await.map_err(
+			|error| tg::error!(!error, group = %arg.group, "failed to list the namespace grants"),
+		)?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

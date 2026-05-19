@@ -4,10 +4,22 @@ use {
 	tangram_uri::Uri,
 };
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	pub group: String,
+}
+
 impl tg::Session {
 	pub async fn try_delete_group(&self, group: &str) -> tg::Result<Option<()>> {
-		let path = format!("/groups/{group}");
-		let uri = Uri::builder().path(&path).build().unwrap();
+		let arg = tg::group::delete::Arg {
+			group: group.to_owned(),
+		};
+		let uri = Uri::builder()
+			.path("/groups")
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(http::Method::DELETE)
 			.uri(uri)

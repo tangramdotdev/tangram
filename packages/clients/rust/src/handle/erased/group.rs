@@ -21,13 +21,11 @@ pub trait Group: Send + Sync + 'static {
 	fn list_group_namespace_grants<'a>(
 		&'a self,
 		group: &'a str,
-		arg: tg::group::grants::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::group::grants::Output>>>;
 
 	fn list_group_members<'a>(
 		&'a self,
 		group: &'a str,
-		arg: tg::group::member::list::Arg,
 	) -> BoxFuture<'a, tg::Result<tg::group::member::list::Output>>;
 
 	fn add_group_member<'a>(
@@ -72,17 +70,15 @@ where
 	fn list_group_namespace_grants<'a>(
 		&'a self,
 		group: &'a str,
-		arg: tg::group::grants::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::group::grants::Output>>> {
-		self.list_group_namespace_grants(group, arg).boxed()
+		self.list_group_namespace_grants(group).boxed()
 	}
 
 	fn list_group_members<'a>(
 		&'a self,
 		group: &'a str,
-		arg: tg::group::member::list::Arg,
 	) -> BoxFuture<'a, tg::Result<tg::group::member::list::Output>> {
-		self.list_group_members(group, arg).boxed()
+		self.list_group_members(group).boxed()
 	}
 
 	fn add_group_member<'a>(

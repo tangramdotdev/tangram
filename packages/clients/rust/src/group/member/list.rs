@@ -4,8 +4,10 @@ use {
 	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	pub group: String,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
@@ -17,11 +19,12 @@ impl tg::Session {
 	pub async fn list_group_members(
 		&self,
 		group: &str,
-		arg: tg::group::member::list::Arg,
 	) -> tg::Result<tg::group::member::list::Output> {
-		let path = format!("/groups/{group}/members");
+		let arg = tg::group::member::list::Arg {
+			group: group.to_owned(),
+		};
 		let uri = Uri::builder()
-			.path(&path)
+			.path("/groups/members")
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
@@ -57,10 +60,7 @@ impl tg::Client {
 	pub async fn list_group_members(
 		&self,
 		group: &str,
-		arg: tg::group::member::list::Arg,
 	) -> tg::Result<tg::group::member::list::Output> {
-		self.session(self.context())
-			.list_group_members(group, arg)
-			.await
+		self.session(self.context()).list_group_members(group).await
 	}
 }

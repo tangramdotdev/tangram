@@ -4,8 +4,10 @@ use {
 	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	pub group: String,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
@@ -17,11 +19,12 @@ impl tg::Session {
 	pub async fn list_group_namespace_grants(
 		&self,
 		group: &str,
-		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		let path = format!("/groups/{group}/grants");
+		let arg = tg::group::grants::Arg {
+			group: group.to_owned(),
+		};
 		let uri = Uri::builder()
-			.path(&path)
+			.path("/groups/grants")
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()

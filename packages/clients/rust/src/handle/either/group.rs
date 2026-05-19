@@ -42,22 +42,20 @@ where
 	fn list_group_namespace_grants(
 		&self,
 		group: &str,
-		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.list_group_namespace_grants(group, arg).left_future(),
-			tg::Either::Right(s) => s.list_group_namespace_grants(group, arg).right_future(),
+			tg::Either::Left(s) => s.list_group_namespace_grants(group).left_future(),
+			tg::Either::Right(s) => s.list_group_namespace_grants(group).right_future(),
 		}
 	}
 
 	fn list_group_members(
 		&self,
 		group: &str,
-		arg: tg::group::member::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::group::member::list::Output>> {
 		match self {
-			tg::Either::Left(s) => s.list_group_members(group, arg).left_future(),
-			tg::Either::Right(s) => s.list_group_members(group, arg).right_future(),
+			tg::Either::Left(s) => s.list_group_members(group).left_future(),
+			tg::Either::Right(s) => s.list_group_members(group).right_future(),
 		}
 	}
 

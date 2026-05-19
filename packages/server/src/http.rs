@@ -527,26 +527,22 @@ impl Server {
 			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
 
 			// Groups.
-			(http::Method::GET, ["groups"]) => session.list_groups_request(request).boxed(),
+			(http::Method::GET, ["groups"]) => session.get_or_list_groups_request(request).boxed(),
 			(http::Method::POST, ["groups"]) => session.create_group_request(request).boxed(),
-			(http::Method::GET, ["groups", group]) => {
-				session.try_get_group_request(request, group).boxed()
+			(http::Method::DELETE, ["groups"]) => session.try_delete_group_request(request).boxed(),
+			(http::Method::GET, ["groups", "grants"]) => {
+				session.list_group_namespace_grants_request(request).boxed()
 			},
-			(http::Method::DELETE, ["groups", group]) => {
-				session.try_delete_group_request(request, group).boxed()
+			(http::Method::GET, ["groups", "members"]) => {
+				session.list_group_members_request(request).boxed()
 			},
-			(http::Method::GET, ["groups", group, "grants"]) => session
-				.list_group_namespace_grants_request(request, group)
-				.boxed(),
-			(http::Method::GET, ["groups", group, "members"]) => {
-				session.list_group_members_request(request, group).boxed()
+			(http::Method::PUT, ["groups", "members"]) => {
+				session.add_group_member_request(request).boxed()
 			},
-			(http::Method::PUT, ["groups", group, "members", user]) => session
-				.add_group_member_request(request, group, user)
-				.boxed(),
-			(http::Method::DELETE, ["groups", group, "members", user]) => session
-				.remove_group_member_request(request, group, user)
-				.boxed(),
+			(http::Method::DELETE, ["groups", "members"]) => {
+				session.remove_group_member_request(request).boxed()
+			},
+
 			// Modules.
 			(http::Method::POST, ["modules", "load"]) => {
 				session.load_module_request(request).boxed()

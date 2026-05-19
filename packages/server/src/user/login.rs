@@ -25,7 +25,7 @@ impl Session {
 			.identity_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		let output = match location {
-			tg::Location::Local(_) => self.login_user_local(arg.email, arg.handle).await?,
+			tg::Location::Local(_) => self.login_user_local(arg.email, arg.namespace).await?,
 			tg::Location::Remote(remote) => self.login_user_remote(arg, remote).await?,
 		};
 
@@ -35,7 +35,7 @@ impl Session {
 	async fn login_user_local(
 		&self,
 		email: String,
-		requested_handle: Option<String>,
+		requested_namespace: Option<tg::Namespace>,
 	) -> tg::Result<tg::user::login::Output> {
 		if self
 			.context
@@ -60,14 +60,14 @@ impl Session {
 		// Get or create the user.
 		#[derive(db::row::Deserialize)]
 		struct UserRow {
-			handle: Option<String>,
+			namespace: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
 		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
-				select users.id, users.handle
+				select users.id, users.namespace
 				from user_emails
 				join users on users.id = user_emails."user"
 				where user_emails.email = {p}1;
@@ -78,8 +78,14 @@ impl Session {
 			.query_optional_into::<UserRow>(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let (id, mut handle) = if let Some(user) = user {
-			(user.id, user.handle)
+		let (id, mut namespace) = if let Some(user) = user {
+			(
+				user.id,
+				user.namespace
+					.map(|namespace| namespace.parse())
+					.transpose()
+					.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
+			)
 		} else {
 			let id = tg::user::Id::new();
 			let statement = formatdoc!(
@@ -109,50 +115,39 @@ impl Session {
 			(id, None)
 		};
 
-		if let Some(requested_handle) = requested_handle {
-			if let Some(handle) = &handle {
-				if handle != &requested_handle {
-					return Err(tg::error!("user already has a handle"));
+		if let Some(requested_namespace) = requested_namespace {
+			if let Some(namespace) = &namespace {
+				if namespace != &requested_namespace {
+					return Err(tg::error!("user already has a namespace"));
 				}
 			} else {
-				let namespace = Self::namespace_for_handle(&requested_handle)?;
-
-				let statement = formatdoc!(
-					"
-						select 1
-						from groups
-						where handle = {p}1;
-					"
-				);
-				let params = db::params![requested_handle.clone()];
-				if transaction
-					.query_optional(statement.into(), params)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-					.is_some()
-				{
-					return Err(tg::error!("handle is already in use"));
+				Self::namespace_for_user(&requested_namespace)?;
+				let namespace_string = requested_namespace.to_string();
+				if Self::namespace_in_use_with_transaction(&transaction, &namespace_string).await? {
+					return Err(tg::error!("namespace is already in use"));
 				}
 
 				let statement = formatdoc!(
 					"
 						update users
-						set handle = {p}2
+						set namespace = {p}2
 						where id = {p}1;
 					"
 				);
-				let params = db::params![id.to_string(), requested_handle.clone()];
+				let params = db::params![id.to_string(), namespace_string];
 				transaction
 					.execute(statement.into(), params)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-				let namespace_id =
-					Self::get_or_create_namespace_with_transaction(&transaction, &namespace)
-						.await?;
+				let namespace_id = Self::get_or_create_namespace_with_transaction(
+					&transaction,
+					&requested_namespace,
+				)
+				.await?;
 				Self::create_namespace_grant_for_user_with_transaction(
 					&transaction,
-					&namespace,
+					&requested_namespace,
 					namespace_id,
 					&id,
 					tg::Permission::Admin,
@@ -160,7 +155,7 @@ impl Session {
 				)
 				.await?;
 
-				handle = Some(requested_handle);
+				namespace = Some(requested_namespace);
 			}
 		}
 
@@ -206,7 +201,7 @@ impl Session {
 
 		let user = tg::User {
 			emails,
-			handle,
+			namespace,
 			id,
 			location: None,
 		};

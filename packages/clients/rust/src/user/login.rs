@@ -8,7 +8,7 @@ pub struct Arg {
 	pub email: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub handle: Option<String>,
+	pub namespace: Option<tg::Namespace>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,

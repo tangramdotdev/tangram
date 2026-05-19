@@ -230,14 +230,14 @@ impl Server {
 
 		#[derive(db::row::Deserialize)]
 		struct UserRow {
-			handle: Option<String>,
+			namespace: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			r#"
-				select users.id, users.handle
+				select users.id, users.namespace
 				from users
 				join user_tokens on user_tokens."user" = users.id
 				where user_tokens.id = {p}1;
@@ -272,7 +272,11 @@ impl Server {
 		let emails = rows.into_iter().map(|row| row.email).collect();
 		let user = tg::User {
 			emails,
-			handle: user.handle,
+			namespace: user
+				.namespace
+				.map(|namespace| namespace.parse())
+				.transpose()
+				.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
 			id: user.id,
 			location: None,
 		};

@@ -1,9 +1,9 @@
 create table users (
 	id text primary key,
-	handle text
+	namespace text
 );
 
-create unique index users_handle_index on users (handle);
+create unique index users_namespace_index on users (namespace);
 
 create table user_emails (
 	"user" text not null,
@@ -22,10 +22,13 @@ create table runner_tokens (
 
 create table groups (
 	id text primary key,
-	handle text
+	namespace text not null,
+	parent text
 );
 
-create unique index groups_handle_index on groups (handle);
+create unique index groups_namespace_index on groups (namespace);
+
+create index groups_parent_index on groups (parent);
 
 create table group_members (
 	"group" text not null,

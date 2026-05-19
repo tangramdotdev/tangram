@@ -29,13 +29,11 @@ pub trait Group: Clone + Unpin + Send + Sync + 'static {
 	fn list_group_namespace_grants(
 		&self,
 		group: &str,
-		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> + Send;
 
 	fn list_group_members(
 		&self,
 		group: &str,
-		arg: tg::group::member::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::group::member::list::Output>> + Send;
 
 	fn add_group_member(
@@ -74,21 +72,14 @@ impl tg::handle::Group for tg::Client {
 	async fn list_group_namespace_grants(
 		&self,
 		group: &str,
-		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
 		self.session(&self.context)
-			.list_group_namespace_grants(group, arg)
+			.list_group_namespace_grants(group)
 			.await
 	}
 
-	async fn list_group_members(
-		&self,
-		group: &str,
-		arg: tg::group::member::list::Arg,
-	) -> tg::Result<tg::group::member::list::Output> {
-		self.session(&self.context)
-			.list_group_members(group, arg)
-			.await
+	async fn list_group_members(&self, group: &str) -> tg::Result<tg::group::member::list::Output> {
+		self.session(&self.context).list_group_members(group).await
 	}
 
 	async fn add_group_member(&self, group: &str, user: &str) -> tg::Result<()> {

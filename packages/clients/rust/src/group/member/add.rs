@@ -1,38 +1,35 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_uri::Uri,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub group: String,
+
+	pub user: String,
 }
 
 impl tg::Session {
-	pub async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		let arg = tg::group::get::Arg {
+	pub async fn add_group_member(&self, group: &str, user: &str) -> tg::Result<()> {
+		let arg = tg::group::member::add::Arg {
 			group: group.to_owned(),
+			user: user.to_owned(),
 		};
-		let uri = Uri::builder()
-			.path("/groups")
-			.query_params(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
 		let request = http::request::Builder::default()
-			.method(http::Method::GET)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.empty()
+			.method(http::Method::PUT)
+			.uri("/groups/members")
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.json(arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send_with_retry(request)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
 		if !response.status().is_success() {
 			let status = response.status();
 			let error = response
@@ -42,16 +39,14 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		let output = response
-			.json()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
-		Ok(Some(output))
+		Ok(())
 	}
 }
 
 impl tg::Client {
-	pub async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		self.session(self.context()).try_get_group(group).await
+	pub async fn add_group_member(&self, group: &str, user: &str) -> tg::Result<()> {
+		self.session(self.context())
+			.add_group_member(group, user)
+			.await
 	}
 }

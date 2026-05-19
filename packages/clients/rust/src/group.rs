@@ -26,7 +26,11 @@ pub struct Id(tg::Id);
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Group {
 	pub id: Id,
-	pub handle: String,
+
+	pub namespace: tg::Namespace,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<Id>,
 }
 
 impl tg::group::Id {

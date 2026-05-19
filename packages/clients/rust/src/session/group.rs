@@ -26,17 +26,15 @@ impl tg::handle::Group for tg::Session {
 	fn list_group_namespace_grants(
 		&self,
 		group: &str,
-		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> {
-		self.list_group_namespace_grants(group, arg)
+		self.list_group_namespace_grants(group)
 	}
 
 	fn list_group_members(
 		&self,
 		group: &str,
-		arg: tg::group::member::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::group::member::list::Output>> {
-		self.list_group_members(group, arg)
+		self.list_group_members(group)
 	}
 
 	fn add_group_member(&self, group: &str, user: &str) -> impl Future<Output = tg::Result<()>> {

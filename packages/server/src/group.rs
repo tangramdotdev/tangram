@@ -38,7 +38,7 @@ impl Session {
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
-		let namespace = Self::namespace_for_handle(&arg.handle)?;
+		let namespace = Self::namespace_for_group(&arg.namespace)?;
 
 		let mut connection = self
 			.server
@@ -51,32 +51,47 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
+		let parent = if let Some(parent_namespace) = Self::parent_namespace(&namespace) {
+			let Some(parent) =
+				Self::try_get_group_by_namespace_with_transaction(&transaction, &parent_namespace)
+					.await?
+			else {
+				return Err(tg::error!("failed to find the parent group"));
+			};
+			if let Some(user) = &created_by
+				&& !Self::user_has_namespace_permission_with_transaction(
+					&transaction,
+					user,
+					&parent_namespace,
+					tg::Permission::Admin,
+				)
+				.await?
+			{
+				return Err(tg::error!("unauthorized"));
+			}
+			Some(parent)
+		} else {
+			None
+		};
+
 		let p = transaction.p();
-		let statement = formatdoc!(
-			r"
-				select 1
-				from users
-				where handle = {p}1;
-			"
-		);
-		let params = db::params![arg.handle.clone()];
-		if transaction
-			.query_optional(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.is_some()
-		{
-			return Err(tg::error!("handle is already in use"));
+		let namespace_string = namespace.to_string();
+		if Self::namespace_in_use_with_transaction(&transaction, &namespace_string).await? {
+			return Err(tg::error!("namespace is already in use"));
 		}
 
 		let id = tg::group::Id::new();
 		let statement = formatdoc!(
 			r"
-				insert into groups (id, handle)
-				values ({p}1, {p}2);
+				insert into groups (id, namespace, parent)
+				values ({p}1, {p}2, {p}3);
 			"
 		);
-		let params = db::params![id.to_string(), arg.handle.clone()];
+		let params = db::params![
+			id.to_string(),
+			namespace.to_string(),
+			parent.as_ref().map(|group| group.id.to_string()),
+		];
 		transaction
 			.execute(statement.into(), params)
 			.await
@@ -117,7 +132,8 @@ impl Session {
 		Ok(tg::group::create::Output {
 			group: tg::Group {
 				id,
-				handle: arg.handle,
+				namespace,
+				parent: parent.map(|group| group.id),
 			},
 		})
 	}
@@ -145,7 +161,8 @@ impl Session {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			handle: String,
+			namespace: String,
+			parent: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::group::Id,
 		}
@@ -159,10 +176,9 @@ impl Session {
 		let rows = connection
 			.query_all_into::<Row>(
 				"
-					select id, handle
+					select id, namespace, parent
 					from groups
-					where handle is not null
-					order by handle;
+					order by namespace;
 				"
 				.into(),
 				db::params![],
@@ -171,11 +187,23 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let data = rows
 			.into_iter()
-			.map(|row| tg::Group {
-				id: row.id,
-				handle: row.handle,
+			.map(|row| {
+				Ok(tg::Group {
+					id: row.id,
+					namespace: row
+						.namespace
+						.parse()
+						.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
+					parent: row
+						.parent
+						.map(|parent| parent.parse())
+						.transpose()
+						.map_err(|error| {
+							tg::error!(!error, "failed to parse the parent group id")
+						})?,
+				})
 			})
-			.collect();
+			.collect::<tg::Result<_>>()?;
 		Ok(tg::group::list::Output { data })
 	}
 
@@ -240,21 +268,35 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Some(Authentication::User(user)) = authentication {
-			let namespace = Self::namespace_for_handle(&group.handle)?;
-			if !Self::user_has_namespace_permission_with_transaction(
+		if let Some(Authentication::User(user)) = authentication
+			&& !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
 				&user.id,
-				&namespace,
+				&group.namespace,
 				tg::Permission::Admin,
 			)
 			.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		let p = transaction.p();
+		let statement = formatdoc!(
+			r"
+				select 1
+				from groups
+				where parent = {p}1;
+			"
+		);
+		if transaction
+			.query_optional(statement.into(), db::params![group.id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+			.is_some()
+		{
+			return Err(tg::error!("the group has child groups"));
+		}
+
 		for statement in [
 			formatdoc!(
 				r#"
@@ -290,7 +332,6 @@ impl Session {
 	pub(crate) async fn list_group_members(
 		&self,
 		group: &str,
-		_arg: tg::group::member::list::Arg,
 	) -> tg::Result<Option<tg::group::member::list::Output>> {
 		if self
 			.context
@@ -321,24 +362,22 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Some(Authentication::User(user)) = authentication {
-			let namespace = Self::namespace_for_handle(&group.handle)?;
-			if !Self::user_has_namespace_permission_with_transaction(
+		if let Some(Authentication::User(user)) = authentication
+			&& !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
 				&user.id,
-				&namespace,
+				&group.namespace,
 				tg::Permission::Read,
 			)
 			.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			email: Option<String>,
-			handle: Option<String>,
+			namespace: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
 		}
@@ -346,12 +385,12 @@ impl Session {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
-				select users.id, users.handle, user_emails.email
+				select users.id, users.namespace, user_emails.email
 				from group_members
 				join users on users.id = group_members."user"
 				left join user_emails on user_emails."user" = users.id
 				where group_members."group" = {p}1
-				order by users.handle, users.id, user_emails.email;
+				order by users.namespace, users.id, user_emails.email;
 			"#
 		);
 		let rows = transaction
@@ -369,7 +408,11 @@ impl Session {
 			data.push(tg::User {
 				id: row.id,
 				emails: row.email.into_iter().collect(),
-				handle: row.handle,
+				namespace: row
+					.namespace
+					.map(|namespace| namespace.parse())
+					.transpose()
+					.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
 				location: None,
 			});
 		}
@@ -407,18 +450,16 @@ impl Session {
 		let group = Self::try_get_group_with_transaction(&transaction, group)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if let Some(Authentication::User(current_user)) = authentication {
-			let namespace = Self::namespace_for_handle(&group.handle)?;
-			if !Self::user_has_namespace_permission_with_transaction(
+		if let Some(Authentication::User(current_user)) = authentication
+			&& !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
 				&current_user.id,
-				&namespace,
+				&group.namespace,
 				tg::Permission::Admin,
 			)
 			.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let user = Self::try_get_user_with_transaction(&transaction, user)
 			.await?
@@ -478,18 +519,16 @@ impl Session {
 		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
 			return Ok(None);
 		};
-		if let Some(Authentication::User(current_user)) = authentication {
-			let namespace = Self::namespace_for_handle(&group.handle)?;
-			if !Self::user_has_namespace_permission_with_transaction(
+		if let Some(Authentication::User(current_user)) = authentication
+			&& !Self::user_has_namespace_permission_with_transaction(
 				&transaction,
 				&current_user.id,
-				&namespace,
+				&group.namespace,
 				tg::Permission::Admin,
 			)
 			.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let Some(user) = Self::try_get_user_with_transaction(&transaction, user).await? else {
 			return Ok(None);
@@ -518,55 +557,148 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		group: &str,
 	) -> tg::Result<Option<tg::Group>> {
+		if let Ok(id) = group.parse::<tg::group::Id>() {
+			Self::try_get_group_by_id_with_transaction(transaction, &id).await
+		} else {
+			let namespace = group
+				.parse::<tg::Namespace>()
+				.map_err(|error| tg::error!(!error, "invalid namespace"))?;
+			Self::namespace_for_group(&namespace)?;
+			Self::try_get_group_by_namespace_with_transaction(transaction, &namespace).await
+		}
+	}
+
+	pub(crate) async fn try_get_group_by_id_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		id: &tg::group::Id,
+	) -> tg::Result<Option<tg::Group>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			handle: String,
+			namespace: String,
+			parent: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::group::Id,
 		}
 
 		let p = transaction.p();
-		let (statement, params) = if let Ok(id) = group.parse::<tg::group::Id>() {
-			(
-				formatdoc!(
-					r"
-							select id, handle
-							from groups
-							where id = {p}1 and handle is not null;
-				"
-				),
-				db::params![id.to_string()],
-			)
-		} else {
-			(
-				formatdoc!(
-					r"
-						select id, handle
-						from groups
-						where handle = {p}1;
+		let statement = formatdoc!(
+			r"
+				select id, namespace, parent
+				from groups
+				where id = {p}1;
 			"
-				),
-				db::params![group],
-			)
-		};
+		);
 		let row = transaction
-			.query_optional_into::<Row>(statement.into(), params)
+			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(row.map(|row| tg::Group {
-			id: row.id,
-			handle: row.handle,
-		}))
+		row.map(|row| Self::group_from_row(row.id, &row.namespace, row.parent.as_deref()))
+			.transpose()
 	}
 
-	pub(crate) fn namespace_for_handle(handle: &str) -> tg::Result<tg::Namespace> {
-		let namespace = handle
-			.parse::<tg::Namespace>()
-			.map_err(|error| tg::error!(!error, "invalid handle"))?;
-		if namespace.is_root() || namespace.components().count() != 1 {
-			return Err(tg::error!("invalid handle"));
+	pub(crate) async fn try_get_group_by_namespace_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		namespace: &tg::Namespace,
+	) -> tg::Result<Option<tg::Group>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			namespace: String,
+			parent: Option<String>,
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::group::Id,
 		}
-		Ok(namespace)
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r"
+				select id, namespace, parent
+				from groups
+				where namespace = {p}1;
+			"
+		);
+		let row = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![namespace.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		row.map(|row| Self::group_from_row(row.id, &row.namespace, row.parent.as_deref()))
+			.transpose()
+	}
+
+	fn group_from_row(
+		id: tg::group::Id,
+		namespace: &str,
+		parent: Option<&str>,
+	) -> tg::Result<tg::Group> {
+		Ok(tg::Group {
+			id,
+			namespace: namespace
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
+			parent: parent
+				.map(str::parse)
+				.transpose()
+				.map_err(|error| tg::error!(!error, "failed to parse the parent group id"))?,
+		})
+	}
+
+	pub(crate) fn namespace_for_user(namespace: &tg::Namespace) -> tg::Result<()> {
+		if namespace.is_root() || namespace.components().count() != 1 {
+			return Err(tg::error!("invalid namespace"));
+		}
+		Ok(())
+	}
+
+	pub(crate) fn namespace_for_group(namespace: &tg::Namespace) -> tg::Result<tg::Namespace> {
+		if namespace.is_root() {
+			return Err(tg::error!("invalid namespace"));
+		}
+		Ok(namespace.clone())
+	}
+
+	pub(crate) fn parent_namespace(namespace: &tg::Namespace) -> Option<tg::Namespace> {
+		let components = namespace
+			.components()
+			.map(ToString::to_string)
+			.collect::<Vec<_>>();
+		if components.len() <= 1 {
+			return None;
+		}
+		Some(tg::Namespace::with_components(
+			components[..components.len() - 1].iter().cloned(),
+		))
+	}
+
+	pub(crate) async fn namespace_in_use_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		namespace: &str,
+	) -> tg::Result<bool> {
+		let p = transaction.p();
+		for statement in [
+			formatdoc!(
+				r"
+					select 1
+					from users
+					where namespace = {p}1;
+				"
+			),
+			formatdoc!(
+				r"
+					select 1
+					from groups
+					where namespace = {p}1;
+				"
+			),
+		] {
+			if transaction
+				.query_optional(statement.into(), db::params![namespace])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				.is_some()
+			{
+				return Ok(true);
+			}
+		}
+		Ok(false)
 	}
 
 	pub(crate) async fn create_group_request(
@@ -642,19 +774,34 @@ impl Session {
 		Ok(response.body(body).unwrap())
 	}
 
+	pub(crate) async fn get_or_list_groups_request(
+		&self,
+		request: http::Request<BoxBody>,
+	) -> tg::Result<http::Response<BoxBody>> {
+		if request.uri().query().is_some() {
+			self.try_get_group_request(request).await
+		} else {
+			self.list_groups_request(request).await
+		}
+	}
+
 	pub(crate) async fn try_get_group_request(
 		&self,
 		request: http::Request<BoxBody>,
-		group: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+		let arg = request
+			.query_params::<tg::group::get::Arg>()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.ok_or_else(|| tg::error!("expected query params"))?;
 		let Some(output) = self
-			.try_get_group(group)
+			.try_get_group(&arg.group)
 			.await
-			.map_err(|error| tg::error!(!error, %group, "failed to get the group"))?
+			.map_err(|error| tg::error!(!error, group = %arg.group, "failed to get the group"))?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()
@@ -685,16 +832,19 @@ impl Session {
 	pub(crate) async fn try_delete_group_request(
 		&self,
 		request: http::Request<BoxBody>,
-		group: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let Some(()) = self
-			.try_delete_group(group)
-			.await
-			.map_err(|error| tg::error!(!error, %group, "failed to delete the group"))?
+		let arg = request
+			.query_params::<tg::group::delete::Arg>()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.ok_or_else(|| tg::error!("expected query params"))?;
+		let Some(()) = self.try_delete_group(&arg.group).await.map_err(
+			|error| tg::error!(!error, group = %arg.group, "failed to delete the group"),
+		)?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()
@@ -717,21 +867,19 @@ impl Session {
 	pub(crate) async fn list_group_members_request(
 		&self,
 		request: http::Request<BoxBody>,
-		group: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let arg = request
-			.query_params()
+			.query_params::<tg::group::member::list::Arg>()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
-		let Some(output) = self
-			.list_group_members(group, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %group, "failed to list the group members"))?
+			.ok_or_else(|| tg::error!("expected query params"))?;
+		let Some(output) = self.list_group_members(&arg.group).await.map_err(
+			|error| tg::error!(!error, group = %arg.group, "failed to list the group members"),
+		)?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()
@@ -762,16 +910,25 @@ impl Session {
 	pub(crate) async fn add_group_member_request(
 		&self,
 		request: http::Request<BoxBody>,
-		group: &str,
-		user: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		self.add_group_member(group, user)
+		let arg = request
+			.json::<tg::group::member::add::Arg>()
 			.await
-			.map_err(|error| tg::error!(!error, %group, %user, "failed to add the group member"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+		self.add_group_member(&arg.group, &arg.user)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					group = %arg.group,
+					user = %arg.user,
+					"failed to add the group member"
+				)
+			})?;
 		match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
@@ -787,16 +944,27 @@ impl Session {
 	pub(crate) async fn remove_group_member_request(
 		&self,
 		request: http::Request<BoxBody>,
-		group: &str,
-		user: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let Some(()) = self.remove_group_member(group, user).await.map_err(
-			|error| tg::error!(!error, %group, %user, "failed to remove the group member"),
-		)?
+		let arg = request
+			.query_params::<tg::group::member::remove::Arg>()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.ok_or_else(|| tg::error!("expected query params"))?;
+		let Some(()) = self
+			.remove_group_member(&arg.group, &arg.user)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					group = %arg.group,
+					user = %arg.user,
+					"failed to remove the group member"
+				)
+			})?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

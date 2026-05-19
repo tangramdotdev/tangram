@@ -5,7 +5,7 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub handle: String,
+	pub namespace: tg::Namespace,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
