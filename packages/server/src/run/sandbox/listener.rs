@@ -1,0 +1,148 @@
+use {crate::Server, std::path::Path, tangram_client::prelude::*};
+
+impl Server {
+	#[cfg(target_os = "macos")]
+	pub(super) async fn run_create_listener(
+		root_path: &Path,
+		isolation: &tangram_sandbox::Isolation,
+	) -> tg::Result<(
+		crate::http::Listener,
+		tangram_uri::Uri,
+		Option<std::path::PathBuf>,
+	)> {
+		match isolation {
+			tangram_sandbox::Isolation::Container(_) => {
+				Err(tg::error!("container isolation is not supported on macos"))
+			},
+			tangram_sandbox::Isolation::Seatbelt(_) => {
+				Self::run_create_unix_listener(root_path).await
+			},
+			tangram_sandbox::Isolation::Vm(_) => {
+				Err(tg::error!("vm isolation is not supported on macos"))
+			},
+		}
+	}
+
+	#[cfg(target_os = "linux")]
+	pub(super) async fn run_create_listener(
+		root_path: &Path,
+		isolation: &tangram_sandbox::Isolation,
+	) -> tg::Result<(
+		crate::http::Listener,
+		tangram_uri::Uri,
+		Option<std::path::PathBuf>,
+	)> {
+		match isolation {
+			tangram_sandbox::Isolation::Container(_) => {
+				Self::run_create_unix_listener(root_path).await
+			},
+			tangram_sandbox::Isolation::Seatbelt(_) => {
+				Err(tg::error!("seatbelt isolation is not supported on linux"))
+			},
+			tangram_sandbox::Isolation::Vm(_) => {
+				#[cfg(not(feature = "vsock"))]
+				{
+					Err(tg::error!("vsock is not enabled"))
+				}
+				#[cfg(feature = "vsock")]
+				{
+					let port = 8476;
+					let socket = format!(
+						"{}_{port}",
+						tangram_sandbox::vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME
+					);
+					let path = root_path.join("vm").join(socket);
+					tokio::fs::create_dir_all(path.parent().unwrap())
+						.await
+						.map_err(|error| tg::error!(!error, "failed to create the vm directory"))?;
+					let host_url = unix_url(&path)?;
+					let listener = Server::listen(&host_url)
+						.await
+						.map_err(|error| tg::error!(!error, url = %host_url, "failed to listen"))?;
+					let guest_url = format!(
+						"http+vsock://{}:{port}",
+						tangram_sandbox::vm::VMADDR_CID_HOST
+					)
+					.parse::<tangram_uri::Uri>()
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?;
+					Ok((listener, guest_url, None))
+				}
+			},
+		}
+	}
+
+	async fn run_create_unix_listener(
+		root_path: &Path,
+	) -> tg::Result<(
+		crate::http::Listener,
+		tangram_uri::Uri,
+		Option<std::path::PathBuf>,
+	)> {
+		let host_socket_path =
+			tangram_sandbox::Sandbox::host_tangram_socket_path_from_root(root_path);
+		let guest_socket_path =
+			tangram_sandbox::Sandbox::guest_tangram_socket_path_from_root(root_path);
+		let max_socket_path_len = if cfg!(target_os = "macos") {
+			100
+		} else {
+			usize::MAX
+		};
+		let host_socket_path_string = host_socket_path
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid socket path"))?;
+		let guest_socket_path_string = guest_socket_path
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid socket path"))?;
+
+		tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the host path"))?;
+		let host_url = if host_socket_path_string.len() <= max_socket_path_len {
+			unix_url(&host_socket_path)?
+		} else {
+			"http://localhost:0"
+				.parse::<tangram_uri::Uri>()
+				.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
+		};
+		let listener = Server::listen(&host_url)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to listen"))?;
+		let guest_url = match &listener {
+			crate::http::Listener::Tcp(tcp) => {
+				let port = tcp
+					.local_addr()
+					.map_err(|error| tg::error!(!error, "failed to get the listener address"))?
+					.port();
+				format!("http://localhost:{port}")
+					.parse::<tangram_uri::Uri>()
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
+			},
+			crate::http::Listener::Unix { .. } => tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(guest_socket_path_string)
+				.path("")
+				.build()
+				.map_err(|error| tg::error!(!error, "failed to build the guest URL"))?,
+			#[cfg(feature = "vsock")]
+			crate::http::Listener::Vsock(vsock) => {
+				let addr = vsock
+					.local_addr()
+					.map_err(|error| tg::error!(!error, "failed to get the listener address"))?;
+				format!("http+vsock://{}:{}", addr.cid(), addr.port())
+					.parse::<tangram_uri::Uri>()
+					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
+			},
+		};
+		Ok((listener, guest_url, Some(host_socket_path)))
+	}
+}
+
+fn unix_url(path: &std::path::Path) -> tg::Result<tangram_uri::Uri> {
+	let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+	tangram_uri::Uri::builder()
+		.scheme("http+unix")
+		.authority(path)
+		.path("")
+		.build()
+		.map_err(|error| tg::error!(!error, "failed to build the URL"))
+}

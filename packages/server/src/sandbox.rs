@@ -8,8 +8,6 @@ use {
 	tangram_messenger::prelude::*,
 };
 
-pub use self::listeners::Listeners;
-
 pub mod create;
 pub mod destroy;
 pub mod finalize;
@@ -17,7 +15,6 @@ pub mod get;
 pub mod heartbeat;
 pub mod isolation;
 pub mod list;
-pub mod listeners;
 pub mod process;
 pub mod queue;
 pub mod status;

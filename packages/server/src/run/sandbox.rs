@@ -8,6 +8,8 @@ use {
 	tokio::task::JoinSet,
 };
 
+mod listener;
+
 impl Server {
 	pub(crate) fn spawn_sandbox_task(
 		&self,
@@ -187,17 +189,13 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
-		// Get the Tangram URL and socket path.
-		let guest_url = self
-			.server
-			.sandbox_guest_url(&isolation)
-			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox tangram URL"))?;
-		let tangram_socket_path = self
-			.server
-			.sandbox_tangram_socket_path(&isolation)
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to get the sandbox tangram socket path"),
-			)?;
+		// Create the listener.
+		let (listener, guest_url, tangram_socket_path) =
+			Server::run_create_listener(temp.path(), &isolation)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to create the tangram listener"),
+				)?;
 
 		// Create the sandbox. Include the artifacts directory as a readonly mount.
 		let artifacts_path = self.server.artifacts_path();
@@ -252,6 +250,18 @@ impl Session {
 		scopeguard::defer! {
 			self.server.sandboxes.remove(id);
 		}
+
+		// Spawn the serve task.
+		let serve_task = Task::spawn({
+			let server = self.server.clone();
+			let listener_config = crate::config::HttpListener {
+				tls: None,
+				url: guest_url.clone(),
+			};
+			move |stopper| async move {
+				server.serve(listener, listener_config, true, stopper).await;
+			}
+		});
 
 		// Spawn the heartbeat task.
 		let heartbeat_task = Task::spawn({
@@ -377,6 +387,13 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "a process task panicked"))?
 				.map_err(|error| tg::error!(!error, "a process task failed"))?;
 		}
+
+		// Stop and await the serve task.
+		serve_task.stop();
+		serve_task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
 
 		// Stop and await the heartbeat task.
 		heartbeat_task.stop();

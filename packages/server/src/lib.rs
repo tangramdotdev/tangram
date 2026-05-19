@@ -106,7 +106,6 @@ pub struct State {
 	remote_list_tasks: self::list::RemoteTasks,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_container_root: PathBuf,
-	sandbox_listeners: Option<self::sandbox::Listeners>,
 	sandbox_permits: self::sandbox::Permits,
 	sandbox_seatbelt_root: PathBuf,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
@@ -591,13 +590,6 @@ impl Server {
 		// Create the watches.
 		let watches = DashMap::default();
 
-		// Create the sandbox listeners.
-		let sandbox_listeners = if config.runner.is_some() {
-			Some(self::sandbox::Listeners::new(&path, &config.sandbox.isolation).await?)
-		} else {
-			None
-		};
-
 		// Create the server.
 		let server = Self(Arc::new(State {
 			cache_graph_tasks,
@@ -623,7 +615,6 @@ impl Server {
 			remote_list_tasks,
 			remote_clients,
 			sandbox_container_root,
-			sandbox_listeners,
 			sandbox_permits,
 			sandbox_seatbelt_root,
 			sandbox_semaphore,
@@ -828,13 +819,21 @@ impl Server {
 			.map_or_else(Vec::new, |config| {
 				if config.listeners.is_empty() {
 					let path = server.path.join("socket");
-					let url = self::sandbox::listeners::unix_url(&path).unwrap();
+					let path = path.to_str().unwrap();
+					let url = Uri::builder()
+						.scheme("http+unix")
+						.authority(path)
+						.path("")
+						.build()
+						.unwrap();
 					vec![crate::config::HttpListener { url, tls: None }]
 				} else {
 					config.listeners.clone()
 				}
 			});
-		let http_task = if !http_listeners.is_empty() || server.sandbox_listeners.is_some() {
+		let http_task = if http_listeners.is_empty() {
+			None
+		} else {
 			let http_server = server.clone();
 			let mut listeners = Vec::with_capacity(http_listeners.len());
 			let mut streams = Vec::new();
@@ -859,53 +858,6 @@ impl Server {
 					})?;
 					tracing::info!("listening on {}", listener_config.url);
 					listeners.push((listener, listener_config.clone(), false));
-				}
-			}
-			if let Some(sandbox_listeners) = server.sandbox_listeners.as_ref() {
-				#[cfg(target_os = "linux")]
-				if let Some(container) = &sandbox_listeners.container {
-					let listener_config = crate::config::HttpListener {
-						tls: None,
-						url: container.host_url.clone(),
-					};
-					let listener = Self::listen(&listener_config.url).await.map_err(|error| {
-						tg::error!(
-							!error,
-							url = %listener_config.url,
-							"failed to listen on the sandbox http url"
-						)
-					})?;
-					listeners.push((listener, listener_config, true));
-				}
-				#[cfg(target_os = "macos")]
-				if let Some(seatbelt) = &sandbox_listeners.seatbelt {
-					let listener_config = crate::config::HttpListener {
-						tls: None,
-						url: seatbelt.host_url.clone(),
-					};
-					let listener = Self::listen(&listener_config.url).await.map_err(|error| {
-						tg::error!(
-							!error,
-							url = %listener_config.url,
-							"failed to listen on the sandbox http url"
-						)
-					})?;
-					listeners.push((listener, listener_config, true));
-				}
-				#[cfg(all(target_os = "linux", feature = "vsock"))]
-				if let Some(vm) = &sandbox_listeners.vm {
-					let listener_config = crate::config::HttpListener {
-						tls: None,
-						url: vm.host_url.clone(),
-					};
-					let listener = Self::listen(&listener_config.url).await.map_err(|error| {
-						tg::error!(
-							!error,
-							url = %listener_config.url,
-							"failed to listen on the sandbox http url"
-						)
-					})?;
-					listeners.push((listener, listener_config, true));
 				}
 			}
 			Some(Task::spawn(move |stopper| {
@@ -937,8 +889,6 @@ impl Server {
 					tasks.collect::<Vec<_>>().await;
 				}
 			}))
-		} else {
-			None
 		};
 
 		// Spawn the diagnostics task.
@@ -1256,74 +1206,6 @@ impl Server {
 			.collect::<()>()
 			.await;
 		Ok(())
-	}
-
-	pub(crate) fn sandbox_tangram_socket_path(
-		&self,
-		isolation: &tangram_sandbox::Isolation,
-	) -> tg::Result<Option<PathBuf>> {
-		let listeners = self
-			.sandbox_listeners
-			.as_ref()
-			.ok_or_else(|| tg::error!("missing sandbox listeners"))?;
-		match isolation {
-			#[cfg(target_os = "linux")]
-			tangram_sandbox::Isolation::Container(_) => Ok(Some(
-				listeners
-					.container
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing the sandbox container listener"))?
-					.socket_path
-					.clone(),
-			)),
-			#[cfg(target_os = "macos")]
-			tangram_sandbox::Isolation::Seatbelt(_) => Ok(Some(
-				listeners
-					.seatbelt
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing the sandbox seatbelt listener"))?
-					.socket_path
-					.clone(),
-			)),
-			tangram_sandbox::Isolation::Vm(_) => Ok(None),
-			_ => Err(tg::error!("unsupported sandbox isolation")),
-		}
-	}
-
-	pub(crate) fn sandbox_guest_url(
-		&self,
-		isolation: &tangram_sandbox::Isolation,
-	) -> tg::Result<Uri> {
-		let listeners = self
-			.sandbox_listeners
-			.as_ref()
-			.ok_or_else(|| tg::error!("missing sandbox listeners"))?;
-		match isolation {
-			#[cfg(target_os = "linux")]
-			tangram_sandbox::Isolation::Container(_) => Ok(listeners
-				.container
-				.as_ref()
-				.ok_or_else(|| tg::error!("missing the sandbox container listener"))?
-				.guest_url
-				.clone()),
-			#[cfg(target_os = "macos")]
-			tangram_sandbox::Isolation::Seatbelt(_) => Ok(listeners
-				.seatbelt
-				.as_ref()
-				.ok_or_else(|| tg::error!("missing the sandbox seatbelt listener"))?
-				.guest_url
-				.clone()),
-			#[cfg(all(target_os = "linux", feature = "vsock"))]
-			tangram_sandbox::Isolation::Vm(_) => Ok(listeners
-				.vm
-				.as_ref()
-				.ok_or_else(|| tg::error!("missing the sandbox vm listener"))?
-				.guest_url
-				.clone()),
-			#[cfg(not(all(target_os = "linux", feature = "vsock")))]
-			tangram_sandbox::Isolation::Vm(_) => Err(tg::error!("vsock is not enabled")),
-			_ => Err(tg::error!("unsupported sandbox isolation")),
-		}
 	}
 
 	#[must_use]
