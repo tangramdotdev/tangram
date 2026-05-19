@@ -83,7 +83,9 @@ impl Server {
 					let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let port = url
 						.port_or_known_default()
-						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?
+						.try_into()
+						.map_err(|_| tg::error!("invalid port"))?;
 					Stream::Tcp(
 						tokio::net::TcpStream::connect((host, port))
 							.await
@@ -119,7 +121,7 @@ impl Server {
 							.parse::<u32>()
 							.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 						let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-						let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+						let addr = tokio_vsock::VsockAddr::new(cid, port);
 						Stream::Vsock(tokio_vsock::VsockStream::connect(addr).await.map_err(
 							|error| tg::error!(!error, "failed to connect to the socket"),
 						)?)
@@ -137,7 +139,9 @@ impl Server {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
 					.port_or_known_default()
-					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					.ok_or_else(|| tg::error!(%url, "invalid url"))?
+					.try_into()
+					.map_err(|_| tg::error!("invalid port"))?;
 				let listener = tokio::net::TcpListener::bind((host, port))
 					.await
 					.map_err(|error| tg::error!(!error, "failed to bind"))?;
@@ -164,7 +168,7 @@ impl Server {
 						.parse::<u32>()
 						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+					let addr = tokio_vsock::VsockAddr::new(cid, port);
 					let listener = tokio_vsock::VsockListener::bind(addr)
 						.map_err(|error| tg::error!(!error, "failed to bind"))?;
 					Listener::Vsock(listener)
