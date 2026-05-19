@@ -8,6 +8,22 @@ use {
 };
 
 impl Session {
+	pub(crate) fn resolve_sandbox_namespace(
+		&self,
+		namespace: Option<tg::Namespace>,
+	) -> Option<String> {
+		if let Some(namespace) = namespace {
+			return namespace_to_db(Some(namespace));
+		}
+		match self.context.authentication.as_ref() {
+			Some(Authentication::User(user)) => user
+				.namespace
+				.as_ref()
+				.map(std::string::ToString::to_string),
+			_ => None,
+		}
+	}
+
 	pub(crate) async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
@@ -69,6 +85,7 @@ impl Session {
 					isolation,
 					memory,
 					mounts,
+					namespace,
 					network,
 					status,
 					ttl,
@@ -86,7 +103,8 @@ impl Session {
 					{p}9,
 					{p}10,
 					{p}11,
-					{p}12
+					{p}12,
+					{p}13
 				);
 			"#
 		);
@@ -111,6 +129,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?;
 		let ttl = arg.ttl;
 		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
+		let namespace = self.resolve_sandbox_namespace(arg.namespace.clone());
 		let params = db::params![
 			id.to_string(),
 			cpu,
@@ -120,6 +139,7 @@ impl Session {
 			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
+			namespace,
 			arg.network.clone().map(db::value::Json),
 			tg::sandbox::Status::Created.to_string(),
 			db::value::DurationSeconds(ttl),
@@ -225,6 +245,16 @@ impl Session {
 		}
 		Ok(arg)
 	}
+}
+
+pub(crate) fn namespace_to_db(namespace: Option<tg::Namespace>) -> Option<String> {
+	namespace.and_then(|namespace| {
+		if namespace.is_root() {
+			None
+		} else {
+			Some(namespace.to_string())
+		}
+	})
 }
 
 fn resolve_sandbox_ports(ports: Vec<tg::sandbox::Port>) -> tg::Result<Vec<tg::sandbox::Port>> {

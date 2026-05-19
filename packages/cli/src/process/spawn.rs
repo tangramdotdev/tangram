@@ -820,6 +820,14 @@ impl Cli {
 				readonly: mount.readonly,
 			});
 		}
+		let namespace = options
+			.sandbox
+			.arg
+			.namespace
+			.clone()
+			.map(|namespace| namespace.parse())
+			.transpose()
+			.map_err(|error| tg::error!(!error, "invalid namespace"))?;
 		let sandbox = if sandboxed {
 			match options.sandbox.get() {
 				Some(tg::Either::Right(id)) => {
@@ -838,6 +846,7 @@ impl Cli {
 						location: None,
 						memory: options.sandbox.arg.memory,
 						mounts,
+						namespace: namespace.clone(),
 						network,
 						ttl: Some(options.sandbox.ttl.get()),
 						user: options.sandbox.arg.user.clone(),
@@ -893,6 +902,7 @@ impl Cli {
 			host: Some(command.host.clone()),
 			location: location.clone(),
 			name: None,
+			namespace,
 			retry: options.retry,
 			sandbox,
 			stderr: options.stderr.unwrap_or_default(),

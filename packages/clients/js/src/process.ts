@@ -380,6 +380,17 @@ export class Process<O extends tg.Value = tg.Value> {
 		})();
 	}
 
+	/** Get this process's sandbox namespace. */
+	get namespace(): Promise<string | undefined> {
+		return (async () => {
+			if (typeof this.#id === "number") {
+				return undefined;
+			}
+			await this.load();
+			return this.#state!.namespace;
+		})();
+	}
+
 	/** Get this process's command's user. */
 	get user(): Promise<string | undefined> {
 		return (async () => {
@@ -860,6 +871,10 @@ export namespace Process {
 
 		/** The process's name. */
 		name?: string | undefined;
+
+		/** The sandbox namespace. */
+		namespace?: string | undefined;
+
 		/** Configure network. */
 		network?: boolean | tg.Sandbox.Network | undefined;
 
@@ -898,6 +913,7 @@ export namespace Process {
 		finishedAt?: number | undefined;
 		host: string;
 		log?: tg.Blob | undefined;
+		namespace?: string | undefined;
 		output?: tg.Value;
 		retry: boolean;
 		sandbox?: string;
@@ -1035,6 +1051,9 @@ export namespace Process {
 			if (value.log !== undefined) {
 				output.log = value.log.id;
 			}
+			if (value.namespace !== undefined) {
+				output.namespace = value.namespace;
+			}
 			if ("output" in value) {
 				output.output = tg.Value.toData(value.output);
 			}
@@ -1081,6 +1100,7 @@ export namespace Process {
 				finishedAt: data.finished_at,
 				host: data.host,
 				log: data.log !== undefined ? tg.Blob.withId(data.log) : undefined,
+				namespace: data.namespace,
 				retry: data.retry ?? false,
 				sandbox: data.sandbox,
 				startedAt: data.started_at,
@@ -1146,6 +1166,7 @@ export namespace Process {
 		finished_at?: number;
 		host: string;
 		log?: tg.Blob.Id;
+		namespace?: string;
 		output?: tg.Value.Data;
 		retry?: boolean;
 		sandbox: string;

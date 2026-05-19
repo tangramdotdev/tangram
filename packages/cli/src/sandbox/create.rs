@@ -41,6 +41,12 @@ impl Cli {
 			location: args.location.get(),
 			memory: args.arg.memory,
 			mounts: args.arg.mounts,
+			namespace: args
+				.arg
+				.namespace
+				.map(|namespace| namespace.parse())
+				.transpose()
+				.map_err(|error| tg::error!(!error, "invalid namespace"))?,
 			network,
 			ttl: args.ttl.get(),
 			user: args.arg.user,

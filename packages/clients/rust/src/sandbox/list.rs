@@ -36,6 +36,9 @@ pub struct Item {
 	pub mounts: Vec<tg::sandbox::Mount>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub namespace: Option<tg::Namespace>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub network: Option<tg::sandbox::Network>,
 
 	pub status: tg::sandbox::Status,

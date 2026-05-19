@@ -80,6 +80,7 @@ impl Session {
 					id,
 					lease_count,
 					log,
+					namespace,
 					output,
 					retry,
 					sandbox,
@@ -109,7 +110,6 @@ impl Session {
 					?10,
 					?11,
 					?12,
-					?26,
 					?13,
 					?14,
 					?15,
@@ -123,8 +123,10 @@ impl Session {
 					?23,
 					?24,
 					?25,
+					?26,
+					?27,
 					null,
-					?27
+					?28
 				)
 				on conflict (id) do update set
 					actual_checksum = ?1,
@@ -138,21 +140,22 @@ impl Session {
 					expected_checksum = ?9,
 					finished_at = ?10,
 					host = ?11,
-					lease_count = ?26,
-					log = ?13,
-					output = ?14,
-					retry = ?15,
-					sandbox = ?16,
-					started_at = ?17,
-					status = ?18,
-					stderr = ?19,
-					stderr_open = ?20,
-					stdin = ?21,
-					stdin_open = ?22,
-					stdout = ?23,
-					stdout_open = ?24,
-					stored_at = ?25,
-					tty = ?27
+					lease_count = ?13,
+					log = ?14,
+					namespace = ?15,
+					output = ?16,
+					retry = ?17,
+					sandbox = ?18,
+					started_at = ?19,
+					status = ?20,
+					stderr = ?21,
+					stderr_open = ?22,
+					stdin = ?23,
+					stdin_open = ?24,
+					stdout = ?25,
+					stdout_open = ?26,
+					stored_at = ?27,
+					tty = ?28
 			"
 		);
 		let mut process_stmt = cache
@@ -234,7 +237,9 @@ impl Session {
 				data.finished_at,
 				data.host,
 				id.to_string(),
+				0,
 				data.log.as_ref().map(ToString::to_string),
+				crate::sandbox::create::namespace_to_db(data.namespace.clone()),
 				output_json,
 				data.retry,
 				data.sandbox.to_string(),
@@ -247,7 +252,6 @@ impl Session {
 				(!data.stdout.is_null()).then(|| data.stdout.to_string()),
 				stdout_open,
 				stored_at,
-				0,
 				tty_json
 			];
 			process_stmt

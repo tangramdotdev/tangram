@@ -14,6 +14,7 @@ pub struct State {
 	pub finished_at: Option<i64>,
 	pub host: String,
 	pub log: Option<tg::Blob>,
+	pub namespace: Option<tg::Namespace>,
 	pub output: Option<tg::Value>,
 	pub retry: bool,
 	pub sandbox: tg::sandbox::Id,
@@ -49,6 +50,7 @@ impl State {
 		let finished_at = self.finished_at;
 		let host = self.host.clone();
 		let log = self.log.as_ref().map(tg::Blob::id);
+		let namespace = self.namespace.clone();
 		let sandbox = self.sandbox.clone();
 		let output = self.output.as_ref().map(tg::Value::to_data);
 		let retry = self.retry;
@@ -71,6 +73,7 @@ impl State {
 			finished_at,
 			host,
 			log,
+			namespace,
 			sandbox,
 			output,
 			retry,
@@ -113,6 +116,7 @@ impl State {
 		let finished_at = value.finished_at;
 		let host = value.host;
 		let log = value.log.map(tg::Blob::with_id);
+		let namespace = value.namespace;
 		let output = value.output.map(tg::Value::try_from_data).transpose()?;
 		let retry = value.retry;
 		let sandbox = value.sandbox;
@@ -135,6 +139,7 @@ impl State {
 			finished_at,
 			host,
 			log,
+			namespace,
 			output,
 			retry,
 			sandbox,

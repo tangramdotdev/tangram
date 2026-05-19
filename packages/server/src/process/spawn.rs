@@ -869,6 +869,7 @@ impl Session {
 			depth: Option<i64>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::process::Id,
+			namespace: Option<String>,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -900,6 +901,7 @@ impl Session {
 					actual_checksum,
 					processes.depth,
 					processes.id,
+					processes.namespace,
 					output,
 					processes.sandbox,
 					sandboxes.status as sandbox_status,
@@ -923,6 +925,7 @@ impl Session {
 			actual_checksum,
 			depth,
 			id: source,
+			namespace,
 			output,
 			sandbox,
 			sandbox_status,
@@ -1017,6 +1020,7 @@ impl Session {
 					host,
 					id,
 					lease_count,
+					namespace,
 					output,
 					retry,
 					sandbox,
@@ -1042,7 +1046,6 @@ impl Session {
 					{p}11,
 					{p}12,
 					{p}13,
-					{p}22,
 					{p}14,
 					{p}15,
 					{p}16,
@@ -1051,8 +1054,10 @@ impl Session {
 					{p}19,
 					{p}20,
 					{p}21,
+					{p}22,
 					{p}23,
-					{p}24
+					{p}24,
+					{p}25
 				);
 			"
 		);
@@ -1099,6 +1104,8 @@ impl Session {
 			now,
 			host,
 			id.to_string(),
+			0,
+			namespace,
 			output.clone().map(db::value::Json),
 			arg.retry,
 			sandbox.to_string(),
@@ -1107,7 +1114,6 @@ impl Session {
 			stdin_open,
 			stdout_open,
 			now,
-			0,
 			created_by,
 			tty.map(db::value::Json),
 		];
@@ -1179,30 +1185,33 @@ impl Session {
 
 		let parent_sandbox = parent_sandbox.cloned();
 
-		let (sandbox, sandbox_status, permit) = match &arg.sandbox {
+		let (sandbox, sandbox_status, permit, namespace) = match &arg.sandbox {
 			None => return Err(tg::error!("expected the sandbox to be set")),
-			Some(tg::Either::Left(arg)) => {
+			Some(tg::Either::Left(sandbox_arg)) => {
+				let namespace = self.resolve_sandbox_namespace(sandbox_arg.namespace.clone());
 				let permit = self.try_acquire_sandbox_permit(parent_sandbox.as_ref());
 				let status = if permit.is_some() {
 					tg::sandbox::Status::Started
 				} else {
 					tg::sandbox::Status::Created
 				};
-				let arg = Self::normalize_sandbox_create_arg(arg.clone())?;
+				let sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
 				let sandbox = self
-					.create_local_sandbox_with_transaction(transaction, &arg, status)
+					.create_local_sandbox_with_transaction(transaction, &sandbox_arg, status)
 					.await?;
-				(sandbox, status, permit)
+				(sandbox, status, permit, namespace)
 			},
 			Some(tg::Either::Right(sandbox)) => {
-				let status = self
-					.try_get_sandbox_status_with_transaction(transaction, sandbox)
+				let Some((status, namespace)) = self
+					.try_get_sandbox_with_transaction(transaction, sandbox)
 					.await?
-					.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
+				else {
+					return Err(tg::error!("failed to find the sandbox"));
+				};
 				if status.is_destroyed() {
 					return Err(tg::error!("the sandbox is destroyed"));
 				}
-				(sandbox.clone(), status, None)
+				(sandbox.clone(), status, None, namespace)
 			},
 		};
 
@@ -1246,6 +1255,7 @@ impl Session {
 					host,
 					id,
 					lease_count,
+					namespace,
 					retry,
 					sandbox,
 					started_at,
@@ -1269,7 +1279,6 @@ impl Session {
 					{p}6,
 					{p}7,
 					{p}8,
-					{p}20,
 					{p}9,
 					{p}10,
 					{p}11,
@@ -1281,8 +1290,10 @@ impl Session {
 					{p}17,
 					{p}18,
 					{p}19,
+					{p}20,
 					{p}21,
-					{p}22
+					{p}22,
+					{p}23
 				);
 			"
 		);
@@ -1312,6 +1323,8 @@ impl Session {
 			arg.checksum.as_ref().map(ToString::to_string),
 			host,
 			id.to_string(),
+			0,
+			namespace,
 			arg.retry,
 			sandbox.to_string(),
 			started_at,
@@ -1323,7 +1336,6 @@ impl Session {
 			(!arg.stdout.is_null()).then(|| arg.stdout.to_string()),
 			stdout_open,
 			now,
-			0,
 			created_by,
 			tty.map(db::value::Json),
 		];
@@ -1389,6 +1401,7 @@ impl Session {
 					isolation,
 					memory,
 					mounts,
+					namespace,
 					network,
 					started_at,
 					status,
@@ -1409,7 +1422,8 @@ impl Session {
 					{p}11,
 					{p}12,
 					{p}13,
-					{p}14
+					{p}14,
+					{p}15
 				);
 			"#
 		);
@@ -1436,6 +1450,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?;
 		let ttl = arg.ttl;
 		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
+		let namespace = self.resolve_sandbox_namespace(arg.namespace.clone());
 		let params = db::params![
 			id.to_string(),
 			cpu,
@@ -1446,6 +1461,7 @@ impl Session {
 			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
+			namespace,
 			arg.network.clone().map(db::value::Json),
 			started_at,
 			status.to_string(),
@@ -1459,29 +1475,31 @@ impl Session {
 		Ok(id)
 	}
 
-	async fn try_get_sandbox_status_with_transaction(
+	async fn try_get_sandbox_with_transaction(
 		&self,
 		transaction: &database::Transaction<'_>,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<tg::sandbox::Status>> {
+	) -> tg::Result<Option<(tg::sandbox::Status, Option<String>)>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select status
+				select status, namespace
 				from sandboxes
 				where id = {p}1;
 			"
 		);
 		let params = db::params![id.to_string()];
-		let status = transaction
-			.query_optional_value_into::<db::value::Serde<tg::sandbox::Status>>(
-				statement.into(),
-				params,
-			)
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			namespace: Option<String>,
+			#[tangram_database(as = "db::value::FromStr")]
+			status: tg::sandbox::Status,
+		}
+		let row = transaction
+			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.map(|value| value.0);
-		Ok(status)
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(row.map(|row| (row.status, row.namespace)))
 	}
 
 	fn try_acquire_sandbox_permit(

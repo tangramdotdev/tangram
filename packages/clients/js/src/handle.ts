@@ -35,6 +35,7 @@ export namespace Handle {
 		location?: tg.Location.Arg | undefined;
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
+		namespace?: string | undefined;
 		network?: tg.Sandbox.Network.Data | undefined;
 		ttl?: number | undefined;
 		user?: string | undefined;
@@ -47,6 +48,7 @@ export namespace Handle {
 		location?: tg.Location | undefined;
 		memory?: number | undefined;
 		mounts: Array<tg.Sandbox.Mount.Data>;
+		namespace?: string | undefined;
 		network?: tg.Sandbox.Network.Data | undefined;
 		status: tg.Sandbox.Status;
 		ttl?: number | undefined;

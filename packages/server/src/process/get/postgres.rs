@@ -42,6 +42,7 @@ impl Session {
 			host: String,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			log: Option<tg::blob::Id>,
+			namespace: Option<String>,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			retry: bool,
@@ -75,6 +76,7 @@ impl Session {
 					finished_at,
 					host,
 					log,
+					namespace,
 					output,
 					retry,
 					sandbox,
@@ -119,6 +121,11 @@ impl Session {
 						}
 					})
 					.transpose()?;
+				let namespace = row
+					.namespace
+					.map(|namespace| namespace.parse())
+					.transpose()
+					.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?;
 				let data = tg::process::Data {
 					actual_checksum: row.actual_checksum,
 					cacheable: row.cacheable,
@@ -132,6 +139,7 @@ impl Session {
 					finished_at: row.finished_at,
 					host: row.host,
 					log: row.log,
+					namespace,
 					output: row.output,
 					retry: row.retry,
 					sandbox: row.sandbox,
