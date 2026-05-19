@@ -169,7 +169,7 @@ impl Uri {
 	}
 
 	#[must_use]
-	pub fn port(&self) -> Option<u16> {
+	pub fn port(&self) -> Option<u32> {
 		self.authority_raw().and_then(|authority| {
 			let authority = authority.split('@').next_back()?;
 			if authority.starts_with('[') {
@@ -181,7 +181,7 @@ impl Uri {
 	}
 
 	#[must_use]
-	pub fn port_or_known_default(&self) -> Option<u16> {
+	pub fn port_or_known_default(&self) -> Option<u32> {
 		self.port().or_else(|| match self.scheme()? {
 			"http" | "http+unix" => Some(80),
 			"https" => Some(443),

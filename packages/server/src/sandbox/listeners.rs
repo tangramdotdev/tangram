@@ -80,17 +80,18 @@ impl UnixListener {
 impl VsockListener {
 	fn new(port: Option<u16>) -> tg::Result<Self> {
 		let port = if let Some(port) = port.filter(|port| *port != 0) {
-			port
+			port.into()
 		} else {
-			let addr = tokio_vsock::VsockAddr::new(tangram_sandbox::vm::VMADDR_CID_ANY, 0);
+			let addr = tokio_vsock::VsockAddr::new(
+				tangram_sandbox::vm::VMADDR_CID_ANY,
+				tangram_sandbox::vm::VMADDR_PORT_ANY,
+			);
 			let listener = tokio_vsock::VsockListener::bind(addr)
 				.map_err(|error| tg::error!(!error, "failed to allocate a vsock port"))?;
 			listener
 				.local_addr()
 				.map_err(|error| tg::error!(!error, "failed to get the allocated vsock port"))?
 				.port()
-				.try_into()
-				.map_err(|_| tg::error!("failed to allocate a valid vsock port"))?
 		};
 		let host_url = format!(
 			"http+vsock://{}:{port}",

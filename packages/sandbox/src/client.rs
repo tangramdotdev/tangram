@@ -136,7 +136,9 @@ impl Client {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
 					.port_or_known_default()
-					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					.ok_or_else(|| tg::error!(%url, "invalid url"))?
+					.try_into()
+					.map_err(|_| tg::error!("invalid port"))?;
 				let stream = Self::connect_tcp(host, port).await?;
 				Self::handshake_h2(stream).await
 			},
@@ -158,7 +160,7 @@ impl Client {
 						.parse::<u32>()
 						.map_err(|error| tg::error!(!error, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-					let stream = Self::connect_vsock(cid, u32::from(port)).await?;
+					let stream = Self::connect_vsock(cid, port).await?;
 					Self::handshake_h2(stream).await
 				}
 			},
