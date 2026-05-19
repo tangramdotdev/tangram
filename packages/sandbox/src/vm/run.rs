@@ -802,9 +802,8 @@ fn host_share_mounts_path_from_root(root_path: &Path) -> PathBuf {
 
 fn kernel_cmdline(arg: &Arg) -> String {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
-	let mut cmdline = String::from(
-		"console=ttyS0 quiet loglevel=0 root=/dev/vda rootfstype=squashfs ro",
-	);
+	let mut cmdline =
+		String::from("console=ttyS0 quiet loglevel=0 root=/dev/vda rootfstype=squashfs ro");
 	write!(
 		&mut cmdline,
 		" init={} -- sandbox vm init",

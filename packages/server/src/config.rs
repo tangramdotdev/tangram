@@ -621,6 +621,9 @@ pub struct SeatbeltSandboxIsolation {}
 pub struct VmSandboxIsolation {
 	pub kernel_path: PathBuf,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub listener_port: Option<u16>,
+
 	#[serde(default = "default_vm_max_cpu")]
 	pub max_cpu: u64,
 
