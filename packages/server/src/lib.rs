@@ -9,7 +9,7 @@ use {
 	std::{
 		ops::Deref,
 		os::fd::AsRawFd as _,
-		path::{Path, PathBuf},
+		path::PathBuf,
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
@@ -112,7 +112,9 @@ pub struct State {
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
 	sandbox_tasks: self::sandbox::Tasks,
 	sandbox_vm_image: Option<PathBuf>,
+	#[cfg(target_os = "linux")]
 	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
+	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	sandboxes: self::sandbox::Map,
 	tangram_path: PathBuf,
@@ -618,8 +620,8 @@ impl Server {
 			path,
 			process_store,
 			regions,
-			remote_clients,
 			remote_list_tasks,
+			remote_clients,
 			sandbox_container_root,
 			sandbox_listeners,
 			sandbox_permits,
@@ -627,7 +629,9 @@ impl Server {
 			sandbox_semaphore,
 			sandbox_tasks,
 			sandbox_vm_image,
+			#[cfg(target_os = "linux")]
 			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
+			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			sandboxes,
 			tangram_path,
@@ -1399,133 +1403,6 @@ impl Server {
 	pub fn vm_snapshot_path(&self) -> PathBuf {
 		self.path.join("vm/snapshot")
 	}
-
-	/// Create the VM snapshot at `snapshot_path` if it does not already exist.
-	/// In-process callers serialize on `sandbox_vm_snapshot_lock`; cross-process
-	/// callers serialize on `<data_dir>/.tangram/vm.lock` via flock.
-	pub(crate) async fn ensure_vm_snapshot(
-		&self,
-		snapshot_path: &Path,
-		kernel_path: &Path,
-		vm: &tangram_sandbox::VmIsolation,
-	) -> tg::Result<()> {
-		if snapshot_path.exists() {
-			return Ok(());
-		}
-		let _guard = self.sandbox_vm_snapshot_lock.lock().await;
-		if snapshot_path.exists() {
-			return Ok(());
-		}
-		let _file_lock = acquire_vm_lock(&self.path).await?;
-		if snapshot_path.exists() {
-			return Ok(());
-		}
-		if let Some(parent) = snapshot_path.parent() {
-			tokio::fs::create_dir_all(parent).await.map_err(|error| {
-				tg::error!(!error, path = %parent.display(), "failed to create the vm snapshot parent directory")
-			})?;
-		}
-		let temp = Temp::new(self);
-		tokio::fs::create_dir_all(temp.path())
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to create the vm snapshot temp directory")
-			})?;
-		let image_path = self.sandbox_vm_image.as_ref().ok_or_else(|| {
-			tg::error!(
-				"cannot create the vm snapshot without an image; ensure vm isolation is configured"
-			)
-		})?;
-		let snapshot_id = tg::sandbox::Id::new();
-		tracing::info!(
-			snapshot = %snapshot_path.display(),
-			sandbox = %snapshot_id,
-			"creating vm snapshot",
-		);
-		let firewall = match self.config.sandbox.network.firewall {
-			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
-			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
-		};
-		let status = tokio::process::Command::new(&self.tangram_path)
-			.arg("sandbox")
-			.arg("vm")
-			.arg("run")
-			.arg("--create-snapshot")
-			.arg(snapshot_path)
-			.arg("--id")
-			.arg(snapshot_id.to_string())
-			.arg("--artifacts-path")
-			.arg(self.artifacts_path())
-			.arg("--firewall")
-			.arg(firewall.to_string())
-			.arg("--kernel-path")
-			.arg(kernel_path)
-			.arg("--max-cpu")
-			.arg(vm.max_cpu.to_string())
-			.arg("--max-memory")
-			.arg(vm.max_memory.to_string())
-			.arg("--rootfs-path")
-			.arg(&self.sandbox_container_root)
-			.arg("--image-path")
-			.arg(image_path)
-			.arg("--snapshot-cpu")
-			.arg(vm.snapshot_cpu.to_string())
-			.arg("--snapshot-memory")
-			.arg(vm.snapshot_memory.to_string())
-			.arg("--tangram-path")
-			.arg(&self.tangram_path)
-			.arg("--path")
-			.arg(temp.path())
-			.arg("--url")
-			.arg("http+vsock://2:6748")
-			.status()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"))?;
-		if !status.success() {
-			return Err(tg::error!(
-				%status,
-				snapshot = %snapshot_path.display(),
-				"the snapshot process exited with a non-zero status",
-			));
-		}
-		tracing::info!(
-			snapshot = %snapshot_path.display(),
-			"vm snapshot created",
-		);
-		Ok(())
-	}
-}
-
-/// Acquire `<data_dir>/.tangram/vm.lock` with an exclusive flock. The lock
-/// is released when the returned `File` is dropped. Used to serialize the
-/// rootfs squashfs build and the snapshot creation against any other instance
-/// pointed at the same data directory.
-pub(crate) async fn acquire_vm_lock(data_dir: &Path) -> tg::Result<std::fs::File> {
-	let lock_path = data_dir.join(".tangram/vm.lock");
-	tokio::task::spawn_blocking(move || -> tg::Result<std::fs::File> {
-		if let Some(parent) = lock_path.parent() {
-			std::fs::create_dir_all(parent).map_err(
-				|error| tg::error!(!error, path = %parent.display(), "failed to create the vm lock parent"),
-			)?;
-		}
-		let lock = std::fs::OpenOptions::new()
-			.read(true)
-			.write(true)
-			.create(true)
-			.truncate(false)
-			.open(&lock_path)
-			.map_err(
-				|error| tg::error!(!error, path = %lock_path.display(), "failed to open the vm lock"),
-			)?;
-		let ret = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
-		if ret != 0 {
-			let error = std::io::Error::last_os_error();
-			return Err(tg::error!(!error, "failed to acquire the vm lock"));
-		}
-		Ok(lock)
-	})
-	.await
-	.map_err(|error| tg::error!(!error, "the vm lock task panicked"))?
 }
 
 impl From<Owned> for Shared {

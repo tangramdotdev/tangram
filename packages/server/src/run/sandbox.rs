@@ -101,44 +101,52 @@ impl Session {
 				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
 			},
 			Some(tg::sandbox::Isolation::Vm) => {
-				let vm = self
-					.server
-					.config()
-					.sandbox
-					.isolation
-					.vm
-					.as_ref()
-					.ok_or_else(|| tg::error!("no vm image configured"))?;
-				let kernel_path = vm.kernel_path.clone();
-				let image_path = self.server.sandbox_vm_image.clone().ok_or_else(|| {
-					tg::error!(
-						"vm isolation requested but no image path was configured; check the server config"
-					)
-				})?;
-				let snapshot = Some(
-					vm.snapshot
-						.clone()
-						.unwrap_or_else(|| self.server.vm_snapshot_path()),
-				);
-				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
-					kernel_path,
-					max_cpu: vm.max_cpu,
-					max_memory: vm.max_memory,
-					image_path,
-					snapshot,
-					snapshot_cpu: vm.snapshot_cpu,
-					snapshot_memory: vm.snapshot_memory,
-				})
+				#[cfg(target_os = "linux")]
+				{
+					let vm = self
+						.server
+						.config()
+						.sandbox
+						.isolation
+						.vm
+						.as_ref()
+						.ok_or_else(|| tg::error!("no vm image configured"))?;
+					let kernel_path = vm.kernel_path.clone();
+					let image_path = self.server.sandbox_vm_image.clone().ok_or_else(|| {
+						tg::error!(
+							"vm isolation requested but no image path was configured; check the server config"
+						)
+					})?;
+					let snapshot = Some(
+						vm.snapshot
+							.clone()
+							.unwrap_or_else(|| self.server.vm_snapshot_path()),
+					);
+					tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
+						kernel_path,
+						max_cpu: vm.max_cpu,
+						max_memory: vm.max_memory,
+						image_path,
+						snapshot,
+						snapshot_cpu: vm.snapshot_cpu,
+						snapshot_memory: vm.snapshot_memory,
+					})
+				}
+				#[cfg(target_os = "macos")]
+				{
+					return Err(tg::error!("vm isolation is not supported on macos"));
+				}
 			},
 			None => self.server.resolve_sandbox_isolation()?,
 		};
 
+		#[cfg(target_os = "linux")]
 		if let tangram_sandbox::Isolation::Vm(vm) = &isolation
 			&& let Some(snapshot_path) = vm.snapshot.as_deref()
 		{
 			let mut image_created = self.server.sandbox_vm_image_lock.lock().await;
 			if !*image_created {
-				let _file_lock = crate::acquire_vm_lock(&self.server.path).await?;
+				let _file_lock = acquire_vm_lock(&self.server.path).await?;
 				let arg = tangram_sandbox::vm::image::Arg {
 					image_path: vm.image_path.clone(),
 					path: self.server.sandbox_container_root.clone(),
@@ -426,4 +434,128 @@ impl Session {
 		}
 		Ok(())
 	}
+}
+
+#[cfg(target_os = "linux")]
+impl Server {
+	async fn ensure_vm_snapshot(
+		&self,
+		snapshot_path: &std::path::Path,
+		kernel_path: &std::path::Path,
+		vm: &tangram_sandbox::VmIsolation,
+	) -> tg::Result<()> {
+		if snapshot_path.exists() {
+			return Ok(());
+		}
+		let _guard = self.sandbox_vm_snapshot_lock.lock().await;
+		if snapshot_path.exists() {
+			return Ok(());
+		}
+		let _file_lock = acquire_vm_lock(&self.path).await?;
+		if snapshot_path.exists() {
+			return Ok(());
+		}
+		if let Some(parent) = snapshot_path.parent() {
+			tokio::fs::create_dir_all(parent).await.map_err(|error| {
+				tg::error!(!error, path = %parent.display(), "failed to create the vm snapshot parent directory")
+			})?;
+		}
+		let temp = Temp::new(self);
+		tokio::fs::create_dir_all(temp.path())
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to create the vm snapshot temp directory")
+			})?;
+		let image_path = self.sandbox_vm_image.as_ref().ok_or_else(|| {
+			tg::error!(
+				"cannot create the vm snapshot without an image; ensure vm isolation is configured"
+			)
+		})?;
+		let snapshot_id = tg::sandbox::Id::new();
+		tracing::info!(
+			snapshot = %snapshot_path.display(),
+			sandbox = %snapshot_id,
+			"creating vm snapshot",
+		);
+		let firewall = match self.config.sandbox.network.firewall {
+			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
+			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
+		};
+		let status = tokio::process::Command::new(&self.tangram_path)
+			.arg("sandbox")
+			.arg("vm")
+			.arg("run")
+			.arg("--create-snapshot")
+			.arg(snapshot_path)
+			.arg("--id")
+			.arg(snapshot_id.to_string())
+			.arg("--artifacts-path")
+			.arg(self.artifacts_path())
+			.arg("--firewall")
+			.arg(firewall.to_string())
+			.arg("--kernel-path")
+			.arg(kernel_path)
+			.arg("--max-cpu")
+			.arg(vm.max_cpu.to_string())
+			.arg("--max-memory")
+			.arg(vm.max_memory.to_string())
+			.arg("--rootfs-path")
+			.arg(&self.sandbox_container_root)
+			.arg("--image-path")
+			.arg(image_path)
+			.arg("--snapshot-cpu")
+			.arg(vm.snapshot_cpu.to_string())
+			.arg("--snapshot-memory")
+			.arg(vm.snapshot_memory.to_string())
+			.arg("--tangram-path")
+			.arg(&self.tangram_path)
+			.arg("--path")
+			.arg(temp.path())
+			.arg("--url")
+			.arg("http+vsock://2:6748")
+			.status()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"))?;
+		if !status.success() {
+			return Err(tg::error!(
+				%status,
+				snapshot = %snapshot_path.display(),
+				"the snapshot process exited with a non-zero status",
+			));
+		}
+		tracing::info!(
+			snapshot = %snapshot_path.display(),
+			"vm snapshot created",
+		);
+		Ok(())
+	}
+}
+
+#[cfg(target_os = "linux")]
+async fn acquire_vm_lock(data_dir: &std::path::Path) -> tg::Result<std::fs::File> {
+	let lock_path = data_dir.join(".tangram/vm.lock");
+	tokio::task::spawn_blocking(move || -> tg::Result<std::fs::File> {
+		if let Some(parent) = lock_path.parent() {
+			std::fs::create_dir_all(parent).map_err(
+				|error| tg::error!(!error, path = %parent.display(), "failed to create the vm lock parent"),
+			)?;
+		}
+		let lock = std::fs::OpenOptions::new()
+			.read(true)
+			.write(true)
+			.create(true)
+			.truncate(false)
+			.open(&lock_path)
+			.map_err(
+				|error| tg::error!(!error, path = %lock_path.display(), "failed to open the vm lock"),
+			)?;
+		let ret = unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&lock), libc::LOCK_EX) };
+		if ret != 0 {
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(!error, "failed to acquire the vm lock"));
+		}
+		Ok(lock)
+	})
+	.await
+	.map_err(|error| tg::error!(!error, "the vm lock task panicked"))?
 }

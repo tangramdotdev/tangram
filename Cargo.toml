@@ -191,14 +191,14 @@ toml = { version = "1" }
 tower = { version = "0.5", features = ["timeout", "util"] }
 tower-http = { version = "0.6", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = "0.1.44"
-tracing-opentelemetry = "0.32"
+tracing-opentelemetry = "0.33"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 tracing-tree = "0.4.1"
 turso = "0.6.0"
-opentelemetry = "0.31"
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
-opentelemetry-appender-tracing = "0.31"
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
+opentelemetry-appender-tracing = "0.32"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }
