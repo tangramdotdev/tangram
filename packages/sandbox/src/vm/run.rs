@@ -35,6 +35,7 @@ const VMM_KERNEL_PATH: &str = "/run/vmm/kernel";
 const VMM_ROOTFS_IMAGE_PATH: &str = "/run/vmm/rootfs.img";
 const VMM_SNAPSHOT_PATH: &str = "/run/vmm/snapshot";
 const VMM_CLOUD_HYPERVISOR_BIN: &str = "/run/vmm/cloud-hypervisor";
+const VMM_CLOUD_HYPERVISOR_LOG: &str = "/run/vmm/cloud-hypervisor.log";
 const VMM_PASST_BIN: &str = "/run/vmm/passt";
 const VMM_SNAPSHOT_OUTPUT_DIR: &str = "/snapshot";
 
@@ -303,7 +304,9 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		}
 
 		tracing::trace!("spawning host virtiofsd helper");
-		let pid = spawn_virtiofsd_helper(&user, &shared_dir, socket.into_raw_fd(), &binds)?;
+		let log_path = host_vm_path_from_root(&arg.path).join("virtiofsd.log");
+		let pid =
+			spawn_virtiofsd_helper(&user, &shared_dir, socket.into_raw_fd(), &binds, &log_path)?;
 		tracing::trace!("host virtiofsd helper pid={pid}");
 		helpers.push(ChildProcess::new(pid));
 	} else {
@@ -338,9 +341,12 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		Network::Tap(tap) => tap.cloud_hypervisor_arg(),
 	});
 
-	let mut cloud_hypervisor_args: Vec<std::ffi::OsString> = Vec::new();
-	cloud_hypervisor_args.push("--api-socket".into());
-	cloud_hypervisor_args.push(VMM_API_SOCKET.into());
+	let mut cloud_hypervisor_args: Vec<std::ffi::OsString> = vec![
+		"--api-socket".into(),
+		VMM_API_SOCKET.into(),
+		"--log-file".into(),
+		VMM_CLOUD_HYPERVISOR_LOG.into(),
+	];
 	if arg.snapshot.is_some() {
 		cloud_hypervisor_args.push("--restore".into());
 		cloud_hypervisor_args
@@ -355,7 +361,9 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		cloud_hypervisor_args.push("--cmdline".into());
 		cloud_hypervisor_args.push(kernel_cmdline(arg).into());
 		cloud_hypervisor_args.push("--disk".into());
-		cloud_hypervisor_args.push(format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on").into());
+		cloud_hypervisor_args.push(
+			format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on,sparse=off,image_type=raw").into(),
+		);
 		if arg.create_snapshot.is_none() {
 			cloud_hypervisor_args.push("--fs".into());
 			cloud_hypervisor_args
@@ -404,8 +412,15 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 					let chunk = &buf[..n];
 					{
 						let mut handle = stderr.lock();
-						let _ = std::io::Write::write_all(&mut handle, chunk);
-						let _ = std::io::Write::flush(&mut handle);
+						let output = chunk
+							.iter()
+							.copied()
+							.filter(|byte| *byte != 0)
+							.collect::<Vec<_>>();
+						if !output.is_empty() {
+							let _ = std::io::Write::write_all(&mut handle, &output);
+							let _ = std::io::Write::flush(&mut handle);
+						}
 					}
 					if !signaled && chunk.contains(&0u8) {
 						let _ = ready_tx.try_send(());
@@ -425,13 +440,20 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			return Err(tg::error!("timed out waiting for the guest ready signal"));
 		}
 
-		ch_remote_run(&ch_remote_bin, &api_socket, &["pause"])?;
+		let ch_remote_log = host_vm_path_from_root(&arg.path).join("ch-remote.log");
+		ch_remote_run(&ch_remote_bin, &api_socket, &ch_remote_log, &["pause"])?;
 		ch_remote_run(
 			&ch_remote_bin,
 			&api_socket,
+			&ch_remote_log,
 			&["snapshot", "file:///snapshot"],
 		)?;
-		ch_remote_run(&ch_remote_bin, &api_socket, &["shutdown-vmm"])?;
+		ch_remote_run(
+			&ch_remote_bin,
+			&api_socket,
+			&ch_remote_log,
+			&["shutdown-vmm"],
+		)?;
 		cloud_hypervisor.wait();
 
 		let snapshot_dir = host_snapshot_output_path_from_root(&arg.path);
@@ -481,6 +503,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			ch_remote_run(
 				&ch_remote_bin,
 				&api_socket,
+				&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
 				&["resize", "--cpus", &requested_cpu],
 			)?;
 		}
@@ -489,15 +512,22 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			ch_remote_run(
 				&ch_remote_bin,
 				&api_socket,
+				&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
 				&["resize", "--memory", &requested_memory],
 			)?;
 		}
 		if let Some(net) = &net_arg {
-			ch_remote_run(&ch_remote_bin, &api_socket, &["add-net", net])?;
+			ch_remote_run(
+				&ch_remote_bin,
+				&api_socket,
+				&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
+				&["add-net", net],
+			)?;
 		}
 		ch_remote_run(
 			&ch_remote_bin,
 			&api_socket,
+			&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
 			&[
 				"add-fs",
 				&format!("tag={HOST_FS_TAG},socket={VMM_VIRTIOFSD_SOCKET}"),
@@ -647,6 +677,7 @@ fn helper_child_main(
 	shared_dir: &Path,
 	socket: RawFd,
 	binds: &[VirtiofsBind],
+	log_path: &Path,
 ) -> tg::Result<()> {
 	set_parent_death_signal(libc::SIGKILL)?;
 	enter_user_namespace(user.uid, user.gid)?;
@@ -703,6 +734,7 @@ fn helper_child_main(
 	}
 	let virtiofsd_path =
 		find_virtiofsd().map_err(|source| tg::error!(!source, "failed to locate virtiofsd"))?;
+	let (stdout, stderr) = log_stdio(log_path)?;
 
 	set_no_new_privs()?;
 	setresgid(user.gid)?;
@@ -722,12 +754,14 @@ fn helper_child_main(
 		.arg("--xattr")
 		.arg("--log-level")
 		.arg("warn")
+		.arg("--rlimit-nofile")
+		.arg("0")
 		.arg("--no-announce-submounts")
 		.arg("--preserve-noatime")
 		.env("HOME", &user.home)
 		.stdin(std::process::Stdio::null())
-		.stdout(std::process::Stdio::inherit())
-		.stderr(std::process::Stdio::inherit());
+		.stdout(stdout)
+		.stderr(stderr);
 	unsafe {
 		command.pre_exec(move || {
 			let flags = libc::fcntl(socket, libc::F_GETFD);
@@ -986,6 +1020,7 @@ fn spawn_virtiofsd_helper(
 	shared_dir: &Path,
 	socket: RawFd,
 	binds: &[VirtiofsBind],
+	log_path: &Path,
 ) -> tg::Result<libc::pid_t> {
 	let child = unsafe { libc::fork() };
 	if child < 0 {
@@ -993,7 +1028,7 @@ fn spawn_virtiofsd_helper(
 		return Err(tg::error!(!error, "failed to fork the virtiofsd helper"));
 	}
 	if child == 0 {
-		match helper_child_main(user, shared_dir, socket, binds) {
+		match helper_child_main(user, shared_dir, socket, binds, log_path) {
 			Ok(()) => std::process::exit(0),
 			Err(error) => {
 				eprintln!("{error}");
@@ -1059,6 +1094,8 @@ fn cloud_hypervisor_child_main(
 			tg::error!(!error, path = %snapshot_output.display(), "failed to create the snapshot output directory")
 		})?;
 	}
+	let (stdout, stderr) =
+		log_stdio(&host_vm_path_from_root(&arg.path).join("cloud-hypervisor.log"))?;
 
 	let mount_arg = build_cloud_hypervisor_mount_arg(arg, cloud_hypervisor_bin, passt_bin);
 	container::mount::apply(&mount_arg, Some(&chroot))?;
@@ -1079,8 +1116,8 @@ fn cloud_hypervisor_child_main(
 	command
 		.args(command_args)
 		.stdin(std::process::Stdio::null())
-		.stdout(std::process::Stdio::inherit())
-		.stderr(std::process::Stdio::inherit());
+		.stdout(stdout)
+		.stderr(stderr);
 	let error = command.exec();
 	Err(tg::error!(!error, "failed to execute cloud-hypervisor"))
 }
@@ -1175,14 +1212,15 @@ fn build_cloud_hypervisor_mount_arg(
 	}
 }
 
-fn ch_remote_run(bin: &Path, api_socket: &Path, args: &[&str]) -> tg::Result<()> {
+fn ch_remote_run(bin: &Path, api_socket: &Path, log_path: &Path, args: &[&str]) -> tg::Result<()> {
 	let socket_arg = format!("--api-socket={}", api_socket.display());
+	let (stdout, stderr) = log_stdio(log_path)?;
 	let status = std::process::Command::new(bin)
 		.arg(&socket_arg)
 		.args(args)
 		.stdin(std::process::Stdio::null())
-		.stdout(std::process::Stdio::inherit())
-		.stderr(std::process::Stdio::inherit())
+		.stdout(stdout)
+		.stderr(stderr)
 		.status()
 		.map_err(|error| tg::error!(!error, "failed to invoke ch-remote"))?;
 	if !status.success() {
@@ -1193,6 +1231,20 @@ fn ch_remote_run(bin: &Path, api_socket: &Path, args: &[&str]) -> tg::Result<()>
 		));
 	}
 	Ok(())
+}
+
+fn log_stdio(log_path: &Path) -> tg::Result<(std::process::Stdio, std::process::Stdio)> {
+	let file = std::fs::OpenOptions::new()
+		.create(true)
+		.append(true)
+		.open(log_path)
+		.map_err(
+			|error| tg::error!(!error, path = %log_path.display(), "failed to open the log file"),
+		)?;
+	let stderr = file.try_clone().map_err(
+		|error| tg::error!(!error, path = %log_path.display(), "failed to clone the log file"),
+	)?;
+	Ok((file.into(), stderr.into()))
 }
 
 fn copy_directory(src: &Path, dst: &Path) -> tg::Result<()> {

@@ -112,7 +112,7 @@ impl Session {
 						.isolation
 						.vm
 						.as_ref()
-						.ok_or_else(|| tg::error!("no vm image configured"))?;
+						.ok_or_else(|| tg::error!("missing vm configuration"))?;
 					let kernel_path = vm.kernel_path.clone();
 					let image_path = self.server.sandbox_vm_image.clone().ok_or_else(|| {
 						tg::error!(
