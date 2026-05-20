@@ -105,6 +105,7 @@ impl Cli {
 						force: args.force,
 						item: item.clone(),
 						location: location.clone().map(Into::into),
+						public: false,
 						replicate: false,
 						tag: None,
 					};

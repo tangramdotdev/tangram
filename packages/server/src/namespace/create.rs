@@ -13,31 +13,14 @@ mod postgres;
 mod sqlite;
 
 impl Session {
-	pub(crate) async fn create_namespace(&self, namespace: &tg::Namespace) -> tg::Result<()> {
+	pub(crate) async fn create_namespace(&self, arg: tg::namespace::create::Arg) -> tg::Result<()> {
+		let namespace = &arg.namespace;
 		let created_by = self
 			.context
 			.authentication
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
-		match Self::parent_namespace(namespace) {
-			Some(parent) => {
-				if self
-					.context
-					.authentication
-					.as_ref()
-					.is_some_and(Authentication::is_process)
-				{
-					return Err(tg::error!("unauthorized"));
-				}
-				self.authorize_namespace(&parent, tg::Permission::Write)
-					.await?;
-			},
-			None => match &self.context.authentication {
-				Some(Authentication::Root | Authentication::User(_)) => {},
-				_ => return Err(tg::error!("unauthorized")),
-			},
-		}
 		let mut connection = self
 			.server
 			.database
@@ -48,15 +31,14 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let namespace_id =
-			Self::get_or_create_namespace_with_transaction(&transaction, namespace).await?;
-		if let Some(user) = created_by.as_ref() {
-			Self::create_namespace_grant_for_user_with_transaction(
+		let namespace_id = self
+			.create_namespace_with_transaction(&transaction, namespace, created_by.as_ref())
+			.await?;
+		if arg.public {
+			Self::create_namespace_grant_for_public_with_transaction(
 				&transaction,
 				namespace,
 				namespace_id,
-				user,
-				tg::Permission::Admin,
 				created_by.as_ref(),
 			)
 			.await?;
@@ -66,6 +48,116 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(())
+	}
+
+	async fn create_namespace_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		namespace: &tg::Namespace,
+		created_by: Option<&tg::user::Id>,
+	) -> tg::Result<i64> {
+		if namespace.is_root() {
+			return Ok(0);
+		}
+
+		if self
+			.context
+			.authentication
+			.as_ref()
+			.is_some_and(Authentication::is_process)
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+
+		let mut components = Vec::new();
+		let mut parent_created = false;
+		let mut namespace_id = 0;
+		let mut target_created = false;
+		for component in namespace.components() {
+			components.push(component.to_owned());
+			let current = tg::Namespace::with_components(components.clone());
+			if let Some(current_id) =
+				Self::try_get_namespace_id_with_transaction(transaction, &current).await?
+			{
+				namespace_id = current_id;
+				parent_created = false;
+				continue;
+			}
+			if Self::namespace_path_has_tag_with_transaction(transaction, &current).await? {
+				return Err(tg::error!("a tag exists at the namespace path"));
+			}
+			if components.len() == 1 {
+				match &self.context.authentication {
+					Some(Authentication::Root | Authentication::User(_)) => {},
+					_ => return Err(tg::error!("unauthorized")),
+				}
+			} else if !parent_created {
+				let parent = tg::Namespace::with_components(
+					components[..components.len() - 1].iter().cloned(),
+				);
+				match &self.context.authentication {
+					Some(Authentication::Root) => {},
+					Some(Authentication::User(user))
+						if Self::user_has_namespace_permission_with_transaction(
+							transaction,
+							&user.id,
+							&parent,
+							tg::Permission::Write,
+						)
+						.await? => {},
+					_ => return Err(tg::error!("unauthorized")),
+				}
+			}
+			namespace_id =
+				Self::get_or_create_namespace_with_transaction(transaction, &current).await?;
+			if let Some(user) = created_by {
+				Self::create_namespace_grant_for_user_with_transaction(
+					transaction,
+					&current,
+					namespace_id,
+					user,
+					tg::Permission::Admin,
+					created_by,
+				)
+				.await?;
+			}
+			if current == *namespace {
+				target_created = true;
+			}
+			parent_created = true;
+		}
+
+		if !target_created {
+			match (
+				&self.context.authentication,
+				Self::parent_namespace(namespace),
+			) {
+				(Some(Authentication::Root), _) => {},
+				(Some(Authentication::User(user)), Some(parent))
+					if Self::user_has_namespace_permission_with_transaction(
+						transaction,
+						&user.id,
+						&parent,
+						tg::Permission::Write,
+					)
+					.await? => {},
+				(Some(Authentication::User(user)), None)
+					if Self::user_has_namespace_permission_with_transaction(
+						transaction,
+						&user.id,
+						namespace,
+						tg::Permission::Write,
+					)
+					.await? => {},
+				_ => return Err(tg::error!("unauthorized")),
+			}
+		}
+
+		if namespace_id == 0 {
+			return Err(tg::error!("failed to create the namespace"));
+		}
+
+		Ok(namespace_id)
 	}
 
 	pub(crate) async fn create_namespace_request(
@@ -80,7 +172,7 @@ impl Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		self.create_namespace(&arg.namespace).await.map_err(
+		self.create_namespace(arg.clone()).await.map_err(
 			|error| tg::error!(!error, namespace = %arg.namespace, "failed to create the namespace"),
 		)?;
 		match accept

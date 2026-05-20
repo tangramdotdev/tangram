@@ -41,7 +41,7 @@ pub use {
 		referent::Referent,
 		session::Session,
 		symlink::Handle as Symlink,
-		tag::Tag,
+		tag::{Grant as TagGrant, Tag},
 		template::Template,
 		user::User,
 		value::Value,

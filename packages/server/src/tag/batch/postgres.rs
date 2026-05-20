@@ -9,6 +9,8 @@ impl Session {
 		&self,
 		database: &db::postgres::Database,
 		arg: &tg::tag::batch::Arg,
+		created_by: Option<&tg::user::Id>,
+		grant_creator_admin: &[bool],
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = database
@@ -22,17 +24,26 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
-		for tg::tag::batch::Item { tag, item, force } in &arg.tags {
+		for (tg::tag::batch::Item { tag, item, force }, grant_creator_admin) in
+			arg.tags.iter().zip(grant_creator_admin)
+		{
 			let arg = tg::tag::put::Arg {
 				force: *force,
 				item: item.clone(),
 				location: None,
+				public: false,
 				replicate: false,
 				tag: None,
 			};
-			Self::put_tag_postgres_inner(&mut transaction, tag, &arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to perform the transaction"))?;
+			Self::put_tag_postgres_inner(
+				&mut transaction,
+				tag,
+				&arg,
+				created_by,
+				*grant_creator_admin,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to perform the transaction"))?;
 		}
 
 		// Commit the transaction.

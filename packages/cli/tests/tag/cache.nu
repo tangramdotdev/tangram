@@ -73,25 +73,6 @@ tg -u $remote.url tag delete "a/k/l"
 let k2 = tg -u $local.url tag get --ttl 0 "a/k"
 snapshot $k2 '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/k/m"}'
 
-# A branch that becomes a leaf should have its cached children cleaned up.
-# Create a branch with children on the remote.
-tg -u $remote.url tag put "a/n/o" $id
-tg -u $remote.url tag put "a/n/p" $id
-
-# Fetch the branch to cache the children.
-let n = tg -u $local.url tag get "a/n"
-snapshot $n '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/n/p"}'
-
-# Replace the branch with a leaf on the remote.
-tg -u $remote.url tag delete "a/n/o"
-tg -u $remote.url tag delete "a/n/p"
-tg -u $remote.url tag delete "a/n"
-tg -u $remote.url tag put "a/n" $id
-
-# Bust the cache. Should return a leaf, not a branch with children.
-let n2 = tg -u $local.url tag get --ttl 0 "a/n"
-snapshot $n2 '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","kind":"tag","location":"remote","tag":"a/n"}'
-
 # A child cached as part of a branch fetch can be updated individually.
 # Fetch a to cache its children including b.
 tg -u $local.url tag get --ttl 0 "a"

@@ -12,7 +12,10 @@ impl tg::handle::Namespace for Server {
 
 	async fn create_namespace(&self, namespace: &tg::Namespace) -> tg::Result<()> {
 		self.session(&self.context)
-			.create_namespace(namespace)
+			.create_namespace(tg::namespace::create::Arg {
+				namespace: namespace.clone(),
+				public: false,
+			})
 			.await
 	}
 

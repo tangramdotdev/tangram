@@ -1,7 +1,6 @@
 use {
 	crate::{Database, Session, context::Authentication},
 	futures::TryStreamExt as _,
-	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -55,22 +54,38 @@ impl Session {
 
 	async fn post_tag_batch_local(&self, arg: &tg::tag::batch::Arg) -> tg::Result<()> {
 		// Authorize.
-		self.authorize_tag_batch(arg).await?;
+		let grant_creator_admin = self.authorize_tag_batch(arg).await?;
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.clone());
 
 		// Insert the tags into the database unless this is a replicated request.
 		if !arg.replicate {
 			match &self.server.database {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => {
-					self.post_tag_batch_postgres(database, arg)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
+					self.post_tag_batch_postgres(
+						database,
+						arg,
+						created_by.as_ref(),
+						&grant_creator_admin,
+					)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
 				},
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => {
-					self.post_tag_batch_sqlite(database, arg)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
+					self.post_tag_batch_sqlite(
+						database,
+						arg,
+						created_by.as_ref(),
+						&grant_creator_admin,
+					)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
 				},
 			}
 		}
@@ -122,41 +137,29 @@ impl Session {
 		Ok(())
 	}
 
-	async fn authorize_tag_batch(&self, arg: &tg::tag::batch::Arg) -> tg::Result<()> {
-		let user = match &self.context.authentication {
-			Some(Authentication::Root) => return Ok(()),
-			Some(Authentication::User(user)) => user,
-			_ => return Err(tg::error!("unauthorized")),
-		};
-
-		let namespaces = arg
-			.tags
-			.iter()
-			.map(|item| item.tag.namespace.clone())
-			.collect::<BTreeSet<_>>();
+	async fn authorize_tag_batch(&self, arg: &tg::tag::batch::Arg) -> tg::Result<Vec<bool>> {
 		let mut connection = self
 			.server
 			.database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let transaction = connection
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		for namespace in namespaces {
-			if !Self::user_has_namespace_permission_with_transaction(
-				&transaction,
-				&user.id,
-				&namespace,
-				tg::Permission::Write,
-			)
-			.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
+		let mut grant_creator_admin = Vec::with_capacity(arg.tags.len());
+		for item in &arg.tags {
+			grant_creator_admin.push(
+				self.authorize_put_tag_with_transaction(&transaction, &item.tag)
+					.await?,
+			);
 		}
-		Ok(())
+		transaction
+			.commit()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+		Ok(grant_creator_admin)
 	}
 
 	async fn post_tag_batch_region(

@@ -50,6 +50,17 @@ impl Session {
 				.execute(statement, &[&namespace_id, &m.tag.name.to_string()])
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let statement = indoc!(
+				"
+					delete from tag_grants
+					where namespace = $1 and name = $2 ;
+				"
+			);
+			transaction
+				.inner()
+				.execute(statement, &[&namespace_id, &m.tag.name.to_string()])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			deleted.push(m.tag);
 		}
 		transaction

@@ -1,7 +1,8 @@
 use {
-	crate::{Session, context::Authentication, database::Database},
+	crate::{Session, context::Authentication, database::Database, database::Transaction},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
+	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -55,21 +56,20 @@ impl Session {
 
 	async fn try_put_tag_local(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		// Authorize.
-		self.authorize_namespace(&tag.namespace, tg::Permission::Write)
-			.await?;
+		let grant_creator_admin = self.authorize_put_tag(tag).await?;
 
 		// Insert the tag into the database unless this is a replicated request.
 		if !arg.replicate {
 			match &self.server.database {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => {
-					self.put_tag_postgres(database, tag, &arg)
+					self.put_tag_postgres(database, tag, &arg, grant_creator_admin)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
 				},
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => {
-					self.put_tag_sqlite(database, tag, &arg)
+					self.put_tag_sqlite(database, tag, &arg, grant_creator_admin)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
 				},
@@ -115,6 +115,157 @@ impl Session {
 			}
 		}
 
+		Ok(())
+	}
+
+	pub(super) async fn authorize_put_tag(&self, tag: &tg::Tag) -> tg::Result<bool> {
+		let mut connection = self
+			.server
+			.database
+			.write_connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let grant_creator_admin = self
+			.authorize_put_tag_with_transaction(&transaction, tag)
+			.await?;
+		transaction
+			.commit()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+		Ok(grant_creator_admin)
+	}
+
+	pub(super) async fn authorize_put_tag_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		tag: &tg::Tag,
+	) -> tg::Result<bool> {
+		if Self::try_get_tag_namespace_id_with_transaction(transaction, tag)
+			.await?
+			.is_some()
+		{
+			match &self.context.authentication {
+				Some(Authentication::Root) => return Ok(false),
+				Some(Authentication::User(user))
+					if Self::user_has_tag_permission_with_transaction(
+						transaction,
+						&user.id,
+						tag,
+						tg::Permission::Write,
+					)
+					.await? =>
+				{
+					return Ok(false);
+				},
+				_ => {},
+			}
+			return Err(tg::error!("unauthorized"));
+		}
+
+		if Self::try_get_namespace_id_with_transaction(transaction, &tag_to_namespace(tag))
+			.await?
+			.is_some()
+		{
+			return Err(tg::error!("a namespace exists at the tag path"));
+		}
+
+		if tag.namespace.is_root() {
+			return match &self.context.authentication {
+				Some(Authentication::Root | Authentication::User(_)) => Ok(true),
+				_ => Err(tg::error!("unauthorized")),
+			};
+		}
+
+		if Self::try_get_namespace_id_with_transaction(transaction, &tag.namespace)
+			.await?
+			.is_some()
+		{
+			match &self.context.authentication {
+				Some(Authentication::Root) => Ok(true),
+				Some(Authentication::User(user)) => {
+					if Self::user_has_namespace_permission_with_transaction(
+						transaction,
+						&user.id,
+						&tag.namespace,
+						tg::Permission::Write,
+					)
+					.await?
+					{
+						Ok(true)
+					} else {
+						Err(tg::error!("unauthorized"))
+					}
+				},
+				_ => Err(tg::error!("unauthorized")),
+			}
+		} else {
+			self.create_missing_tag_parent_namespaces_with_transaction(transaction, &tag.namespace)
+				.await?;
+			Ok(true)
+		}
+	}
+
+	async fn create_missing_tag_parent_namespaces_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		namespace: &tg::Namespace,
+	) -> tg::Result<()> {
+		let user = match &self.context.authentication {
+			Some(Authentication::Root) => None,
+			Some(Authentication::User(user)) => Some(user.id.clone()),
+			_ => return Err(tg::error!("unauthorized")),
+		};
+		let mut components = Vec::new();
+		let mut parent_created = false;
+		for component in namespace.components() {
+			components.push(component.to_owned());
+			let current = tg::Namespace::with_components(components.clone());
+			if Self::try_get_namespace_id_with_transaction(transaction, &current)
+				.await?
+				.is_some()
+			{
+				parent_created = false;
+				continue;
+			}
+			if Self::namespace_path_has_tag_with_transaction(transaction, &current).await? {
+				return Err(tg::error!("a tag exists at the namespace path"));
+			}
+			if components.len() > 1 && !parent_created {
+				let parent = tg::Namespace::with_components(
+					components[..components.len() - 1].iter().cloned(),
+				);
+				match &self.context.authentication {
+					Some(Authentication::Root) => {},
+					Some(Authentication::User(user))
+						if Self::user_has_namespace_permission_with_transaction(
+							transaction,
+							&user.id,
+							&parent,
+							tg::Permission::Write,
+						)
+						.await? => {},
+					_ => return Err(tg::error!("unauthorized")),
+				}
+			}
+			let namespace_id =
+				Self::get_or_create_namespace_with_transaction(transaction, &current).await?;
+			if let Some(user) = user.as_ref() {
+				Self::create_namespace_grant_for_user_with_transaction(
+					transaction,
+					&current,
+					namespace_id,
+					user,
+					tg::Permission::Admin,
+					Some(user),
+				)
+				.await?;
+			}
+			parent_created = true;
+		}
 		Ok(())
 	}
 
@@ -197,4 +348,8 @@ impl Session {
 		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}
+}
+
+fn tag_to_namespace(tag: &tg::Tag) -> tg::Namespace {
+	tg::Namespace::with_components(tag.components().map(ToOwned::to_owned))
 }

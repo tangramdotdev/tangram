@@ -35,6 +35,13 @@ tg --token $alice namespace get project
 tg --token $alice namespace grants list project
 tg --token $alice namespace create project/pkg
 
+tg --token $alice namespace create nested/claimed
+tg --token $alice namespace get nested
+tg --token $alice namespace get nested/claimed
+
+let output = tg --token $bob namespace create nested/bob | complete
+assert_unauthorized $output "Bob should not be able to create a child namespace in Alice's auto-created namespace."
+
 let output = tg --token $bob namespace create project/bob | complete
 assert_unauthorized $output "Bob should not be able to create a child namespace without write permission on Alice's claimed namespace."
 
@@ -42,8 +49,85 @@ let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg namespace create anonymous | complete }
 assert_unauthorized $output "An anonymous user should not be able to claim a top-level namespace."
 
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg namespace create anonymous/nested | complete }
+assert_unauthorized $output "An anonymous user should not be able to claim a nested namespace."
+
 let path = artifact 'test'
 let id = tg --token $alice checkin $path
+
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg namespace get project | complete }
+assert_unauthorized $output "An anonymous user should not be able to get a private claimed namespace."
+
+tg --token $alice namespace create --public public
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg namespace get public | complete }
+success $output "An anonymous user should be able to get a public namespace."
+
+tg --token $alice namespace create tag-public
+tg --token $alice tag --public tag-public/pkg $id
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg tag get tag-public/pkg | complete }
+success $output "An anonymous user should be able to get a tag with a public tag grant."
+
+tg --token $alice tag --public top-level $id
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg tag get top-level | complete }
+success $output "An anonymous user should be able to get a top-level tag with a public tag grant."
+
+let output = tg --token $alice namespace create top-level | complete
+failure $output "A namespace should not be created at the same path as a tag."
+assert ($output.stderr | str contains "a tag exists at the namespace path") "The error should mention that a tag exists at the namespace path."
+
+let output = tg --token $alice tag project $id | complete
+failure $output "A tag should not be created at the same path as a namespace."
+assert ($output.stderr | str contains "a namespace exists at the tag path") "The error should mention that a namespace exists at the tag path."
+
+tg --token $alice tag auto-created/pkg $id
+tg --token $alice namespace get auto-created
+tg --token $alice namespace grants list auto-created
+
+let output = tg --token $bob tag auto-created/sibling $id | complete
+assert_unauthorized $output "Bob should not be able to put a tag in Alice's auto-created namespace."
+
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg tag anonymous/pkg $id | complete }
+assert_unauthorized $output "An anonymous user should not be able to create a namespace by putting a tag."
+
+tg --token $alice namespace create tag-private
+tg --token $alice tag tag-private/pkg $id
+tg --token $alice tag tag-private/sibling $id
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg tag get tag-private/pkg | complete }
+failure $output "An anonymous user should not be able to get a tag in a private namespace."
+assert ($output.stderr | str contains "no tag was found") "The private tag should not be visible without public read."
+
+tg --token $alice tag grants add tag-private/pkg write --user bob
+tg --token $bob tag get tag-private/pkg
+tg --token $bob tag tag-private/pkg $id
+
+let output = tg --token $bob tag tag-private/sibling $id | complete
+assert_unauthorized $output "A tag grant should not grant write access to sibling tags."
+
+let output = tg --token $bob tag grants list tag-private/pkg | complete
+assert_unauthorized $output "A write tag grant should not allow Bob to inspect tag grants."
+
+tg --token $alice tag grants add tag-private/pkg admin --user bob
+tg --token $bob tag grants add tag-private/pkg read --user carol
+tg --token $carol tag get tag-private/pkg
+
+let output = tg --token $bob tag grants add tag-private/sibling read --user carol | complete
+assert_unauthorized $output "A tag admin grant should not allow Bob to manage sibling tag grants."
+
+tg --token $alice namespace create exact-public
+tg --token $alice tag --public exact-public/pkg $id
+tg --token $alice tag exact-public/sibling $id
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-namespaces --recursive exact-public | complete }
+success $output "An anonymous user should be able to list tags with exact public grants."
+assert ($output.stdout | str contains "exact-public/pkg") "The public tag should be visible without a token."
+assert (not ($output.stdout | str contains "exact-public/sibling")) "A public tag grant should not expose sibling tags."
 
 tg --token $alice namespace create alice/project
 tg --token $alice namespace get alice/project

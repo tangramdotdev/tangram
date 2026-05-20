@@ -78,6 +78,18 @@ impl Session {
 					sqlite::params![namespace_id, m.tag.name.to_string()],
 				)
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let statement = indoc!(
+				"
+					delete from tag_grants
+					where namespace = ?1 and name = ?2 ;
+				"
+			);
+			transaction
+				.execute(
+					statement,
+					sqlite::params![namespace_id, m.tag.name.to_string()],
+				)
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			deleted.push(m.tag);
 		}
 

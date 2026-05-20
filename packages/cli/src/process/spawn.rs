@@ -433,6 +433,7 @@ impl Cli {
 				force: false,
 				item,
 				location: location.clone(),
+				public: false,
 				replicate: false,
 				tag: None,
 			};

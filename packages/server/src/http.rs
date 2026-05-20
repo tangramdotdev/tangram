@@ -686,6 +686,15 @@ impl Server {
 			(http::Method::POST, ["tags", "batch"]) => {
 				session.post_tag_batch_request(request).boxed()
 			},
+			(http::Method::GET, ["tags", "grants"]) => {
+				session.list_tag_grants_request(request).boxed()
+			},
+			(http::Method::PUT, ["tags", "grants"]) => {
+				session.create_tag_grant_request(request).boxed()
+			},
+			(http::Method::DELETE, ["tags", "grants"]) => {
+				session.delete_tag_grant_request(request).boxed()
+			},
 			(http::Method::PUT, ["tags"]) => session.put_tag_request(request).boxed(),
 			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
 

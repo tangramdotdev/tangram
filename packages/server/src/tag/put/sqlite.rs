@@ -12,7 +12,14 @@ impl Session {
 		database: &db::sqlite::Database,
 		tag: &tg::Tag,
 		arg: &tg::tag::put::Arg,
+		grant_creator_admin: bool,
 	) -> tg::Result<()> {
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.clone());
 		let connection = database
 			.write_connection()
 			.await
@@ -22,11 +29,19 @@ impl Session {
 			.with({
 				let tag = tag.clone();
 				let arg = arg.clone();
+				let created_by = created_by.clone();
 				move |connection, cache| {
 					let transaction = connection
 						.transaction()
 						.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-					Self::put_tag_sqlite_sync(&transaction, cache, &tag, &arg)?;
+					Self::put_tag_sqlite_sync(
+						&transaction,
+						cache,
+						&tag,
+						&arg,
+						created_by.as_ref(),
+						grant_creator_admin,
+					)?;
 					transaction
 						.commit()
 						.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
@@ -43,6 +58,8 @@ impl Session {
 		_cache: &db::sqlite::Cache,
 		tag: &tg::Tag,
 		arg: &tg::tag::put::Arg,
+		created_by: Option<&tg::user::Id>,
+		grant_creator_admin: bool,
 	) -> tg::Result<()> {
 		if tag.is_empty() {
 			return Err(tg::error!("cannot put an empty tag"));
@@ -63,6 +80,52 @@ impl Session {
 				sqlite::params![namespace, tag.name.to_string(), arg.item.to_string()],
 			)
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		if grant_creator_admin && let Some(user) = created_by {
+			let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+			let statement = indoc!(
+				r#"
+					insert into tag_grants (namespace, name, "user", permission, created_at, created_by)
+					select ?1, ?2, ?3, 'admin', ?4, ?3
+					where not exists (
+						select 1
+						from tag_grants
+						where namespace = ?1 and name = ?2 and "user" = ?3 and permission = 'admin'
+					);
+				"#
+			);
+			transaction
+				.execute(
+					statement,
+					sqlite::params![
+						namespace,
+						tag.name.to_string(),
+						user.to_string(),
+						created_at
+					],
+				)
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		}
+		if arg.public && !arg.replicate {
+			let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+			let created_by = created_by.map(ToString::to_string);
+			let statement = indoc!(
+				r#"
+					insert into tag_grants (namespace, name, "public", permission, created_at, created_by)
+					select ?1, ?2, true, 'read', ?3, ?4
+					where not exists (
+						select 1
+						from tag_grants
+						where namespace = ?1 and name = ?2 and "public" and permission = 'read'
+					);
+				"#
+			);
+			transaction
+				.execute(
+					statement,
+					sqlite::params![namespace, tag.name.to_string(), created_at, created_by],
+				)
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		}
 
 		Ok(())
 	}

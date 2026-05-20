@@ -9,6 +9,8 @@ impl Session {
 		&self,
 		database: &db::sqlite::Database,
 		arg: &tg::tag::batch::Arg,
+		created_by: Option<&tg::user::Id>,
+		grant_creator_admin: &[bool],
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let connection = database
@@ -19,6 +21,8 @@ impl Session {
 		connection
 			.with({
 				let arg = arg.clone();
+				let created_by = created_by.cloned();
+				let grant_creator_admin = grant_creator_admin.to_vec();
 				move |connection, cache| {
 					// Begin a transaction.
 					let transaction = connection
@@ -26,16 +30,26 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 					// Insert the tags.
-					for tg::tag::batch::Item { tag, item, force } in &arg.tags {
+					for (tg::tag::batch::Item { tag, item, force }, grant_creator_admin) in
+						arg.tags.iter().zip(&grant_creator_admin)
+					{
 						let arg = tg::tag::put::Arg {
 							force: *force,
 							item: item.clone(),
 							location: None,
+							public: false,
 							replicate: false,
 							tag: None,
 						};
-						Self::put_tag_sqlite_sync(&transaction, cache, tag, &arg)
-							.map_err(|error| tg::error!(!error, %tag, "failed to put tag"))?;
+						Self::put_tag_sqlite_sync(
+							&transaction,
+							cache,
+							tag,
+							&arg,
+							created_by.as_ref(),
+							*grant_creator_admin,
+						)
+						.map_err(|error| tg::error!(!error, %tag, "failed to put tag"))?;
 					}
 					// Commit the transaction.
 					transaction

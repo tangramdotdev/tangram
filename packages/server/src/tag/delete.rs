@@ -179,10 +179,10 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		for tag in tags {
-			if !Self::user_has_namespace_permission_with_transaction(
+			if !Self::user_has_tag_permission_with_transaction(
 				&transaction,
 				&user.id,
-				&tag.namespace,
+				&tag,
 				tg::Permission::Write,
 			)
 			.await?

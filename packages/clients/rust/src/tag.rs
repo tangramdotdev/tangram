@@ -2,6 +2,7 @@ use crate::prelude::*;
 
 pub mod batch;
 pub mod delete;
+pub mod grants;
 pub mod put;
 
 #[derive(
@@ -28,6 +29,26 @@ pub struct Tag {
 )]
 #[tangram_serialize(display, from_str)]
 pub struct Name(String);
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Grant {
+	pub tag: tg::Tag,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub user: Option<tg::user::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub group: Option<tg::group::Id>,
+
+	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
+	pub public: bool,
+
+	pub permission: tg::Permission,
+	pub created_at: i64,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub created_by: Option<tg::user::Id>,
+}
 
 impl Tag {
 	#[must_use]

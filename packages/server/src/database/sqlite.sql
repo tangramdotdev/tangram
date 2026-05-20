@@ -94,6 +94,43 @@ create table tags (
 	primary key (namespace, name)
 );
 
+create table tag_grants (
+	namespace integer not null default 0,
+	name text not null,
+	"user" text,
+	"group" text,
+	"public" integer not null default 0,
+	permission text not null,
+	created_at integer not null,
+	created_by text,
+	check (
+		("user" is not null and "group" is null and not "public")
+		or ("user" is null and "group" is not null and not "public")
+		or ("user" is null and "group" is null and "public")
+	),
+	check (not "public" or permission = 'read')
+);
+
+create unique index tag_grants_user_index
+	on tag_grants (namespace, name, "user", permission)
+	where "user" is not null;
+
+create unique index tag_grants_group_index
+	on tag_grants (namespace, name, "group", permission)
+	where "group" is not null;
+
+create unique index tag_grants_public_index
+	on tag_grants (namespace, name, permission)
+	where "public";
+
+create index tag_grants_user_lookup_index
+	on tag_grants ("user", namespace, name, permission)
+	where "user" is not null;
+
+create index tag_grants_group_lookup_index
+	on tag_grants ("group", namespace, name, permission)
+	where "group" is not null;
+
 create table list_cache (
 	arg text not null,
 	output text not null,
