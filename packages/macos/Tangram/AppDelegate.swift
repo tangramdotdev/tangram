@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 	}
 
 	private var tangramExecutable: URL {
-		Bundle.main.bundleURL.appending(path: "Contents/MacOS/tangram").standardizedFileURL
+		Bundle.main.bundleURL.appending(path: "Contents/Helpers/tangram").standardizedFileURL
 	}
 
 	func applicationDidFinishLaunching(_ notification: Notification) {

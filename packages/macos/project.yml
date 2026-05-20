@@ -35,12 +35,12 @@ targets:
       configs:
         Debug:
           PRODUCT_NAME: Tangram Dev
-          EXECUTABLE_NAME: TangramApp
+          EXECUTABLE_NAME: Tangram
           PRODUCT_BUNDLE_IDENTIFIER: dev.tangram.Tangram.dev
           CODE_SIGN_IDENTITY: "-"
         Release:
           PRODUCT_NAME: Tangram
-          EXECUTABLE_NAME: TangramApp
+          EXECUTABLE_NAME: Tangram
           PRODUCT_BUNDLE_IDENTIFIER: dev.tangram.Tangram
           CODE_SIGN_IDENTITY: "-"
 schemes:
