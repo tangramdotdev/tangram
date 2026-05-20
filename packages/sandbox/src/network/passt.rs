@@ -82,11 +82,9 @@ impl Device {
 			.arg("-g")
 			.arg(host_ip.to_string());
 		append_port_args(&mut command, ports)?;
-		if !dns.is_empty() {
-			command.arg("--dns-forward").arg(host_ip.to_string());
-			for dns_host in dns {
-				command.arg("--dns-host").arg(dns_host.to_string());
-			}
+		command.arg("--dns-forward").arg(host_ip.to_string());
+		for dns_host in dns {
+			command.arg("--dns-host").arg(dns_host.to_string());
 		}
 		let mut child = command
 			.spawn()

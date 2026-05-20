@@ -111,11 +111,9 @@ impl Network {
 			.arg("--pid")
 			.arg(&self.pid_file)
 			.arg("--quiet");
-		if !self.dns.is_empty() {
-			command.arg("--dns-forward").arg(DNS_FORWARD_IP);
-			for dns_host in &self.dns {
-				command.arg("--dns-host").arg(dns_host.to_string());
-			}
+		command.arg("--dns-forward").arg(DNS_FORWARD_IP);
+		for dns_host in &self.dns {
+			command.arg("--dns-host").arg(dns_host.to_string());
 		}
 		if let Some(interface) = &self.interface {
 			command.arg("-i").arg(interface);
