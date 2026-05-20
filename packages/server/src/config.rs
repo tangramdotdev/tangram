@@ -9,47 +9,50 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub advanced: Advanced,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub authentication: Option<Authentication>,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: Checkin,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub cleaner: Option<Cleaner>,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub database: Database,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_http")]
+	#[serde(default = "default_http", skip_serializing_if = "is_default_http")]
 	pub http: Option<Http>,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub index: Index,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_indexer")]
+	#[serde(
+		default = "default_indexer",
+		skip_serializing_if = "is_default_indexer"
+	)]
 	pub indexer: Option<Indexer>,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub logs: Logs,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub messenger: Messenger,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub object: Object,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub process: Process,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -62,31 +65,34 @@ pub struct Config {
 	pub remotes: Option<BTreeMap<String, Remote>>,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_runner")]
+	#[serde(default = "default_runner", skip_serializing_if = "is_default_runner")]
 	pub runner: Option<Runner>,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub sandbox: Sandbox,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub sync: Sync,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub vfs: Option<Vfs>,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_watch")]
+	#[serde(default = "default_watch", skip_serializing_if = "is_default_watch")]
 	pub watch: Option<Watch>,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_watchdog")]
+	#[serde(
+		default = "default_watchdog",
+		skip_serializing_if = "is_default_watchdog"
+	)]
 	pub watchdog: Option<Watchdog>,
 
-	#[serde(default)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub write: Write,
 }
 
@@ -185,6 +191,14 @@ pub enum Database {
 	Sqlite(SqliteDatabase),
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PostgresDatabase {
+	pub pool: DatabasePool,
+
+	pub url: Uri,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -202,28 +216,10 @@ pub struct DatabasePool {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct PostgresDatabase {
-	pub pool: DatabasePool,
-
-	pub url: Uri,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
 pub struct SqliteDatabase {
-	pub pool: DatabasePool,
-
 	pub path: PathBuf,
-}
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Finalizer {
-	pub message_batch_size: usize,
-
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub message_batch_timeout: Duration,
+	pub pool: DatabasePool,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -459,27 +455,28 @@ pub struct Process {
 	pub time_to_touch: Duration,
 }
 
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Finalizer {
+	pub message_batch_size: usize,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub message_batch_timeout: Duration,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Region {
 	pub name: String,
-
-	pub url: Uri,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub reconnect: Option<Reconnect>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
-}
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Remote {
 	pub url: Uri,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<String>,
 }
 
 #[serde_as]
@@ -512,6 +509,15 @@ pub struct Retry {
 	pub max_delay: Duration,
 
 	pub max_retries: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Remote {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+
+	pub url: Uri,
 }
 
 #[serde_as]
@@ -569,16 +575,20 @@ pub struct Sandbox {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SandboxIsolation {
+	pub container: Option<ContainerSandboxIsolation>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default: Option<SandboxIsolationDefault>,
-
-	pub container: Option<ContainerSandboxIsolation>,
 
 	pub seatbelt: Option<SeatbeltSandboxIsolation>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub vm: Option<VmSandboxIsolation>,
 }
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ContainerSandboxIsolation {}
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -587,10 +597,6 @@ pub enum SandboxIsolationDefault {
 	Seatbelt,
 	Vm,
 }
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ContainerSandboxIsolation {}
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -961,6 +967,12 @@ impl Default for Cleaner {
 	}
 }
 
+impl Default for Database {
+	fn default() -> Self {
+		Self::Sqlite(SqliteDatabase::default())
+	}
+}
+
 impl Default for PostgresDatabase {
 	fn default() -> Self {
 		Self {
@@ -973,24 +985,15 @@ impl Default for PostgresDatabase {
 impl Default for SqliteDatabase {
 	fn default() -> Self {
 		Self {
-			pool: DatabasePool::default(),
 			path: PathBuf::from("database"),
+			pool: DatabasePool::default(),
 		}
 	}
 }
 
-impl Default for Database {
+impl Default for Index {
 	fn default() -> Self {
-		Self::Sqlite(SqliteDatabase::default())
-	}
-}
-
-impl Default for Finalizer {
-	fn default() -> Self {
-		Self {
-			message_batch_size: 1024,
-			message_batch_timeout: Duration::from_millis(100),
-		}
+		Self::Lmdb(LmdbIndex::default())
 	}
 }
 
@@ -1013,12 +1016,6 @@ impl Default for LmdbIndex {
 			max_items_per_transaction: 8_000,
 			path: PathBuf::from("index"),
 		}
-	}
-}
-
-impl Default for Index {
-	fn default() -> Self {
-		Self::Lmdb(LmdbIndex::default())
 	}
 }
 
@@ -1112,6 +1109,15 @@ impl Default for Process {
 	}
 }
 
+impl Default for Finalizer {
+	fn default() -> Self {
+		Self {
+			message_batch_size: 1024,
+			message_batch_timeout: Duration::from_millis(100),
+		}
+	}
+}
+
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
@@ -1138,22 +1144,22 @@ impl Default for SandboxIsolation {
 	fn default() -> Self {
 		if cfg!(target_os = "linux") {
 			Self {
-				default: None,
 				container: Some(ContainerSandboxIsolation {}),
+				default: None,
 				seatbelt: None,
 				vm: None,
 			}
 		} else if cfg!(target_os = "macos") {
 			Self {
-				default: None,
 				container: None,
+				default: None,
 				seatbelt: Some(SeatbeltSandboxIsolation {}),
 				vm: None,
 			}
 		} else {
 			Self {
-				default: None,
 				container: None,
+				default: None,
 				seatbelt: None,
 				vm: None,
 			}
@@ -1423,4 +1429,43 @@ fn default_watch() -> Option<Watch> {
 #[expect(clippy::unnecessary_wraps)]
 fn default_watchdog() -> Option<Watchdog> {
 	Some(Watchdog::default())
+}
+
+fn is_default<T>(value: &T) -> bool
+where
+	T: Default + serde::Serialize,
+{
+	is_serialized_default(value, T::default())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_http(value: &Option<Http>) -> bool {
+	is_serialized_default(value, default_http())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_indexer(value: &Option<Indexer>) -> bool {
+	is_serialized_default(value, default_indexer())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_runner(value: &Option<Runner>) -> bool {
+	is_serialized_default(value, default_runner())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_watch(value: &Option<Watch>) -> bool {
+	is_serialized_default(value, default_watch())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_watchdog(value: &Option<Watchdog>) -> bool {
+	is_serialized_default(value, default_watchdog())
+}
+
+fn is_serialized_default<T>(value: &T, default: T) -> bool
+where
+	T: serde::Serialize,
+{
+	serde_json::to_value(value).ok() == serde_json::to_value(default).ok()
 }

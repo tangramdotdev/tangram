@@ -73,7 +73,7 @@ impl Server {
 			},
 		}
 
-		Err(tg::error!("unauthenticated"))
+		Ok(None)
 	}
 
 	pub(crate) async fn authenticate_process(&self, token: &str) -> tg::Result<Option<Process>> {

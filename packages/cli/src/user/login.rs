@@ -5,10 +5,10 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub email: String,
+	pub namespace: tg::Namespace,
 
 	#[arg(long)]
-	pub namespace: Option<String>,
+	pub email: Option<String>,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
@@ -23,12 +23,8 @@ impl Cli {
 		let client = self.client().await?;
 		let output = client
 			.login_user(tg::user::login::Arg {
+				namespace: args.namespace,
 				email: args.email,
-				namespace: args
-					.namespace
-					.map(|namespace| namespace.parse())
-					.transpose()
-					.map_err(|error| tg::error!(!error, "invalid namespace"))?,
 				location: location.clone().map(Into::into),
 			})
 			.await

@@ -14,22 +14,30 @@ mod sqlite;
 
 impl Session {
 	pub(crate) async fn create_namespace(&self, namespace: &tg::Namespace) -> tg::Result<()> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		self.authorize_namespace(namespace, tg::Permission::Write)
-			.await?;
 		let created_by = self
 			.context
 			.authentication
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
+		match Self::parent_namespace(namespace) {
+			Some(parent) => {
+				if self
+					.context
+					.authentication
+					.as_ref()
+					.is_some_and(Authentication::is_process)
+				{
+					return Err(tg::error!("unauthorized"));
+				}
+				self.authorize_namespace(&parent, tg::Permission::Write)
+					.await?;
+			},
+			None => match &self.context.authentication {
+				Some(Authentication::Root | Authentication::User(_)) => {},
+				_ => return Err(tg::error!("unauthorized")),
+			},
+		}
 		let mut connection = self
 			.server
 			.database

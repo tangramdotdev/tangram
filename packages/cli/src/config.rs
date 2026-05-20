@@ -41,7 +41,10 @@ pub struct Config {
 
 	/// Configure tracing.
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_tracing")]
+	#[serde(
+		default = "default_tracing",
+		skip_serializing_if = "is_default_tracing"
+	)]
 	pub tracing: Option<Tracing>,
 
 	/// Set the V8 thread pool size.
@@ -69,13 +72,13 @@ pub struct Client {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Pool {
-	/// The minimum number of connections.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub min: Option<usize>,
-
 	/// The maximum number of connections.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max: Option<usize>,
+
+	/// The minimum number of connections.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub min: Option<usize>,
 
 	/// The maximum number of concurrent requests per connection.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -114,7 +117,7 @@ pub struct Telemetry {
 	pub service_name: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Tracing {
 	#[serde(skip_serializing_if = "String::is_empty")]
@@ -129,6 +132,8 @@ pub struct Tracing {
 	Copy,
 	Debug,
 	Default,
+	Eq,
+	PartialEq,
 	derive_more::Display,
 	derive_more::FromStr,
 	serde_with::DeserializeFromStr,
@@ -230,6 +235,13 @@ fn default_export() -> String {
 #[expect(clippy::unnecessary_wraps)]
 fn default_tracing() -> Option<Tracing> {
 	Some(Tracing::default())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_tracing(value: &Option<Tracing>) -> bool {
+	value
+		.as_ref()
+		.is_some_and(|value| value == &Tracing::default())
 }
 
 fn is_default_export(export: &String) -> bool {

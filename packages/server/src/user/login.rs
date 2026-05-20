@@ -25,7 +25,7 @@ impl Session {
 			.identity_location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		let output = match location {
-			tg::Location::Local(_) => self.login_user_local(arg.email, arg.namespace).await?,
+			tg::Location::Local(_) => self.login_user_local(arg.namespace, arg.email).await?,
 			tg::Location::Remote(remote) => self.login_user_remote(arg, remote).await?,
 		};
 
@@ -34,8 +34,8 @@ impl Session {
 
 	async fn login_user_local(
 		&self,
-		email: String,
-		requested_namespace: Option<tg::Namespace>,
+		namespace: tg::Namespace,
+		email: Option<String>,
 	) -> tg::Result<tg::user::login::Output> {
 		if self
 			.context
@@ -60,102 +60,89 @@ impl Session {
 		// Get or create the user.
 		#[derive(db::row::Deserialize)]
 		struct UserRow {
-			namespace: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
 		}
+		Self::namespace_for_user(&namespace)?;
+		let namespace_string = namespace.to_string();
 		let p = transaction.p();
 		let statement = formatdoc!(
-			r#"
-				select users.id, users.namespace
-				from user_emails
-				join users on users.id = user_emails."user"
-				where user_emails.email = {p}1;
-			"#
+			r"
+				select users.id
+				from users
+				where users.namespace = {p}1;
+			"
 		);
-		let params = db::params![email.clone()];
+		let params = db::params![namespace_string.clone()];
 		let user = transaction
 			.query_optional_into::<UserRow>(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let (id, mut namespace) = if let Some(user) = user {
-			(
-				user.id,
-				user.namespace
-					.map(|namespace| namespace.parse())
-					.transpose()
-					.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
-			)
+		let id = if let Some(user) = user {
+			user.id
 		} else {
+			if Self::namespace_in_use_with_transaction(&transaction, &namespace_string).await? {
+				return Err(tg::error!("namespace is already in use"));
+			}
+
 			let id = tg::user::Id::new();
 			let statement = formatdoc!(
 				"
-					insert into users (id)
-					values ({p}1);
+					insert into users (id, namespace)
+					values ({p}1, {p}2);
 				"
 			);
-			let params = db::params![id.to_string()];
+			let params = db::params![id.to_string(), namespace_string.clone()];
 			transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-			let statement = formatdoc!(
-				r#"
-					insert into user_emails ("user", email)
-					values ({p}1, {p}2);
-				"#
-			);
-			let params = db::params![id.to_string(), email];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let namespace_id =
+				Self::get_or_create_namespace_with_transaction(&transaction, &namespace).await?;
+			Self::create_namespace_grant_for_user_with_transaction(
+				&transaction,
+				&namespace,
+				namespace_id,
+				&id,
+				tg::Permission::Admin,
+				Some(&id),
+			)
+			.await?;
 
-			(id, None)
+			id
 		};
 
-		if let Some(requested_namespace) = requested_namespace {
-			if let Some(namespace) = &namespace {
-				if namespace != &requested_namespace {
-					return Err(tg::error!("user already has a namespace"));
-				}
-			} else {
-				Self::namespace_for_user(&requested_namespace)?;
-				let namespace_string = requested_namespace.to_string();
-				if Self::namespace_in_use_with_transaction(&transaction, &namespace_string).await? {
-					return Err(tg::error!("namespace is already in use"));
-				}
-
-				let statement = formatdoc!(
-					"
-						update users
-						set namespace = {p}2
-						where id = {p}1;
-					"
-				);
-				let params = db::params![id.to_string(), namespace_string];
-				transaction
-					.execute(statement.into(), params)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-				let namespace_id = Self::get_or_create_namespace_with_transaction(
-					&transaction,
-					&requested_namespace,
-				)
-				.await?;
-				Self::create_namespace_grant_for_user_with_transaction(
-					&transaction,
-					&requested_namespace,
-					namespace_id,
-					&id,
-					tg::Permission::Admin,
-					Some(&id),
-				)
-				.await?;
-
-				namespace = Some(requested_namespace);
+		if let Some(email) = email {
+			let statement = formatdoc!(
+				r#"
+					select "user"
+					from user_emails
+					where email = {p}1;
+				"#
+			);
+			let email_user = transaction
+				.query_optional_value_into::<String>(statement.into(), db::params![email.clone()])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			match email_user {
+				Some(email_user) if email_user != id.to_string() => {
+					return Err(tg::error!("email is already in use"));
+				},
+				Some(_) => {},
+				None => {
+					let statement = formatdoc!(
+						r#"
+							insert into user_emails ("user", email)
+							values ({p}1, {p}2);
+						"#
+					);
+					let params = db::params![id.to_string(), email];
+					transaction
+						.execute(statement.into(), params)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				},
 			}
 		}
 
@@ -201,7 +188,7 @@ impl Session {
 
 		let user = tg::User {
 			emails,
-			namespace,
+			namespace: Some(namespace),
 			id,
 			location: None,
 		};

@@ -11,11 +11,11 @@ def assert_unauthorized [output: record, message: string] {
 	assert ($output.stderr | str contains "unauthorized") "The error should mention that the request is unauthorized."
 }
 
-tg user login alice@example.com --namespace alice
+tg user login alice
 let alice = current_token
-tg user login bob@example.com --namespace bob
+tg user login bob
 let bob = current_token
-tg user login carol@example.com --namespace carol
+tg user login carol
 let carol = current_token
 
 tg --token $alice group create team

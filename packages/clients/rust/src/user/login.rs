@@ -5,10 +5,10 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub email: String,
+	pub namespace: tg::Namespace,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub namespace: Option<tg::Namespace>,
+	pub email: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,

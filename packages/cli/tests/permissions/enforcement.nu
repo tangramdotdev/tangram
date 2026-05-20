@@ -17,12 +17,30 @@ def anonymous_config [] {
 	$path
 }
 
-tg user login alice@example.com --namespace alice
+def invalid_token_config [] {
+	let path = mktemp
+	{ token: invalid } | to json | save -f $path
+	$path
+}
+
+tg user login alice
 let alice = current_token
-tg user login bob@example.com --namespace bob
+tg user login bob
 let bob = current_token
-tg user login carol@example.com --namespace carol
+tg user login carol
 let carol = current_token
+
+tg --token $alice namespace create project
+tg --token $alice namespace get project
+tg --token $alice namespace grants list project
+tg --token $alice namespace create project/pkg
+
+let output = tg --token $bob namespace create project/bob | complete
+assert_unauthorized $output "Bob should not be able to create a child namespace without write permission on Alice's claimed namespace."
+
+let config = anonymous_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg namespace create anonymous | complete }
+assert_unauthorized $output "An anonymous user should not be able to claim a top-level namespace."
 
 let path = artifact 'test'
 let id = tg --token $alice checkin $path
@@ -57,8 +75,15 @@ failure $output "Carol should not be able to get a tag without read permission."
 assert ($output.stderr | str contains "no tag was found") "The tag should not be visible without read permission."
 
 let output = tg --token invalid list --no-namespaces --recursive alice/project | complete
-failure $output "An invalid token should not be able to list private entries."
-assert ($output.stderr | str contains "unauthenticated") "The error should mention that the request is unauthenticated."
+success $output "An invalid token should be treated as anonymous for readable entries."
+assert (not ($output.stdout | str contains "alice/project/pkg")) "The private tag should not be visible with an invalid token."
+
+let output = tg --token invalid namespace grants list alice/project | complete
+assert_unauthorized $output "An invalid token should not be able to inspect namespace grants."
+
+let config = invalid_token_config
+let output = with-env { TANGRAM_CONFIG: $config } { tg health | complete }
+success $output "A bad token in the config should not prevent anonymous-capable requests."
 
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-namespaces --recursive alice/project | complete }
