@@ -1,0 +1,54 @@
+name: Tangram
+options:
+  fileTypes:
+    icon:
+      file: true
+  bundleIdPrefix: dev.tangram
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+settings:
+  base:
+    MARKETING_VERSION: 0.0.0
+    CURRENT_PROJECT_VERSION: 1
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+targets:
+  Tangram:
+    type: application
+    platform: macOS
+    sources:
+      - path: Tangram
+        excludes:
+          - Resources/Info.plist
+          - Resources/Tangram.entitlements
+      - path: Tangram/Resources/Assets.xcassets
+        type: folder.assetcatalog
+    settings:
+      base:
+        INFOPLIST_FILE: Tangram/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Tangram/Resources/Tangram.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          PRODUCT_NAME: Tangram Dev
+          EXECUTABLE_NAME: TangramApp
+          PRODUCT_BUNDLE_IDENTIFIER: dev.tangram.Tangram.dev
+          CODE_SIGN_IDENTITY: "-"
+        Release:
+          PRODUCT_NAME: Tangram
+          EXECUTABLE_NAME: TangramApp
+          PRODUCT_BUNDLE_IDENTIFIER: dev.tangram.Tangram
+          CODE_SIGN_IDENTITY: "-"
+schemes:
+  Tangram:
+    build:
+      targets:
+        Tangram: all
+    run:
+      config: Debug
+    archive:
+      config: Release

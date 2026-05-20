@@ -1,0 +1,24 @@
+{
+  "fill": {
+    "solid": "srgb:0.000,0.000,0.000,1.000"
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.000,0.000,0.000,1.000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "foreground.png"
+        }
+      ],
+      "lighting": "combined",
+      "specular": true
+    }
+  ]
+}
