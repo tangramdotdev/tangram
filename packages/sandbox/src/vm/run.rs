@@ -12,9 +12,14 @@ use {
 		},
 		path::{Path, PathBuf},
 		process::ExitCode,
+		sync::Arc,
 		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
+	virtiofsd::{
+		passthrough::{self, CachePolicy, InodeFileHandlesMode, PassthroughFs},
+		vhost_user::VhostUserFsBackendBuilder,
+	},
 };
 
 pub const CLOUD_HYPERVISOR_API_SOCKET_NAME: &str = "cloud-hypervisor-api.sock";
@@ -666,13 +671,14 @@ fn wait_for_directory_event(inotify: &OwnedFd, deadline: Instant) -> tg::Result<
 	}
 }
 
-fn helper_child_main(
+fn virtiofs_child_main(
 	user: &User,
 	shared_dir: &Path,
 	socket: RawFd,
 	binds: &[VirtiofsBind],
 	log_path: &Path,
 ) -> tg::Result<()> {
+	// Once we enter the child process, immeidately unshare into a new user namespace.
 	set_parent_death_signal(libc::SIGKILL)?;
 	enter_user_namespace(user.uid, user.gid)?;
 	unshare(
@@ -683,7 +689,6 @@ fn helper_child_main(
 		libc::CLONE_NEWNET,
 		"failed to unshare the network namespace",
 	)?;
-
 	let root = std::ffi::CString::new("/").unwrap();
 	let result = unsafe {
 		libc::mount(
@@ -702,6 +707,7 @@ fn helper_child_main(
 		));
 	}
 
+	// Bind mount in our host paths.
 	for bind in binds {
 		let source_c = std::ffi::CString::new(bind.source.as_os_str().as_bytes())
 			.map_err(|error| tg::error!(!error, "failed to encode the bind source path"))?;
@@ -726,50 +732,105 @@ fn helper_child_main(
 			));
 		}
 	}
-	let virtiofsd_path =
-		find_virtiofsd().map_err(|source| tg::error!(!source, "failed to locate virtiofsd"))?;
-	let (stdout, stderr) = log_stdio(log_path)?;
 
+	// Set up the child process.
+	redirect_stdio_to_log(log_path)?;
 	set_no_new_privs()?;
 	setresgid(user.gid)?;
 	setresuid(user.uid)?;
+	clear_cloexec(socket)?;
 
-	let mut command = std::process::Command::new(virtiofsd_path);
-	command
-		.arg("--shared-dir")
-		.arg(shared_dir)
-		.arg("--fd")
-		.arg(socket.to_string())
-		.arg("--sandbox")
-		.arg("none")
-		.arg("--cache")
-		.arg("auto")
-		.arg("--inode-file-handles=never")
-		.arg("--xattr")
-		.arg("--log-level")
-		.arg("warn")
-		.arg("--rlimit-nofile")
-		.arg("0")
-		.arg("--no-announce-submounts")
-		.arg("--preserve-noatime")
-		.env("HOME", &user.home)
-		.stdin(std::process::Stdio::null())
-		.stdout(stdout)
-		.stderr(stderr);
-	unsafe {
-		command.pre_exec(move || {
-			let flags = libc::fcntl(socket, libc::F_GETFD);
-			if flags < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			if libc::fcntl(socket, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			Ok(())
-		});
+	// Enable logging. virtiofsd uses log instead of tracing.
+	let _logger = env_logger::Builder::new()
+		.filter_level(log::LevelFilter::Warn)
+		.target(env_logger::Target::Stderr)
+		.try_init();
+
+	// Create the filesystem.
+	// TODO: replace this with a tangram_vfs::virtiofs impl.
+	let config = passthrough::Config {
+		root_dir: shared_dir.to_string_lossy().into_owned(),
+		cache_policy: CachePolicy::Auto,
+		inode_file_handles: InodeFileHandlesMode::Never,
+		xattr: true,
+		announce_submounts: false,
+		clean_noatime: false,
+		..passthrough::Config::default()
+	};
+	let fs = PassthroughFs::new(config)
+		.map_err(|error| tg::error!(%error, "failed to construct the passthrough filesystem"))?;
+
+	// Construct the backend.
+	let backend = Arc::new(
+		VhostUserFsBackendBuilder::default()
+			.set_thread_pool_size(0)
+			.set_tag(None)
+			.build(fs)
+			.map_err(|error| tg::error!(%error, "failed to build the vhost-user fs backend"))?,
+	);
+
+	// Spawn the daemon.
+	let mut daemon = vhost_user_backend::VhostUserDaemon::new(
+		String::from("tangram-virtiofsd"),
+		backend,
+		vm_memory::GuestMemoryAtomic::new(vm_memory::GuestMemoryMmap::new()),
+	)
+	.map_err(|error| tg::error!(%error, "failed to create the vhost-user daemon"))?;
+	let listener = unsafe { vhost::vhost_user::Listener::from_raw_fd(socket) };
+	daemon
+		.start(listener)
+		.map_err(|error| tg::error!(?error, "failed to start the vhost-user daemon"))?;
+	if let Err(error) = daemon.wait()
+		&& !is_disconnected(&error)
+	{
+		return Err(tg::error!(
+			?error,
+			"the vhost-user daemon exited with an error"
+		));
 	}
-	let error = command.exec();
-	Err(tg::error!(!error, "failed to execute virtiofsd"))
+	Ok(())
+}
+
+fn redirect_stdio_to_log(log_path: &Path) -> tg::Result<()> {
+	let file = std::fs::OpenOptions::new()
+		.create(true)
+		.append(true)
+		.open(log_path)
+		.map_err(
+			|error| tg::error!(!error, path = %log_path.display(), "failed to open the log file"),
+		)?;
+	let fd = file.as_raw_fd();
+	for target in [libc::STDOUT_FILENO, libc::STDERR_FILENO] {
+		if unsafe { libc::dup2(fd, target) } < 0 {
+			let error = std::io::Error::last_os_error();
+			return Err(tg::error!(
+				!error,
+				"failed to redirect stdio to the log file"
+			));
+		}
+	}
+	drop(file);
+	Ok(())
+}
+
+fn clear_cloexec(fd: RawFd) -> tg::Result<()> {
+	let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+	if flags < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to read fd flags"));
+	}
+	if unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to clear the fd cloexec flag"));
+	}
+	Ok(())
+}
+
+fn is_disconnected(error: &vhost_user_backend::Error) -> bool {
+	matches!(
+		error,
+		vhost_user_backend::Error::HandleRequest(vhost::vhost_user::Error::Disconnected),
+	)
 }
 
 fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
@@ -1030,7 +1091,7 @@ fn spawn_virtiofsd_helper(
 		return Err(tg::error!(!error, "failed to fork the virtiofsd helper"));
 	}
 	if child == 0 {
-		match helper_child_main(user, shared_dir, socket, binds, log_path) {
+		match virtiofs_child_main(user, shared_dir, socket, binds, log_path) {
 			Ok(()) => std::process::exit(0),
 			Err(error) => {
 				eprintln!("{error}");
@@ -1290,19 +1351,6 @@ fn find_in_path(name: &str) -> tg::Result<PathBuf> {
 		}
 	}
 	Err(tg::error!(%name, "executable not found on PATH"))
-}
-
-fn find_virtiofsd() -> tg::Result<PathBuf> {
-	if let Ok(path) = find_in_path("virtiofsd") {
-		return Ok(path);
-	}
-	for path in ["/usr/lib/virtiofsd", "/usr/libexec/virtiofsd"] {
-		let path = PathBuf::from(path);
-		if path.is_file() {
-			return Ok(path);
-		}
-	}
-	Err(tg::error!("virtiofsd not found"))
 }
 
 fn host_snapshot_output_path_from_root(root_path: &Path) -> PathBuf {

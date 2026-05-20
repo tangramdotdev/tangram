@@ -50,4 +50,10 @@ tower = { workspace = true }
 tracing = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+env_logger = { workspace = true }
+log = { workspace = true }
 neli = { workspace = true }
+vhost = { workspace = true }
+vhost-user-backend = { workspace = true }
+virtiofsd = { workspace = true }
+vm-memory = { workspace = true }
