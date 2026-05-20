@@ -102,11 +102,13 @@ impl Server {
 		server: &crate::Server,
 		options: crate::config::Vfs,
 		socket: &Path,
+		dax: Option<u64>,
 	) -> tg::Result<Self> {
 		let provider = Provider::new(server, options)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
-		let server = vfs::virtiofsd::Server::start(provider, socket)
+		let dax_window_size = dax.unwrap_or(0);
+		let server = vfs::virtiofsd::Server::start(provider, socket, dax_window_size)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the virtiofsd server"))?;
 		Ok(Self::Virtiofsd(server))

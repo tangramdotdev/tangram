@@ -1,14 +1,15 @@
 use {
 	crate::{Attrs, AttrsInner, EntryKind, Provider, Result},
 	std::{
+		collections::HashMap,
 		ffi::{CStr, CString},
 		io::{self, Write as _},
-		os::fd::FromRawFd as _,
+		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
 		time::Duration,
 	},
-	virtiofsd::filesystem as fs,
+	virtiofsd as fs,
 };
 
 const S_IFDIR: u32 = 0o040_000;
@@ -30,7 +31,12 @@ impl Drop for State {
 	}
 }
 
-pub struct Adapter<P>(P);
+pub struct Adapter<P>(P, Mutex<AdapterFds>);
+
+struct AdapterFds {
+	by_handle: HashMap<u64, Arc<OwnedFd>>,
+	by_inode: HashMap<u64, Arc<OwnedFd>>,
+}
 
 pub struct DirIter {
 	entries: Vec<Item>,
@@ -44,15 +50,22 @@ struct Item {
 }
 
 impl Server {
-	pub async fn start<P>(provider: P, socket: &Path) -> Result<Self>
+	pub async fn start<P>(provider: P, socket: &Path, dax_window_size: u64) -> Result<Self>
 	where
 		P: Provider + Send + Sync + 'static,
 	{
 		let backend = Arc::new(
-			virtiofsd::vhost_user::VhostUserFsBackendBuilder::default()
+			fs::vhost_user::VhostUserFsBackendBuilder::default()
 				.set_thread_pool_size(0)
 				.set_tag(None)
-				.build(Adapter(provider))
+				.set_dax_window_size(dax_window_size)
+				.build(Adapter(
+					provider,
+					Mutex::new(AdapterFds {
+						by_handle: HashMap::new(),
+						by_inode: HashMap::new(),
+					}),
+				))
 				.map_err(|error| {
 					io::Error::other(format!("failed to build the vhost-user backend: {error}"))
 				})?,
@@ -65,11 +78,11 @@ impl Server {
 		.map_err(|error| {
 			io::Error::other(format!("failed to create the vhost-user daemon: {error}"))
 		})?;
-		let listener = vhost::vhost_user::Listener::new(socket, true).map_err(|error| {
+		let mut listener = vhost::vhost_user::Listener::new(socket, true).map_err(|error| {
 			io::Error::other(format!("failed to bind the vhost-user socket: {error:?}"))
 		})?;
 		let task = tangram_futures::task::Shared::spawn_blocking(move |_stop| {
-			if let Err(error) = daemon.start(listener) {
+			if let Err(error) = daemon.start(&mut listener) {
 				tracing::error!(?error, "the vhost-user daemon failed to start");
 				return;
 			}
@@ -104,7 +117,7 @@ impl Server {
 	}
 }
 
-impl<P> fs::FileSystem for Adapter<P>
+impl<P> fs::filesystem::FileSystem for Adapter<P>
 where
 	P: Provider + Send + Sync,
 {
@@ -112,14 +125,19 @@ where
 	type Handle = u64;
 	type DirIter = DirIter;
 
-	fn init(&self, capable: virtiofsd::fuse::FsOptions) -> Result<virtiofsd::fuse::FsOptions> {
-		let wanted = virtiofsd::fuse::FsOptions::ASYNC_READ
-			| virtiofsd::fuse::FsOptions::EXPORT_SUPPORT
-			| virtiofsd::fuse::FsOptions::DO_READDIRPLUS;
+	fn init(&self, capable: fs::fuse::FsOptions) -> Result<fs::fuse::FsOptions> {
+		let wanted = fs::fuse::FsOptions::ASYNC_READ
+			| fs::fuse::FsOptions::EXPORT_SUPPORT
+			| fs::fuse::FsOptions::DO_READDIRPLUS;
 		Ok(wanted & capable)
 	}
 
-	fn lookup(&self, _ctx: fs::Context, parent: u64, name: &CStr) -> Result<fs::Entry> {
+	fn lookup(
+		&self,
+		_ctx: fs::filesystem::Context,
+		parent: u64,
+		name: &CStr,
+	) -> Result<fs::filesystem::Entry> {
 		let name = name
 			.to_str()
 			.map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
@@ -129,7 +147,7 @@ where
 			.ok_or_else(|| io::Error::from_raw_os_error(libc::ENOENT))?;
 		let attrs = self.0.getattr_sync(id)?;
 		self.0.remember_sync(id);
-		Ok(fs::Entry {
+		Ok(fs::filesystem::Entry {
 			inode: id,
 			generation: 0,
 			attr: attr_from_attrs(id, attrs),
@@ -138,49 +156,56 @@ where
 		})
 	}
 
-	fn forget(&self, _ctx: fs::Context, inode: u64, count: u64) {
+	fn forget(&self, _ctx: fs::filesystem::Context, inode: u64, count: u64) {
 		self.0.forget_sync(inode, count);
 	}
 
 	fn getattr(
 		&self,
-		_ctx: fs::Context,
+		_ctx: fs::filesystem::Context,
 		inode: u64,
 		_handle: Option<u64>,
-	) -> Result<(virtiofsd::fuse::Attr, Duration)> {
+	) -> Result<(fs::fuse::Attr, Duration)> {
 		let attrs = self.0.getattr_sync(inode)?;
 		Ok((attr_from_attrs(inode, attrs), TIMEOUT))
 	}
 
-	fn readlink(&self, _ctx: fs::Context, inode: u64) -> Result<Vec<u8>> {
+	fn readlink(&self, _ctx: fs::filesystem::Context, inode: u64) -> Result<Vec<u8>> {
 		let bytes = self.0.readlink_sync(inode)?;
 		Ok(bytes.to_vec())
 	}
 
 	fn open(
 		&self,
-		_ctx: fs::Context,
+		_ctx: fs::filesystem::Context,
 		inode: u64,
 		_kill_priv: bool,
 		_flags: u32,
-	) -> Result<(Option<u64>, virtiofsd::fuse::OpenOptions)> {
-		let (handle, _backing_fd) = self.0.open_sync(inode)?;
-		Ok((Some(handle), virtiofsd::fuse::OpenOptions::empty()))
+	) -> Result<(Option<u64>, fs::fuse::OpenOptions)> {
+		let (handle, backing_fd) = self.0.open_sync(inode)?;
+		if let Some(fd) = backing_fd {
+			let fd = Arc::new(fd);
+			let mut fds = self.1.lock().unwrap();
+			fds.by_handle.insert(handle, Arc::clone(&fd));
+			fds.by_inode.entry(inode).or_insert(fd);
+		}
+		// Artifact content is immutable, so keep the guest page cache across reopens.
+		Ok((Some(handle), fs::fuse::OpenOptions::KEEP_CACHE))
 	}
 
 	fn opendir(
 		&self,
-		_ctx: fs::Context,
+		_ctx: fs::filesystem::Context,
 		inode: u64,
 		_flags: u32,
-	) -> Result<(Option<u64>, virtiofsd::fuse::OpenOptions)> {
+	) -> Result<(Option<u64>, fs::fuse::OpenOptions)> {
 		let handle = self.0.opendir_sync(inode)?;
-		Ok((Some(handle), virtiofsd::fuse::OpenOptions::empty()))
+		Ok((Some(handle), fs::fuse::OpenOptions::empty()))
 	}
 
-	fn read<W: fs::ZeroCopyWriter>(
+	fn read<W: fs::filesystem::ZeroCopyWriter>(
 		&self,
-		_ctx: fs::Context,
+		_ctx: fs::filesystem::Context,
 		_inode: u64,
 		handle: u64,
 		mut w: W,
@@ -204,7 +229,7 @@ where
 
 	fn release(
 		&self,
-		_ctx: fs::Context,
+		_ctx: fs::filesystem::Context,
 		_inode: u64,
 		_flags: u32,
 		handle: u64,
@@ -212,18 +237,19 @@ where
 		_flock_release: bool,
 		_lock_owner: Option<u64>,
 	) -> Result<()> {
+		self.1.lock().unwrap().by_handle.remove(&handle);
 		self.0.close_sync(handle);
 		Ok(())
 	}
 
-	fn releasedir(&self, _ctx: fs::Context, _inode: u64, _flags: u32, handle: u64) -> Result<()> {
+	fn releasedir(&self, _ctx: fs::filesystem::Context, _inode: u64, _flags: u32, handle: u64) -> Result<()> {
 		self.0.close_sync(handle);
 		Ok(())
 	}
 
 	fn readdir(
 		&self,
-		_ctx: fs::Context,
+		_ctx: fs::filesystem::Context,
 		_inode: u64,
 		handle: u64,
 		_size: u32,
@@ -232,12 +258,12 @@ where
 		let entries = self.0.readdir_sync(handle)?;
 		let items = entries
 			.into_iter()
-			.map(|(name, id, kind)| {
-				let name =
-					CString::new(name).map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
+			.map(|(name, id, typ)| {
+				let name = CString::new(name)
+					.map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
 				Ok::<_, io::Error>(Item {
 					ino: id,
-					type_: entry_kind(kind),
+					type_: dir_entry_type(typ),
 					name,
 				})
 			})
@@ -251,11 +277,11 @@ where
 
 	fn getxattr(
 		&self,
-		_ctx: fs::Context,
+		_ctx: fs::filesystem::Context,
 		inode: u64,
 		name: &CStr,
 		size: u32,
-	) -> Result<fs::GetxattrReply> {
+	) -> Result<fs::filesystem::GetxattrReply> {
 		let name = name
 			.to_str()
 			.map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
@@ -265,15 +291,20 @@ where
 			.ok_or_else(|| io::Error::from_raw_os_error(libc::ENODATA))?;
 		if size == 0 {
 			let count = u32::try_from(value.len()).unwrap_or(u32::MAX);
-			return Ok(fs::GetxattrReply::Count(count));
+			return Ok(fs::filesystem::GetxattrReply::Count(count));
 		}
 		if value.len() > size as usize {
 			return Err(io::Error::from_raw_os_error(libc::ERANGE));
 		}
-		Ok(fs::GetxattrReply::Value(value.to_vec()))
+		Ok(fs::filesystem::GetxattrReply::Value(value.to_vec()))
 	}
 
-	fn listxattr(&self, _ctx: fs::Context, inode: u64, size: u32) -> Result<fs::ListxattrReply> {
+	fn listxattr(
+		&self,
+		_ctx: fs::filesystem::Context,
+		inode: u64,
+		size: u32,
+	) -> Result<fs::filesystem::ListxattrReply> {
 		let names = self.0.listxattrs_sync(inode)?;
 		let mut buf = Vec::new();
 		for name in &names {
@@ -282,26 +313,60 @@ where
 		}
 		if size == 0 {
 			let count = u32::try_from(buf.len()).unwrap_or(u32::MAX);
-			return Ok(fs::ListxattrReply::Count(count));
+			return Ok(fs::filesystem::ListxattrReply::Count(count));
 		}
 		if buf.len() > size as usize {
 			return Err(io::Error::from_raw_os_error(libc::ERANGE));
 		}
-		Ok(fs::ListxattrReply::Names(buf))
+		Ok(fs::filesystem::ListxattrReply::Names(buf))
 	}
 
-	fn access(&self, _ctx: fs::Context, _inode: u64, _mask: u32) -> Result<()> {
+	fn access(&self, _ctx: fs::filesystem::Context, _inode: u64, _mask: u32) -> Result<()> {
+		Ok(())
+	}
+
+	fn setupmapping(
+		&self,
+		_ctx: fs::filesystem::Context,
+		inode: u64,
+		_handle: u64,
+		foffset: u64,
+		_len: u64,
+		flags: fs::fuse::SetupmappingFlags,
+	) -> Result<(RawFd, u64)> {
+		// The artifacts filesystem is read-only, so reject any writable mapping.
+		if flags.contains(fs::fuse::SetupmappingFlags::WRITE) {
+			return Err(io::Error::from_raw_os_error(libc::EROFS));
+		}
+		let fds = self.1.lock().unwrap();
+		let Some(fd) = fds.by_inode.get(&inode) else {
+			return Err(io::Error::from_raw_os_error(libc::EBADF));
+		};
+		let raw = fd.as_raw_fd();
+		// The backing descriptor refers to the whole artifact file beginning at offset zero, so the
+		// offset within it is the requested file offset.
+		Ok((raw, foffset))
+	}
+}
+
+impl<P> fs::filesystem::SerializableFileSystem for Adapter<P>
+where
+	P: Provider + Send + Sync,
+{
+	fn serialize(&self, _state_pipe: std::fs::File) -> Result<()> {
+		Ok(())
+	}
+
+	fn deserialize_and_apply(&self, _state_pipe: std::fs::File) -> Result<()> {
 		Ok(())
 	}
 }
 
-impl<P> fs::SerializableFileSystem for Adapter<P> where P: Provider + Send + Sync {}
-
-impl fs::DirectoryIterator for DirIter {
-	fn next(&mut self) -> Option<fs::DirEntry<'_>> {
+impl fs::filesystem::DirectoryIterator for DirIter {
+	fn next(&mut self) -> Option<fs::filesystem::DirEntry<'_>> {
 		let entry = self.entries.get(self.cursor)?;
 		self.cursor += 1;
-		Some(fs::DirEntry {
+		Some(fs::filesystem::DirEntry {
 			ino: entry.ino as libc::ino64_t,
 			offset: self.cursor as u64,
 			type_: entry.type_,
@@ -310,15 +375,16 @@ impl fs::DirectoryIterator for DirIter {
 	}
 }
 
-fn attr_from_attrs(inode: u64, attrs: Attrs) -> virtiofsd::fuse::Attr {
+fn attr_from_attrs(inode: u64, attrs: Attrs) -> fs::fuse::Attr {
 	let (size, mode) = match attrs.inner {
 		AttrsInner::Directory => (0, S_IFDIR | 0o555),
-		AttrsInner::File { executable, size } => {
-			(size, S_IFREG | 0o444 | if executable { 0o111 } else { 0 })
-		},
+		AttrsInner::File { executable, size } => (
+			size,
+			S_IFREG | 0o444 | if executable { 0o111 } else { 0 },
+		),
 		AttrsInner::Symlink => (0, S_IFLNK | 0o444),
 	};
-	virtiofsd::fuse::Attr {
+	fs::fuse::Attr {
 		ino: inode,
 		size,
 		blocks: 0,
@@ -338,8 +404,8 @@ fn attr_from_attrs(inode: u64, attrs: Attrs) -> virtiofsd::fuse::Attr {
 	}
 }
 
-fn entry_kind(kind: EntryKind) -> u32 {
-	match kind {
+fn dir_entry_type(typ: EntryKind) -> u32 {
+	match typ {
 		EntryKind::Directory => u32::from(libc::DT_DIR),
 		EntryKind::File => u32::from(libc::DT_REG),
 		EntryKind::Symlink => u32::from(libc::DT_LNK),

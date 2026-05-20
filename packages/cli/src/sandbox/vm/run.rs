@@ -16,6 +16,11 @@ pub struct Args {
 	#[arg(long)]
 	pub cpu: Option<u64>,
 
+	/// The size of the artifacts DAX window in bytes, or `0` to disable DAX. Must be a power of
+	/// two because the window is exposed as a PCI BAR.
+	#[arg(long, default_value_t = 512 * 1024 * 1024, hide = true)]
+	pub dax: u64,
+
 	#[arg(action = clap::ArgAction::Append, long = "dns", num_args = 1)]
 	pub dns: Vec<Ipv4Addr>,
 
@@ -89,6 +94,7 @@ impl Cli {
 			artifacts_path: args.artifacts_path,
 			create_snapshot: args.create_snapshot,
 			cpu: args.cpu,
+			dax: (args.dax != 0).then_some(args.dax),
 			dns: args.dns,
 			firewall: args.firewall,
 			guest_ip: args.guest_ip,

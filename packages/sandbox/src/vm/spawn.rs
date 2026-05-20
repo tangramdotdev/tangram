@@ -21,6 +21,8 @@ pub(crate) fn spawn(
 		.arg(arg.id.to_string())
 		.arg("--artifacts-path")
 		.arg(&arg.artifacts_path)
+		.arg("--dax")
+		.arg(vm.dax.unwrap_or(0).to_string())
 		.arg("--kernel-path")
 		.arg(&vm.kernel_path)
 		.arg("--max-cpu")

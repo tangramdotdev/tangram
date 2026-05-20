@@ -33,6 +33,7 @@ impl Server {
 					);
 					Ok(tangram_sandbox::Isolation::Vm(
 						tangram_sandbox::VmIsolation {
+							dax: vm.dax.map(|dax| dax.window_size_kib as u64 * 1024),
 							kernel_path: vm.kernel_path.clone(),
 							max_cpu: vm.max_cpu,
 							max_memory: vm.max_memory,
@@ -96,6 +97,7 @@ impl Server {
 			);
 			return Some(tangram_sandbox::Isolation::Vm(
 				tangram_sandbox::VmIsolation {
+					dax: vm.dax.map(|dax| dax.window_size_kib as u64 * 1024),
 					kernel_path: vm.kernel_path.clone(),
 					max_cpu: vm.max_cpu,
 					max_memory: vm.max_memory,

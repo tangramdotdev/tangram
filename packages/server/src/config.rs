@@ -645,9 +645,14 @@ pub enum SandboxIsolationDefault {
 #[serde(default, deny_unknown_fields)]
 pub struct SeatbeltSandboxIsolation {}
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VmSandboxIsolation {
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(default = "default_vm_dax")]
+	pub dax: Option<Dax>,
+
 	pub kernel_path: PathBuf,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -667,6 +672,16 @@ pub struct VmSandboxIsolation {
 
 	#[serde(default = "default_vm_snapshot_memory")]
 	pub snapshot_memory: u64,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Dax {
+	/// The size of the DAX window for the artifacts share, in kibibytes. Must be a power of two
+	/// because the window is exposed as a PCI BAR. The guest maps artifact files directly into
+	/// this window, bypassing the FUSE read path.
+	#[serde(rename = "window_size")]
+	pub window_size_kib: usize,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1238,6 +1253,14 @@ impl Default for SandboxIsolation {
 	}
 }
 
+impl Default for Dax {
+	fn default() -> Self {
+		Self {
+			window_size_kib: 512 * 1024,
+		}
+	}
+}
+
 impl Default for SandboxNetwork {
 	fn default() -> Self {
 		Self {
@@ -1462,6 +1485,11 @@ fn default_ip_ranges() -> Vec<IpRange> {
 
 fn default_dns() -> Vec<Ipv4Addr> {
 	Vec::new()
+}
+
+#[expect(clippy::unnecessary_wraps)]
+fn default_vm_dax() -> Option<Dax> {
+	Some(Dax::default())
 }
 
 fn default_vm_snapshot_cpu() -> u64 {

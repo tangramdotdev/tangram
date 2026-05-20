@@ -146,9 +146,9 @@ fn child_main(
 		vm_memory::GuestMemoryAtomic::new(vm_memory::GuestMemoryMmap::new()),
 	)
 	.map_err(|error| tg::error!(%error, "failed to create the vhost-user daemon"))?;
-	let listener = unsafe { vhost::vhost_user::Listener::from_raw_fd(listener_fd) };
+	let mut listener = unsafe { vhost::vhost_user::Listener::from_raw_fd(listener_fd) };
 	daemon
-		.start(listener)
+		.start(&mut listener)
 		.map_err(|error| tg::error!(?error, "failed to start the vhost-user daemon"))?;
 	if let Err(error) = daemon.wait()
 		&& !matches!(

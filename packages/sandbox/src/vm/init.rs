@@ -73,15 +73,30 @@ pub fn run() -> tg::Result<ExitCode> {
 	configure_memory_hotplug();
 	online_cpus();
 
-	wait_for_virtiofs()
-		.map_err(|source| tg::error!(!source, "error waiting for virtiofs tags to connect"))?;
+	wait_for_virtiofs().map_err(|source| {
+		tg::error!(!source, "error waiting for virtiofs tags to connect")
+	})?;
 	tracing::trace!("virtiofs tags ready");
 	online_cpus();
 
-	mount_virtiofs(SANDBOX_FS_TAG, HOST_MOUNT_POINT)?;
+	mount_virtiofs(SANDBOX_FS_TAG, HOST_MOUNT_POINT, None)?;
 	tracing::trace!("mounted {HOST_MOUNT_POINT}");
-	mount_virtiofs(ARTIFACTS_FS_TAG, ARTIFACTS_MOUNT_POINT)?;
+	let artifacts_options = if dax_from_cmdline() { Some("dax") } else { None };
+	mount_virtiofs(ARTIFACTS_FS_TAG, ARTIFACTS_MOUNT_POINT, artifacts_options)?;
 	tracing::trace!("mounted {ARTIFACTS_MOUNT_POINT}");
+
+	// Raise the artifacts BDI readahead window so a single FUSE_READ amortizes the virtio
+	// round-trip over the full virtiofsd buffer. The host caps each reply at 1 MiB.
+	let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+	let path = c"/mnt/host/opt/tangram/artifacts";
+	if unsafe { libc::stat(path.as_ptr(), &mut stat) } == 0 {
+		let major = libc::major(stat.st_dev);
+		let minor = libc::minor(stat.st_dev);
+		let bdi = format!("/sys/class/bdi/{major}:{minor}/read_ahead_kb");
+		if let Err(error) = std::fs::write(&bdi, "1024") {
+			tracing::warn!(%error, path = %bdi, "failed to raise the artifacts readahead");
+		}
+	}
 
 	let bytes = std::fs::read(HOST_INIT_CONFIG_PATH)
 		.map_err(|error| tg::error!(!error, "failed to read the init config"))?;
@@ -156,7 +171,14 @@ pub fn run() -> tg::Result<ExitCode> {
 	}
 }
 
-fn mount_virtiofs(tag: &str, target: &str) -> tg::Result<()> {
+fn dax_from_cmdline() -> bool {
+	let Ok(cmdline) = std::fs::read_to_string("/proc/cmdline") else {
+		return false;
+	};
+	cmdline.split_whitespace().any(|token| token == "tangram.dax=1")
+}
+
+fn mount_virtiofs(tag: &str, target: &str, options: Option<&str>) -> tg::Result<()> {
 	std::fs::create_dir_all(target)
 		.map_err(|error| tg::error!(!error, %target, "failed to create the virtiofs target"))?;
 	let source = CString::new(tag)
@@ -164,18 +186,27 @@ fn mount_virtiofs(tag: &str, target: &str) -> tg::Result<()> {
 	let target_c = CString::new(target)
 		.map_err(|error| tg::error!(!error, "failed to encode the virtiofs target"))?;
 	let fstype = CString::new("virtiofs").unwrap();
+	let data = options
+		.map(|options| {
+			CString::new(options)
+				.map_err(|error| tg::error!(!error, "failed to encode the virtiofs options"))
+		})
+		.transpose()?;
+	let data_ptr = data.as_ref().map_or(std::ptr::null(), |data| data.as_ptr().cast());
 	let result = unsafe {
 		libc::mount(
 			source.as_ptr(),
 			target_c.as_ptr(),
 			fstype.as_ptr(),
 			0,
-			std::ptr::null(),
+			data_ptr,
 		)
 	};
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, %tag, %target, "failed to mount virtiofs"));
+		return Err(
+			tg::error!(!error, %tag, %target, "failed to mount virtiofs"),
+		);
 	}
 	Ok(())
 }

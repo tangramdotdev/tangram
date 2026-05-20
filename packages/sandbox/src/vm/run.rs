@@ -22,6 +22,7 @@ pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.soc
 
 const SANDBOX_FS_TAG: &str = "sandbox";
 const ARTIFACTS_FS_TAG: &str = "artifacts";
+
 const HOST_MOUNT_POINT: &str = "/mnt/host";
 const SERIAL_SOCKET_NAME: &str = "serial.sock";
 const VIRTIOFSD_SANDBOX_SOCKET_NAME: &str = "virtiofsd-sandbox.sock";
@@ -49,6 +50,8 @@ pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub create_snapshot: Option<PathBuf>,
 	pub cpu: Option<u64>,
+	/// The size of the artifacts DAX window in bytes, or `None` to disable DAX.
+	pub dax: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
 	pub firewall: crate::Firewall,
 	pub guest_ip: Option<Ipv4Addr>,
@@ -355,13 +358,26 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		cloud_hypervisor_args.push(
 			format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on,sparse=off,image_type=raw").into(),
 		);
+		// Attach the artifacts share at boot, including when creating a snapshot, so its DAX
+		// cache window is allocated at boot and captured in the snapshot. The cache window is a
+		// PCI BAR that cannot be allocated when hotplugging the device on resume, so the device
+		// must be present in the snapshot.
+		cloud_hypervisor_args.push("--fs".into());
+		let artifacts_fs = if let Some(window_size) = arg.dax {
+			format!(
+				"tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET},dax=true,shm_size={window_size}"
+			)
+		} else {
+			format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}")
+		};
+		cloud_hypervisor_args.push(artifacts_fs.into());
+		// The sandbox share is per-sandbox, so attach it only on a cold boot. On resume it is
+		// hotplugged after restoring the snapshot.
 		if arg.create_snapshot.is_none() {
 			cloud_hypervisor_args.push("--fs".into());
-			cloud_hypervisor_args
-				.push(format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into());
-			cloud_hypervisor_args.push("--fs".into());
-			cloud_hypervisor_args
-				.push(format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}").into());
+			cloud_hypervisor_args.push(
+				format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into(),
+			);
 		}
 		cloud_hypervisor_args.push("--vsock".into());
 		cloud_hypervisor_args.push(format!("cid={VMM_GUEST_CID},socket={VMM_VSOCK_SOCKET}").into());
@@ -525,15 +541,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			&[
 				"add-fs",
 				&format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}"),
-			],
-		)?;
-		ch_remote_run(
-			&ch_remote_bin,
-			&api_socket,
-			&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
-			&[
-				"add-fs",
-				&format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}"),
 			],
 		)?;
 	}
@@ -736,6 +743,9 @@ fn kernel_cmdline(arg: &Arg) -> String {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
 	let mut cmdline =
 		String::from("console=ttyS0 quiet loglevel=0 root=/dev/vda rootfstype=squashfs ro");
+	if arg.dax.is_some() {
+		cmdline.push_str(" tangram.dax=1");
+	}
 	write!(
 		&mut cmdline,
 		" init={} -- sandbox vm init",
@@ -1034,6 +1044,14 @@ fn build_cloud_hypervisor_mount_arg(
 			target: VMM_VFS_SOCKET.into(),
 		});
 	}
+	// Bind the server-provided artifacts vfs socket under the writable VMM root directory so
+	// cloud-hypervisor can reach it post-chroot. This is required on a cold boot, when creating
+	// a snapshot so the artifacts share is captured in the snapshot, and on resume so the
+	// restored device can reconnect to the backend.
+	binds.push(container::run::Bind {
+		source: arg.path.join(VFS_SOCKET_NAME),
+		target: VMM_VFS_SOCKET.into(),
+	});
 	let mut ro_binds = vec![
 		container::run::Bind {
 			source: arg.rootfs_path.clone(),
