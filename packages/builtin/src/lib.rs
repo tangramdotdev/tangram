@@ -3,7 +3,7 @@ use {
 		archive::archive, bundle::bundle, checksum::checksum, compress::compress,
 		decompress::decompress, download::download, extract::extract,
 	},
-	futures::{FutureExt as _, TryFutureExt, TryStreamExt as _, future::BoxFuture},
+	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture},
 	std::{path::Path, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 };

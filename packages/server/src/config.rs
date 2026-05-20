@@ -554,9 +554,6 @@ pub enum JsEngine {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub default_isolation: Option<DefaultIsolation>,
-
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_finalizer")]
 	pub finalizer: Option<Finalizer>,
@@ -569,17 +566,12 @@ pub struct Sandbox {
 	pub nice: u8,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DefaultIsolation {
-	Container,
-	Seatbelt,
-	Vm,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SandboxIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default: Option<SandboxIsolationDefault>,
+
 	pub container: Option<ContainerSandboxIsolation>,
 
 	pub seatbelt: Option<SeatbeltSandboxIsolation>,
@@ -588,35 +580,12 @@ pub struct SandboxIsolation {
 	pub vm: Option<VmSandboxIsolation>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct SandboxNetwork {
-	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
-	pub dns: Vec<Ipv4Addr>,
-
-	#[serde(default)]
-	pub firewall: SandboxNetworkFirewall,
-
-	#[serde(default = "default_ip_ranges", skip_serializing_if = "Vec::is_empty")]
-	pub ip_ranges: Vec<IpRange>,
-}
-
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SandboxNetworkFirewall {
-	Iptables,
-
-	#[default]
-	Nft,
-}
-
-#[derive(
-	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
-)]
-pub struct IpRange {
-	pub max: Ipv4Addr,
-
-	pub min: Ipv4Addr,
+pub enum SandboxIsolationDefault {
+	Container,
+	Seatbelt,
+	Vm,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -649,6 +618,37 @@ pub struct VmSandboxIsolation {
 
 	#[serde(default = "default_vm_snapshot_memory")]
 	pub snapshot_memory: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SandboxNetwork {
+	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
+	pub dns: Vec<Ipv4Addr>,
+
+	#[serde(default)]
+	pub firewall: SandboxNetworkFirewall,
+
+	#[serde(default = "default_ip_ranges", skip_serializing_if = "Vec::is_empty")]
+	pub ip_ranges: Vec<IpRange>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxNetworkFirewall {
+	Iptables,
+
+	#[default]
+	Nft,
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+)]
+pub struct IpRange {
+	pub max: Ipv4Addr,
+
+	pub min: Ipv4Addr,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1126,7 +1126,6 @@ impl Default for Runner {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			default_isolation: None,
 			finalizer: Some(Finalizer::default()),
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
@@ -1139,18 +1138,21 @@ impl Default for SandboxIsolation {
 	fn default() -> Self {
 		if cfg!(target_os = "linux") {
 			Self {
+				default: None,
 				container: Some(ContainerSandboxIsolation {}),
 				seatbelt: None,
 				vm: None,
 			}
 		} else if cfg!(target_os = "macos") {
 			Self {
+				default: None,
 				container: None,
 				seatbelt: Some(SeatbeltSandboxIsolation {}),
 				vm: None,
 			}
 		} else {
 			Self {
+				default: None,
 				container: None,
 				seatbelt: None,
 				vm: None,

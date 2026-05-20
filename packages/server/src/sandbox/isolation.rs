@@ -1,19 +1,20 @@
-use {
-	crate::{Server, config::DefaultIsolation},
-	tangram_client::prelude::*,
-};
+use {crate::Server, tangram_client::prelude::*};
 
 impl Server {
 	pub(crate) fn resolve_sandbox_isolation(&self) -> tg::Result<tangram_sandbox::Isolation> {
-		if let Some(default) = self.config.sandbox.default_isolation {
+		if let Some(default) = self.config.sandbox.isolation.default {
 			return match default {
-				DefaultIsolation::Container => Ok(tangram_sandbox::Isolation::Container(
-					tangram_sandbox::ContainerIsolation::default(),
-				)),
-				DefaultIsolation::Seatbelt => Ok(tangram_sandbox::Isolation::Seatbelt(
-					tangram_sandbox::SeatbeltIsolation::default(),
-				)),
-				DefaultIsolation::Vm => {
+				crate::config::SandboxIsolationDefault::Container => {
+					Ok(tangram_sandbox::Isolation::Container(
+						tangram_sandbox::ContainerIsolation::default(),
+					))
+				},
+				crate::config::SandboxIsolationDefault::Seatbelt => {
+					Ok(tangram_sandbox::Isolation::Seatbelt(
+						tangram_sandbox::SeatbeltIsolation::default(),
+					))
+				},
+				crate::config::SandboxIsolationDefault::Vm => {
 					let vm = self
 						.config
 						.sandbox

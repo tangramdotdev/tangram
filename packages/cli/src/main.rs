@@ -385,44 +385,59 @@ async fn main() -> std::process::ExitCode {
 		matches,
 	};
 
-	// Sandbox subcommands run in subprocesses (container init, vm init, vm
-	// run, serve) and bypass the main config/telemetry/tracing setup below.
-	// Initialize tracing for them so their `tracing::*` calls reach stderr,
-	// which the parent forwards to its log or serial console.
-	if matches!(&cli.args.command, Command::Sandbox(_)) {
-		Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
-	}
-
 	// Handle internal commands.
 	let result = match cli.args.command.clone() {
 		Command::Builtin(command_args) => Some(cli.command_builtin(command_args).await),
+
 		#[cfg(feature = "js")]
 		Command::Js(command_args) => {
 			#[cfg(feature = "v8")]
 			if command_args.engine.is_auto() || command_args.engine.is_v_8() {
 				Cli::initialize_v8(0);
 			}
-			Some(cli.command_js(command_args).await)
+			let result = cli.command_js(command_args).await;
+			Some(result)
 		},
+
 		Command::Sandbox(self::sandbox::Args {
 			command: self::sandbox::Command::Serve(command_args),
 			..
-		}) => Some(cli.command_sandbox_serve(command_args).await),
+		}) => {
+			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
+			let result = cli.command_sandbox_serve(command_args).await;
+			Some(result)
+		},
+
 		#[cfg(target_os = "linux")]
 		Command::Sandbox(self::sandbox::Args {
 			command: self::sandbox::Command::Container(command_args),
 			..
-		}) => Some(cli.command_sandbox_container(command_args).await),
+		}) => {
+			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
+			let result = cli.command_sandbox_container(command_args).await;
+			Some(result)
+		},
+
 		#[cfg(target_os = "macos")]
 		Command::Sandbox(self::sandbox::Args {
 			command: self::sandbox::Command::Seatbelt(command_args),
 			..
-		}) => Some(cli.command_sandbox_seatbelt(command_args).await),
+		}) => {
+			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
+			let result = cli.command_sandbox_seatbelt(command_args).await;
+			Some(result)
+		},
+
 		#[cfg(target_os = "linux")]
 		Command::Sandbox(self::sandbox::Args {
 			command: self::sandbox::Command::Vm(command_args),
 			..
-		}) => Some(cli.command_sandbox_vm(command_args).await),
+		}) => {
+			Cli::initialize_tracing(None, cli.args.tracing.as_ref(), None);
+			let result = cli.command_sandbox_vm(command_args).await;
+			Some(result)
+		},
+
 		_ => None,
 	};
 	if let Some(result) = result {
