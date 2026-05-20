@@ -4,10 +4,10 @@ use {
 };
 
 #[cfg(feature = "foundationdb")]
-const RUNTIME_LIBRARIES: &[&str] = &["libfdb_c"];
+const RUNTIME_LIBRARIES: &[&str] = &["libfdb_c", "liblzma.5"];
 
 #[cfg(not(feature = "foundationdb"))]
-const RUNTIME_LIBRARIES: &[&str] = &[];
+const RUNTIME_LIBRARIES: &[&str] = &["liblzma.5"];
 
 pub(super) fn resolve(_tangram_path: &Path) -> tg::Result<Vec<PathBuf>> {
 	let mut libraries = Vec::new();
@@ -69,5 +69,5 @@ fn resolve_from_library_path_env(file_name: &str) -> Option<PathBuf> {
 }
 
 fn default_library_directories() -> &'static [&'static str] {
-	&["/usr/local/lib"]
+	&["/usr/local/lib", "/opt/homebrew/lib"]
 }

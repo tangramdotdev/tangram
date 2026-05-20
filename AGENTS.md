@@ -14,6 +14,16 @@ Run `bun run format` to format all code when you complete changes.
 
 To run all tests, run `bun run test`. The most important tests are the CLI tests in `packages/cli/tests`. You can run the CLI tests with `nu packages/cli/test.nu`, and provide a regex pattern as an arg for the tests in the tests directory. For example, `nu packages/cli/test.nu build` will run all the build tests. To accept new and updated snapshots, run the tests with `--accept`.
 
+## macOS
+
+The macOS app uses XcodeGen. Commit changes to `packages/macos/project.yml`, and do not commit the generated Xcode project or build directory.
+
+Run `bun run macos:doctor` to check the unsigned build prerequisites. Run `bun run macos:check` for an unsigned Rust and Swift compilation that does not require an Apple Developer account. Run `bun run macos:run` to development-sign, install, and launch the app from `~/Applications`. The `--release` flag on `scripts/macos/run.nu` selects optimized local binaries, but it does not produce a distributable release.
+
+Run `bun run macos:release` to archive the app, export it with Developer ID signing, notarize it, staple and verify the ticket, and create `packages/macos/build/Distribution/Tangram.zip`. Pass `--install` to install the verified app in `/Applications`. Set `TANGRAM_NOTARY_PROFILE` to override the default `Tangram` notarytool keychain profile.
+
+For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `packages/macos/Local.xcconfig` and set the bundle prefix and development team. Create Apple Development and Developer ID Application certificates in the login keychain. Store the notarization credentials interactively with `xcrun notarytool store-credentials Tangram --apple-id <apple-id> --team-id <team-id>`. Do not store signing keys or notarization passwords in the repository.
+
 ## Style
 
 ### Modules and Items
@@ -75,6 +85,7 @@ To run all tests, run `bun run test`. The most important tests are the CLI tests
 ### Comments
 
 - Put comments on their own lines immediately before the code they describe.
+- Keep comments on a single line when practical, and do not manually wrap a single comment across multiple lines with `//` prefixes.
 - Use comments to explain intent, invariants, or non-obvious constraints rather than restating the code.
 - Include articles in comments.
 - Write comments as complete sentences ending in periods.

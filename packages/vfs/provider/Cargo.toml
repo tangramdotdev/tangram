@@ -1,0 +1,32 @@
+[package]
+name = "tangram_vfs_provider"
+authors.workspace = true
+description.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+futures = { workspace = true }
+heed = { workspace = true }
+libc = { workspace = true }
+num = { workspace = true }
+serde_json = { workspace = true }
+tangram_client = { workspace = true }
+tangram_object_store = { workspace = true, features = ["lmdb"] }
+tangram_uri = { workspace = true }
+tangram_vfs = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-oslog = "0.3"
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["staticlib"]

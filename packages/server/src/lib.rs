@@ -757,13 +757,30 @@ impl Server {
 		});
 
 		// Start the VFS if enabled.
-		let artifacts_path = server.path.join("artifacts");
+		let artifacts_path = server.artifacts_path();
 		let cache_path = server.path.join("cache");
+		let vfs_kind = match server.config.vfs.unwrap_or_default().kind {
+			config::VfsKind::Auto => {
+				if cfg!(target_os = "macos")
+					&& std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some()
+				{
+					vfs::Kind::Fskit
+				} else if cfg!(target_os = "macos") {
+					vfs::Kind::Nfs
+				} else if cfg!(target_os = "linux") {
+					vfs::Kind::Fuse
+				} else {
+					unreachable!()
+				}
+			},
+			config::VfsKind::Fskit => vfs::Kind::Fskit,
+			config::VfsKind::Fuse => vfs::Kind::Fuse,
+			config::VfsKind::Nfs => vfs::Kind::Nfs,
+		};
 		let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
 			Ok(exists) => exists,
 			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
-				let kind = server.config.vfs.unwrap_or_default().into();
-				self::vfs::Server::unmount(kind, &artifacts_path).await?;
+				self::vfs::Server::unmount(vfs_kind, &artifacts_path).await?;
 				true
 			},
 			Err(error) => {
@@ -790,8 +807,7 @@ impl Server {
 			tokio::fs::create_dir_all(&cache_path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
-			let artifacts_path = server.artifacts_path();
-			let vfs = self::vfs::Server::start(&server, &artifacts_path, options)
+			let vfs = self::vfs::Server::start(&server, vfs_kind, &artifacts_path, options)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
 			server.vfs.lock().unwrap().replace(vfs);
@@ -817,7 +833,7 @@ impl Server {
 			.http
 			.as_ref()
 			.map_or_else(Vec::new, |config| {
-				if config.listeners.is_empty() {
+				let mut listeners = if config.listeners.is_empty() {
 					let path = server.path.join("socket");
 					let path = path.to_str().unwrap();
 					let url = Uri::builder()
@@ -829,7 +845,19 @@ impl Server {
 					vec![crate::config::HttpListener { url, tls: None }]
 				} else {
 					config.listeners.clone()
+				};
+				// On macOS, also listen on the socket in the shared app group
+				// container so the sandboxed file system extension can connect.
+				if let Some(path) = std::env::var_os("TANGRAM_MACOS_APP_GROUP_SOCKET") {
+					let url = Uri::builder()
+						.scheme("http+unix")
+						.authority(path.to_str().unwrap())
+						.path("")
+						.build()
+						.unwrap();
+					listeners.push(crate::config::HttpListener { url, tls: None });
 				}
+				listeners
 			});
 		let http_task = if http_listeners.is_empty() {
 			None

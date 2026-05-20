@@ -1,0 +1,106 @@
+name: Tangram
+options:
+  fileTypes:
+    icon:
+      file: true
+  bundleIdPrefix: dev.tangram
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+configFiles:
+  Debug: Configuration.xcconfig
+  Release: Configuration.xcconfig
+settings:
+  base:
+    MARKETING_VERSION: 0.0.0
+    CURRENT_PROJECT_VERSION: 1
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ${TANGRAM_DEVELOPMENT_TEAM}
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  Tangram:
+    type: application
+    platform: macOS
+    sources:
+      - path: Tangram
+        excludes:
+          - Resources/Info.plist
+          - Resources/Tangram.entitlements
+          - Resources/TangramHelper.entitlements
+      - path: Tangram/Resources/Assets.xcassets
+        type: folder.assetcatalog
+    dependencies:
+      - target: TangramFSKit
+        embed: true
+        codeSign: true
+    postBuildScripts:
+      - path: scripts/embed-helper.sh
+        name: Embed Tangram Helper
+        inputFiles:
+          - $(TANGRAM_HELPER_PATH)
+          - $(SRCROOT)/Tangram/Resources/TangramHelper.entitlements
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/tangram
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+    settings:
+      base:
+        INFOPLIST_FILE: Tangram/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Tangram/Resources/Tangram.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_DEBUG_DYLIB: NO
+      configs:
+        Debug:
+          PRODUCT_NAME: Tangram Dev
+          EXECUTABLE_NAME: Tangram
+          PRODUCT_BUNDLE_IDENTIFIER: $(TANGRAM_BUNDLE_PREFIX).Tangram.debug
+        Release:
+          PRODUCT_NAME: Tangram
+          EXECUTABLE_NAME: Tangram
+          PRODUCT_BUNDLE_IDENTIFIER: $(TANGRAM_BUNDLE_PREFIX).Tangram
+  TangramFSKit:
+    type: extensionkit-extension
+    platform: macOS
+    sources:
+      - path: TangramFSKit
+        excludes:
+          - Resources/Info.plist
+          - Resources/TangramFSKit.entitlements
+          - Resources/TangramFSKitDebug.entitlements
+    dependencies:
+      - sdk: FSKit.framework
+      - sdk: ExtensionFoundation.framework
+    settings:
+      base:
+        INFOPLIST_FILE: TangramFSKit/Resources/Info.plist
+        PRODUCT_NAME: TangramFSKit
+        EXECUTABLE_NAME: TangramFSKit
+        SKIP_INSTALL: YES
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_DEBUG_DYLIB: NO
+        CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+        OTHER_SWIFT_FLAGS: -parse-as-library
+        SWIFT_OBJC_BRIDGING_HEADER: TangramFSKit/provider.h
+        OTHER_LDFLAGS: -ltangram_vfs_provider -llzma -liconv -framework CoreFoundation -framework Security -framework SystemConfiguration
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: TangramFSKit/Resources/TangramFSKit.entitlements
+          PRODUCT_BUNDLE_IDENTIFIER: $(TANGRAM_BUNDLE_PREFIX).Tangram.debug.filesystem
+          LIBRARY_SEARCH_PATHS: $(SRCROOT)/../../target/debug
+        Release:
+          CODE_SIGN_ENTITLEMENTS: TangramFSKit/Resources/TangramFSKit.entitlements
+          PRODUCT_BUNDLE_IDENTIFIER: $(TANGRAM_BUNDLE_PREFIX).Tangram.fskit
+          LIBRARY_SEARCH_PATHS: $(SRCROOT)/../../target/release
+schemes:
+  Tangram:
+    build:
+      targets:
+        Tangram: all
+    run:
+      config: Debug
+    archive:
+      config: Release

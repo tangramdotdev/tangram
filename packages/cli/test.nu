@@ -1,6 +1,7 @@
 #!/usr/bin/env nu
 
 use std/util 'path add'
+use ../../scripts/macos/identifiers.nu
 
 export use std/assert
 
@@ -12,6 +13,7 @@ def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from cockroach, scylla, and nats.
 	--cloud # Enable cloud database backends (cockroach, scylla, nats) for spawn --cloud.
+	--fskit # Run every test against the fskit VFS. Requires the macOS app and its file system extension to be installed and enabled.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--preserve-temps # Keep the temporary directories.
@@ -43,6 +45,10 @@ def main [
 	if $release and $tangram_path != null {
 		error make { msg: '--release may not be combined with --tangram-path' }
 	}
+	# Validate the fskit flag.
+	if $fskit and $nu.os-info.name != 'macos' {
+		error make { msg: '--fskit is only supported on macos' }
+	}
 	# Validate the stress flag combination.
 	let stress = $stress or $stress_count != null
 	if $stress and ($accept or $review) {
@@ -53,7 +59,17 @@ def main [
 	}
 	# Clean up leftover test resources if requested.
 	if $clean {
-		let test_temp_paths = ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir | get name
+		let fskit_temp_paths = if (fskit_temp_root | path exists) {
+			ls (fskit_temp_root) | where name =~ 'tangram_test_' and type == dir | get name
+		} else {
+			[]
+		}
+		let test_temp_paths = (
+			ls ($nu.temp-dir? | default $nu.temp-path?)
+			| where name =~ 'tangram_test_' and type == dir
+			| get name
+			| append $fskit_temp_paths
+		)
 		let lmdb_sysv_keys = lmdb_sysv_keys_for_test_dirs $test_temp_paths
 
 		for path in $test_temp_paths {
@@ -93,6 +109,15 @@ def main [
 		print -e $"cleaned lmdb sysv semaphores: ($lmdb_sysv_semaphores - $remaining_lmdb_sysv_semaphores)"
 
 		return
+	}
+
+	# Build and install the current macOS app and file system extension. Isolate
+	# its default-feature Cargo build from the all-features test binary.
+	if $fskit {
+		let build_args = if $release { ['--release'] } else { [] }
+		let cargo_target_dir = ($repository_path | path join 'target/macos')
+		^bun run macos:build --cargo-target-dir $cargo_target_dir ...$build_args
+		^nu ($repository_path | path join 'scripts/macos/install.nu') ...$build_args --no-build
 	}
 
 	# Add the tangram binary to the path. If --tangram-path was provided, use
@@ -145,6 +170,7 @@ def main [
 
 	let options = {
 		cloud: $cloud,
+		fskit: $fskit,
 		offline: $offline,
 		quickjs: $quickjs,
 		no_capture: $no_capture,
@@ -444,13 +470,25 @@ def is_failed [result: record] {
 }
 
 # Create the pending entries for one round of tests. Each entry carries a unique sequence number, because in stress mode the same test may run concurrently with itself, so results cannot be matched to running entries by name.
+def fskit_temp_root [] {
+	$env.HOME | path join '.tangram/test-tmp'
+}
+
 def round_entries [tests: list, round: int, first_seq: int] {
 	$tests | enumerate | each { |entry| $entry.item | merge { seq: ($first_seq + $entry.index), round: $round } }
 }
 
 def run_test [test: record, options: record] {
-	# Create a temp directory for this test.
-	let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
+	# Create a temp directory for this test. With fskit, it must live under the
+	# tangram directory, because that is the only path outside the app group
+	# container the file system extension's sandbox permits.
+	let temp_path = if $options.fskit {
+		let root = fskit_temp_root
+		mkdir $root
+		mktemp -d --tmpdir-path $root 'tangram_test_XXXXXX' | path expand
+	} else {
+		mktemp -d -t tangram_test_XXXXXX | path expand
+	}
 
 	# Remove inline, pending, and touch files. Skip this in stress mode, because concurrent runs of the same test would race on these files.
 	let parsed = $test.path | path parse
@@ -491,6 +529,7 @@ def run_test [test: record, options: record] {
 		TANGRAM_MODE: client,
 		TANGRAM_QUIET: true,
 		TANGRAM_TEST_CLOUD: (if $options.cloud { "1" } else { "" }),
+		TANGRAM_TEST_FSKIT: (if $options.fskit { "1" } else { "" }),
 		TANGRAM_TEST_OFFLINE: (if $options.offline { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $options.quickjs { "1" } else { "" }),
 		TANGRAM_TEST_TURSO: (if $options.turso { "1" } else { "" }),
@@ -884,6 +923,13 @@ export def --env spawn [
 	--quickjs # Use QuickJS as the JS engine.
 	--url (-u): string
 ] {
+	# Give the object store's lock semaphores a unique prefix per server. lmdb
+	# appends 'r' and 'w' to form the two POSIX semaphore names, which are global
+	# to the machine, so concurrent test servers must not share a prefix. The
+	# prefix plus one character must fit the platform limit, which is 31
+	# characters on macOS.
+	let object_store_posix_sem_prefix = $'/tg-((random chars) | str lowercase | str substring 0..7)'
+
 	mut default_config = {
 		advanced: {
 			disable_version_check: true
@@ -903,6 +949,7 @@ export def --env spawn [
 			store: {
 				kind: 'lmdb',
 				map_size: 10_485_760,
+				posix_sem_prefix: $object_store_posix_sem_prefix,
 			},
 		},
 		remotes: {},
@@ -927,6 +974,15 @@ export def --env spawn [
 			database: {
 				kind: 'turso',
 				path: 'database',
+			},
+		}
+	}
+
+	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
+	if $use_fskit {
+		$default_config = $default_config | merge deep {
+			vfs: {
+				kind: 'fskit',
 			},
 		}
 	}
@@ -1009,6 +1065,17 @@ export def --env spawn [
 
 	# Write the config.
 	let config = $default_config | merge deep --strategy append ($config | default {})
+
+	# Force the vfs kind for every server when fskit is enabled, because a test that configures the vfs itself would otherwise override it. A test that disables the vfs is left alone.
+	let config = if not $use_fskit {
+		$config
+	} else if ($config | get --optional vfs) == false {
+		$config
+	} else if (($config | get --optional vfs | describe) | str starts-with 'record') {
+		$config | upsert vfs ($config | get vfs | upsert kind 'fskit')
+	} else {
+		$config | upsert vfs { kind: 'fskit' }
+	}
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path
@@ -1019,6 +1086,18 @@ export def --env spawn [
 	# Determine the url.
 	let url = $url | default $'http+unix://($directory_path | url encode --all)%2Fsocket'
 	$env.TANGRAM_URL = $url
+
+	# On macOS, give the server a unique socket for the fskit file system extension
+	# to connect to, so concurrent servers and multiple mounts do not collide. The
+	# sandboxed extension can only reach the shared app group container, so the
+	# socket must live there.
+	if $nu.os-info.name == 'macos' {
+		let group_id = (identifiers).app_group_identifier
+		let group_container = $env.HOME | path join 'Library/Group Containers' $group_id
+		try { mkdir $group_container }
+		let socket_name = $'socket-((random chars) | str lowercase)'
+		$env.TANGRAM_MACOS_APP_GROUP_SOCKET = ($group_container | path join $socket_name)
+	}
 
 	# Create a path for server readiness signaling.
 	let ready_path = ($config_path | path dirname | path join 'ready')
@@ -1564,9 +1643,39 @@ def remove_temp_directory [path: string] {
 }
 
 def force_unmount_vfs [path: string] {
-	if $nu.os-info.name != 'linux' {
-		return
+	match $nu.os-info.name {
+		'linux' => { force_unmount_vfs_linux $path },
+		'macos' => { force_unmount_vfs_macos $path },
+		_ => {},
 	}
+}
+
+# Unmounts any fskit vfs left under the path. A server that exits cleanly unmounts itself, so this only catches the ones that crashed.
+def force_unmount_vfs_macos [path: string] {
+	let targets = (
+		try {
+			^mount | lines | each { |line|
+				let matches = ($line | parse --regex '^.+ on (?<target>.+) \(tangram[,)]')
+				if ($matches | is-empty) { null } else { $matches | first | get target }
+			} | compact
+		} catch {
+			[]
+		}
+	)
+	let artifacts_paths = (
+		$targets
+		| where { |target| ($target == ($path | path join 'artifacts')) or ($target | str starts-with ($path + '/')) }
+		| uniq
+		| each { |path| { path: $path, length: ($path | str length) } }
+		| sort-by length --reverse
+		| get path
+	)
+	for artifacts_path in $artifacts_paths {
+		try { ^umount -f $artifacts_path o> /dev/null e> /dev/null }
+	}
+}
+
+def force_unmount_vfs_linux [path: string] {
 	let mounted_artifacts_paths = (
 		try {
 			^findmnt -rn -o TARGET | lines | where { |target|

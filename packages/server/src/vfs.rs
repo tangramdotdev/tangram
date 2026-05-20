@@ -1,17 +1,26 @@
 use {provider::Provider, std::path::Path, tangram_client::prelude::*, tangram_vfs as vfs};
 
+#[cfg(target_os = "macos")]
+mod fskit;
+
 mod provider;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Kind {
+	Fskit,
 	Fuse,
 	Nfs,
 }
 
 pub enum Server {
+	#[cfg(target_os = "macos")]
+	Fskit(fskit::Server),
+
 	#[cfg(target_os = "linux")]
 	Fuse(vfs::fuse::Server<Provider>),
+
 	Nfs(vfs::nfs::Server<Provider>),
+
 	#[cfg(target_os = "linux")]
 	Virtiofs(vfs::virtiofs::Server),
 }
@@ -19,6 +28,7 @@ pub enum Server {
 impl Server {
 	pub async fn start(
 		server: &crate::Server,
+		kind: Kind,
 		path: &Path,
 		options: crate::config::Vfs,
 	) -> tg::Result<Self> {
@@ -33,8 +43,20 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 
-		let vfs = match options {
-			crate::config::Vfs::Fuse(options) => {
+		let vfs = match kind {
+			Kind::Fskit => {
+				#[cfg(target_os = "macos")]
+				{
+					let fskit = fskit::Server::start(server, path).await?;
+					Server::Fskit(fskit)
+				}
+				#[cfg(not(target_os = "macos"))]
+				{
+					let _ = server;
+					return Err(tg::error!("fskit is only supported on macos"));
+				}
+			},
+			Kind::Fuse => {
 				#[cfg(target_os = "linux")]
 				{
 					let options = vfs::fuse::Options {
@@ -64,7 +86,7 @@ impl Server {
 					return Err(tg::error!("the FUSE VFS is only supported on Linux"));
 				}
 			},
-			crate::config::Vfs::Nfs => {
+			Kind::Nfs => {
 				let port = 8476;
 				let host = if cfg!(target_os = "macos") {
 					"Tangram"
@@ -99,6 +121,17 @@ impl Server {
 
 	pub async fn unmount(kind: Kind, path: &Path) -> tg::Result<()> {
 		match kind {
+			Kind::Fskit => {
+				#[cfg(target_os = "macos")]
+				{
+					fskit::Server::unmount(path).await?;
+				}
+				#[cfg(not(target_os = "macos"))]
+				{
+					let _ = path;
+					return Err(tg::error!("fskit is only supported on macos"));
+				}
+			},
 			Kind::Fuse => {
 				#[cfg(target_os = "linux")]
 				{
@@ -121,6 +154,8 @@ impl Server {
 
 	pub fn stop(&self) {
 		match self {
+			#[cfg(target_os = "macos")]
+			Server::Fskit(_) => {},
 			#[cfg(target_os = "linux")]
 			Server::Fuse(server) => server.stop(),
 			Server::Nfs(server) => server.stop(),
@@ -131,6 +166,12 @@ impl Server {
 
 	pub async fn wait(self) {
 		match self {
+			#[cfg(target_os = "macos")]
+			Server::Fskit(server) => {
+				if let Err(error) = fskit::Server::unmount(server.path()).await {
+					tracing::error!(?error, "failed to unmount the fskit vfs");
+				}
+			},
 			#[cfg(target_os = "linux")]
 			Server::Fuse(server) => {
 				server.wait().await;
@@ -142,15 +183,6 @@ impl Server {
 			Server::Virtiofs(server) => {
 				server.wait().await;
 			},
-		}
-	}
-}
-
-impl From<crate::config::Vfs> for Kind {
-	fn from(value: crate::config::Vfs) -> Self {
-		match value {
-			crate::config::Vfs::Fuse(_) => Self::Fuse,
-			crate::config::Vfs::Nfs => Self::Nfs,
 		}
 	}
 }

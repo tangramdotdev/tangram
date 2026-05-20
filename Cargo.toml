@@ -26,6 +26,7 @@ members = [
   "packages/util",
   "packages/v8",
   "packages/vfs",
+  "packages/vfs/provider",
   "packages/zed",
 ]
 resolver = "2"
@@ -101,7 +102,7 @@ foundationdb-tuple = "0.11"
 futures = "0.3"
 glob = "0.3"
 globset = "0.4"
-heed = "0.22"
+heed = { version = "0.22", features = ["posix-sem"] }
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
@@ -249,3 +250,4 @@ ignored = [
 
 [patch.crates-io]
 virtiofsd = { git = "https://github.com/tangramdotdev/virtiofsd", branch = "feat/dax" }
+heed = { git = "https://github.com/tangramdotdev/heed.git", rev = "c5ea26f535702b0973cf9551e025234d6529cc06" }
