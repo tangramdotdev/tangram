@@ -12,7 +12,7 @@ def main [--release] {
 	let project = ($path | path join "Tangram.xcodeproj")
 	let result_bundle_path = ($path | path join "build/Tangram.xcresult")
 	let source_path = ($root | path join "target" $profile "tangram")
-	let destination_path = ($app_path | path join "Contents/MacOS/tangram")
+	let destination_path = ($app_path | path join "Contents/Helpers/tangram")
 
 	if $release {
 		cargo build --release --all-features -p tangram_cli
