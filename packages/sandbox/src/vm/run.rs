@@ -176,7 +176,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			"requested vm cpu must be within the configured snapshot resize envelope"
 		));
 	}
-	let requested_memory = arg.memory.unwrap_or(arg.snapshot_memory);
+	let requested_memory = arg.memory.unwrap_or(arg.max_memory);
 	if requested_memory < arg.snapshot_memory || requested_memory > arg.max_memory {
 		return Err(tg::error!(
 			"requested vm memory must be within the configured snapshot resize envelope"
@@ -743,7 +743,7 @@ fn helper_child_main(
 		.arg("--sandbox")
 		.arg("none")
 		.arg("--cache")
-		.arg("always")
+		.arg("auto")
 		.arg("--inode-file-handles=never")
 		.arg("--xattr")
 		.arg("--log-level")
@@ -843,12 +843,20 @@ fn kernel_cmdline(arg: &Arg) -> String {
 }
 
 fn memory_arg(arg: &Arg) -> String {
-	let mut memory = format!("size={},shared=on", arg.snapshot_memory);
-	let hotplug_size = arg.max_memory - arg.snapshot_memory;
-	if hotplug_size > 0 {
-		write!(&mut memory, ",hotplug_size={hotplug_size}").unwrap();
+	if arg.create_snapshot.is_some() {
+		let mut memory = format!("size={},shared=on", arg.snapshot_memory);
+		let hotplug_size = arg.max_memory - arg.snapshot_memory;
+		if hotplug_size > 0 {
+			write!(
+				&mut memory,
+				",hotplug_method=virtio-mem,hotplug_size={hotplug_size}"
+			)
+			.unwrap();
+		}
+		memory
+	} else {
+		format!("size={},shared=on", arg.max_memory)
 	}
-	memory
 }
 
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
