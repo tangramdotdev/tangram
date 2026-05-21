@@ -13,10 +13,25 @@ pub struct Arg {
 }
 
 pub fn create(arg: &Arg) -> tg::Result<()> {
-	std::fs::remove_dir_all(&arg.path).ok();
+	if let Err(error) = std::fs::remove_dir_all(&arg.path)
+		&& error.kind() != std::io::ErrorKind::NotFound
+	{
+		return Err(tg::error!(
+			!error,
+			path = %arg.path.display(),
+			"failed to remove the sandbox directory"
+		));
+	}
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
-	let libraries = collect_dynamic_libraries(&arg.tangram_path)?;
+	let root_path = std::fs::canonicalize(&arg.path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %arg.path.display(),
+			"failed to canonicalize the sandbox directory"
+		)
+	})?;
+	let libraries = collect_dynamic_libraries(&arg.tangram_path, &root_path)?;
 	let libraries_path = arg.path.join("lib");
 	if !libraries.is_empty() {
 		std::fs::create_dir_all(&libraries_path).map_err(|error| {
@@ -87,7 +102,7 @@ fn shell_quote(path: &Path) -> String {
 	path.to_string_lossy().replace('\'', r"'\''")
 }
 
-fn collect_dynamic_libraries(executable: &Path) -> tg::Result<Vec<PathBuf>> {
+fn collect_dynamic_libraries(executable: &Path, root_path: &Path) -> tg::Result<Vec<PathBuf>> {
 	let executable = std::fs::canonicalize(executable).map_err(|error| {
 		tg::error!(
 			!error,
@@ -114,7 +129,7 @@ fn collect_dynamic_libraries(executable: &Path) -> tg::Result<Vec<PathBuf>> {
 				continue;
 			}
 			let Some(dependency) =
-				resolve_dynamic_library(&path, &rpaths, &loaded_images, &dependency)?
+				resolve_dynamic_library(&path, &rpaths, &loaded_images, root_path, &dependency)?
 			else {
 				continue;
 			};
@@ -210,11 +225,12 @@ fn resolve_dynamic_library(
 	binary: &Path,
 	rpaths: &[PathBuf],
 	loaded_images: &[PathBuf],
+	root_path: &Path,
 	dependency: &str,
 ) -> tg::Result<Option<PathBuf>> {
 	let resolved = if let Some(suffix) = dependency.strip_prefix("@rpath/") {
-		let path =
-			resolve_rpath_dynamic_library(rpaths, loaded_images, suffix).ok_or_else(|| {
+		let path = resolve_rpath_dynamic_library(binary, rpaths, loaded_images, root_path, suffix)
+			.ok_or_else(|| {
 				tg::error!(
 					binary = %binary.display(),
 					%dependency,
@@ -233,6 +249,12 @@ fn resolve_dynamic_library(
 		if is_system_library_path(&path) {
 			return Ok(None);
 		}
+		if is_staged_library_path(&path, root_path) {
+			return Err(tg::error!(
+				path = %path.display(),
+				"resolved the dynamic library to the sandbox root"
+			));
+		}
 		std::fs::canonicalize(&path).map_err(|error| {
 			tg::error!(
 				!error,
@@ -248,37 +270,56 @@ fn resolve_dynamic_library(
 }
 
 fn resolve_rpath_dynamic_library(
+	binary: &Path,
 	rpaths: &[PathBuf],
 	loaded_images: &[PathBuf],
+	root_path: &Path,
 	suffix: &str,
 ) -> Option<PathBuf> {
-	resolve_dynamic_library_in_directories(rpaths, suffix)
-		.or_else(|| resolve_dynamic_library_in_dyld_environment(suffix))
-		.or_else(|| resolve_dynamic_library_in_loaded_images(loaded_images, suffix))
+	resolve_dynamic_library_in_directories(rpaths, root_path, suffix)
+		.or_else(|| resolve_dynamic_library_in_dyld_environment(root_path, suffix))
+		.or_else(|| resolve_dynamic_library_in_cargo_build_output(binary, root_path, suffix))
+		.or_else(|| resolve_dynamic_library_in_loaded_images(loaded_images, root_path, suffix))
 }
 
 fn resolve_dynamic_library_in_directories(
 	directories: &[PathBuf],
+	root_path: &Path,
 	suffix: &str,
 ) -> Option<PathBuf> {
 	directories
 		.iter()
 		.map(|directory| directory.join(suffix))
-		.find(|path| path.exists())
+		.find(|path| path.exists() && !is_staged_library_path(path, root_path))
 }
 
-fn resolve_dynamic_library_in_dyld_environment(suffix: &str) -> Option<PathBuf> {
+fn resolve_dynamic_library_in_dyld_environment(root_path: &Path, suffix: &str) -> Option<PathBuf> {
 	let file_name = Path::new(suffix).file_name()?;
 	[
+		"FDB_LIB_PATH",
 		"DYLD_LIBRARY_PATH",
 		"DYLD_FALLBACK_LIBRARY_PATH",
-		"FDB_LIB_PATH",
 	]
 	.into_iter()
 	.filter_map(std::env::var_os)
 	.flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
 	.map(|directory| directory.join(file_name))
-	.find(|path| path.exists())
+	.find(|path| path.exists() && !is_staged_library_path(path, root_path))
+}
+
+fn resolve_dynamic_library_in_cargo_build_output(
+	binary: &Path,
+	root_path: &Path,
+	suffix: &str,
+) -> Option<PathBuf> {
+	let file_name = Path::new(suffix).file_name()?;
+	let profile_path = binary.parent()?;
+	let build_path = profile_path.join("build");
+	let entries = std::fs::read_dir(build_path).ok()?;
+	entries
+		.filter_map(Result::ok)
+		.map(|entry| entry.path().join("out/fdb/usr/local/lib").join(file_name))
+		.find(|path| path.exists() && !is_staged_library_path(path, root_path))
 }
 
 fn loaded_images() -> Vec<PathBuf> {
@@ -303,13 +344,23 @@ fn loaded_images() -> Vec<PathBuf> {
 
 fn resolve_dynamic_library_in_loaded_images(
 	loaded_images: &[PathBuf],
+	root_path: &Path,
 	suffix: &str,
 ) -> Option<PathBuf> {
 	let file_name = Path::new(suffix).file_name()?;
 	loaded_images
 		.iter()
-		.find(|path| path.file_name() == Some(file_name))
+		.find(|path| {
+			path.file_name() == Some(file_name) && !is_staged_library_path(path, root_path)
+		})
 		.cloned()
+}
+
+fn is_staged_library_path(path: &Path, root_path: &Path) -> bool {
+	path.starts_with(root_path)
+		|| path
+			.parent()
+			.is_some_and(|parent| parent.ends_with("seatbelt/root/lib"))
 }
 
 fn resolve_dyld_path(binary: &Path, path: &str) -> PathBuf {
