@@ -6,6 +6,12 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
+
+#[derive(Clone)]
 enum NamespaceReadSubject {
 	All,
 	Public,
@@ -145,6 +151,11 @@ impl Session {
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<i64> {
+		#[cfg(feature = "postgres")]
+		if let Transaction::Postgres(transaction) = transaction {
+			return Self::get_or_create_namespace_postgres(transaction, namespace).await;
+		}
+
 		if namespace.is_root() {
 			return Ok(0);
 		}
@@ -805,6 +816,25 @@ impl Session {
 		user: &tg::user::Id,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Vec<tg::Permission>> {
+		#[cfg(feature = "postgres")]
+		if let Transaction::Postgres(transaction) = transaction {
+			return Self::list_effective_namespace_permissions_for_user_postgres(
+				transaction,
+				user,
+				namespace,
+			)
+			.await;
+		}
+		#[cfg(feature = "sqlite")]
+		if let Transaction::Sqlite(transaction) = transaction {
+			return Self::list_effective_namespace_permissions_for_user_sqlite(
+				transaction,
+				user,
+				namespace,
+			)
+			.await;
+		}
+
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -858,6 +888,17 @@ impl Session {
 		user: &tg::user::Id,
 		tag: &tg::Tag,
 	) -> tg::Result<Vec<tg::Permission>> {
+		#[cfg(feature = "postgres")]
+		if let Transaction::Postgres(transaction) = transaction {
+			return Self::list_effective_tag_permissions_for_user_postgres(transaction, user, tag)
+				.await;
+		}
+		#[cfg(feature = "sqlite")]
+		if let Transaction::Sqlite(transaction) = transaction {
+			return Self::list_effective_tag_permissions_for_user_sqlite(transaction, user, tag)
+				.await;
+		}
+
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -935,6 +976,10 @@ impl Session {
 		tag: &tg::Tag,
 		permission: tg::Permission,
 	) -> tg::Result<bool> {
+		#[cfg(feature = "sqlite")]
+		if let Transaction::Sqlite(transaction) = transaction {
+			return Self::user_has_tag_permission_sqlite(transaction, user, tag, permission).await;
+		}
 		let permissions =
 			Self::list_effective_tag_permissions_for_user_with_transaction(transaction, user, tag)
 				.await?;
@@ -947,6 +992,22 @@ impl Session {
 		tag: &tg::Tag,
 		permission: tg::Permission,
 	) -> tg::Result<bool> {
+		#[cfg(feature = "postgres")]
+		if let Transaction::Postgres(transaction) = transaction {
+			return Self::user_has_exact_tag_permission_postgres(
+				transaction,
+				user,
+				tag,
+				permission,
+			)
+			.await;
+		}
+		#[cfg(feature = "sqlite")]
+		if let Transaction::Sqlite(transaction) = transaction {
+			return Self::user_has_exact_tag_permission_sqlite(transaction, user, tag, permission)
+				.await;
+		}
+
 		let Some(namespace_id) =
 			Self::try_get_namespace_id_with_transaction(transaction, &tag.namespace).await?
 		else {
@@ -985,6 +1046,15 @@ impl Session {
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<bool> {
+		#[cfg(feature = "postgres")]
+		if let Transaction::Postgres(transaction) = transaction {
+			return Self::namespace_has_public_read_postgres(transaction, namespace).await;
+		}
+		#[cfg(feature = "sqlite")]
+		if let Transaction::Sqlite(transaction) = transaction {
+			return Self::namespace_has_public_read_sqlite(transaction, namespace).await;
+		}
+
 		let p = transaction.p();
 		for namespace_id in
 			Self::get_namespace_ancestor_ids_with_transaction(transaction, namespace).await?
@@ -1012,6 +1082,15 @@ impl Session {
 		transaction: &Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
+		#[cfg(feature = "postgres")]
+		if let Transaction::Postgres(transaction) = transaction {
+			return Self::tag_has_public_read_postgres(transaction, tag).await;
+		}
+		#[cfg(feature = "sqlite")]
+		if let Transaction::Sqlite(transaction) = transaction {
+			return Self::tag_has_public_read_sqlite(transaction, tag).await;
+		}
+
 		if Self::namespace_has_public_read_with_transaction(transaction, &tag.namespace).await? {
 			return Ok(true);
 		}
@@ -1042,6 +1121,15 @@ impl Session {
 		transaction: &Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
+		#[cfg(feature = "postgres")]
+		if let Transaction::Postgres(transaction) = transaction {
+			return Self::tag_has_exact_public_read_postgres(transaction, tag).await;
+		}
+		#[cfg(feature = "sqlite")]
+		if let Transaction::Sqlite(transaction) = transaction {
+			return Self::tag_has_exact_public_read_sqlite(transaction, tag).await;
+		}
+
 		let Some(namespace_id) =
 			Self::try_get_namespace_id_with_transaction(transaction, &tag.namespace).await?
 		else {
@@ -1228,6 +1316,25 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		#[cfg(feature = "postgres")]
+		if let Transaction::Postgres(transaction) = &transaction {
+			return Self::filter_list_entries_by_read_permission_postgres(
+				transaction,
+				&subject,
+				data,
+			)
+			.await;
+		}
+		#[cfg(feature = "sqlite")]
+		if let Transaction::Sqlite(transaction) = &transaction {
+			return Self::filter_list_entries_by_read_permission_sqlite(
+				transaction,
+				&subject,
+				data,
+			)
+			.await;
+		}
+
 		let mut filtered = Vec::new();
 		let mut readable_by_namespace = BTreeMap::new();
 		let mut readable_by_tag = BTreeMap::new();
