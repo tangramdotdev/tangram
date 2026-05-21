@@ -49,6 +49,7 @@ impl Session {
 				bytes: Some(object.bytes.clone()),
 				cache_pointer: None,
 				id: object.id.clone(),
+				namespace: None,
 				stored_at: now,
 			})
 			.collect();

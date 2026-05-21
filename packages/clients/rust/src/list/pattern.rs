@@ -199,6 +199,9 @@ impl std::str::FromStr for Name {
 		if s.contains('/') {
 			return Err(tg::error!("invalid tag pattern"));
 		}
+		if !is_valid_name(s) {
+			return Err(tg::error!("invalid tag pattern"));
+		}
 		if !contains_operators(s)
 			&& (s.parse::<tg::graph::data::Edge<tg::object::Id>>().is_ok()
 				|| s.parse::<tg::process::Id>().is_ok())
@@ -236,7 +239,29 @@ impl From<tg::Tag> for Pattern {
 }
 
 pub(crate) fn contains_operators(s: &str) -> bool {
-	s.contains(['*', '=', '>', '<', '^'])
+	s.contains(['*', '=', '>', '<', '^', ','])
+}
+
+fn is_valid_name(s: &str) -> bool {
+	if s.is_empty() {
+		return true;
+	}
+	s.split(',').all(is_valid_constraint)
+}
+
+fn is_valid_constraint(s: &str) -> bool {
+	if s == "*" {
+		return true;
+	}
+	let value = s
+		.strip_prefix(">=")
+		.or_else(|| s.strip_prefix("<="))
+		.or_else(|| s.strip_prefix('>'))
+		.or_else(|| s.strip_prefix('<'))
+		.or_else(|| s.strip_prefix('='))
+		.or_else(|| s.strip_prefix('^'))
+		.unwrap_or(s);
+	!value.is_empty() && value.chars().all(tg::tag::is_name_character)
 }
 
 fn is_namespace_prefix(prefix: &tg::Namespace, namespace: &tg::Namespace) -> bool {
@@ -247,4 +272,42 @@ fn is_namespace_prefix(prefix: &tg::Namespace, namespace: &tg::Namespace) -> boo
 		}
 	}
 	true
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_name_from_str_accepts_valid_literals_and_operators() {
+		for value in [
+			"",
+			"foo.bar",
+			"*",
+			"=foo.bar",
+			">=1.2.3",
+			"<2.0",
+			"^1.2",
+			">=1.0,<2.0",
+		] {
+			assert!(value.parse::<Name>().is_ok(), "{value}");
+		}
+	}
+
+	#[test]
+	fn test_name_from_str_rejects_invalid_operator_positions_and_literals() {
+		for value in [
+			"foo/bar", "foo bar", "foo*", "*foo", "=", ">=", "^", "foo,", ",foo", "foo,,bar",
+			"foo=bar", "é",
+		] {
+			assert!(value.parse::<Name>().is_err(), "{value}");
+		}
+	}
+
+	#[test]
+	fn test_pattern_from_str_rejects_invalid_namespaces() {
+		for value in ["foo/é", "foo*/bar"] {
+			assert!(value.parse::<Pattern>().is_err(), "{value}");
+		}
+	}
 }

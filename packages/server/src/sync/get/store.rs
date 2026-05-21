@@ -111,6 +111,7 @@ impl Session {
 					bytes: Some(item.bytes.clone()),
 					cache_pointer: None,
 					id: item.id.clone(),
+					namespace: None,
 					stored_at: touched_at,
 				})
 			})

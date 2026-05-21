@@ -49,6 +49,7 @@ impl Session {
 			bytes: Some(arg.bytes.clone()),
 			cache_pointer: None,
 			id: id.clone(),
+			namespace: None,
 			stored_at: now,
 		};
 		self.server

@@ -19,7 +19,16 @@ pub struct PutArg {
 	pub bytes: Option<Bytes>,
 	pub cache_pointer: Option<CachePointer>,
 	pub id: tg::object::Id,
+	pub namespace: Option<tg::Namespace>,
 	pub stored_at: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeleteMembershipArg {
+	pub id: tg::object::Id,
+	pub namespace: Option<tg::Namespace>,
+	pub now: i64,
+	pub ttl: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -38,6 +47,12 @@ pub struct Object<'a> {
 	pub cache_pointer: Option<CachePointer>,
 
 	#[tangram_serialize(id = 2)]
+	pub stored_at: i64,
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct Membership {
+	#[tangram_serialize(id = 0)]
 	pub stored_at: i64,
 }
 
@@ -68,11 +83,15 @@ pub trait Store {
 	fn try_get(
 		&self,
 		id: &tg::object::Id,
+		namespaces: Vec<tg::Namespace>,
+		public: bool,
 	) -> impl std::future::Future<Output = tg::Result<Option<Object<'static>>>> + Send;
 
 	fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
+		namespaces: Vec<tg::Namespace>,
+		public: bool,
 	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object<'static>>>>> + Send;
 
 	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
@@ -80,6 +99,16 @@ pub trait Store {
 	fn put_batch(
 		&self,
 		args: Vec<PutArg>,
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn delete_membership(
+		&self,
+		arg: DeleteMembershipArg,
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn delete_membership_batch(
+		&self,
+		args: Vec<DeleteMembershipArg>,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn delete(&self, arg: DeleteArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
@@ -130,6 +159,30 @@ impl Object<'_> {
 			bytes: self.bytes.map(|bytes| Cow::Owned(bytes.into_owned())),
 			cache_pointer: self.cache_pointer,
 			stored_at: self.stored_at,
+		}
+	}
+}
+
+impl Membership {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
+		bytes.push(0);
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the membership value"))?;
+		Ok(bytes.into())
+	}
+
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		let bytes = bytes.into();
+		let bytes = bytes.as_ref();
+		if bytes.is_empty() {
+			return Err(tg::error!("empty membership value data"));
+		}
+		let format = bytes[0];
+		match format {
+			0 => tangram_serialize::from_slice(&bytes[1..])
+				.map_err(|error| tg::error!(!error, "failed to deserialize the membership value")),
+			_ => Err(tg::error!("invalid membership value format")),
 		}
 	}
 }

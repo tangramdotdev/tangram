@@ -4,3 +4,11 @@ create table if not exists objects (
 	id blob primary key,
 	stored_at bigint
 );
+
+create table if not exists memberships (
+	id blob,
+	kind tinyint,
+	namespace text,
+	stored_at bigint,
+	primary key (id, kind, namespace)
+);

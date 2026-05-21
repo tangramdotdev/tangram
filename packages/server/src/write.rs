@@ -167,6 +167,7 @@ impl Session {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
+						namespace: None,
 						stored_at: *stored_at,
 					};
 					self.server
@@ -262,6 +263,7 @@ impl Session {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
+						namespace: None,
 						stored_at: *stored_at,
 					};
 					self.server
@@ -472,6 +474,7 @@ impl Session {
 				bytes: blob.bytes.clone(),
 				cache_pointer,
 				id: blob.id.clone().into(),
+				namespace: None,
 				stored_at,
 			});
 			stack.extend(&blob.children);

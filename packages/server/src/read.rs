@@ -16,7 +16,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_object_store::prelude::*,
 	tokio::io::{
 		AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncSeek,
 		AsyncSeekExt as _,

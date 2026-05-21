@@ -7657,6 +7657,8 @@ dependencies = [
  "heed",
  "indoc",
  "num",
+ "num-derive",
+ "num-traits",
  "scylla",
  "serde",
  "serde_json",

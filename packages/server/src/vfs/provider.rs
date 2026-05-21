@@ -16,7 +16,6 @@ use {
 		sync::atomic::{AtomicU64, Ordering},
 	},
 	tangram_client::prelude::*,
-	tangram_object_store::prelude::*,
 	tangram_vfs as vfs,
 };
 
@@ -1808,7 +1807,7 @@ impl Provider {
 			(&self.server.object_store, transaction)
 		{
 			return store
-				.try_get_object_with_transaction(transaction, id)
+				.try_get_with_transaction(transaction, id, &[], true)
 				.map_err(|error| Self::map_store_sync_error(&error));
 		}
 
@@ -1831,7 +1830,7 @@ impl Provider {
 			(&self.server.object_store, transaction)
 		{
 			return store
-				.try_get_object_data_with_transaction(transaction, id)
+				.try_get_object_data_with_transaction(transaction, id, &[], true)
 				.map_err(|error| Self::map_store_sync_error(&error));
 		}
 
