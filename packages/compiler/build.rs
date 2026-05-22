@@ -112,18 +112,26 @@ mod library {
 		.unwrap();
 		for path in paths {
 			let path = path.unwrap();
-			std::fs::copy(&path, lib_path.join(path.file_name().unwrap())).unwrap();
+			copy_overwrite(&path, &lib_path.join(path.file_name().unwrap()));
 		}
-		std::fs::copy(
-			node_modules_path.join("typescript/lib/lib.decorators.d.ts"),
-			lib_path.join("lib.decorators.d.ts"),
-		)
-		.unwrap();
-		std::fs::copy(
-			node_modules_path.join("typescript/lib/lib.decorators.legacy.d.ts"),
-			lib_path.join("lib.decorators.legacy.d.ts"),
-		)
-		.unwrap();
+		copy_overwrite(
+			&node_modules_path.join("typescript/lib/lib.decorators.d.ts"),
+			&lib_path.join("lib.decorators.d.ts"),
+		);
+		copy_overwrite(
+			&node_modules_path.join("typescript/lib/lib.decorators.legacy.d.ts"),
+			&lib_path.join("lib.decorators.legacy.d.ts"),
+		);
+	}
+
+	/// Copy `src` to `dst`, overwriting any existing read-only destination.
+	/// The library sources live inside a read-only tangram-materialized
+	/// `node_modules` artifact, and `std::fs::copy` preserves source
+	/// permissions. Without removing the destination first, the second build
+	/// in a row hits `PermissionDenied` overwriting the leftover 0444 file.
+	fn copy_overwrite(src: &Path, dst: &Path) {
+		let _ = std::fs::remove_file(dst);
+		std::fs::copy(src, dst).unwrap();
 	}
 }
 
