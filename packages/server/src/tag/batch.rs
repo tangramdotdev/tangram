@@ -95,7 +95,7 @@ impl Session {
 			.tags
 			.iter()
 			.map(|item| tangram_index::PutTagArg {
-				tag: item.tag.to_string(),
+				tag: item.tag.clone(),
 				item: item.item.clone(),
 			})
 			.collect();

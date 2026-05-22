@@ -80,7 +80,7 @@ impl Session {
 		self.server
 			.index
 			.put_tags(&[tangram_index::PutTagArg {
-				tag: tag.to_string(),
+				tag: tag.clone(),
 				item: arg.item.clone(),
 			}])
 			.await

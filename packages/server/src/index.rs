@@ -138,7 +138,7 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn delete_tags(&self, tags: &[String]) -> tg::Result<()> {
+	async fn delete_tags(&self, tags: &[tg::Tag]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.delete_tags(tags).await,

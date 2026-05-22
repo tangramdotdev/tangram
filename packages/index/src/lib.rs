@@ -109,7 +109,7 @@ pub trait Index {
 
 	fn put_tags(&self, args: &[PutTagArg]) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn delete_tags(&self, tags: &[String]) -> impl Future<Output = tg::Result<()>> + Send;
+	fn delete_tags(&self, tags: &[tg::Tag]) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn updates_finished(
 		&self,
@@ -365,7 +365,7 @@ pub enum ItemArg {
 
 #[derive(Clone, Debug)]
 pub struct PutTagArg {
-	pub tag: String,
+	pub tag: tg::Tag,
 	pub item: tg::Either<tg::object::Id, tg::process::Id>,
 }
 

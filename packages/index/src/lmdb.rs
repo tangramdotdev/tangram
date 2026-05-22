@@ -43,7 +43,7 @@ enum Request {
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
 	},
-	DeleteTags(Vec<String>),
+	DeleteTags(Vec<tg::Tag>),
 	Put(PutArg),
 	PutTags(Vec<PutTagArg>),
 	TouchCacheEntries {
@@ -81,7 +81,7 @@ enum Key {
 	CacheEntry(tg::artifact::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
-	Tag(String),
+	Tag(tg::Tag),
 	CacheEntryDependency {
 		cache_entry: tg::artifact::Id,
 		dependency: tg::artifact::Id,
@@ -126,7 +126,7 @@ enum Key {
 	},
 	ItemTag {
 		item: Vec<u8>,
-		tag: String,
+		tag: tg::Tag,
 	},
 	Clean {
 		touched_at: i64,
@@ -338,7 +338,7 @@ impl crate::Index for Index {
 		self.put_tags(args).await
 	}
 
-	async fn delete_tags(&self, tags: &[String]) -> tg::Result<()> {
+	async fn delete_tags(&self, tags: &[tg::Tag]) -> tg::Result<()> {
 		self.delete_tags(tags).await
 	}
 
@@ -408,7 +408,7 @@ impl fdbt::TuplePack for Key {
 				(KeyKind::Process.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
-			Key::Tag(tag) => (KeyKind::Tag.to_i32().unwrap(), tag.as_str()).pack(w, tuple_depth),
+			Key::Tag(tag) => (KeyKind::Tag.to_i32().unwrap(), tag.to_string()).pack(w, tuple_depth),
 
 			Key::CacheEntryDependency {
 				cache_entry,
@@ -505,7 +505,7 @@ impl fdbt::TuplePack for Key {
 			Key::ItemTag { item, tag } => (
 				KeyKind::ItemTag.to_i32().unwrap(),
 				item.as_slice(),
-				tag.as_str(),
+				tag.to_string(),
 			)
 				.pack(w, tuple_depth),
 
@@ -582,6 +582,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 
 			KeyKind::Tag => {
 				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let tag = tag
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid tag".into()))?;
 				Ok((input, Key::Tag(tag)))
 			},
 
@@ -742,6 +745,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 			KeyKind::ItemTag => {
 				let (input, item): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let tag = tag
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid tag".into()))?;
 				Ok((input, Key::ItemTag { item, tag }))
 			},
 

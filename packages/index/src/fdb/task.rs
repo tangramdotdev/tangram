@@ -13,7 +13,7 @@ use {
 
 enum RequestItem {
 	Clean,
-	DeleteTag(String),
+	DeleteTag(tg::Tag),
 	PutCacheEntry(crate::PutCacheEntryArg),
 	PutObject(crate::PutObjectArg),
 	PutProcess(crate::PutProcessArg),

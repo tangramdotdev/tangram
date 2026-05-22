@@ -25,7 +25,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub async fn delete_tags(&self, tags: &[String]) -> tg::Result<()> {
+	pub async fn delete_tags(&self, tags: &[tg::Tag]) -> tg::Result<()> {
 		if tags.is_empty() {
 			return Ok(());
 		}
@@ -120,7 +120,7 @@ impl Index {
 	pub(super) async fn task_delete_tags(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		tags: &[String],
+		tags: &[tg::Tag],
 		partition_total: u64,
 	) -> tg::Result<()> {
 		for tag in tags {
@@ -132,10 +132,10 @@ impl Index {
 	async fn delete_tag(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		tag: &str,
+		tag: &tg::Tag,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Tag(tag.to_owned());
+		let key = Key::Tag(tag.clone());
 		let key = Self::pack(subspace, &key);
 		let bytes = txn
 			.get(&key, false)
@@ -151,7 +151,7 @@ impl Index {
 		};
 		let item_tag_key = Key::ItemTag {
 			item,
-			tag: tag.to_owned(),
+			tag: tag.clone(),
 		};
 		let item_tag_key = Self::pack(subspace, &item_tag_key);
 		txn.clear(&item_tag_key);

@@ -77,11 +77,7 @@ impl Session {
 		};
 
 		// Delete the tags from the index.
-		let tags = output
-			.deleted
-			.iter()
-			.map(ToString::to_string)
-			.collect::<Vec<_>>();
+		let tags = output.deleted.clone();
 		if !tags.is_empty() {
 			self.server
 				.index
