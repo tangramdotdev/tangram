@@ -15,7 +15,6 @@ members = [
   "packages/js",
   "packages/stores/log",
   "packages/messenger",
-  "packages/pool",
   "packages/stores/object",
   "packages/sandbox",
   "packages/serialize",
@@ -65,7 +64,7 @@ astral-tokio-tar = "0.6"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
-async-nats = "0.49"
+async-nats = "0.47"
 async_zip = { version = "0.0.18", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
 blake3 = "1"
@@ -84,7 +83,6 @@ data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.77"
 derive_more = { version = "2", features = ["full"] }
-env_logger = "0.11"
 fastcdc = { version = "4", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
@@ -110,7 +108,6 @@ io-uring = "0.7"
 itertools = "0.14"
 libc = "0.2"
 liblzma = { version = "0.4", features = ["static"] }
-log = "0.4"
 lsp-types = "0.97"
 miette = { version = "7.6", features = ["fancy", "syntect-highlighter"] }
 mime = "0.3"
@@ -121,7 +118,7 @@ num-derive = "0.4"
 num-traits = "0.2"
 nu-ansi-term = "0.50"
 oauth2 = "5.0.0"
-octocrab = "0.51"
+octocrab = "0.50"
 owo-colors = "4"
 oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
@@ -135,12 +132,12 @@ quote = "1"
 radix_trie = "0.3.0"
 rand = "0.10"
 ratatui = "0.30"
-reedline = "0.48"
+reedline = "0.47"
 reflink-copy = "0.1"
 rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
 regex = "1"
 reqwest = { version = "0.13", features = ["json", "stream"] }
-rusqlite = { version = "0.40", default-features = false, features = ["bundled", "functions"] }
+rusqlite = { version = "0.39", default-features = false, features = ["bundled", "functions"] }
 rustix = { version = "1", features = ["fs", "net"] }
 rustls = "0.23"
 rustls-platform-verifier = "0.7"
@@ -174,7 +171,6 @@ tangram_js = { path = "packages/js" }
 tangram_log_store = { path = "packages/stores/log" }
 tangram_messenger = { path = "packages/messenger" }
 tangram_object_store = { path = "packages/stores/object" }
-tangram_pool = { path = "packages/pool" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
@@ -193,22 +189,18 @@ toml = { version = "1" }
 tower = { version = "0.5", features = ["timeout", "util"] }
 tower-http = { version = "0.6", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = "0.1.44"
-tracing-opentelemetry = "0.33"
+tracing-opentelemetry = "0.32"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 tracing-tree = "0.4.1"
-turso = "0.6.0"
-opentelemetry = "0.32"
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
-opentelemetry-appender-tracing = "0.32"
+turso = "0.5.0"
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
+opentelemetry-appender-tracing = "0.31"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }
 v8 = { git = "https://github.com/tangramdotdev/rusty_v8" }
-virtiofsd = "1"
-vhost = "0.13"
-vhost-user-backend = "0.17"
-vm-memory = { version = "0.16", features = ["backend-atomic", "backend-mmap"] }
 waitpid-any = "0.3"
 webbrowser = "1"
 winnow = "1"
