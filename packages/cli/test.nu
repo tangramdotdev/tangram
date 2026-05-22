@@ -861,10 +861,8 @@ export def --env spawn [
 
 		let config = {
 			database: {
+				connections: 1,
 				kind: 'postgres',
-				pool: {
-					max: 1,
-				},
 				url: $'postgres://root@localhost:26257/database_($id)?sslmode=disable',
 			},
 			index: {
@@ -894,10 +892,8 @@ export def --env spawn [
 			},
 			process: {
 				store: {
+					connections: 1,
 					kind: 'postgres',
-					pool: {
-						max: 1,
-					},
 					url: $'postgres://postgres@localhost:5432/processes_($id)',
 				},
 			},

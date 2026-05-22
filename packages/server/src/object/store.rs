@@ -2,7 +2,7 @@
 use std::path::Path;
 use {tangram_client::prelude::*, tangram_object_store as object_store};
 
-pub use object_store::{CachePointer, DeleteArg, DeleteMembershipArg, PutArg};
+pub use object_store::{CachePointer, DeleteArg, PutArg};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -72,8 +72,8 @@ impl Store {
 	) -> tg::Result<Option<object_store::Object<'static>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_sync(id, &[], true),
-			Self::Memory(memory) => Ok(memory.try_get(id, &[], true)),
+			Self::Lmdb(lmdb) => lmdb.try_get_sync(id),
+			Self::Memory(memory) => Ok(memory.try_get(id)),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -90,8 +90,8 @@ impl Store {
 	) -> tg::Result<Vec<Option<object_store::Object<'static>>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_batch_sync(ids, &[], true),
-			Self::Memory(memory) => Ok(memory.try_get_batch(ids, &[], true)),
+			Self::Lmdb(lmdb) => lmdb.try_get_batch_sync(ids),
+			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -103,8 +103,8 @@ impl Store {
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_object_data_sync(id, &[], true),
-			Self::Memory(memory) => memory.try_get_object_data(id, &[], true),
+			Self::Lmdb(lmdb) => lmdb.try_get_object_data_sync(id),
+			Self::Memory(memory) => memory.try_get_object_data(id),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -151,20 +151,6 @@ impl Store {
 			},
 		}
 		Ok(())
-	}
-
-	pub async fn try_get(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<object_store::Object<'static>>> {
-		object_store::Store::try_get(self, id, vec![], true).await
-	}
-
-	pub async fn try_get_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<object_store::Object<'static>>>> {
-		object_store::Store::try_get_batch(self, ids, vec![], true).await
 	}
 
 	#[cfg_attr(
@@ -238,32 +224,26 @@ impl object_store::Store for Store {
 	async fn try_get(
 		&self,
 		id: &tg::object::Id,
-		namespaces: Vec<tg::Namespace>,
-		public: bool,
 	) -> tg::Result<Option<object_store::Object<'static>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get(id, namespaces, public).await,
-			Self::Memory(memory) => {
-				object_store::Store::try_get(memory, id, namespaces, public).await
-			},
+			Self::Lmdb(lmdb) => lmdb.try_get(id).await,
+			Self::Memory(memory) => object_store::Store::try_get(memory, id).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get(id, namespaces, public).await,
+			Self::Scylla(scylla) => scylla.try_get(id).await,
 		}
 	}
 
 	async fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
-		namespaces: Vec<tg::Namespace>,
-		public: bool,
 	) -> tg::Result<Vec<Option<object_store::Object<'static>>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids, namespaces, public).await,
-			Self::Memory(memory) => Ok(memory.try_get_batch(ids, &namespaces, public)),
+			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids).await,
+			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_batch(ids, namespaces, public).await,
+			Self::Scylla(scylla) => scylla.try_get_batch(ids).await,
 		}
 	}
 
@@ -290,32 +270,6 @@ impl object_store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.put_batch(args).await,
-		}
-	}
-
-	async fn delete_membership(&self, arg: DeleteMembershipArg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.delete_membership(arg).await,
-			Self::Memory(memory) => {
-				memory.delete_membership(arg);
-				Ok(())
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete_membership(arg).await,
-		}
-	}
-
-	async fn delete_membership_batch(&self, args: Vec<DeleteMembershipArg>) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.delete_membership_batch(args).await,
-			Self::Memory(memory) => {
-				memory.delete_membership_batch(args);
-				Ok(())
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete_membership_batch(args).await,
 		}
 	}
 

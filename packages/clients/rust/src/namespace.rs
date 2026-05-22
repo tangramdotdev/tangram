@@ -61,37 +61,11 @@ impl std::str::FromStr for Namespace {
 			if component.is_empty() || tg::list::pattern::contains_operators(component) {
 				return Err(tg::error!("invalid namespace"));
 			}
-			if !component.chars().all(is_component_character)
-				|| component
-					.parse::<tg::graph::data::Edge<tg::object::Id>>()
-					.is_ok() || component.parse::<tg::process::Id>().is_ok()
-			{
-				return Err(tg::error!("invalid namespace"));
-			}
+			component
+				.parse::<tg::tag::Name>()
+				.map_err(|_| tg::error!("invalid namespace"))?;
 			components.push(component.to_owned());
 		}
 		Ok(Self(components))
-	}
-}
-
-fn is_component_character(c: char) -> bool {
-	c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn test_namespace_from_str_accepts_alphanumerics_underscore_dash_and_dot() {
-		assert!("foo/bar-baz/qux_123".parse::<Namespace>().is_ok());
-		assert!("foo.bar".parse::<Namespace>().is_ok());
-	}
-
-	#[test]
-	fn test_namespace_from_str_rejects_invalid_components() {
-		for value in ["/foo", "foo/", "foo//bar", "foo/é"] {
-			assert!(value.parse::<Namespace>().is_err());
-		}
 	}
 }

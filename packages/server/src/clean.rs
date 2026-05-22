@@ -277,22 +277,6 @@ impl Server {
 			.objects
 			.iter()
 			.cloned()
-			.map(|id| crate::object::store::DeleteMembershipArg {
-				id,
-				namespace: None,
-				now,
-				ttl,
-			})
-			.collect();
-		self.object_store
-			.delete_membership_batch(args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete object memberships"))?;
-
-		let args = output
-			.objects
-			.iter()
-			.cloned()
 			.map(|id| crate::object::store::DeleteArg { id, now, ttl })
 			.collect();
 		self.object_store

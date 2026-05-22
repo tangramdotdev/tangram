@@ -145,7 +145,7 @@ impl std::str::FromStr for Name {
 		if s.is_empty() {
 			return Err(tg::error!("expected a tag"));
 		}
-		if !s.chars().all(is_name_character) {
+		if s.contains('/') {
 			return Err(tg::error!("invalid tag"));
 		}
 		if s.parse::<tg::graph::data::Edge<tg::object::Id>>().is_ok()
@@ -220,26 +220,5 @@ impl std::cmp::PartialOrd for Name {
 impl std::cmp::Ord for Name {
 	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
 		tg::list::compare(self.as_str(), other.as_str())
-	}
-}
-
-pub(crate) fn is_name_character(c: char) -> bool {
-	c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn test_name_from_str_accepts_alphanumerics_underscore_dash_and_dot() {
-		assert!("abc-DEF_123.foo".parse::<Name>().is_ok());
-	}
-
-	#[test]
-	fn test_name_from_str_rejects_other_characters() {
-		for value in ["", "foo/bar", "foo bar", "foo*", "é"] {
-			assert!(value.parse::<Name>().is_err());
-		}
 	}
 }
