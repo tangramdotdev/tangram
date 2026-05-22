@@ -212,29 +212,29 @@ impl Store {
 			};
 			let mut responses = vec![];
 			for request in requests {
-				match request {
+				let result = match request {
 					Request::Put(request) => {
-						let result = Self::task_put_object(env, db, &mut transaction, request);
-						responses.push(result);
+						Self::task_put_object(env, db, &mut transaction, request)
 					},
-					Request::PutBatch(requests) => {
-						for request in requests {
-							let result = Self::task_put_object(env, db, &mut transaction, request);
-							responses.push(result);
-						}
-					},
+					Request::PutBatch(requests) => requests.into_iter().try_for_each(|request| {
+						Self::task_put_object(env, db, &mut transaction, request)
+					}),
 					Request::Delete(request) => {
-						let result = Self::task_delete_object(env, db, &mut transaction, request);
-						responses.push(result);
+						Self::task_delete_object(env, db, &mut transaction, request)
 					},
 					Request::DeleteBatch(requests) => {
-						for request in requests {
-							let result =
-								Self::task_delete_object(env, db, &mut transaction, request);
-							responses.push(result);
-						}
+						requests.into_iter().try_for_each(|request| {
+							Self::task_delete_object(env, db, &mut transaction, request)
+						})
 					},
+				};
+				responses.push(result);
+			}
+			if let Some(error) = responses.iter().find_map(|result| result.as_ref().err()) {
+				for sender in senders {
+					sender.send(Err(error.clone())).ok();
 				}
+				continue;
 			}
 			let result = transaction
 				.commit()
