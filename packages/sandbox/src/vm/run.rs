@@ -1,5 +1,5 @@
 use {
-	crate::{Sandbox, container},
+	crate::{Sandbox, container, vm::virtiofsd},
 	std::{
 		collections::hash_map::DefaultHasher,
 		ffi::{CStr, CString, OsStr},
@@ -7,31 +7,29 @@ use {
 		hash::{Hash as _, Hasher as _},
 		net::Ipv4Addr,
 		os::{
-			fd::{AsRawFd as _, FromRawFd as _, IntoRawFd as _, OwnedFd, RawFd},
+			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 			unix::{ffi::OsStrExt as _, process::CommandExt as _},
 		},
 		path::{Path, PathBuf},
 		process::ExitCode,
-		sync::Arc,
 		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
-	virtiofsd::{
-		passthrough::{self, CachePolicy, InodeFileHandlesMode, PassthroughFs},
-		vhost_user::VhostUserFsBackendBuilder,
-	},
 };
 
 pub const CLOUD_HYPERVISOR_API_SOCKET_NAME: &str = "cloud-hypervisor-api.sock";
 pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.sock";
 
-const HOST_FS_TAG: &str = "host";
+const SANDBOX_FS_TAG: &str = "sandbox";
+const ARTIFACTS_FS_TAG: &str = "artifacts";
 const HOST_MOUNT_POINT: &str = "/mnt/host";
 const SERIAL_SOCKET_NAME: &str = "serial.sock";
-const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
+const VIRTIOFSD_SANDBOX_SOCKET_NAME: &str = "virtiofsd-sandbox.sock";
+const VFS_SOCKET_NAME: &str = "vfs.sock";
 
 const VMM_ROOT_DIR: &str = "/run/vmm";
-const VMM_VIRTIOFSD_SOCKET: &str = "/run/vmm/virtiofsd.sock";
+const VMM_VIRTIOFSD_SANDBOX_SOCKET: &str = "/run/vmm/virtiofsd-sandbox.sock";
+const VMM_VFS_SOCKET: &str = "/run/vmm/vfs.sock";
 const VMM_API_SOCKET: &str = "/run/vmm/cloud-hypervisor-api.sock";
 const VMM_VSOCK_SOCKET: &str = "/run/vmm/cloud-hypervisor-vsock.sock";
 const VMM_SERIAL_SOCKET: &str = "/run/vmm/serial.sock";
@@ -79,11 +77,6 @@ pub struct Arg {
 pub enum NetworkKind {
 	Passt,
 	Tap,
-}
-
-struct VirtiofsBind {
-	source: PathBuf,
-	target: PathBuf,
 }
 
 impl std::str::FromStr for NetworkKind {
@@ -266,28 +259,21 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 	let mut helpers: Vec<ChildProcess> = Vec::new();
 	if arg.create_snapshot.is_none() {
-		let socket_path = host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SOCKET_NAME);
+		// Spawn the sandbox virtiofsd, serving the host share dir.
+		let sandbox_socket_path =
+			host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SANDBOX_SOCKET_NAME);
 		tracing::trace!(
-			"preparing host virtiofsd socket at {}",
-			socket_path.display()
+			"preparing sandbox virtiofsd socket at {}",
+			sandbox_socket_path.display()
 		);
-		let socket = std::os::unix::net::UnixListener::bind(&socket_path)
-			.map_err(|error| tg::error!(!error, "failed to open the host virtiofsd socket"))?;
-		let shared_dir = host_share_path_from_root(&arg.path);
+		let sandbox_shared_dir = host_share_path_from_root(&arg.path);
 
-		let mut binds = Vec::new();
-		binds.push(VirtiofsBind {
-			source: arg.artifacts_path.clone(),
-			target: host_share_artifacts_path_from_root(&arg.path),
-		});
-		binds.push(VirtiofsBind {
-			source: Sandbox::host_tmp_path_from_root(&arg.path),
-			target: host_share_tmp_path_from_root(&arg.path),
-		});
+		// Create the user mount targets in the share dir. The helper binds them in its own
+		// namespace so virtiofsd serves them to the guest.
+		let mut sandbox_binds = Vec::new();
 		for (index, mount) in arg.mounts.iter().enumerate() {
 			let target = host_share_mounts_path_from_root(&arg.path).join(index.to_string());
-			let source_is_dir = mount.source.is_dir();
-			if source_is_dir {
+			if mount.source.is_dir() {
 				std::fs::create_dir_all(&target).map_err(|error| {
 					tg::error!(!error, path = %target.display(), "failed to create the user mount share target")
 				})?;
@@ -296,20 +282,26 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 					tg::error!(!error, path = %target.display(), "failed to create the user mount share target file")
 				})?;
 			}
-			binds.push(VirtiofsBind {
+			sandbox_binds.push(virtiofsd::Bind {
 				source: mount.source.clone(),
 				target,
 			});
 		}
 
-		tracing::trace!("spawning host virtiofsd helper");
-		let log_path = host_vm_path_from_root(&arg.path).join("virtiofsd.log");
-		let pid =
-			spawn_virtiofsd_helper(&user, &shared_dir, socket.into_raw_fd(), &binds, &log_path)?;
-		tracing::trace!("host virtiofsd helper pid={pid}");
-		helpers.push(ChildProcess::new(pid));
+		let sandbox_log_path = host_vm_path_from_root(&arg.path).join("virtiofsd-sandbox.log");
+		tracing::trace!("spawning sandbox virtiofsd helper");
+		let sandbox_pid = virtiofsd::spawn(
+			user.uid,
+			user.gid,
+			&sandbox_shared_dir,
+			&sandbox_socket_path,
+			&sandbox_binds,
+			&sandbox_log_path,
+		)?;
+		tracing::trace!("sandbox virtiofsd helper pid={sandbox_pid}");
+		helpers.push(ChildProcess::new(sandbox_pid));
 	} else {
-		tracing::trace!("snapshot mode: skipping virtiofsd helper");
+		tracing::trace!("snapshot mode: skipping virtiofsd helpers");
 	}
 
 	let cloud_hypervisor_bin = find_in_path("cloud-hypervisor")
@@ -365,8 +357,12 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		);
 		if arg.create_snapshot.is_none() {
 			cloud_hypervisor_args.push("--fs".into());
+			cloud_hypervisor_args.push(
+				format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into(),
+			);
+			cloud_hypervisor_args.push("--fs".into());
 			cloud_hypervisor_args
-				.push(format!("tag={HOST_FS_TAG},socket={VMM_VIRTIOFSD_SOCKET}").into());
+				.push(format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}").into());
 		}
 		cloud_hypervisor_args.push("--vsock".into());
 		cloud_hypervisor_args.push(format!("cid={VMM_GUEST_CID},socket={VMM_VSOCK_SOCKET}").into());
@@ -529,7 +525,16 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
 			&[
 				"add-fs",
-				&format!("tag={HOST_FS_TAG},socket={VMM_VIRTIOFSD_SOCKET}"),
+				&format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}"),
+			],
+		)?;
+		ch_remote_run(
+			&ch_remote_bin,
+			&api_socket,
+			&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
+			&[
+				"add-fs",
+				&format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}"),
 			],
 		)?;
 	}
@@ -669,168 +674,6 @@ fn wait_for_directory_event(inotify: &OwnedFd, deadline: Instant) -> tg::Result<
 			"failed to read from the directory watcher"
 		));
 	}
-}
-
-fn virtiofs_child_main(
-	user: &User,
-	shared_dir: &Path,
-	socket: RawFd,
-	binds: &[VirtiofsBind],
-	log_path: &Path,
-) -> tg::Result<()> {
-	// Once we enter the child process, immeidately unshare into a new user namespace.
-	set_parent_death_signal(libc::SIGKILL)?;
-	enter_user_namespace(user.uid, user.gid)?;
-	unshare(
-		libc::CLONE_NEWNS | libc::CLONE_NEWIPC,
-		"failed to unshare the sandbox namespaces",
-	)?;
-	unshare(
-		libc::CLONE_NEWNET,
-		"failed to unshare the network namespace",
-	)?;
-	let root = std::ffi::CString::new("/").unwrap();
-	let result = unsafe {
-		libc::mount(
-			std::ptr::null(),
-			root.as_ptr(),
-			std::ptr::null(),
-			libc::MS_REC | libc::MS_PRIVATE,
-			std::ptr::null(),
-		)
-	};
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(
-			!error,
-			"failed to make the mount namespace private"
-		));
-	}
-
-	// Bind mount in our host paths.
-	for bind in binds {
-		let source_c = std::ffi::CString::new(bind.source.as_os_str().as_bytes())
-			.map_err(|error| tg::error!(!error, "failed to encode the bind source path"))?;
-		let target_c = std::ffi::CString::new(bind.target.as_os_str().as_bytes())
-			.map_err(|error| tg::error!(!error, "failed to encode the bind target path"))?;
-		let result = unsafe {
-			libc::mount(
-				source_c.as_ptr(),
-				target_c.as_ptr(),
-				std::ptr::null(),
-				libc::MS_BIND | libc::MS_REC,
-				std::ptr::null(),
-			)
-		};
-		if result != 0 {
-			let error = std::io::Error::last_os_error();
-			return Err(tg::error!(
-				!error,
-				source = %bind.source.display(),
-				target = %bind.target.display(),
-				"failed to bind the host share entry",
-			));
-		}
-	}
-
-	// Set up the child process.
-	redirect_stdio_to_log(log_path)?;
-	set_no_new_privs()?;
-	setresgid(user.gid)?;
-	setresuid(user.uid)?;
-	clear_cloexec(socket)?;
-
-	// Enable logging. virtiofsd uses log instead of tracing.
-	let _logger = env_logger::Builder::new()
-		.filter_level(log::LevelFilter::Warn)
-		.target(env_logger::Target::Stderr)
-		.try_init();
-
-	// Create the filesystem.
-	// TODO: replace this with a tangram_vfs::virtiofs impl.
-	let config = passthrough::Config {
-		root_dir: shared_dir.to_string_lossy().into_owned(),
-		cache_policy: CachePolicy::Auto,
-		inode_file_handles: InodeFileHandlesMode::Never,
-		xattr: true,
-		announce_submounts: false,
-		clean_noatime: false,
-		..passthrough::Config::default()
-	};
-	let fs = PassthroughFs::new(config)
-		.map_err(|error| tg::error!(%error, "failed to construct the passthrough filesystem"))?;
-
-	// Construct the backend.
-	let backend = Arc::new(
-		VhostUserFsBackendBuilder::default()
-			.set_thread_pool_size(0)
-			.set_tag(None)
-			.build(fs)
-			.map_err(|error| tg::error!(%error, "failed to build the vhost-user fs backend"))?,
-	);
-
-	// Spawn the daemon.
-	let mut daemon = vhost_user_backend::VhostUserDaemon::new(
-		String::from("tangram-virtiofsd"),
-		backend,
-		vm_memory::GuestMemoryAtomic::new(vm_memory::GuestMemoryMmap::new()),
-	)
-	.map_err(|error| tg::error!(%error, "failed to create the vhost-user daemon"))?;
-	let listener = unsafe { vhost::vhost_user::Listener::from_raw_fd(socket) };
-	daemon
-		.start(listener)
-		.map_err(|error| tg::error!(?error, "failed to start the vhost-user daemon"))?;
-	if let Err(error) = daemon.wait()
-		&& !is_disconnected(&error)
-	{
-		return Err(tg::error!(
-			?error,
-			"the vhost-user daemon exited with an error"
-		));
-	}
-	Ok(())
-}
-
-fn redirect_stdio_to_log(log_path: &Path) -> tg::Result<()> {
-	let file = std::fs::OpenOptions::new()
-		.create(true)
-		.append(true)
-		.open(log_path)
-		.map_err(
-			|error| tg::error!(!error, path = %log_path.display(), "failed to open the log file"),
-		)?;
-	let fd = file.as_raw_fd();
-	for target in [libc::STDOUT_FILENO, libc::STDERR_FILENO] {
-		if unsafe { libc::dup2(fd, target) } < 0 {
-			let error = std::io::Error::last_os_error();
-			return Err(tg::error!(
-				!error,
-				"failed to redirect stdio to the log file"
-			));
-		}
-	}
-	drop(file);
-	Ok(())
-}
-
-fn clear_cloexec(fd: RawFd) -> tg::Result<()> {
-	let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-	if flags < 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to read fd flags"));
-	}
-	if unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to clear the fd cloexec flag"));
-	}
-	Ok(())
-}
-
-fn is_disconnected(error: &vhost_user_backend::Error) -> bool {
-	matches!(
-		error,
-		vhost_user_backend::Error::HandleRequest(vhost::vhost_user::Error::Disconnected),
-	)
 }
 
 fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
@@ -973,7 +816,7 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		)
 	})?;
 	for path in [
-		host_vm_path_from_root(sandbox_path).join(VIRTIOFSD_SOCKET_NAME),
+		host_vm_path_from_root(sandbox_path).join(VIRTIOFSD_SANDBOX_SOCKET_NAME),
 		host_vm_path_from_root(sandbox_path).join(CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME),
 		host_vm_path_from_root(sandbox_path).join(SERIAL_SOCKET_NAME),
 		host_vm_path_from_root(sandbox_path).join(CLOUD_HYPERVISOR_API_SOCKET_NAME),
@@ -1076,31 +919,6 @@ fn setresuid(uid: libc::uid_t) -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to set the uid"));
 	}
 	Ok(())
-}
-
-fn spawn_virtiofsd_helper(
-	user: &User,
-	shared_dir: &Path,
-	socket: RawFd,
-	binds: &[VirtiofsBind],
-	log_path: &Path,
-) -> tg::Result<libc::pid_t> {
-	let child = unsafe { libc::fork() };
-	if child < 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to fork the virtiofsd helper"));
-	}
-	if child == 0 {
-		match virtiofs_child_main(user, shared_dir, socket, binds, log_path) {
-			Ok(()) => std::process::exit(0),
-			Err(error) => {
-				eprintln!("{error}");
-				eprintln!("{}", error.trace());
-				std::process::exit(105);
-			},
-		}
-	}
-	Ok(child)
 }
 
 fn spawn_cloud_hypervisor_helper(
@@ -1208,6 +1026,13 @@ fn build_cloud_hypervisor_mount_arg(
 		binds.push(container::run::Bind {
 			source: host_snapshot_output_path_from_root(&arg.path),
 			target: VMM_SNAPSHOT_OUTPUT_DIR.into(),
+		});
+	} else {
+		// Bind the server-provided artifacts vfs socket under the writable VMM root
+		// directory so cloud-hypervisor can reach it post-chroot.
+		binds.push(container::run::Bind {
+			source: arg.path.join(VFS_SOCKET_NAME),
+			target: VMM_VFS_SOCKET.into(),
 		});
 	}
 	let mut ro_binds = vec![

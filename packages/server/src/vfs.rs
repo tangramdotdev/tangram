@@ -13,6 +13,8 @@ pub enum Server {
 	#[cfg(target_os = "linux")]
 	Fuse(vfs::fuse::Server<Provider>),
 	Nfs(vfs::nfs::Server<Provider>),
+	#[cfg(target_os = "linux")]
+	Virtiofsd(vfs::virtiofsd::Server),
 }
 
 impl Server {
@@ -95,6 +97,21 @@ impl Server {
 		Ok(vfs)
 	}
 
+	#[cfg(target_os = "linux")]
+	pub async fn start_virtiofsd(
+		server: &crate::Server,
+		options: crate::config::Vfs,
+		socket: &Path,
+	) -> tg::Result<Self> {
+		let provider = Provider::new(server, options)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
+		let server = vfs::virtiofsd::Server::start(provider, socket)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the virtiofsd server"))?;
+		Ok(Self::Virtiofsd(server))
+	}
+
 	pub async fn unmount(kind: Kind, path: &Path) -> tg::Result<()> {
 		match kind {
 			Kind::Fuse => {
@@ -122,6 +139,8 @@ impl Server {
 			#[cfg(target_os = "linux")]
 			Server::Fuse(server) => server.stop(),
 			Server::Nfs(server) => server.stop(),
+			#[cfg(target_os = "linux")]
+			Server::Virtiofsd(server) => server.stop(),
 		}
 	}
 
@@ -132,6 +151,10 @@ impl Server {
 				server.wait().await;
 			},
 			Server::Nfs(server) => {
+				server.wait().await;
+			},
+			#[cfg(target_os = "linux")]
+			Server::Virtiofsd(server) => {
 				server.wait().await;
 			},
 		}

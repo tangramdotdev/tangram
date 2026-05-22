@@ -9,6 +9,7 @@ pub(crate) mod network;
 pub mod image;
 pub mod init;
 pub mod run;
+pub mod virtiofsd;
 
 #[derive(Clone, Debug)]
 pub struct Network {

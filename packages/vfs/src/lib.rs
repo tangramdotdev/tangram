@@ -3,6 +3,8 @@ use {bytes::Bytes, futures::Future, std::io::Error, std::os::fd::OwnedFd};
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod nfs;
+#[cfg(target_os = "linux")]
+pub mod virtiofsd;
 
 pub const ROOT_NODE_ID: u64 = 1;
 

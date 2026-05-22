@@ -7892,7 +7892,6 @@ dependencies = [
  "tangram_http",
  "tangram_uri",
  "tangram_util",
- "tangram_vfs",
  "tokio",
  "tokio-util",
  "tokio-vsock",
@@ -8072,6 +8071,10 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "vhost",
+ "vhost-user-backend",
+ "virtiofsd",
+ "vm-memory",
  "zerocopy",
 ]
 
