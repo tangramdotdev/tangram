@@ -14,7 +14,7 @@ mod sqlite;
 #[derive(Clone)]
 enum NamespaceReadSubject {
 	All,
-	Public,
+	Anonymous,
 	User(tg::user::Id),
 }
 
@@ -306,7 +306,7 @@ impl Session {
 		.await
 	}
 
-	pub(crate) async fn create_namespace_grant_for_public_with_transaction(
+	pub(crate) async fn create_namespace_grant_for_all_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		namespace_id: i64,
@@ -317,12 +317,12 @@ impl Session {
 		let created_by = created_by.map(ToString::to_string);
 		let statement = formatdoc!(
 			r#"
-				insert into namespace_grants (namespace, "public", permission, created_at, created_by)
+				insert into namespace_grants (namespace, "all", permission, created_at, created_by)
 				select {p}1, true, 'read', {p}2, {p}3
 				where not exists (
 					select 1
 					from namespace_grants
-					where namespace = {p}1 and "public" and permission = 'read'
+					where namespace = {p}1 and "all" and permission = 'read'
 				);
 			"#
 		);
@@ -332,7 +332,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-		Self::get_namespace_grant_for_public_with_transaction(transaction, namespace, namespace_id)
+		Self::get_namespace_grant_for_all_with_transaction(transaction, namespace, namespace_id)
 			.await
 	}
 
@@ -378,7 +378,7 @@ impl Session {
 		Ok((n > 0).then_some(()))
 	}
 
-	pub(crate) async fn delete_namespace_grant_for_public_with_transaction(
+	pub(crate) async fn delete_namespace_grant_for_all_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace_id: i64,
 	) -> tg::Result<Option<()>> {
@@ -386,7 +386,7 @@ impl Session {
 		let statement = formatdoc!(
 			r#"
 				delete from namespace_grants
-				where namespace = {p}1 and "public" and permission = 'read';
+				where namespace = {p}1 and "all" and permission = 'read';
 			"#
 		);
 		let n = transaction
@@ -408,7 +408,7 @@ impl Session {
 			user: Option<tg::user::Id>,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			group: Option<tg::group::Id>,
-			public: bool,
+			all: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			permission: tg::Permission,
 			created_at: i64,
@@ -423,7 +423,7 @@ impl Session {
 					coalesce(namespaces.name, '') as namespace,
 					namespace_grants."user" as "user",
 					namespace_grants."group" as "group",
-					namespace_grants."public" as public,
+					namespace_grants."all" as "all",
 					namespace_grants.permission,
 					namespace_grants.created_at,
 					namespace_grants.created_by
@@ -444,7 +444,7 @@ impl Session {
 				namespace: row.namespace,
 				user: row.user,
 				group: row.group,
-				public: row.public,
+				all: row.all,
 				permission: row.permission,
 				created_at: row.created_at,
 				created_by: row.created_by,
@@ -464,7 +464,7 @@ impl Session {
 			user: Option<tg::user::Id>,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			group: Option<tg::group::Id>,
-			public: bool,
+			all: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			permission: tg::Permission,
 			created_at: i64,
@@ -479,7 +479,7 @@ impl Session {
 					coalesce(namespaces.name, '') as namespace,
 					namespace_grants."user" as "user",
 					namespace_grants."group" as "group",
-					namespace_grants."public" as public,
+					namespace_grants."all" as "all",
 					namespace_grants.permission,
 					namespace_grants.created_at,
 					namespace_grants.created_by
@@ -500,7 +500,7 @@ impl Session {
 				namespace: row.namespace,
 				user: row.user,
 				group: row.group,
-				public: row.public,
+				all: row.all,
 				permission: row.permission,
 				created_at: row.created_at,
 				created_by: row.created_by,
@@ -520,7 +520,7 @@ impl Session {
 			user: Option<tg::user::Id>,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			group: Option<tg::group::Id>,
-			public: bool,
+			all: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			permission: tg::Permission,
 			created_at: i64,
@@ -535,7 +535,7 @@ impl Session {
 					coalesce(namespaces.name, '') as namespace,
 					namespace_grants."user" as "user",
 					namespace_grants."group" as "group",
-					namespace_grants."public" as public,
+					namespace_grants."all" as "all",
 					namespace_grants.permission,
 					namespace_grants.created_at,
 					namespace_grants.created_by
@@ -556,7 +556,7 @@ impl Session {
 				namespace: row.namespace,
 				user: row.user,
 				group: row.group,
-				public: row.public,
+				all: row.all,
 				permission: row.permission,
 				created_at: row.created_at,
 				created_by: row.created_by,
@@ -654,7 +654,7 @@ impl Session {
 		.await
 	}
 
-	pub(crate) async fn create_tag_grant_for_public_with_transaction(
+	pub(crate) async fn create_tag_grant_for_all_with_transaction(
 		transaction: &Transaction<'_>,
 		tag: &tg::Tag,
 		namespace_id: i64,
@@ -665,12 +665,12 @@ impl Session {
 		let created_by = created_by.map(ToString::to_string);
 		let statement = formatdoc!(
 			r#"
-				insert into tag_grants (namespace, name, "public", permission, created_at, created_by)
+				insert into tag_grants (namespace, name, "all", permission, created_at, created_by)
 				select {p}1, {p}2, true, 'read', {p}3, {p}4
 				where not exists (
 					select 1
 					from tag_grants
-					where namespace = {p}1 and name = {p}2 and "public" and permission = 'read'
+					where namespace = {p}1 and name = {p}2 and "all" and permission = 'read'
 				);
 			"#
 		);
@@ -679,7 +679,7 @@ impl Session {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Self::get_tag_grant_for_public_with_transaction(transaction, tag, namespace_id).await
+		Self::get_tag_grant_for_all_with_transaction(transaction, tag, namespace_id).await
 	}
 
 	pub(crate) async fn delete_tag_grant_for_user_with_transaction(
@@ -736,7 +736,7 @@ impl Session {
 		Ok((n > 0).then_some(()))
 	}
 
-	pub(crate) async fn delete_tag_grant_for_public_with_transaction(
+	pub(crate) async fn delete_tag_grant_for_all_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace_id: i64,
 		name: &tg::tag::Name,
@@ -745,7 +745,7 @@ impl Session {
 		let statement = formatdoc!(
 			r#"
 				delete from tag_grants
-				where namespace = {p}1 and name = {p}2 and "public" and permission = 'read';
+				where namespace = {p}1 and name = {p}2 and "all" and permission = 'read';
 			"#
 		);
 		let n = transaction
@@ -769,7 +769,7 @@ impl Session {
 			user: Option<tg::user::Id>,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			group: Option<tg::group::Id>,
-			public: bool,
+			all: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			permission: tg::Permission,
 			created_at: i64,
@@ -783,7 +783,7 @@ impl Session {
 				select
 					tag_grants."user" as "user",
 					tag_grants."group" as "group",
-					tag_grants."public" as public,
+					tag_grants."all" as "all",
 					tag_grants.permission,
 					tag_grants.created_at,
 					tag_grants.created_by
@@ -803,7 +803,7 @@ impl Session {
 				tag: tag.clone(),
 				user: row.user,
 				group: row.group,
-				public: row.public,
+				all: row.all,
 				permission: row.permission,
 				created_at: row.created_at,
 				created_by: row.created_by,
@@ -853,7 +853,7 @@ impl Session {
 					where namespace_grants.namespace = {p}1
 						and (
 							namespace_grants."user" = {p}2
-							or namespace_grants."public"
+							or namespace_grants."all"
 							or exists (
 								select 1
 								from group_members
@@ -925,7 +925,7 @@ impl Session {
 						and tag_grants.name = {p}2
 						and (
 							tag_grants."user" = {p}3
-							or tag_grants."public"
+							or tag_grants."all"
 							or exists (
 								select 1
 								from group_members
@@ -1022,7 +1022,7 @@ impl Session {
 					and tag_grants.name = {p}2
 					and (
 						tag_grants."user" = {p}3
-						or tag_grants."public"
+						or tag_grants."all"
 						or exists (
 							select 1
 							from group_members
@@ -1042,17 +1042,17 @@ impl Session {
 			.any(|row| row.permission.implies(permission)))
 	}
 
-	pub(crate) async fn namespace_has_public_read_with_transaction(
+	pub(crate) async fn namespace_has_all_read_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<bool> {
 		#[cfg(feature = "postgres")]
 		if let Transaction::Postgres(transaction) = transaction {
-			return Self::namespace_has_public_read_postgres(transaction, namespace).await;
+			return Self::namespace_has_all_read_postgres(transaction, namespace).await;
 		}
 		#[cfg(feature = "sqlite")]
 		if let Transaction::Sqlite(transaction) = transaction {
-			return Self::namespace_has_public_read_sqlite(transaction, namespace).await;
+			return Self::namespace_has_all_read_sqlite(transaction, namespace).await;
 		}
 
 		let p = transaction.p();
@@ -1063,7 +1063,7 @@ impl Session {
 				r#"
 					select 1
 					from namespace_grants
-					where namespace = {p}1 and "public" and permission = 'read';
+					where namespace = {p}1 and "all" and permission = 'read';
 				"#
 			);
 			if transaction
@@ -1078,20 +1078,20 @@ impl Session {
 		Ok(false)
 	}
 
-	pub(crate) async fn tag_has_public_read_with_transaction(
+	pub(crate) async fn tag_has_all_read_with_transaction(
 		transaction: &Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
 		#[cfg(feature = "postgres")]
 		if let Transaction::Postgres(transaction) = transaction {
-			return Self::tag_has_public_read_postgres(transaction, tag).await;
+			return Self::tag_has_all_read_postgres(transaction, tag).await;
 		}
 		#[cfg(feature = "sqlite")]
 		if let Transaction::Sqlite(transaction) = transaction {
-			return Self::tag_has_public_read_sqlite(transaction, tag).await;
+			return Self::tag_has_all_read_sqlite(transaction, tag).await;
 		}
 
-		if Self::namespace_has_public_read_with_transaction(transaction, &tag.namespace).await? {
+		if Self::namespace_has_all_read_with_transaction(transaction, &tag.namespace).await? {
 			return Ok(true);
 		}
 		let Some(namespace_id) =
@@ -1104,7 +1104,7 @@ impl Session {
 			r#"
 				select 1
 				from tag_grants
-				where namespace = {p}1 and name = {p}2 and "public" and permission = 'read';
+				where namespace = {p}1 and name = {p}2 and "all" and permission = 'read';
 			"#
 		);
 		transaction
@@ -1117,17 +1117,17 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))
 	}
 
-	pub(crate) async fn tag_has_exact_public_read_with_transaction(
+	pub(crate) async fn tag_has_exact_all_read_with_transaction(
 		transaction: &Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
 		#[cfg(feature = "postgres")]
 		if let Transaction::Postgres(transaction) = transaction {
-			return Self::tag_has_exact_public_read_postgres(transaction, tag).await;
+			return Self::tag_has_exact_all_read_postgres(transaction, tag).await;
 		}
 		#[cfg(feature = "sqlite")]
 		if let Transaction::Sqlite(transaction) = transaction {
-			return Self::tag_has_exact_public_read_sqlite(transaction, tag).await;
+			return Self::tag_has_exact_all_read_sqlite(transaction, tag).await;
 		}
 
 		let Some(namespace_id) =
@@ -1140,7 +1140,7 @@ impl Session {
 			r#"
 				select 1
 				from tag_grants
-				where namespace = {p}1 and name = {p}2 and "public" and permission = 'read';
+				where namespace = {p}1 and name = {p}2 and "all" and permission = 'read';
 			"#
 		);
 		transaction
@@ -1158,9 +1158,9 @@ impl Session {
 			Some(Authentication::Root) => NamespaceReadSubject::All,
 			Some(Authentication::User(user)) => NamespaceReadSubject::User(user.id.clone()),
 			None | Some(Authentication::Process(_) | Authentication::Runner) => {
-				NamespaceReadSubject::Public
+				NamespaceReadSubject::Anonymous
 			},
-			Some(Authentication::Sandbox(_)) => NamespaceReadSubject::Public,
+			Some(Authentication::Sandbox(_)) => NamespaceReadSubject::Anonymous,
 		}
 	}
 
@@ -1218,9 +1218,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		match subject {
 			NamespaceReadSubject::All => Ok(()),
-			NamespaceReadSubject::Public => {
-				if Self::namespace_has_public_read_with_transaction(&transaction, namespace).await?
-				{
+			NamespaceReadSubject::Anonymous => {
+				if Self::namespace_has_all_read_with_transaction(&transaction, namespace).await? {
 					Ok(())
 				} else {
 					Err(tg::error!("unauthorized"))
@@ -1274,8 +1273,8 @@ impl Session {
 		}
 		match subject {
 			NamespaceReadSubject::All => Ok(()),
-			NamespaceReadSubject::Public => {
-				if Self::tag_has_public_read_with_transaction(transaction, tag).await? {
+			NamespaceReadSubject::Anonymous => {
+				if Self::tag_has_all_read_with_transaction(transaction, tag).await? {
 					Ok(())
 				} else {
 					Err(tg::error!("unauthorized"))
@@ -1346,8 +1345,8 @@ impl Session {
 					} else {
 						let readable = match &subject {
 							NamespaceReadSubject::All => true,
-							NamespaceReadSubject::Public => {
-								Self::namespace_has_public_read_with_transaction(
+							NamespaceReadSubject::Anonymous => {
+								Self::namespace_has_all_read_with_transaction(
 									&transaction,
 									namespace,
 								)
@@ -1377,8 +1376,8 @@ impl Session {
 							} else {
 								let readable = match &subject {
 									NamespaceReadSubject::All => true,
-									NamespaceReadSubject::Public => {
-										Self::namespace_has_public_read_with_transaction(
+									NamespaceReadSubject::Anonymous => {
+										Self::namespace_has_all_read_with_transaction(
 											&transaction,
 											&tag.namespace,
 										)
@@ -1400,12 +1399,9 @@ impl Session {
 						let readable = namespace_readable
 							|| match &subject {
 								NamespaceReadSubject::All => true,
-								NamespaceReadSubject::Public => {
-									Self::tag_has_exact_public_read_with_transaction(
-										&transaction,
-										tag,
-									)
-									.await?
+								NamespaceReadSubject::Anonymous => {
+									Self::tag_has_exact_all_read_with_transaction(&transaction, tag)
+										.await?
 								},
 								NamespaceReadSubject::User(user) => {
 									Self::user_has_exact_tag_permission_with_transaction(
@@ -1460,7 +1456,7 @@ impl Session {
 			namespace: namespace.clone(),
 			user: Some(user.clone()),
 			group: None,
-			public: false,
+			all: false,
 			permission: permission
 				.parse()
 				.map_err(|error| tg::error!(!error, "invalid permission"))?,
@@ -1505,7 +1501,7 @@ impl Session {
 			tag: tag.clone(),
 			user: Some(user.clone()),
 			group: None,
-			public: false,
+			all: false,
 			permission: permission
 				.parse()
 				.map_err(|error| tg::error!(!error, "invalid permission"))?,
@@ -1545,7 +1541,7 @@ impl Session {
 			namespace: namespace.clone(),
 			user: None,
 			group: Some(group.clone()),
-			public: false,
+			all: false,
 			permission: permission
 				.parse()
 				.map_err(|error| tg::error!(!error, "invalid permission"))?,
@@ -1590,7 +1586,7 @@ impl Session {
 			tag: tag.clone(),
 			user: None,
 			group: Some(group.clone()),
-			public: false,
+			all: false,
 			permission: permission
 				.parse()
 				.map_err(|error| tg::error!(!error, "invalid permission"))?,
@@ -1599,7 +1595,7 @@ impl Session {
 		})
 	}
 
-	async fn get_namespace_grant_for_public_with_transaction(
+	async fn get_namespace_grant_for_all_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		namespace_id: i64,
@@ -1616,7 +1612,7 @@ impl Session {
 			r#"
 				select created_at, created_by
 				from namespace_grants
-				where namespace = {p}1 and "public" and permission = 'read';
+				where namespace = {p}1 and "all" and permission = 'read';
 			"#
 		);
 		let row = transaction
@@ -1627,14 +1623,14 @@ impl Session {
 			namespace: namespace.clone(),
 			user: None,
 			group: None,
-			public: true,
+			all: true,
 			permission: tg::Permission::Read,
 			created_at: row.created_at,
 			created_by: row.created_by,
 		})
 	}
 
-	async fn get_tag_grant_for_public_with_transaction(
+	async fn get_tag_grant_for_all_with_transaction(
 		transaction: &Transaction<'_>,
 		tag: &tg::Tag,
 		namespace_id: i64,
@@ -1651,7 +1647,7 @@ impl Session {
 			r#"
 				select created_at, created_by
 				from tag_grants
-				where namespace = {p}1 and name = {p}2 and "public" and permission = 'read';
+				where namespace = {p}1 and name = {p}2 and "all" and permission = 'read';
 			"#
 		);
 		let row = transaction
@@ -1665,7 +1661,7 @@ impl Session {
 			tag: tag.clone(),
 			user: None,
 			group: None,
-			public: true,
+			all: true,
 			permission: tg::Permission::Read,
 			created_at: row.created_at,
 			created_by: row.created_by,

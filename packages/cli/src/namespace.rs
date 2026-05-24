@@ -23,11 +23,7 @@ pub enum Command {
 
 	Get(self::get::Args),
 
-	Grant(self::grants::add::Args),
-
 	Grants(self::grants::Args),
-
-	Revoke(self::grants::delete::Args),
 }
 
 impl Cli {
@@ -42,14 +38,8 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_namespace_get(args).await?;
 			},
-			Command::Grant(args) => {
-				self.command_namespace_grants_add(args).await?;
-			},
 			Command::Grants(args) => {
 				self.command_namespace_grants(args).await?;
-			},
-			Command::Revoke(args) => {
-				self.command_namespace_grants_delete(args).await?;
 			},
 		}
 		Ok(())

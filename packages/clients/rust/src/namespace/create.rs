@@ -10,14 +10,14 @@ pub struct Arg {
 	pub namespace: tg::Namespace,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub public: bool,
+	pub all: bool,
 }
 
 impl tg::Session {
 	pub async fn create_namespace(&self, namespace: &tg::Namespace) -> tg::Result<()> {
 		self.create_namespace_with_arg(tg::namespace::create::Arg {
 			namespace: namespace.clone(),
-			public: false,
+			all: false,
 		})
 		.await
 	}

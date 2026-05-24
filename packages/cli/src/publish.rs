@@ -146,7 +146,7 @@ impl Cli {
 						force: true,
 						item: tg::Either::Left(id),
 						location: None,
-						public: false,
+						all: false,
 						replicate: false,
 						tag: None,
 					};
@@ -166,7 +166,7 @@ impl Cli {
 							force: true,
 							item: tg::Either::Left(id),
 							location: None,
-							public: false,
+							all: false,
 							replicate: false,
 							tag: None,
 						};
@@ -185,7 +185,7 @@ impl Cli {
 							force: true,
 							item: tg::Either::Left(id),
 							location: None,
-							public: false,
+							all: false,
 							replicate: false,
 							tag: None,
 						};

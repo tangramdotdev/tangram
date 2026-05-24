@@ -8,7 +8,7 @@ pub struct Args {
 	pub namespace: tg::Namespace,
 
 	#[arg(long)]
-	pub public: bool,
+	pub all: bool,
 }
 
 impl Cli {
@@ -18,7 +18,7 @@ impl Cli {
 			.session(client.context())
 			.create_namespace_with_arg(tg::namespace::create::Arg {
 				namespace: args.namespace.clone(),
-				public: args.public,
+				all: args.all,
 			})
 			.await
 			.map_err(

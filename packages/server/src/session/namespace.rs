@@ -11,7 +11,7 @@ impl tg::handle::Namespace for Session {
 	async fn create_namespace(&self, namespace: &tg::Namespace) -> tg::Result<()> {
 		self.create_namespace(tg::namespace::create::Arg {
 			namespace: namespace.clone(),
-			public: false,
+			all: false,
 		})
 		.await
 	}

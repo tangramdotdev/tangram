@@ -13,7 +13,7 @@ pub struct Arg {
 	pub permission: tg::Permission,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub public: bool,
+	pub all: bool,
 
 	pub tag: tg::Tag,
 

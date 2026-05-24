@@ -16,7 +16,7 @@ pub struct Arg {
 	pub group: Option<String>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub public: bool,
+	pub all: bool,
 
 	pub permission: tg::Permission,
 }

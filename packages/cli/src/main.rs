@@ -25,6 +25,7 @@ mod error;
 mod extract;
 mod format;
 mod get;
+mod grant;
 mod group;
 mod health;
 mod id;
@@ -264,6 +265,8 @@ enum Command {
 
 	Get(self::get::Args),
 
+	Grant(self::grant::Args),
+
 	#[command(alias = "groups")]
 	Group(self::group::Args),
 
@@ -322,6 +325,8 @@ enum Command {
 	Read(self::read::Args),
 
 	Remote(self::remote::Args),
+
+	Revoke(self::grant::RevokeArgs),
 
 	#[cfg(feature = "js")]
 	Repl(self::repl::Args),
@@ -604,6 +609,7 @@ impl Cli {
 			Command::Extract(args) => self.command_extract(args).boxed_local(),
 			Command::Format(args) => self.command_format(args).boxed_local(),
 			Command::Get(args) => self.command_get(args).boxed_local(),
+			Command::Grant(args) => self.command_grant(args).boxed_local(),
 			Command::Group(args) => self.command_group(args).boxed_local(),
 			Command::Health(args) => self.command_health(args).boxed_local(),
 			Command::Id(args) => self.command_id(args).boxed_local(),
@@ -630,6 +636,7 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed_local(),
 			Command::Read(args) => self.command_read(args).boxed_local(),
 			Command::Remote(args) => self.command_remote(args).boxed_local(),
+			Command::Revoke(args) => self.command_revoke(args).boxed_local(),
 			#[cfg(feature = "js")]
 			Command::Repl(args) => self.command_repl(args).boxed_local(),
 			Command::Run(args) => self.command_run(args).boxed_local(),

@@ -7,19 +7,19 @@ pub mod list;
 pub(super) enum Grantee {
 	User(String),
 	Group(String),
-	Public,
+	All,
 }
 
 impl Session {
 	pub(super) fn grantee(
 		user: Option<String>,
 		group: Option<String>,
-		public: bool,
+		all: bool,
 	) -> tg::Result<Grantee> {
-		match (user, group, public) {
+		match (user, group, all) {
 			(Some(user), None, false) => Ok(Grantee::User(user)),
 			(None, Some(group), false) => Ok(Grantee::Group(group)),
-			(None, None, true) => Ok(Grantee::Public),
+			(None, None, true) => Ok(Grantee::All),
 			_ => Err(tg::error!("expected exactly one grantee")),
 		}
 	}

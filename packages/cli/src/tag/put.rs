@@ -14,7 +14,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(long)]
-	pub public: bool,
+	pub all: bool,
 
 	#[arg(default_value = ".", index = 2)]
 	pub reference: tg::Reference,
@@ -53,7 +53,7 @@ impl Cli {
 			force: args.force,
 			item,
 			location: args.location.get(),
-			public: args.public,
+			all: args.all,
 			replicate: false,
 			tag: None,
 		};

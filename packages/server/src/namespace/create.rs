@@ -34,8 +34,8 @@ impl Session {
 		let namespace_id = self
 			.create_namespace_with_transaction(&transaction, namespace, created_by.as_ref())
 			.await?;
-		if arg.public {
-			Self::create_namespace_grant_for_public_with_transaction(
+		if arg.all {
+			Self::create_namespace_grant_for_all_with_transaction(
 				&transaction,
 				namespace,
 				namespace_id,

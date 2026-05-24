@@ -42,16 +42,16 @@ create table namespace_grants (
 	namespace int8 not null default 0,
 	"user" text,
 	"group" text,
-	"public" boolean not null default false,
+	"all" boolean not null default false,
 	permission text not null,
 	created_at int8 not null,
 	created_by text,
 	check (
-		("user" is not null and "group" is null and not "public")
-		or ("user" is null and "group" is not null and not "public")
-		or ("user" is null and "group" is null and "public")
+		("user" is not null and "group" is null and not "all")
+		or ("user" is null and "group" is not null and not "all")
+		or ("user" is null and "group" is null and "all")
 	),
-	check (not "public" or permission = 'read')
+	check (not "all" or permission = 'read')
 );
 
 create unique index namespace_grants_user_index
@@ -62,9 +62,9 @@ create unique index namespace_grants_group_index
 	on namespace_grants (namespace, "group", permission)
 	where "group" is not null;
 
-create unique index namespace_grants_public_index
+create unique index namespace_grants_all_index
 	on namespace_grants (namespace, permission)
-	where "public";
+	where "all";
 
 create index namespace_grants_user_lookup_index
 	on namespace_grants ("user", namespace, permission)
@@ -99,16 +99,16 @@ create table tag_grants (
 	name text not null,
 	"user" text,
 	"group" text,
-	"public" boolean not null default false,
+	"all" boolean not null default false,
 	permission text not null,
 	created_at int8 not null,
 	created_by text,
 	check (
-		("user" is not null and "group" is null and not "public")
-		or ("user" is null and "group" is not null and not "public")
-		or ("user" is null and "group" is null and "public")
+		("user" is not null and "group" is null and not "all")
+		or ("user" is null and "group" is not null and not "all")
+		or ("user" is null and "group" is null and "all")
 	),
-	check (not "public" or permission = 'read')
+	check (not "all" or permission = 'read')
 );
 
 create unique index tag_grants_user_index
@@ -119,9 +119,9 @@ create unique index tag_grants_group_index
 	on tag_grants (namespace, name, "group", permission)
 	where "group" is not null;
 
-create unique index tag_grants_public_index
+create unique index tag_grants_all_index
 	on tag_grants (namespace, name, permission)
-	where "public";
+	where "all";
 
 create index tag_grants_user_lookup_index
 	on tag_grants ("user", namespace, name, permission)

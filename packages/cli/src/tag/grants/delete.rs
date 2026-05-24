@@ -5,15 +5,15 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(long)]
-	pub group: Option<String>,
-
-	#[arg(index = 2)]
-	pub permission: tg::Permission,
+	pub all: bool,
 
 	#[arg(long)]
-	pub public: bool,
+	pub group: Option<String>,
 
-	#[arg(index = 1)]
+	#[command(flatten)]
+	pub permission: crate::grant::Permission,
+
+	#[arg(long)]
 	pub tag: tg::Tag,
 
 	#[arg(long)]
@@ -23,11 +23,12 @@ pub struct Args {
 impl Cli {
 	pub async fn command_tag_grants_delete(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let permission = args.permission.get()?;
 		client
 			.delete_tag_grant(tg::tag::grants::delete::Arg {
+				all: args.all,
 				group: args.group,
-				permission: args.permission,
-				public: args.public,
+				permission,
 				tag: args.tag.clone(),
 				user: args.user,
 			})

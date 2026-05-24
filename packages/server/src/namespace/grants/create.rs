@@ -19,9 +19,9 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
-		let grantee = Self::grantee(arg.user, arg.group, arg.public)?;
-		if matches!(grantee, Grantee::Public) && arg.permission != tg::Permission::Read {
-			return Err(tg::error!("public grants may only be read"));
+		let grantee = Self::grantee(arg.user, arg.group, arg.all)?;
+		if matches!(grantee, Grantee::All) && arg.permission != tg::Permission::Read {
+			return Err(tg::error!("all grants may only be read"));
 		}
 		self.authorize_namespace(&arg.namespace, tg::Permission::Admin)
 			.await?;
@@ -73,8 +73,8 @@ impl Session {
 				)
 				.await?
 			},
-			Grantee::Public => {
-				Self::create_namespace_grant_for_public_with_transaction(
+			Grantee::All => {
+				Self::create_namespace_grant_for_all_with_transaction(
 					&transaction,
 					&arg.namespace,
 					namespace_id,

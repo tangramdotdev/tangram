@@ -25,7 +25,7 @@ impl Session {
 				where namespace_grants.namespace in (select id from ancestor_ids)
 					and (
 						namespace_grants."user" = $2
-						or namespace_grants."public"
+						or namespace_grants."all"
 						or exists (
 							select 1
 							from group_members
@@ -74,7 +74,7 @@ impl Session {
 				where namespace_grants.namespace in (select id from ancestor_ids)
 					and (
 						namespace_grants."user" = $4
-						or namespace_grants."public"
+						or namespace_grants."all"
 						or exists (
 							select 1
 							from group_members
@@ -89,7 +89,7 @@ impl Session {
 					and tag_grants.name = $3
 					and (
 						tag_grants."user" = $4
-						or tag_grants."public"
+						or tag_grants."all"
 						or exists (
 							select 1
 							from group_members
@@ -107,7 +107,7 @@ impl Session {
 		permissions_from_rows(rows)
 	}
 
-	pub(crate) async fn namespace_has_public_read_postgres(
+	pub(crate) async fn namespace_has_all_read_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<bool> {
@@ -125,7 +125,7 @@ impl Session {
 					select 1
 					from namespace_grants
 					where namespace_grants.namespace in (select id from ancestor_ids)
-						and namespace_grants."public"
+						and namespace_grants."all"
 						and namespace_grants.permission = 'read'
 				);
 			"#
@@ -141,7 +141,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the exists column"))
 	}
 
-	pub(crate) async fn tag_has_public_read_postgres(
+	pub(crate) async fn tag_has_all_read_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
@@ -169,14 +169,14 @@ impl Session {
 					select 1
 					from namespace_grants
 					where namespace_grants.namespace in (select id from ancestor_ids)
-						and namespace_grants."public"
+						and namespace_grants."all"
 						and namespace_grants.permission = 'read'
 				) or exists (
 					select 1
 					from tag_grants
 					where tag_grants.namespace in (select id from tag_namespace)
 						and tag_grants.name = $3
-						and tag_grants."public"
+						and tag_grants."all"
 						and tag_grants.permission = 'read'
 				);
 			"#
@@ -192,7 +192,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the exists column"))
 	}
 
-	pub(crate) async fn tag_has_exact_public_read_postgres(
+	pub(crate) async fn tag_has_exact_all_read_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
@@ -213,7 +213,7 @@ impl Session {
 					from tag_grants
 					where tag_grants.namespace in (select id from tag_namespace)
 						and tag_grants.name = $2
-						and tag_grants."public"
+						and tag_grants."all"
 						and tag_grants.permission = 'read'
 				);
 			"#
@@ -254,7 +254,7 @@ impl Session {
 					and tag_grants.name = $2
 					and (
 						tag_grants."user" = $3
-						or tag_grants."public"
+						or tag_grants."all"
 						or exists (
 							select 1
 							from group_members
@@ -374,7 +374,7 @@ async fn readable_namespaces_postgres(
 
 	let rows = match subject {
 		NamespaceReadSubject::All => return Ok(namespaces.clone()),
-		NamespaceReadSubject::Public => {
+		NamespaceReadSubject::Anonymous => {
 			let statement = indoc!(
 				r#"
 					with candidate_ancestors(candidate, ancestor) as (
@@ -393,7 +393,7 @@ async fn readable_namespaces_postgres(
 					select distinct ancestor_ids.candidate
 					from ancestor_ids
 					join namespace_grants on namespace_grants.namespace = ancestor_ids.id
-					where namespace_grants."public"
+					where namespace_grants."all"
 						and namespace_grants.permission = 'read';
 				"#
 			);
@@ -424,7 +424,7 @@ async fn readable_namespaces_postgres(
 					from ancestor_ids
 					join namespace_grants on namespace_grants.namespace = ancestor_ids.id
 					where namespace_grants."user" = $3
-						or namespace_grants."public"
+						or namespace_grants."all"
 						or exists (
 							select 1
 							from group_members
@@ -473,7 +473,7 @@ async fn readable_tags_postgres(
 
 	let rows = match subject {
 		NamespaceReadSubject::All => return Ok(tags.clone()),
-		NamespaceReadSubject::Public => {
+		NamespaceReadSubject::Anonymous => {
 			let statement = indoc!(
 				r#"
 					with candidate_tags(tag, namespace, name) as (
@@ -494,7 +494,7 @@ async fn readable_tags_postgres(
 					join tag_grants
 						on tag_grants.namespace = tag_namespace.namespace_id
 						and tag_grants.name = tag_namespace.name
-					where tag_grants."public"
+					where tag_grants."all"
 						and tag_grants.permission = 'read';
 				"#
 			);
@@ -527,7 +527,7 @@ async fn readable_tags_postgres(
 						on tag_grants.namespace = tag_namespace.namespace_id
 						and tag_grants.name = tag_namespace.name
 					where tag_grants."user" = $4
-						or tag_grants."public"
+						or tag_grants."all"
 						or exists (
 							select 1
 							from group_members

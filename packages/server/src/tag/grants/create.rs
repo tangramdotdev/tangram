@@ -19,9 +19,9 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
-		let grantee = Self::tag_grantee(arg.user, arg.group, arg.public)?;
-		if matches!(grantee, Grantee::Public) && arg.permission != tg::Permission::Read {
-			return Err(tg::error!("public grants may only be read"));
+		let grantee = Self::tag_grantee(arg.user, arg.group, arg.all)?;
+		if matches!(grantee, Grantee::All) && arg.permission != tg::Permission::Read {
+			return Err(tg::error!("all grants may only be read"));
 		}
 		let created_by = self
 			.context
@@ -74,8 +74,8 @@ impl Session {
 				)
 				.await?
 			},
-			Grantee::Public => {
-				Self::create_tag_grant_for_public_with_transaction(
+			Grantee::All => {
+				Self::create_tag_grant_for_all_with_transaction(
 					&transaction,
 					&arg.tag,
 					namespace_id,

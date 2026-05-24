@@ -105,17 +105,17 @@ impl Session {
 				)
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}
-		if arg.public && !arg.replicate {
+		if arg.all && !arg.replicate {
 			let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 			let created_by = created_by.map(ToString::to_string);
 			let statement = indoc!(
 				r#"
-					insert into tag_grants (namespace, name, "public", permission, created_at, created_by)
+					insert into tag_grants (namespace, name, "all", permission, created_at, created_by)
 					select ?1, ?2, true, 'read', ?3, ?4
 					where not exists (
 						select 1
 						from tag_grants
-						where namespace = ?1 and name = ?2 and "public" and permission = 'read'
+						where namespace = ?1 and name = ?2 and "all" and permission = 'read'
 					);
 				"#
 			);

@@ -18,7 +18,7 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub public: bool,
+	pub all: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub replicate: bool,

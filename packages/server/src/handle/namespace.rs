@@ -14,7 +14,7 @@ impl tg::handle::Namespace for Server {
 		self.session(&self.context)
 			.create_namespace(tg::namespace::create::Arg {
 				namespace: namespace.clone(),
-				public: false,
+				all: false,
 			})
 			.await
 	}

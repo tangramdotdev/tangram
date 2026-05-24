@@ -61,38 +61,36 @@ impl Session {
 			.await
 	}
 
-	pub(super) async fn namespace_has_public_read_sqlite(
+	pub(super) async fn namespace_has_all_read_sqlite(
 		transaction: &db::sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<bool> {
 		let namespace = namespace.clone();
 		transaction
 			.with(move |transaction, _cache| {
-				Self::namespace_has_public_read_sqlite_sync(transaction, &namespace)
+				Self::namespace_has_all_read_sqlite_sync(transaction, &namespace)
 			})
 			.await
 	}
 
-	pub(super) async fn tag_has_public_read_sqlite(
+	pub(super) async fn tag_has_all_read_sqlite(
+		transaction: &db::sqlite::Transaction<'_>,
+		tag: &tg::Tag,
+	) -> tg::Result<bool> {
+		let tag = tag.clone();
+		transaction
+			.with(move |transaction, _cache| Self::tag_has_all_read_sqlite_sync(transaction, &tag))
+			.await
+	}
+
+	pub(super) async fn tag_has_exact_all_read_sqlite(
 		transaction: &db::sqlite::Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
 		let tag = tag.clone();
 		transaction
 			.with(move |transaction, _cache| {
-				Self::tag_has_public_read_sqlite_sync(transaction, &tag)
-			})
-			.await
-	}
-
-	pub(super) async fn tag_has_exact_public_read_sqlite(
-		transaction: &db::sqlite::Transaction<'_>,
-		tag: &tg::Tag,
-	) -> tg::Result<bool> {
-		let tag = tag.clone();
-		transaction
-			.with(move |transaction, _cache| {
-				Self::tag_has_exact_public_read_sqlite_sync(transaction, &tag)
+				Self::tag_has_exact_all_read_sqlite_sync(transaction, &tag)
 			})
 			.await
 	}
@@ -144,7 +142,7 @@ impl Session {
 					where namespace_grants.namespace = ?1
 						and (
 							namespace_grants."user" = ?2
-							or namespace_grants."public"
+							or namespace_grants."all"
 							or exists (
 								select 1
 								from group_members
@@ -189,7 +187,7 @@ impl Session {
 					and tag_grants.name = ?2
 					and (
 						tag_grants."user" = ?3
-						or tag_grants."public"
+						or tag_grants."all"
 						or exists (
 							select 1
 							from group_members
@@ -228,7 +226,7 @@ impl Session {
 					and tag_grants.name = ?2
 					and (
 						tag_grants."user" = ?3
-						or tag_grants."public"
+						or tag_grants."all"
 						or exists (
 							select 1
 							from group_members
@@ -246,7 +244,7 @@ impl Session {
 		Ok(rows.into_iter().any(|row| row.implies(permission)))
 	}
 
-	fn namespace_has_public_read_sqlite_sync(
+	fn namespace_has_all_read_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<bool> {
@@ -255,7 +253,7 @@ impl Session {
 				r#"
 					select 1
 					from namespace_grants
-					where namespace = ?1 and "public" and permission = 'read' ;
+					where namespace = ?1 and "all" and permission = 'read' ;
 				"#
 			);
 			let mut statement = transaction
@@ -271,17 +269,17 @@ impl Session {
 		Ok(false)
 	}
 
-	fn tag_has_public_read_sqlite_sync(
+	fn tag_has_all_read_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
-		if Self::namespace_has_public_read_sqlite_sync(transaction, &tag.namespace)? {
+		if Self::namespace_has_all_read_sqlite_sync(transaction, &tag.namespace)? {
 			return Ok(true);
 		}
-		Self::tag_has_exact_public_read_sqlite_sync(transaction, tag)
+		Self::tag_has_exact_all_read_sqlite_sync(transaction, tag)
 	}
 
-	fn tag_has_exact_public_read_sqlite_sync(
+	fn tag_has_exact_all_read_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
@@ -294,7 +292,7 @@ impl Session {
 			r#"
 				select 1
 				from tag_grants
-				where namespace = ?1 and name = ?2 and "public" and permission = 'read' ;
+				where namespace = ?1 and name = ?2 and "all" and permission = 'read' ;
 			"#
 		);
 		let mut statement = transaction
@@ -394,8 +392,8 @@ impl Session {
 	) -> tg::Result<bool> {
 		match subject {
 			NamespaceReadSubject::All => Ok(true),
-			NamespaceReadSubject::Public => {
-				Self::namespace_has_public_read_sqlite_sync(transaction, namespace)
+			NamespaceReadSubject::Anonymous => {
+				Self::namespace_has_all_read_sqlite_sync(transaction, namespace)
 			},
 			NamespaceReadSubject::User(user) => Self::user_has_namespace_permission_sqlite_sync(
 				transaction,
@@ -413,8 +411,8 @@ impl Session {
 	) -> tg::Result<bool> {
 		match subject {
 			NamespaceReadSubject::All => Ok(true),
-			NamespaceReadSubject::Public => {
-				Self::tag_has_exact_public_read_sqlite_sync(transaction, tag)
+			NamespaceReadSubject::Anonymous => {
+				Self::tag_has_exact_all_read_sqlite_sync(transaction, tag)
 			},
 			NamespaceReadSubject::User(user) => Self::user_has_exact_tag_permission_sqlite_sync(
 				transaction,

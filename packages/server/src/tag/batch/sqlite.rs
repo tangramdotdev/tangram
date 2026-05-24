@@ -37,7 +37,7 @@ impl Session {
 							force: *force,
 							item: item.clone(),
 							location: None,
-							public: false,
+							all: false,
 							replicate: false,
 							tag: None,
 						};
