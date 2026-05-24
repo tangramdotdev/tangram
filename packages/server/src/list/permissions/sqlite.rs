@@ -7,15 +7,15 @@ use {
 };
 
 impl Session {
-	pub(crate) fn filter_list_entries_by_access_sqlite_sync(
+	pub(crate) fn filter_list_entries_by_visibility_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		authentication: Option<&Authentication>,
 		data: Vec<tg::list::Entry>,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let mut filtered = Vec::new();
-		let mut readable_by_namespace = BTreeMap::new();
+		let mut visible_by_permission_by_namespace = BTreeMap::new();
 		let mut visible_by_namespace = BTreeMap::new();
-		let mut readable_by_tag = BTreeMap::new();
+		let mut visible_by_permission_by_tag = BTreeMap::new();
 		for entry in data {
 			let visible = match &entry {
 				tg::list::Entry::Namespace { namespace, .. } => {
@@ -32,29 +32,32 @@ impl Session {
 					}
 				},
 				tg::list::Entry::Tag { tag, .. } => {
-					if let Some(readable) = readable_by_tag.get(tag) {
-						*readable
+					if let Some(visible_by_permission) = visible_by_permission_by_tag.get(tag) {
+						*visible_by_permission
 					} else {
-						let namespace_readable =
-							if let Some(readable) = readable_by_namespace.get(&tag.namespace) {
-								*readable
-							} else {
-								let readable = Self::namespace_is_readable_for_list_sqlite_sync(
+						let namespace_visible_by_permission = if let Some(visible_by_permission) =
+							visible_by_permission_by_namespace.get(&tag.namespace)
+						{
+							*visible_by_permission
+						} else {
+							let visible_by_permission =
+								Self::namespace_is_visible_by_permission_for_list_sqlite_sync(
 									transaction,
 									authentication,
 									&tag.namespace,
 								)?;
-								readable_by_namespace.insert(tag.namespace.clone(), readable);
-								readable
-							};
-						let readable = namespace_readable
-							|| Self::tag_is_exactly_readable_for_list_sqlite_sync(
+							visible_by_permission_by_namespace
+								.insert(tag.namespace.clone(), visible_by_permission);
+							visible_by_permission
+						};
+						let visible = namespace_visible_by_permission
+							|| Self::tag_is_visible_by_permission_for_list_sqlite_sync(
 								transaction,
 								authentication,
 								tag,
 							)?;
-						readable_by_tag.insert(tag.clone(), readable);
-						readable
+						visible_by_permission_by_tag.insert(tag.clone(), visible);
+						visible
 					}
 				},
 			};
@@ -65,7 +68,7 @@ impl Session {
 		Ok(filtered)
 	}
 
-	fn namespace_is_readable_for_list_sqlite_sync(
+	fn namespace_is_visible_by_permission_for_list_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		authentication: Option<&Authentication>,
 		namespace: &tg::Namespace,
@@ -90,8 +93,11 @@ impl Session {
 		authentication: Option<&Authentication>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<bool> {
-		if Self::namespace_is_readable_for_list_sqlite_sync(transaction, authentication, namespace)?
-		{
+		if Self::namespace_is_visible_by_permission_for_list_sqlite_sync(
+			transaction,
+			authentication,
+			namespace,
+		)? {
 			return Ok(true);
 		}
 		let Some(namespace_id) = Self::try_get_namespace_id_sqlite_sync(transaction, namespace)?
@@ -142,7 +148,7 @@ impl Session {
 		Ok(exists)
 	}
 
-	fn tag_is_exactly_readable_for_list_sqlite_sync(
+	fn tag_is_visible_by_permission_for_list_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		authentication: Option<&Authentication>,
 		tag: &tg::Tag,

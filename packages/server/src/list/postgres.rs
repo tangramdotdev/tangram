@@ -44,7 +44,7 @@ impl Session {
 						.await?,
 				);
 			}
-			data = Self::filter_list_entries_by_access_postgres(
+			data = Self::filter_list_entries_by_visibility_postgres(
 				&transaction,
 				authentication.as_ref(),
 				data,
@@ -63,7 +63,7 @@ impl Session {
 			}
 			if arg.tags {
 				data.extend(
-					self.list_readable_tag_entries_postgres(
+					self.list_visible_tag_entries_postgres(
 						&transaction,
 						authentication.as_ref(),
 						&arg.pattern,
@@ -456,7 +456,7 @@ impl Session {
 		Ok(entries)
 	}
 
-	async fn list_readable_tag_entries_postgres(
+	async fn list_visible_tag_entries_postgres(
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
 		authentication: Option<&Authentication>,
@@ -514,7 +514,7 @@ impl Session {
 								from namespaces
 								where namespaces.name = any($3)
 							),
-							namespace_readable(readable) as (
+							namespace_visible_by_permission(visible) as (
 								select exists (
 									select 1
 									from namespace_grants
@@ -528,7 +528,7 @@ impl Session {
 							where tags.namespace = $1
 								and tags.name = $2
 								and (
-									(select readable from namespace_readable)
+									(select visible from namespace_visible_by_permission)
 									or exists (
 										select 1
 										from tag_grants
@@ -555,7 +555,7 @@ impl Session {
 								from namespaces
 								where namespaces.name = any($2)
 							),
-							namespace_readable(readable) as (
+							namespace_visible_by_permission(visible) as (
 								select exists (
 									select 1
 									from namespace_grants
@@ -568,7 +568,7 @@ impl Session {
 							from tags
 							where tags.namespace = $1
 								and (
-									(select readable from namespace_readable)
+									(select visible from namespace_visible_by_permission)
 									or exists (
 										select 1
 										from tag_grants
@@ -606,7 +606,7 @@ impl Session {
 								from group_members
 								where group_members."user" = $3
 							),
-							namespace_readable(readable) as (
+							namespace_visible_by_permission(visible) as (
 								select exists (
 									select 1
 									from namespace_grants
@@ -625,7 +625,7 @@ impl Session {
 							where tags.namespace = $1
 								and tags.name = $2
 								and (
-									(select readable from namespace_readable)
+									(select visible from namespace_visible_by_permission)
 									or exists (
 										select 1
 										from tag_grants
@@ -664,7 +664,7 @@ impl Session {
 								from group_members
 								where group_members."user" = $2
 							),
-							namespace_readable(readable) as (
+							namespace_visible_by_permission(visible) as (
 								select exists (
 									select 1
 									from namespace_grants
@@ -682,7 +682,7 @@ impl Session {
 							from tags
 							where tags.namespace = $1
 								and (
-									(select readable from namespace_readable)
+									(select visible from namespace_visible_by_permission)
 									or exists (
 										select 1
 										from tag_grants

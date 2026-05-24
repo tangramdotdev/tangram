@@ -7,7 +7,7 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn filter_list_entries_by_access_postgres(
+	pub(crate) async fn filter_list_entries_by_visibility_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		authentication: Option<&Authentication>,
 		data: Vec<tg::list::Entry>,
@@ -25,18 +25,21 @@ impl Session {
 				},
 			}
 		}
-		let accessible_namespaces =
-			accessible_namespaces_postgres(transaction, authentication, &candidate_namespaces)
-				.await?;
+		let visible_by_permission_namespaces = visible_by_permission_namespaces_postgres(
+			transaction,
+			authentication,
+			&candidate_namespaces,
+		)
+		.await?;
 		let visible_namespaces = visible_namespaces_postgres(
 			transaction,
 			authentication,
 			&candidate_namespaces,
-			accessible_namespaces.clone(),
+			visible_by_permission_namespaces.clone(),
 		)
 		.await?;
-		let accessible_tags =
-			accessible_tags_postgres(transaction, authentication, &candidate_tags).await?;
+		let visible_tags =
+			visible_tags_postgres(transaction, authentication, &candidate_tags).await?;
 		Ok(data
 			.into_iter()
 			.filter(|entry| match entry {
@@ -44,7 +47,8 @@ impl Session {
 					visible_namespaces.contains(namespace)
 				},
 				tg::list::Entry::Tag { tag, .. } => {
-					accessible_namespaces.contains(&tag.namespace) || accessible_tags.contains(tag)
+					visible_by_permission_namespaces.contains(&tag.namespace)
+						|| visible_tags.contains(tag)
 				},
 			})
 			.collect())
@@ -64,7 +68,7 @@ fn ancestor_names(namespace: &tg::Namespace) -> Vec<String> {
 	names
 }
 
-async fn accessible_namespaces_postgres(
+async fn visible_by_permission_namespaces_postgres(
 	transaction: &db::postgres::Transaction<'_>,
 	authentication: Option<&Authentication>,
 	namespaces: &BTreeSet<tg::Namespace>,
@@ -176,9 +180,9 @@ async fn visible_namespaces_postgres(
 	transaction: &db::postgres::Transaction<'_>,
 	authentication: Option<&Authentication>,
 	namespaces: &BTreeSet<tg::Namespace>,
-	accessible: BTreeSet<tg::Namespace>,
+	visible_by_permission: BTreeSet<tg::Namespace>,
 ) -> tg::Result<BTreeSet<tg::Namespace>> {
-	let mut visible = accessible;
+	let mut visible = visible_by_permission;
 	let candidates = namespaces
 		.iter()
 		.map(ToString::to_string)
@@ -275,7 +279,7 @@ async fn visible_namespaces_postgres(
 	Ok(visible)
 }
 
-async fn accessible_tags_postgres(
+async fn visible_tags_postgres(
 	transaction: &db::postgres::Transaction<'_>,
 	authentication: Option<&Authentication>,
 	tags: &BTreeSet<tg::Tag>,

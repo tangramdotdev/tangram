@@ -57,7 +57,8 @@ impl Session {
 				arg.recursive,
 			)?);
 		}
-		data = Self::filter_list_entries_by_access_sqlite_sync(transaction, authentication, data)?;
+		data =
+			Self::filter_list_entries_by_visibility_sqlite_sync(transaction, authentication, data)?;
 		Ok(tg::list::Output { data })
 	}
 
