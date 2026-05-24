@@ -5,6 +5,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
@@ -16,6 +19,7 @@ impl Cli {
 		let client = self.client().await?;
 		let output = client
 			.list_tag_grants(tg::tag::grants::list::Arg {
+				location: args.location.get(),
 				tag: args.tag.clone(),
 			})
 			.await

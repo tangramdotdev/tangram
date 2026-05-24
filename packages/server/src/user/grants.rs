@@ -11,7 +11,7 @@ impl Session {
 	pub(crate) async fn list_user_namespace_grants(
 		&self,
 		user: &str,
-		_arg: tg::user::grants::Arg,
+		arg: tg::user::grants::Arg,
 	) -> tg::Result<Option<tg::user::grants::Output>> {
 		if self
 			.context
@@ -21,6 +21,23 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(_) => self.list_user_namespace_grants_local(user).await,
+			tg::Location::Remote(remote) => {
+				self.list_user_namespace_grants_remote(user, arg, remote)
+					.await
+			},
+		}
+	}
+
+	async fn list_user_namespace_grants_local(
+		&self,
+		user: &str,
+	) -> tg::Result<Option<tg::user::grants::Output>> {
 		let authentication = &self.context.authentication;
 		if authentication
 			.as_ref()
@@ -63,6 +80,35 @@ impl Session {
 			data = filtered;
 		}
 		Ok(Some(tg::user::grants::Output { data }))
+	}
+
+	async fn list_user_namespace_grants_remote(
+		&self,
+		user: &str,
+		mut arg: tg::user::grants::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::user::grants::Output>> {
+		let client = self
+			.get_remote_session(&remote.name)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					remote = %remote.name,
+					"failed to get the remote client"
+				)
+			})?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		client
+			.list_user_namespace_grants(user, arg)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					remote = %remote.name,
+					"failed to list the namespace grants"
+				)
+			})
 	}
 
 	pub(crate) async fn list_user_namespace_grants_request(

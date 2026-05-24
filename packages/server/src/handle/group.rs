@@ -22,10 +22,10 @@ impl tg::handle::Group for Server {
 
 	async fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
 		self.session(&self.context)
-			.list_group_namespace_grants(group)
+			.list_group_namespace_grants(arg)
 			.await
 	}
 

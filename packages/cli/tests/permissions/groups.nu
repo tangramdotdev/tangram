@@ -31,6 +31,7 @@ assert_unauthorized $output "Bob should not be able to inspect the team's grants
 
 tg --token $alice group member add team bob
 tg --token $bob group grants team
+tg --token $bob group grants team --local
 tg --token $bob namespace create team/project
 tg --token $bob group member add team carol
 tg --token $carol namespace create team/carol

@@ -74,6 +74,40 @@ create index namespace_grants_group_lookup_index
 	on namespace_grants ("group", namespace, permission)
 	where "group" is not null;
 
+create table namespace_visibility (
+	namespace int8 not null default 0,
+	"user" text,
+	"group" text,
+	"all" boolean not null default false,
+	count int8 not null,
+	check (
+		("user" is not null and "group" is null and not "all")
+		or ("user" is null and "group" is not null and not "all")
+		or ("user" is null and "group" is null and "all")
+	),
+	check (count > 0)
+);
+
+create unique index namespace_visibility_user_index
+	on namespace_visibility (namespace, "user")
+	where "user" is not null;
+
+create unique index namespace_visibility_group_index
+	on namespace_visibility (namespace, "group")
+	where "group" is not null;
+
+create unique index namespace_visibility_all_index
+	on namespace_visibility (namespace)
+	where "all";
+
+create index namespace_visibility_user_lookup_index
+	on namespace_visibility ("user", namespace)
+	where "user" is not null;
+
+create index namespace_visibility_group_lookup_index
+	on namespace_visibility ("group", namespace)
+	where "group" is not null;
+
 create table namespaces (
 	id int8 primary key default unique_rowid(),
 	parent int8 not null default 0,

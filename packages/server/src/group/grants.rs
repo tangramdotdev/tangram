@@ -10,7 +10,7 @@ use {
 impl Session {
 	pub(crate) async fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
 		if self
 			.context
@@ -20,6 +20,22 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(_) => self.list_group_namespace_grants_local(&arg.group).await,
+			tg::Location::Remote(remote) => {
+				self.list_group_namespace_grants_remote(arg, remote).await
+			},
+		}
+	}
+
+	async fn list_group_namespace_grants_local(
+		&self,
+		group: &str,
+	) -> tg::Result<Option<tg::group::grants::Output>> {
 		let authentication = &self.context.authentication;
 		if authentication
 			.as_ref()
@@ -57,6 +73,34 @@ impl Session {
 		Ok(Some(tg::group::grants::Output { data }))
 	}
 
+	async fn list_group_namespace_grants_remote(
+		&self,
+		mut arg: tg::group::grants::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::group::grants::Output>> {
+		let client = self
+			.get_remote_session(&remote.name)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					remote = %remote.name,
+					"failed to get the remote client"
+				)
+			})?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		client
+			.list_group_namespace_grants(arg)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					remote = %remote.name,
+					"failed to list the namespace grants"
+				)
+			})
+	}
+
 	pub(crate) async fn list_group_namespace_grants_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -70,9 +114,12 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(output) = self.list_group_namespace_grants(&arg.group).await.map_err(
-			|error| tg::error!(!error, group = %arg.group, "failed to list the namespace grants"),
-		)?
+		let Some(output) = self
+			.list_group_namespace_grants(arg.clone())
+			.await
+			.map_err(
+				|error| tg::error!(!error, group = %arg.group, "failed to list the namespace grants"),
+			)?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

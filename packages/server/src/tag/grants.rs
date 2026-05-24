@@ -3,6 +3,7 @@ use {crate::Session, tangram_client::prelude::*};
 pub mod create;
 pub mod delete;
 pub mod list;
+mod storage;
 
 pub(super) enum Grantee {
 	User(String),

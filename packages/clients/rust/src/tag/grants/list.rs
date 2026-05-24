@@ -7,6 +7,9 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub tag: tg::Tag,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

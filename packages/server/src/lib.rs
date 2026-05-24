@@ -35,7 +35,7 @@ mod directory;
 mod document;
 mod format;
 mod get;
-mod grants;
+
 mod group;
 mod handle;
 mod health;
@@ -103,7 +103,7 @@ pub struct State {
 	path: PathBuf,
 	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-	remote_list_tasks: self::list::RemoteTasks,
+	remote_list_tasks: self::list::remote::Tasks,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_container_root: PathBuf,
 	sandbox_permits: self::sandbox::Permits,

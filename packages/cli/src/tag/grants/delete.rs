@@ -4,20 +4,17 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
-	pub all: bool,
-
-	#[arg(long)]
-	pub group: Option<String>,
+	#[command(flatten)]
+	pub location: crate::location::Args,
 
 	#[command(flatten)]
 	pub permission: crate::grant::Permission,
 
-	#[arg(long)]
-	pub tag: tg::Tag,
+	#[command(flatten)]
+	pub principal: crate::grant::Principal,
 
-	#[arg(long)]
-	pub user: Option<String>,
+	#[arg(index = 1)]
+	pub tag: tg::Tag,
 }
 
 impl Cli {
@@ -26,11 +23,12 @@ impl Cli {
 		let permission = args.permission.get()?;
 		client
 			.delete_tag_grant(tg::tag::grants::delete::Arg {
-				all: args.all,
-				group: args.group,
+				all: args.principal.all,
+				group: args.principal.group,
+				location: args.location.get(),
 				permission,
 				tag: args.tag.clone(),
-				user: args.user,
+				user: args.principal.user,
 			})
 			.await
 			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to delete the tag grant"))?

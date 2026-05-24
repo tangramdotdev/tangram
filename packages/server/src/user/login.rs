@@ -22,7 +22,7 @@ impl Session {
 
 		let location = self
 			.server
-			.identity_location(arg.location.as_ref())
+			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		let output = match location {
 			tg::Location::Local(_) => self.login_user_local(arg.namespace, arg.email).await?,

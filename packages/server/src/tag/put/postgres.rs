@@ -84,8 +84,9 @@ impl Session {
 					);
 				"#
 			);
+			let user_id = user.clone();
 			let user = user.to_string();
-			transaction
+			let n = transaction
 				.inner()
 				.execute(
 					statement,
@@ -93,6 +94,14 @@ impl Session {
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			if n > 0 {
+				Self::increment_namespace_visibility_for_user_postgres(
+					transaction,
+					&tag.namespace,
+					&user_id,
+				)
+				.await?;
+			}
 		}
 		if arg.all && !arg.replicate {
 			let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -108,7 +117,7 @@ impl Session {
 					);
 				"#
 			);
-			transaction
+			let n = transaction
 				.inner()
 				.execute(
 					statement,
@@ -116,6 +125,10 @@ impl Session {
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			if n > 0 {
+				Self::increment_namespace_visibility_for_all_postgres(transaction, &tag.namespace)
+					.await?;
+			}
 		}
 		Ok(())
 	}

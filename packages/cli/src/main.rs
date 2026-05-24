@@ -52,6 +52,7 @@ mod read;
 mod remote;
 #[cfg(feature = "js")]
 mod repl;
+mod revoke;
 mod sandbox;
 mod server;
 mod shell;
@@ -326,7 +327,7 @@ enum Command {
 
 	Remote(self::remote::Args),
 
-	Revoke(self::grant::RevokeArgs),
+	Revoke(self::revoke::Args),
 
 	#[cfg(feature = "js")]
 	Repl(self::repl::Args),

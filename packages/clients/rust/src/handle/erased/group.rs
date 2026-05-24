@@ -18,10 +18,10 @@ pub trait Group: Send + Sync + 'static {
 
 	fn try_delete_group<'a>(&'a self, group: &'a str) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
-	fn list_group_namespace_grants<'a>(
-		&'a self,
-		group: &'a str,
-	) -> BoxFuture<'a, tg::Result<Option<tg::group::grants::Output>>>;
+	fn list_group_namespace_grants(
+		&self,
+		arg: tg::group::grants::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<tg::group::grants::Output>>>;
 
 	fn list_group_members<'a>(
 		&'a self,
@@ -67,11 +67,11 @@ where
 		self.try_delete_group(group).boxed()
 	}
 
-	fn list_group_namespace_grants<'a>(
-		&'a self,
-		group: &'a str,
-	) -> BoxFuture<'a, tg::Result<Option<tg::group::grants::Output>>> {
-		self.list_group_namespace_grants(group).boxed()
+	fn list_group_namespace_grants(
+		&self,
+		arg: tg::group::grants::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<tg::group::grants::Output>>> {
+		self.list_group_namespace_grants(arg).boxed()
 	}
 
 	fn list_group_members<'a>(

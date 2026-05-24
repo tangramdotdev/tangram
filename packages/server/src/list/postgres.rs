@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -29,18 +29,48 @@ impl Session {
 			.instrument(tracing::trace_span!("begin_transaction"))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let authentication = self.context.authentication.clone();
 		let mut data = Vec::new();
-		if arg.namespaces {
-			data.extend(
-				self.list_namespace_entries_postgres(&transaction, &arg.pattern, arg.recursive)
+		if arg.recursive {
+			if arg.namespaces {
+				data.extend(
+					self.list_namespace_entries_postgres(&transaction, &arg.pattern, true)
+						.await?,
+				);
+			}
+			if arg.tags {
+				data.extend(
+					self.list_tag_entries_postgres(&transaction, &arg.pattern, true)
+						.await?,
+				);
+			}
+			data = Self::filter_list_entries_by_access_postgres(
+				&transaction,
+				authentication.as_ref(),
+				data,
+			)
+			.await?;
+		} else {
+			if arg.namespaces {
+				data.extend(
+					self.list_visible_namespace_entries_postgres(
+						&transaction,
+						authentication.as_ref(),
+						&arg.pattern,
+					)
 					.await?,
-			);
-		}
-		if arg.tags {
-			data.extend(
-				self.list_tag_entries_postgres(&transaction, &arg.pattern, arg.recursive)
+				);
+			}
+			if arg.tags {
+				data.extend(
+					self.list_readable_tag_entries_postgres(
+						&transaction,
+						authentication.as_ref(),
+						&arg.pattern,
+					)
 					.await?,
-			);
+				);
+			}
 		}
 		Ok(tg::list::Output { data })
 	}
@@ -128,6 +158,177 @@ impl Session {
 			})
 			.collect();
 		Ok(entries)
+	}
+
+	async fn list_visible_namespace_entries_postgres(
+		&self,
+		transaction: &db::postgres::Transaction<'_>,
+		authentication: Option<&Authentication>,
+		pattern: &tg::list::Pattern,
+	) -> tg::Result<Vec<tg::list::Entry>> {
+		let Some(parent) = Self::get_namespace_postgres(transaction, &pattern.namespace).await?
+		else {
+			return Ok(Vec::new());
+		};
+		if pattern.contains_operators() && pattern.name.as_str() != "*" {
+			return Ok(Vec::new());
+		}
+		let rows = match authentication {
+			Some(Authentication::Root) => {
+				if pattern.name.as_str() == "*" || pattern.name.is_empty() {
+					let statement = indoc!(
+						"
+							select name
+							from namespaces
+							where parent = $1 ;
+						"
+					);
+					transaction
+						.inner()
+						.query(statement, &[&parent])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				} else {
+					let statement = indoc!(
+						"
+							select name
+							from namespaces
+							where parent = $1 and component = $2 ;
+						"
+					);
+					transaction
+						.inner()
+						.query(statement, &[&parent, &pattern.name.as_str()])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				}
+			},
+			None
+			| Some(
+				Authentication::Process(_) | Authentication::Runner | Authentication::Sandbox(_),
+			) => {
+				if pattern.name.as_str() == "*" || pattern.name.is_empty() {
+					let statement = indoc!(
+						r#"
+							select namespaces.name
+							from namespaces
+							where namespaces.parent = $1
+								and exists (
+									select 1
+									from namespace_visibility
+									where namespace_visibility.namespace = namespaces.id
+										and namespace_visibility."all"
+								) ;
+						"#
+					);
+					transaction
+						.inner()
+						.query(statement, &[&parent])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				} else {
+					let statement = indoc!(
+						r#"
+							select namespaces.name
+							from namespaces
+							where namespaces.parent = $1
+								and namespaces.component = $2
+								and exists (
+									select 1
+									from namespace_visibility
+									where namespace_visibility.namespace = namespaces.id
+										and namespace_visibility."all"
+								) ;
+						"#
+					);
+					transaction
+						.inner()
+						.query(statement, &[&parent, &pattern.name.as_str()])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				}
+			},
+			Some(Authentication::User(user)) => {
+				let user = user.id.to_string();
+				if pattern.name.as_str() == "*" || pattern.name.is_empty() {
+					let statement = indoc!(
+						r#"
+							with matching_principals("user", "group", "all") as (
+								values ($2::text, null::text, false), (null::text, null::text, true)
+								union all
+								select null::text, group_members."group", false
+								from group_members
+								where group_members."user" = $2
+							)
+							select namespaces.name
+							from namespaces
+							where namespaces.parent = $1
+								and exists (
+									select 1
+									from namespace_visibility
+									where namespace_visibility.namespace = namespaces.id
+										and exists (
+											select 1
+											from matching_principals
+											where namespace_visibility."user" = matching_principals."user"
+												or namespace_visibility."group" = matching_principals."group"
+												or (namespace_visibility."all" and matching_principals."all")
+										)
+								) ;
+						"#
+					);
+					transaction
+						.inner()
+						.query(statement, &[&parent, &user])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				} else {
+					let statement = indoc!(
+						r#"
+							with matching_principals("user", "group", "all") as (
+								values ($3::text, null::text, false), (null::text, null::text, true)
+								union all
+								select null::text, group_members."group", false
+								from group_members
+								where group_members."user" = $3
+							)
+							select namespaces.name
+							from namespaces
+							where namespaces.parent = $1
+								and namespaces.component = $2
+								and exists (
+									select 1
+									from namespace_visibility
+									where namespace_visibility.namespace = namespaces.id
+										and exists (
+											select 1
+											from matching_principals
+											where namespace_visibility."user" = matching_principals."user"
+												or namespace_visibility."group" = matching_principals."group"
+												or (namespace_visibility."all" and matching_principals."all")
+										)
+								) ;
+						"#
+					);
+					transaction
+						.inner()
+						.query(statement, &[&parent, &pattern.name.as_str(), &user])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				}
+			},
+		};
+		rows.into_iter()
+			.map(|row| {
+				let name: String = row
+					.try_get(0)
+					.map_err(|error| tg::error!(!error, "failed to get the name column"))?;
+				Ok(tg::list::Entry::Namespace {
+					location: None,
+					namespace: name.parse()?,
+				})
+			})
+			.collect()
 	}
 
 	async fn query_namespace_children_postgres(
@@ -252,6 +453,280 @@ impl Session {
 				tag: m.tag,
 			})
 			.collect();
+		Ok(entries)
+	}
+
+	async fn list_readable_tag_entries_postgres(
+		&self,
+		transaction: &db::postgres::Transaction<'_>,
+		authentication: Option<&Authentication>,
+		pattern: &tg::list::Pattern,
+	) -> tg::Result<Vec<tg::list::Entry>> {
+		let Some(namespace_id) =
+			Self::get_namespace_postgres(transaction, &pattern.namespace).await?
+		else {
+			return Ok(Vec::new());
+		};
+		let exact = (!pattern.is_empty() && !pattern.contains_operators())
+			.then(|| pattern.name.as_str().to_owned());
+		let ancestors = namespace_ancestor_names(&pattern.namespace);
+		let rows = match authentication {
+			Some(Authentication::Root) => {
+				if let Some(name) = &exact {
+					let statement = indoc!(
+						"
+							select name, item
+							from tags
+							where namespace = $1 and name = $2 ;
+						"
+					);
+					transaction
+						.inner()
+						.query(statement, &[&namespace_id, name])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				} else {
+					let statement = indoc!(
+						"
+							select name, item
+							from tags
+							where namespace = $1 ;
+						"
+					);
+					transaction
+						.inner()
+						.query(statement, &[&namespace_id])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				}
+			},
+			None
+			| Some(
+				Authentication::Process(_) | Authentication::Runner | Authentication::Sandbox(_),
+			) => {
+				if let Some(name) = &exact {
+					let statement = indoc!(
+						r#"
+							with ancestor_ids(id) as (
+								values (0::bigint)
+								union
+								select namespaces.id
+								from namespaces
+								where namespaces.name = any($3)
+							),
+							namespace_readable(readable) as (
+								select exists (
+									select 1
+									from namespace_grants
+									where namespace_grants.namespace in (select id from ancestor_ids)
+										and namespace_grants."all"
+										and namespace_grants.permission = 'read'
+								)
+							)
+							select tags.name, tags.item
+							from tags
+							where tags.namespace = $1
+								and tags.name = $2
+								and (
+									(select readable from namespace_readable)
+									or exists (
+										select 1
+										from tag_grants
+										where tag_grants.namespace = tags.namespace
+											and tag_grants.name = tags.name
+											and tag_grants."all"
+											and tag_grants.permission = 'read'
+									)
+								) ;
+						"#
+					);
+					transaction
+						.inner()
+						.query(statement, &[&namespace_id, name, &ancestors])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				} else {
+					let statement = indoc!(
+						r#"
+							with ancestor_ids(id) as (
+								values (0::bigint)
+								union
+								select namespaces.id
+								from namespaces
+								where namespaces.name = any($2)
+							),
+							namespace_readable(readable) as (
+								select exists (
+									select 1
+									from namespace_grants
+									where namespace_grants.namespace in (select id from ancestor_ids)
+										and namespace_grants."all"
+										and namespace_grants.permission = 'read'
+								)
+							)
+							select tags.name, tags.item
+							from tags
+							where tags.namespace = $1
+								and (
+									(select readable from namespace_readable)
+									or exists (
+										select 1
+										from tag_grants
+										where tag_grants.namespace = tags.namespace
+											and tag_grants.name = tags.name
+											and tag_grants."all"
+											and tag_grants.permission = 'read'
+									)
+								) ;
+						"#
+					);
+					transaction
+						.inner()
+						.query(statement, &[&namespace_id, &ancestors])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				}
+			},
+			Some(Authentication::User(user)) => {
+				let user = user.id.to_string();
+				if let Some(name) = &exact {
+					let statement = indoc!(
+						r#"
+							with ancestor_ids(id) as (
+								values (0::bigint)
+								union
+								select namespaces.id
+								from namespaces
+								where namespaces.name = any($4)
+							),
+							matching_principals("user", "group", "all") as (
+								values ($3::text, null::text, false), (null::text, null::text, true)
+								union all
+								select null::text, group_members."group", false
+								from group_members
+								where group_members."user" = $3
+							),
+							namespace_readable(readable) as (
+								select exists (
+									select 1
+									from namespace_grants
+									where namespace_grants.namespace in (select id from ancestor_ids)
+											and exists (
+												select 1
+												from matching_principals
+												where namespace_grants."user" = matching_principals."user"
+													or namespace_grants."group" = matching_principals."group"
+													or (namespace_grants."all" and matching_principals."all")
+											)
+								)
+							)
+							select tags.name, tags.item
+							from tags
+							where tags.namespace = $1
+								and tags.name = $2
+								and (
+									(select readable from namespace_readable)
+									or exists (
+										select 1
+										from tag_grants
+										where tag_grants.namespace = tags.namespace
+											and tag_grants.name = tags.name
+												and exists (
+													select 1
+													from matching_principals
+													where tag_grants."user" = matching_principals."user"
+														or tag_grants."group" = matching_principals."group"
+														or (tag_grants."all" and matching_principals."all")
+												)
+									)
+								) ;
+						"#
+					);
+					transaction
+						.inner()
+						.query(statement, &[&namespace_id, name, &user, &ancestors])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				} else {
+					let statement = indoc!(
+						r#"
+							with ancestor_ids(id) as (
+								values (0::bigint)
+								union
+								select namespaces.id
+								from namespaces
+								where namespaces.name = any($3)
+							),
+							matching_principals("user", "group", "all") as (
+								values ($2::text, null::text, false), (null::text, null::text, true)
+								union all
+								select null::text, group_members."group", false
+								from group_members
+								where group_members."user" = $2
+							),
+							namespace_readable(readable) as (
+								select exists (
+									select 1
+									from namespace_grants
+									where namespace_grants.namespace in (select id from ancestor_ids)
+											and exists (
+												select 1
+												from matching_principals
+												where namespace_grants."user" = matching_principals."user"
+													or namespace_grants."group" = matching_principals."group"
+													or (namespace_grants."all" and matching_principals."all")
+											)
+								)
+							)
+							select tags.name, tags.item
+							from tags
+							where tags.namespace = $1
+								and (
+									(select readable from namespace_readable)
+									or exists (
+										select 1
+										from tag_grants
+										where tag_grants.namespace = tags.namespace
+											and tag_grants.name = tags.name
+												and exists (
+													select 1
+													from matching_principals
+													where tag_grants."user" = matching_principals."user"
+														or tag_grants."group" = matching_principals."group"
+														or (tag_grants."all" and matching_principals."all")
+												)
+									)
+								) ;
+						"#
+					);
+					transaction
+						.inner()
+						.query(statement, &[&namespace_id, &user, &ancestors])
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+				}
+			},
+		};
+		let mut entries = Vec::new();
+		for row in rows {
+			#[derive(db::postgres::row::Deserialize)]
+			struct Row {
+				name: String,
+				#[tangram_database(as = "db::postgres::value::TryFrom<String>")]
+				item: tg::Either<tg::object::Id, tg::process::Id>,
+			}
+			let row = <Row as db::postgres::row::Deserialize>::deserialize(&row)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
+			let tag =
+				tg::Tag::with_namespace_and_name(pattern.namespace.clone(), row.name.parse()?);
+			if pattern.matches(&tag) {
+				entries.push(tg::list::Entry::Tag {
+					item: row.item,
+					location: None,
+					tag,
+				});
+			}
+		}
 		Ok(entries)
 	}
 
@@ -442,4 +917,17 @@ impl Session {
 			tag: tg::Tag::with_namespace_and_name(row.namespace.parse()?, row.name.parse()?),
 		})
 	}
+}
+
+fn namespace_ancestor_names(namespace: &tg::Namespace) -> Vec<String> {
+	let mut names = Vec::new();
+	let mut name = String::new();
+	for component in namespace.components() {
+		if !name.is_empty() {
+			name.push('/');
+		}
+		name.push_str(component);
+		names.push(name.clone());
+	}
+	names
 }

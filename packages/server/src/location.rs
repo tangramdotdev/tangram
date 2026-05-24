@@ -57,20 +57,6 @@ impl Server {
 
 		Ok(location)
 	}
-
-	pub(crate) fn identity_location(
-		&self,
-		arg: Option<&tg::location::Arg>,
-	) -> tg::Result<tg::Location> {
-		if arg.is_some() || self.config().authentication.is_some() {
-			return self.location(arg);
-		}
-
-		Ok(tg::Location::Remote(tg::location::Remote {
-			name: "default".to_owned(),
-			region: None,
-		}))
-	}
 }
 
 impl Session {

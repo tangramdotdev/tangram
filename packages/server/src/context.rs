@@ -35,6 +35,24 @@ pub struct Sandbox {
 	pub location: tg::Location,
 }
 
+impl Authentication {
+	#[must_use]
+	pub fn uses_all_grants(authentication: Option<&Self>) -> bool {
+		matches!(
+			authentication,
+			None | Some(Self::Process(_) | Self::Runner | Self::Sandbox(_))
+		)
+	}
+
+	#[must_use]
+	pub fn user_id(authentication: Option<&Self>) -> Option<&tg::user::Id> {
+		let Some(Self::User(user)) = authentication else {
+			return None;
+		};
+		Some(&user.id)
+	}
+}
+
 impl Context {
 	#[must_use]
 	pub fn root() -> Self {

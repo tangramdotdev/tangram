@@ -10,6 +10,9 @@ pub struct Arg {
 	pub namespace: tg::Namespace,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

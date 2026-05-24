@@ -8,6 +8,9 @@ pub struct Args {
 	pub group: String,
 
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
@@ -15,7 +18,10 @@ impl Cli {
 	pub async fn command_group_grants(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let output = client
-			.list_group_namespace_grants(&args.group)
+			.list_group_namespace_grants(tg::group::grants::Arg {
+				group: args.group.clone(),
+				location: args.location.get(),
+			})
 			.await
 			.map_err(
 				|error| tg::error!(!error, group = %args.group, "failed to list the namespace grants"),

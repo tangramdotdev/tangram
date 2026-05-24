@@ -8,6 +8,9 @@ pub struct Args {
 	pub namespace: tg::Namespace,
 
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
@@ -16,6 +19,7 @@ impl Cli {
 		let client = self.client().await?;
 		let output = client
 			.list_namespace_grants(tg::namespace::grants::list::Arg {
+				location: args.location.get(),
 				namespace: args.namespace.clone(),
 			})
 			.await

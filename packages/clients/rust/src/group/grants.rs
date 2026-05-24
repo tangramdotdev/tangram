@@ -7,6 +7,9 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub group: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -18,11 +21,8 @@ pub struct Output {
 impl tg::Session {
 	pub async fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		let arg = tg::group::grants::Arg {
-			group: group.to_owned(),
-		};
 		let uri = Uri::builder()
 			.path("/groups/grants")
 			.query_params(&arg)

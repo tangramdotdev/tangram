@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, context::Authentication},
 	indoc::indoc,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
@@ -23,12 +23,13 @@ impl Session {
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let authentication = self.context.authentication.clone();
 		connection
 			.with(move |connection, cache| {
 				let transaction = connection
 					.transaction()
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				Self::list_sqlite_sync(&transaction, cache, &arg)
+				Self::list_sqlite_sync(&transaction, cache, authentication.as_ref(), &arg)
 			})
 			.await
 	}
@@ -36,6 +37,7 @@ impl Session {
 	fn list_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		cache: &db::sqlite::Cache,
+		authentication: Option<&Authentication>,
 		arg: &tg::list::Arg,
 	) -> tg::Result<tg::list::Output> {
 		let mut data = Vec::new();
@@ -55,6 +57,7 @@ impl Session {
 				arg.recursive,
 			)?);
 		}
+		data = Self::filter_list_entries_by_access_sqlite_sync(transaction, authentication, data)?;
 		Ok(tg::list::Output { data })
 	}
 

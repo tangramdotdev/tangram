@@ -1,3 +1,5 @@
+mod permissions;
+
 pub mod batch;
 pub mod delete;
 pub mod grants;

@@ -25,9 +25,9 @@ impl tg::handle::Group for tg::Session {
 
 	fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> {
-		self.list_group_namespace_grants(group)
+		self.list_group_namespace_grants(arg)
 	}
 
 	fn list_group_members(

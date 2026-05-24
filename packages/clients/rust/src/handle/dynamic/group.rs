@@ -25,10 +25,10 @@ impl tg::handle::Group for Handle {
 
 	fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_group_namespace_grants(group))
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_group_namespace_grants(arg))
 		}
 	}
 

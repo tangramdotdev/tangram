@@ -20,7 +20,20 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(_) => self.list_tag_grants_local(arg).await,
+			tg::Location::Remote(remote) => self.list_tag_grants_remote(arg, remote).await,
+		}
+	}
 
+	async fn list_tag_grants_local(
+		&self,
+		arg: tg::tag::grants::list::Arg,
+	) -> tg::Result<Option<tg::tag::grants::list::Output>> {
 		let mut connection = self
 			.server
 			.database
@@ -42,6 +55,31 @@ impl Session {
 			Self::list_tag_grants_for_tag_with_transaction(&transaction, &arg.tag, namespace_id)
 				.await?;
 		Ok(Some(tg::tag::grants::list::Output { data }))
+	}
+
+	async fn list_tag_grants_remote(
+		&self,
+		mut arg: tg::tag::grants::list::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::tag::grants::list::Output>> {
+		let client = self
+			.get_remote_session(&remote.name)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					remote = %remote.name,
+					"failed to get the remote client"
+				)
+			})?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		client.list_tag_grants(arg).await.map_err(|error| {
+			tg::error!(
+				!error,
+				remote = %remote.name,
+				"failed to list the tag grants"
+			)
+		})
 	}
 
 	pub(crate) async fn list_tag_grants_request(

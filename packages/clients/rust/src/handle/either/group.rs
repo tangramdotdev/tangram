@@ -41,11 +41,11 @@ where
 
 	fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.list_group_namespace_grants(group).left_future(),
-			tg::Either::Right(s) => s.list_group_namespace_grants(group).right_future(),
+			tg::Either::Left(s) => s.list_group_namespace_grants(arg).left_future(),
+			tg::Either::Right(s) => s.list_group_namespace_grants(arg).right_future(),
 		}
 	}
 

@@ -22,9 +22,9 @@ impl tg::handle::Group for Session {
 
 	async fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		self.list_group_namespace_grants(group).await
+		self.list_group_namespace_grants(arg).await
 	}
 
 	async fn list_group_members(&self, group: &str) -> tg::Result<tg::group::member::list::Output> {

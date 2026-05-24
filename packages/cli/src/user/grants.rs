@@ -11,6 +11,9 @@ pub struct Args {
 	pub namespace: Option<tg::Namespace>,
 
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
@@ -22,6 +25,7 @@ impl Cli {
 				.list_user_namespace_permissions(
 					&args.user,
 					tg::user::permissions::Arg {
+						location: args.location.get(),
 						namespace: namespace.clone(),
 					},
 				)
@@ -33,7 +37,12 @@ impl Cli {
 			self.print_serde(output, args.print).await?;
 		} else {
 			let output = client
-				.list_user_namespace_grants(&args.user, tg::user::grants::Arg::default())
+				.list_user_namespace_grants(
+					&args.user,
+					tg::user::grants::Arg {
+						location: args.location.get(),
+					},
+				)
 				.await
 				.map_err(
 					|error| tg::error!(!error, user = %args.user, "failed to list the namespace grants"),

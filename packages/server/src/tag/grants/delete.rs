@@ -21,6 +21,20 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(_) => self.delete_tag_grant_local(arg).await,
+			tg::Location::Remote(remote) => self.delete_tag_grant_remote(arg, remote).await,
+		}
+	}
+
+	async fn delete_tag_grant_local(
+		&self,
+		arg: tg::tag::grants::delete::Arg,
+	) -> tg::Result<Option<()>> {
 		let grantee = Self::tag_grantee(arg.user, arg.group, arg.all)?;
 		if matches!(grantee, Grantee::All) && arg.permission != tg::Permission::Read {
 			return Err(tg::error!("all grants may only be read"));
@@ -87,6 +101,31 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		Ok(output)
+	}
+
+	async fn delete_tag_grant_remote(
+		&self,
+		mut arg: tg::tag::grants::delete::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_remote_session(&remote.name)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					remote = %remote.name,
+					"failed to get the remote client"
+				)
+			})?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		client.delete_tag_grant(arg).await.map_err(|error| {
+			tg::error!(
+				!error,
+				remote = %remote.name,
+				"failed to delete the tag grant"
+			)
+		})
 	}
 
 	pub(crate) async fn delete_tag_grant_request(

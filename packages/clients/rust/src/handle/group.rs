@@ -28,7 +28,7 @@ pub trait Group: Clone + Unpin + Send + Sync + 'static {
 
 	fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> + Send;
 
 	fn list_group_members(
@@ -71,10 +71,10 @@ impl tg::handle::Group for tg::Client {
 
 	async fn list_group_namespace_grants(
 		&self,
-		group: &str,
+		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
 		self.session(&self.context)
-			.list_group_namespace_grants(group)
+			.list_group_namespace_grants(arg)
 			.await
 	}
 

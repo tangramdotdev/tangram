@@ -4,20 +4,17 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
-	pub all: bool,
-
-	#[arg(long)]
-	pub group: Option<String>,
-
-	#[arg(long)]
+	#[arg(index = 1)]
 	pub namespace: tg::Namespace,
+
+	#[command(flatten)]
+	pub location: crate::location::Args,
 
 	#[command(flatten)]
 	pub permission: crate::grant::Permission,
 
-	#[arg(long)]
-	pub user: Option<String>,
+	#[command(flatten)]
+	pub principal: crate::grant::Principal,
 }
 
 impl Cli {
@@ -26,11 +23,12 @@ impl Cli {
 		let permission = args.permission.get()?;
 		client
 			.delete_namespace_grant(tg::namespace::grants::delete::Arg {
-				all: args.all,
-				group: args.group,
+				all: args.principal.all,
+				group: args.principal.group,
+				location: args.location.get(),
 				namespace: args.namespace.clone(),
 				permission,
-				user: args.user,
+				user: args.principal.user,
 			})
 			.await
 			.map_err(

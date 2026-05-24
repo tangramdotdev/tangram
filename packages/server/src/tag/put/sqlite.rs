@@ -93,7 +93,7 @@ impl Session {
 					);
 				"#
 			);
-			transaction
+			let n = transaction
 				.execute(
 					statement,
 					sqlite::params![
@@ -104,6 +104,13 @@ impl Session {
 					],
 				)
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			if n > 0 {
+				Self::increment_namespace_visibility_for_user_sqlite_sync(
+					transaction,
+					&tag.namespace,
+					user,
+				)?;
+			}
 		}
 		if arg.all && !arg.replicate {
 			let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -119,12 +126,18 @@ impl Session {
 					);
 				"#
 			);
-			transaction
+			let n = transaction
 				.execute(
 					statement,
 					sqlite::params![namespace, tag.name.to_string(), created_at, created_by],
 				)
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			if n > 0 {
+				Self::increment_namespace_visibility_for_all_sqlite_sync(
+					transaction,
+					&tag.namespace,
+				)?;
+			}
 		}
 
 		Ok(())

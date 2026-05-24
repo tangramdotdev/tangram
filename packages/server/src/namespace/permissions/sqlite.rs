@@ -1,11 +1,6 @@
 use {
-	super::NamespaceReadSubject,
-	crate::Session,
-	indoc::indoc,
-	rusqlite as sqlite,
-	std::collections::{BTreeMap, BTreeSet},
-	tangram_client::prelude::*,
-	tangram_database as db,
+	crate::Session, indoc::indoc, rusqlite as sqlite, std::collections::BTreeSet,
+	tangram_client::prelude::*, tangram_database as db,
 };
 
 impl Session {
@@ -27,7 +22,7 @@ impl Session {
 			.await
 	}
 
-	pub(super) async fn list_effective_tag_permissions_for_user_sqlite(
+	pub(crate) async fn list_effective_tag_permissions_for_user_sqlite(
 		transaction: &db::sqlite::Transaction<'_>,
 		user: &tg::user::Id,
 		tag: &tg::Tag,
@@ -37,26 +32,6 @@ impl Session {
 		transaction
 			.with(move |transaction, _cache| {
 				Self::list_effective_tag_permissions_for_user_sqlite_sync(transaction, &user, &tag)
-			})
-			.await
-	}
-
-	pub(super) async fn user_has_exact_tag_permission_sqlite(
-		transaction: &db::sqlite::Transaction<'_>,
-		user: &tg::user::Id,
-		tag: &tg::Tag,
-		permission: tg::Permission,
-	) -> tg::Result<bool> {
-		let tag = tag.clone();
-		let user = user.clone();
-		transaction
-			.with(move |transaction, _cache| {
-				Self::user_has_exact_tag_permission_sqlite_sync(
-					transaction,
-					&user,
-					&tag,
-					permission,
-				)
 			})
 			.await
 	}
@@ -73,7 +48,7 @@ impl Session {
 			.await
 	}
 
-	pub(super) async fn tag_has_all_read_sqlite(
+	pub(crate) async fn tag_has_all_read_sqlite(
 		transaction: &db::sqlite::Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
@@ -83,36 +58,7 @@ impl Session {
 			.await
 	}
 
-	pub(super) async fn tag_has_exact_all_read_sqlite(
-		transaction: &db::sqlite::Transaction<'_>,
-		tag: &tg::Tag,
-	) -> tg::Result<bool> {
-		let tag = tag.clone();
-		transaction
-			.with(move |transaction, _cache| {
-				Self::tag_has_exact_all_read_sqlite_sync(transaction, &tag)
-			})
-			.await
-	}
-
-	pub(super) async fn filter_list_entries_by_read_permission_sqlite(
-		transaction: &db::sqlite::Transaction<'_>,
-		subject: &NamespaceReadSubject,
-		data: Vec<tg::list::Entry>,
-	) -> tg::Result<Vec<tg::list::Entry>> {
-		let subject = subject.clone();
-		transaction
-			.with(move |transaction, _cache| {
-				Self::filter_list_entries_by_read_permission_sqlite_sync(
-					transaction,
-					&subject,
-					data,
-				)
-			})
-			.await
-	}
-
-	pub(super) async fn user_has_tag_permission_sqlite(
+	pub(crate) async fn user_has_tag_permission_sqlite(
 		transaction: &db::sqlite::Transaction<'_>,
 		user: &tg::user::Id,
 		tag: &tg::Tag,
@@ -207,7 +153,7 @@ impl Session {
 		Ok(permissions.into_iter().collect())
 	}
 
-	fn user_has_exact_tag_permission_sqlite_sync(
+	pub(crate) fn user_has_exact_tag_permission_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		user: &tg::user::Id,
 		tag: &tg::Tag,
@@ -244,7 +190,7 @@ impl Session {
 		Ok(rows.into_iter().any(|row| row.implies(permission)))
 	}
 
-	fn namespace_has_all_read_sqlite_sync(
+	pub(crate) fn namespace_has_all_read_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<bool> {
@@ -279,7 +225,7 @@ impl Session {
 		Self::tag_has_exact_all_read_sqlite_sync(transaction, tag)
 	}
 
-	fn tag_has_exact_all_read_sqlite_sync(
+	pub(crate) fn tag_has_exact_all_read_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		tag: &tg::Tag,
 	) -> tg::Result<bool> {
@@ -303,64 +249,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))
 	}
 
-	fn filter_list_entries_by_read_permission_sqlite_sync(
-		transaction: &sqlite::Transaction<'_>,
-		subject: &NamespaceReadSubject,
-		data: Vec<tg::list::Entry>,
-	) -> tg::Result<Vec<tg::list::Entry>> {
-		let mut filtered = Vec::new();
-		let mut readable_by_namespace = BTreeMap::new();
-		let mut readable_by_tag = BTreeMap::new();
-		for entry in data {
-			let readable = match &entry {
-				tg::list::Entry::Namespace { namespace, .. } => {
-					if let Some(readable) = readable_by_namespace.get(namespace) {
-						*readable
-					} else {
-						let readable = Self::namespace_is_readable_sqlite_sync(
-							transaction,
-							subject,
-							namespace,
-						)?;
-						readable_by_namespace.insert(namespace.clone(), readable);
-						readable
-					}
-				},
-				tg::list::Entry::Tag { tag, .. } => {
-					if let Some(readable) = readable_by_tag.get(tag) {
-						*readable
-					} else {
-						let namespace_readable =
-							if let Some(readable) = readable_by_namespace.get(&tag.namespace) {
-								*readable
-							} else {
-								let readable = Self::namespace_is_readable_sqlite_sync(
-									transaction,
-									subject,
-									&tag.namespace,
-								)?;
-								readable_by_namespace.insert(tag.namespace.clone(), readable);
-								readable
-							};
-						let readable = namespace_readable
-							|| Self::tag_is_exactly_readable_sqlite_sync(
-								transaction,
-								subject,
-								tag,
-							)?;
-						readable_by_tag.insert(tag.clone(), readable);
-						readable
-					}
-				},
-			};
-			if readable {
-				filtered.push(entry);
-			}
-		}
-		Ok(filtered)
-	}
-
-	fn user_has_namespace_permission_sqlite_sync(
+	pub(crate) fn user_has_namespace_permission_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		user: &tg::user::Id,
 		namespace: &tg::Namespace,
@@ -385,45 +274,102 @@ impl Session {
 		Ok(permissions.contains(&permission))
 	}
 
-	fn namespace_is_readable_sqlite_sync(
+	pub(crate) fn increment_namespace_visibility_for_user_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
-		subject: &NamespaceReadSubject,
 		namespace: &tg::Namespace,
-	) -> tg::Result<bool> {
-		match subject {
-			NamespaceReadSubject::All => Ok(true),
-			NamespaceReadSubject::Anonymous => {
-				Self::namespace_has_all_read_sqlite_sync(transaction, namespace)
-			},
-			NamespaceReadSubject::User(user) => Self::user_has_namespace_permission_sqlite_sync(
-				transaction,
-				user,
-				namespace,
-				tg::Permission::Read,
-			),
+		user: &tg::user::Id,
+	) -> tg::Result<()> {
+		let user = user.to_string();
+		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
+			.into_iter()
+			.filter(|id| *id != 0)
+		{
+			let statement = indoc!(
+				r#"
+					insert into namespace_visibility (namespace, "user", count)
+					values (?1, ?2, 1)
+					on conflict (namespace, "user") where "user" is not null
+					do update set count = namespace_visibility.count + 1 ;
+				"#
+			);
+			transaction
+				.execute(statement, sqlite::params![namespace_id, user.clone()])
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}
+		Ok(())
 	}
 
-	fn tag_is_exactly_readable_sqlite_sync(
+	pub(crate) fn increment_namespace_visibility_for_all_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
-		subject: &NamespaceReadSubject,
-		tag: &tg::Tag,
-	) -> tg::Result<bool> {
-		match subject {
-			NamespaceReadSubject::All => Ok(true),
-			NamespaceReadSubject::Anonymous => {
-				Self::tag_has_exact_all_read_sqlite_sync(transaction, tag)
-			},
-			NamespaceReadSubject::User(user) => Self::user_has_exact_tag_permission_sqlite_sync(
-				transaction,
-				user,
-				tag,
-				tg::Permission::Read,
-			),
+		namespace: &tg::Namespace,
+	) -> tg::Result<()> {
+		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
+			.into_iter()
+			.filter(|id| *id != 0)
+		{
+			let statement = indoc!(
+				r#"
+					insert into namespace_visibility (namespace, "all", count)
+					values (?1, true, 1)
+					on conflict (namespace) where "all"
+					do update set count = namespace_visibility.count + 1 ;
+				"#
+			);
+			transaction
+				.execute(statement, sqlite::params![namespace_id])
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}
+		Ok(())
 	}
 
-	fn get_namespace_ancestor_ids_sqlite_sync(
+	pub(crate) fn decrement_namespace_visibility_for_grant_sqlite_sync(
+		transaction: &sqlite::Transaction<'_>,
+		namespace: &tg::Namespace,
+		user: Option<&str>,
+		group: Option<&str>,
+		all: bool,
+	) -> tg::Result<()> {
+		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
+			.into_iter()
+			.filter(|id| *id != 0)
+		{
+			let (delete, update, params): (&str, &str, Vec<sqlite::types::Value>) = if let Some(
+				user,
+			) = user
+			{
+				(
+					r#"delete from namespace_visibility where namespace = ?1 and "user" = ?2 and count = 1 ;"#,
+					r#"update namespace_visibility set count = count - 1 where namespace = ?1 and "user" = ?2 and count > 1 ;"#,
+					vec![namespace_id.into(), user.to_owned().into()],
+				)
+			} else if let Some(group) = group {
+				(
+					r#"delete from namespace_visibility where namespace = ?1 and "group" = ?2 and count = 1 ;"#,
+					r#"update namespace_visibility set count = count - 1 where namespace = ?1 and "group" = ?2 and count > 1 ;"#,
+					vec![namespace_id.into(), group.to_owned().into()],
+				)
+			} else if all {
+				(
+					r#"delete from namespace_visibility where namespace = ?1 and "all" and count = 1 ;"#,
+					r#"update namespace_visibility set count = count - 1 where namespace = ?1 and "all" and count > 1 ;"#,
+					vec![namespace_id.into()],
+				)
+			} else {
+				continue;
+			};
+			let deleted = transaction
+				.execute(delete, sqlite::params_from_iter(params.iter()))
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			if deleted == 0 {
+				transaction
+					.execute(update, sqlite::params_from_iter(params.iter()))
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			}
+		}
+		Ok(())
+	}
+
+	pub(crate) fn get_namespace_ancestor_ids_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Vec<i64>> {
@@ -466,7 +412,7 @@ impl Session {
 		Ok(ids)
 	}
 
-	fn try_get_namespace_id_sqlite_sync(
+	pub(crate) fn try_get_namespace_id_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Option<i64>> {
