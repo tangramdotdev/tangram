@@ -869,7 +869,8 @@ impl Session {
 			depth: Option<i64>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::process::Id,
-			namespace: Option<String>,
+			#[tangram_database(as = "db::value::FromStr")]
+			namespace: tg::Namespace,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -1105,7 +1106,7 @@ impl Session {
 			host,
 			id.to_string(),
 			0,
-			namespace,
+			namespace.to_string(),
 			output.clone().map(db::value::Json),
 			arg.retry,
 			sandbox.to_string(),
@@ -1188,7 +1189,7 @@ impl Session {
 		let (sandbox, sandbox_status, permit, namespace) = match &arg.sandbox {
 			None => return Err(tg::error!("expected the sandbox to be set")),
 			Some(tg::Either::Left(sandbox_arg)) => {
-				let namespace = self.resolve_sandbox_namespace(sandbox_arg.namespace.clone());
+				let namespace = sandbox_arg.namespace.clone();
 				let permit = self.try_acquire_sandbox_permit(parent_sandbox.as_ref());
 				let status = if permit.is_some() {
 					tg::sandbox::Status::Started
@@ -1324,7 +1325,7 @@ impl Session {
 			host,
 			id.to_string(),
 			0,
-			namespace,
+			namespace.to_string(),
 			arg.retry,
 			sandbox.to_string(),
 			started_at,
@@ -1450,7 +1451,6 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?;
 		let ttl = arg.ttl;
 		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
-		let namespace = self.resolve_sandbox_namespace(arg.namespace.clone());
 		let params = db::params![
 			id.to_string(),
 			cpu,
@@ -1461,7 +1461,7 @@ impl Session {
 			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			namespace,
+			arg.namespace.to_string(),
 			arg.network.clone().map(db::value::Json),
 			started_at,
 			status.to_string(),
@@ -1479,7 +1479,7 @@ impl Session {
 		&self,
 		transaction: &database::Transaction<'_>,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<(tg::sandbox::Status, Option<String>)>> {
+	) -> tg::Result<Option<(tg::sandbox::Status, tg::Namespace)>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -1491,7 +1491,8 @@ impl Session {
 		let params = db::params![id.to_string()];
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			namespace: Option<String>,
+			#[tangram_database(as = "db::value::FromStr")]
+			namespace: tg::Namespace,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
 		}

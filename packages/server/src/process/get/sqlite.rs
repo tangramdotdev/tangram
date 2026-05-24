@@ -78,7 +78,8 @@ impl Session {
 			finished_at: Option<i64>,
 			host: String,
 			log: Option<String>,
-			namespace: Option<String>,
+			#[tangram_database(as = "db::sqlite::value::FromStr")]
+			namespace: tg::Namespace,
 			output: Option<String>,
 			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			retry: u64,
@@ -173,11 +174,6 @@ impl Session {
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to deserialize"))?;
-		let namespace = row
-			.namespace
-			.map(|namespace| namespace.parse())
-			.transpose()
-			.map_err(|error| tg::error!(!error, %id, "failed to parse the namespace"))?;
 		let retry = row.retry != 0;
 		let sandbox = row
 			.sandbox
@@ -261,7 +257,7 @@ impl Session {
 			finished_at: row.finished_at,
 			host: row.host,
 			log,
-			namespace,
+			namespace: row.namespace,
 			output,
 			retry,
 			sandbox,

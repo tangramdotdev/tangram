@@ -847,7 +847,7 @@ impl Cli {
 						location: None,
 						memory: options.sandbox.arg.memory,
 						mounts,
-						namespace: namespace.clone(),
+						namespace: namespace.clone().unwrap_or_else(tg::Namespace::root),
 						network,
 						ttl: Some(options.sandbox.ttl.get()),
 						user: options.sandbox.arg.user.clone(),

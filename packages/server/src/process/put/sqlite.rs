@@ -239,7 +239,7 @@ impl Session {
 				id.to_string(),
 				0,
 				data.log.as_ref().map(ToString::to_string),
-				crate::sandbox::create::namespace_to_db(data.namespace.clone()),
+				data.namespace.to_string(),
 				output_json,
 				data.retry,
 				data.sandbox.to_string(),

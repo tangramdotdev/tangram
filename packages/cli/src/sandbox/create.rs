@@ -44,8 +44,7 @@ impl Cli {
 			namespace: args
 				.arg
 				.namespace
-				.map(|namespace| namespace.parse())
-				.transpose()
+				.map_or_else(|| Ok(tg::Namespace::root()), |namespace| namespace.parse())
 				.map_err(|error| tg::error!(!error, "invalid namespace"))?,
 			network,
 			ttl: args.ttl.get(),

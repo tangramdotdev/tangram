@@ -56,7 +56,7 @@ impl Session {
 		let mut ids = Vec::with_capacity(items.len());
 		let mut lease_counts = Vec::with_capacity(items.len());
 		let mut logs: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut namespaces: Vec<Option<String>> = Vec::with_capacity(items.len());
+		let mut namespaces: Vec<tg::Namespace> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
 		let mut sandboxes: Vec<String> = Vec::with_capacity(items.len());
@@ -102,9 +102,7 @@ impl Session {
 			ids.push(id.to_string());
 			lease_counts.push(0i64);
 			logs.push(data.log.as_ref().map(ToString::to_string));
-			namespaces.push(crate::sandbox::create::namespace_to_db(
-				data.namespace.clone(),
-			));
+			namespaces.push(data.namespace.clone());
 			outputs.push(
 				data.output
 					.as_ref()
@@ -251,6 +249,10 @@ impl Session {
 					tty = excluded.tty;
 			"
 		);
+		let namespaces = namespaces
+			.iter()
+			.map(ToString::to_string)
+			.collect::<Vec<_>>();
 		transaction
 			.execute(
 				statement,

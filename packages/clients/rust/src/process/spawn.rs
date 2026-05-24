@@ -1085,8 +1085,9 @@ fn normalize_sandbox(
 	let has_network = arg.network.is_some();
 	let has_ports = !ports.is_empty();
 	let network = normalize_network(arg.network.clone(), ports.clone())?;
-	let has_namespace = arg.namespace.is_some();
-	let has_resource_fields =
+	let namespace = arg.namespace.clone();
+	let has_namespace = namespace.is_some();
+	let has_sandbox_fields =
 		has_cpu || has_memory || !mounts.is_empty() || has_network || has_ports || has_namespace;
 	match arg.sandbox.clone() {
 		Some(tg::process::SandboxArg::Bool(true)) => {
@@ -1103,7 +1104,7 @@ fn normalize_sandbox(
 			if has_network || has_ports {
 				sandbox.network = network.clone();
 			}
-			sandbox.namespace = arg.namespace.clone();
+			sandbox.namespace = namespace.clone().unwrap_or_else(tg::Namespace::root);
 			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
@@ -1122,14 +1123,16 @@ fn normalize_sandbox(
 			} else if has_ports {
 				sandbox.network = normalize_network(sandbox.network, ports)?;
 			}
-			if sandbox.namespace.is_none() {
-				sandbox.namespace = arg.namespace.clone();
+			if sandbox.namespace.is_root()
+				&& let Some(namespace) = namespace.clone()
+			{
+				sandbox.namespace = namespace;
 			}
 			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
 		Some(tg::process::SandboxArg::Id(sandbox)) => {
-			if has_resource_fields {
+			if has_sandbox_fields {
 				return Err(tg::error!(
 					"cpu, memory, mounts, namespace, network, and ports are not supported for existing sandboxes"
 				));
@@ -1137,7 +1140,7 @@ fn normalize_sandbox(
 			Ok(Some(tg::Either::Right(sandbox)))
 		},
 		None | Some(tg::process::SandboxArg::Bool(false)) => {
-			if !has_resource_fields {
+			if !has_sandbox_fields {
 				return Ok(None);
 			}
 			let sandbox = tg::sandbox::create::Arg {
@@ -1147,7 +1150,7 @@ fn normalize_sandbox(
 				location: None,
 				memory,
 				mounts,
-				namespace: arg.namespace.clone(),
+				namespace: namespace.unwrap_or_else(tg::Namespace::root),
 				network,
 				ttl: Some(Duration::ZERO),
 				user: None,

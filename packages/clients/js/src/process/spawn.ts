@@ -790,7 +790,7 @@ let normalizeSandbox = (
 	let cpu = arg.cpu;
 	let hasMemory = "memory" in arg;
 	let memory = arg.memory;
-	let hasNamespace = "namespace" in arg;
+	let hasNamespace = arg.namespace !== undefined;
 	let namespace = arg.namespace;
 	let mounts = arg.mounts ?? [];
 	let hasNetwork = "network" in arg;
@@ -798,16 +798,16 @@ let normalizeSandbox = (
 	let ports = arg.ports ?? [];
 	let hasPorts = ports.length > 0;
 	let sandbox = arg.sandbox;
+	let hasSandboxFields =
+		hasCpu ||
+		hasMemory ||
+		mounts.length > 0 ||
+		hasNamespace ||
+		hasNetwork ||
+		hasPorts;
 	let defaultTtl = typeof sandbox !== "string";
 	if (typeof sandbox === "string") {
-		if (
-			hasCpu ||
-			hasMemory ||
-			mounts.length > 0 ||
-			hasNamespace ||
-			hasNetwork ||
-			hasPorts
-		) {
+		if (hasSandboxFields) {
 			throw new Error(
 				"cpu, memory, mounts, namespace, network, and ports are not supported for existing sandboxes",
 			);
@@ -815,14 +815,7 @@ let normalizeSandbox = (
 		return sandbox;
 	}
 	if (sandbox === undefined || sandbox === false) {
-		if (
-			!hasCpu &&
-			!hasMemory &&
-			mounts.length === 0 &&
-			!hasNamespace &&
-			!hasNetwork &&
-			!hasPorts
-		) {
+		if (!hasSandboxFields) {
 			return undefined;
 		}
 		sandbox = {};

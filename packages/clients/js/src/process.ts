@@ -913,7 +913,7 @@ export namespace Process {
 		finishedAt?: number | undefined;
 		host: string;
 		log?: tg.Blob | undefined;
-		namespace?: string | undefined;
+		namespace: string;
 		output?: tg.Value;
 		retry: boolean;
 		sandbox?: string;
@@ -1051,7 +1051,7 @@ export namespace Process {
 			if (value.log !== undefined) {
 				output.log = value.log.id;
 			}
-			if (value.namespace !== undefined) {
+			if (value.namespace !== "") {
 				output.namespace = value.namespace;
 			}
 			if ("output" in value) {
@@ -1100,7 +1100,7 @@ export namespace Process {
 				finishedAt: data.finished_at,
 				host: data.host,
 				log: data.log !== undefined ? tg.Blob.withId(data.log) : undefined,
-				namespace: data.namespace,
+				namespace: data.namespace ?? "",
 				retry: data.retry ?? false,
 				sandbox: data.sandbox,
 				startedAt: data.started_at,

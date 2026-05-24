@@ -66,7 +66,8 @@ impl Session {
 			memory: Option<i64>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
 			mounts: Option<Vec<tg::sandbox::Mount>>,
-			namespace: Option<String>,
+			#[tangram_database(as = "db::value::FromStr")]
+			namespace: tg::Namespace,
 			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Network>>")]
 			network: Option<tg::sandbox::Network>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -129,11 +130,7 @@ impl Session {
 						.transpose()
 						.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?,
 					mounts: row.mounts.unwrap_or_default(),
-					namespace: row
-						.namespace
-						.map(|namespace| namespace.parse())
-						.transpose()
-						.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
+					namespace: row.namespace,
 					network: row.network,
 					status: row.status,
 					ttl: row.ttl,

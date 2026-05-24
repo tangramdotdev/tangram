@@ -116,7 +116,7 @@ pub struct SandboxCreateArg {
 	pub location: Option<tg::location::Arg>,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
-	pub namespace: Option<tg::Namespace>,
+	pub namespace: tg::Namespace,
 	pub network: Option<tg::sandbox::Network>,
 	pub ttl: Option<Option<Duration>>,
 	pub user: Option<String>,

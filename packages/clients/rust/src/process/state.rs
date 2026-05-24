@@ -14,7 +14,7 @@ pub struct State {
 	pub finished_at: Option<i64>,
 	pub host: String,
 	pub log: Option<tg::Blob>,
-	pub namespace: Option<tg::Namespace>,
+	pub namespace: tg::Namespace,
 	pub output: Option<tg::Value>,
 	pub retry: bool,
 	pub sandbox: tg::sandbox::Id,
