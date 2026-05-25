@@ -37,46 +37,15 @@ export const format = async () => {
 };
 
 export const run = async (...args: std.Args<Arg>) => {
-	const merged = await std.args.apply<Arg, Arg>({
-		args,
-		map: async (arg) => arg,
-		reduce: {
-			env: (a, b) => std.env.arg(a, b),
-			features: "append",
-			sdk: (a, b) => std.sdk.arg(a, b),
-		},
-	});
+	const merged = await mergeArgs(args);
 	const {
 		env: env_,
-		foundationdb: useFoundationdb = false,
 		host: host_,
-		nats = false,
-		postgres = false,
 		proxy = true,
-		scylla = false,
 		source: source_ = source,
 	} = merged;
 	const host = host_ ?? std.triple.host();
-
-	// Configure features.
-	const features = [];
-	if (nats) {
-		features.push("nats");
-	}
-	if (postgres) {
-		features.push("postgres");
-	} else {
-		features.push("sqlite");
-	}
-	if (scylla) {
-		features.push("scylla");
-	}
-	if (!useFoundationdb) {
-		features.push("lmdb");
-	}
-	if (useFoundationdb) {
-		features.push("foundationdb");
-	}
+	const features = featureList(merged);
 
 	// Set up environment, including the pre-downloaded V8 archive so the
 	// build script copies it instead of downloading via curl. Also include
@@ -111,30 +80,20 @@ export const run = async (...args: std.Args<Arg>) => {
 // Build targets.
 
 export const build = async (...args: std.Args<Arg>) => {
-	const merged = await std.args.apply<Arg, Arg>({
-		args,
-		map: async (arg) => arg,
-		reduce: {
-			env: (a, b) => std.env.arg(a, b),
-			features: "append",
-			sdk: (a, b) => std.sdk.arg(a, b),
-		},
-	});
+	const merged = await mergeArgs(args);
 	const {
 		build: build_,
 		captureStderr = false,
 		env: env_,
 		foundationdb: useFoundationdb = false,
 		host: host_,
-		nats = false,
-		postgres = false,
 		proxy = false,
 		sdk,
-		scylla = false,
 		source: source_ = source,
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
+	const features = featureList(merged);
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 
 	// Collect environment.
@@ -158,25 +117,8 @@ export const build = async (...args: std.Args<Arg>) => {
 		PATH: tg.Mutation.suffix(tg`${nodeModulesArtifact}/node_modules/.bin`, ":"),
 	});
 
-	// Configure features.
-	const features = [];
-	if (nats) {
-		features.push("nats");
-	}
-	if (postgres) {
-		features.push("postgres");
-	} else {
-		features.push("sqlite");
-	}
-	if (scylla) {
-		features.push("scylla");
-	}
-	if (!useFoundationdb) {
-		features.push("lmdb");
-	}
 	let pre: tg.Unresolved<tg.Template.Arg | undefined>;
 	if (useFoundationdb) {
-		features.push("foundationdb");
 		const fdbArtifact = foundationdb({ build, host });
 		envs.push(fdbArtifact, {
 			LIBCLANG_PATH: tg`${libclang({ build, host, sdk })}/lib`,
@@ -336,6 +278,45 @@ export const testProxy = async () => {
 };
 
 // Internal helpers.
+
+const mergeArgs = (args: std.Args<Arg>): Promise<Arg> =>
+	std.args.apply<Arg, Arg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {
+			env: (a, b) => std.env.arg(a, b),
+			features: "append",
+			sdk: (a, b) => std.sdk.arg(a, b),
+		},
+	});
+
+const featureList = (arg: Arg): Array<string> => {
+	const {
+		foundationdb: useFoundationdb = false,
+		nats = false,
+		postgres = false,
+		scylla = false,
+	} = arg;
+	const features: Array<string> = [];
+	if (nats) {
+		features.push("nats");
+	}
+	if (postgres) {
+		features.push("postgres");
+	} else {
+		features.push("sqlite");
+	}
+	if (scylla) {
+		features.push("scylla");
+	}
+	if (!useFoundationdb) {
+		features.push("lmdb");
+	}
+	if (useFoundationdb) {
+		features.push("foundationdb");
+	}
+	return features;
+};
 
 const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? std.triple.host();
