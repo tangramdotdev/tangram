@@ -57,8 +57,6 @@ impl Session {
 			memory: Option<i64>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
 			mounts: Option<Vec<tg::sandbox::Mount>>,
-			#[tangram_database(as = "db::value::FromStr")]
-			namespace: tg::Namespace,
 			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Network>>")]
 			network: Option<tg::sandbox::Network>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -75,7 +73,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let statement = formatdoc!(
 			r#"
-				select id, cpu, hostname, memory, mounts, namespace, network, status, ttl, "user" as user
+				select id, cpu, hostname, memory, mounts, network, status, ttl, "user" as user
 				from sandboxes
 				where status != 'destroyed'
 				order by created_at;
@@ -103,7 +101,6 @@ impl Session {
 						.transpose()
 						.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?,
 					mounts: row.mounts.unwrap_or_default(),
-					namespace: row.namespace,
 					network: row.network,
 					status: row.status,
 					ttl: row.ttl,

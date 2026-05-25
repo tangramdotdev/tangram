@@ -56,7 +56,6 @@ impl Session {
 		let mut ids = Vec::with_capacity(items.len());
 		let mut lease_counts = Vec::with_capacity(items.len());
 		let mut logs: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut namespaces: Vec<tg::Namespace> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
 		let mut sandboxes: Vec<String> = Vec::with_capacity(items.len());
@@ -102,7 +101,6 @@ impl Session {
 			ids.push(id.to_string());
 			lease_counts.push(0i64);
 			logs.push(data.log.as_ref().map(ToString::to_string));
-			namespaces.push(data.namespace.clone());
 			outputs.push(
 				data.output
 					.as_ref()
@@ -172,7 +170,6 @@ impl Session {
 					id,
 					lease_count,
 					log,
-					namespace,
 					output,
 					retry,
 					sandbox,
@@ -205,20 +202,19 @@ impl Session {
 					unnest($13::int8[]),
 					unnest($14::text[]),
 					unnest($15::text[]),
-					unnest($16::text[]),
-					unnest($17::bool[]),
-					unnest($18::text[]),
-					unnest($19::int8[]),
+					unnest($16::bool[]),
+					unnest($17::text[]),
+					unnest($18::int8[]),
+					unnest($19::text[]),
 					unnest($20::text[]),
-					unnest($21::text[]),
-					unnest($22::bool[]),
-					unnest($23::text[]),
-					unnest($24::bool[]),
-					unnest($25::text[]),
-					unnest($26::bool[]),
-					unnest($27::int8[]),
+					unnest($21::bool[]),
+					unnest($22::text[]),
+					unnest($23::bool[]),
+					unnest($24::text[]),
+					unnest($25::bool[]),
+					unnest($26::int8[]),
 					null::text,
-					unnest($28::text[])
+					unnest($27::text[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
 					cacheable = excluded.cacheable,
@@ -233,7 +229,6 @@ impl Session {
 					host = excluded.host,
 					lease_count = excluded.lease_count,
 					log = excluded.log,
-					namespace = excluded.namespace,
 					output = excluded.output,
 					retry = excluded.retry,
 					sandbox = excluded.sandbox,
@@ -249,10 +244,6 @@ impl Session {
 					tty = excluded.tty;
 			"
 		);
-		let namespaces = namespaces
-			.iter()
-			.map(ToString::to_string)
-			.collect::<Vec<_>>();
 		transaction
 			.execute(
 				statement,
@@ -271,7 +262,6 @@ impl Session {
 					&ids,
 					&lease_counts,
 					&logs,
-					&namespaces,
 					&outputs,
 					&retries,
 					&sandboxes,

@@ -69,7 +69,6 @@ impl Session {
 					isolation,
 					memory,
 					mounts,
-					namespace,
 					network,
 					status,
 					ttl,
@@ -87,8 +86,7 @@ impl Session {
 					{p}9,
 					{p}10,
 					{p}11,
-					{p}12,
-					{p}13
+					{p}12
 				);
 			"#
 		);
@@ -122,7 +120,6 @@ impl Session {
 			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			arg.namespace.to_string(),
 			arg.network.clone().map(db::value::Json),
 			tg::sandbox::Status::Created.to_string(),
 			db::value::DurationSeconds(ttl),

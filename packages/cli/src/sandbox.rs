@@ -58,9 +58,6 @@ pub struct Options {
 	#[arg(action = clap::ArgAction::Append, long = "mount", num_args = 1, short)]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
-	#[arg(long)]
-	pub namespace: Option<String>,
-
 	#[clap(flatten)]
 	pub network: Network,
 
@@ -127,7 +124,6 @@ impl Options {
 			&& self.isolation.is_none()
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
-			&& self.namespace.is_none()
 			&& self.network.get().is_none()
 			&& self.ports.is_empty()
 			&& self.user.is_none()

@@ -152,7 +152,7 @@ let sandboxArg = async (
 ): Promise<
 	Pick<
 		tg.Process.ArgObject,
-		"cpu" | "memory" | "mounts" | "namespace" | "network" | "ports" | "sandbox"
+		"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
 	>
 > => {
 	return await tg.Args.apply({
@@ -170,13 +170,7 @@ let sandboxArg = async (
 			let output: tg.MaybeMutationMap<
 				Pick<
 					tg.Process.ArgObject,
-					| "cpu"
-					| "memory"
-					| "mounts"
-					| "namespace"
-					| "network"
-					| "ports"
-					| "sandbox"
+					"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
 				>
 			> = {};
 			if ("cpu" in arg) {
@@ -187,9 +181,6 @@ let sandboxArg = async (
 			}
 			if ("mounts" in arg) {
 				output.mounts = arg.mounts;
-			}
-			if ("namespace" in arg) {
-				output.namespace = arg.namespace;
 			}
 			if ("network" in arg) {
 				output.network = arg.network;
@@ -783,15 +774,13 @@ export let isNetworkEnabled = (
 let normalizeSandbox = (
 	arg: Pick<
 		tg.Process.ArgObject,
-		"cpu" | "memory" | "mounts" | "namespace" | "network" | "ports" | "sandbox"
+		"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
 	>,
 ): Exclude<tg.Handle.SpawnArg["sandbox"], undefined> | undefined => {
 	let hasCpu = "cpu" in arg;
 	let cpu = arg.cpu;
 	let hasMemory = "memory" in arg;
 	let memory = arg.memory;
-	let hasNamespace = arg.namespace !== undefined;
-	let namespace = arg.namespace;
 	let mounts = arg.mounts ?? [];
 	let hasNetwork = "network" in arg;
 	let network = arg.network;
@@ -799,17 +788,12 @@ let normalizeSandbox = (
 	let hasPorts = ports.length > 0;
 	let sandbox = arg.sandbox;
 	let hasSandboxFields =
-		hasCpu ||
-		hasMemory ||
-		mounts.length > 0 ||
-		hasNamespace ||
-		hasNetwork ||
-		hasPorts;
+		hasCpu || hasMemory || mounts.length > 0 || hasNetwork || hasPorts;
 	let defaultTtl = typeof sandbox !== "string";
 	if (typeof sandbox === "string") {
 		if (hasSandboxFields) {
 			throw new Error(
-				"cpu, memory, mounts, namespace, network, and ports are not supported for existing sandboxes",
+				"cpu, memory, mounts, network, and ports are not supported for existing sandboxes",
 			);
 		}
 		return sandbox;
@@ -844,9 +828,6 @@ let normalizeSandbox = (
 		if (sandbox.mounts !== undefined) {
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
-		if (sandbox.namespace !== undefined) {
-			output.namespace = sandbox.namespace;
-		}
 		sandboxNetwork = sandbox.network;
 		output.network = normalizeNetwork(sandbox.network);
 		if ("ttl" in sandbox) {
@@ -863,9 +844,6 @@ let normalizeSandbox = (
 	}
 	if (hasMemory) {
 		output.memory = memory;
-	}
-	if (hasNamespace) {
-		output.namespace = namespace;
 	}
 	if (mounts.length > 0) {
 		output.mounts = [

@@ -80,7 +80,6 @@ impl Session {
 					id,
 					lease_count,
 					log,
-					namespace,
 					output,
 					retry,
 					sandbox,
@@ -124,9 +123,8 @@ impl Session {
 					?24,
 					?25,
 					?26,
-					?27,
 					null,
-					?28
+					?27
 				)
 				on conflict (id) do update set
 					actual_checksum = ?1,
@@ -142,20 +140,19 @@ impl Session {
 					host = ?11,
 					lease_count = ?13,
 					log = ?14,
-					namespace = ?15,
-					output = ?16,
-					retry = ?17,
-					sandbox = ?18,
-					started_at = ?19,
-					status = ?20,
-					stderr = ?21,
-					stderr_open = ?22,
-					stdin = ?23,
-					stdin_open = ?24,
-					stdout = ?25,
-					stdout_open = ?26,
-					stored_at = ?27,
-					tty = ?28
+					output = ?15,
+					retry = ?16,
+					sandbox = ?17,
+					started_at = ?18,
+					status = ?19,
+					stderr = ?20,
+					stderr_open = ?21,
+					stdin = ?22,
+					stdin_open = ?23,
+					stdout = ?24,
+					stdout_open = ?25,
+					stored_at = ?26,
+					tty = ?27
 			"
 		);
 		let mut process_stmt = cache
@@ -239,7 +236,6 @@ impl Session {
 				id.to_string(),
 				0,
 				data.log.as_ref().map(ToString::to_string),
-				data.namespace.to_string(),
 				output_json,
 				data.retry,
 				data.sandbox.to_string(),

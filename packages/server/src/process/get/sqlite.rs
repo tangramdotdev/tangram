@@ -78,8 +78,6 @@ impl Session {
 			finished_at: Option<i64>,
 			host: String,
 			log: Option<String>,
-			#[tangram_database(as = "db::sqlite::value::FromStr")]
-			namespace: tg::Namespace,
 			output: Option<String>,
 			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			retry: u64,
@@ -105,7 +103,6 @@ impl Session {
 					finished_at,
 					host,
 					log,
-					namespace,
 					output,
 					retry,
 					sandbox,
@@ -257,7 +254,6 @@ impl Session {
 			finished_at: row.finished_at,
 			host: row.host,
 			log,
-			namespace: row.namespace,
 			output,
 			retry,
 			sandbox,

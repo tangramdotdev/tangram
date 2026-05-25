@@ -1085,10 +1085,8 @@ fn normalize_sandbox(
 	let has_network = arg.network.is_some();
 	let has_ports = !ports.is_empty();
 	let network = normalize_network(arg.network.clone(), ports.clone())?;
-	let namespace = arg.namespace.clone();
-	let has_namespace = namespace.is_some();
 	let has_sandbox_fields =
-		has_cpu || has_memory || !mounts.is_empty() || has_network || has_ports || has_namespace;
+		has_cpu || has_memory || !mounts.is_empty() || has_network || has_ports;
 	match arg.sandbox.clone() {
 		Some(tg::process::SandboxArg::Bool(true)) => {
 			let mut sandbox = tg::process::SandboxCreateArg::default();
@@ -1104,7 +1102,6 @@ fn normalize_sandbox(
 			if has_network || has_ports {
 				sandbox.network = network.clone();
 			}
-			sandbox.namespace = namespace.clone().unwrap_or_else(tg::Namespace::root);
 			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
@@ -1123,18 +1120,13 @@ fn normalize_sandbox(
 			} else if has_ports {
 				sandbox.network = normalize_network(sandbox.network, ports)?;
 			}
-			if sandbox.namespace.is_root()
-				&& let Some(namespace) = namespace.clone()
-			{
-				sandbox.namespace = namespace;
-			}
 			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
 		Some(tg::process::SandboxArg::Id(sandbox)) => {
 			if has_sandbox_fields {
 				return Err(tg::error!(
-					"cpu, memory, mounts, namespace, network, and ports are not supported for existing sandboxes"
+					"cpu, memory, mounts, network, and ports are not supported for existing sandboxes"
 				));
 			}
 			Ok(Some(tg::Either::Right(sandbox)))
@@ -1150,7 +1142,6 @@ fn normalize_sandbox(
 				location: None,
 				memory,
 				mounts,
-				namespace: namespace.unwrap_or_else(tg::Namespace::root),
 				network,
 				ttl: Some(Duration::ZERO),
 				user: None,
@@ -1170,7 +1161,6 @@ fn normalize_sandbox_create_arg(
 		location: sandbox.location,
 		memory: sandbox.memory,
 		mounts: sandbox.mounts,
-		namespace: sandbox.namespace,
 		network: sandbox.network,
 		ttl: sandbox.ttl.unwrap_or(Some(Duration::ZERO)),
 		user: sandbox.user,

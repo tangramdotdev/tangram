@@ -16,7 +16,6 @@ export namespace Sandbox {
 		location?: tg.Location.Arg | undefined;
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
-		namespace?: string | undefined;
 		network?: boolean | tg.Sandbox.Network | undefined;
 		ttl?: number | undefined;
 		user?: string | undefined;

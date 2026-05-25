@@ -38,8 +38,6 @@ impl Session {
 			host: String,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			log: Option<tg::blob::Id>,
-			#[tangram_database(as = "db::postgres::value::FromStr")]
-			namespace: tg::Namespace,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			retry: bool,
@@ -73,7 +71,6 @@ impl Session {
 					finished_at,
 					host,
 					log,
-					namespace,
 					output,
 					retry,
 					sandbox,
@@ -128,7 +125,6 @@ impl Session {
 					finished_at: row.finished_at,
 					host: row.host,
 					log: row.log,
-					namespace: row.namespace,
 					output: row.output,
 					retry: row.retry,
 					sandbox: row.sandbox,
