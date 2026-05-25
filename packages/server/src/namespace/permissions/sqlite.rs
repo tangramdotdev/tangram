@@ -87,12 +87,12 @@ impl Session {
 					from namespace_grants
 					where namespace_grants.namespace = ?1
 						and (
-							namespace_grants."user" = ?2
-							or namespace_grants."all"
+							namespace_grants.principal = ?2
+							or namespace_grants.principal = 'all'
 							or exists (
 								select 1
 								from group_members
-								where group_members."group" = namespace_grants."group"
+								where group_members."group" = namespace_grants.principal
 									and group_members."user" = ?2
 							)
 						) ;
@@ -132,12 +132,12 @@ impl Session {
 				where tag_grants.namespace = ?1
 					and tag_grants.name = ?2
 					and (
-						tag_grants."user" = ?3
-						or tag_grants."all"
+						tag_grants.principal = ?3
+						or tag_grants.principal = 'all'
 						or exists (
 							select 1
 							from group_members
-							where group_members."group" = tag_grants."group"
+							where group_members."group" = tag_grants.principal
 								and group_members."user" = ?3
 						)
 					) ;
@@ -171,12 +171,12 @@ impl Session {
 				where tag_grants.namespace = ?1
 					and tag_grants.name = ?2
 					and (
-						tag_grants."user" = ?3
-						or tag_grants."all"
+						tag_grants.principal = ?3
+						or tag_grants.principal = 'all'
 						or exists (
 							select 1
 							from group_members
-							where group_members."group" = tag_grants."group"
+							where group_members."group" = tag_grants.principal
 								and group_members."user" = ?3
 						)
 					) ;
@@ -196,11 +196,11 @@ impl Session {
 	) -> tg::Result<bool> {
 		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)? {
 			let statement = indoc!(
-				r#"
+				r"
 					select 1
 					from namespace_grants
-					where namespace = ?1 and "all" and permission = 'read' ;
-				"#
+					where namespace = ?1 and principal = 'all' and permission = 'read' ;
+				"
 			);
 			let mut statement = transaction
 				.prepare(statement)
@@ -235,11 +235,11 @@ impl Session {
 			return Ok(false);
 		};
 		let statement = indoc!(
-			r#"
+			r"
 				select 1
 				from tag_grants
-				where namespace = ?1 and name = ?2 and "all" and permission = 'read' ;
-			"#
+				where namespace = ?1 and name = ?2 and principal = 'all' and permission = 'read' ;
+			"
 		);
 		let mut statement = transaction
 			.prepare(statement)
@@ -274,52 +274,52 @@ impl Session {
 		Ok(permissions.contains(&permission))
 	}
 
-	pub(crate) fn increment_namespace_visibility_for_user_sqlite_sync(
+	pub(crate) fn increment_namespace_visibility_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
-		user: &tg::user::Id,
+		principal: &tg::Principal,
 	) -> tg::Result<()> {
-		let user = user.to_string();
+		let principal = principal.to_string();
 		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
 			.into_iter()
 			.filter(|id| *id != 0)
 		{
 			let statement = indoc!(
-				r#"
-					insert into namespace_visibility (namespace, "user", count)
+				r"
+					insert into namespace_visibility (namespace, principal, count)
 					values (?1, ?2, 1)
-					on conflict (namespace, "user") where "user" is not null
+					on conflict (namespace, principal)
 					do update set count = namespace_visibility.count + 1 ;
-				"#
+				"
 			);
 			transaction
-				.execute(statement, sqlite::params![namespace_id, user.clone()])
+				.execute(statement, sqlite::params![namespace_id, principal.clone()])
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}
 		Ok(())
+	}
+
+	pub(crate) fn increment_namespace_visibility_for_user_sqlite_sync(
+		transaction: &sqlite::Transaction<'_>,
+		namespace: &tg::Namespace,
+		user: &tg::user::Id,
+	) -> tg::Result<()> {
+		Self::increment_namespace_visibility_sqlite_sync(
+			transaction,
+			namespace,
+			&tg::Principal::User(user.clone()),
+		)
 	}
 
 	pub(crate) fn increment_namespace_visibility_for_all_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<()> {
-		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
-			.into_iter()
-			.filter(|id| *id != 0)
-		{
-			let statement = indoc!(
-				r#"
-					insert into namespace_visibility (namespace, "all", count)
-					values (?1, true, 1)
-					on conflict (namespace) where "all"
-					do update set count = namespace_visibility.count + 1 ;
-				"#
-			);
-			transaction
-				.execute(statement, sqlite::params![namespace_id])
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		}
-		Ok(())
+		Self::increment_namespace_visibility_sqlite_sync(
+			transaction,
+			namespace,
+			&tg::Principal::All,
+		)
 	}
 
 	pub(crate) fn decrement_namespace_visibility_for_grant_sqlite_sync(
@@ -333,36 +333,29 @@ impl Session {
 			.into_iter()
 			.filter(|id| *id != 0)
 		{
-			let (delete, update, params): (&str, &str, Vec<sqlite::types::Value>) = if let Some(
-				user,
-			) = user
-			{
-				(
-					r#"delete from namespace_visibility where namespace = ?1 and "user" = ?2 and count = 1 ;"#,
-					r#"update namespace_visibility set count = count - 1 where namespace = ?1 and "user" = ?2 and count > 1 ;"#,
-					vec![namespace_id.into(), user.to_owned().into()],
-				)
+			let principal = if let Some(user) = user {
+				user
 			} else if let Some(group) = group {
-				(
-					r#"delete from namespace_visibility where namespace = ?1 and "group" = ?2 and count = 1 ;"#,
-					r#"update namespace_visibility set count = count - 1 where namespace = ?1 and "group" = ?2 and count > 1 ;"#,
-					vec![namespace_id.into(), group.to_owned().into()],
-				)
+				group
 			} else if all {
-				(
-					r#"delete from namespace_visibility where namespace = ?1 and "all" and count = 1 ;"#,
-					r#"update namespace_visibility set count = count - 1 where namespace = ?1 and "all" and count > 1 ;"#,
-					vec![namespace_id.into()],
-				)
+				"all"
 			} else {
 				continue;
 			};
+			let params: Vec<sqlite::types::Value> =
+				vec![namespace_id.into(), principal.to_owned().into()];
 			let deleted = transaction
-				.execute(delete, sqlite::params_from_iter(params.iter()))
+				.execute(
+					"delete from namespace_visibility where namespace = ?1 and principal = ?2 and count = 1 ;",
+					sqlite::params_from_iter(params.iter()),
+				)
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if deleted == 0 {
 				transaction
-					.execute(update, sqlite::params_from_iter(params.iter()))
+					.execute(
+						"update namespace_visibility set count = count - 1 where namespace = ?1 and principal = ?2 and count > 1 ;",
+						sqlite::params_from_iter(params.iter()),
+					)
 					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			}
 		}

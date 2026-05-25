@@ -1,50 +1,49 @@
 use {crate::Session, indoc::indoc, tangram_client::prelude::*, tangram_database as db};
 
 impl Session {
-	pub(crate) async fn increment_namespace_visibility_for_user_postgres(
+	pub(crate) async fn increment_namespace_visibility_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
-		user: &tg::user::Id,
+		principal: &tg::Principal,
 	) -> tg::Result<()> {
-		let user = user.to_string();
+		let principal = principal.to_string();
 		for namespace_id in namespace_visibility_ids_postgres(transaction, namespace).await? {
 			let statement = indoc!(
-				r#"
-					insert into namespace_visibility (namespace, "user", count)
+				r"
+					insert into namespace_visibility (namespace, principal, count)
 					values ($1, $2, 1)
-					on conflict (namespace, "user") where "user" is not null
+					on conflict (namespace, principal)
 					do update set count = namespace_visibility.count + 1 ;
-				"#
+				"
 			);
 			transaction
 				.inner()
-				.execute(statement, &[&namespace_id, &user])
+				.execute(statement, &[&namespace_id, &principal])
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}
 		Ok(())
 	}
 
+	pub(crate) async fn increment_namespace_visibility_for_user_postgres(
+		transaction: &db::postgres::Transaction<'_>,
+		namespace: &tg::Namespace,
+		user: &tg::user::Id,
+	) -> tg::Result<()> {
+		Self::increment_namespace_visibility_postgres(
+			transaction,
+			namespace,
+			&tg::Principal::User(user.clone()),
+		)
+		.await
+	}
+
 	pub(crate) async fn increment_namespace_visibility_for_all_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<()> {
-		for namespace_id in namespace_visibility_ids_postgres(transaction, namespace).await? {
-			let statement = indoc!(
-				r#"
-					insert into namespace_visibility (namespace, "all", count)
-					values ($1, true, 1)
-					on conflict (namespace) where "all"
-					do update set count = namespace_visibility.count + 1 ;
-				"#
-			);
-			transaction
-				.inner()
-				.execute(statement, &[&namespace_id])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		}
-		Ok(())
+		Self::increment_namespace_visibility_postgres(transaction, namespace, &tg::Principal::All)
+			.await
 	}
 
 	pub(crate) async fn decrement_namespace_visibility_for_grant_postgres(
@@ -55,15 +54,21 @@ impl Session {
 		all: bool,
 	) -> tg::Result<()> {
 		for namespace_id in namespace_visibility_ids_postgres(transaction, namespace).await? {
-			if let Some(user) = user {
-				decrement_namespace_visibility_for_user_postgres(transaction, namespace_id, user)
-					.await?;
+			let principal = if let Some(user) = user {
+				user
 			} else if let Some(group) = group {
-				decrement_namespace_visibility_for_group_postgres(transaction, namespace_id, group)
-					.await?;
+				group
 			} else if all {
-				decrement_namespace_visibility_for_all_postgres(transaction, namespace_id).await?;
-			}
+				"all"
+			} else {
+				continue;
+			};
+			decrement_namespace_visibility_for_principal_postgres(
+				transaction,
+				namespace_id,
+				principal,
+			)
+			.await?;
 		}
 		Ok(())
 	}
@@ -84,10 +89,10 @@ impl Session {
 					from namespaces
 					where namespaces.name = any($1)
 				),
-				matching_principals("user", "group", "all") as (
-					values ($2::text, null::text, false), (null::text, null::text, true)
+				matching_principals(principal) as (
+					values ($2::text), ('all'::text)
 					union all
-					select null::text, group_members."group", false
+					select group_members."group"
 					from group_members
 					where group_members."user" = $2
 				)
@@ -97,9 +102,7 @@ impl Session {
 					and exists (
 						select 1
 						from matching_principals
-						where namespace_grants."user" = matching_principals."user"
-							or namespace_grants."group" = matching_principals."group"
-							or (namespace_grants."all" and matching_principals."all")
+						where namespace_grants.principal = matching_principals.principal
 					);
 			"#
 		);
@@ -137,10 +140,10 @@ impl Session {
 					from namespaces
 					where namespaces.name = $2
 				),
-				matching_principals("user", "group", "all") as (
-					values ($4::text, null::text, false), (null::text, null::text, true)
+				matching_principals(principal) as (
+					values ($4::text), ('all'::text)
 					union all
-					select null::text, group_members."group", false
+					select group_members."group"
 					from group_members
 					where group_members."user" = $4
 				)
@@ -150,9 +153,7 @@ impl Session {
 					and exists (
 						select 1
 						from matching_principals
-						where namespace_grants."user" = matching_principals."user"
-							or namespace_grants."group" = matching_principals."group"
-							or (namespace_grants."all" and matching_principals."all")
+						where namespace_grants.principal = matching_principals.principal
 					)
 				union all
 				select tag_grants.permission
@@ -162,9 +163,7 @@ impl Session {
 					and exists (
 						select 1
 						from matching_principals
-						where tag_grants."user" = matching_principals."user"
-							or tag_grants."group" = matching_principals."group"
-							or (tag_grants."all" and matching_principals."all")
+						where tag_grants.principal = matching_principals.principal
 					);
 			"#
 		);
@@ -182,7 +181,7 @@ impl Session {
 	) -> tg::Result<bool> {
 		let names = ancestor_names(namespace);
 		let statement = indoc!(
-			r#"
+			r"
 				with ancestor_ids(id) as (
 					values (0::bigint)
 					union
@@ -194,10 +193,10 @@ impl Session {
 					select 1
 					from namespace_grants
 					where namespace_grants.namespace in (select id from ancestor_ids)
-						and namespace_grants."all"
+						and namespace_grants.principal = 'all'
 						and namespace_grants.permission = 'read'
 				);
-			"#
+			"
 		);
 		let rows = transaction
 			.inner()
@@ -218,7 +217,7 @@ impl Session {
 		let namespace = tag.namespace.to_string();
 		let name = tag.name.to_string();
 		let statement = indoc!(
-			r#"
+			r"
 				with ancestor_ids(id) as (
 					values (0::bigint)
 					union
@@ -238,17 +237,17 @@ impl Session {
 					select 1
 					from namespace_grants
 					where namespace_grants.namespace in (select id from ancestor_ids)
-						and namespace_grants."all"
+						and namespace_grants.principal = 'all'
 						and namespace_grants.permission = 'read'
 				) or exists (
 					select 1
 					from tag_grants
 					where tag_grants.namespace in (select id from tag_namespace)
 						and tag_grants.name = $3
-						and tag_grants."all"
+						and tag_grants.principal = 'all'
 						and tag_grants.permission = 'read'
 				);
-			"#
+			"
 		);
 		let rows = transaction
 			.inner()
@@ -329,98 +328,33 @@ async fn namespace_visibility_ids_postgres(
 		.collect()
 }
 
-async fn decrement_namespace_visibility_for_user_postgres(
+async fn decrement_namespace_visibility_for_principal_postgres(
 	transaction: &db::postgres::Transaction<'_>,
 	namespace_id: i64,
-	user: &str,
+	principal: &str,
 ) -> tg::Result<()> {
 	let statement = indoc!(
-		r#"
+		r"
 			delete from namespace_visibility
-			where namespace = $1 and "user" = $2 and count = 1 ;
-		"#
+			where namespace = $1 and principal = $2 and count = 1 ;
+		"
 	);
 	let deleted = transaction
 		.inner()
-		.execute(statement, &[&namespace_id, &user])
+		.execute(statement, &[&namespace_id, &principal])
 		.await
 		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 	if deleted == 0 {
 		let statement = indoc!(
-			r#"
+			r"
 				update namespace_visibility
 				set count = count - 1
-				where namespace = $1 and "user" = $2 and count > 1 ;
-			"#
+				where namespace = $1 and principal = $2 and count > 1 ;
+			"
 		);
 		transaction
 			.inner()
-			.execute(statement, &[&namespace_id, &user])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-	}
-	Ok(())
-}
-
-async fn decrement_namespace_visibility_for_group_postgres(
-	transaction: &db::postgres::Transaction<'_>,
-	namespace_id: i64,
-	group: &str,
-) -> tg::Result<()> {
-	let statement = indoc!(
-		r#"
-			delete from namespace_visibility
-			where namespace = $1 and "group" = $2 and count = 1 ;
-		"#
-	);
-	let deleted = transaction
-		.inner()
-		.execute(statement, &[&namespace_id, &group])
-		.await
-		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-	if deleted == 0 {
-		let statement = indoc!(
-			r#"
-				update namespace_visibility
-				set count = count - 1
-				where namespace = $1 and "group" = $2 and count > 1 ;
-			"#
-		);
-		transaction
-			.inner()
-			.execute(statement, &[&namespace_id, &group])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-	}
-	Ok(())
-}
-
-async fn decrement_namespace_visibility_for_all_postgres(
-	transaction: &db::postgres::Transaction<'_>,
-	namespace_id: i64,
-) -> tg::Result<()> {
-	let statement = indoc!(
-		r#"
-			delete from namespace_visibility
-			where namespace = $1 and "all" and count = 1 ;
-		"#
-	);
-	let deleted = transaction
-		.inner()
-		.execute(statement, &[&namespace_id])
-		.await
-		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-	if deleted == 0 {
-		let statement = indoc!(
-			r#"
-				update namespace_visibility
-				set count = count - 1
-				where namespace = $1 and "all" and count > 1 ;
-			"#
-		);
-		transaction
-			.inner()
-			.execute(statement, &[&namespace_id])
+			.execute(statement, &[&namespace_id, &principal])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 	}

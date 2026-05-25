@@ -33,16 +33,7 @@ pub struct Name(String);
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Grant {
 	pub tag: tg::Tag,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub user: Option<tg::user::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub group: Option<tg::group::Id>,
-
-	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
-	pub all: bool,
-
+	pub principal: tg::Principal,
 	pub permission: tg::Permission,
 	pub created_at: i64,
 

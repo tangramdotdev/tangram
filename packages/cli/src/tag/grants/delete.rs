@@ -21,14 +21,13 @@ impl Cli {
 	pub async fn command_tag_grants_delete(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let permission = args.permission.get()?;
+		let principal = args.principal.resolve(&client).await?;
 		client
 			.delete_tag_grant(tg::tag::grants::delete::Arg {
-				all: args.principal.all,
-				group: args.principal.group,
 				location: args.location.get(),
 				permission,
+				principal,
 				tag: args.tag.clone(),
-				user: args.principal.user,
 			})
 			.await
 			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to delete the tag grant"))?

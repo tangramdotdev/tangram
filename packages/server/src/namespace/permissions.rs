@@ -55,12 +55,12 @@ impl Session {
 					from namespace_grants
 					where namespace_grants.namespace = {p}1
 						and (
-							namespace_grants."user" = {p}2
-							or namespace_grants."all"
+							namespace_grants.principal = {p}2
+							or namespace_grants.principal = 'all'
 							or exists (
 								select 1
 								from group_members
-								where group_members."group" = namespace_grants."group"
+								where group_members."group" = namespace_grants.principal
 									and group_members."user" = {p}2
 							)
 						);
@@ -119,11 +119,11 @@ impl Session {
 			Self::get_namespace_ancestor_ids_with_transaction(transaction, namespace).await?
 		{
 			let statement = formatdoc!(
-				r#"
-					select 1
-					from namespace_grants
-					where namespace = {p}1 and "all" and permission = 'read';
-				"#
+				r"
+				select 1
+				from namespace_grants
+				where namespace = {p}1 and principal = 'all' and permission = 'read';
+			"
 			);
 			if transaction
 				.query_optional(statement.into(), db::params![namespace_id])

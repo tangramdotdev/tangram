@@ -24,14 +24,13 @@ impl Cli {
 	pub async fn command_tag_grants_add(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let permission = args.permission.get()?;
+		let principal = args.principal.resolve(&client).await?;
 		let grant = client
 			.create_tag_grant(tg::tag::grants::create::Arg {
-				all: args.principal.all,
-				group: args.principal.group,
 				location: args.location.get(),
 				permission,
+				principal,
 				tag: args.tag.clone(),
-				user: args.principal.user,
 			})
 			.await
 			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to add the tag grant"))?;

@@ -6,36 +6,33 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub namespace: tg::Namespace,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Arg>,
-
-	pub principal: tg::Principal,
-	pub permission: tg::Permission,
+	pub namespace: String,
 }
 
 impl tg::Session {
-	pub async fn create_namespace_grant(
-		&self,
-		arg: tg::namespace::grants::create::Arg,
-	) -> tg::Result<tg::Grant> {
-		let uri = Uri::builder().path("/namespaces/grants").build().unwrap();
+	pub async fn try_get_user(&self, namespace: &str) -> tg::Result<Option<tg::User>> {
+		let arg = tg::user::get::Arg {
+			namespace: namespace.to_owned(),
+		};
+		let uri = Uri::builder()
+			.path("/users")
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
-			.method(http::Method::PUT)
+			.method(http::Method::GET)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.json(arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.empty()
 			.unwrap();
 		let response = self
 			.send_with_retry(request)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let status = response.status();
 			let error = response
@@ -49,6 +46,12 @@ impl tg::Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
-		Ok(output)
+		Ok(Some(output))
+	}
+}
+
+impl tg::Client {
+	pub async fn try_get_user(&self, namespace: &str) -> tg::Result<Option<tg::User>> {
+		self.session(self.context()).try_get_user(namespace).await
 	}
 }

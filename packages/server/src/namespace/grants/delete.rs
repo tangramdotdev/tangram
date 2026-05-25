@@ -1,5 +1,4 @@
 use {
-	super::Grantee,
 	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
@@ -35,8 +34,7 @@ impl Session {
 		&self,
 		arg: tg::namespace::grants::delete::Arg,
 	) -> tg::Result<Option<()>> {
-		let grantee = Self::grantee(arg.user, arg.group, arg.all)?;
-		if matches!(grantee, Grantee::All) && arg.permission != tg::Permission::Read {
+		if matches!(arg.principal, tg::Principal::All) && arg.permission != tg::Permission::Read {
 			return Err(tg::error!("all grants may only be read"));
 		}
 		self.authorize_namespace(&arg.namespace, tg::Permission::Admin)
@@ -57,39 +55,32 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let output = match grantee {
-			Grantee::User(user) => {
-				let Some(user) = Self::try_get_user_with_transaction(&transaction, &user).await?
-				else {
-					return Ok(None);
-				};
-				Self::delete_namespace_grant_for_user_with_transaction(
-					&transaction,
-					namespace_id,
-					&user.id,
-					arg.permission,
-				)
-				.await?
-			},
-			Grantee::Group(group) => {
-				let Some(group) =
-					Self::try_get_group_with_transaction(&transaction, &group).await?
-				else {
-					return Ok(None);
-				};
-				Self::delete_namespace_grant_for_group_with_transaction(
-					&transaction,
-					namespace_id,
-					&group.id,
-					arg.permission,
-				)
-				.await?
-			},
-			Grantee::All => {
-				Self::delete_namespace_grant_for_all_with_transaction(&transaction, namespace_id)
+		match &arg.principal {
+			tg::Principal::User(user) => {
+				if Self::try_get_user_with_transaction(&transaction, &user.to_string())
 					.await?
+					.is_none()
+				{
+					return Ok(None);
+				}
 			},
-		};
+			tg::Principal::Group(group) => {
+				if Self::try_get_group_with_transaction(&transaction, &group.to_string())
+					.await?
+					.is_none()
+				{
+					return Ok(None);
+				}
+			},
+			tg::Principal::All => {},
+		}
+		let output = Self::delete_namespace_grant_with_transaction(
+			&transaction,
+			namespace_id,
+			&arg.principal,
+			arg.permission,
+		)
+		.await?;
 		transaction
 			.commit()
 			.await

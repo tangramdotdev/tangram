@@ -78,25 +78,72 @@ impl Permission {
 #[group(skip)]
 pub struct Principal {
 	#[arg(
-		conflicts_with_all = ["group", "user"],
+		conflicts_with_all = ["group", "principal", "user"],
 		long,
-		required_unless_present_any = ["group", "user"]
+		required_unless_present_any = ["group", "principal", "user"]
 	)]
 	pub all: bool,
 
 	#[arg(
-		conflicts_with_all = ["all", "user"],
+		conflicts_with_all = ["all", "principal", "user"],
 		long,
-		required_unless_present_any = ["all", "user"]
+		required_unless_present_any = ["all", "principal", "user"]
 	)]
 	pub group: Option<String>,
 
 	#[arg(
-		conflicts_with_all = ["all", "group"],
+		conflicts_with_all = ["all", "group", "user"],
+		id = "principal",
+		long = "principal",
+		required_unless_present_any = ["all", "group", "user"]
+	)]
+	pub value: Option<tg::Principal>,
+
+	#[arg(
+		conflicts_with_all = ["all", "group", "principal"],
 		long,
-		required_unless_present_any = ["all", "group"]
+		required_unless_present_any = ["all", "group", "principal"]
 	)]
 	pub user: Option<String>,
+}
+
+impl Principal {
+	pub(crate) async fn resolve(&self, client: &tg::Client) -> tg::Result<tg::Principal> {
+		match (
+			self.all,
+			self.group.as_ref(),
+			self.value.as_ref(),
+			self.user.as_ref(),
+		) {
+			(true, None, None, None) => Ok(tg::Principal::All),
+			(false, Some(group), None, None) => {
+				let group = if let Ok(id) = group.parse() {
+					id
+				} else {
+					client
+						.try_get_group(group)
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the group"))?
+						.id
+				};
+				Ok(tg::Principal::Group(group))
+			},
+			(false, None, Some(principal), None) => Ok(principal.clone()),
+			(false, None, None, Some(user)) => {
+				let user = if let Ok(id) = user.parse() {
+					id
+				} else {
+					client
+						.try_get_user(user)
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the user"))?
+						.id
+				};
+				Ok(tg::Principal::User(user))
+			},
+			_ => Err(tg::error!("expected exactly one principal")),
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]

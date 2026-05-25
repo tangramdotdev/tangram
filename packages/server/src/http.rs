@@ -705,6 +705,7 @@ impl Server {
 			(http::Method::GET, ["users", user, "permissions"]) => session
 				.list_user_namespace_permissions_request(request, user)
 				.boxed(),
+			(http::Method::GET, ["users"]) => session.try_get_user_request(request).boxed(),
 			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
 			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
 

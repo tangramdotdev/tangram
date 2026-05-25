@@ -79,11 +79,11 @@ impl Session {
 				)
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			let statement = indoc!(
-				r#"
-					select "user", "group", "all", permission
+				r"
+					select principal, permission
 					from tag_grants
 					where namespace = ?1 and name = ?2 ;
-				"#
+				"
 			);
 			let mut statement = transaction
 				.prepare(statement)
@@ -95,17 +95,11 @@ impl Session {
 				.next()
 				.map_err(|error| tg::error!(!error, "failed to get the next row"))?
 			{
-				let user = row
-					.get::<_, Option<String>>(0)
-					.map_err(|error| tg::error!(!error, "failed to get the user column"))?;
-				let group = row
-					.get::<_, Option<String>>(1)
-					.map_err(|error| tg::error!(!error, "failed to get the group column"))?;
-				let all = row
-					.get(2)
-					.map_err(|error| tg::error!(!error, "failed to get the all column"))?;
+				let principal = row
+					.get::<_, String>(0)
+					.map_err(|error| tg::error!(!error, "failed to get the principal column"))?;
 				let permission = row
-					.get::<_, String>(3)
+					.get::<_, String>(1)
 					.map_err(|error| tg::error!(!error, "failed to get the permission column"))?
 					.parse::<tg::Permission>()
 					.map_err(|error| tg::error!(!error, "invalid permission"))?;
@@ -113,9 +107,9 @@ impl Session {
 					Self::decrement_namespace_visibility_for_grant_sqlite_sync(
 						transaction,
 						&m.tag.namespace,
-						user.as_deref(),
-						group.as_deref(),
-						all,
+						Some(principal.as_str()),
+						None,
+						false,
 					)?;
 				}
 			}

@@ -51,11 +51,11 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			let statement = indoc!(
-				r#"
-					select "user", "group", "all", permission
+				r"
+					select principal, permission
 					from tag_grants
 					where namespace = $1 and name = $2 ;
-				"#
+				"
 			);
 			let rows = transaction
 				.inner()
@@ -63,27 +63,21 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			for row in rows {
+				let principal = row
+					.try_get::<_, String>(0)
+					.map_err(|error| tg::error!(!error, "failed to get the principal column"))?;
 				let permission = row
-					.try_get::<_, String>(3)
+					.try_get::<_, String>(1)
 					.map_err(|error| tg::error!(!error, "failed to get the permission column"))?
 					.parse::<tg::Permission>()
 					.map_err(|error| tg::error!(!error, "invalid permission"))?;
 				if permission.implies(tg::Permission::Read) {
-					let user = row
-						.try_get::<_, Option<String>>(0)
-						.map_err(|error| tg::error!(!error, "failed to get the user column"))?;
-					let group = row
-						.try_get::<_, Option<String>>(1)
-						.map_err(|error| tg::error!(!error, "failed to get the group column"))?;
-					let all = row
-						.try_get(2)
-						.map_err(|error| tg::error!(!error, "failed to get the all column"))?;
 					Self::decrement_namespace_visibility_for_grant_postgres(
 						&transaction,
 						&m.tag.namespace,
-						user.as_deref(),
-						group.as_deref(),
-						all,
+						Some(principal.as_str()),
+						None,
+						false,
 					)
 					.await?;
 				}

@@ -2,7 +2,6 @@ use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::is_false,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -10,18 +9,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub group: Option<String>,
-
+	pub principal: tg::Principal,
 	pub permission: tg::Permission,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub all: bool,
-
 	pub tag: tg::Tag,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub user: Option<String>,
 }
 
 impl tg::Session {

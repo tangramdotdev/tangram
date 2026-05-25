@@ -83,15 +83,15 @@ impl Session {
 		if grant_creator_admin && let Some(user) = created_by {
 			let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 			let statement = indoc!(
-				r#"
-					insert into tag_grants (namespace, name, "user", permission, created_at, created_by)
+				r"
+					insert into tag_grants (namespace, name, principal, permission, created_at, created_by)
 					select ?1, ?2, ?3, 'admin', ?4, ?3
 					where not exists (
 						select 1
 						from tag_grants
-						where namespace = ?1 and name = ?2 and "user" = ?3 and permission = 'admin'
+						where namespace = ?1 and name = ?2 and principal = ?3 and permission = 'admin'
 					);
-				"#
+				"
 			);
 			let n = transaction
 				.execute(
@@ -116,15 +116,15 @@ impl Session {
 			let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 			let created_by = created_by.map(ToString::to_string);
 			let statement = indoc!(
-				r#"
-					insert into tag_grants (namespace, name, "all", permission, created_at, created_by)
-					select ?1, ?2, true, 'read', ?3, ?4
+				r"
+					insert into tag_grants (namespace, name, principal, permission, created_at, created_by)
+					select ?1, ?2, 'all', 'read', ?3, ?4
 					where not exists (
 						select 1
 						from tag_grants
-						where namespace = ?1 and name = ?2 and "all" and permission = 'read'
+						where namespace = ?1 and name = ?2 and principal = 'all' and permission = 'read'
 					);
-				"#
+				"
 			);
 			let n = transaction
 				.execute(

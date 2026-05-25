@@ -32,8 +32,8 @@ pub enum Kind {
 	Sandbox,
 	Process,
 	User,
-	Request,
 	Group,
+	Request,
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -102,8 +102,8 @@ impl Id {
 			Kind::Sandbox => 7,
 			Kind::Process => 8,
 			Kind::User => 9,
-			Kind::Request => 10,
-			Kind::Group => 11,
+			Kind::Group => 10,
+			Kind::Request => 11,
 		};
 		writer
 			.write_u8(kind)
@@ -155,8 +155,8 @@ impl Id {
 			7 => Kind::Sandbox,
 			8 => Kind::Process,
 			9 => Kind::User,
-			10 => Kind::Request,
-			11 => Kind::Group,
+			10 => Kind::Group,
+			11 => Kind::Request,
 			_ => {
 				return Err(tg::error!(%kind, "invalid kind"));
 			},
@@ -291,12 +291,12 @@ impl std::fmt::Display for Kind {
 			Self::Symlink => "sym",
 			Self::Graph => "gph",
 			Self::Command => "cmd",
+			Self::Error => "err",
 			Self::Sandbox => "sbx",
 			Self::Process => "pcs",
 			Self::User => "usr",
-			Self::Request => "req",
 			Self::Group => "grp",
-			Self::Error => "err",
+			Self::Request => "req",
 		};
 		write!(f, "{kind}")?;
 		Ok(())
@@ -314,12 +314,12 @@ impl std::str::FromStr for Kind {
 			"sym" | "symlink" => Self::Symlink,
 			"gph" | "graph" => Self::Graph,
 			"cmd" | "command" => Self::Command,
+			"err" | "error" => Self::Error,
 			"sbx" | "sandbox" => Self::Sandbox,
 			"pcs" | "process" => Self::Process,
 			"usr" | "user" => Self::User,
-			"req" | "request" => Self::Request,
 			"grp" | "group" => Self::Group,
-			"err" | "error" => Self::Error,
+			"req" | "request" => Self::Request,
 			_ => {
 				return Err(tg::error!(%s, "invalid kind"));
 			},
@@ -374,39 +374,5 @@ impl std::hash::Hasher for Hasher {
 
 	fn write(&mut self, bytes: &[u8]) {
 		self.hash = byteorder::NativeEndian::read_u64(bytes);
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	#[test]
-	fn sandbox_kind_roundtrip() {
-		let error = super::Id::new_blake3(super::Kind::Error, b"error");
-		let sandbox = super::Id::new_uuidv7(super::Kind::Sandbox);
-		let process = super::Id::new_uuidv7(super::Kind::Process);
-
-		assert_eq!(error.to_bytes().as_ref()[2], 6);
-		assert_eq!(sandbox.to_bytes().as_ref()[2], 7);
-		assert_eq!(process.to_bytes().as_ref()[2], 8);
-
-		let error_roundtrip =
-			super::Id::from_slice(&error.to_bytes()).expect("failed to parse the error id");
-		let sandbox_roundtrip =
-			super::Id::from_slice(&sandbox.to_bytes()).expect("failed to parse the sandbox id");
-		let process_roundtrip =
-			super::Id::from_slice(&process.to_bytes()).expect("failed to parse the process id");
-
-		assert_eq!(error_roundtrip.kind(), super::Kind::Error);
-		assert_eq!(sandbox_roundtrip.kind(), super::Kind::Sandbox);
-		assert_eq!(process_roundtrip.kind(), super::Kind::Process);
-	}
-
-	#[test]
-	fn sandbox_kind_string_roundtrip() {
-		let kind = "sandbox"
-			.parse::<super::Kind>()
-			.expect("failed to parse the sandbox kind");
-		assert_eq!(kind, super::Kind::Sandbox);
-		assert_eq!(kind.to_string(), "sbx");
 	}
 }

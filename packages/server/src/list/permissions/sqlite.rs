@@ -106,11 +106,11 @@ impl Session {
 		};
 		let exists = if Authentication::uses_all_grants(authentication) {
 			let statement = indoc!(
-				r#"
+				r"
 					select 1
 					from namespace_visibility
-					where namespace = ?1 and "all" ;
-				"#
+					where namespace = ?1 and principal = 'all' ;
+				"
 			);
 			let mut statement = transaction
 				.prepare(statement)
@@ -125,12 +125,12 @@ impl Session {
 						from namespace_visibility
 						where namespace = ?1
 							and (
-								"user" = ?2
-								or "all"
+								principal = ?2
+								or principal = 'all'
 								or exists (
 									select 1
 									from group_members
-									where group_members."group" = namespace_visibility."group"
+									where group_members."group" = namespace_visibility.principal
 										and group_members."user" = ?2
 								)
 							) ;

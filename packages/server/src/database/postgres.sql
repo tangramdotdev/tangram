@@ -40,73 +40,31 @@ create index group_members_user_index on group_members ("user");
 
 create table namespace_grants (
 	namespace int8 not null default 0,
-	"user" text,
-	"group" text,
-	"all" boolean not null default false,
+	principal text not null,
 	permission text not null,
 	created_at int8 not null,
 	created_by text,
-	check (
-		("user" is not null and "group" is null and not "all")
-		or ("user" is null and "group" is not null and not "all")
-		or ("user" is null and "group" is null and "all")
-	),
-	check (not "all" or permission = 'read')
+	check (principal != 'all' or permission = 'read')
 );
 
-create unique index namespace_grants_user_index
-	on namespace_grants (namespace, "user", permission)
-	where "user" is not null;
+create unique index namespace_grants_index
+	on namespace_grants (namespace, principal, permission);
 
-create unique index namespace_grants_group_index
-	on namespace_grants (namespace, "group", permission)
-	where "group" is not null;
-
-create unique index namespace_grants_all_index
-	on namespace_grants (namespace, permission)
-	where "all";
-
-create index namespace_grants_user_lookup_index
-	on namespace_grants ("user", namespace, permission)
-	where "user" is not null;
-
-create index namespace_grants_group_lookup_index
-	on namespace_grants ("group", namespace, permission)
-	where "group" is not null;
+create index namespace_grants_principal_lookup_index
+	on namespace_grants (principal, namespace, permission);
 
 create table namespace_visibility (
 	namespace int8 not null default 0,
-	"user" text,
-	"group" text,
-	"all" boolean not null default false,
+	principal text not null,
 	count int8 not null,
-	check (
-		("user" is not null and "group" is null and not "all")
-		or ("user" is null and "group" is not null and not "all")
-		or ("user" is null and "group" is null and "all")
-	),
 	check (count > 0)
 );
 
-create unique index namespace_visibility_user_index
-	on namespace_visibility (namespace, "user")
-	where "user" is not null;
+create unique index namespace_visibility_index
+	on namespace_visibility (namespace, principal);
 
-create unique index namespace_visibility_group_index
-	on namespace_visibility (namespace, "group")
-	where "group" is not null;
-
-create unique index namespace_visibility_all_index
-	on namespace_visibility (namespace)
-	where "all";
-
-create index namespace_visibility_user_lookup_index
-	on namespace_visibility ("user", namespace)
-	where "user" is not null;
-
-create index namespace_visibility_group_lookup_index
-	on namespace_visibility ("group", namespace)
-	where "group" is not null;
+create index namespace_visibility_principal_lookup_index
+	on namespace_visibility (principal, namespace);
 
 create table namespaces (
 	id int8 primary key default unique_rowid(),
@@ -131,39 +89,18 @@ create table tags (
 create table tag_grants (
 	namespace int8 not null default 0,
 	name text not null,
-	"user" text,
-	"group" text,
-	"all" boolean not null default false,
+	principal text not null,
 	permission text not null,
 	created_at int8 not null,
 	created_by text,
-	check (
-		("user" is not null and "group" is null and not "all")
-		or ("user" is null and "group" is not null and not "all")
-		or ("user" is null and "group" is null and "all")
-	),
-	check (not "all" or permission = 'read')
+	check (principal != 'all' or permission = 'read')
 );
 
-create unique index tag_grants_user_index
-	on tag_grants (namespace, name, "user", permission)
-	where "user" is not null;
+create unique index tag_grants_index
+	on tag_grants (namespace, name, principal, permission);
 
-create unique index tag_grants_group_index
-	on tag_grants (namespace, name, "group", permission)
-	where "group" is not null;
-
-create unique index tag_grants_all_index
-	on tag_grants (namespace, name, permission)
-	where "all";
-
-create index tag_grants_user_lookup_index
-	on tag_grants ("user", namespace, name, permission)
-	where "user" is not null;
-
-create index tag_grants_group_lookup_index
-	on tag_grants ("group", namespace, name, permission)
-	where "group" is not null;
+create index tag_grants_principal_lookup_index
+	on tag_grants (principal, namespace, name, permission);
 
 create table list_cache (
 	arg text not null,

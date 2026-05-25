@@ -93,7 +93,7 @@ async fn visible_by_permission_namespaces_postgres(
 		None
 		| Some(Authentication::Process(_) | Authentication::Runner | Authentication::Sandbox(_)) => {
 			let statement = indoc!(
-				r#"
+				r"
 					with candidate_ancestors(candidate, ancestor) as (
 						select *
 						from unnest($1::text[], $2::text[])
@@ -110,9 +110,9 @@ async fn visible_by_permission_namespaces_postgres(
 					select distinct ancestor_ids.candidate
 					from ancestor_ids
 					join namespace_grants on namespace_grants.namespace = ancestor_ids.id
-					where namespace_grants."all"
+					where namespace_grants.principal = 'all'
 						and namespace_grants.permission = 'read';
-				"#
+				"
 			);
 			transaction
 				.inner()
@@ -137,10 +137,10 @@ async fn visible_by_permission_namespaces_postgres(
 						from candidate_ancestors
 						join namespaces on namespaces.name = candidate_ancestors.ancestor
 					),
-					matching_principals("user", "group", "all") as (
-						values ($3::text, null::text, false), (null::text, null::text, true)
+					matching_principals(principal) as (
+						values ($3::text), ('all'::text)
 						union all
-						select null::text, group_members."group", false
+						select group_members."group"
 						from group_members
 						where group_members."user" = $3
 					)
@@ -150,9 +150,7 @@ async fn visible_by_permission_namespaces_postgres(
 					where exists (
 						select 1
 						from matching_principals
-						where namespace_grants."user" = matching_principals."user"
-							or namespace_grants."group" = matching_principals."group"
-							or (namespace_grants."all" and matching_principals."all")
+						where namespace_grants.principal = matching_principals.principal
 					);
 				"#
 			);
@@ -196,7 +194,7 @@ async fn visible_namespaces_postgres(
 		None
 		| Some(Authentication::Process(_) | Authentication::Runner | Authentication::Sandbox(_)) => {
 			let statement = indoc!(
-				r#"
+				r"
 					with candidate_namespaces(candidate) as (
 						select *
 						from unnest($1::text[])
@@ -213,8 +211,8 @@ async fn visible_namespaces_postgres(
 					select distinct candidate_ids.candidate
 					from candidate_ids
 					join namespace_visibility on namespace_visibility.namespace = candidate_ids.id
-					where namespace_visibility."all";
-				"#
+					where namespace_visibility.principal = 'all';
+				"
 			);
 			transaction
 				.inner()
@@ -239,10 +237,10 @@ async fn visible_namespaces_postgres(
 						from candidate_namespaces
 						join namespaces on namespaces.name = candidate_namespaces.candidate
 					),
-					matching_principals("user", "group", "all") as (
-						values ($2::text, null::text, false), (null::text, null::text, true)
+					matching_principals(principal) as (
+						values ($2::text), ('all'::text)
 						union all
-						select null::text, group_members."group", false
+						select group_members."group"
 						from group_members
 						where group_members."user" = $2
 					)
@@ -252,9 +250,7 @@ async fn visible_namespaces_postgres(
 					where exists (
 						select 1
 						from matching_principals
-						where namespace_visibility."user" = matching_principals."user"
-							or namespace_visibility."group" = matching_principals."group"
-							or (namespace_visibility."all" and matching_principals."all")
+						where namespace_visibility.principal = matching_principals.principal
 					);
 				"#
 			);
@@ -302,7 +298,7 @@ async fn visible_tags_postgres(
 		None
 		| Some(Authentication::Process(_) | Authentication::Runner | Authentication::Sandbox(_)) => {
 			let statement = indoc!(
-				r#"
+				r"
 					with candidate_tags(tag, namespace, name) as (
 						select *
 						from unnest($1::text[], $2::text[], $3::text[])
@@ -321,9 +317,9 @@ async fn visible_tags_postgres(
 					join tag_grants
 						on tag_grants.namespace = tag_namespace.namespace_id
 						and tag_grants.name = tag_namespace.name
-					where tag_grants."all"
+					where tag_grants.principal = 'all'
 						and tag_grants.permission = 'read';
-				"#
+				"
 			);
 			transaction
 				.inner()
@@ -348,10 +344,10 @@ async fn visible_tags_postgres(
 						from candidate_tags
 						join namespaces on namespaces.name = candidate_tags.namespace
 					),
-					matching_principals("user", "group", "all") as (
-						values ($4::text, null::text, false), (null::text, null::text, true)
+					matching_principals(principal) as (
+						values ($4::text), ('all'::text)
 						union all
-						select null::text, group_members."group", false
+						select group_members."group"
 						from group_members
 						where group_members."user" = $4
 					)
@@ -363,9 +359,7 @@ async fn visible_tags_postgres(
 					where exists (
 						select 1
 						from matching_principals
-						where tag_grants."user" = matching_principals."user"
-							or tag_grants."group" = matching_principals."group"
-							or (tag_grants."all" and matching_principals."all")
+						where tag_grants.principal = matching_principals.principal
 					);
 				"#
 			);

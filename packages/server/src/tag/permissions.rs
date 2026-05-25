@@ -43,10 +43,10 @@ impl Session {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				r#"
-					with matching_principals("user", "group", "all") as (
-						values ({p}3, null, false), (null, null, true)
+					with matching_principals(principal) as (
+						values ({p}3), ('all')
 						union all
-						select null, group_members."group", false
+						select group_members."group"
 						from group_members
 						where group_members."user" = {p}3
 					)
@@ -57,9 +57,7 @@ impl Session {
 						and exists (
 							select 1
 							from matching_principals
-							where tag_grants."user" = matching_principals."user"
-								or tag_grants."group" = matching_principals."group"
-								or (tag_grants."all" and matching_principals."all")
+							where tag_grants.principal = matching_principals.principal
 						);
 				"#
 			);
@@ -122,11 +120,11 @@ impl Session {
 		};
 		let p = transaction.p();
 		let statement = formatdoc!(
-			r#"
-				select 1
-				from tag_grants
-				where namespace = {p}1 and name = {p}2 and "all" and permission = 'read';
-			"#
+			r"
+			select 1
+			from tag_grants
+			where namespace = {p}1 and name = {p}2 and principal = 'all' and permission = 'read';
+		"
 		);
 		transaction
 			.query_optional(

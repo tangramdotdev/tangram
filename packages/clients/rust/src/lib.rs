@@ -35,6 +35,7 @@ pub use {
 		permission::Permission,
 		placeholder::Placeholder,
 		position::Position,
+		principal::Principal,
 		process::{Process, build, exec, run, spawn},
 		range::Range,
 		reference::Reference,
@@ -87,6 +88,7 @@ pub mod object;
 pub mod permission;
 pub mod placeholder;
 pub mod position;
+pub mod principal;
 pub mod process;
 pub mod progress;
 pub mod pull;

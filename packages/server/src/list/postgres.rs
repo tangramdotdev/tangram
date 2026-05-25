@@ -209,7 +209,7 @@ impl Session {
 			) => {
 				if pattern.name.as_str() == "*" || pattern.name.is_empty() {
 					let statement = indoc!(
-						r#"
+						r"
 							select namespaces.name
 							from namespaces
 							where namespaces.parent = $1
@@ -217,9 +217,9 @@ impl Session {
 									select 1
 									from namespace_visibility
 									where namespace_visibility.namespace = namespaces.id
-										and namespace_visibility."all"
+										and namespace_visibility.principal = 'all'
 								) ;
-						"#
+						"
 					);
 					transaction
 						.inner()
@@ -228,7 +228,7 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 				} else {
 					let statement = indoc!(
-						r#"
+						r"
 							select namespaces.name
 							from namespaces
 							where namespaces.parent = $1
@@ -237,9 +237,9 @@ impl Session {
 									select 1
 									from namespace_visibility
 									where namespace_visibility.namespace = namespaces.id
-										and namespace_visibility."all"
+										and namespace_visibility.principal = 'all'
 								) ;
-						"#
+						"
 					);
 					transaction
 						.inner()
@@ -253,10 +253,10 @@ impl Session {
 				if pattern.name.as_str() == "*" || pattern.name.is_empty() {
 					let statement = indoc!(
 						r#"
-							with matching_principals("user", "group", "all") as (
-								values ($2::text, null::text, false), (null::text, null::text, true)
+							with matching_principals(principal) as (
+								values ($2::text), ('all'::text)
 								union all
-								select null::text, group_members."group", false
+								select group_members."group"
 								from group_members
 								where group_members."user" = $2
 							)
@@ -270,9 +270,7 @@ impl Session {
 										and exists (
 											select 1
 											from matching_principals
-											where namespace_visibility."user" = matching_principals."user"
-												or namespace_visibility."group" = matching_principals."group"
-												or (namespace_visibility."all" and matching_principals."all")
+											where namespace_visibility.principal = matching_principals.principal
 										)
 								) ;
 						"#
@@ -285,10 +283,10 @@ impl Session {
 				} else {
 					let statement = indoc!(
 						r#"
-							with matching_principals("user", "group", "all") as (
-								values ($3::text, null::text, false), (null::text, null::text, true)
+							with matching_principals(principal) as (
+								values ($3::text), ('all'::text)
 								union all
-								select null::text, group_members."group", false
+								select group_members."group"
 								from group_members
 								where group_members."user" = $3
 							)
@@ -303,9 +301,7 @@ impl Session {
 										and exists (
 											select 1
 											from matching_principals
-											where namespace_visibility."user" = matching_principals."user"
-												or namespace_visibility."group" = matching_principals."group"
-												or (namespace_visibility."all" and matching_principals."all")
+											where namespace_visibility.principal = matching_principals.principal
 										)
 								) ;
 						"#
@@ -506,7 +502,7 @@ impl Session {
 			) => {
 				if let Some(name) = &exact {
 					let statement = indoc!(
-						r#"
+						r"
 							with ancestor_ids(id) as (
 								values (0::bigint)
 								union
@@ -519,7 +515,7 @@ impl Session {
 									select 1
 									from namespace_grants
 									where namespace_grants.namespace in (select id from ancestor_ids)
-										and namespace_grants."all"
+										and namespace_grants.principal = 'all'
 										and namespace_grants.permission = 'read'
 								)
 							)
@@ -534,11 +530,11 @@ impl Session {
 										from tag_grants
 										where tag_grants.namespace = tags.namespace
 											and tag_grants.name = tags.name
-											and tag_grants."all"
+											and tag_grants.principal = 'all'
 											and tag_grants.permission = 'read'
 									)
 								) ;
-						"#
+						"
 					);
 					transaction
 						.inner()
@@ -547,7 +543,7 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 				} else {
 					let statement = indoc!(
-						r#"
+						r"
 							with ancestor_ids(id) as (
 								values (0::bigint)
 								union
@@ -560,7 +556,7 @@ impl Session {
 									select 1
 									from namespace_grants
 									where namespace_grants.namespace in (select id from ancestor_ids)
-										and namespace_grants."all"
+										and namespace_grants.principal = 'all'
 										and namespace_grants.permission = 'read'
 								)
 							)
@@ -574,11 +570,11 @@ impl Session {
 										from tag_grants
 										where tag_grants.namespace = tags.namespace
 											and tag_grants.name = tags.name
-											and tag_grants."all"
+											and tag_grants.principal = 'all'
 											and tag_grants.permission = 'read'
 									)
 								) ;
-						"#
+						"
 					);
 					transaction
 						.inner()
@@ -599,10 +595,10 @@ impl Session {
 								from namespaces
 								where namespaces.name = any($4)
 							),
-							matching_principals("user", "group", "all") as (
-								values ($3::text, null::text, false), (null::text, null::text, true)
+							matching_principals(principal) as (
+								values ($3::text), ('all'::text)
 								union all
-								select null::text, group_members."group", false
+								select group_members."group"
 								from group_members
 								where group_members."user" = $3
 							),
@@ -614,9 +610,7 @@ impl Session {
 											and exists (
 												select 1
 												from matching_principals
-												where namespace_grants."user" = matching_principals."user"
-													or namespace_grants."group" = matching_principals."group"
-													or (namespace_grants."all" and matching_principals."all")
+												where namespace_grants.principal = matching_principals.principal
 											)
 								)
 							)
@@ -634,9 +628,7 @@ impl Session {
 												and exists (
 													select 1
 													from matching_principals
-													where tag_grants."user" = matching_principals."user"
-														or tag_grants."group" = matching_principals."group"
-														or (tag_grants."all" and matching_principals."all")
+													where tag_grants.principal = matching_principals.principal
 												)
 									)
 								) ;
@@ -657,10 +649,10 @@ impl Session {
 								from namespaces
 								where namespaces.name = any($3)
 							),
-							matching_principals("user", "group", "all") as (
-								values ($2::text, null::text, false), (null::text, null::text, true)
+							matching_principals(principal) as (
+								values ($2::text), ('all'::text)
 								union all
-								select null::text, group_members."group", false
+								select group_members."group"
 								from group_members
 								where group_members."user" = $2
 							),
@@ -672,9 +664,7 @@ impl Session {
 											and exists (
 												select 1
 												from matching_principals
-												where namespace_grants."user" = matching_principals."user"
-													or namespace_grants."group" = matching_principals."group"
-													or (namespace_grants."all" and matching_principals."all")
+												where namespace_grants.principal = matching_principals.principal
 											)
 								)
 							)
@@ -691,9 +681,7 @@ impl Session {
 												and exists (
 													select 1
 													from matching_principals
-													where tag_grants."user" = matching_principals."user"
-														or tag_grants."group" = matching_principals."group"
-														or (tag_grants."all" and matching_principals."all")
+													where tag_grants.principal = matching_principals.principal
 												)
 									)
 								) ;

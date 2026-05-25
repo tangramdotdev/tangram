@@ -1,5 +1,4 @@
 use {
-	super::Grantee,
 	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
@@ -33,8 +32,7 @@ impl Session {
 		&self,
 		arg: tg::namespace::grants::create::Arg,
 	) -> tg::Result<tg::Grant> {
-		let grantee = Self::grantee(arg.user, arg.group, arg.all)?;
-		if matches!(grantee, Grantee::All) && arg.permission != tg::Permission::Read {
+		if matches!(arg.principal, tg::Principal::All) && arg.permission != tg::Permission::Read {
 			return Err(tg::error!("all grants may only be read"));
 		}
 		self.authorize_namespace(&arg.namespace, tg::Permission::Admin)
@@ -58,45 +56,28 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let namespace_id =
 			Self::get_or_create_namespace_with_transaction(&transaction, &arg.namespace).await?;
-		let grant = match grantee {
-			Grantee::User(user) => {
-				let user = Self::try_get_user_with_transaction(&transaction, &user)
+		match &arg.principal {
+			tg::Principal::User(user) => {
+				Self::try_get_user_with_transaction(&transaction, &user.to_string())
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the user"))?;
-				Self::create_namespace_grant_for_user_with_transaction(
-					&transaction,
-					&arg.namespace,
-					namespace_id,
-					&user.id,
-					arg.permission,
-					created_by.as_ref(),
-				)
-				.await?
 			},
-			Grantee::Group(group) => {
-				let group = Self::try_get_group_with_transaction(&transaction, &group)
+			tg::Principal::Group(group) => {
+				Self::try_get_group_with_transaction(&transaction, &group.to_string())
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the group"))?;
-				Self::create_namespace_grant_for_group_with_transaction(
-					&transaction,
-					&arg.namespace,
-					namespace_id,
-					&group.id,
-					arg.permission,
-					created_by.as_ref(),
-				)
-				.await?
 			},
-			Grantee::All => {
-				Self::create_namespace_grant_for_all_with_transaction(
-					&transaction,
-					&arg.namespace,
-					namespace_id,
-					created_by.as_ref(),
-				)
-				.await?
-			},
-		};
+			tg::Principal::All => {},
+		}
+		let grant = Self::create_namespace_grant_with_transaction(
+			&transaction,
+			&arg.namespace,
+			namespace_id,
+			&arg.principal,
+			arg.permission,
+			created_by.as_ref(),
+		)
+		.await?;
 		transaction
 			.commit()
 			.await

@@ -1,6 +1,7 @@
 use crate::prelude::*;
 
 pub mod current;
+pub mod get;
 pub mod grants;
 pub mod login;
 pub mod permissions;

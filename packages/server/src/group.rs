@@ -299,10 +299,10 @@ impl Session {
 
 		for statement in [
 			formatdoc!(
-				r#"
+				r"
 					delete from namespace_grants
-					where "group" = {p}1;
-				"#
+					where principal = {p}1;
+				"
 			),
 			formatdoc!(
 				r#"
