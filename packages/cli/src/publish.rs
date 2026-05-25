@@ -11,18 +11,18 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// Display the items that will be published in their order, but don't actually publish them.
 	#[arg(default_value = "false", long)]
 	pub dry_run: bool,
+
+	#[arg(long, short)]
+	pub force: bool,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
-	/// The path to publish.
 	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
 
-	/// Override the tag for the root.
 	#[arg(long, short)]
 	pub tag: Option<String>,
 }
@@ -143,7 +143,7 @@ impl Cli {
 					items.push(tg::Either::Left(id.clone()));
 					tags.push((tag.clone(), id.clone()));
 					let arg = tg::tag::put::Arg {
-						force: true,
+						force: args.force,
 						item: tg::Either::Left(id),
 						location: None,
 						all: false,
@@ -163,7 +163,7 @@ impl Cli {
 							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
 						let id = publish_checkin(&client, path, false).await?;
 						let arg = tg::tag::put::Arg {
-							force: true,
+							force: args.force,
 							item: tg::Either::Left(id),
 							location: None,
 							all: false,
@@ -246,7 +246,7 @@ impl Cli {
 			.map(|(tag, item)| tg::tag::batch::Item {
 				tag,
 				item: tg::Either::Left(item),
-				force: false,
+				force: args.force,
 			})
 			.collect::<Vec<_>>();
 		client

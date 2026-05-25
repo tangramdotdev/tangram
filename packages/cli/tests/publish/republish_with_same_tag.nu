@@ -1,5 +1,5 @@
 # Test that publishing a package with the same metadata tag as a previously published package
-# overwrites the tag to point to the new content. This ensures users can republish updated packages.
+# requires --force to overwrite the tag.
 use ../../test.nu *
 
 let remote = spawn --cloud -n remote
@@ -40,18 +40,31 @@ let path2 = artifact {
 }
 
 let id2 = tg checkin $path2
-tg publish $path2
+
+let output = tg publish $path2 | complete
+failure $output "The publish command should fail without --force."
+assert ($output.stderr | str contains "the tag already exists with a different item") "The error should mention that the tag already exists."
+
+# Verify the tag still points to the first package on local.
+let local_tag2 = tg tag get test-pkg/1.0.0 | from json | get item
+assert equal $local_tag2 $id1 "Local tag should still point to first package after a failed republish."
+
+# Verify the tag still points to the first package on remote.
+let remote_tag2 = tg --url $remote.url tag get test-pkg/1.0.0 | from json | get item
+assert equal $remote_tag2 $id1 "Remote tag should still point to first package after a failed republish."
+
+tg publish --force $path2
 
 # The two packages should have different IDs.
 assert not equal $id1 $id2 "The two packages should have different IDs."
 
 # Verify the tag now points to the second package on local.
-let local_tag2 = tg tag get test-pkg/1.0.0 | from json | get item
-assert equal $local_tag2 $id2 "Local tag should now point to second package after republish."
+let local_tag3 = tg tag get test-pkg/1.0.0 | from json | get item
+assert equal $local_tag3 $id2 "Local tag should now point to second package after republish."
 
 # Verify the tag now points to the second package on remote.
-let remote_tag2 = tg --url $remote.url tag get test-pkg/1.0.0 | from json | get item
-assert equal $remote_tag2 $id2 "Remote tag should now point to second package after republish."
+let remote_tag3 = tg --url $remote.url tag get test-pkg/1.0.0 | from json | get item
+assert equal $remote_tag3 $id2 "Remote tag should now point to second package after republish."
 
 # Verify the second object is synced.
 let local_object = tg object get $id2

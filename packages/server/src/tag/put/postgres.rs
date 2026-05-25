@@ -60,17 +60,26 @@ impl Session {
 				insert into tags (namespace, name, item)
 				values ($1, $2, $3)
 				on conflict (namespace, name) do update
-				set item = excluded.item ;
+				set item = excluded.item
+				where $4 or tags.item = excluded.item ;
 			"
 		);
-		transaction
+		let n = transaction
 			.inner()
 			.execute(
 				statement,
-				&[&namespace, &tag.name.to_string(), &arg.item.to_string()],
+				&[
+					&namespace,
+					&tag.name.to_string(),
+					&arg.item.to_string(),
+					&arg.force,
+				],
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		if n == 0 {
+			return Err(tg::error!("the tag already exists with a different item"));
+		}
 		if grant_creator_admin && let Some(user) = created_by {
 			let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 			let statement = indoc!(

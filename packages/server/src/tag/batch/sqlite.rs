@@ -49,7 +49,7 @@ impl Session {
 							created_by.as_ref(),
 							*grant_creator_admin,
 						)
-						.map_err(|error| tg::error!(!error, %tag, "failed to put tag"))?;
+						.map_err(|error| tg::error!(!error, %tag, "failed to put the tag"))?;
 					}
 					// Commit the transaction.
 					transaction
