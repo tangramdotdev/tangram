@@ -57,17 +57,17 @@ impl Session {
 		let namespace_id =
 			Self::get_or_create_namespace_with_transaction(&transaction, &arg.namespace).await?;
 		match &arg.principal {
-			tg::Principal::User(user) => {
-				Self::try_get_user_with_transaction(&transaction, &user.to_string())
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the user"))?;
-			},
+			tg::Principal::All => {},
 			tg::Principal::Group(group) => {
 				Self::try_get_group_with_transaction(&transaction, &group.to_string())
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the group"))?;
 			},
-			tg::Principal::All => {},
+			tg::Principal::User(user) => {
+				Self::try_get_user_with_transaction(&transaction, &user.to_string())
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the user"))?;
+			},
 		}
 		let grant = Self::create_namespace_grant_with_transaction(
 			&transaction,

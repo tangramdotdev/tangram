@@ -56,14 +56,7 @@ impl Session {
 			return Ok(None);
 		};
 		match &arg.principal {
-			tg::Principal::User(user) => {
-				if Self::try_get_user_with_transaction(&transaction, &user.to_string())
-					.await?
-					.is_none()
-				{
-					return Ok(None);
-				}
-			},
+			tg::Principal::All => {},
 			tg::Principal::Group(group) => {
 				if Self::try_get_group_with_transaction(&transaction, &group.to_string())
 					.await?
@@ -72,7 +65,14 @@ impl Session {
 					return Ok(None);
 				}
 			},
-			tg::Principal::All => {},
+			tg::Principal::User(user) => {
+				if Self::try_get_user_with_transaction(&transaction, &user.to_string())
+					.await?
+					.is_none()
+				{
+					return Ok(None);
+				}
+			},
 		}
 		let output = Self::delete_tag_grant_with_transaction(
 			&transaction,

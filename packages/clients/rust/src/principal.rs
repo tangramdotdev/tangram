@@ -15,10 +15,12 @@ use crate::prelude::*;
 pub enum Principal {
 	#[display("all")]
 	All,
-	#[display("{_0}")]
-	User(tg::user::Id),
+
 	#[display("{_0}")]
 	Group(tg::group::Id),
+
+	#[display("{_0}")]
+	User(tg::user::Id),
 }
 
 impl std::str::FromStr for Principal {
@@ -28,11 +30,11 @@ impl std::str::FromStr for Principal {
 		if s == "all" {
 			return Ok(Self::All);
 		}
-		if let Ok(id) = s.parse::<tg::user::Id>() {
-			return Ok(Self::User(id));
-		}
 		if let Ok(id) = s.parse::<tg::group::Id>() {
 			return Ok(Self::Group(id));
+		}
+		if let Ok(id) = s.parse::<tg::user::Id>() {
+			return Ok(Self::User(id));
 		}
 		Err(tg::error!("invalid principal"))
 	}

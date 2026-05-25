@@ -58,6 +58,7 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the tag"))?;
 		match &arg.principal {
+			tg::Principal::All => {},
 			tg::Principal::User(user) => {
 				Self::try_get_user_with_transaction(&transaction, &user.to_string())
 					.await?
@@ -68,7 +69,6 @@ impl Session {
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the group"))?;
 			},
-			tg::Principal::All => {},
 		}
 		let grant = Self::create_tag_grant_with_transaction(
 			&transaction,
