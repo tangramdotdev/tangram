@@ -5,14 +5,18 @@ pub fn collect_directory_entries(
 	store: &crate::object::Store,
 	directory: &tg::graph::data::Directory,
 	graph: Option<&tg::graph::Id>,
+	principal: &tg::Principal,
+	now: i64,
 ) -> tg::Result<BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>> {
 	match directory {
 		tg::graph::data::Directory::Leaf(leaf) => Ok(leaf.entries.clone()),
 		tg::graph::data::Directory::Branch(branch) => {
 			let mut all_entries = BTreeMap::new();
 			for child in &branch.children {
-				let child_dir = resolve_directory_child(store, &child.directory, graph)?;
-				let child_entries = collect_directory_entries(store, &child_dir, graph)?;
+				let child_dir =
+					resolve_directory_child(store, &child.directory, graph, principal, now)?;
+				let child_entries =
+					collect_directory_entries(store, &child_dir, graph, principal, now)?;
 				all_entries.extend(child_entries);
 			}
 			Ok(all_entries)
@@ -25,12 +29,14 @@ fn resolve_directory_child(
 	store: &crate::object::Store,
 	edge: &tg::graph::data::Edge<tg::directory::Id>,
 	graph: Option<&tg::graph::Id>,
+	principal: &tg::Principal,
+	now: i64,
 ) -> tg::Result<tg::graph::data::Directory> {
 	match edge {
 		tg::graph::data::Edge::Object(id) => {
 			// Load the directory data from the store.
 			let (_size, data) = store
-				.try_get_data_sync(&id.clone().into())
+				.try_get_data_sync(&id.clone().into(), principal, now)
 				.map_err(|error| tg::error!(!error, %id, "failed to get directory object"))?
 				.ok_or_else(|| tg::error!(%id, "failed to find directory"))?;
 			let dir_data: tg::directory::Data = data
@@ -51,7 +57,7 @@ fn resolve_directory_child(
 				.or(graph)
 				.ok_or_else(|| tg::error!("missing graph id for pointer"))?;
 			let (_size, data) = store
-				.try_get_data_sync(&child_graph_id.clone().into())
+				.try_get_data_sync(&child_graph_id.clone().into(), principal, now)
 				.map_err(|error| tg::error!(!error, %child_graph_id, "failed to get graph object"))?
 				.ok_or_else(|| tg::error!(%child_graph_id, "failed to find graph"))?;
 			let graph_data: tg::graph::Data = data

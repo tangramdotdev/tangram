@@ -19,7 +19,28 @@ pub struct PutArg {
 	pub bytes: Option<Bytes>,
 	pub cache_pointer: Option<CachePointer>,
 	pub id: tg::object::Id,
+	pub principal: Option<tg::Principal>,
 	pub stored_at: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct TryGetArg {
+	pub id: tg::object::Id,
+	pub now: i64,
+	pub principal: tg::Principal,
+}
+
+#[derive(Clone, Debug)]
+pub struct TryGetBatchArg {
+	pub ids: Vec<tg::object::Id>,
+	pub now: i64,
+	pub principal: tg::Principal,
+}
+
+#[derive(Clone, Debug)]
+pub struct TryGetOutput {
+	pub grants: Vec<Grant>,
+	pub object: Option<Object<'static>>,
 }
 
 #[derive(Clone, Debug)]
@@ -64,16 +85,25 @@ pub struct CachePointer {
 	pub position: u64,
 }
 
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct Grant {
+	#[tangram_serialize(id = 0)]
+	pub created_at: i64,
+
+	#[tangram_serialize(id = 1)]
+	pub subtree: bool,
+}
+
 pub trait Store {
 	fn try_get(
 		&self,
-		id: &tg::object::Id,
-	) -> impl std::future::Future<Output = tg::Result<Option<Object<'static>>>> + Send;
+		arg: TryGetArg,
+	) -> impl std::future::Future<Output = tg::Result<TryGetOutput>> + Send;
 
 	fn try_get_batch(
 		&self,
-		ids: &[tg::object::Id],
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object<'static>>>>> + Send;
+		arg: TryGetBatchArg,
+	) -> impl std::future::Future<Output = tg::Result<Vec<TryGetOutput>>> + Send;
 
 	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
@@ -156,6 +186,30 @@ impl CachePointer {
 			b'{' => serde_json::from_slice(bytes)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the cache pointer")),
 			_ => Err(tg::error!("invalid cache pointer format")),
+		}
+	}
+}
+
+impl Grant {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
+		bytes.push(0);
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the object grant"))?;
+		Ok(bytes.into())
+	}
+
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		let bytes = bytes.into();
+		let bytes = bytes.as_ref();
+		if bytes.is_empty() {
+			return Err(tg::error!("empty object grant data"));
+		}
+		let format = bytes[0];
+		match format {
+			0 => tangram_serialize::from_slice(&bytes[1..])
+				.map_err(|error| tg::error!(!error, "failed to deserialize the object grant")),
+			_ => Err(tg::error!("invalid object grant format")),
 		}
 	}
 }

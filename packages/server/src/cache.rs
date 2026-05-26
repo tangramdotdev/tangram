@@ -445,10 +445,12 @@ impl Session {
 			let session = self.clone();
 			let graph_id = graph_id.clone();
 			move || {
+				let principal = session.object_read_principal();
+				let now = time::OffsetDateTime::now_utc().unix_timestamp();
 				let (_size, data) = session
 					.server
 					.object_store
-					.try_get_data_sync(&graph_id.into())?
+					.try_get_data_sync(&graph_id.into(), &principal, now)?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
 				let data: tg::graph::Data = data
 					.try_into()
@@ -620,10 +622,14 @@ impl Session {
 		)?;
 
 		// Collect all entries, recursively flattening branches.
+		let principal = self.object_read_principal();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let entries = crate::directory::collect_directory_entries(
 			&self.server.object_store,
 			node,
 			graph.as_ref(),
+			&principal,
+			now,
 		)?;
 
 		// Recurse into the entries.
@@ -944,6 +950,8 @@ impl Session {
 		match edge {
 			tg::graph::data::Edge::Pointer(pointer) => {
 				// Load the graph.
+				let principal = self.object_read_principal();
+				let now = time::OffsetDateTime::now_utc().unix_timestamp();
 				let graph_id = pointer
 					.graph
 					.as_ref()
@@ -952,7 +960,7 @@ impl Session {
 				let (_size, data) = self
 					.server
 					.object_store
-					.try_get_data_sync(&graph_id.clone().into())
+					.try_get_data_sync(&graph_id.clone().into(), &principal, now)
 					.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
 				let graph_data: tg::graph::Data = data
@@ -990,10 +998,12 @@ impl Session {
 
 			tg::graph::data::Edge::Object(object_id) => {
 				// Load the object.
+				let principal = self.object_read_principal();
+				let now = time::OffsetDateTime::now_utc().unix_timestamp();
 				let (_size, data) = self
 					.server
 					.object_store
-					.try_get_data_sync(&object_id.clone().into())
+					.try_get_data_sync(&object_id.clone().into(), &principal, now)
 					.map_err(|error| tg::error!(!error, "failed to get the object data"))?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
@@ -1007,6 +1017,8 @@ impl Session {
 					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
 						// Load the graph.
+						let principal = self.object_read_principal();
+						let now = time::OffsetDateTime::now_utc().unix_timestamp();
 						let graph_id = pointer
 							.graph
 							.as_ref()
@@ -1015,7 +1027,7 @@ impl Session {
 						let (_size, data) = self
 							.server
 							.object_store
-							.try_get_data_sync(&graph_id.clone().into())
+							.try_get_data_sync(&graph_id.clone().into(), &principal, now)
 							.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 							.ok_or_else(|| tg::error!("failed to load the graph"))?;
 						let graph_data: tg::graph::Data = data

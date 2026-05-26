@@ -374,19 +374,34 @@ pub struct Object {
 pub enum ObjectStore {
 	Lmdb(LmdbObjectStore),
 
-	Memory,
+	Memory(MemoryObjectStore),
 
 	Scylla(ScyllaObjectStore),
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LmdbObjectStore {
+	#[serde(alias = "grant_ttl", default = "default_object_grant_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_live: Duration,
+
 	pub map_size: usize,
 
 	pub path: PathBuf,
 }
 
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MemoryObjectStore {
+	#[serde(alias = "grant_ttl", default = "default_object_grant_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_live: Duration,
+}
+
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScyllaObjectStore {
@@ -394,6 +409,10 @@ pub struct ScyllaObjectStore {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
+
+	#[serde(alias = "grant_ttl", default = "default_object_grant_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_live: Duration,
 
 	pub keyspace: String,
 
@@ -1091,8 +1110,17 @@ impl Default for ObjectStore {
 impl Default for LmdbObjectStore {
 	fn default() -> Self {
 		Self {
+			grant_time_to_live: default_object_grant_time_to_live(),
 			map_size: 1_099_511_627_776,
 			path: PathBuf::from("objects"),
+		}
+	}
+}
+
+impl Default for MemoryObjectStore {
+	fn default() -> Self {
+		Self {
+			grant_time_to_live: default_object_grant_time_to_live(),
 		}
 	}
 }
@@ -1399,6 +1427,10 @@ fn default_time_to_index() -> Duration {
 }
 
 fn default_time_to_live() -> Duration {
+	Duration::from_hours(24)
+}
+
+fn default_object_grant_time_to_live() -> Duration {
 	Duration::from_hours(24)
 }
 

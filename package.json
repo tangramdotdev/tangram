@@ -26,10 +26,10 @@
 	},
 	"dependencies": {
 		"@types/bun": "^1.3.14",
-		"@typescript/native-preview": "^7.0.0-dev.20260519.1",
+		"@typescript/native-preview": "^7.0.0-dev.20260526.1",
 		"esbuild": "^0.28.0",
-		"oxfmt": "^0.51.0",
-		"oxlint": "^1.66.0",
+		"oxfmt": "^0.52.0",
+		"oxlint": "^1.67.0",
 		"typescript": "^6.0.3"
 	}
 }

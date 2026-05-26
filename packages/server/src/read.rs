@@ -239,13 +239,22 @@ impl Session {
 impl Reader {
 	pub async fn new(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
+		let principal = session.object_read_principal();
+		let arg = crate::object::store::TryGetArg {
+			id: id.clone().into(),
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+			principal: principal.clone(),
+		};
 		let object = session
 			.server
 			.object_store
-			.try_get(&id.clone().into())
+			.try_get(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		let cache_pointer = object.and_then(|object| object.cache_pointer);
+		if !Session::authorize_object(&principal, &object) {
+			return Err(tg::error!(%id, "failed to get the blob object"));
+		}
+		let cache_pointer = object.object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = session
 				.server
@@ -272,12 +281,21 @@ impl Reader {
 
 	pub fn new_sync(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
+		let principal = session.object_read_principal();
+		let arg = crate::object::store::TryGetArg {
+			id: id.clone().into(),
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+			principal: principal.clone(),
+		};
 		let object = session
 			.server
 			.object_store
-			.try_get_sync(&id.clone().into())
+			.try_get_sync(&arg)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		let cache_pointer = object.and_then(|object| object.cache_pointer);
+		if !Session::authorize_object(&principal, &object) {
+			return Err(tg::error!(%id, "failed to get the blob object"));
+		}
+		let cache_pointer = object.object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = session
 				.server

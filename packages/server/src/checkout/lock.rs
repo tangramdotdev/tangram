@@ -130,10 +130,12 @@ impl Session {
 				// If this graph has not been visited, process ALL nodes in the graph.
 				if state.visited_graphs.insert(graph_id.clone()) {
 					// Load the graph data.
+					let principal = self.object_read_principal();
+					let now = time::OffsetDateTime::now_utc().unix_timestamp();
 					let (_size, data) = self
 						.server
 						.object_store
-						.try_get_data_sync(&graph_id.clone().into())
+						.try_get_data_sync(&graph_id.clone().into(), &principal, now)
 						.map_err(
 							|error| tg::error!(!error, %graph_id, "failed to get the graph object"),
 						)?
@@ -174,10 +176,12 @@ impl Session {
 				}
 
 				// Load the object.
+				let principal = self.object_read_principal();
+				let now = time::OffsetDateTime::now_utc().unix_timestamp();
 				let (_size, data) = self
 					.server
 					.object_store
-					.try_get_data_sync(&id.clone().into())
+					.try_get_data_sync(&id.clone().into(), &principal, now)
 					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 					.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
 				let data = data
@@ -233,8 +237,15 @@ impl Session {
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Collect all entries from the directory, flattening branches.
-		let all_entries =
-			crate::directory::collect_directory_entries(&self.server.object_store, node, graph)?;
+		let principal = self.object_read_principal();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let all_entries = crate::directory::collect_directory_entries(
+			&self.server.object_store,
+			node,
+			graph,
+			&principal,
+			now,
+		)?;
 
 		// Transform each entry for the lock.
 		let entries = all_entries
@@ -431,10 +442,14 @@ impl Session {
 		graph_to_lock: &HashMap<usize, usize, fnv::FnvBuildHasher>,
 	) -> tg::Result<tg::graph::data::Node> {
 		// Collect all entries, flattening branches recursively.
+		let principal = self.object_read_principal();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let all_entries = crate::directory::collect_directory_entries(
 			&self.server.object_store,
 			node,
 			Some(graph_id),
+			&principal,
+			now,
 		)?;
 
 		// Process entries to create lock pointers.

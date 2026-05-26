@@ -556,7 +556,7 @@ impl Server {
 				}
 			},
 
-			config::ObjectStore::Memory => self::object::Store::new_memory(),
+			config::ObjectStore::Memory(memory) => self::object::Store::new_memory(memory),
 
 			config::ObjectStore::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]

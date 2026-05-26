@@ -108,12 +108,23 @@ impl Session {
 	}
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let principal = self.object_read_principal();
+		let arg = crate::object::store::TryGetArg {
+			id: id.clone(),
+			now,
+			principal: principal.clone(),
+		};
 		let object = self
 			.server
 			.object_store
-			.try_get(id)
+			.try_get(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+		if !Self::authorize_object(&principal, &object) {
+			return Ok(None);
+		}
+		let object = object.object;
 		let Some(object) = object else {
 			return Ok(None);
 		};
@@ -131,7 +142,18 @@ impl Session {
 		id: &tg::object::Id,
 		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let object = self.server.object_store.try_get_sync(id)?;
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let principal = self.object_read_principal();
+		let arg = crate::object::store::TryGetArg {
+			id: id.clone(),
+			now,
+			principal: principal.clone(),
+		};
+		let object = self.server.object_store.try_get_sync(&arg)?;
+		if !Self::authorize_object(&principal, &object) {
+			return Ok(None);
+		}
+		let object = object.object;
 		let Some(object) = object else {
 			return Ok(None);
 		};
@@ -229,25 +251,39 @@ impl Session {
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Bytes>>> {
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let principal = self.object_read_principal();
+		let arg = crate::object::store::TryGetBatchArg {
+			ids: ids.to_owned(),
+			now,
+			principal: principal.clone(),
+		};
 		let output = self
 			.server
 			.object_store
-			.try_get_batch(ids)
+			.try_get_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
 		let output = output
 			.into_iter()
-			.map(|object| async {
-				let Some(object) = object else {
-					return Ok(None);
-				};
-				if let Some(bytes) = object.bytes {
-					return Ok(Some(bytes.into_owned().into()));
+			.map(|output| {
+				let principal = principal.clone();
+				async move {
+					if !Self::authorize_object(&principal, &output) {
+						return Ok(None);
+					}
+					let object = output.object;
+					let Some(object) = object else {
+						return Ok(None);
+					};
+					if let Some(bytes) = object.bytes {
+						return Ok(Some(bytes.into_owned().into()));
+					}
+					if let Some(cache_pointer) = object.cache_pointer {
+						return self.try_read_cache_pointer(&cache_pointer).await;
+					}
+					Ok(None)
 				}
-				if let Some(cache_pointer) = object.cache_pointer {
-					return self.try_read_cache_pointer(&cache_pointer).await;
-				}
-				Ok(None)
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect::<Vec<_>>()

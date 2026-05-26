@@ -58,7 +58,7 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the tag"))?;
 		match &arg.principal {
-			tg::Principal::All => {},
+			tg::Principal::All | tg::Principal::Root => {},
 			tg::Principal::User(user) => {
 				Self::try_get_user_with_transaction(&transaction, &user.to_string())
 					.await?

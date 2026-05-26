@@ -1,5 +1,5 @@
 use {
-	crate::{CachePointer, DeleteArg, PutArg},
+	crate::{CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
 	bytes::Bytes,
 	futures::FutureExt as _,
 	indoc::indoc,
@@ -12,6 +12,7 @@ use {
 pub struct Config {
 	pub addr: String,
 	pub connections: Option<usize>,
+	pub grant_ttl: u64,
 	pub keyspace: String,
 	pub password: Option<String>,
 	pub speculative_execution: Option<SpeculativeExecution>,
@@ -31,6 +32,7 @@ pub enum SpeculativeExecution {
 }
 
 pub struct Store {
+	grant_ttl: u64,
 	statements: Statements,
 	session: scylla::client::session::Session,
 }
@@ -38,8 +40,10 @@ pub struct Store {
 struct Statements {
 	delete_object: scylla::statement::prepared::PreparedStatement,
 	get_object_batch: scylla::statement::prepared::PreparedStatement,
-	get_object_cache_pointer: scylla::statement::prepared::PreparedStatement,
+	get_object_grant_batch: scylla::statement::prepared::PreparedStatement,
+	get_object_grant: scylla::statement::prepared::PreparedStatement,
 	get_object: scylla::statement::prepared::PreparedStatement,
+	put_object_grant: scylla::statement::prepared::PreparedStatement,
 	put_object: scylla::statement::prepared::PreparedStatement,
 }
 
@@ -116,19 +120,32 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select cache_pointer
-				from objects
-				where id = ?;
+				select object, created_at, subtree
+				from object_grants
+				where object in ? and principal = ?;
 			"
 		);
-		let mut get_object_cache_pointer = session.prepare(statement).await.map_err(|error| {
-			tg::error!(!error, "failed to prepare the get cache pointer statement")
+		let mut get_object_grant_batch = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the get grant batch statement")
 		})?;
-		get_object_cache_pointer.set_consistency(scylla::statement::Consistency::One);
+		get_object_grant_batch.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
 			"
-				select bytes
+				select created_at, subtree
+				from object_grants
+				where object = ? and principal = ?;
+			"
+		);
+		let mut get_object_grant = session
+			.prepare(statement)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the get grant statement"))?;
+		get_object_grant.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				select bytes, cache_pointer
 				from objects
 				where id = ?;
 			"
@@ -151,12 +168,28 @@ impl Store {
 			.map_err(|error| tg::error!(!error, "failed to prepare the put statement"))?;
 		put_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
+		let statement = indoc!(
+			"
+				insert into object_grants (object, principal, subtree, created_at)
+				values (?, ?, ?, ?)
+				using ttl ?;
+			"
+		);
+		let mut put_object_grant = session
+			.prepare(statement)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the put grant statement"))?;
+		put_object_grant.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
 		let scylla = Self {
+			grant_ttl: config.grant_ttl,
 			statements: Statements {
 				delete_object,
 				get_object_batch,
-				get_object_cache_pointer,
+				get_object_grant_batch,
+				get_object_grant,
 				get_object,
+				put_object_grant,
 				put_object,
 			},
 			session,
@@ -165,15 +198,16 @@ impl Store {
 		Ok(scylla)
 	}
 
-	async fn try_get_inner(
+	async fn object(
 		&self,
 		id: &tg::object::Id,
 		statement: &scylla::statement::prepared::PreparedStatement,
-	) -> tg::Result<Option<Bytes>> {
+	) -> tg::Result<Option<crate::Object<'static>>> {
 		let params = (id.to_bytes().to_vec(),);
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
 			bytes: Option<&'a [u8]>,
+			cache_pointer: Option<&'a [u8]>,
 		}
 		let result = self
 			.session
@@ -189,14 +223,25 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let Some(bytes) = row.bytes else {
+		if row.bytes.is_none() && row.cache_pointer.is_none() {
 			return Ok(None);
-		};
-		let bytes = Bytes::copy_from_slice(bytes);
-		Ok(Some(bytes))
+		}
+		let bytes = row
+			.bytes
+			.map(|bytes| Cow::Owned(Bytes::copy_from_slice(bytes).to_vec()));
+		let cache_pointer = row
+			.cache_pointer
+			.map(CachePointer::deserialize)
+			.transpose()
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the cache pointer"))?;
+		Ok(Some(crate::Object {
+			bytes,
+			cache_pointer,
+			stored_at: 0,
+		}))
 	}
 
-	async fn get_batch_inner(
+	async fn objects(
 		&self,
 		ids: &[tg::object::Id],
 		statement: &scylla::statement::prepared::PreparedStatement,
@@ -239,15 +284,20 @@ impl Store {
 		Ok(map)
 	}
 
-	async fn try_get_cache_pointer_inner(
+	async fn grants(
 		&self,
 		id: &tg::object::Id,
+		principal: &tg::Principal,
 		statement: &scylla::statement::prepared::PreparedStatement,
-	) -> tg::Result<Option<CachePointer>> {
-		let params = (id.to_bytes().to_vec(),);
+	) -> tg::Result<Vec<crate::Grant>> {
+		if matches!(principal, tg::Principal::Root) {
+			return Ok(Vec::new());
+		}
+		let params = (id.to_bytes().to_vec(), principal.to_string());
 		#[derive(scylla::DeserializeRow)]
-		struct Row<'a> {
-			cache_pointer: Option<&'a [u8]>,
+		struct Row {
+			created_at: i64,
+			subtree: bool,
 		}
 		let result = self
 			.session
@@ -257,88 +307,172 @@ impl Store {
 			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?
 			.into_rows_result()
 			.map_err(|error| tg::error!(!error, %id, "failed to get the rows"))?;
-		let Some(row) = result
-			.maybe_first_row::<Row>()
-			.map_err(|error| tg::error!(!error, %id, "failed to get the row"))?
-		else {
-			return Ok(None);
-		};
-		let Some(cache_pointer) = row.cache_pointer else {
-			return Ok(None);
-		};
-		let cache_pointer = CachePointer::deserialize(cache_pointer)
-			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the cache pointer"))?;
-		Ok(Some(cache_pointer))
+		let grants = result
+			.rows::<Row>()
+			.map_err(|error| tg::error!(!error, %id, "failed to iterate the rows"))?
+			.map(|result| {
+				let row =
+					result.map_err(|error| tg::error!(!error, %id, "failed to get the row"))?;
+				Ok(crate::Grant {
+					created_at: row.created_at,
+					subtree: row.subtree,
+				})
+			})
+			.collect::<tg::Result<_>>()?;
+		Ok(grants)
+	}
+
+	async fn grants_batch(
+		&self,
+		ids: &[tg::object::Id],
+		principal: &tg::Principal,
+		statement: &scylla::statement::prepared::PreparedStatement,
+	) -> tg::Result<HashMap<tg::object::Id, Vec<crate::Grant>, tg::id::BuildHasher>> {
+		if matches!(principal, tg::Principal::Root) {
+			return Ok(HashMap::default());
+		}
+		if ids.is_empty() {
+			return Ok(HashMap::default());
+		}
+		let id_bytes = ids
+			.iter()
+			.map(|id| id.to_bytes().to_vec())
+			.collect::<Vec<_>>();
+		let params = (id_bytes, principal.to_string());
+		#[derive(scylla::DeserializeRow)]
+		struct Row<'a> {
+			object: &'a [u8],
+			created_at: i64,
+			subtree: bool,
+		}
+		let result = self
+			.session
+			.execute_unpaged(statement, params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the query"))?
+			.into_rows_result()
+			.map_err(|error| tg::error!(!error, "failed to get the rows"))?;
+		let mut grants = HashMap::default();
+		for row in result
+			.rows::<Row>()
+			.map_err(|error| tg::error!(!error, "failed to iterate the rows"))?
+		{
+			let row = row.map_err(|error| tg::error!(!error, "failed to get the row"))?;
+			let id = tg::object::Id::from_slice(row.object)
+				.map_err(|error| tg::error!(!error, "failed to parse the id"))?;
+			grants
+				.entry(id)
+				.or_insert_with(Vec::new)
+				.push(crate::Grant {
+					created_at: row.created_at,
+					subtree: row.subtree,
+				});
+		}
+		Ok(grants)
+	}
+
+	async fn try_get_with_statements(
+		&self,
+		arg: &TryGetArg,
+		object_statement: &scylla::statement::prepared::PreparedStatement,
+		grant_statement: &scylla::statement::prepared::PreparedStatement,
+	) -> tg::Result<TryGetOutput> {
+		let object_future = self.object(&arg.id, object_statement);
+		let grant_future = self.grants(&arg.id, &arg.principal, grant_statement);
+		let (object, grants) = futures::try_join!(object_future, grant_future)?;
+		Ok(TryGetOutput { grants, object })
+	}
+
+	async fn put_grant(
+		&self,
+		id: &tg::object::Id,
+		principal: tg::Principal,
+		subtree: bool,
+		created_at: i64,
+	) -> tg::Result<()> {
+		let ttl = self.grant_ttl.to_i32().unwrap();
+		let params = (
+			id.to_bytes().to_vec(),
+			principal.to_string(),
+			subtree,
+			created_at,
+			ttl,
+		);
+		self.session
+			.execute_unpaged(&self.statements.put_object_grant, params)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?;
+		Ok(())
 	}
 }
 
 impl crate::Store for Store {
-	async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<crate::Object<'static>>> {
-		// Attempt to get the object with the default consistency.
-		let bytes = self.try_get_inner(id, &self.statements.get_object).await?;
-		if let Some(bytes) = bytes {
-			// Get the cache pointer.
-			let cache_pointer = self
-				.try_get_cache_pointer_inner(id, &self.statements.get_object_cache_pointer)
-				.await?;
-			return Ok(Some(crate::Object {
-				bytes: Some(Cow::Owned(bytes.to_vec())),
-				cache_pointer,
-				stored_at: 0,
-			}));
+	async fn try_get(&self, arg: TryGetArg) -> tg::Result<TryGetOutput> {
+		let output = self
+			.try_get_with_statements(
+				&arg,
+				&self.statements.get_object,
+				&self.statements.get_object_grant,
+			)
+			.await?;
+		if output.object.is_some()
+			&& (matches!(arg.principal, tg::Principal::Root) || !output.grants.is_empty())
+		{
+			return Ok(output);
 		}
 
-		// Attempt to get the object with local quorum consistency.
-		let mut statement = self.statements.get_object.clone();
-		statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
-		let bytes = self.try_get_inner(id, &statement).await?;
-		if let Some(bytes) = bytes {
-			// Get the cache pointer with local quorum consistency.
-			let mut cache_pointer_statement = self.statements.get_object_cache_pointer.clone();
-			cache_pointer_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
-			let cache_pointer = self
-				.try_get_cache_pointer_inner(id, &cache_pointer_statement)
-				.await?;
-			return Ok(Some(crate::Object {
-				bytes: Some(Cow::Owned(bytes.to_vec())),
-				cache_pointer,
-				stored_at: 0,
-			}));
-		}
-
-		Ok(None)
+		let mut object_statement = self.statements.get_object.clone();
+		object_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		let mut grant_statement = self.statements.get_object_grant.clone();
+		grant_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		self.try_get_with_statements(&arg, &object_statement, &grant_statement)
+			.await
 	}
 
-	async fn try_get_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<crate::Object<'static>>>> {
-		// Attempt to get the objects with the default consistency.
-		let mut map = self
-			.get_batch_inner(ids, &self.statements.get_object_batch)
-			.await?;
+	async fn try_get_batch(&self, arg: TryGetBatchArg) -> tg::Result<Vec<TryGetOutput>> {
+		let object_future = self.objects(&arg.ids, &self.statements.get_object_batch);
+		let grant_future = self.grants_batch(
+			&arg.ids,
+			&arg.principal,
+			&self.statements.get_object_grant_batch,
+		);
+		let (mut objects, mut grants) = futures::try_join!(object_future, grant_future)?;
 
-		// Attempt to get missing objects with local quorum consistency.
-		let missing = ids
+		let missing = arg
+			.ids
 			.iter()
-			.filter(|id| !map.contains_key(id))
+			.filter(|id| {
+				!objects.contains_key(*id)
+					|| (!matches!(arg.principal, tg::Principal::Root)
+						&& grants.get(*id).is_none_or(std::vec::Vec::is_empty))
+			})
+			.cloned()
 			.collect::<Vec<_>>();
 		if !missing.is_empty() {
-			let mut statement = self.statements.get_object_batch.clone();
-			statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
-			let missing_map = self.get_batch_inner(ids, &statement).await?;
-			map.extend(missing_map);
+			let mut object_statement = self.statements.get_object_batch.clone();
+			object_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+			let mut grant_statement = self.statements.get_object_grant_batch.clone();
+			grant_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+			let object_future = self.objects(&missing, &object_statement);
+			let grant_future = self.grants_batch(&missing, &arg.principal, &grant_statement);
+			let (missing_objects, missing_grants) =
+				futures::try_join!(object_future, grant_future)?;
+			objects.extend(missing_objects);
+			grants.extend(missing_grants);
 		}
 
 		// Create the output.
-		let output = ids
+		let output = arg
+			.ids
 			.iter()
 			.map(|id| {
-				map.get(id).cloned().map(|bytes| crate::Object {
+				let grants = grants.get(id).cloned().unwrap_or_default();
+				let object = objects.get(id).cloned().map(|bytes| crate::Object {
 					bytes: Some(Cow::Owned(bytes.to_vec())),
 					cache_pointer: None,
 					stored_at: 0,
-				})
+				});
+				TryGetOutput { grants, object }
 			})
 			.collect();
 
@@ -363,6 +497,9 @@ impl crate::Store for Store {
 			.execute_unpaged(&self.statements.put_object, params)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?;
+		if let Some(principal) = arg.principal {
+			self.put_grant(id, principal, false, stored_at).await?;
+		}
 		Ok(())
 	}
 
@@ -401,6 +538,12 @@ impl crate::Store for Store {
 			.batch(&batch, params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the batch"))?;
+		futures::future::try_join_all(args.iter().filter_map(|arg| {
+			arg.principal
+				.clone()
+				.map(|principal| self.put_grant(&arg.id, principal, false, arg.stored_at))
+		}))
+		.await?;
 		Ok(())
 	}
 

@@ -34,6 +34,7 @@ impl Session {
 		graph_data: &mut GraphData,
 		root: &Path,
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
 		let mut sccs = petgraph::algo::tarjan_scc(&Petgraph { graph, next });
@@ -61,6 +62,7 @@ impl Session {
 					index_object_args,
 					scc[0],
 					touched_at,
+					principal,
 				)?;
 			} else {
 				Self::checkin_create_graph(
@@ -71,6 +73,7 @@ impl Session {
 					graph_data,
 					scc,
 					touched_at,
+					principal,
 				)?;
 			}
 		}
@@ -99,12 +102,14 @@ impl Session {
 				pointer.index,
 				index,
 				touched_at,
+				principal,
 			)?;
 		}
 
 		Ok(())
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	fn checkin_create_node_artifact(
 		config: &Checkin,
 		graph: &mut Graph,
@@ -113,6 +118,7 @@ impl Session {
 		index_object_args: &mut IndexObjectArgs,
 		index: usize,
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		// Get the node.
 		let node = graph.nodes.get(&index).unwrap();
@@ -161,6 +167,7 @@ impl Session {
 					store_args,
 					index_object_args,
 					touched_at,
+					principal,
 				)?;
 				tg::directory::Data::Node(node).into()
 			},
@@ -253,6 +260,7 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
+			principal,
 		)?;
 
 		// Update the node.
@@ -266,6 +274,7 @@ impl Session {
 		Ok(())
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	fn checkin_create_graph(
 		graph: &mut Graph,
 		paths: &Paths,
@@ -274,6 +283,7 @@ impl Session {
 		graph_data: &mut GraphData,
 		scc: &[usize],
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		// Run WL to compute canonical labels for all nodes in the SCC.
 		let canonical_labels = Self::checkin_graph_canonical_labels(graph, paths, scc)?;
@@ -315,6 +325,7 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
+			principal,
 		)?;
 		graph_data.insert(
 			id.unwrap_graph_ref().clone(),
@@ -533,6 +544,7 @@ impl Session {
 		Ok(())
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	fn checkin_create_pointer_artifact(
 		graph: &mut Graph,
 		store_args: &mut StoreArgs,
@@ -541,6 +553,7 @@ impl Session {
 		local: usize,
 		global: usize,
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		let node = graph.nodes.get(&global).unwrap();
 		let artifact_kind = node.variant.kind();
@@ -577,6 +590,7 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
+			principal,
 		)?;
 
 		// Update the node.
@@ -594,6 +608,7 @@ impl Session {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<(tg::object::Id, bool, tg::object::Metadata)> {
 		let kind = data.kind();
 		let bytes = data
@@ -706,6 +721,7 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
+			principal: principal.cloned(),
 			stored_at: touched_at,
 		};
 
@@ -837,6 +853,7 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
+			principal: self.object_write_principal(),
 			stored_at: touched_at,
 		};
 		self.server
@@ -1085,6 +1102,7 @@ impl Session {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the entries fit in a single leaf, then return a leaf.
 		if entries.len() <= config.directory.max_leaf_entries {
@@ -1114,6 +1132,7 @@ impl Session {
 				store_args,
 				index_object_args,
 				touched_at,
+				principal,
 			)?;
 
 			children.push(tg::graph::data::DirectoryChild {
@@ -1130,6 +1149,7 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
+			principal,
 		)
 	}
 
@@ -1140,6 +1160,7 @@ impl Session {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the children fit in a single branch, return a branch.
 		if children.len() <= config.directory.max_branch_children {
@@ -1168,6 +1189,7 @@ impl Session {
 				store_args,
 				index_object_args,
 				touched_at,
+				principal,
 			)?;
 
 			branch_children.push(tg::graph::data::DirectoryChild {
@@ -1184,6 +1206,7 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
+			principal,
 		)
 	}
 
@@ -1193,6 +1216,7 @@ impl Session {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<tg::directory::Id> {
 		// Create the directory data.
 		let data: tg::object::Data = tg::directory::Data::Node(directory.clone()).into();
@@ -1259,6 +1283,7 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
+			principal: principal.cloned(),
 			stored_at: touched_at,
 		};
 

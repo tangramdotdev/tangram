@@ -391,6 +391,7 @@ impl Session {
 		.map_err(|error| tg::error!(!error, "failed to create blobs"))?;
 
 		// Create artifacts.
+		let principal = self.object_write_principal();
 		Self::checkin_create_artifacts(
 			&self.server.config.checkin,
 			&arg,
@@ -403,6 +404,7 @@ impl Session {
 			&mut graph_data,
 			root,
 			touched_at,
+			principal.as_ref(),
 		)?;
 
 		// Cache.

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::{Context, Server, context::Authentication},
 	futures::{Stream, stream::BoxStream},
 	std::path::{Path, PathBuf},
 	tangram_client::prelude::*,
@@ -27,6 +27,29 @@ impl Session {
 	#[must_use]
 	pub(crate) fn new(server: Server, context: Context) -> Self {
 		Self { server, context }
+	}
+
+	#[must_use]
+	pub(crate) fn object_read_principal(&self) -> tg::Principal {
+		if let Some(Authentication::User(user)) = self.context.authentication.as_ref() {
+			tg::Principal::User(user.id.clone())
+		} else {
+			tg::Principal::Root
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn object_write_principal(&self) -> Option<tg::Principal> {
+		let principal = self.object_read_principal();
+		principal.is_user().then_some(principal)
+	}
+
+	#[must_use]
+	pub(crate) fn authorize_object(
+		principal: &tg::Principal,
+		output: &crate::object::store::TryGetOutput,
+	) -> bool {
+		matches!(principal, tg::Principal::Root) || !output.grants.is_empty()
 	}
 
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {

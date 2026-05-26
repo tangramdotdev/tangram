@@ -42,6 +42,7 @@ impl Session {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the objects.
+		let principal = self.object_write_principal();
 		let put_args: Vec<_> = arg
 			.objects
 			.iter()
@@ -49,6 +50,7 @@ impl Session {
 				bytes: Some(object.bytes.clone()),
 				cache_pointer: None,
 				id: object.id.clone(),
+				principal: principal.clone(),
 				stored_at: now,
 			})
 			.collect();

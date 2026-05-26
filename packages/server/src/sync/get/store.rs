@@ -104,6 +104,7 @@ impl Session {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the objects.
+		let principal = self.object_write_principal();
 		let args = items
 			.iter()
 			.map(|item| {
@@ -111,6 +112,7 @@ impl Session {
 					bytes: Some(item.bytes.clone()),
 					cache_pointer: None,
 					id: item.id.clone(),
+					principal: principal.clone(),
 					stored_at: touched_at,
 				})
 			})

@@ -57,7 +57,7 @@ impl Session {
 		let namespace_id =
 			Self::get_or_create_namespace_with_transaction(&transaction, &arg.namespace).await?;
 		match &arg.principal {
-			tg::Principal::All => {},
+			tg::Principal::All | tg::Principal::Root => {},
 			tg::Principal::Group(group) => {
 				Self::try_get_group_with_transaction(&transaction, &group.to_string())
 					.await?

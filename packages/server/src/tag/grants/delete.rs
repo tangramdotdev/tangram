@@ -56,7 +56,7 @@ impl Session {
 			return Ok(None);
 		};
 		match &arg.principal {
-			tg::Principal::All => {},
+			tg::Principal::All | tg::Principal::Root => {},
 			tg::Principal::Group(group) => {
 				if Self::try_get_group_with_transaction(&transaction, &group.to_string())
 					.await?

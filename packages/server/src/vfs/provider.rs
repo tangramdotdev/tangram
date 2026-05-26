@@ -1349,16 +1349,21 @@ impl Provider {
 
 	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
+		let arg = crate::object::store::TryGetArg {
+			id: id.clone(),
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+			principal: tg::Principal::Root,
+		};
 		let object = self
 			.server
 			.object_store
-			.try_get(&id)
+			.try_get(arg)
 			.await
 			.map_err(|error| {
 				tracing::error!(error = %error.trace(), %id, "failed to get the object");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-		let Some(object) = object else {
+		let Some(object) = object.object else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
 		if let Some(cache_pointer) = object.cache_pointer {
@@ -1807,17 +1812,29 @@ impl Provider {
 		if let (crate::object::Store::Lmdb(store), Some(transaction)) =
 			(&self.server.object_store, transaction)
 		{
+			let arg = crate::object::store::TryGetArg {
+				id: id.clone(),
+				now: time::OffsetDateTime::now_utc().unix_timestamp(),
+				principal: tg::Principal::Root,
+			};
 			return store
-				.try_get_object_with_transaction(transaction, id)
+				.try_get_with_transaction(transaction, &arg)
+				.map(|output| output.object)
 				.map_err(|error| Self::map_store_sync_error(&error));
 		}
 
 		#[cfg(not(feature = "lmdb"))]
 		let _ = transaction;
 
+		let arg = crate::object::store::TryGetArg {
+			id: id.clone(),
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+			principal: tg::Principal::Root,
+		};
 		self.server
 			.object_store
-			.try_get_sync(id)
+			.try_get_sync(&arg)
+			.map(|output| output.object)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 
@@ -1831,7 +1848,12 @@ impl Provider {
 			(&self.server.object_store, transaction)
 		{
 			return store
-				.try_get_object_data_with_transaction(transaction, id)
+				.try_get_object_data_with_transaction(
+					transaction,
+					id,
+					&tg::Principal::Root,
+					time::OffsetDateTime::now_utc().unix_timestamp(),
+				)
 				.map_err(|error| Self::map_store_sync_error(&error));
 		}
 
@@ -1840,7 +1862,11 @@ impl Provider {
 
 		self.server
 			.object_store
-			.try_get_data_sync(id)
+			.try_get_data_sync(
+				id,
+				&tg::Principal::Root,
+				time::OffsetDateTime::now_utc().unix_timestamp(),
+			)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 
