@@ -77,7 +77,7 @@ impl Store {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_sync(arg),
-			Self::Memory(memory) => Ok(memory.try_get_with_grants(arg)),
+			Self::Memory(memory) => Ok(memory.try_get_sync(arg)),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -91,8 +91,8 @@ impl Store {
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_object_data_sync(id, principal, now),
-			Self::Memory(memory) => memory.try_get_object_data(id, principal, now),
+			Self::Lmdb(lmdb) => lmdb.try_get_data_sync(id, principal, now),
+			Self::Memory(memory) => memory.try_get_data(id, principal, now),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}

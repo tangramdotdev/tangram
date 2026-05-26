@@ -1113,7 +1113,7 @@ impl Provider {
 		artifact: &tg::artifact::Id,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
 		let id: tg::object::Id = artifact.clone().into();
-		let Some(data) = self.try_get_object_data_inner(&id).await? else {
+		let Some(data) = self.try_get_data_inner(&id).await? else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
 		data.try_into().map_err(|_| {
@@ -1234,7 +1234,7 @@ impl Provider {
 
 	async fn graph_data_inner(&self, graph: &tg::graph::Id) -> std::io::Result<tg::graph::Data> {
 		let id: tg::object::Id = graph.clone().into();
-		let Some(data) = self.try_get_object_data_inner(&id).await? else {
+		let Some(data) = self.try_get_data_inner(&id).await? else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
 		data.try_into().map_err(|_| {
@@ -1325,7 +1325,7 @@ impl Provider {
 		}
 	}
 
-	async fn try_get_object_data_inner(
+	async fn try_get_data_inner(
 		&self,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<tg::object::Data>> {
@@ -1399,7 +1399,7 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
 		let id: tg::object::Id = artifact.clone().into();
-		let output = self.try_get_object_data(&id, transaction)?;
+		let output = self.try_get_data(&id, transaction)?;
 		let Some((_, data)) = output else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
@@ -1415,7 +1415,7 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<tg::graph::Data> {
 		let id: tg::object::Id = graph.clone().into();
-		let output = self.try_get_object_data(&id, transaction)?;
+		let output = self.try_get_data(&id, transaction)?;
 		let Some((_, data)) = output else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
@@ -1838,7 +1838,7 @@ impl Provider {
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 
-	fn try_get_object_data(
+	fn try_get_data(
 		&self,
 		id: &tg::object::Id,
 		transaction: Option<&Transaction<'_>>,
@@ -1848,7 +1848,7 @@ impl Provider {
 			(&self.server.object_store, transaction)
 		{
 			return store
-				.try_get_object_data_with_transaction(
+				.try_get_data_with_transaction(
 					transaction,
 					id,
 					&tg::Principal::Root,
