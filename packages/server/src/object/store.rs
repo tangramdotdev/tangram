@@ -86,13 +86,11 @@ impl Store {
 	pub fn try_get_data_sync(
 		&self,
 		id: &tg::object::Id,
-		principal: &tg::Principal,
-		now: i64,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_data_sync(id, principal, now),
-			Self::Memory(memory) => memory.try_get_data(id, principal, now),
+			Self::Lmdb(lmdb) => lmdb.try_get_data_sync(id),
+			Self::Memory(memory) => memory.try_get_data(id),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}

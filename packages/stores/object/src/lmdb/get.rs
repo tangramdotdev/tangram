@@ -97,14 +97,12 @@ impl Store {
 	pub fn try_get_data_sync(
 		&self,
 		id: &tg::object::Id,
-		principal: &tg::Principal,
-		now: i64,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		let transaction = self
 			.env
 			.read_txn()
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		self.try_get_data_with_transaction(&transaction, id, principal, now)
+		self.try_get_data_with_transaction(&transaction, id)
 	}
 
 	pub fn try_get_with_transaction(
@@ -173,20 +171,9 @@ impl Store {
 		&self,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
-		principal: &tg::Principal,
-		now: i64,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		let kind = id.kind();
-		let arg = TryGetArg {
-			id: id.clone(),
-			now,
-			principal: principal.clone(),
-		};
-		let output = self.try_get_with_transaction(transaction, &arg)?;
-		if !matches!(principal, tg::Principal::Root) && output.grants.is_empty() {
-			return Ok(None);
-		}
-		let Some(value) = output.object else {
+		let Some(value) = Self::try_get_object_with_transaction(&self.db, transaction, id)? else {
 			return Ok(None);
 		};
 		let Some(bytes) = value.bytes else {

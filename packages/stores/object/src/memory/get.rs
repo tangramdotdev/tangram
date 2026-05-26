@@ -24,17 +24,7 @@ impl Store {
 			.collect()
 	}
 
-	pub fn try_get_data(
-		&self,
-		id: &tg::object::Id,
-		principal: &tg::Principal,
-		now: i64,
-	) -> tg::Result<Option<(u64, tg::object::Data)>> {
-		if !matches!(principal, tg::Principal::Root)
-			&& self.try_get_grant(id, principal, now).is_empty()
-		{
-			return Ok(None);
-		}
+	pub fn try_get_data(&self, id: &tg::object::Id) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		let Some(entry) = self.objects.get(id) else {
 			return Ok(None);
 		};

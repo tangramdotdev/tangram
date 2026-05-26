@@ -1848,12 +1848,7 @@ impl Provider {
 			(&self.server.object_store, transaction)
 		{
 			return store
-				.try_get_data_with_transaction(
-					transaction,
-					id,
-					&tg::Principal::Root,
-					time::OffsetDateTime::now_utc().unix_timestamp(),
-				)
+				.try_get_data_with_transaction(transaction, id)
 				.map_err(|error| Self::map_store_sync_error(&error));
 		}
 
@@ -1862,11 +1857,7 @@ impl Provider {
 
 		self.server
 			.object_store
-			.try_get_data_sync(
-				id,
-				&tg::Principal::Root,
-				time::OffsetDateTime::now_utc().unix_timestamp(),
-			)
+			.try_get_data_sync(id)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 
