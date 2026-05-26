@@ -24,6 +24,6 @@ let path = artifact {
 tg tag a ($path | path join 'a')
 
 # Tag b again without source dependencies (this should succeed despite the cycle).
-tg tag --no-source-dependencies b ($path | path join 'b')
+tg tag --force --no-source-dependencies b ($path | path join 'b')
 
 # The test passes if both tag commands succeed.
