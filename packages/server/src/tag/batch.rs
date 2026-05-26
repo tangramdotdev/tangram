@@ -155,6 +155,8 @@ impl Session {
 					.await?,
 			);
 		}
+		self.authorize_put_tag_item_batch_with_transaction(&transaction, &arg.tags)
+			.await?;
 		transaction
 			.commit()
 			.await

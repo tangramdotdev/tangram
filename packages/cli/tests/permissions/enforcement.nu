@@ -187,7 +187,8 @@ assert_unauthorized $output "Bob should not be able to put a tag without write p
 
 tg --token $alice grant --namespace alice/project --write --user bob
 tg --token $bob namespace get alice/project
-tg --token $bob tag put alice/project/pkg $id
+let bob_id = tg --token $bob checkin $path
+tg --token $bob tag put alice/project/pkg $bob_id
 
 let output = tg --token $bob namespace grants list alice/project | complete
 assert_unauthorized $output "Write permission should not allow Bob to inspect namespace grants."
@@ -259,5 +260,6 @@ tg --token $alice namespace grants add alice/project --admin --user bob
 tg --token $bob namespace grants list alice/project
 tg --token $bob user grants carol alice/project
 tg --token $bob namespace grants add alice/project --write --user carol
-tg --token $carol tag put alice/project/carol $id
+let carol_id = tg --token $carol checkin $path
+tg --token $carol tag put alice/project/carol $carol_id
 tg --token $carol tag delete alice/project/carol

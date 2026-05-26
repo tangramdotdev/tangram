@@ -1,5 +1,5 @@
 use {
-	crate::{CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{CachePointer, DeleteArg, GrantArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
 	bytes::Bytes,
 	futures::FutureExt as _,
 	indoc::indoc,
@@ -542,6 +542,20 @@ impl crate::Store for Store {
 			arg.principal
 				.clone()
 				.map(|principal| self.put_grant(&arg.id, principal, false, arg.stored_at))
+		}))
+		.await?;
+		Ok(())
+	}
+
+	async fn grant(&self, arg: GrantArg) -> tg::Result<()> {
+		self.put_grant(&arg.id, arg.principal, arg.subtree, arg.created_at)
+			.await
+	}
+
+	async fn grant_batch(&self, args: Vec<GrantArg>) -> tg::Result<()> {
+		futures::future::try_join_all(args.into_iter().map(|arg| async move {
+			self.put_grant(&arg.id, arg.principal, arg.subtree, arg.created_at)
+				.await
 		}))
 		.await?;
 		Ok(())

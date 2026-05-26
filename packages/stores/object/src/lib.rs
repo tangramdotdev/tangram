@@ -24,6 +24,14 @@ pub struct PutArg {
 }
 
 #[derive(Clone, Debug)]
+pub struct GrantArg {
+	pub created_at: i64,
+	pub id: tg::object::Id,
+	pub principal: tg::Principal,
+	pub subtree: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct TryGetArg {
 	pub id: tg::object::Id,
 	pub now: i64,
@@ -110,6 +118,13 @@ pub trait Store {
 	fn put_batch(
 		&self,
 		args: Vec<PutArg>,
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn grant(&self, arg: GrantArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn grant_batch(
+		&self,
+		args: Vec<GrantArg>,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn delete(&self, arg: DeleteArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;

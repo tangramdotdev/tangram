@@ -1,14 +1,16 @@
 use {
 	crate::{Session, context::Authentication, database::Database, database::Transaction},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_index::prelude::*,
+	tangram_object_store::prelude::*,
 };
 
 #[cfg(feature = "postgres")]
@@ -56,7 +58,7 @@ impl Session {
 
 	async fn try_put_tag_local(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		// Authorize.
-		let grant_creator_admin = self.authorize_put_tag(tag).await?;
+		let grant_creator_admin = self.authorize_put_tag(tag, &arg.item).await?;
 
 		// Insert the tag into the database unless this is a replicated request.
 		if !arg.replicate {
@@ -118,7 +120,162 @@ impl Session {
 		Ok(())
 	}
 
-	pub(super) async fn authorize_put_tag(&self, tag: &tg::Tag) -> tg::Result<bool> {
+	pub(super) async fn authorize_put_tag_item_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		tag: &tg::Tag,
+		item: &tg::Either<tg::object::Id, tg::process::Id>,
+	) -> tg::Result<()> {
+		let tg::Either::Left(id) = item else {
+			return Ok(());
+		};
+		let principal = self.object_read_principal();
+		let arg = crate::object::store::TryGetArg {
+			id: id.clone(),
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+			principal: principal.clone(),
+		};
+		let output = self
+			.server
+			.object_store
+			.try_get(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+		if output.object.is_some() && Self::authorize_object(&principal, &output, true) {
+			return Ok(());
+		}
+		if Self::tag_points_to_object_with_transaction(transaction, tag, id).await? {
+			return Ok(());
+		}
+		if output.object.is_none() {
+			return Err(tg::error!("object not found"));
+		}
+		Err(tg::error!("object not found"))
+	}
+
+	pub(super) async fn authorize_put_tag_item_batch_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		items: &[tg::tag::batch::Item],
+	) -> tg::Result<()> {
+		let object_items = items
+			.iter()
+			.filter_map(|item| {
+				let tg::Either::Left(id) = &item.item else {
+					return None;
+				};
+				Some((&item.tag, id))
+			})
+			.collect::<Vec<_>>();
+		if object_items.is_empty() {
+			return Ok(());
+		}
+
+		let principal = self.object_read_principal();
+		let arg = crate::object::store::TryGetBatchArg {
+			ids: object_items.iter().map(|(_, id)| (*id).clone()).collect(),
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+			principal: principal.clone(),
+		};
+		let outputs = self
+			.server
+			.object_store
+			.try_get_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the objects"))?;
+		let mut fallback_items = Vec::new();
+		for ((tag, id), output) in std::iter::zip(object_items, outputs) {
+			if output.object.is_some() && Self::authorize_object(&principal, &output, true) {
+				continue;
+			}
+			fallback_items.push((tag, id));
+		}
+		let fallback_results =
+			Self::tag_points_to_object_batch_with_transaction(transaction, &fallback_items).await?;
+		for authorized in fallback_results {
+			if authorized {
+				continue;
+			}
+			return Err(tg::error!("object not found"));
+		}
+
+		Ok(())
+	}
+
+	async fn tag_points_to_object_with_transaction(
+		transaction: &Transaction<'_>,
+		tag: &tg::Tag,
+		id: &tg::object::Id,
+	) -> tg::Result<bool> {
+		let results =
+			Self::tag_points_to_object_batch_with_transaction(transaction, &[(tag, id)]).await?;
+		Ok(results.into_iter().next().unwrap_or_default())
+	}
+
+	async fn tag_points_to_object_batch_with_transaction(
+		transaction: &Transaction<'_>,
+		items: &[(&tg::Tag, &tg::object::Id)],
+	) -> tg::Result<Vec<bool>> {
+		if items.is_empty() {
+			return Ok(Vec::new());
+		}
+
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			namespace: String,
+			name: String,
+
+			#[tangram_database(as = "db::value::FromStr")]
+			item: tg::Either<tg::object::Id, tg::process::Id>,
+		}
+
+		let p = transaction.p();
+		let mut params = Vec::with_capacity(items.len() * 2);
+		let mut conditions = Vec::with_capacity(items.len());
+		for (tag, _) in items {
+			let namespace = tag.namespace.to_string();
+			let name = tag.name.to_string();
+			let namespace_param = format!("{p}{}", params.len() + 1);
+			params.push(db::value::Serialize::serialize(&namespace).unwrap());
+			let name_param = format!("{p}{}", params.len() + 1);
+			params.push(db::value::Serialize::serialize(&name).unwrap());
+			conditions.push(format!(
+				"(coalesce(namespaces.name, '') = {namespace_param} and tags.name = {name_param})"
+			));
+		}
+		let statement = format!(
+			"
+				select coalesce(namespaces.name, '') as namespace, tags.name, tags.item
+				from tags
+				left join namespaces on tags.namespace = namespaces.id
+				where {};
+			",
+			conditions.join(" or ")
+		);
+		let rows = transaction
+			.query_all_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+
+		let rows = rows
+			.into_iter()
+			.map(|row| ((row.namespace, row.name), row.item))
+			.collect::<BTreeMap<_, _>>();
+		let results = items
+			.iter()
+			.map(|(tag, id)| {
+				rows.get(&(tag.namespace.to_string(), tag.name.to_string()))
+					.is_some_and(|item| item == &tg::Either::Left((*id).clone()))
+			})
+			.collect();
+		Ok(results)
+	}
+
+	pub(super) async fn authorize_put_tag(
+		&self,
+		tag: &tg::Tag,
+		item: &tg::Either<tg::object::Id, tg::process::Id>,
+	) -> tg::Result<bool> {
 		let mut connection = self
 			.server
 			.database
@@ -131,6 +288,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let grant_creator_admin = self
 			.authorize_put_tag_with_transaction(&transaction, tag)
+			.await?;
+		self.authorize_put_tag_item_with_transaction(&transaction, tag, item)
 			.await?;
 		transaction
 			.commit()

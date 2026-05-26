@@ -1,5 +1,5 @@
 use {
-	crate::{DeleteArg, Grant, Object, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{DeleteArg, Grant, GrantArg, Object, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
 	dashmap::DashMap,
 	num::ToPrimitive as _,
 	std::borrow::Cow,
@@ -74,6 +74,16 @@ impl Store {
 	pub fn put_batch(&self, args: Vec<PutArg>) {
 		for arg in args {
 			self.put(arg);
+		}
+	}
+
+	pub fn grant(&self, arg: GrantArg) {
+		self.put_grant(arg.id, &arg.principal, arg.subtree, arg.created_at);
+	}
+
+	pub fn grant_batch(&self, args: Vec<GrantArg>) {
+		for arg in args {
+			self.grant(arg);
 		}
 	}
 
@@ -157,6 +167,16 @@ impl crate::Store for Store {
 
 	async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
 		self.put_batch(args);
+		Ok(())
+	}
+
+	async fn grant(&self, arg: GrantArg) -> tg::Result<()> {
+		self.grant(arg);
+		Ok(())
+	}
+
+	async fn grant_batch(&self, args: Vec<GrantArg>) -> tg::Result<()> {
+		self.grant_batch(args);
 		Ok(())
 	}
 

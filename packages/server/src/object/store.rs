@@ -2,7 +2,9 @@
 use std::path::Path;
 use {num::ToPrimitive as _, tangram_client::prelude::*, tangram_object_store as object_store};
 
-pub use object_store::{CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput};
+pub use object_store::{
+	CachePointer, DeleteArg, GrantArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput,
+};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -144,6 +146,50 @@ impl Store {
 		expect(clippy::unnecessary_wraps)
 	)]
 	#[expect(dead_code)]
+	pub fn grant_sync(&self, arg: GrantArg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => {
+				lmdb.grant_sync(arg)?;
+			},
+			Self::Memory(memory) => {
+				memory.grant(arg);
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
+		}
+		Ok(())
+	}
+
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
+	#[expect(dead_code)]
+	pub fn grant_batch_sync(&self, args: Vec<GrantArg>) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => {
+				lmdb.grant_batch_sync(args)?;
+			},
+			Self::Memory(memory) => {
+				memory.grant_batch(args);
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
+		}
+		Ok(())
+	}
+
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
+	#[expect(dead_code)]
 	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
@@ -250,6 +296,32 @@ impl object_store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.put_batch(args).await,
+		}
+	}
+
+	async fn grant(&self, arg: GrantArg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.grant(arg).await,
+			Self::Memory(memory) => {
+				memory.grant(arg);
+				Ok(())
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.grant(arg).await,
+		}
+	}
+
+	async fn grant_batch(&self, args: Vec<GrantArg>) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.grant_batch(args).await,
+			Self::Memory(memory) => {
+				memory.grant_batch(args);
+				Ok(())
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.grant_batch(args).await,
 		}
 	}
 

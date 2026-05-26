@@ -121,7 +121,7 @@ impl Session {
 			.try_get(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		if !Self::authorize_object(&principal, &object) {
+		if !Self::authorize_object(&principal, &object, false) {
 			return Ok(None);
 		}
 		let object = object.object;
@@ -150,7 +150,7 @@ impl Session {
 			principal: principal.clone(),
 		};
 		let object = self.server.object_store.try_get_sync(&arg)?;
-		if !Self::authorize_object(&principal, &object) {
+		if !Self::authorize_object(&principal, &object, false) {
 			return Ok(None);
 		}
 		let object = object.object;
@@ -269,7 +269,7 @@ impl Session {
 			.map(|output| {
 				let principal = principal.clone();
 				async move {
-					if !Self::authorize_object(&principal, &output) {
+					if !Self::authorize_object(&principal, &output, false) {
 						return Ok(None);
 					}
 					let object = output.object;

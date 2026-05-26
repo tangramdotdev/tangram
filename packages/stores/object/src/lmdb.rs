@@ -1,6 +1,7 @@
 use {
 	crate::{
-		CachePointer, DeleteArg, Grant, Object, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput,
+		CachePointer, DeleteArg, Grant, GrantArg, Object, PutArg, TryGetArg, TryGetBatchArg,
+		TryGetOutput,
 	},
 	bytes::Bytes,
 	foundationdb_tuple::{self as fdbt, TuplePack as _},
@@ -40,6 +41,8 @@ enum Request {
 	CleanGrants(CleanGrants),
 	Delete(DeleteObject),
 	DeleteBatch(Vec<DeleteObject>),
+	Grant(GrantObject),
+	GrantBatch(Vec<GrantObject>),
 	Put(PutObject),
 	PutBatch(Vec<PutObject>),
 }
@@ -62,6 +65,13 @@ struct DeleteObject {
 	id: tg::object::Id,
 	now: i64,
 	ttl: u64,
+}
+
+struct GrantObject {
+	created_at: i64,
+	id: tg::object::Id,
+	principal: tg::Principal,
+	subtree: bool,
 }
 
 #[derive(Debug)]
@@ -321,6 +331,24 @@ impl Store {
 							Self::task_delete_object(env, db, &mut transaction, request)
 						})
 					},
+					Request::Grant(request) => Self::task_put_object_grant(
+						db,
+						&mut transaction,
+						&request.id,
+						&request.principal,
+						request.subtree,
+						request.created_at,
+					),
+					Request::GrantBatch(requests) => requests.into_iter().try_for_each(|request| {
+						Self::task_put_object_grant(
+							db,
+							&mut transaction,
+							&request.id,
+							&request.principal,
+							request.subtree,
+							request.created_at,
+						)
+					}),
 					Request::Put(request) => {
 						Self::task_put_object(env, db, &mut transaction, request)
 					},
@@ -567,6 +595,50 @@ impl Store {
 		Ok(())
 	}
 
+	#[expect(clippy::needless_pass_by_value)]
+	pub fn grant_sync(&self, arg: GrantArg) -> tg::Result<()> {
+		let mut transaction = self
+			.env
+			.write_txn()
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		Self::task_put_object_grant(
+			&self.db,
+			&mut transaction,
+			&arg.id,
+			&arg.principal,
+			arg.subtree,
+			arg.created_at,
+		)?;
+		transaction
+			.commit()
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub fn grant_batch_sync(&self, args: Vec<GrantArg>) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let mut transaction = self
+			.env
+			.write_txn()
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		for arg in args {
+			Self::task_put_object_grant(
+				&self.db,
+				&mut transaction,
+				&arg.id,
+				&arg.principal,
+				arg.subtree,
+				arg.created_at,
+			)?;
+		}
+		transaction
+			.commit()
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
 	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
 		let mut transaction = self
 			.env
@@ -714,6 +786,48 @@ impl crate::Store for Store {
 					id: arg.id,
 					principal: arg.principal,
 					stored_at: arg.stored_at,
+				})
+				.collect(),
+		);
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
+		receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))?
+	}
+
+	async fn grant(&self, arg: GrantArg) -> tg::Result<()> {
+		let id = arg.id.clone();
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Grant(GrantObject {
+			created_at: arg.created_at,
+			id: arg.id,
+			principal: arg.principal,
+			subtree: arg.subtree,
+		});
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to send the request"))?;
+		receiver
+			.await
+			.map_err(|_| tg::error!(%id, "the task panicked"))?
+	}
+
+	async fn grant_batch(&self, args: Vec<GrantArg>) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::GrantBatch(
+			args.into_iter()
+				.map(|arg| GrantObject {
+					created_at: arg.created_at,
+					id: arg.id,
+					principal: arg.principal,
+					subtree: arg.subtree,
 				})
 				.collect(),
 		);
@@ -1067,6 +1181,63 @@ mod tests {
 			output.object.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
 		);
+	}
+
+	#[tokio::test]
+	async fn test_object_grant_can_be_upgraded_to_subtree() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let config = Config {
+			grant_ttl: 86_400,
+			map_size: 1024 * 1024 * 10,
+			path: temp.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+		let principal = tg::Principal::All;
+
+		store
+			.put(crate::PutArg {
+				bytes: Some(bytes),
+				cache_pointer: None,
+				id: id.clone(),
+				principal: Some(principal.clone()),
+				stored_at: 12345,
+			})
+			.await
+			.unwrap();
+
+		let arg = crate::TryGetArg {
+			id: id.clone(),
+			now: 12346,
+			principal: principal.clone(),
+		};
+		let output = store.try_get(arg).await.unwrap();
+		assert!(output.grants.iter().all(|grant| !grant.subtree));
+
+		store
+			.grant(crate::GrantArg {
+				created_at: 12347,
+				id: id.clone(),
+				principal: principal.clone(),
+				subtree: true,
+			})
+			.await
+			.unwrap();
+
+		let arg = crate::TryGetArg {
+			id,
+			now: 12348,
+			principal,
+		};
+		let output = store.try_get(arg).await.unwrap();
+		assert!(output.grants.iter().any(|grant| grant.subtree));
 	}
 
 	#[tokio::test]

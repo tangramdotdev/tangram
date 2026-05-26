@@ -12,6 +12,7 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_ignore as ignore,
+	tangram_object_store::prelude::*,
 	tracing::Instrument as _,
 };
 
@@ -197,6 +198,20 @@ impl Session {
 				} else {
 					node.id.as_ref().unwrap().clone().try_into().unwrap()
 				};
+
+				// Grant subtree access to the artifact.
+				if let Some(principal) = session.object_write_principal() {
+					let arg = crate::object::store::GrantArg {
+						created_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+						id: id.clone().into(),
+						principal,
+						subtree: true,
+					};
+					if let Err(error) = session.server.object_store.grant(arg).await {
+						progress.error(error);
+						return;
+					}
+				}
 
 				// Create and send the output.
 				let options = tg::referent::Options::with_path(path);
