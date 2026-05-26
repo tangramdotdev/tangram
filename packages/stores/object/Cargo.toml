@@ -26,6 +26,7 @@ tangram_util = { workspace = true }
 [dependencies]
 bytes = { workspace = true }
 dashmap = { workspace = true }
+fnv = { workspace = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }
 heed = { workspace = true, optional = true }

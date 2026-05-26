@@ -17,7 +17,7 @@ pub struct Config {
 
 pub struct Store {
 	grant_ttl: u64,
-	grants: DashMap<(tg::object::Id, String), Grant, tg::id::BuildHasher>,
+	grants: DashMap<(tg::object::Id, tg::Principal), Grant, fnv::FnvBuildHasher>,
 	objects: DashMap<tg::object::Id, Object<'static>, tg::id::BuildHasher>,
 }
 
@@ -80,5 +80,55 @@ impl crate::Store for Store {
 	async fn flush(&self) -> tg::Result<()> {
 		Store::flush(self);
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use {super::*, bytes::Bytes, std::borrow::Cow};
+
+	#[test]
+	fn delete_removes_object_grants() {
+		let store = Store::default();
+		let principal = tg::Principal::User(tg::user::Id::new());
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+
+		store.put(crate::PutArg {
+			bytes: Some(bytes.clone()),
+			cache_pointer: None,
+			id: id.clone(),
+			principal: Some(principal.clone()),
+			stored_at: 10,
+		});
+
+		let output = store.try_get_sync(&crate::TryGetArg {
+			id: id.clone(),
+			now: 11,
+			principal: principal.clone(),
+		});
+		assert_eq!(
+			output.object.and_then(|object| object.bytes),
+			Some(Cow::Owned(bytes.to_vec()))
+		);
+		assert!(!output.grants.is_empty());
+
+		store.delete(crate::DeleteArg {
+			id: id.clone(),
+			now: 16,
+			ttl: 5,
+		});
+
+		let output = store.try_get_sync(&crate::TryGetArg {
+			id,
+			now: 17,
+			principal,
+		});
+		assert!(output.object.is_none());
+		assert!(output.grants.is_empty());
 	}
 }

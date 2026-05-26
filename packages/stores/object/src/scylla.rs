@@ -42,6 +42,7 @@ pub struct Store {
 
 struct Statements {
 	delete_object: scylla::statement::prepared::PreparedStatement,
+	delete_object_grants: scylla::statement::prepared::PreparedStatement,
 	get_object_batch: scylla::statement::prepared::PreparedStatement,
 	get_object_grant_batch: scylla::statement::prepared::PreparedStatement,
 	get_object_grant: scylla::statement::prepared::PreparedStatement,
@@ -107,6 +108,18 @@ impl Store {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to prepare the delete statement"))?;
 		delete_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
+		let statement = indoc!(
+			"
+				delete from object_grants
+				where object = ?;
+			"
+		);
+		let mut delete_object_grants = session
+			.prepare(statement)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the delete grants statement"))?;
+		delete_object_grants.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
 			"
@@ -188,6 +201,7 @@ impl Store {
 			grant_ttl: config.grant_ttl,
 			statements: Statements {
 				delete_object,
+				delete_object_grants,
 				get_object_batch,
 				get_object_grant_batch,
 				get_object_grant,

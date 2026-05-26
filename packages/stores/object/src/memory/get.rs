@@ -50,9 +50,8 @@ impl Store {
 		if matches!(principal, tg::Principal::Root) {
 			return Vec::new();
 		}
-		let principal = principal.to_string();
 		self.grants
-			.get(&(id.clone(), principal))
+			.get(&(id.clone(), principal.clone()))
 			.and_then(|grant| {
 				(now - grant.created_at < self.grant_ttl.to_i64().unwrap()).then(|| grant.clone())
 			})

@@ -188,6 +188,19 @@ impl fdbt::TuplePack for Key<'_> {
 }
 
 impl Key<'_> {
+	fn unpack_object_grant(bytes: &[u8]) -> tg::Result<(tg::object::Id, String)> {
+		let (kind, id, principal): (i32, Vec<u8>, String) = fdbt::Subspace::all()
+			.unpack(bytes)
+			.map_err(|error| tg::error!(!error, "failed to unpack the object grant key"))?;
+		let kind = KeyKind::from_i32(kind).ok_or_else(|| tg::error!("invalid key kind"))?;
+		if kind != KeyKind::ObjectGrant {
+			return Err(tg::error!("unexpected object grant key"));
+		}
+		let id = tg::object::Id::from_slice(&id)
+			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
+		Ok((id, principal))
+	}
+
 	fn unpack_object_grant_created_at(bytes: &[u8]) -> tg::Result<(i64, tg::object::Id, String)> {
 		let (kind, created_at, id, principal): (i32, i64, Vec<u8>, String) = fdbt::Subspace::all()
 			.unpack(bytes)
@@ -583,5 +596,70 @@ mod tests {
 		let output = store.try_get(arg).await.unwrap();
 		assert!(output.grants.is_empty());
 		assert!(output.object.is_some());
+	}
+
+	#[tokio::test]
+	async fn test_delete_removes_object_grants() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let config = Config {
+			grant_ttl: 86_400,
+			map_size: 1024 * 1024 * 10,
+			path: temp.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+		let principal = tg::Principal::All;
+
+		store
+			.put(crate::PutArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				principal: Some(principal.clone()),
+				stored_at: 10,
+			})
+			.await
+			.unwrap();
+
+		let output = store
+			.try_get(crate::TryGetArg {
+				id: id.clone(),
+				now: 11,
+				principal: principal.clone(),
+			})
+			.await
+			.unwrap();
+		assert_eq!(
+			output.object.and_then(|object| object.bytes),
+			Some(Cow::Owned(bytes.to_vec()))
+		);
+		assert!(!output.grants.is_empty());
+
+		store
+			.delete(crate::DeleteArg {
+				id: id.clone(),
+				now: 16,
+				ttl: 5,
+			})
+			.await
+			.unwrap();
+
+		let output = store
+			.try_get(crate::TryGetArg {
+				id,
+				now: 17,
+				principal,
+			})
+			.await
+			.unwrap();
+		assert!(output.object.is_none());
+		assert!(output.grants.is_empty());
 	}
 }

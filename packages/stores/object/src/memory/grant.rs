@@ -22,7 +22,7 @@ impl Store {
 		subtree: bool,
 		created_at: i64,
 	) {
-		let key = (id, principal.to_string());
+		let key = (id, principal.clone());
 		self.grants
 			.entry(key)
 			.and_modify(|grant| {
