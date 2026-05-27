@@ -1,16 +1,25 @@
 use ../../test.nu *
 
-# Reproduces the per-process overhead blow-up that a cold proxied cargo build
-# hits: when many sandboxed processes are spawned concurrently and oversubscribe
-# the runner concurrency limit, the wall time grows far beyond the
-# contention-free ideal (waves * per-process cost). The sequential
-# sandbox_spawn_overhead.nu test does not reproduce this because it never runs
-# two processes at once, and trivial `true` children do not reproduce it either
-# because they neither check inputs out into the sandbox, produce outputs, nor
-# live long enough to heartbeat. Each child here mounts the busybox artifact
-# (input checkout, like rustc mounting a toolchain), optionally sleeps (so the
-# sandbox stays alive across heartbeat intervals), and optionally writes an
-# output (output checkin), which is what a real rustc process does.
+# Measures the effective parallelism of a concurrent sandbox fan-out, as a
+# harness for investigating the per-process overhead blow-up that a cold proxied
+# cargo build hits. The outer process fans out `count` unique sandboxed children
+# at once against a `concurrency`-limited runner; the overhead ratio is how much
+# slower the fan-out is than the contention-free ideal (waves * per-child cost).
+#
+# Findings so far (2026-05-27): an in-process JS fan-out does NOT reproduce the
+# real build's severity (~2x compute on ~14 permits). Here, clean long-lived
+# children parallelize near-perfectly (~7.95/8), heartbeat on vs off is
+# identical, and the instrumented sqlite write permit stays fast. The only
+# degradation is a fixed per-process overhead (~tens of ms of spawn/finalize)
+# that bites only when children are very short. The real slowdown likely needs
+# client-level oversubscription (cargo runs ~256 concurrent rustc, each a
+# separate tgrustc process doing its own checkin + spawn + wait), which this
+# single-outer fan-out does not model. See sandbox_spawn_overhead.nu for the
+# sequential (no-contention) baseline.
+#
+# Each child mounts the busybox artifact (input checkout, like rustc mounting a
+# toolchain), optionally sleeps (so the sandbox stays alive across heartbeat
+# intervals), and optionally writes an output (output checkin).
 #
 # Knobs (read from the environment so the reproduction can be swept):
 #   TG_COUNT        total concurrent children to fan out (default 64)
@@ -131,8 +140,8 @@ print -e $"concurrency=($concurrency) count=($count) sleep=($sleep_secs)s output
 print -e $"baseline=($baseline) serial_one=($serial_one) total=($total) net=($net)"
 print -e $"waves=($waves) ideal_net=($ideal_net) overhead_ratio=($overhead_ratio) effective_parallelism=($effective_parallelism)"
 
-# Regression ceiling on the overhead ratio. With the slowdown present this is
-# expected to fail, demonstrating the issue; once the contention is fixed it
-# guards against it.
+# Regression ceiling on the overhead ratio. This passes today for the workloads
+# above (the in-process fan-out does not reproduce the severe slowdown); it
+# guards against a regression in concurrent-sandbox efficiency.
 const max_overhead_ratio = 2.0
 assert ($overhead_ratio < $max_overhead_ratio) $"the overhead ratio \(($overhead_ratio)\) exceeded the maximum \(($max_overhead_ratio)\)"
