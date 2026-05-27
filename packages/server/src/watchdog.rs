@@ -73,6 +73,18 @@ impl Server {
 			id: tg::Either<tg::process::Id, tg::sandbox::Id>,
 			message: String,
 		}
+		// EXPERIMENT (tgrustc-proxy-cold-overhead, theory 2): when TANGRAM_DISABLE_HEARTBEAT
+		// is set the heartbeat is disabled in run/sandbox.rs, so heartbeat_at never advances
+		// and every started sandbox would otherwise be considered expired. Gate the
+		// heartbeat-expiration arm off with an always-false predicate in that case. The
+		// statement keeps all three arms and the original parameter numbering so the
+		// Either::Right branch below still constructs the HeartbeatExpired condition. Revert
+		// both halves of the experiment together when the investigation concludes.
+		let heartbeat_predicate = if std::env::var_os("TANGRAM_DISABLE_HEARTBEAT").is_some() {
+			"0 = 1"
+		} else {
+			"1 = 1"
+		};
 		let statement = formatdoc!(
 			"
 				select id, code, message
@@ -91,7 +103,7 @@ impl Server {
 
 					select 2 as priority, id, 'heartbeat_expiration' as code, 'heartbeat expired' as message
 					from sandboxes
-					where status = 'started' and heartbeat_at < {p}2
+					where status = 'started' and heartbeat_at < {p}2 and {heartbeat_predicate}
 				) as entries
 				order by priority, id
 				limit {p}3;

@@ -518,6 +518,16 @@ impl Session {
 		location: &tg::Location,
 		stopper: Stopper,
 	) -> tg::Result<()> {
+		// EXPERIMENT (tgrustc-proxy-cold-overhead, theory 2): when TANGRAM_DISABLE_HEARTBEAT
+		// is set the heartbeat is disabled entirely to test whether its per-sandbox
+		// high-priority writes are starving the single write permit under load. The
+		// corresponding watchdog heartbeat-expiration check is gated off by the same
+		// variable in watchdog.rs. Just wait for the stopper so the task lifecycle is
+		// unchanged. Revert both halves together when done.
+		if std::env::var_os("TANGRAM_DISABLE_HEARTBEAT").is_some() {
+			stopper.wait().await;
+			return Ok(());
+		}
 		let config = self.server.config.runner.clone().unwrap_or_default();
 		loop {
 			let arg = tg::sandbox::heartbeat::Arg {

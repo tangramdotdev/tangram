@@ -350,6 +350,37 @@ impl super::Error for Error {
 	}
 }
 
+// EXPERIMENT (tgrustc-proxy-cold-overhead, theory 1): accumulate write-permit wait
+// statistics and emit a periodic summary plus an individual warning for any acquisition
+// that blocks for a long time. Revert when the investigation concludes.
+fn record_write_permit_wait(elapsed: Duration) {
+	use std::sync::atomic::{AtomicU64, Ordering};
+	static COUNT: AtomicU64 = AtomicU64::new(0);
+	static TOTAL_US: AtomicU64 = AtomicU64::new(0);
+	static MAX_US: AtomicU64 = AtomicU64::new(0);
+	static SLOW_50MS: AtomicU64 = AtomicU64::new(0);
+	let us = elapsed.as_micros().try_into().unwrap_or(u64::MAX);
+	let count = COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+	let total = TOTAL_US.fetch_add(us, Ordering::Relaxed) + us;
+	MAX_US.fetch_max(us, Ordering::Relaxed);
+	if us >= 50_000 {
+		SLOW_50MS.fetch_add(1, Ordering::Relaxed);
+	}
+	if us >= 250_000 {
+		tracing::warn!(elapsed_ms = us / 1000, "slow write-permit acquisition");
+	}
+	if count.is_multiple_of(1000) {
+		tracing::warn!(
+			count,
+			total_ms = total / 1000,
+			avg_us = total / count,
+			max_ms = MAX_US.load(Ordering::Relaxed) / 1000,
+			slow_over_50ms = SLOW_50MS.load(Ordering::Relaxed),
+			"write-permit acquisition summary",
+		);
+	}
+}
+
 impl super::Database for Database {
 	type Error = Error;
 
@@ -361,7 +392,16 @@ impl super::Database for Database {
 	) -> Result<Self::Connection, Self::Error> {
 		let connection = match options.kind {
 			crate::ConnectionKind::Read => self.read_pool.get_exclusive(options.priority).await?,
-			crate::ConnectionKind::Write => self.write_pool.get_exclusive(options.priority).await?,
+			crate::ConnectionKind::Write => {
+				// EXPERIMENT (tgrustc-proxy-cold-overhead, theory 1): measure how long it
+				// takes to obtain the write permit. The write pool has max == 1, so this is
+				// the time spent waiting behind every other writer (heartbeats, spawns,
+				// finalizes). Revert when the investigation concludes.
+				let start = std::time::Instant::now();
+				let connection = self.write_pool.get_exclusive(options.priority).await?;
+				record_write_permit_wait(start.elapsed());
+				connection
+			},
 		};
 		Ok(connection)
 	}
