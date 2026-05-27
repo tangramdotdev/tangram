@@ -8,24 +8,27 @@ use {
 impl Store {
 	#[must_use]
 	pub fn try_get_sync(&self, arg: &TryGetArg) -> TryGetOutput {
-		let object = self.try_get_object(&arg.id);
-		let grants = self.try_get_grant(&arg.id, &arg.principal, arg.now);
+		let state = self.state();
+		let object = Self::try_get_object(&state, &arg.id);
+		let grants = Self::try_get_grant(&state, &arg.id, &arg.principal, arg.now, self.grant_ttl);
 		TryGetOutput { grants, object }
 	}
 
 	#[must_use]
 	pub fn try_get_batch_sync(&self, arg: &TryGetBatchArg) -> Vec<TryGetOutput> {
+		let state = self.state();
 		arg.ids
 			.iter()
 			.map(|id| TryGetOutput {
-				grants: self.try_get_grant(id, &arg.principal, arg.now),
-				object: self.try_get_object(id),
+				grants: Self::try_get_grant(&state, id, &arg.principal, arg.now, self.grant_ttl),
+				object: Self::try_get_object(&state, id),
 			})
 			.collect()
 	}
 
 	pub fn try_get_data(&self, id: &tg::object::Id) -> tg::Result<Option<(u64, tg::object::Data)>> {
-		let Some(entry) = self.objects.get(id) else {
+		let state = self.state();
+		let Some(entry) = state.objects.get(id) else {
 			return Ok(None);
 		};
 		let Some(bytes) = &entry.bytes else {
@@ -37,23 +40,25 @@ impl Store {
 	}
 
 	#[must_use]
-	fn try_get_object(&self, id: &tg::object::Id) -> Option<Object<'static>> {
-		self.objects.get(id).map(|entry| entry.clone())
+	fn try_get_object(state: &super::State, id: &tg::object::Id) -> Option<Object<'static>> {
+		state.objects.get(id).cloned()
 	}
 
-	pub(super) fn try_get_grant(
-		&self,
+	fn try_get_grant(
+		state: &super::State,
 		id: &tg::object::Id,
 		principal: &tg::Principal,
 		now: i64,
+		grant_ttl: u64,
 	) -> Vec<Grant> {
 		if matches!(principal, tg::Principal::Root) {
 			return Vec::new();
 		}
-		self.grants
+		state
+			.grants
 			.get(&(id.clone(), principal.clone()))
 			.and_then(|grant| {
-				(now - grant.created_at < self.grant_ttl.to_i64().unwrap()).then(|| grant.clone())
+				(now - grant.created_at < grant_ttl.to_i64().unwrap()).then(|| grant.clone())
 			})
 			.into_iter()
 			.collect()

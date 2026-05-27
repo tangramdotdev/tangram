@@ -167,7 +167,8 @@ impl Session {
 		// Await the futures.
 		future::try_join4(input_future, queue_future, index_future, store_future).await?;
 
-		self.sync_get_grant_object_roots(&state).await?;
+		// Grant.
+		self.sync_get_grant(&state).await?;
 
 		// Stop and await the progress task.
 		progress_task.stop();
@@ -179,7 +180,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_grant_object_roots(&self, state: &State) -> tg::Result<()> {
+	async fn sync_get_grant(&self, state: &State) -> tg::Result<()> {
 		let Some(principal) = self.object_write_principal() else {
 			return Ok(());
 		};
@@ -192,12 +193,13 @@ impl Session {
 				let tg::Either::Left(id) = item else {
 					return None;
 				};
-				Some(crate::object::store::GrantArg {
+				let arg = crate::object::store::GrantArg {
 					created_at,
 					id: id.clone(),
 					principal: principal.clone(),
 					subtree: true,
-				})
+				};
+				Some(arg)
 			})
 			.collect::<Vec<_>>();
 		self.server

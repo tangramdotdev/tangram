@@ -1,6 +1,9 @@
 use {
 	crate::{DeleteArg, Grant, GrantArg, Object, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
-	dashmap::DashMap,
+	std::{
+		collections::{BTreeMap, HashMap, HashSet},
+		sync::{Arc, Mutex, MutexGuard},
+	},
 	tangram_client::prelude::*,
 };
 
@@ -16,19 +19,42 @@ pub struct Config {
 }
 
 pub struct Store {
+	#[expect(dead_code)]
+	grant_clean_task: Option<tangram_futures::task::Task<()>>,
 	grant_ttl: u64,
-	grants: DashMap<(tg::object::Id, tg::Principal), Grant, fnv::FnvBuildHasher>,
-	objects: DashMap<tg::object::Id, Object<'static>, tg::id::BuildHasher>,
+	state: Arc<Mutex<State>>,
 }
+
+#[derive(Default)]
+struct State {
+	grants: Grants,
+	grants_by_created_at: BTreeMap<i64, GrantKeys>,
+	objects: Objects,
+}
+
+type GrantKey = (tg::object::Id, tg::Principal);
+type GrantKeys = HashSet<GrantKey, fnv::FnvBuildHasher>;
+type Grants = HashMap<GrantKey, Grant, fnv::FnvBuildHasher>;
+type Objects = HashMap<tg::object::Id, Object<'static>, tg::id::BuildHasher>;
 
 impl Store {
 	#[must_use]
 	pub fn new(config: &Config) -> Self {
+		let state = Arc::new(Mutex::new(State::default()));
+		let grant_clean_task = tokio::runtime::Handle::try_current()
+			.ok()
+			.map(|_| Self::spawn_grant_clean_task(&state, config.grant_ttl));
 		Self {
+			grant_clean_task,
 			grant_ttl: config.grant_ttl,
-			grants: DashMap::default(),
-			objects: DashMap::default(),
+			state,
 		}
+	}
+
+	fn state(&self) -> MutexGuard<'_, State> {
+		self.state
+			.lock()
+			.expect("failed to lock the memory store state")
 	}
 }
 
@@ -130,5 +156,50 @@ mod tests {
 		});
 		assert!(output.object.is_none());
 		assert!(output.grants.is_empty());
+	}
+
+	#[test]
+	fn clean_grants_removes_expired_grants() {
+		let store = Store::new(&Config { grant_ttl: 5 });
+		let expired_bytes = Bytes::from_static(b"expired");
+		let live_bytes = Bytes::from_static(b"live");
+		let updated_bytes = Bytes::from_static(b"updated");
+		let expired_id = tg::object::Id::new(tg::object::Kind::Blob, &expired_bytes);
+		let live_id = tg::object::Id::new(tg::object::Kind::Blob, &live_bytes);
+		let updated_id = tg::object::Id::new(tg::object::Kind::Blob, &updated_bytes);
+		let principal = tg::Principal::User(tg::user::Id::new());
+
+		store.grant(crate::GrantArg {
+			created_at: 10,
+			id: expired_id.clone(),
+			principal: principal.clone(),
+			subtree: false,
+		});
+		store.grant(crate::GrantArg {
+			created_at: 11,
+			id: live_id.clone(),
+			principal: principal.clone(),
+			subtree: false,
+		});
+		store.grant(crate::GrantArg {
+			created_at: 10,
+			id: updated_id.clone(),
+			principal: principal.clone(),
+			subtree: false,
+		});
+		store.grant(crate::GrantArg {
+			created_at: 11,
+			id: updated_id.clone(),
+			principal: principal.clone(),
+			subtree: true,
+		});
+
+		Store::clean_grants(&mut store.state(), 15, store.grant_ttl);
+
+		let state = store.state();
+		assert!(!state.grants.contains_key(&(expired_id, principal.clone())));
+		assert!(state.grants.contains_key(&(live_id, principal.clone())));
+		let updated_grant = state.grants.get(&(updated_id, principal)).unwrap();
+		assert!(updated_grant.subtree);
 	}
 }

@@ -128,6 +128,7 @@ impl Session {
 				Some(object) => {
 					let stored = object.stored;
 					let metadata = object.metadata;
+
 					// Update the graph with stored and metadata.
 					state.graph.lock().unwrap().update_object_local(
 						&item.id,

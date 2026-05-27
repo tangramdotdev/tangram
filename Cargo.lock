@@ -7630,6 +7630,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "dashmap",
+ "fnv",
  "foundationdb-tuple",
  "futures",
  "heed",
