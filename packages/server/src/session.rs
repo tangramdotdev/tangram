@@ -31,10 +31,10 @@ impl Session {
 
 	#[must_use]
 	pub(crate) fn object_read_principal(&self) -> tg::Principal {
-		if let Some(Authentication::User(user)) = self.context.authentication.as_ref() {
-			tg::Principal::User(user.id.clone())
-		} else {
-			tg::Principal::Root
+		match self.context.authentication.as_ref() {
+			Some(Authentication::Runner) => tg::Principal::All,
+			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
+			_ => tg::Principal::Root,
 		}
 	}
 
@@ -46,10 +46,10 @@ impl Session {
 
 	#[must_use]
 	pub(crate) fn process_read_principal(&self) -> tg::Principal {
-		if let Some(Authentication::User(user)) = self.context.authentication.as_ref() {
-			tg::Principal::User(user.id.clone())
-		} else {
-			tg::Principal::Root
+		match self.context.authentication.as_ref() {
+			Some(Authentication::Runner) => tg::Principal::All,
+			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
+			_ => tg::Principal::Root,
 		}
 	}
 

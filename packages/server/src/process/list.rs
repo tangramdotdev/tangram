@@ -17,10 +17,11 @@ impl Session {
 	) -> tg::Result<tg::process::list::Output> {
 		let principal = match self.context.authentication.as_ref() {
 			None | Some(Authentication::Root) => tg::Principal::Root,
+			Some(Authentication::Runner) => tg::Principal::All,
 			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
-			Some(
-				Authentication::Process(_) | Authentication::Runner | Authentication::Sandbox(_),
-			) => return Err(tg::error!("unauthorized")),
+			Some(Authentication::Process(_) | Authentication::Sandbox(_)) => {
+				return Err(tg::error!("unauthorized"));
+			},
 		};
 
 		let mut output = tg::process::list::Output { data: Vec::new() };

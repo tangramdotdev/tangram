@@ -21,10 +21,7 @@ impl Session {
 		arg: tg::sandbox::process::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		match &self.context.authentication {
-			Some(Authentication::Root | Authentication::Runner) => (),
-			authentication
-				if self.server.config().authentication.is_none()
-					&& !matches!(authentication, Some(Authentication::Process(_))) => {},
+			Some(Authentication::Sandbox(authentication)) if authentication.id == *sandbox => (),
 			_ => return Err(tg::error!("unauthorized")),
 		}
 

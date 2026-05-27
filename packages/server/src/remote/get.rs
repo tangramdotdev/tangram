@@ -114,13 +114,15 @@ impl Session {
 		&self,
 		name: &str,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let remote = self
+		let Some(remote) = self
 			.server
 			.config
 			.runner
 			.as_ref()
 			.and_then(|runner| runner.remote.as_deref())
-			.ok_or_else(|| tg::error!("missing the runner remote"))?;
+		else {
+			return Ok(None);
+		};
 		let connection = self
 			.server
 			.database
