@@ -3,13 +3,14 @@ use ../../test.nu *
 # Reproduces the per-process overhead blow-up that a cold proxied cargo build
 # hits: when many sandboxed processes are spawned concurrently and oversubscribe
 # the runner concurrency limit, the wall time grows far beyond the
-# contention-free ideal (waves * per-process duration). The sequential
+# contention-free ideal (waves * per-process cost). The sequential
 # sandbox_spawn_overhead.nu test does not reproduce this because it never runs
 # two processes at once, and trivial `true` children do not reproduce it either
-# because they neither check inputs out into the sandbox nor live long enough to
-# heartbeat. Each child here mounts the busybox artifact (real input checkout,
-# like rustc mounting a toolchain) and sleeps (so the sandbox stays alive across
-# heartbeat intervals), which is what a real rustc process does.
+# because they neither check inputs out into the sandbox, produce outputs, nor
+# live long enough to heartbeat. Each child here mounts the busybox artifact
+# (input checkout, like rustc mounting a toolchain), optionally sleeps (so the
+# sandbox stays alive across heartbeat intervals), and optionally writes an
+# output (output checkin), which is what a real rustc process does.
 #
 # Knobs (read from the environment so the reproduction can be swept):
 #   TG_COUNT        total concurrent children to fan out (default 64)
@@ -35,7 +36,8 @@ if $disable_heartbeat {
 # Spawn a server that mirrors a real one: multi-threaded tokio, an explicit
 # runner concurrency limit, and warn-level tracing so the write-permit
 # acquisition summary (instrumented in tangram_database) is visible. Tag the
-# busybox package so children have a real `sleep`.
+# busybox package so children have a real `sleep` and `dd`, and give the lmdb
+# stores enough room for the children's outputs.
 let server = spawn --busybox --config {
 	runner: {
 		concurrency: $concurrency,
@@ -63,24 +65,22 @@ let server = spawn --busybox --config {
 }
 
 # A package whose default export fans out the requested number of unique
-# sandboxed children concurrently and awaits them all. Each child mounts the
-# busybox artifact as its environment (forcing an input checkout into the
-# sandbox), sleeps for the requested duration, and runs `true <i>` whose unique
-# argument keeps each process from being a cache hit.
+# sandboxed children concurrently and awaits them all. The salt makes every
+# phase's processes distinct so that the baseline, single, and fan-out
+# measurements do not become cache hits of each other.
 let path = artifact {
 	tangram.ts: '
 		import busybox from "busybox";
 		export default async (arg: string) => {
-			const { count, sleep, outputKb } = JSON.parse(arg);
-			const env = tg.build(busybox);
+			const { salt, count, sleep, outputKb } = JSON.parse(arg);
+			const env = await tg.build(busybox);
 			const children = [];
 			for (let i = 0; i < count; i++) {
-				// Each child sleeps (to stay alive across heartbeat intervals),
-				// writes outputKb kilobytes to its output (to exercise output
-				// checkin into the object store), and runs `true ${i}` to keep
-				// its process unique. busybox provides sleep and dd on the PATH.
+				const s = String(sleep);
+				const kb = String(outputKb);
+				const tag = `${salt}_${i}`;
 				children.push(
-					tg.run`sleep ${sleep}; dd if=/dev/zero of=${tg.output} bs=1024 count=${outputKb} 2>/dev/null; true ${i.toString()}`
+					tg.run`sleep ${s}; dd if=/dev/zero of=${tg.output} bs=1024 count=${kb} 2>/dev/null; true ${tag}`
 						.env(env)
 						.sandbox(),
 				);
@@ -91,39 +91,37 @@ let path = artifact {
 	',
 }
 
-# Measure the fixed overhead of the outer process with no children (this also
-# warms the busybox build so it is not counted in the fan-out timing).
-let baseline_arg = { count: 0, sleep: $sleep_secs, outputKb: $output_kb } | to json
-let baseline_start = date now
-let baseline_output = tg run $path -a $baseline_arg | complete
-success $baseline_output "the baseline run should succeed"
-let baseline = (date now) - $baseline_start
+# Run one phase: a fan-out of `count` children tagged with `salt`, returning the
+# wall time.
+def run_phase [path: string, salt: string, count: int, sleep: string, output_kb: int] {
+	let arg = { salt: $salt, count: $count, sleep: $sleep, outputKb: $output_kb } | to json
+	let start = date now
+	let output = tg run $path -a $arg | complete
+	success $output $"the ($salt) phase should succeed"
+	(date now) - $start
+}
 
-# Measure the time for a single child. Subtracting the baseline gives the
-# uncontended serial cost of one child (sleep + output checkin + sandbox
-# setup/teardown), which is the unit of work the fan-out should parallelize.
-let single_arg = { count: 1, sleep: $sleep_secs, outputKb: $output_kb } | to json
-let single_start = date now
-let single_output = tg run $path -a $single_arg | complete
-success $single_output "the single-child run should succeed"
-let serial_one = (date now) - $single_start - $baseline
+# Warm up the busybox build so it is not counted in any measured phase.
+run_phase $path "warm" 1 $sleep_secs $output_kb
 
-# Measure the time to fan out all of the children concurrently.
-let total_arg = { count: $count, sleep: $sleep_secs, outputKb: $output_kb } | to json
-let total_start = date now
-let total_output = tg run $path -a $total_arg | complete
-success $total_output "the fan-out run should succeed"
-let total = (date now) - $total_start
+# Baseline: the fixed cost of an outer run with no children (warm busybox).
+let baseline = run_phase $path "base" 0 $sleep_secs $output_kb
 
-# The net time spent on the children.
+# Single child: subtracting the baseline gives the uncontended serial cost of
+# one child (sleep + output checkin + sandbox setup/teardown), the unit of work
+# the fan-out should parallelize.
+let serial_one = (run_phase $path "one" 1 $sleep_secs $output_kb) - $baseline
+
+# Fan out all of the children concurrently.
+let total = run_phase $path "many" $count $sleep_secs $output_kb
 let net = $total - $baseline
 
-# A contention-free fan-out runs ceil(count / concurrency) waves, each taking
-# about the serial cost of one child, so the ideal net is waves * serial_one.
-# The overhead ratio is how much slower the real fan-out is than that ideal,
-# and the effective parallelism is how many children were truly in flight at
-# once. With the slowdown present, overhead_ratio is well above 1 and effective
-# parallelism is well below the concurrency limit.
+# A contention-free fan-out runs ceil(count / concurrency) waves, each about the
+# serial cost of one child, so the ideal net is waves * serial_one. The overhead
+# ratio is how much slower the real fan-out is than that ideal, and the
+# effective parallelism is how many children were truly in flight at once. With
+# the slowdown present, overhead_ratio is well above 1 and effective parallelism
+# is well below the concurrency limit.
 let waves = ($count + $concurrency - 1) // $concurrency
 let ideal_net = $waves * $serial_one
 let overhead_ratio = ($net / $ideal_net)
