@@ -36,13 +36,18 @@ pub(crate) fn stage(target_dir: &Path, sources: &[PathBuf]) -> tg::Result<()> {
 		if target.exists() {
 			continue;
 		}
-		let source_is_symlink = std::fs::symlink_metadata(source)
-			.is_ok_and(|metadata| metadata.file_type().is_symlink());
-		if source_is_symlink || std::fs::hard_link(source, &target).is_err() {
-			std::fs::copy(source, &target).map_err(|error| {
+		let resolved_source = std::fs::canonicalize(source).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %source.display(),
+				"failed to resolve the dynamic library path"
+			)
+		})?;
+		if std::fs::hard_link(&resolved_source, &target).is_err() {
+			std::fs::copy(&resolved_source, &target).map_err(|error| {
 				tg::error!(
 					!error,
-					source = %source.display(),
+					source = %resolved_source.display(),
 					target = %target.display(),
 					"failed to stage the dynamic library"
 				)
