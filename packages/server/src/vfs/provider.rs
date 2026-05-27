@@ -727,7 +727,7 @@ impl Provider {
 		Ok(result)
 	}
 
-	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
+	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let NodeInfo {
 			artifact,
 			depth,
@@ -751,16 +751,16 @@ impl Provider {
 			.resolve_directory_children_inner(id, depth, &directory)
 			.await?;
 		let mut result = Vec::with_capacity(entries.len() + 2);
-		result.push((".".to_owned(), id, vfs::DirEntryType::Directory));
-		result.push(("..".to_owned(), parent, vfs::DirEntryType::Directory));
+		result.push((".".to_owned(), id, vfs::EntryKind::Directory));
+		result.push(("..".to_owned(), parent, vfs::EntryKind::Directory));
 		for (name, entry, artifact) in entries {
-			let typ = Self::dir_entry_type_from_artifact(&artifact);
-			result.push((name, entry, typ));
+			let kind = Self::entry_kind_from_artifact(&artifact);
+			result.push((name, entry, kind));
 		}
 		Ok(result)
 	}
 
-	pub fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
+	pub fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		self.readdir_sync_inner(id, None)
 	}
 
@@ -768,7 +768,7 @@ impl Provider {
 		&self,
 		id: u64,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let NodeInfo {
 			artifact,
 			depth,
@@ -791,11 +791,11 @@ impl Provider {
 		let entries =
 			self.resolve_directory_children_sync_inner(id, depth, &directory, transaction)?;
 		let mut result = Vec::with_capacity(entries.len() + 2);
-		result.push((".".to_owned(), id, vfs::DirEntryType::Directory));
-		result.push(("..".to_owned(), parent, vfs::DirEntryType::Directory));
+		result.push((".".to_owned(), id, vfs::EntryKind::Directory));
+		result.push(("..".to_owned(), parent, vfs::EntryKind::Directory));
 		for (name, entry, artifact) in entries {
-			let typ = Self::dir_entry_type_from_artifact(&artifact);
-			result.push((name, entry, typ));
+			let kind = Self::entry_kind_from_artifact(&artifact);
+			result.push((name, entry, kind));
 		}
 		Ok(result)
 	}
@@ -1041,18 +1041,18 @@ impl Provider {
 				} else {
 					0
 				};
-				Ok(vfs::Attrs::new(vfs::FileType::File {
+				Ok(vfs::Attrs::new(vfs::AttrsInner::File {
 					executable: file.executable,
 					size,
 				}))
 			},
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
-				Ok(vfs::Attrs::new(vfs::FileType::Directory))
+				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
-				Ok(vfs::Attrs::new(vfs::FileType::Symlink))
+				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink))
 			},
-			None => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
+			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			_ => Err(std::io::Error::from_raw_os_error(libc::EIO)),
 		}
 	}
@@ -1755,18 +1755,18 @@ impl Provider {
 				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
 					self.blob_length_sync_inner(contents, transaction)
 				})?;
-				Ok(vfs::Attrs::new(vfs::FileType::File {
+				Ok(vfs::Attrs::new(vfs::AttrsInner::File {
 					executable: file.executable,
 					size,
 				}))
 			},
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
-				Ok(vfs::Attrs::new(vfs::FileType::Directory))
+				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
-				Ok(vfs::Attrs::new(vfs::FileType::Symlink))
+				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink))
 			},
-			None => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
+			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			_ => Err(std::io::Error::from_raw_os_error(libc::EIO)),
 		}
 	}
@@ -1870,21 +1870,21 @@ impl Provider {
 		match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => None,
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
-				Some(vfs::Attrs::new(vfs::FileType::Directory))
+				Some(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
-				Some(vfs::Attrs::new(vfs::FileType::Symlink))
+				Some(vfs::Attrs::new(vfs::AttrsInner::Symlink))
 			},
-			None => Some(vfs::Attrs::new(vfs::FileType::Directory)),
+			None => Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			_ => None,
 		}
 	}
 
-	fn dir_entry_type_from_artifact(artifact: &tg::artifact::Id) -> vfs::DirEntryType {
+	fn entry_kind_from_artifact(artifact: &tg::artifact::Id) -> vfs::EntryKind {
 		match artifact.kind() {
-			tg::artifact::Kind::Directory => vfs::DirEntryType::Directory,
-			tg::artifact::Kind::File => vfs::DirEntryType::File,
-			tg::artifact::Kind::Symlink => vfs::DirEntryType::Symlink,
+			tg::artifact::Kind::Directory => vfs::EntryKind::Directory,
+			tg::artifact::Kind::File => vfs::EntryKind::File,
+			tg::artifact::Kind::Symlink => vfs::EntryKind::Symlink,
 		}
 	}
 }
@@ -1896,7 +1896,7 @@ impl Nodes {
 			vfs::ROOT_NODE_ID,
 			Node {
 				artifact: None,
-				attrs: Some(vfs::Attrs::new(vfs::FileType::Directory)),
+				attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 				children: HashMap::default(),
 				depth: 0,
 				lookup_count: u64::MAX,
@@ -2155,11 +2155,11 @@ impl vfs::Provider for Provider {
 		Provider::opendir_sync(self, id)
 	}
 
-	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
+	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		Provider::readdir(self, id).await
 	}
 
-	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
+	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		Provider::readdir_sync(self, id)
 	}
 

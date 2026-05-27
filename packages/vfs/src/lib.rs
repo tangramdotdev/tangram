@@ -3,8 +3,12 @@ use {bytes::Bytes, futures::Future, std::io::Error, std::os::fd::OwnedFd};
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod nfs;
+#[cfg(target_os = "linux")]
+pub mod virtiofsd;
 
 pub const ROOT_NODE_ID: u64 = 1;
+
+pub type Result<T> = std::io::Result<T>;
 
 #[derive(Clone, Debug)]
 pub enum Request {
@@ -85,7 +89,7 @@ pub enum Response {
 		bytes: Bytes,
 	},
 	ReadDir {
-		entries: Vec<(String, u64, DirEntryType)>,
+		entries: Vec<(String, u64, EntryKind)>,
 	},
 	ReadDirPlus {
 		entries: Vec<(String, u64, Attrs)>,
@@ -94,6 +98,36 @@ pub enum Response {
 		target: Bytes,
 	},
 	Unit,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum EntryKind {
+	File,
+	Directory,
+	Symlink,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Attrs {
+	pub inner: AttrsInner,
+	pub atime: Timestamp,
+	pub mtime: Timestamp,
+	pub ctime: Timestamp,
+	pub uid: u32,
+	pub gid: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum AttrsInner {
+	File { executable: bool, size: u64 },
+	Directory,
+	Symlink,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Timestamp {
+	pub secs: u64,
+	pub nanos: u32,
 }
 
 /// A virtual filesystem provider.
@@ -411,7 +445,7 @@ pub trait Provider {
 	fn readdir(
 		&self,
 		handle: u64,
-	) -> impl Future<Output = Result<Vec<(String, u64, DirEntryType)>>> + Send
+	) -> impl Future<Output = Result<Vec<(String, u64, EntryKind)>>> + Send
 	where
 		Self: Sync,
 	{
@@ -430,7 +464,7 @@ pub trait Provider {
 	}
 
 	/// Read from a directory synchronously.
-	fn readdir_sync(&self, handle: u64) -> Result<Vec<(String, u64, DirEntryType)>> {
+	fn readdir_sync(&self, handle: u64) -> Result<Vec<(String, u64, EntryKind)>> {
 		let response = self
 			.handle_batch_sync(vec![Request::ReadDir { handle }])
 			.into_iter()
@@ -510,47 +544,14 @@ pub trait Provider {
 	}
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum FileType {
-	File { executable: bool, size: u64 },
-	Directory,
-	Symlink,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum DirEntryType {
-	File,
-	Directory,
-	Symlink,
-}
-
-/// Represents a set of  file attributes.
-#[derive(Clone, Copy, Debug)]
-pub struct Attrs {
-	pub typ: FileType,
-	pub atime: TimeSpec,
-	pub mtime: TimeSpec,
-	pub ctime: TimeSpec,
-	pub uid: u32,
-	pub gid: u32,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct TimeSpec {
-	pub secs: u64,
-	pub nanos: u32,
-}
-
-pub type Result<T> = std::io::Result<T>;
-
 impl Attrs {
 	#[must_use]
-	pub fn new(typ: FileType) -> Self {
+	pub fn new(inner: AttrsInner) -> Self {
 		Self {
-			typ,
-			atime: TimeSpec::default(),
-			mtime: TimeSpec::default(),
-			ctime: TimeSpec::default(),
+			inner,
+			atime: Timestamp::default(),
+			mtime: Timestamp::default(),
+			ctime: Timestamp::default(),
 			uid: rustix::process::getuid().as_raw(),
 			gid: rustix::process::getgid().as_raw(),
 		}

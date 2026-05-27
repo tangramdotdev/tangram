@@ -16,8 +16,10 @@ use {
 
 const NETWORK_INTERFACE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 
-const HOST_FS_TAG: &str = "host";
+const SANDBOX_FS_TAG: &str = "sandbox";
+const ARTIFACTS_FS_TAG: &str = "artifacts";
 const HOST_MOUNT_POINT: &str = "/mnt/host";
+const ARTIFACTS_MOUNT_POINT: &str = "/mnt/host/opt/tangram/artifacts";
 const HOST_INIT_CONFIG_PATH: &str = "/mnt/host/init.json";
 const ROOTVIEW_SCRATCH: &str = "/mnt/root";
 const ROOTVIEW_UPPER: &str = "/mnt/root/upper";
@@ -71,17 +73,15 @@ pub fn run() -> tg::Result<ExitCode> {
 	configure_memory_hotplug();
 	online_cpus();
 
-	wait_for_virtiofs().map_err(|source| {
-		tg::error!(
-			!source,
-			"error waiting for virtiofs to connect {HOST_FS_TAG}"
-		)
-	})?;
+	wait_for_virtiofs()
+		.map_err(|source| tg::error!(!source, "error waiting for virtiofs tags to connect"))?;
 	tracing::trace!("virtiofs tags ready");
 	online_cpus();
 
-	mount_virtiofs()?;
+	mount_virtiofs(SANDBOX_FS_TAG, HOST_MOUNT_POINT)?;
 	tracing::trace!("mounted {HOST_MOUNT_POINT}");
+	mount_virtiofs(ARTIFACTS_FS_TAG, ARTIFACTS_MOUNT_POINT)?;
+	tracing::trace!("mounted {ARTIFACTS_MOUNT_POINT}");
 
 	let bytes = std::fs::read(HOST_INIT_CONFIG_PATH)
 		.map_err(|error| tg::error!(!error, "failed to read the init config"))?;
@@ -156,9 +156,13 @@ pub fn run() -> tg::Result<ExitCode> {
 	}
 }
 
-fn mount_virtiofs() -> tg::Result<()> {
-	let source = CString::new(HOST_FS_TAG).unwrap();
-	let target_c = CString::new(HOST_MOUNT_POINT).unwrap();
+fn mount_virtiofs(tag: &str, target: &str) -> tg::Result<()> {
+	std::fs::create_dir_all(target)
+		.map_err(|error| tg::error!(!error, %target, "failed to create the virtiofs target"))?;
+	let source = CString::new(tag)
+		.map_err(|error| tg::error!(!error, "failed to encode the virtiofs tag"))?;
+	let target_c = CString::new(target)
+		.map_err(|error| tg::error!(!error, "failed to encode the virtiofs target"))?;
 	let fstype = CString::new("virtiofs").unwrap();
 	let result = unsafe {
 		libc::mount(
@@ -171,9 +175,7 @@ fn mount_virtiofs() -> tg::Result<()> {
 	};
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
-		return Err(
-			tg::error!(!error, tag = %HOST_FS_TAG, target = %HOST_MOUNT_POINT, "failed to mount virtiofs"),
-		);
+		return Err(tg::error!(!error, %tag, %target, "failed to mount virtiofs"));
 	}
 	Ok(())
 }
@@ -488,23 +490,25 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to bind the uevent socket"));
 	}
 
+	let mut pending: Vec<&str> = vec![SANDBOX_FS_TAG, ARTIFACTS_FS_TAG];
 	if let Ok(entries) = std::fs::read_dir("/sys/fs/virtiofs") {
 		for entry in entries.flatten() {
 			let tag_path = entry.path().join("tag");
 			if let Ok(content) = std::fs::read_to_string(&tag_path) {
 				let tag = content.trim();
-				if tag == HOST_FS_TAG {
-					unsafe { libc::close(socket) };
-					return Ok(());
-				}
+				pending.retain(|expected| *expected != tag);
 			}
 		}
+	}
+	if pending.is_empty() {
+		unsafe { libc::close(socket) };
+		return Ok(());
 	}
 
 	signal_ready();
 
 	let mut buf = [0u8; 8192];
-	loop {
+	while !pending.is_empty() {
 		let n = unsafe { libc::recv(socket, buf.as_mut_ptr().cast(), buf.len(), 0) };
 		if n < 0 {
 			let error = std::io::Error::last_os_error();
@@ -534,11 +538,10 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		let Ok(tag) = std::str::from_utf8(tag) else {
 			continue;
 		};
-		if tag == HOST_FS_TAG {
-			unsafe { libc::close(socket) };
-			return Ok(());
-		}
+		pending.retain(|expected| *expected != tag);
 	}
+	unsafe { libc::close(socket) };
+	Ok(())
 }
 
 fn mount_proc(target: &Path) -> tg::Result<()> {

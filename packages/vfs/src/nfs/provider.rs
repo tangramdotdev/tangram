@@ -27,7 +27,7 @@ pub(super) enum ExtAttr {
 
 struct AttrDir {
 	parent: u64,
-	attrs: Vec<(String, u64, crate::DirEntryType)>,
+	attrs: Vec<(String, u64, crate::EntryKind)>,
 }
 
 struct AttrFile {
@@ -37,7 +37,7 @@ struct AttrFile {
 }
 
 struct AttrDirHandle {
-	content: Vec<(String, u64, crate::DirEntryType)>,
+	content: Vec<(String, u64, crate::EntryKind)>,
 }
 
 struct AttrFileHandle {
@@ -101,7 +101,7 @@ where
 				node: handle,
 				name: name.clone(),
 			};
-			children.push((name, file_id, crate::DirEntryType::File));
+			children.push((name, file_id, crate::EntryKind::File));
 			self.files.insert(file_id, Either::Right(file));
 		}
 		let dir = AttrDir {
@@ -334,7 +334,7 @@ where
 		}
 	}
 
-	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64, crate::DirEntryType)>> {
+	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64, crate::EntryKind)>> {
 		let handle_data = self.handles.get(&handle);
 		if let Some(Either::Left(handle)) = handle_data.as_ref().map(|attr| attr.as_ref()) {
 			let content = handle.content.clone();

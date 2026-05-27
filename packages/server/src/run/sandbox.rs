@@ -201,6 +201,20 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
+		// Start the per-sandbox virtiofsd serving artifacts. Kept as a local so the daemon
+		// stops and the socket file is removed when the sandbox task ends.
+		#[cfg(target_os = "linux")]
+		let _vfs = if matches!(isolation, tangram_sandbox::Isolation::Vm(_)) {
+			let socket = temp.path().join("vfs.sock");
+			let options = self.server.config.vfs.unwrap_or_default();
+			let vfs = crate::vfs::Server::start_virtiofsd(&self.server, options, &socket)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to start the artifacts vfs"))?;
+			Some(vfs)
+		} else {
+			None
+		};
+
 		// Create the listener.
 		let (listener, guest_url, tangram_socket_path) =
 			Server::run_create_listener(temp.path(), &isolation)

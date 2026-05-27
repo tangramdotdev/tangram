@@ -84,6 +84,7 @@ data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.77"
 derive_more = { version = "2", features = ["full"] }
+env_logger = "0.11"
 fastcdc = { version = "4", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
@@ -109,6 +110,7 @@ io-uring = "0.7"
 itertools = "0.14"
 libc = "0.2"
 liblzma = { version = "0.4", features = ["static"] }
+log = "0.4"
 lsp-types = "0.97"
 miette = { version = "7.6", features = ["fancy", "syntect-highlighter"] }
 mime = "0.3"
@@ -203,6 +205,10 @@ unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }
 v8 = { git = "https://github.com/tangramdotdev/rusty_v8" }
+virtiofsd = "1"
+vhost = "0.13"
+vhost-user-backend = "0.17"
+vm-memory = { version = "0.16", features = ["backend-atomic", "backend-mmap"] }
 waitpid-any = "0.3"
 webbrowser = "1"
 winnow = "1"

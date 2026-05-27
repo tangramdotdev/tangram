@@ -1,6 +1,6 @@
 #![allow(clippy::match_same_arms, dead_code, non_camel_case_types)]
 
-use {super::xdr, crate::TimeSpec, num::ToPrimitive as _};
+use {super::xdr, crate::Timestamp, num::ToPrimitive as _};
 
 // RPC constants.
 pub const RPC_VERS: u32 = 2;
@@ -2960,8 +2960,8 @@ impl nfstime4 {
 	}
 }
 
-impl From<TimeSpec> for nfstime4 {
-	fn from(value: TimeSpec) -> Self {
+impl From<Timestamp> for nfstime4 {
+	fn from(value: Timestamp) -> Self {
 		nfstime4 {
 			seconds: value.secs.to_i64().unwrap(),
 			nseconds: value.nanos,

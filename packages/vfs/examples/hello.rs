@@ -7,7 +7,7 @@ use {
 		path::PathBuf,
 		sync::atomic::{AtomicU64, Ordering},
 	},
-	tangram_vfs::{Attrs, FileType},
+	tangram_vfs::{Attrs, AttrsInner},
 	tracing_subscriber::{Layer, layer::SubscriberExt as _, util::SubscriberInitExt as _},
 };
 
@@ -183,12 +183,12 @@ impl tangram_vfs::Provider for Provider {
 	async fn getattr(&self, handle: u64) -> Result<Attrs> {
 		tracing::debug!(?handle, "getattr");
 		let attr = match handle {
-			ROOT_NODE_ID => Attrs::new(FileType::Directory),
-			HELLO_NODE_ID => Attrs::new(FileType::File {
+			ROOT_NODE_ID => Attrs::new(AttrsInner::Directory),
+			HELLO_NODE_ID => Attrs::new(AttrsInner::File {
 				executable: false,
 				size: HELLO_WORLD.len().to_u64().unwrap(),
 			}),
-			LINK_NODE_ID => Attrs::new(FileType::Symlink),
+			LINK_NODE_ID => Attrs::new(AttrsInner::Symlink),
 			_ => {
 				return Err(Error::from_raw_os_error(libc::ENOENT));
 			},
@@ -258,7 +258,7 @@ impl tangram_vfs::Provider for Provider {
 		Ok(id)
 	}
 
-	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64, tangram_vfs::DirEntryType)>> {
+	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64, tangram_vfs::EntryKind)>> {
 		tracing::debug!(?handle, "readdir");
 		let Some(handle) = self.open_dirs.get(&handle) else {
 			return Err(Error::from_raw_os_error(libc::EIO));
@@ -268,12 +268,12 @@ impl tangram_vfs::Provider for Provider {
 				(
 					HELLO_PATH.to_owned(),
 					HELLO_NODE_ID,
-					tangram_vfs::DirEntryType::File,
+					tangram_vfs::EntryKind::File,
 				),
 				(
 					LINK_PATH.to_owned(),
 					LINK_NODE_ID,
-					tangram_vfs::DirEntryType::Symlink,
+					tangram_vfs::EntryKind::Symlink,
 				),
 			]
 		} else {
