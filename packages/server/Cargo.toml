@@ -14,7 +14,11 @@ version = { workspace = true }
 ignored = ["tangram_js"]
 
 [features]
-foundationdb = ["tangram_index/foundationdb", "tangram_log_store/foundationdb"]
+foundationdb = [
+	"tangram_index/foundationdb",
+	"tangram_log_store/foundationdb",
+	"tangram_sandbox/foundationdb",
+]
 js = ["dep:tangram_js"]
 lmdb = ["dep:heed", "tangram_index/lmdb", "tangram_log_store/lmdb", "tangram_object_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]

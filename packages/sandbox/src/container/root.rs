@@ -1,4 +1,5 @@
 use {
+	crate::libraries,
 	std::path::{Path, PathBuf},
 	tangram_client::prelude::*,
 };
@@ -27,106 +28,9 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 	restore_rootfs_symlinks(&arg.path)?;
 	create_rootfs_mountpoints(&arg.path)?;
 
+	let libraries = libraries::resolve(&arg.tangram_path)?;
 	let lib_path = arg.path.join("opt/tangram/lib");
-	let output = std::process::Command::new("ldd")
-		.arg(&arg.tangram_path)
-		.output()
-		.map_err(|error| {
-			if error.kind() == std::io::ErrorKind::NotFound {
-				tg::error!(
-					"failed to create the sandbox rootfs: could not execute `ldd`; install `ldd` on this Linux host"
-				)
-			} else {
-				tg::error!(
-					!error,
-					path = %arg.tangram_path.display(),
-					"failed to execute `ldd`"
-				)
-			}
-		})?;
-	if !output.status.success() {
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		let stdout = String::from_utf8_lossy(&output.stdout);
-		return Err(tg::error!(
-			status = %output.status,
-			path = %arg.tangram_path.display(),
-			stderr = %stderr.trim(),
-			stdout = %stdout.trim(),
-			"`ldd` failed"
-		));
-	}
-	let stdout = String::from_utf8(output.stdout)
-		.map_err(|error| tg::error!(!error, "failed to parse the `ldd` output"))?;
-	for line in stdout.lines() {
-		let line = line.trim();
-		if line.is_empty() || line.starts_with("linux-vdso") {
-			continue;
-		}
-		let parsed = if let Some((name, path)) = line.split_once("=>") {
-			let name = name.trim();
-			let path = path.trim();
-			if path == "not found" {
-				return Err(tg::error!(
-					dependency = %name,
-					executable = %arg.tangram_path.display(),
-					"`ldd` reported a missing dependency"
-				));
-			}
-			let path = path
-				.split_whitespace()
-				.next()
-				.ok_or_else(|| tg::error!("failed to parse a path from the `ldd` output"))?;
-			path.starts_with('/').then(|| PathBuf::from(path))
-		} else if line.starts_with('/') {
-			let path = line
-				.split_whitespace()
-				.next()
-				.ok_or_else(|| tg::error!("failed to parse a path from the `ldd` output"))?;
-			Some(PathBuf::from(path))
-		} else {
-			None
-		};
-		let Some(dependency_path) = parsed else {
-			continue;
-		};
-		let source = std::fs::canonicalize(&dependency_path).map_err(|error| {
-			tg::error!(
-				!error,
-				path = %dependency_path.display(),
-				"failed to canonicalize the library path"
-			)
-		})?;
-		let name = dependency_path
-			.file_name()
-			.and_then(|name| name.to_str())
-			.ok_or_else(|| {
-				tg::error!(
-					path = %dependency_path.display(),
-					"failed to get the library file name"
-				)
-			})?;
-		let target = lib_path.join(name);
-		if target.exists() {
-			continue;
-		}
-		if std::fs::hard_link(&source, &target).is_err() {
-			std::fs::copy(&source, &target).map_err(|error| {
-				tg::error!(
-					!error,
-					source = %source.display(),
-					target = %target.display(),
-					"failed to stage the shared library"
-				)
-			})?;
-		}
-		std::fs::set_permissions(&target, permissions.clone()).map_err(|error| {
-			tg::error!(
-				!error,
-				path = %target.display(),
-				"failed to set sandbox file permissions"
-			)
-		})?;
-	}
+	libraries::stage(&lib_path, &libraries)?;
 	Ok(())
 }
 

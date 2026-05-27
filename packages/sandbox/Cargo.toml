@@ -17,6 +17,7 @@ test = false
 workspace = true
 
 [features]
+foundationdb = []
 vsock = ["dep:tokio-vsock"]
 
 [dependencies]

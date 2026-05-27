@@ -952,10 +952,27 @@ export def --env spawn [
 	}
 
 	# Wait for the server to be ready.
-	let ready_output = (open /dev/null | timeout 30 bash -c 'od -An -t u1 -N1 "$1"' _ $ready_path | complete)
+	let ready_timeout = 30sec
+	let ready_timeout_secs = $ready_timeout | into int | $in / 1_000_000_000
+	let ready_output = (open /dev/null | timeout $ready_timeout_secs bash -c 'od -An -t u1 -N1 "$1"' _ $ready_path | complete)
 	rm -f $ready_path
-	assert ($ready_output.exit_code == 0) "the server did not signal readiness"
-	assert (($ready_output.stdout | str trim) == '0') "the server signaled an invalid readiness byte"
+	let ready_byte = ($ready_output.stdout | str trim)
+	if $ready_output.exit_code != 0 {
+		error make {
+			msg: $"the server did not signal readiness within ($ready_timeout)"
+		}
+	}
+	if $ready_byte != '0' {
+		error make {
+			msg: (
+				if ($ready_byte | is-empty) {
+					'the server exited before signaling readiness; check the server output above'
+				} else {
+					$"the server signaled an invalid readiness byte: ($ready_byte)"
+				}
+			)
+		}
+	}
 
 	# Tag busybox if requested.
 	if $busybox {
