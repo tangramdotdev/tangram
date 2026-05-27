@@ -357,9 +357,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		);
 		if arg.create_snapshot.is_none() {
 			cloud_hypervisor_args.push("--fs".into());
-			cloud_hypervisor_args.push(
-				format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into(),
-			);
+			cloud_hypervisor_args
+				.push(format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into());
 			cloud_hypervisor_args.push("--fs".into());
 			cloud_hypervisor_args
 				.push(format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}").into());

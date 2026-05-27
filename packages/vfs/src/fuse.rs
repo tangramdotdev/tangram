@@ -4,7 +4,9 @@ use {
 		fuse_forget_in, fuse_getattr_in, fuse_getxattr_in, fuse_getxattr_out, fuse_in_header,
 		fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header, fuse_read_in, fuse_release_in,
 	},
-	crate::{FileType, Provider, Request as ProviderRequest, Response as ProviderResponse, Result},
+	crate::{
+		AttrsInner, Provider, Request as ProviderRequest, Response as ProviderResponse, Result,
+	},
 	bytes::Bytes,
 	io_uring::{IoUring, opcode, types},
 	num::ToPrimitive as _,
@@ -1930,20 +1932,20 @@ where
 			.enumerate()
 			.skip(request.offset.to_usize().unwrap());
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
-		for (offset, (name, node, typ)) in entries {
+		for (offset, (name, node, inner)) in entries {
 			let attr = if plus {
 				Some(self.provider.getattr(node).await?)
 			} else {
 				None
 			};
 			let type_ = if let Some(attr) = attr {
-				match attr.typ {
-					FileType::Directory => S_IFDIR,
-					FileType::File { .. } => S_IFREG,
-					FileType::Symlink => S_IFLNK,
+				match attr.inner {
+					AttrsInner::Directory => S_IFDIR,
+					AttrsInner::File { .. } => S_IFREG,
+					AttrsInner::Symlink => S_IFLNK,
 				}
 			} else {
-				Self::fuse_dirent_type(typ)
+				Self::fuse_dirent_type(inner)
 			};
 			let name = name.into_bytes();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
@@ -1983,7 +1985,7 @@ where
 		}
 	}
 	fn build_read_dir_response_sync(
-		entries: Vec<(String, u64, crate::DirEntryType)>,
+		entries: Vec<(String, u64, crate::EntryKind)>,
 		request: fuse_read_in,
 	) -> Response {
 		let entries = entries
@@ -2033,10 +2035,10 @@ where
 				break;
 			}
 
-			let type_ = match attr.typ {
-				FileType::Directory => S_IFDIR,
-				FileType::File { .. } => S_IFREG,
-				FileType::Symlink => S_IFLNK,
+			let type_ = match attr.inner {
+				AttrsInner::Directory => S_IFDIR,
+				AttrsInner::File { .. } => S_IFREG,
+				AttrsInner::Symlink => S_IFLNK,
 			};
 
 			let dirent = FuseDirentHeader {
@@ -2342,13 +2344,13 @@ where
 	}
 
 	fn fuse_attr_out(node: u64, attr: crate::Attrs) -> fuse_attr_out {
-		let (size, mode) = match attr.typ {
-			FileType::Directory => (0, S_IFDIR | 0o555),
-			FileType::File { executable, size } => (
+		let (size, mode) = match attr.inner {
+			AttrsInner::Directory => (0, S_IFDIR | 0o555),
+			AttrsInner::File { executable, size } => (
 				size,
 				S_IFREG | 0o444 | (if executable { 0o111 } else { 0o000 }),
 			),
-			FileType::Symlink => (0, S_IFLNK | 0o444),
+			AttrsInner::Symlink => (0, S_IFLNK | 0o444),
 		};
 		let mode = mode.to_u32().unwrap();
 		fuse_attr_out {
@@ -2404,11 +2406,11 @@ where
 		}
 	}
 
-	fn fuse_dirent_type(type_: crate::DirEntryType) -> u32 {
-		match type_ {
-			crate::DirEntryType::Directory => S_IFDIR,
-			crate::DirEntryType::File => S_IFREG,
-			crate::DirEntryType::Symlink => S_IFLNK,
+	fn fuse_dirent_type(kind: crate::EntryKind) -> u32 {
+		match kind {
+			crate::EntryKind::Directory => S_IFDIR,
+			crate::EntryKind::File => S_IFREG,
+			crate::EntryKind::Symlink => S_IFLNK,
 		}
 	}
 }

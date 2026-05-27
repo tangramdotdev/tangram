@@ -35,7 +35,7 @@ use {
 			specdata4, stateid4, verifier4,
 		},
 	},
-	crate::{Attrs, FileType, Provider as _},
+	crate::{Attrs, AttrsInner, Provider as _},
 	dashmap::DashMap,
 	futures::{TryFutureExt as _, future},
 	num::ToPrimitive as _,
@@ -527,17 +527,17 @@ where
 		};
 		let access = match attr {
 			ExtAttr::Normal(Attrs {
-				typ: FileType::Directory,
+				inner: AttrsInner::Directory,
 				..
 			})
 			| ExtAttr::AttrDir(_) => ACCESS4_EXECUTE | ACCESS4_READ | ACCESS4_LOOKUP,
 			ExtAttr::Normal(Attrs {
-				typ: FileType::Symlink,
+				inner: AttrsInner::Symlink,
 				..
 			})
 			| ExtAttr::AttrFile(_) => ACCESS4_READ,
 			ExtAttr::Normal(Attrs {
-				typ: FileType::File { executable, .. },
+				inner: AttrsInner::File { executable, .. },
 				..
 			}) => {
 				if executable {
@@ -606,7 +606,7 @@ where
 		let attr = self.provider.get_attr_ext(file_handle.0).await.ok()?;
 		let data = match attr {
 			ExtAttr::Normal(Attrs {
-				typ: FileType::Directory,
+				inner: AttrsInner::Directory,
 				..
 			}) => {
 				let handle = self.provider.opendir(file_handle.0).await.ok()?;
@@ -615,7 +615,7 @@ where
 				FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, len, O_RX)
 			},
 			ExtAttr::Normal(Attrs {
-				typ: FileType::File { size, executable },
+				inner: AttrsInner::File { size, executable },
 				..
 			}) => {
 				let mode = if executable { O_RX } else { O_RDONLY };
@@ -627,7 +627,7 @@ where
 				)
 			},
 			ExtAttr::Normal(Attrs {
-				typ: FileType::Symlink,
+				inner: AttrsInner::Symlink,
 				..
 			}) => FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, 1, O_RDONLY),
 			ExtAttr::AttrDir(len) => {
@@ -858,18 +858,18 @@ where
 		// "if the current file handle is not a regular file, an error will be returned to the client. In the case where the current filehandle represents a directory, NFS4ERR_ISDIR is returned; otherwise, NFS4ERR_INVAL is returned"
 		let size = match &attr {
 			ExtAttr::Normal(Attrs {
-				typ: FileType::File { size, .. },
+				inner: AttrsInner::File { size, .. },
 				..
 			}) => *size,
 			ExtAttr::Normal(Attrs {
-				typ: FileType::Directory,
+				inner: AttrsInner::Directory,
 				..
 			})
 			| ExtAttr::AttrDir(_) => {
 				return READ4res::Error(nfsstat4::NFS4ERR_ISDIR);
 			},
 			ExtAttr::Normal(Attrs {
-				typ: FileType::Symlink,
+				inner: AttrsInner::Symlink,
 				..
 			}) => {
 				return READ4res::Error(nfsstat4::NFS4ERR_INVAL);

@@ -73,9 +73,8 @@ pub fn run() -> tg::Result<ExitCode> {
 	configure_memory_hotplug();
 	online_cpus();
 
-	wait_for_virtiofs().map_err(|source| {
-		tg::error!(!source, "error waiting for virtiofs tags to connect")
-	})?;
+	wait_for_virtiofs()
+		.map_err(|source| tg::error!(!source, "error waiting for virtiofs tags to connect"))?;
 	tracing::trace!("virtiofs tags ready");
 	online_cpus();
 
@@ -176,9 +175,7 @@ fn mount_virtiofs(tag: &str, target: &str) -> tg::Result<()> {
 	};
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
-		return Err(
-			tg::error!(!error, %tag, %target, "failed to mount virtiofs"),
-		);
+		return Err(tg::error!(!error, %tag, %target, "failed to mount virtiofs"));
 	}
 	Ok(())
 }

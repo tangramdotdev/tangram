@@ -20,7 +20,6 @@ pub struct Bind {
 	pub target: PathBuf,
 }
 
-// Fork a helper process that serves the shared directory with virtiofsd and return its pid.
 pub fn spawn(
 	uid: libc::uid_t,
 	gid: libc::gid_t,
@@ -63,8 +62,7 @@ fn child_main(
 	binds: &[Bind],
 	log_path: &Path,
 ) -> tg::Result<()> {
-	// Enter a user and mount namespace so the bind mounts succeed without privileges and remain
-	// private to this helper.
+	// Enter a user and mount namespace.
 	enter_namespace(uid, gid)?;
 
 	// Bind mount the user mounts into the share dir so virtiofsd serves them to the guest.
@@ -113,7 +111,7 @@ fn child_main(
 	}
 	drop(log);
 
-	// Enable logging. virtiofsd uses log instead of tracing.
+	// Enable logging.
 	let _logger = env_logger::Builder::new()
 		.filter_level(log::LevelFilter::Warn)
 		.target(env_logger::Target::Stderr)
