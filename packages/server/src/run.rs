@@ -4,6 +4,8 @@ mod process;
 mod progress;
 mod sandbox;
 
+pub(crate) use self::sandbox::SpawnSandboxTaskArg;
+
 #[derive(Clone, Debug)]
 pub struct Output {
 	pub checksum: Option<tg::Checksum>,
@@ -51,14 +53,15 @@ impl Server {
 				},
 			};
 
-			self.spawn_sandbox_task(
-				&output.sandbox,
-				output.token,
+			self.spawn_sandbox_task(SpawnSandboxTaskArg {
+				created_by: output.created_by,
+				id: output.sandbox,
 				location,
 				permit,
-				output.process,
-				output.process_token,
-			);
+				process: output.process,
+				process_token: output.process_token,
+				token: output.token,
+			});
 		}
 	}
 }

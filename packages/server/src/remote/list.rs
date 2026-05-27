@@ -189,13 +189,11 @@ impl Session {
 			"
 		);
 		let params = db::params![sandbox.id.to_string()];
-		let Some(row) = connection
+		let created_by = connection
 			.query_optional_into::<SandboxRow>(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Err(tg::error!(sandbox = %sandbox.id, "failed to find the sandbox"));
-		};
+			.map_or_else(|| sandbox.created_by.clone(), |row| row.created_by);
 		drop(connection);
 
 		let connection = self
@@ -215,7 +213,7 @@ impl Session {
 				order by name;
 			"#,
 		);
-		let user = row.created_by.map(|user| user.to_string());
+		let user = created_by.as_ref().map(ToString::to_string);
 		let params = db::params![user];
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)

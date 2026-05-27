@@ -31,6 +31,7 @@ pub struct Process {
 
 #[derive(Clone, Debug)]
 pub struct Sandbox {
+	pub created_by: Option<tg::user::Id>,
 	pub id: tg::sandbox::Id,
 	pub location: tg::Location,
 	pub token: Option<String>,

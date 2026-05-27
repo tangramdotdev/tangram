@@ -200,7 +200,7 @@ impl Session {
 				};
 
 				// Grant subtree access to the artifact.
-				if let Some(principal) = session.object_write_principal() {
+				if let Some(principal) = session.write_principal() {
 					let arg = crate::object::store::GrantArg {
 						created_at: time::OffsetDateTime::now_utc().unix_timestamp(),
 						id: id.clone().into(),
@@ -406,7 +406,7 @@ impl Session {
 		.map_err(|error| tg::error!(!error, "failed to create blobs"))?;
 
 		// Create artifacts.
-		let principal = self.object_write_principal();
+		let principal = self.write_principal();
 		Self::checkin_create_artifacts(
 			&self.server.config.checkin,
 			&arg,

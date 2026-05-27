@@ -60,6 +60,8 @@ impl Session {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			cpu: Option<i64>,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			created_by: Option<tg::user::Id>,
 			hostname: Option<String>,
 			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Isolation>>")]
 			isolation: Option<tg::sandbox::Isolation>,
@@ -85,6 +87,7 @@ impl Session {
 			r#"
 				select
 					cpu,
+					created_by,
 					hostname,
 					isolation,
 					memory,
@@ -110,6 +113,8 @@ impl Session {
 						.map(u64::try_from)
 						.transpose()
 						.map_err(|error| tg::error!(!error, "invalid sandbox cpu"))?,
+					created_by: row.created_by,
+					hostname: row.hostname,
 					id: id.clone(),
 					isolation: row.isolation,
 					location: Some(self.server.config().region.clone().map_or_else(
@@ -120,7 +125,6 @@ impl Session {
 							})
 						},
 					)),
-					hostname: row.hostname,
 					memory: row
 						.memory
 						.map(u64::try_from)

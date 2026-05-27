@@ -181,7 +181,7 @@ impl Session {
 	}
 
 	async fn sync_get_grant(&self, state: &State) -> tg::Result<()> {
-		let Some(principal) = self.object_write_principal() else {
+		let Some(principal) = self.write_principal() else {
 			return Ok(());
 		};
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();

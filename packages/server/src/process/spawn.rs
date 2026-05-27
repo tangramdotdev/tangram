@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, context::Authentication, database},
+	crate::{Server, Session, context::Authentication, database, run::SpawnSandboxTaskArg},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},
@@ -23,6 +23,7 @@ mod sqlite;
 #[derive(derive_more::Debug)]
 struct LocalOutput {
 	cached: bool,
+	created_by: Option<tg::user::Id>,
 	id: tg::process::Id,
 	lease: Option<String>,
 	#[debug(ignore)]
@@ -209,7 +210,7 @@ impl Session {
 			None
 		};
 
-		if let (Some(output), Some(principal)) = (&output, self.process_write_principal()) {
+		if let (Some(output), Some(principal)) = (&output, self.write_principal()) {
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			self.server
 				.grant_process_with_transaction(&transaction, &output.id, &principal, now)
@@ -240,14 +241,15 @@ impl Session {
 		{
 			let sandbox = &output.sandbox;
 			if let Some(permit) = output.permit.take() {
-				self.server.spawn_sandbox_task(
-					sandbox,
-					None,
-					tg::Location::Local(tg::location::Local::default()),
+				self.server.spawn_sandbox_task(SpawnSandboxTaskArg {
+					created_by: output.created_by.clone(),
+					id: sandbox.clone(),
+					location: tg::Location::Local(tg::location::Local::default()),
 					permit,
-					Some(output.id.clone()),
-					None,
-				);
+					process: Some(output.id.clone()),
+					process_token: None,
+					token: None,
+				});
 			} else if output.sandbox_status == Some(tg::sandbox::Status::Created) {
 				self.spawn_publish_sandbox_processes_created_message_task(sandbox);
 				self.spawn_publish_sandboxes_created_message_task();
@@ -256,6 +258,7 @@ impl Session {
 						parent_sandbox.as_ref(),
 						sandbox,
 						&output.id,
+						output.created_by.clone(),
 					);
 				}
 			} else {
@@ -846,6 +849,7 @@ impl Session {
 
 		Ok(Some(LocalOutput {
 			cached: true,
+			created_by: None,
 			id: id.clone(),
 			lease,
 			permit: None,
@@ -1094,7 +1098,8 @@ impl Session {
 			.and_then(|authentication| match authentication {
 				Authentication::User(user) => Some(user.id.clone()),
 				Authentication::Process(process) => process.created_by.clone(),
-				Authentication::Root | Authentication::Runner | Authentication::Sandbox(_) => None,
+				Authentication::Sandbox(sandbox) => sandbox.created_by.clone(),
+				Authentication::Root | Authentication::Runner => None,
 			})
 			.map(|user| user.to_string());
 		let params = db::params![
@@ -1159,6 +1164,7 @@ impl Session {
 
 		Ok(Some(LocalOutput {
 			cached: true,
+			created_by: None,
 			id,
 			lease: None,
 			permit: None,
@@ -1318,9 +1324,15 @@ impl Session {
 			.and_then(|authentication| match authentication {
 				Authentication::User(user) => Some(user.id.clone()),
 				Authentication::Process(process) => process.created_by.clone(),
-				Authentication::Root | Authentication::Runner | Authentication::Sandbox(_) => None,
+				Authentication::Sandbox(sandbox) => sandbox.created_by.clone(),
+				Authentication::Root | Authentication::Runner => None,
 			})
 			.map(|user| user.to_string());
+		let created_by_id = created_by
+			.as_ref()
+			.map(|user| user.parse::<tg::user::Id>())
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the user id"))?;
 		let params = db::params![
 			cacheable,
 			arg.command.item.to_string(),
@@ -1371,6 +1383,7 @@ impl Session {
 
 		Ok(LocalOutput {
 			cached: false,
+			created_by: created_by_id,
 			id,
 			lease: Some(lease),
 			permit,
@@ -1393,8 +1406,12 @@ impl Session {
 			.context
 			.authentication
 			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.map(|user| user.id.clone());
+			.and_then(|authentication| match authentication {
+				Authentication::User(user) => Some(user.id.clone()),
+				Authentication::Process(process) => process.created_by.clone(),
+				Authentication::Sandbox(sandbox) => sandbox.created_by.clone(),
+				Authentication::Root | Authentication::Runner => None,
+			});
 		let statement = formatdoc!(
 			r#"
 				insert into sandboxes (
@@ -1739,6 +1756,7 @@ impl Session {
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		id: &tg::sandbox::Id,
 		process: &tg::process::Id,
+		created_by: Option<tg::user::Id>,
 	) {
 		tokio::spawn({
 			let session = self.clone();
@@ -1791,14 +1809,15 @@ impl Session {
 					return;
 				}
 
-				session.server.spawn_sandbox_task(
-					&sandbox,
-					None,
-					tg::Location::Local(tg::location::Local::default()),
+				session.server.spawn_sandbox_task(SpawnSandboxTaskArg {
+					created_by,
+					id: sandbox,
+					location: tg::Location::Local(tg::location::Local::default()),
 					permit,
-					Some(process),
-					None,
-				);
+					process: Some(process),
+					process_token: None,
+					token: None,
+				});
 			}
 		});
 	}

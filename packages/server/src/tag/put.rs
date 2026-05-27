@@ -129,7 +129,7 @@ impl Session {
 		let tg::Either::Left(id) = item else {
 			return Ok(());
 		};
-		let principal = self.object_read_principal();
+		let principal = self.read_principal();
 		let arg = crate::object::store::TryGetArg {
 			id: id.clone(),
 			now: time::OffsetDateTime::now_utc().unix_timestamp(),
@@ -171,7 +171,7 @@ impl Session {
 			return Ok(());
 		}
 
-		let principal = self.object_read_principal();
+		let principal = self.read_principal();
 		let arg = crate::object::store::TryGetBatchArg {
 			ids: object_items.iter().map(|(_, id)| (*id).clone()).collect(),
 			now: time::OffsetDateTime::now_utc().unix_timestamp(),

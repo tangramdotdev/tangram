@@ -45,12 +45,17 @@ impl Session {
 	) -> tg::Result<tg::sandbox::create::Output> {
 		arg = Self::normalize_sandbox_create_arg(arg)?;
 		let id = tg::sandbox::Id::new();
-		let created_by = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.map(|user| user.id.clone());
+		let created_by =
+			self.context
+				.authentication
+				.as_ref()
+				.and_then(|authentication| match authentication {
+					crate::context::Authentication::User(user) => Some(user.id.clone()),
+					crate::context::Authentication::Process(process) => process.created_by.clone(),
+					crate::context::Authentication::Sandbox(sandbox) => sandbox.created_by.clone(),
+					crate::context::Authentication::Root
+					| crate::context::Authentication::Runner => None,
+				});
 		let connection = self
 			.server
 			.process_store

@@ -88,7 +88,7 @@ impl Session {
 		progress.finish("bytes");
 
 		// Convert blobs to store args and index messages.
-		let principal = self.object_write_principal();
+		let principal = self.write_principal();
 		let mut entries = Vec::new();
 		for (_, output) in &blobs {
 			let mut stack = vec![output];

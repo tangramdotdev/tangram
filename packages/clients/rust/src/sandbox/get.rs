@@ -18,6 +18,12 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu: Option<u64>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub created_by: Option<tg::user::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub hostname: Option<String>,
+
 	pub id: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -25,9 +31,6 @@ pub struct Output {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub hostname: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<u64>,

@@ -73,7 +73,17 @@ impl Session {
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.process_read_principal();
+		let sandbox = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_sandbox_ref().ok())
+			.map(|sandbox| sandbox.id.clone());
+		let principal = if sandbox.is_some() {
+			tg::Principal::Root
+		} else {
+			self.read_principal()
+		};
 
 		// Get the process from the process store.
 		let data_future = async {
@@ -122,6 +132,14 @@ impl Session {
 					output.metadata = metadata;
 					output
 				})
+			})
+			.map(|output| {
+				if let (Some(output), Some(sandbox)) = (&output, &sandbox)
+					&& output.data.sandbox != *sandbox
+				{
+					return None;
+				}
+				output
 			})
 			.collect();
 

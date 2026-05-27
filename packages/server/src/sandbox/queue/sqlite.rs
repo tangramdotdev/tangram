@@ -32,23 +32,29 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let statement = indoc!(
 			"
-				select id
+				select id, created_by
 				from sandboxes
 				where status = 'created'
 				order by created_at, id
 				limit 1;
 			"
 		);
-		let sandbox = transaction
-			.query_row(statement, [], |row| row.get::<_, String>(0))
+		let row = transaction
+			.query_row(statement, [], |row| {
+				Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+			})
 			.optional()
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let Some(sandbox) = sandbox else {
+		let Some((sandbox, created_by)) = row else {
 			return Ok(None);
 		};
 		let sandbox = sandbox
 			.parse::<tg::sandbox::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
+		let created_by = created_by
+			.map(|user| user.parse::<tg::user::Id>())
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the user id"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let statement = indoc!(
 			"
@@ -147,6 +153,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		let output = LocalOutput {
+			created_by,
 			process,
 			process_token,
 			sandbox,

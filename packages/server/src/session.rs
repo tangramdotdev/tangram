@@ -30,38 +30,33 @@ impl Session {
 	}
 
 	#[must_use]
-	pub(crate) fn object_read_principal(&self) -> tg::Principal {
+	pub(crate) fn read_principal(&self) -> tg::Principal {
 		match self.context.authentication.as_ref() {
-			Some(Authentication::Runner) => tg::Principal::All,
+			None | Some(Authentication::Runner) => tg::Principal::All,
+			Some(Authentication::Process(process)) => process
+				.created_by
+				.clone()
+				.map_or(tg::Principal::Root, tg::Principal::User),
+			Some(Authentication::Root) => tg::Principal::Root,
+			Some(Authentication::Sandbox(sandbox)) => sandbox
+				.created_by
+				.clone()
+				.map_or(tg::Principal::Root, tg::Principal::User),
 			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
-			_ => tg::Principal::Root,
 		}
 	}
 
 	#[must_use]
-	pub(crate) fn object_write_principal(&self) -> Option<tg::Principal> {
-		let principal = self.object_read_principal();
-		principal.is_user().then_some(principal)
-	}
-
-	#[must_use]
-	pub(crate) fn process_read_principal(&self) -> tg::Principal {
-		match self.context.authentication.as_ref() {
-			Some(Authentication::Runner) => tg::Principal::All,
-			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
-			_ => tg::Principal::Root,
-		}
-	}
-
-	#[must_use]
-	pub(crate) fn process_write_principal(&self) -> Option<tg::Principal> {
+	pub(crate) fn write_principal(&self) -> Option<tg::Principal> {
 		match self.context.authentication.as_ref() {
 			Some(Authentication::User(user)) => Some(tg::Principal::User(user.id.clone())),
 			Some(Authentication::Process(process)) => {
 				process.created_by.clone().map(tg::Principal::User)
 			},
-			None
-			| Some(Authentication::Root | Authentication::Runner | Authentication::Sandbox(_)) => None,
+			Some(Authentication::Sandbox(sandbox)) => {
+				sandbox.created_by.clone().map(tg::Principal::User)
+			},
+			None | Some(Authentication::Root | Authentication::Runner) => None,
 		}
 	}
 

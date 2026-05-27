@@ -75,6 +75,20 @@ impl Server {
 	}
 
 	pub(crate) async fn authenticate_process(&self, token: &str) -> tg::Result<Option<Process>> {
+		if let Some(process) = self.sandboxes.iter().find_map(|sandbox| {
+			sandbox.get_process(token).map(|process| Process {
+				created_by: process.created_by().cloned(),
+				debug: process.debug().cloned(),
+				id: process.id().clone(),
+				location: process.location().cloned(),
+				retry: process.retry(),
+				sandbox: process.sandbox().clone(),
+				token: process.token().to_owned(),
+			})
+		}) {
+			return Ok(Some(process));
+		}
+
 		let connection = self
 			.process_store
 			.connection()
@@ -117,18 +131,7 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		else {
-			let process = self.sandboxes.iter().find_map(|sandbox| {
-				sandbox.get_process(token).map(|process| Process {
-					created_by: None,
-					debug: process.debug().cloned(),
-					id: process.id().clone(),
-					location: process.location().cloned(),
-					retry: process.retry(),
-					sandbox: process.sandbox().clone(),
-					token: process.token().to_owned(),
-				})
-			});
-			return Ok(process);
+			return Ok(None);
 		};
 
 		let process = Process {
@@ -180,6 +183,18 @@ impl Server {
 	}
 
 	pub(crate) async fn authenticate_sandbox(&self, token: &str) -> tg::Result<Option<Sandbox>> {
+		if let Some(sandbox) = self.sandboxes.iter().find_map(|sandbox| {
+			let sandbox = sandbox.value();
+			(sandbox.token() == Some(token)).then(|| Sandbox {
+				created_by: sandbox.created_by().cloned(),
+				id: sandbox.id().clone(),
+				location: sandbox.location().clone(),
+				token: Some(token.to_owned()),
+			})
+		}) {
+			return Ok(Some(sandbox));
+		}
+
 		let connection = self
 			.process_store
 			.connection()
@@ -189,14 +204,17 @@ impl Server {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			created_by: Option<tg::user::Id>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::sandbox::Id,
 		}
 
 		let statement = formatdoc!(
 			"
-				select sandbox as id
+				select sandboxes.created_by, sandboxes.id
 				from sandbox_tokens
+				join sandboxes on sandboxes.id = sandbox_tokens.sandbox
 				where token = {p}1;
 			"
 		);
@@ -209,6 +227,7 @@ impl Server {
 			return Ok(None);
 		};
 		let sandbox = Sandbox {
+			created_by: row.created_by,
 			id: row.id,
 			location: tg::Location::Local(tg::location::Local::default()),
 			token: Some(token.to_owned()),

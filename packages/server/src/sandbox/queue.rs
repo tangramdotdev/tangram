@@ -15,6 +15,7 @@ mod postgres;
 mod sqlite;
 
 pub(super) struct LocalOutput {
+	created_by: Option<tg::user::Id>,
 	process: Option<tg::process::Id>,
 	process_token: Option<String>,
 	sandbox: tg::sandbox::Id,
@@ -101,6 +102,7 @@ impl Session {
 			};
 			if let Some(output) = output {
 				let output = tg::sandbox::queue::Output {
+					created_by: output.created_by,
 					process: output.process,
 					process_token: output.process_token,
 					sandbox: output.sandbox,

@@ -56,7 +56,7 @@ impl Session {
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.process_write_principal();
+		let principal = self.write_principal();
 		let created_by = self
 			.context
 			.authentication

@@ -52,6 +52,7 @@ pub struct State {
 
 #[derive(Clone, Debug)]
 pub struct Process {
+	created_by: Option<tg::user::Id>,
 	debug: Option<tg::process::Debug>,
 	id: tg::process::Id,
 	location: Option<tg::Location>,
@@ -63,6 +64,7 @@ pub struct Process {
 #[derive(Clone, Debug)]
 pub struct SpawnArg {
 	pub command: Command,
+	pub created_by: Option<tg::user::Id>,
 	pub debug: Option<tg::process::Debug>,
 	pub id: tg::process::Id,
 	pub location: Option<tg::Location>,
@@ -76,6 +78,7 @@ pub struct SpawnArg {
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
+	pub created_by: Option<tg::user::Id>,
 	pub dns: Vec<Ipv4Addr>,
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
@@ -85,6 +88,7 @@ pub struct Arg {
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
 	pub isolation: Isolation,
+	pub location: tg::Location,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<Network>,
@@ -93,6 +97,7 @@ pub struct Arg {
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub tangram_socket_path: Option<PathBuf>,
+	pub token: Option<String>,
 	pub user: Option<String>,
 }
 
@@ -504,6 +509,7 @@ impl Sandbox {
 		};
 		self.0.client.spawn(spawn_arg).await?;
 		let process = Process {
+			created_by: arg.created_by.clone(),
 			debug: arg.debug.clone(),
 			id: id.clone(),
 			location: arg.location.clone(),
@@ -517,6 +523,11 @@ impl Sandbox {
 		Ok(process)
 	}
 
+	#[must_use]
+	pub fn created_by(&self) -> Option<&tg::user::Id> {
+		self.0.arg.created_by.as_ref()
+	}
+
 	pub fn remove_process(&self, token: &str) {
 		self.0.processes.remove(token);
 	}
@@ -527,6 +538,30 @@ impl Sandbox {
 			.processes
 			.get(token)
 			.map(|process| process.value().clone())
+	}
+
+	#[must_use]
+	pub fn id(&self) -> &tg::sandbox::Id {
+		&self.0.arg.id
+	}
+
+	#[must_use]
+	pub fn location(&self) -> &tg::Location {
+		&self.0.arg.location
+	}
+
+	#[must_use]
+	pub fn processes(&self) -> Vec<Process> {
+		self.0
+			.processes
+			.iter()
+			.map(|process| process.value().clone())
+			.collect()
+	}
+
+	#[must_use]
+	pub fn token(&self) -> Option<&str> {
+		self.0.arg.token.as_deref()
 	}
 
 	pub async fn set_tty_size(
@@ -588,6 +623,11 @@ impl Sandbox {
 }
 
 impl Process {
+	#[must_use]
+	pub fn created_by(&self) -> Option<&tg::user::Id> {
+		self.created_by.as_ref()
+	}
+
 	#[must_use]
 	pub fn debug(&self) -> Option<&tg::process::Debug> {
 		self.debug.as_ref()

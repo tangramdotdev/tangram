@@ -20,9 +20,18 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub sandbox: tg::sandbox::Id,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub created_by: Option<tg::user::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<tg::process::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_token: Option<String>,
+
+	pub sandbox: tg::sandbox::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
 

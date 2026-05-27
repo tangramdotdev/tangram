@@ -1,5 +1,5 @@
 use {
-	super::process::ProcessTask,
+	super::process::SpawnProcessTaskArg,
 	crate::{Context, Server, Session, context::Authentication, temp::Temp},
 	futures::{FutureExt as _, TryStreamExt as _, future},
 	std::{pin::pin, sync::Arc},
@@ -10,27 +10,30 @@ use {
 
 mod listener;
 
+pub(crate) struct SpawnSandboxTaskArg {
+	pub created_by: Option<tg::user::Id>,
+	pub id: tg::sandbox::Id,
+	pub location: tg::Location,
+	pub permit: crate::sandbox::Permit,
+	pub process: Option<tg::process::Id>,
+	pub process_token: Option<String>,
+	pub token: Option<String>,
+}
+
 impl Server {
-	pub(crate) fn spawn_sandbox_task(
-		&self,
-		id: &tg::sandbox::Id,
-		token: Option<String>,
-		location: tg::Location,
-		permit: crate::sandbox::Permit,
-		process: Option<tg::process::Id>,
-		process_token: Option<String>,
-	) {
+	pub(crate) fn spawn_sandbox_task(&self, task: SpawnSandboxTaskArg) {
 		self.sandbox_tasks
-			.spawn(id.clone(), |_| {
+			.spawn(task.id.clone(), |_| {
 				let server = self.clone();
-				let id = id.clone();
+				let id = task.id;
 				async move {
 					// Create the session.
 					let context = Context {
 						authentication: Some(Authentication::Sandbox(crate::context::Sandbox {
+							created_by: task.created_by.clone(),
 							id: id.clone(),
-							location: location.clone(),
-							token: token.clone(),
+							location: task.location.clone(),
+							token: task.token.clone(),
 						})),
 						..server.context.clone()
 					};
@@ -38,7 +41,14 @@ impl Server {
 
 					// Run the sandbox task.
 					let result = session
-						.sandbox_task(&id, location.clone(), permit, process, process_token)
+						.sandbox_task(
+							&id,
+							task.location.clone(),
+							task.permit,
+							task.process,
+							task.token.clone(),
+							task.process_token,
+						)
 						.boxed()
 						.await;
 
@@ -53,7 +63,7 @@ impl Server {
 						}
 						let arg = tg::sandbox::destroy::Arg {
 							error: Some(error),
-							location: Some(location.into()),
+							location: Some(task.location.into()),
 						};
 						let result = session.destroy_sandbox(&id, arg).await;
 						if let Err(error) = result {
@@ -77,6 +87,7 @@ impl Session {
 		location: tg::Location,
 		permit: crate::sandbox::Permit,
 		process: Option<tg::process::Id>,
+		token: Option<String>,
 		process_token: Option<String>,
 	) -> tg::Result<()> {
 		// Get the sandbox.
@@ -219,6 +230,7 @@ impl Session {
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
+			created_by: state.created_by.clone(),
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
 			firewall: match self.server.config.sandbox.network.firewall {
@@ -233,6 +245,7 @@ impl Session {
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
 			isolation,
+			location: location.clone(),
 			memory: state.memory,
 			mounts,
 			network,
@@ -241,6 +254,7 @@ impl Session {
 			rootfs_path,
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
+			token: token.clone(),
 			user: state.user.clone(),
 		};
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
@@ -296,17 +310,15 @@ impl Session {
 
 		// If the sandbox was created with a process, then start it. Otherwise, start the timer.
 		if let Some(process) = process {
-			self.spawn_process_task(
-				&mut process_tasks,
-				&process_stopper,
-				ProcessTask {
-					process: process.clone(),
-					token: process_token,
-				},
-				&location,
-				&sandbox,
-				&guest_url,
-			);
+			self.spawn_process_task(SpawnProcessTaskArg {
+				guest_url: &guest_url,
+				location: &location,
+				process: process.clone(),
+				process_stopper: &process_stopper,
+				process_tasks: &mut process_tasks,
+				sandbox: &sandbox,
+				token: process_token,
+			});
 		} else if let Some(ttl) = ttl {
 			timer.replace(tokio::time::sleep(ttl).boxed());
 		}
@@ -325,17 +337,15 @@ impl Session {
 				output = &mut dequeue => {
 					let output = output.map_err(|error| tg::error!(!error, "failed to dequeue a process"))?;
 					timer.take();
-					self.spawn_process_task(
-						&mut process_tasks,
-						&process_stopper,
-						ProcessTask {
-							process: output.process.clone(),
-							token: Some(output.token),
-						},
-						&location,
-						&sandbox,
-						&guest_url,
-					);
+					self.spawn_process_task(SpawnProcessTaskArg {
+						guest_url: &guest_url,
+						location: &location,
+						process: output.process.clone(),
+						process_stopper: &process_stopper,
+						process_tasks: &mut process_tasks,
+						sandbox: &sandbox,
+						token: Some(output.token),
+					});
 					dequeue = self.dequeue_sandbox_process(id, &location).boxed();
 				},
 

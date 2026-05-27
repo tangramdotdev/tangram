@@ -49,7 +49,7 @@ impl Session {
 			bytes: Some(arg.bytes.clone()),
 			cache_pointer: None,
 			id: id.clone(),
-			principal: self.object_write_principal(),
+			principal: self.write_principal(),
 			stored_at: now,
 		};
 		self.server

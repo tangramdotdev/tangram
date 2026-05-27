@@ -9,7 +9,10 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn try_get_user(&self, user: &str) -> tg::Result<Option<tg::User>> {
+	pub(crate) async fn try_get_user(
+		&self,
+		arg: tg::user::get::Arg,
+	) -> tg::Result<Option<tg::User>> {
 		if self
 			.context
 			.authentication
@@ -18,6 +21,18 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
+
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(_) => self.try_get_user_local(&arg.namespace).await,
+			tg::Location::Remote(remote) => self.try_get_user_remote(arg, remote).await,
+		}
+	}
+
+	async fn try_get_user_local(&self, user: &str) -> tg::Result<Option<tg::User>> {
 		if self
 			.context
 			.authentication
@@ -42,6 +57,39 @@ impl Session {
 			.commit()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+
+		Ok(output)
+	}
+
+	async fn try_get_user_remote(
+		&self,
+		mut arg: tg::user::get::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::User>> {
+		let client = self
+			.get_remote_session(&remote.name)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					remote = %remote.name,
+					"failed to get the remote client"
+				)
+			})?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let mut output = client.try_get_user(arg).await.map_err(|error| {
+			tg::error!(
+				!error,
+				remote = %remote.name,
+				"failed to get the user"
+			)
+		})?;
+		if let Some(output) = &mut output {
+			output.location = Some(tg::Location::Remote(tg::location::Remote {
+				name: remote.name,
+				region: None,
+			}));
+		}
 		Ok(output)
 	}
 
@@ -108,8 +156,9 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(output) = self.try_get_user(&arg.namespace).await.map_err(
-			|error| tg::error!(!error, namespace = %arg.namespace, "failed to get the user"),
+		let namespace = arg.namespace.clone();
+		let Some(output) = self.try_get_user(arg).await.map_err(
+			|error| tg::error!(!error, namespace = %namespace, "failed to get the user"),
 		)?
 		else {
 			return Ok(http::Response::builder()

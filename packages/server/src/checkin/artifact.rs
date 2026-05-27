@@ -853,7 +853,7 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
-			principal: self.object_write_principal(),
+			principal: self.write_principal(),
 			stored_at: touched_at,
 		};
 		self.server

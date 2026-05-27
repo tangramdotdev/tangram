@@ -1,9 +1,6 @@
 use {
 	super::Output,
-	crate::{
-		Session,
-		context::{Authentication, Context},
-	},
+	crate::Session,
 	futures::TryStreamExt as _,
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -22,35 +19,32 @@ mod signal;
 mod stdio;
 mod tty;
 
-pub(super) struct ProcessTask {
-	pub(super) process: tg::process::Id,
-	pub(super) token: Option<String>,
+pub(super) struct SpawnProcessTaskArg<'a> {
+	pub guest_url: &'a tangram_uri::Uri,
+	pub location: &'a tg::Location,
+	pub process: tg::process::Id,
+	pub process_stopper: &'a Stopper,
+	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
+	pub sandbox: &'a tangram_sandbox::Sandbox,
+	pub token: Option<String>,
 }
 
 impl Session {
-	pub(super) fn spawn_process_task(
-		&self,
-		process_tasks: &mut JoinSet<tg::Result<()>>,
-		process_stopper: &Stopper,
-		process_task: ProcessTask,
-		location: &tg::Location,
-		sandbox: &tangram_sandbox::Sandbox,
-		guest_url: &tangram_uri::Uri,
-	) {
+	pub(super) fn spawn_process_task(&self, arg: SpawnProcessTaskArg<'_>) {
 		let session = self.clone();
 		let process = tg::Process::new(
-			process_task.process,
-			Some(location.clone().into()),
+			arg.process,
+			Some(arg.location.clone().into()),
 			None,
 			None,
 			None,
 			None,
 		);
-		let sandbox = sandbox.clone();
-		let token = process_task.token;
-		let guest_url = guest_url.clone();
-		let stopper = process_stopper.clone();
-		process_tasks.spawn(async move {
+		let sandbox = arg.sandbox.clone();
+		let token = arg.token;
+		let guest_url = arg.guest_url.clone();
+		let stopper = arg.process_stopper.clone();
+		arg.process_tasks.spawn(async move {
 			session
 				.process_task(&process, token, sandbox, guest_url, stopper)
 				.await
@@ -170,13 +164,20 @@ impl Session {
 		stopper: Stopper,
 	) -> tg::Result<Output> {
 		let id = process.id().unwrap_right();
+		let location = process
+			.location()
+			.and_then(|location| location.to_location());
+		let token =
+			match token {
+				Some(token) => token,
+				None => self.server.create_process_token(id).await.map_err(
+					|error| tg::error!(!error, %id, "failed to create the process token"),
+				)?,
+			};
 		let state = &process
 			.load_with_handle(self)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to load the process"))?;
-		let location = process
-			.location()
-			.and_then(|location| location.to_location());
 
 		let command = process
 			.command_with_handle(self)
@@ -336,16 +337,10 @@ impl Session {
 			stdout,
 			stderr,
 		};
-		let token =
-			match token {
-				Some(token) => token,
-				None => self.server.create_process_token(id).await.map_err(
-					|error| tg::error!(!error, %id, "failed to create the process token"),
-				)?,
-			};
 		let sandbox_process = sandbox
 			.spawn(tangram_sandbox::SpawnArg {
 				command: sandbox_command,
+				created_by: sandbox.created_by().cloned(),
 				debug: state.debug.clone(),
 				id: id.clone(),
 				location: location.clone(),
@@ -507,21 +502,6 @@ impl Session {
 			));
 		}
 
-		// Create the session.
-		let mut process = self
-			.server
-			.authenticate_process(&token)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to authenticate the process token"))?
-			.ok_or_else(|| tg::error!(%id, "failed to authenticate the process token"))?;
-		process.location = location.clone();
-		let authentication = Authentication::Process(Arc::new(process));
-		let context = Context {
-			authentication: Some(authentication),
-			..self.context.clone()
-		};
-		let session = self.server.session(&context);
-
 		// Create the output.
 		let mut output = Output {
 			checksum: None,
@@ -566,7 +546,7 @@ impl Session {
 
 		// Check in the output.
 		if output.value.is_none() && exists {
-			let path = session.guest_path_for_host_path(&path)?;
+			let path = self.guest_path_for_host_path(&path)?;
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,
@@ -580,7 +560,7 @@ impl Session {
 				path,
 				updates: Vec::new(),
 			};
-			let checkin_output = session
+			let checkin_output = self
 				.checkin(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the output"))?

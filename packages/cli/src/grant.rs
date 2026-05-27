@@ -134,7 +134,10 @@ impl Principal {
 					id
 				} else {
 					client
-						.try_get_user(user)
+						.try_get_user(tg::user::get::Arg {
+							namespace: user.clone(),
+							location: None,
+						})
 						.await?
 						.ok_or_else(|| tg::error!("failed to find the user"))?
 						.id

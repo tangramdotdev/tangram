@@ -109,7 +109,7 @@ impl Session {
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.object_read_principal();
+		let principal = self.read_principal();
 		let arg = crate::object::store::TryGetArg {
 			id: id.clone(),
 			now,
@@ -143,7 +143,7 @@ impl Session {
 		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.object_read_principal();
+		let principal = self.read_principal();
 		let arg = crate::object::store::TryGetArg {
 			id: id.clone(),
 			now,
@@ -252,7 +252,7 @@ impl Session {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Bytes>>> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.object_read_principal();
+		let principal = self.read_principal();
 		let arg = crate::object::store::TryGetBatchArg {
 			ids: ids.to_owned(),
 			now,

@@ -25,7 +25,7 @@ impl Session {
 		let statement = indoc!(
 			"
 				with candidate as (
-					select id
+					select id, created_by
 					from sandboxes
 					where status = 'created'
 					order by created_at, id
@@ -38,7 +38,7 @@ impl Session {
 					started_at = coalesce(started_at, $1),
 					status = 'started'
 				where id in (select id from candidate)
-				returning id;
+				returning id, created_by;
 			"
 		);
 		let rows = transaction
@@ -52,6 +52,11 @@ impl Session {
 			.get::<_, String>(0)
 			.parse::<tg::sandbox::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
+		let created_by = row
+			.get::<_, Option<String>>(1)
+			.map(|user| user.parse::<tg::user::Id>())
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the user id"))?;
 
 		let statement = indoc!(
 			"
@@ -127,6 +132,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		let output = LocalOutput {
+			created_by,
 			process,
 			process_token,
 			sandbox,

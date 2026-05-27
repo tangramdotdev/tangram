@@ -118,7 +118,7 @@ impl Session {
 		reader: impl AsyncRead,
 		destination: Option<&Destination>,
 	) -> tg::Result<Output> {
-		let principal = self.object_write_principal();
+		let principal = self.write_principal();
 
 		// Create the reader.
 		let reader = pin!(reader);
@@ -221,7 +221,7 @@ impl Session {
 		mut reader: impl Read,
 		destination: Option<&Destination>,
 	) -> tg::Result<Output> {
-		let principal = self.object_write_principal();
+		let principal = self.write_principal();
 
 		// Create the chunker.
 		let config = &self.server.config.write;
@@ -444,7 +444,7 @@ impl Session {
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		stored_at: i64,
 	) -> tg::Result<()> {
-		let principal = self.object_write_principal();
+		let principal = self.write_principal();
 		let arg =
 			Self::write_store_args(blob, cache_pointer.as_ref(), principal.as_ref(), stored_at);
 		self.server

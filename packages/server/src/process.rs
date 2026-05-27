@@ -169,7 +169,17 @@ impl Session {
 
 		// Check if the process exists.
 		let p = connection.p();
-		let principal = self.process_read_principal();
+		let sandbox = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_sandbox_ref().ok())
+			.map(|sandbox| sandbox.id.clone());
+		let principal = if sandbox.is_some() {
+			tg::Principal::Root
+		} else {
+			self.read_principal()
+		};
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let join = if principal.is_root() {
 			String::new()
@@ -183,15 +193,23 @@ impl Session {
 				"
 			)
 		};
+		let sandbox_condition = if principal.is_root() && sandbox.is_some() {
+			format!("and processes.sandbox = {p}2")
+		} else {
+			String::new()
+		};
 		let statement = formatdoc!(
 			"
 				select count(*) != 0
 				from processes
 				{join}
-				where processes.id = {p}1;
+				where processes.id = {p}1
+					{sandbox_condition};
 			"
 		);
-		let params = if principal.is_root() {
+		let params = if let Some(sandbox) = sandbox {
+			db::params![id.to_string(), sandbox.to_string()]
+		} else if principal.is_root() {
 			db::params![id.to_string()]
 		} else {
 			db::params![id.to_string(), principal.to_string(), now]

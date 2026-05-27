@@ -7,13 +7,13 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub namespace: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Session {
-	pub async fn try_get_user(&self, namespace: &str) -> tg::Result<Option<tg::User>> {
-		let arg = tg::user::get::Arg {
-			namespace: namespace.to_owned(),
-		};
+	pub async fn try_get_user(&self, arg: tg::user::get::Arg) -> tg::Result<Option<tg::User>> {
 		let uri = Uri::builder()
 			.path("/users")
 			.query_params(&arg)
@@ -51,7 +51,7 @@ impl tg::Session {
 }
 
 impl tg::Client {
-	pub async fn try_get_user(&self, namespace: &str) -> tg::Result<Option<tg::User>> {
-		self.session(self.context()).try_get_user(namespace).await
+	pub async fn try_get_user(&self, arg: tg::user::get::Arg) -> tg::Result<Option<tg::User>> {
+		self.session(self.context()).try_get_user(arg).await
 	}
 }
