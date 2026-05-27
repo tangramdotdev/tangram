@@ -23,12 +23,21 @@ let process_data = {
 
 tg --token $alice process put $alice_process ($process_data | to json)
 tg --token $alice process get $alice_process
+tg --token $alice process get $alice_process --metadata
+tg --token $alice process children $alice_process
 tg --token $alice index
 tg --token $alice process metadata $alice_process
 
 let output = tg --token $bob process get $alice_process | complete
 failure $output "Bob should not be able to get Alice's process without a grant."
 assert ($output.stderr | str contains "failed to find the process") "The error should match the missing process behavior."
+
+let output = tg --token $bob process get $alice_process --metadata | complete
+failure $output "Bob should not be able to get Alice's process and metadata without a grant."
+assert ($output.stderr | str contains "failed to find the process") "The error should match the missing process behavior."
+
+let output = tg --token $bob process children $alice_process | complete
+failure $output "Bob should not be able to get Alice's process children without a grant."
 
 let output = tg --token $bob process metadata $alice_process | complete
 failure $output "Bob should not be able to get Alice's process metadata without a grant."

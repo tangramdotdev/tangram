@@ -1,5 +1,5 @@
 use {
-	crate::{Server, database},
+	crate::{Server, Session, database},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -81,35 +81,6 @@ impl Server {
 		Ok(())
 	}
 
-	async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
-		// Get a database connection.
-		let connection = self
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		// Check if the process exists.
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select count(*) != 0
-				from processes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let exists = connection
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-		// Drop the database connection.
-		drop(connection);
-
-		Ok(exists)
-	}
-
 	pub(crate) async fn try_start_process_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
 		let connection = self
 			.process_store
@@ -143,7 +114,60 @@ impl Server {
 
 		Ok(true)
 	}
+}
 
+impl Session {
+	pub(crate) async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
+		// Get a database connection.
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+
+		// Check if the process exists.
+		let p = connection.p();
+		let principal = self.process_read_principal();
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let join = if principal.is_root() {
+			String::new()
+		} else {
+			formatdoc!(
+				"
+					join process_grants on
+						process_grants.process = processes.id and
+						process_grants.principal = {p}2 and
+						process_grants.expires_at > {p}3
+				"
+			)
+		};
+		let statement = formatdoc!(
+			"
+				select count(*) != 0
+				from processes
+				{join}
+				where processes.id = {p}1;
+			"
+		);
+		let params = if principal.is_root() {
+			db::params![id.to_string()]
+		} else {
+			db::params![id.to_string(), principal.to_string(), now]
+		};
+		let exists = connection
+			.query_one_value_into(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+
+		// Drop the database connection.
+		drop(connection);
+
+		Ok(exists)
+	}
+}
+
+impl Server {
 	fn spawn_publish_process_status_task(&self, id: &tg::process::Id) {
 		let subject = format!("processes.{id}.status");
 		tokio::spawn({

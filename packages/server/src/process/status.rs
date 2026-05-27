@@ -72,7 +72,6 @@ impl Session {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		// Verify the process is local.
 		if !self
-			.server
 			.get_process_exists_local(id)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to check if the process exists"))?

@@ -58,7 +58,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		if self.try_get_process_local(id, false).await?.is_none() {
+		if !self.get_process_exists_local(id).await? {
 			return Ok(None);
 		}
 		Ok(self

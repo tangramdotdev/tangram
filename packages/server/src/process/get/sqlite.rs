@@ -107,7 +107,6 @@ impl Session {
 				join process_grants on
 					process_grants.process = processes.id and
 					process_grants.principal = ?2 and
-					process_grants.node and
 					process_grants.expires_at > ?3"
 		};
 		let statement = formatdoc!(
