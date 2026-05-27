@@ -27,8 +27,8 @@ impl Cli {
 			None,
 		);
 		let arg = tg::process::wait::Arg {
-			location: locations,
 			lease: None,
+			location: locations,
 		};
 		let output = process.wait_with_handle(&client, arg).await.map_err(
 			|error| tg::error!(!error, id = %args.process, "failed to wait for the process"),

@@ -242,13 +242,13 @@ export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
 	);
 	return new tg.Process<O>({
 		id,
+		lease: undefined,
 		location: undefined,
 		options: options ?? {},
 		promise,
 		state: undefined,
 		stderr,
 		stdin,
-		lease: undefined,
 		stdout,
 	});
 };
@@ -490,7 +490,15 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		stdout !== undefined ||
 		stderr !== undefined ||
 		localTty
-			? stdio.task(output.process, location, stdin, stdout, stderr, localTty)
+			? stdio.task(
+					output.process,
+					output.lease,
+					location,
+					stdin,
+					stdout,
+					stderr,
+					localTty,
+				)
 			: undefined;
 	let process = new tg.Process<O>({
 		id: output.process,

@@ -210,8 +210,8 @@ impl Session {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::process::wait::Arg {
-			location: Some(location.into()),
 			lease: None,
+			location: Some(location.into()),
 		};
 		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to wait for the process"),
@@ -269,12 +269,12 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::wait::Arg {
+			lease: None,
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			lease: None,
 		};
 		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to wait for the process"),

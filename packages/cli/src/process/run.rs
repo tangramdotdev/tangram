@@ -143,12 +143,12 @@ impl Cli {
 			if options.verbose {
 				let output = tg::process::spawn::Output {
 					cached: process.item().cached().unwrap_or(false),
+					lease: process.item().lease().cloned(),
 					location: process
 						.item()
 						.location()
 						.and_then(|location| location.to_location()),
 					process: process.item().id().cloned(),
-					lease: process.item().lease().cloned(),
 					wait: None,
 				};
 				let value = serde_json::to_value(output)

@@ -25,52 +25,50 @@ impl Server {
 				.map(|process| process.map(|process| Authentication::Process(Arc::new(process))));
 		}
 
+		if let Some(token) = token {
+			match self.authenticate_process(token).await {
+				Ok(Some(process)) => {
+					return Ok(Some(Authentication::Process(Arc::new(process))));
+				},
+				Ok(None) => (),
+				Err(error) => {
+					return Err(error);
+				},
+			}
+
+			match self.authenticate_runner(token).await {
+				Ok(true) => {
+					return Ok(Some(Authentication::Runner));
+				},
+				Ok(false) => (),
+				Err(error) => {
+					return Err(error);
+				},
+			}
+
+			match self.authenticate_sandbox(token).await {
+				Ok(Some(sandbox)) => {
+					return Ok(Some(Authentication::Sandbox(sandbox)));
+				},
+				Ok(None) => (),
+				Err(error) => {
+					return Err(error);
+				},
+			}
+
+			match self.authenticate_user(token).await {
+				Ok(Some(user)) => {
+					return Ok(Some(Authentication::User(user)));
+				},
+				Ok(None) => (),
+				Err(error) => {
+					return Err(error);
+				},
+			}
+		}
+
 		if self.config().authentication.is_none() {
 			return Ok(Some(Authentication::Root));
-		}
-
-		let Some(token) = token else {
-			return Ok(None);
-		};
-
-		match self.authenticate_process(token).await {
-			Ok(Some(process)) => {
-				return Ok(Some(Authentication::Process(Arc::new(process))));
-			},
-			Ok(None) => (),
-			Err(error) => {
-				return Err(error);
-			},
-		}
-
-		match self.authenticate_runner(token).await {
-			Ok(true) => {
-				return Ok(Some(Authentication::Runner));
-			},
-			Ok(false) => (),
-			Err(error) => {
-				return Err(error);
-			},
-		}
-
-		match self.authenticate_sandbox(token).await {
-			Ok(Some(sandbox)) => {
-				return Ok(Some(Authentication::Sandbox(sandbox)));
-			},
-			Ok(None) => (),
-			Err(error) => {
-				return Err(error);
-			},
-		}
-
-		match self.authenticate_user(token).await {
-			Ok(Some(user)) => {
-				return Ok(Some(Authentication::User(user)));
-			},
-			Ok(None) => (),
-			Err(error) => {
-				return Err(error);
-			},
 		}
 
 		Ok(None)
@@ -197,7 +195,7 @@ impl Server {
 
 		let statement = formatdoc!(
 			"
-				select sandbox
+				select sandbox as id
 				from sandbox_tokens
 				where token = {p}1;
 			"
@@ -213,6 +211,7 @@ impl Server {
 		let sandbox = Sandbox {
 			id: row.id,
 			location: tg::Location::Local(tg::location::Local::default()),
+			token: Some(token.to_owned()),
 		};
 
 		Ok(Some(sandbox))

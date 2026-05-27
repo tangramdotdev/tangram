@@ -80,13 +80,14 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
 		// Verify the process is local.
-		if !self
-			.get_process_exists_local(id)
+		let Some(output) = self
+			.try_get_process_local(id, false)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to check if the process exists"))?
-		{
+			.map_err(|error| tg::error!(!error, "failed to get the process"))?
+		else {
 			return Ok(None);
-		}
+		};
+		self.authorize_process_sandbox(&output.data)?;
 
 		// Create the channel.
 		let (sender, receiver) = async_channel::unbounded();

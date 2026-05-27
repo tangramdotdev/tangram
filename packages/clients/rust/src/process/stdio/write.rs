@@ -12,6 +12,9 @@ use {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lease: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -147,6 +150,9 @@ impl<O> tg::Process<O> {
 		if arg.location.is_none() {
 			self.ensure_location_with_handle(handle).await?;
 			arg.location = self.location();
+		}
+		if arg.lease.is_none() {
+			arg.lease = self.lease().cloned();
 		}
 		let id = self.id().unwrap_right();
 		handle.write_process_stdio_all(id, arg, input).await

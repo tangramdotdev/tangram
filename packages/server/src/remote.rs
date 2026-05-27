@@ -29,7 +29,16 @@ impl Session {
 			.get_or_create_remote_client(output.url)
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let mut context = client.context().clone();
-		context.token = output.token;
+		context.token = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_sandbox_ref().ok())
+			.and_then(|sandbox| match &sandbox.location {
+				tg::Location::Remote(location) if location.name == remote => sandbox.token.clone(),
+				_ => None,
+			})
+			.or(output.token);
 		let session = client.session(&context);
 		Ok(Some(session))
 	}

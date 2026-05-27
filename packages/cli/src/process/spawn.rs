@@ -375,12 +375,12 @@ impl Cli {
 		if args.verbose {
 			let output = tg::process::spawn::Output {
 				cached: output.item().cached().unwrap_or(false),
+				lease: output.item().lease().cloned(),
 				location: output
 					.item()
 					.location()
 					.and_then(|location| location.to_location()),
 				process: output.item().id().cloned(),
-				lease: output.item().lease().cloned(),
 				wait: None,
 			};
 			self.print_serde(output, args.print).await?;

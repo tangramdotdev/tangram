@@ -90,6 +90,8 @@ impl Session {
 			return Ok(None);
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
+		self.authorize_process_stdio_read(id, &output.data, &source, arg.lease.as_deref())
+			.await?;
 		let stream = match source {
 			Source::Pipe(streams) => {
 				self.try_read_process_stdio_pipe_local(id, &streams, arg.timeout)
@@ -102,6 +104,30 @@ impl Session {
 			Source::Null => stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed(),
 		};
 		Ok(Some(stream))
+	}
+
+	async fn authorize_process_stdio_read(
+		&self,
+		id: &tg::process::Id,
+		data: &tg::process::Data,
+		source: &Source,
+		lease: Option<&str>,
+	) -> tg::Result<()> {
+		let Source::Pipe(streams) = source else {
+			return Ok(());
+		};
+		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
+		let output = streams
+			.iter()
+			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
+		match (stdin, output) {
+			(true, false) => self.authorize_process_sandbox(data),
+			(false, true) => self.authorize_process_lease(id, lease).await,
+			(true, true) => Err(tg::error!(
+				"cannot read stdin and stdout or stderr in a single request"
+			)),
+			(false, false) => Ok(()),
+		}
 	}
 
 	async fn try_read_process_stdio_log_local(

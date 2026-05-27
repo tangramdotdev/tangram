@@ -54,6 +54,7 @@ impl Session {
 				self.try_write_process_stdio_local(
 					id,
 					&arg.streams,
+					arg.lease.as_deref(),
 					input,
 					self.context.stopper.clone(),
 				)
@@ -62,14 +63,14 @@ impl Session {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.try_write_process_stdio_region(id, &arg.streams, input, region)
+				self.try_write_process_stdio_region(id, &arg, input, region)
 					.await?
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
 			}) => {
-				self.try_write_process_stdio_remote(id, &arg.streams, input, remote, region)
+				self.try_write_process_stdio_remote(id, &arg, input, remote, region)
 					.await?
 			},
 		};
@@ -81,6 +82,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
+		lease: Option<&str>,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
@@ -92,6 +94,8 @@ impl Session {
 			return Ok(None);
 		};
 		let data = output.data;
+		self.authorize_process_stdio_write(id, &data, streams, lease)
+			.await?;
 		let (sender, receiver) = tokio::sync::mpsc::channel(4);
 		let task = Task::spawn({
 			let session = self.clone();
@@ -135,6 +139,27 @@ impl Session {
 		});
 		let stream = ReceiverStream::new(receiver).attach(task).boxed();
 		Ok(Some(stream))
+	}
+
+	async fn authorize_process_stdio_write(
+		&self,
+		id: &tg::process::Id,
+		data: &tg::process::Data,
+		streams: &[tg::process::stdio::Stream],
+		lease: Option<&str>,
+	) -> tg::Result<()> {
+		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
+		let output = streams
+			.iter()
+			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
+		match (stdin, output) {
+			(true, false) => self.authorize_process_lease(id, lease).await,
+			(false, true) => self.authorize_process_sandbox(data),
+			(true, true) => Err(tg::error!(
+				"cannot write stdin and stdout or stderr in a single request"
+			)),
+			(false, false) => Ok(()),
+		}
 	}
 
 	async fn write_process_stdio_local_task(
@@ -346,7 +371,7 @@ impl Session {
 	async fn try_write_process_stdio_region(
 		&self,
 		id: &tg::process::Id,
-		streams: &[tg::process::stdio::Stream],
+		arg: &tg::process::stdio::write::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		region: String,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
@@ -357,8 +382,9 @@ impl Session {
 			region: Some(region.clone()),
 		});
 		let arg = tg::process::stdio::write::Arg {
+			lease: arg.lease.clone(),
 			location: Some(location.into()),
-			streams: streams.to_vec(),
+			streams: arg.streams.clone(),
 		};
 		let stream = client
 			.try_write_process_stdio(id, arg, input)
@@ -370,7 +396,7 @@ impl Session {
 	async fn try_write_process_stdio_remote(
 		&self,
 		id: &tg::process::Id,
-		streams: &[tg::process::stdio::Stream],
+		arg: &tg::process::stdio::write::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		remote: String,
 		region: Option<String>,
@@ -379,8 +405,9 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::stdio::write::Arg {
+			lease: arg.lease.clone(),
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
-			streams: streams.to_vec(),
+			streams: arg.streams.clone(),
 		};
 		let stream = client
 			.try_write_process_stdio(id, arg, input)

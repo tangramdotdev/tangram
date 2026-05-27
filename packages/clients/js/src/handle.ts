@@ -82,15 +82,15 @@ export namespace Handle {
 
 	export type SpawnOutput = {
 		cached: boolean;
+		lease: string | undefined;
 		location: tg.Location | undefined;
 		process: tg.Process.Id;
-		lease: string | undefined;
 		wait: tg.Process.Wait.Data | undefined;
 	};
 
 	export type WaitArg = {
-		location?: tg.Location.Arg | undefined;
 		lease: string | undefined;
+		location?: tg.Location.Arg | undefined;
 	};
 
 	export type CheckoutArg = {
@@ -124,6 +124,7 @@ export namespace Handle {
 	};
 
 	export type SignalArg = {
+		lease: string;
 		location?: tg.Location.Arg | undefined;
 		signal: tg.Process.Signal;
 	};
@@ -140,6 +141,7 @@ export namespace Handle {
 	};
 
 	export type ProcessStdioReadArg = {
+		lease?: string | undefined;
 		length?: number | undefined;
 		location?: tg.Location.Arg | undefined;
 		position?: number | string | undefined;
@@ -149,6 +151,7 @@ export namespace Handle {
 	};
 
 	export type ProcessStdioWriteArg = {
+		lease?: string | undefined;
 		location?: tg.Location.Arg | undefined;
 		streams: Array<tg.Process.Stdio.Stream>;
 	};

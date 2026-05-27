@@ -118,6 +118,7 @@ impl std::str::FromStr for Stdio {
 pub(super) async fn stdio_task<H>(
 	handle: H,
 	id: tg::process::Id,
+	lease: Option<String>,
 	location: Option<tg::Location>,
 	stdin: Option<tg::process::Stdio>,
 	stdout: Option<tg::process::Stdio>,
@@ -131,8 +132,11 @@ where
 	let mut stdin_task = stdin.map(|stdin| {
 		let handle = handle.clone();
 		let id = id.clone();
+		let lease = lease.clone();
 		let location = location.clone();
-		Task::spawn(move |_| async move { stdin_task(&handle, id, location, stdin, raw).await })
+		Task::spawn(
+			move |_| async move { stdin_task(&handle, id, lease, location, stdin, raw).await },
+		)
 	});
 
 	let sigwinch_task = if tty {
@@ -148,8 +152,9 @@ where
 	let output = if stdout.is_some() || stderr.is_some() {
 		let handle = handle.clone();
 		let id = id.clone();
+		let lease = lease.clone();
 		let location = location.clone();
-		stdout_stderr_task(&handle, id, location, stdout, stderr).await
+		stdout_stderr_task(&handle, id, lease, location, stdout, stderr).await
 	} else {
 		Ok(())
 	};
@@ -177,6 +182,7 @@ where
 async fn stdin_task<H>(
 	handle: &H,
 	id: tg::process::Id,
+	lease: Option<String>,
 	location: Option<tg::Location>,
 	stdin: tg::process::Stdio,
 	raw: bool,
@@ -218,6 +224,7 @@ where
 	#[cfg(not(unix))]
 	let _ = raw;
 	let arg = tg::process::stdio::write::Arg {
+		lease,
 		location: location.map(Into::into),
 		streams: vec![tg::process::stdio::Stream::Stdin],
 	};
@@ -246,6 +253,7 @@ where
 async fn stdout_stderr_task<H>(
 	handle: &H,
 	id: tg::process::Id,
+	lease: Option<String>,
 	location: Option<tg::Location>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
@@ -268,6 +276,7 @@ where
 		return Ok(());
 	}
 	let arg = tg::process::stdio::read::Arg {
+		lease,
 		location: location.map(Into::into),
 		streams,
 		..Default::default()

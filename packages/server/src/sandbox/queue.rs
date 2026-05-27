@@ -93,18 +93,14 @@ impl Session {
 
 		// Dequeue.
 		loop {
-			let token = self.server.config.authentication.is_some();
 			let output = match &self.server.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => {
-					self.try_dequeue_sandbox_postgres(process_store, token)
+					self.try_dequeue_sandbox_postgres(process_store, true)
 						.await?
 				},
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(process_store) => {
-					self.try_dequeue_sandbox_sqlite(process_store, token)
-						.await?
-				},
+				Database::Sqlite(process_store) => self.try_dequeue_sandbox_sqlite(process_store, true).await?,
 			};
 			if let Some(output) = output {
 				let output = tg::sandbox::queue::Output {

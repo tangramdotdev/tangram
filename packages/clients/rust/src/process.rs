@@ -58,6 +58,7 @@ pub struct Process<O = tg::Value>(Arc<Inner>, PhantomData<fn() -> O>);
 pub struct Inner {
 	cached: Option<bool>,
 	id: tg::Either<u32, Id>,
+	lease: Option<String>,
 	location: Arc<RwLock<Option<tg::location::Arg>>>,
 	metadata: RwLock<Option<Arc<Metadata>>>,
 	state: RwLock<Option<Arc<State>>>,
@@ -68,7 +69,6 @@ pub struct Inner {
 	stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
 	task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
-	lease: Option<String>,
 	wait: Mutex<Option<Wait>>,
 }
 
@@ -139,6 +139,7 @@ impl<O> Process<O> {
 		let inner = Arc::new(Inner {
 			cached,
 			id: tg::Either::Right(id),
+			lease,
 			location: location.clone(),
 			metadata,
 			state,
@@ -147,7 +148,6 @@ impl<O> Process<O> {
 			stdio_task: None,
 			stdout,
 			task: None,
-			lease,
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, PhantomData);
@@ -334,9 +334,14 @@ impl<O> Process<O> {
 		}
 
 		self.ensure_location_with_handle(handle).await?;
+		let lease = self
+			.lease()
+			.ok_or_else(|| tg::error!("missing lease"))?
+			.clone();
 		let arg = tg::process::signal::post::Arg {
-			signal,
+			lease,
 			location: self.location(),
+			signal,
 		};
 		let id = self.id().unwrap_right();
 		handle.signal_process(id, arg).await?;
@@ -403,8 +408,8 @@ impl<O> Process<O> {
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
 		let arg = tg::process::wait::Arg {
-			location: self.location(),
 			lease: self.lease().cloned(),
+			location: self.location(),
 		};
 		let wait = self.wait_with_handle(handle, arg).await?;
 		let output = wait.into_output()?;

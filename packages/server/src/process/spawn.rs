@@ -24,12 +24,12 @@ mod sqlite;
 struct LocalOutput {
 	cached: bool,
 	id: tg::process::Id,
+	lease: Option<String>,
 	#[debug(ignore)]
 	permit: Option<crate::sandbox::Permit>,
 	sandbox: tg::sandbox::Id,
 	sandbox_status: Option<tg::sandbox::Status>,
 	status: tg::process::Status,
-	lease: Option<String>,
 	wait: Option<tg::process::wait::Output>,
 }
 
@@ -328,9 +328,9 @@ impl Session {
 					let output = output.unwrap();
 					tg::process::spawn::Output {
 						cached: output.cached,
+						lease: output.lease,
 						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: tg::Either::Right(output.id),
-						lease: output.lease,
 						wait: Some(wait),
 					}
 				} else {
@@ -365,9 +365,9 @@ impl Session {
 					};
 					tg::process::spawn::Output {
 						cached: output.cached,
+						lease: output.lease,
 						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: tg::Either::Right(output.id),
-						lease: output.lease,
 						wait: output.wait,
 					}
 				}
@@ -847,11 +847,11 @@ impl Session {
 		Ok(Some(LocalOutput {
 			cached: true,
 			id: id.clone(),
+			lease,
 			permit: None,
 			sandbox,
 			sandbox_status,
 			status,
-			lease,
 			wait,
 		}))
 	}
@@ -1160,11 +1160,11 @@ impl Session {
 		Ok(Some(LocalOutput {
 			cached: true,
 			id,
+			lease: None,
 			permit: None,
 			sandbox,
 			sandbox_status,
 			status,
-			lease: None,
 			wait: Some(tg::process::wait::Output {
 				error: error.as_ref().map(tg::Error::to_data_or_id),
 				exit,
@@ -1372,11 +1372,11 @@ impl Session {
 		Ok(LocalOutput {
 			cached: false,
 			id,
+			lease: Some(lease),
 			permit,
 			sandbox,
 			sandbox_status: Some(sandbox_status),
 			status,
-			lease: Some(lease),
 			wait: None,
 		})
 	}

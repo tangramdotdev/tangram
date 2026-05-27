@@ -8,6 +8,9 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
+	pub lease: Option<String>,
+
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
@@ -26,7 +29,7 @@ impl Cli {
 			args.location.get(),
 			None,
 			None,
-			None,
+			args.lease.clone(),
 			None,
 		);
 		let [stream] = args.streams.as_slice() else {
@@ -34,6 +37,7 @@ impl Cli {
 		};
 		let stream = *stream;
 		let arg = tg::process::stdio::write::Arg {
+			lease: args.lease,
 			location: process.location(),
 			streams: vec![stream],
 		};

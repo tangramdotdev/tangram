@@ -66,12 +66,12 @@ pub struct Output {
 	pub cached: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lease: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
 
 	pub process: tg::Either<u32, tg::process::Id>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub lease: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub wait: Option<tg::process::wait::Output>,
@@ -301,11 +301,11 @@ impl<O: 'static> tg::Process<O> {
 			let process = Self::spawn_unsandboxed(&handle, arg).await?;
 			let output = tg::process::spawn::Output {
 				cached: process.cached().unwrap_or(false),
+				lease: process.lease().cloned(),
 				location: process
 					.location()
 					.and_then(|location| location.to_location()),
 				process: process.id().cloned(),
-				lease: process.lease().cloned(),
 				wait: None,
 			};
 			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
@@ -429,16 +429,18 @@ impl<O: 'static> tg::Process<O> {
 			.cloned()
 			.ok_or_else(|| tg::error!("expected a sandboxed process id"))?;
 		let location = output.location.clone();
+		let lease = output.lease.clone();
 		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty {
 			let handle = handle.clone();
 			let id = id.clone();
+			let lease = lease.clone();
 			let location = location.clone();
 			let stdin = stdin.clone();
 			let stdout = stdout.clone();
 			let stderr = stderr.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
 				super::stdio::stdio_task(
-					handle, id, location, stdin, stdout, stderr, local_tty, raw,
+					handle, id, lease, location, stdin, stdout, stderr, local_tty, raw,
 				)
 				.await
 			}))
@@ -463,6 +465,7 @@ impl<O: 'static> tg::Process<O> {
 		let inner = Arc::new(super::Inner {
 			cached: Some(output.cached),
 			id: tg::Either::Right(id),
+			lease: output.lease,
 			location: Arc::new(RwLock::new(location.map(Into::into))),
 			metadata: RwLock::new(None),
 			state: RwLock::new(None),
@@ -471,7 +474,6 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task,
 			stdout,
 			task: None,
-			lease: output.lease,
 			wait: Mutex::new(wait),
 		});
 		let process = Self(inner, std::marker::PhantomData);
@@ -613,6 +615,7 @@ impl<O: 'static> tg::Process<O> {
 		let inner = Arc::new(super::Inner {
 			cached: Some(false),
 			id: tg::Either::Left(pid),
+			lease: None,
 			location: Arc::new(RwLock::new(None)),
 			metadata: RwLock::new(None),
 			state: RwLock::new(None),
@@ -621,7 +624,6 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task: None,
 			stdout,
 			task: Some(task),
-			lease: None,
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, std::marker::PhantomData);

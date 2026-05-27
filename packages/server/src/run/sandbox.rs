@@ -14,7 +14,7 @@ impl Server {
 	pub(crate) fn spawn_sandbox_task(
 		&self,
 		id: &tg::sandbox::Id,
-		_token: Option<String>,
+		token: Option<String>,
 		location: tg::Location,
 		permit: crate::sandbox::Permit,
 		process: Option<tg::process::Id>,
@@ -30,6 +30,7 @@ impl Server {
 						authentication: Some(Authentication::Sandbox(crate::context::Sandbox {
 							id: id.clone(),
 							location: location.clone(),
+							token: token.clone(),
 						})),
 						..server.context.clone()
 					};

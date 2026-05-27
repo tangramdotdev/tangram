@@ -10,8 +10,15 @@ let path = artifact {
 		};
 	'
 }
-let process = tg spawn --sandbox --mount $"($mount):/target" $path | str trim
+let output = tg spawn --sandbox --mount $"($mount):/target" --verbose $path | from json
+let process = $output.process
+let lease = $output.lease
+
 let output = tg signal -s KILL $process | complete
+failure $output
+assert ($output.stderr | str contains "required") "The error should mention the missing lease."
+
+let output = tg signal --lease $lease -s KILL $process | complete
 success $output
 
 # Wait for the process to finish.

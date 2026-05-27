@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, database},
+	crate::{Server, Session, context::Authentication, database},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -117,6 +117,47 @@ impl Server {
 }
 
 impl Session {
+	pub(crate) async fn authorize_process_lease(
+		&self,
+		id: &tg::process::Id,
+		lease: Option<&str>,
+	) -> tg::Result<()> {
+		let lease = lease.ok_or_else(|| tg::error!("expected a process lease"))?;
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select count(*) != 0
+				from process_leases
+				where process = {p}1 and lease = {p}2;
+			"
+		);
+		let params = db::params![id.to_string(), lease.to_owned()];
+		let exists: bool = connection
+			.query_one_value_into(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		if !exists {
+			return Err(tg::error!("the process lease was not found"));
+		}
+		Ok(())
+	}
+
+	pub(crate) fn authorize_process_sandbox(&self, data: &tg::process::Data) -> tg::Result<()> {
+		let Some(Authentication::Sandbox(sandbox)) = self.context.authentication.as_ref() else {
+			return Err(tg::error!("unauthorized"));
+		};
+		if sandbox.id != data.sandbox {
+			return Err(tg::error!("unauthorized"));
+		}
+		Ok(())
+	}
+
 	pub(crate) async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self

@@ -21,6 +21,11 @@ let process_data = {
 	status: "created",
 }
 
+tg --token $alice process put $alice_process ($process_data | merge { cacheable: true } | to json)
+let output = tg --token $alice signal --lease invalid $alice_process | complete
+failure $output "Alice should not be able to signal a cacheable process."
+assert ($output.stderr | str contains "cannot signal cacheable processes") "The error should mention cacheable processes."
+
 tg --token $alice process put $alice_process ($process_data | to json)
 tg --token $alice process get $alice_process
 tg --token $alice process get $alice_process --metadata

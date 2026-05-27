@@ -21,6 +21,7 @@ export let setProcess = (newProcess: typeof process) => {
 
 export class Process<O extends tg.Value = tg.Value> {
 	#id: number | tg.Process.Id;
+	#lease: string | undefined;
 	#location: tg.Location.Arg | undefined;
 	#options: tg.Referent.Options;
 	#promise: Promise<tg.Process.Wait> | undefined;
@@ -29,7 +30,6 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stdin: tg.Process.Stdio.Writer;
 	#stdioPromise: Promise<void> | undefined;
 	#stdout: tg.Process.Stdio.Reader;
-	#lease: string | undefined;
 	#wait: tg.Process.Wait | undefined;
 
 	static build<
@@ -224,6 +224,7 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
+		this.#lease = arg.lease;
 		this.#location = arg.location;
 		this.#options = arg.options ?? {};
 		this.#state = arg.state;
@@ -232,7 +233,6 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stdin = arg.stdin;
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
-		this.#lease = arg.lease;
 		this.#wait = arg.wait;
 		this.#stdin.setProcess(this);
 		this.#stdout.setProcess(this);
@@ -404,6 +404,11 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#stderr;
 	}
 
+	/** Get this process's lease. */
+	get lease(): string | undefined {
+		return this.#lease;
+	}
+
 	/** Send a signal to this process. */
 	async signal(signal: tg.Process.Signal): Promise<void> {
 		if (typeof this.#id === "number") {
@@ -415,7 +420,11 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			location = this.#location;
 		}
+		if (this.#lease === undefined) {
+			throw new Error("missing lease");
+		}
 		let arg = {
+			lease: this.#lease,
 			location,
 			signal,
 		};
@@ -437,8 +446,8 @@ export class Process<O extends tg.Value = tg.Value> {
 			return wait;
 		}
 		let arg: tg.Handle.WaitArg = {
-			location: this.#location,
 			lease: this.#lease,
+			location: this.#location,
 		};
 		let data = await tg.handle.waitProcess(this.#id, arg);
 		let wait = tg.Process.Wait.fromData(data);
@@ -789,6 +798,7 @@ export namespace Process {
 
 	export type ConstructorArg = {
 		id: number | tg.Process.Id;
+		lease?: string | undefined;
 		location?: tg.Location.Arg | undefined;
 		options?: tg.Referent.Options;
 		promise?: Promise<tg.Process.Wait> | undefined;
@@ -797,7 +807,6 @@ export namespace Process {
 		stdin: tg.Process.Stdio.Writer;
 		stdioPromise?: Promise<void> | undefined;
 		stdout: tg.Process.Stdio.Reader;
-		lease?: string | undefined;
 		wait?: tg.Process.Wait | undefined;
 	};
 

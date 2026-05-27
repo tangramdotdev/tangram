@@ -33,6 +33,7 @@ pub struct Process {
 pub struct Sandbox {
 	pub id: tg::sandbox::Id,
 	pub location: tg::Location,
+	pub token: Option<String>,
 }
 
 impl Authentication {
