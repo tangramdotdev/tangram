@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Session, context::Authentication, database::Database},
 	futures::{
 		StreamExt as _, future,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -90,7 +90,7 @@ impl Session {
 			return Ok(None);
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
-		self.authorize_process_stdio_read(id, &output.data, &source, arg.lease.as_deref())
+		self.authorize_process_stdio_read(id, &source, arg.lease.as_deref())
 			.await?;
 		let stream = match source {
 			Source::Pipe(streams) => {
@@ -109,7 +109,6 @@ impl Session {
 	async fn authorize_process_stdio_read(
 		&self,
 		id: &tg::process::Id,
-		data: &tg::process::Data,
 		source: &Source,
 		lease: Option<&str>,
 	) -> tg::Result<()> {
@@ -121,7 +120,15 @@ impl Session {
 			.iter()
 			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
 		match (stdin, output) {
-			(true, false) => self.authorize_process_sandbox(data),
+			(true, false) => {
+				if !matches!(
+					self.context.authentication.as_ref(),
+					Some(Authentication::Process(process)) if process.id == *id
+				) {
+					return Err(tg::error!("unauthorized"));
+				}
+				Ok(())
+			},
 			(false, true) => self.authorize_process_lease(id, lease).await,
 			(true, true) => Err(tg::error!(
 				"cannot read stdin and stdout or stderr in a single request"

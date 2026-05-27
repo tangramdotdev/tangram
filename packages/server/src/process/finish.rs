@@ -36,15 +36,6 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> tg::Result<Option<bool>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -87,6 +78,18 @@ impl Session {
 		arg: tg::process::finish::Arg,
 		condition: Option<Condition>,
 	) -> tg::Result<Option<bool>> {
+		// Authorize.
+		if !matches!(
+			self.context.authentication.as_ref(),
+			Some(authentication) if match authentication {
+				Authentication::Process(process) => process.id == *id,
+				Authentication::Root => true,
+				_ => false,
+			}
+		) {
+			return Err(tg::error!("unauthorized"));
+		}
+
 		let tg::process::finish::Arg {
 			mut error,
 			output,

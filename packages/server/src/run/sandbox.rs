@@ -324,14 +324,21 @@ impl Session {
 
 		// If the sandbox was created with a process, then start it. Otherwise, start the timer.
 		if let Some(process) = process {
-			self.spawn_process_task(SpawnProcessTaskArg {
+			let (process, process_session) = self
+				.create_process_session(
+					process,
+					&location,
+					id,
+					state.created_by.clone(),
+					process_token,
+				)
+				.await?;
+			process_session.spawn_process_task(SpawnProcessTaskArg {
 				guest_url: &guest_url,
-				location: &location,
-				process: process.clone(),
+				process,
 				process_stopper: &process_stopper,
 				process_tasks: &mut process_tasks,
 				sandbox: &sandbox,
-				token: process_token,
 			});
 		} else if let Some(ttl) = ttl {
 			timer.replace(tokio::time::sleep(ttl).boxed());
@@ -351,14 +358,21 @@ impl Session {
 				output = &mut dequeue => {
 					let output = output.map_err(|error| tg::error!(!error, "failed to dequeue a process"))?;
 					timer.take();
-					self.spawn_process_task(SpawnProcessTaskArg {
+					let (process, process_session) = self
+						.create_process_session(
+							output.process.clone(),
+							&location,
+							id,
+							state.created_by.clone(),
+							Some(output.token),
+						)
+						.await?;
+					process_session.spawn_process_task(SpawnProcessTaskArg {
 						guest_url: &guest_url,
-						location: &location,
-						process: output.process.clone(),
+						process,
 						process_stopper: &process_stopper,
 						process_tasks: &mut process_tasks,
 						sandbox: &sandbox,
-						token: Some(output.token),
 					});
 					dequeue = self.dequeue_sandbox_process(id, &location).boxed();
 				},
@@ -429,6 +443,53 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "the heartbeat task failed"))?;
 
 		Ok(())
+	}
+
+	async fn create_process_session(
+		&self,
+		id: tg::process::Id,
+		location: &tg::Location,
+		sandbox: &tg::sandbox::Id,
+		created_by: Option<tg::user::Id>,
+		token: Option<String>,
+	) -> tg::Result<(tg::Process, Session)> {
+		let process = tg::Process::new(
+			id.clone(),
+			Some(location.clone().into()),
+			None,
+			None,
+			None,
+			None,
+		);
+		let token = match token {
+			Some(token) => token,
+			None => self.server.create_process_token(&id).await.map_err(
+				|error| tg::error!(!error, process = %id, "failed to create the process token"),
+			)?,
+		};
+		let state = process
+			.load_with_handle(self)
+			.await
+			.map_err(|error| tg::error!(!error, process = %id, "failed to load the process"))?;
+		if state.sandbox != *sandbox {
+			return Err(tg::error!(
+				process = %id,
+				sandbox = %sandbox,
+				"the process is not in the sandbox"
+			));
+		}
+		let mut context = self.context.clone();
+		context.authentication = Some(Authentication::Process(Arc::new(crate::context::Process {
+			created_by,
+			debug: state.debug.clone(),
+			id,
+			location: Some(location.clone()),
+			retry: state.retry,
+			sandbox: state.sandbox.clone(),
+			token,
+		})));
+		let session = Session::new(self.server.clone(), context);
+		Ok((process, session))
 	}
 
 	async fn dequeue_sandbox_process(

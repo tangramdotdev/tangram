@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Session, context::Authentication, database::Database},
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
@@ -94,7 +94,7 @@ impl Session {
 			return Ok(None);
 		};
 		let data = output.data;
-		self.authorize_process_stdio_write(id, &data, streams, lease)
+		self.authorize_process_stdio_write(id, streams, lease)
 			.await?;
 		let (sender, receiver) = tokio::sync::mpsc::channel(4);
 		let task = Task::spawn({
@@ -144,7 +144,6 @@ impl Session {
 	async fn authorize_process_stdio_write(
 		&self,
 		id: &tg::process::Id,
-		data: &tg::process::Data,
 		streams: &[tg::process::stdio::Stream],
 		lease: Option<&str>,
 	) -> tg::Result<()> {
@@ -154,7 +153,15 @@ impl Session {
 			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
 		match (stdin, output) {
 			(true, false) => self.authorize_process_lease(id, lease).await,
-			(false, true) => self.authorize_process_sandbox(data),
+			(false, true) => {
+				if !matches!(
+					self.context.authentication.as_ref(),
+					Some(Authentication::Process(process)) if process.id == *id
+				) {
+					return Err(tg::error!("unauthorized"));
+				}
+				Ok(())
+			},
 			(true, true) => Err(tg::error!(
 				"cannot write stdin and stdout or stderr in a single request"
 			)),

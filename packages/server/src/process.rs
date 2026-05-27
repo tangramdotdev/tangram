@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, context::Authentication, database},
+	crate::{Server, Session, database},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -144,16 +144,6 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if !exists {
 			return Err(tg::error!("the process lease was not found"));
-		}
-		Ok(())
-	}
-
-	pub(crate) fn authorize_process_sandbox(&self, data: &tg::process::Data) -> tg::Result<()> {
-		let Some(Authentication::Sandbox(sandbox)) = self.context.authentication.as_ref() else {
-			return Err(tg::error!("unauthorized"));
-		};
-		if sandbox.id != data.sandbox {
-			return Err(tg::error!("unauthorized"));
 		}
 		Ok(())
 	}

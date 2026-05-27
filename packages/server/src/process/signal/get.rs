@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Session, context::Authentication, database::Database},
 	futures::{
 		StreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -79,15 +79,21 @@ impl Session {
 		id: &tg::process::Id,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
+		if !matches!(
+			self.context.authentication.as_ref(),
+			Some(Authentication::Process(process)) if process.id == *id
+		) {
+			return Err(tg::error!("unauthorized"));
+		}
+
 		// Verify the process is local.
-		let Some(output) = self
+		let Some(_output) = self
 			.try_get_process_local(id, false)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {
 			return Ok(None);
 		};
-		self.authorize_process_sandbox(&output.data)?;
 
 		// Create the channel.
 		let (sender, receiver) = async_channel::unbounded();

@@ -33,9 +33,21 @@ impl Session {
 			.context
 			.authentication
 			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_sandbox_ref().ok())
-			.and_then(|sandbox| match &sandbox.location {
-				tg::Location::Remote(location) if location.name == remote => sandbox.token.clone(),
+			.and_then(|authentication| match authentication {
+				crate::context::Authentication::Process(process) => {
+					let tg::Location::Remote(location) = process.location.as_ref()? else {
+						return None;
+					};
+					(location.name == remote).then(|| process.token.clone())
+				},
+				crate::context::Authentication::Sandbox(sandbox) => {
+					let tg::Location::Remote(location) = &sandbox.location else {
+						return None;
+					};
+					(location.name == remote)
+						.then(|| sandbox.token.clone())
+						.flatten()
+				},
 				_ => None,
 			})
 			.or(output.token);
