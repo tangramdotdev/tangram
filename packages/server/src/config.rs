@@ -458,6 +458,10 @@ pub struct Process {
 	#[serde(default = "default_finalizer")]
 	pub finalizer: Option<Finalizer>,
 
+	#[serde(alias = "grant_ttl", default = "default_process_grant_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_live: Duration,
+
 	#[serde(default = "default_process_store")]
 	pub store: Database,
 
@@ -1129,6 +1133,7 @@ impl Default for Process {
 	fn default() -> Self {
 		Self {
 			finalizer: Some(Finalizer::default()),
+			grant_time_to_live: default_process_grant_time_to_live(),
 			store: default_process_store(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
@@ -1431,6 +1436,10 @@ fn default_time_to_live() -> Duration {
 }
 
 fn default_object_grant_time_to_live() -> Duration {
+	Duration::from_hours(24)
+}
+
+fn default_process_grant_time_to_live() -> Duration {
 	Duration::from_hours(24)
 }
 

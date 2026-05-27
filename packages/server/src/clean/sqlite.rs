@@ -57,6 +57,16 @@ impl Server {
 
 			let statement = indoc!(
 				"
+					delete from process_grants
+					where process = ?1;
+				"
+			);
+			transaction
+				.execute(statement, sqlite::params![process])
+				.map_err(|error| tg::error!(!error, "failed to delete process_grants"))?;
+
+			let statement = indoc!(
+				"
 					delete from process_tokens
 					where process = ?1;
 				"
@@ -121,5 +131,30 @@ impl Server {
 		}
 
 		Ok(())
+	}
+
+	pub(crate) async fn clean_expired_process_grants_sqlite(
+		&self,
+		process_store: &db::sqlite::Database,
+		now: i64,
+	) -> tg::Result<()> {
+		let connection = process_store
+			.write_connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		connection
+			.with(move |connection, _cache| {
+				let statement = indoc!(
+					"
+						delete from process_grants
+						where expires_at <= ?1;
+					"
+				);
+				connection
+					.execute(statement, sqlite::params![now])
+					.map_err(|error| tg::error!(!error, "failed to delete process_grants"))?;
+				Ok(())
+			})
+			.await
 	}
 }

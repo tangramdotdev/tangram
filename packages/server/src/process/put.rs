@@ -56,20 +56,41 @@ impl Session {
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let principal = self.process_write_principal();
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.clone());
 
 		// Insert the process into the process store.
 		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
-				self.put_process_postgres(id, &arg, process_store, now)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
+				self.put_process_postgres(
+					id,
+					&arg,
+					process_store,
+					now,
+					principal.as_ref(),
+					created_by.as_ref(),
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
-				self.put_process_sqlite(id, &arg, process_store, now)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
+				self.put_process_sqlite(
+					id,
+					&arg,
+					process_store,
+					now,
+					principal.as_ref(),
+					created_by.as_ref(),
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
 			},
 		}
 

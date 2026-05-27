@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, database},
+	crate::{Server, Session, context::Authentication, database},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},
@@ -208,6 +208,14 @@ impl Session {
 		} else {
 			None
 		};
+
+		if let (Some(output), Some(principal)) = (&output, self.process_write_principal()) {
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			self.server
+				.grant_process_with_transaction(&transaction, &output.id, &principal, now)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to grant the process"))?;
+		}
 
 		// Commit the transaction.
 		transaction
@@ -1083,8 +1091,12 @@ impl Session {
 			.context
 			.authentication
 			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.map(|user| user.id.to_string());
+			.and_then(|authentication| match authentication {
+				Authentication::User(user) => Some(user.id.clone()),
+				Authentication::Process(process) => process.created_by.clone(),
+				Authentication::Root | Authentication::Runner | Authentication::Sandbox(_) => None,
+			})
+			.map(|user| user.to_string());
 		let params = db::params![
 			actual_checksum.to_string(),
 			true,
@@ -1303,8 +1315,12 @@ impl Session {
 			.context
 			.authentication
 			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.map(|user| user.id.to_string());
+			.and_then(|authentication| match authentication {
+				Authentication::User(user) => Some(user.id.clone()),
+				Authentication::Process(process) => process.created_by.clone(),
+				Authentication::Root | Authentication::Runner | Authentication::Sandbox(_) => None,
+			})
+			.map(|user| user.to_string());
 		let params = db::params![
 			cacheable,
 			arg.command.item.to_string(),

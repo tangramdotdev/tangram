@@ -15,14 +15,13 @@ impl Session {
 		&self,
 		arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
+		let principal = match self.context.authentication.as_ref() {
+			None | Some(Authentication::Root) => tg::Principal::Root,
+			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
+			Some(
+				Authentication::Process(_) | Authentication::Runner | Authentication::Sandbox(_),
+			) => return Err(tg::error!("unauthorized")),
+		};
 
 		let mut output = tg::process::list::Output { data: Vec::new() };
 
@@ -34,7 +33,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current {
 				let local_outputs = self
-					.list_processes_local()
+					.list_processes_local(&principal)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to list local processes"))?;
 				output.data.extend(local_outputs);
@@ -62,12 +61,17 @@ impl Session {
 		Ok(output)
 	}
 
-	pub(crate) async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {
+	pub(crate) async fn list_processes_local(
+		&self,
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<tg::process::get::Output>> {
 		let mut output = match &self.server.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => self.list_processes_postgres(process_store).await,
+			Database::Postgres(process_store) => {
+				self.list_processes_postgres(process_store, principal).await
+			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => self.list_processes_sqlite(process_store).await,
+			Database::Sqlite(process_store) => self.list_processes_sqlite(process_store, principal).await,
 		}?;
 		let location = Some(self.server.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),

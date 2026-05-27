@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	indoc::indoc,
+	indoc::{formatdoc, indoc},
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -10,6 +10,7 @@ impl Session {
 	pub(crate) async fn list_processes_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,
+		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
 		let connection = process_store
 			.connection()
@@ -17,7 +18,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
 		let outputs = connection
-			.with(move |connection, cache| Self::list_processes_sqlite_sync(connection, cache))
+			.with({
+				let principal = principal.clone();
+				move |connection, cache| {
+					Self::list_processes_sqlite_sync(connection, cache, &principal)
+				}
+			})
 			.await?;
 
 		Ok(outputs)
@@ -26,6 +32,7 @@ impl Session {
 	pub(crate) fn list_processes_sqlite_sync(
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,
+		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
@@ -64,7 +71,12 @@ impl Session {
 			#[tangram_database(as = "Option<db::value::Json<tg::process::Tty>>")]
 			tty: Option<tg::process::Tty>,
 		}
-		let statement = indoc!(
+		let created_by_condition = if principal.is_root() {
+			"created_by is null"
+		} else {
+			"created_by = ?1"
+		};
+		let statement = formatdoc!(
 			"
 				select
 					id,
@@ -89,15 +101,18 @@ impl Session {
 					stdout,
 					tty
 				from processes
-				where status != 'finished';
+				where status != 'finished' and {created_by_condition};
 			"
 		);
 		let mut statement = cache
 			.get(connection, statement.into())
 			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
-			.query([])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let mut rows = if principal.is_root() {
+			statement.query([])
+		} else {
+			statement.query([principal.to_string()])
+		}
+		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
 		let mut outputs = Vec::new();
 		while let Some(row) = rows

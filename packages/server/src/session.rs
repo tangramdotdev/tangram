@@ -45,6 +45,27 @@ impl Session {
 	}
 
 	#[must_use]
+	pub(crate) fn process_read_principal(&self) -> tg::Principal {
+		if let Some(Authentication::User(user)) = self.context.authentication.as_ref() {
+			tg::Principal::User(user.id.clone())
+		} else {
+			tg::Principal::Root
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn process_write_principal(&self) -> Option<tg::Principal> {
+		match self.context.authentication.as_ref() {
+			Some(Authentication::User(user)) => Some(tg::Principal::User(user.id.clone())),
+			Some(Authentication::Process(process)) => {
+				process.created_by.clone().map(tg::Principal::User)
+			},
+			None
+			| Some(Authentication::Root | Authentication::Runner | Authentication::Sandbox(_)) => None,
+		}
+	}
+
+	#[must_use]
 	pub(crate) fn authorize_object(
 		principal: &tg::Principal,
 		output: &crate::object::store::TryGetOutput,

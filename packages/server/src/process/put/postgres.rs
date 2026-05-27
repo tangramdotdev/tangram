@@ -13,9 +13,17 @@ impl Session {
 		arg: &tg::process::put::Arg,
 		process_store: &db::postgres::Database,
 		stored_at: i64,
+		principal: Option<&tg::Principal>,
+		created_by: Option<&tg::user::Id>,
 	) -> tg::Result<()> {
-		self.put_process_batch_postgres(&[(id, &arg.data)], process_store, stored_at)
-			.await
+		self.put_process_batch_postgres(
+			&[(id, &arg.data)],
+			process_store,
+			stored_at,
+			principal,
+			created_by,
+		)
+		.await
 	}
 
 	pub(crate) async fn put_process_batch_postgres(
@@ -23,6 +31,8 @@ impl Session {
 		items: &[(&tg::process::Id, &tg::process::Data)],
 		process_store: &db::postgres::Database,
 		stored_at: i64,
+		principal: Option<&tg::Principal>,
+		created_by: Option<&tg::user::Id>,
 	) -> tg::Result<()> {
 		if items.is_empty() {
 			return Ok(());
@@ -68,6 +78,7 @@ impl Session {
 		let mut stdouts: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut stdout_opens: Vec<Option<bool>> = Vec::with_capacity(items.len());
 		let mut stored_ats = Vec::with_capacity(items.len());
+		let mut created_bys = Vec::with_capacity(items.len());
 		let mut ttys: Vec<Option<String>> = Vec::with_capacity(items.len());
 
 		for (id, data) in items {
@@ -144,6 +155,7 @@ impl Session {
 			stdouts.push((!data.stdout.is_null()).then(|| data.stdout.to_string()));
 			stdout_opens.push(stdout_open);
 			stored_ats.push(stored_at);
+			created_bys.push(created_by.map(ToString::to_string));
 			ttys.push(
 				data.tty
 					.as_ref()
@@ -213,8 +225,8 @@ impl Session {
 					unnest($24::text[]),
 					unnest($25::bool[]),
 					unnest($26::int8[]),
-					null::text,
-					unnest($27::text[])
+					unnest($27::text[]),
+					unnest($28::text[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
 					cacheable = excluded.cacheable,
@@ -241,6 +253,7 @@ impl Session {
 					stdout = excluded.stdout,
 					stdout_open = excluded.stdout_open,
 					stored_at = excluded.stored_at,
+					created_by = excluded.created_by,
 					tty = excluded.tty;
 			"
 		);
@@ -274,6 +287,7 @@ impl Session {
 					&stdouts,
 					&stdout_opens,
 					&stored_ats,
+					&created_bys,
 					&ttys,
 				],
 			)
@@ -318,6 +332,72 @@ impl Session {
 						&child_ids,
 						&child_options,
 					],
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		}
+
+		if let Some(principal) = principal {
+			let grant_ttl = self.server.config.process.grant_time_to_live.as_secs();
+			let expires_at = stored_at + grant_ttl.to_i64().unwrap();
+			let processes = items
+				.iter()
+				.map(|(id, _)| id.to_string())
+				.collect::<Vec<_>>();
+			let principals = vec![principal.to_string(); processes.len()];
+			let created_ats = vec![stored_at; processes.len()];
+			let expires_ats = vec![expires_at; processes.len()];
+			let statement = indoc!(
+				"
+					insert into process_grants (
+						process,
+						principal,
+						node,
+						node_command,
+						node_error,
+						node_log,
+						node_output,
+						subtree,
+						subtree_command,
+						subtree_error,
+						subtree_log,
+						subtree_output,
+						created_at,
+						expires_at
+					)
+					select
+						unnest($1::text[]),
+						unnest($2::text[]),
+						true,
+						true,
+						true,
+						true,
+						true,
+						true,
+						true,
+						true,
+						true,
+						true,
+						unnest($3::int8[]),
+						unnest($4::int8[])
+					on conflict (process, principal) do update set
+						node = process_grants.node or excluded.node,
+						node_command = process_grants.node_command or excluded.node_command,
+						node_error = process_grants.node_error or excluded.node_error,
+						node_log = process_grants.node_log or excluded.node_log,
+						node_output = process_grants.node_output or excluded.node_output,
+						subtree = process_grants.subtree or excluded.subtree,
+						subtree_command = process_grants.subtree_command or excluded.subtree_command,
+						subtree_error = process_grants.subtree_error or excluded.subtree_error,
+						subtree_log = process_grants.subtree_log or excluded.subtree_log,
+						subtree_output = process_grants.subtree_output or excluded.subtree_output,
+						expires_at = greatest(process_grants.expires_at, excluded.expires_at);
+				"
+			);
+			transaction
+				.execute(
+					statement,
+					&[&processes, &principals, &created_ats, &expires_ats],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;

@@ -73,6 +73,30 @@ create index processes_queue_index on processes (sandbox, created_at, id) where 
 
 create index processes_status_index on processes (status);
 
+create index processes_created_by_status_index on processes (created_by, status);
+
+create table process_grants (
+	process text not null,
+	principal text not null,
+	node boolean not null default false,
+	node_command boolean not null default false,
+	node_error boolean not null default false,
+	node_log boolean not null default false,
+	node_output boolean not null default false,
+	subtree boolean not null default false,
+	subtree_command boolean not null default false,
+	subtree_error boolean not null default false,
+	subtree_log boolean not null default false,
+	subtree_output boolean not null default false,
+	created_at int8 not null,
+	expires_at int8 not null,
+	primary key (process, principal)
+);
+
+create index process_grants_principal_process_index on process_grants (principal, process);
+
+create index process_grants_expires_at_index on process_grants (expires_at);
+
 create table process_tokens (
 	process text not null,
 	token text primary key

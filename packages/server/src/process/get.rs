@@ -72,16 +72,22 @@ impl Session {
 		ids: &[tg::process::Id],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let principal = self.process_read_principal();
+
 		// Get the process from the process store.
 		let data_future = async {
 			match &self.server.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => {
-					self.try_get_process_batch_postgres(process_store, ids)
+					self.try_get_process_batch_postgres(process_store, ids, &principal, now)
 						.await
 				},
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(process_store) => self.try_get_process_batch_sqlite(process_store, ids).await,
+				Database::Sqlite(process_store) => {
+					self.try_get_process_batch_sqlite(process_store, ids, &principal, now)
+						.await
+				},
 			}
 		};
 

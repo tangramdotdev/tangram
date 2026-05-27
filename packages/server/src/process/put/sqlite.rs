@@ -14,9 +14,17 @@ impl Session {
 		arg: &tg::process::put::Arg,
 		process_store: &db::sqlite::Database,
 		stored_at: i64,
+		principal: Option<&tg::Principal>,
+		created_by: Option<&tg::user::Id>,
 	) -> tg::Result<()> {
-		self.put_process_batch_sqlite(&[(id, &arg.data)], process_store, stored_at)
-			.await
+		self.put_process_batch_sqlite(
+			&[(id, &arg.data)],
+			process_store,
+			stored_at,
+			principal,
+			created_by,
+		)
+		.await
 	}
 
 	pub(crate) async fn put_process_batch_sqlite(
@@ -24,6 +32,8 @@ impl Session {
 		items: &[(&tg::process::Id, &tg::process::Data)],
 		process_store: &db::sqlite::Database,
 		stored_at: i64,
+		principal: Option<&tg::Principal>,
+		created_by: Option<&tg::user::Id>,
 	) -> tg::Result<()> {
 		if items.is_empty() {
 			return Ok(());
@@ -34,6 +44,9 @@ impl Session {
 			.iter()
 			.map(|(id, data)| ((*id).clone(), (*data).clone()))
 			.collect();
+		let principal = principal.cloned();
+		let created_by = created_by.cloned();
+		let grant_ttl = self.server.config.process.grant_time_to_live;
 
 		// Get a process store connection.
 		let connection = process_store
@@ -43,7 +56,15 @@ impl Session {
 
 		connection
 			.with(move |connection, cache| {
-				Self::put_process_batch_sqlite_sync(connection, cache, &items, stored_at)
+				Self::put_process_batch_sqlite_sync(
+					connection,
+					cache,
+					&items,
+					stored_at,
+					principal.as_ref(),
+					grant_ttl,
+					created_by.as_ref(),
+				)
 			})
 			.await?;
 
@@ -55,6 +76,9 @@ impl Session {
 		cache: &db::sqlite::Cache,
 		items: &[(tg::process::Id, tg::process::Data)],
 		stored_at: i64,
+		principal: Option<&tg::Principal>,
+		grant_ttl: std::time::Duration,
+		created_by: Option<&tg::user::Id>,
 	) -> tg::Result<()> {
 		// Begin a transaction.
 		let transaction = connection
@@ -123,8 +147,8 @@ impl Session {
 					?24,
 					?25,
 					?26,
-					null,
-					?27
+					?27,
+					?28
 				)
 				on conflict (id) do update set
 					actual_checksum = ?1,
@@ -152,7 +176,8 @@ impl Session {
 					stdout = ?24,
 					stdout_open = ?25,
 					stored_at = ?26,
-					tty = ?27
+					created_by = ?27,
+					tty = ?28
 			"
 		);
 		let mut process_stmt = cache
@@ -169,6 +194,44 @@ impl Session {
 		);
 		let mut children_stmt = cache
 			.get(&transaction, children_statement.into())
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
+
+		let grant_statement = indoc!(
+			"
+				insert into process_grants (
+					process,
+					principal,
+					node,
+					node_command,
+					node_error,
+					node_log,
+					node_output,
+					subtree,
+					subtree_command,
+					subtree_error,
+					subtree_log,
+					subtree_output,
+					created_at,
+					expires_at
+				) values (
+					?1, ?2, true, true, true, true, true, true, true, true, true, true, ?3, ?4
+				)
+				on conflict (process, principal) do update set
+					node = process_grants.node or excluded.node,
+					node_command = process_grants.node_command or excluded.node_command,
+					node_error = process_grants.node_error or excluded.node_error,
+					node_log = process_grants.node_log or excluded.node_log,
+					node_output = process_grants.node_output or excluded.node_output,
+					subtree = process_grants.subtree or excluded.subtree,
+					subtree_command = process_grants.subtree_command or excluded.subtree_command,
+					subtree_error = process_grants.subtree_error or excluded.subtree_error,
+					subtree_log = process_grants.subtree_log or excluded.subtree_log,
+					subtree_output = process_grants.subtree_output or excluded.subtree_output,
+					expires_at = max(process_grants.expires_at, excluded.expires_at);
+			"
+		);
+		let mut grant_stmt = cache
+			.get(&transaction, grant_statement.into())
 			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
 
 		// Insert all processes and their children.
@@ -248,6 +311,7 @@ impl Session {
 				(!data.stdout.is_null()).then(|| data.stdout.to_string()),
 				stdout_open,
 				stored_at,
+				created_by.map(ToString::to_string),
 				tty_json
 			];
 			process_stmt
@@ -269,11 +333,24 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				}
 			}
+
+			if let Some(principal) = principal {
+				let expires_at = stored_at + grant_ttl.as_secs().to_i64().unwrap();
+				grant_stmt
+					.execute(sqlite::params![
+						id.to_string(),
+						principal.to_string(),
+						stored_at,
+						expires_at
+					])
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			}
 		}
 
 		// Drop the prepared statements before committing.
 		drop(process_stmt);
 		drop(children_stmt);
+		drop(grant_stmt);
 
 		// Commit the transaction.
 		transaction

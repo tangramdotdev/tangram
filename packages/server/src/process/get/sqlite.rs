@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	indoc::indoc,
+	indoc::{formatdoc, indoc},
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -11,6 +11,8 @@ impl Session {
 		&self,
 		process_store: &db::sqlite::Database,
 		ids: &[tg::process::Id],
+		principal: &tg::Principal,
+		now: i64,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let connection = process_store
 			.connection()
@@ -20,8 +22,11 @@ impl Session {
 		let outputs = connection
 			.with({
 				let ids = ids.to_owned();
+				let principal = principal.clone();
 				move |connection, cache| {
-					Self::try_get_process_batch_sqlite_sync(connection, cache, &ids)
+					Self::try_get_process_batch_sqlite_sync(
+						connection, cache, &ids, &principal, now,
+					)
 				}
 			})
 			.await?;
@@ -49,10 +54,14 @@ impl Session {
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,
 		ids: &[tg::process::Id],
+		principal: &tg::Principal,
+		now: i64,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			outputs.push(Self::try_get_process_sqlite_sync(connection, cache, id)?);
+			outputs.push(Self::try_get_process_sqlite_sync(
+				connection, cache, id, principal, now,
+			)?);
 		}
 		Ok(outputs)
 	}
@@ -61,6 +70,8 @@ impl Session {
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,
 		id: &tg::process::Id,
+		principal: &tg::Principal,
+		now: i64,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Get the process.
 		#[derive(db::sqlite::row::Deserialize)]
@@ -89,39 +100,53 @@ impl Session {
 			stdout: Option<String>,
 			tty: Option<String>,
 		}
-		let statement = indoc!(
+		let join = if principal.is_root() {
+			""
+		} else {
+			"
+				join process_grants on
+					process_grants.process = processes.id and
+					process_grants.principal = ?2 and
+					process_grants.node and
+					process_grants.expires_at > ?3"
+		};
+		let statement = formatdoc!(
 			"
 				select
-					actual_checksum,
-					cacheable,
-					command,
-					created_at,
-					debug,
-					error,
-					exit,
-					expected_checksum,
-					finished_at,
-					host,
-					log,
-					output,
-					retry,
-					sandbox,
-					started_at,
-					status,
-					stderr,
-					stdin,
-					stdout,
-					tty
+					processes.actual_checksum,
+					processes.cacheable,
+					processes.command,
+					processes.created_at,
+					processes.debug,
+					processes.error,
+					processes.exit,
+					processes.expected_checksum,
+					processes.finished_at,
+					processes.host,
+					processes.log,
+					processes.output,
+					processes.retry,
+					processes.sandbox,
+					processes.started_at,
+					processes.status,
+					processes.stderr,
+					processes.stdin,
+					processes.stdout,
+					processes.tty
 				from processes
+				{join}
 				where processes.id = ?1;
 			"
 		);
 		let mut statement = cache
 			.get(connection, statement.into())
 			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
-			.query([id.to_string()])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let mut rows = if principal.is_root() {
+			statement.query(sqlite::params![id.to_string()])
+		} else {
+			statement.query(sqlite::params![id.to_string(), principal.to_string(), now])
+		}
+		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?

@@ -36,6 +36,11 @@ impl Server {
 					where process in (select id from deleted_processes)
 					returning 1
 				),
+				deleted_process_grants as (
+					delete from process_grants
+					where process in (select id from deleted_processes)
+					returning 1
+				),
 				deleted_process_tokens as (
 					delete from process_tokens
 					where process in (select id from deleted_processes)
@@ -68,6 +73,29 @@ impl Server {
 		connection
 			.inner()
 			.query(statement, &[&processes, &max_stored_at])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(())
+	}
+
+	pub(crate) async fn clean_expired_process_grants_postgres(
+		&self,
+		process_store: &db::postgres::Database,
+		now: i64,
+	) -> tg::Result<()> {
+		let connection = process_store
+			.write_connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let statement = indoc!(
+			"
+				delete from process_grants
+				where expires_at <= $1;
+			"
+		);
+		connection
+			.inner()
+			.execute(statement, &[&now])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())

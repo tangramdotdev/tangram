@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	indoc::indoc,
+	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -9,6 +9,7 @@ impl Session {
 	pub(crate) async fn list_processes_postgres(
 		&self,
 		process_store: &db::postgres::Database,
+		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
 		let connection = process_store
 			.connection()
@@ -55,7 +56,12 @@ impl Session {
 			#[tangram_database(as = "Option<db::value::Json<tg::process::Tty>>")]
 			tty: Option<tg::process::Tty>,
 		}
-		let statement = indoc!(
+		let created_by_condition = if principal.is_root() {
+			"created_by is null"
+		} else {
+			"created_by = $1"
+		};
+		let statement = formatdoc!(
 			"
 				select
 					processes.id,
@@ -81,14 +87,20 @@ impl Session {
 					stdout,
 					tty
 				from processes
-				where status != 'finished';
+				where status != 'finished' and {created_by_condition};
 			"
 		);
-		let outputs = connection
-			.inner()
-			.query(statement, &[])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		let principal_string = principal.to_string();
+		let rows = if principal.is_root() {
+			connection.inner().query(&statement, &[]).await
+		} else {
+			connection
+				.inner()
+				.query(&statement, &[&principal_string])
+				.await
+		}
+		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let outputs = rows
 			.iter()
 			.map(|row| {
 				<Row as db::postgres::row::Deserialize>::deserialize(row)

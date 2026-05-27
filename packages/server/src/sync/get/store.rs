@@ -233,17 +233,24 @@ impl Session {
 
 		// Write the processes to the database.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let principal = self.process_write_principal();
 		let batch_refs: Vec<_> = batch.iter().map(|(id, data, _)| (id, data)).collect();
 		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
-				self.put_process_batch_postgres(&batch_refs, database, now)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
+				self.put_process_batch_postgres(
+					&batch_refs,
+					database,
+					now,
+					principal.as_ref(),
+					None,
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => {
-				self.put_process_batch_sqlite(&batch_refs, database, now)
+				self.put_process_batch_sqlite(&batch_refs, database, now, principal.as_ref(), None)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
 			},
