@@ -1,7 +1,10 @@
 use {
 	std::{
 		ffi::CString,
-		os::{fd::AsRawFd as _, unix::ffi::OsStrExt as _},
+		os::{
+			fd::{AsRawFd as _, FromRawFd as _, RawFd},
+			unix::ffi::OsStrExt as _,
+		},
 		path::{Path, PathBuf},
 		sync::Arc,
 	},
@@ -26,13 +29,17 @@ pub fn spawn(
 	binds: &[Bind],
 	log_path: &Path,
 ) -> tg::Result<libc::pid_t> {
+	let listener = vhost::vhost_user::Listener::new(socket_path, true)
+		.map_err(|error| tg::error!(?error, "failed to create the vhost-user listener"))?;
+	let listener_fd = listener.as_raw_fd();
+
 	let child = unsafe { libc::fork() };
 	if child < 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to fork the virtiofsd helper"));
 	}
 	if child == 0 {
-		match child_main(uid, gid, shared_dir, socket_path, binds, log_path) {
+		match child_main(uid, gid, shared_dir, listener_fd, binds, log_path) {
 			Ok(()) => std::process::exit(0),
 			Err(error) => {
 				eprintln!("{error}");
@@ -41,6 +48,10 @@ pub fn spawn(
 			},
 		}
 	}
+
+	std::mem::forget(listener);
+	unsafe { libc::close(listener_fd) };
+
 	Ok(child)
 }
 
@@ -48,7 +59,7 @@ fn child_main(
 	uid: libc::uid_t,
 	gid: libc::gid_t,
 	shared_dir: &Path,
-	socket_path: &Path,
+	listener_fd: RawFd,
 	binds: &[Bind],
 	log_path: &Path,
 ) -> tg::Result<()> {
@@ -137,8 +148,7 @@ fn child_main(
 		vm_memory::GuestMemoryAtomic::new(vm_memory::GuestMemoryMmap::new()),
 	)
 	.map_err(|error| tg::error!(%error, "failed to create the vhost-user daemon"))?;
-	let listener = vhost::vhost_user::Listener::new(socket_path, true)
-		.map_err(|error| tg::error!(?error, "failed to create the vhost-user listener"))?;
+	let listener = unsafe { vhost::vhost_user::Listener::from_raw_fd(listener_fd) };
 	daemon
 		.start(listener)
 		.map_err(|error| tg::error!(?error, "failed to start the vhost-user daemon"))?;
