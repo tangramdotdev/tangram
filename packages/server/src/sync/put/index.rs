@@ -156,12 +156,20 @@ impl Session {
 						bytes += command_size;
 					}
 				}
-				if state.arg.logs {
-					if let Some(logs_count) = metadata.subtree.log.count {
-						objects += logs_count;
+				if state.arg.errors {
+					if let Some(error_count) = metadata.node.error.count {
+						objects += error_count;
 					}
-					if let Some(logs_size) = metadata.subtree.log.size {
-						bytes += logs_size;
+					if let Some(error_size) = metadata.node.error.size {
+						bytes += error_size;
+					}
+				}
+				if state.arg.logs {
+					if let Some(log_count) = metadata.node.log.count {
+						objects += log_count;
+					}
+					if let Some(log_size) = metadata.node.log.size {
+						bytes += log_size;
 					}
 				}
 				if state.arg.outputs {
