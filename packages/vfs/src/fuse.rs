@@ -953,6 +953,9 @@ where
 		let mut payload_storage = None;
 		let error = match result {
 			Ok(Some(response)) => {
+				if !Self::requires_response(&response) {
+					return Ok(());
+				}
 				payload_storage = Some(Self::response_bytes(&response).to_vec());
 				0
 			},
@@ -986,24 +989,6 @@ where
 		unique: u64,
 		result: Result<Option<Response>>,
 	) -> Result<()> {
-		let (error, payload_len) = match result {
-			Ok(Some(response)) => {
-				let payload = Self::response_bytes(&response);
-				if payload.len() > slot_data.payload.len() {
-					return Err(Error::other("response payload too large"));
-				}
-				slot_data.payload[..payload.len()].copy_from_slice(payload);
-				(0, payload.len())
-			},
-			Ok(None) => (0, 0),
-			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), 0),
-		};
-		let len = size_of::<fuse_out_header>() + payload_len;
-		let out = fuse_out_header {
-			unique,
-			len: len.to_u32().unwrap(),
-			error: -error,
-		};
 		let in_out = unsafe {
 			std::slice::from_raw_parts_mut(
 				slot_data.header.in_out.as_mut_ptr().cast::<u8>(),
@@ -1011,7 +996,31 @@ where
 			)
 		};
 		in_out.fill(0);
-		in_out[..size_of::<fuse_out_header>()].copy_from_slice(out.as_bytes());
+		let (error, payload_len, needs_header) = match result {
+			Ok(Some(response)) => {
+				if Self::requires_response(&response) {
+					let payload = Self::response_bytes(&response);
+					if payload.len() > slot_data.payload.len() {
+						return Err(Error::other("response payload too large"));
+					}
+					slot_data.payload[..payload.len()].copy_from_slice(payload);
+					(0, payload.len(), true)
+				} else {
+					(0, 0, false)
+				}
+			},
+			Ok(None) => (0, 0, true),
+			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), 0, true),
+		};
+		if needs_header {
+			let len = size_of::<fuse_out_header>() + payload_len;
+			let out = fuse_out_header {
+				unique,
+				len: len.to_u32().unwrap(),
+				error: -error,
+			};
+			in_out[..size_of::<fuse_out_header>()].copy_from_slice(out.as_bytes());
+		}
 		slot_data.header.ring_ent_in_out = sys::fuse_uring_ent_in_out {
 			flags: 0,
 			commit_id: unique,
@@ -1022,7 +1031,15 @@ where
 		Ok(())
 	}
 
+	fn requires_response(response: &Response) -> bool {
+		!matches!(
+			response,
+			Response::BatchForget | Response::Forget | Response::Interrupt
+		)
+	}
+
 	fn response_bytes(response: &Response) -> &[u8] {
+		debug_assert!(Self::requires_response(response));
 		match response {
 			Response::BatchForget
 			| Response::Destroy
