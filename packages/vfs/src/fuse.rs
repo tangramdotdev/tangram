@@ -236,17 +236,48 @@ where
 	P: Provider + Send + Sync + 'static,
 {
 	pub async fn start(provider: P, path: &Path, options: Options) -> Result<Self> {
-		// Unmount.
-		Self::unmount(path).await.ok();
+		let mut options = options;
+		let (fd, features, sqpoll_ring) = loop {
+			// Unmount.
+			Self::unmount(path).await.ok();
 
-		// Mount.
-		let fd = Self::mount(path)
-			.await
-			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
+			// Mount.
+			let fd = Self::mount(path)
+				.await
+				.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
-		// Complete INIT before entering io_uring command mode.
-		let features = Self::init_handshake(fd.as_ref(), options)
-			.map_err(|error| Error::other(format!("failed to complete init handshake: {error}")))?;
+			// Complete INIT before entering io_uring command mode.
+			let features = Self::init_handshake(fd.as_ref(), options).map_err(|error| {
+				Error::other(format!("failed to complete init handshake: {error}"))
+			})?;
+
+			if !features.over_io_uring {
+				break (fd, features, None);
+			}
+
+			// Create a primary SQPOLL ring. Thread rings attach to this shared backend.
+			let mut sqpoll_builder = IoUring::<io_uring::squeue::Entry128>::builder();
+			sqpoll_builder
+				.setup_sqpoll(SQPOLL_IDLE_MS)
+				.setup_no_sqarray();
+			match sqpoll_builder.build(IO_URING_ENTRIES) {
+				Ok(ring) => break (fd, features, Some(ring)),
+				Err(error) if options.io == Io::Auto => {
+					tracing::warn!(
+						%error,
+						"failed to build the fuse io_uring sqpoll ring; falling back to legacy fuse read/write transport"
+					);
+					drop(fd);
+					Self::unmount(path).await.ok();
+					options.io = Io::ReadWrite;
+				},
+				Err(error) => {
+					return Err(Error::other(format!(
+						"failed to build sqpoll ring: {error}"
+					)));
+				},
+			}
+		};
 
 		// Create the server.
 		let server = Self(Arc::new(State {
@@ -261,18 +292,8 @@ where
 
 		let runtime = tokio::runtime::Handle::current();
 		let mut thread_handles = Vec::new();
-		let mut sqpoll_ring = None;
 		if features.over_io_uring {
-			// Create a primary SQPOLL ring. Thread rings attach to this shared backend.
-			let mut sqpoll_builder = IoUring::<io_uring::squeue::Entry128>::builder();
-			sqpoll_builder
-				.setup_sqpoll(SQPOLL_IDLE_MS)
-				.setup_no_sqarray();
-			let ring = sqpoll_builder
-				.build(IO_URING_ENTRIES)
-				.map_err(|error| Error::other(format!("failed to build sqpoll ring: {error}")))?;
-			let sqpoll_wq_fd = ring.as_raw_fd();
-			sqpoll_ring = Some(ring);
+			let sqpoll_wq_fd = sqpoll_ring.as_ref().unwrap().as_raw_fd();
 
 			// Create threads.
 			let preferred_thread_count =
