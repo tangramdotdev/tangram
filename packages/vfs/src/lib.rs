@@ -52,6 +52,8 @@ pub enum Request {
 	},
 	ReadDirPlus {
 		handle: u64,
+		length: u64,
+		offset: u64,
 	},
 	ReadLink {
 		id: u64,
@@ -480,13 +482,19 @@ pub trait Provider {
 	fn readdirplus(
 		&self,
 		handle: u64,
+		offset: u64,
+		length: u64,
 	) -> impl Future<Output = Result<Vec<(String, u64, Attrs)>>> + Send
 	where
 		Self: Sync,
 	{
 		async move {
 			let response = self
-				.handle_batch(vec![Request::ReadDirPlus { handle }])
+				.handle_batch(vec![Request::ReadDirPlus {
+					handle,
+					length,
+					offset,
+				}])
 				.await
 				.into_iter()
 				.next()
@@ -499,9 +507,18 @@ pub trait Provider {
 	}
 
 	/// Read from a directory with attributes synchronously.
-	fn readdirplus_sync(&self, handle: u64) -> Result<Vec<(String, u64, Attrs)>> {
+	fn readdirplus_sync(
+		&self,
+		handle: u64,
+		offset: u64,
+		length: u64,
+	) -> Result<Vec<(String, u64, Attrs)>> {
 		let response = self
-			.handle_batch_sync(vec![Request::ReadDirPlus { handle }])
+			.handle_batch_sync(vec![Request::ReadDirPlus {
+				handle,
+				length,
+				offset,
+			}])
 			.into_iter()
 			.next()
 			.ok_or_else(|| Error::other("expected exactly one response"))??;

@@ -1426,7 +1426,11 @@ where
 					} else {
 						data.fh
 					};
-					provider_requests.push(ProviderRequest::ReadDirPlus { handle });
+					provider_requests.push(ProviderRequest::ReadDirPlus {
+						handle,
+						length: data.size.to_u64().unwrap(),
+						offset: data.offset.to_u64().unwrap(),
+					});
 					actions.push(BatchAction::NeedsProvider);
 				},
 				RequestData::ReadLink => {
@@ -1947,13 +1951,23 @@ where
 		} else {
 			request.fh
 		};
+		if plus {
+			let entries = self
+				.provider
+				.readdirplus(
+					handle,
+					request.offset.to_u64().unwrap(),
+					request.size.to_u64().unwrap(),
+				)
+				.await?;
+			return Ok(Some(
+				self.build_read_dir_plus_response(entries, request).await?,
+			));
+		}
+
 		let entries = self.provider.readdir(handle).await?;
 
-		let struct_size = if plus {
-			std::mem::size_of::<FuseDirentPlusHeader>()
-		} else {
-			std::mem::size_of::<FuseDirentHeader>()
-		};
+		let struct_size = std::mem::size_of::<FuseDirentHeader>();
 
 		let entries = entries
 			.into_iter()
@@ -1961,20 +1975,7 @@ where
 			.skip(request.offset.to_usize().unwrap());
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node, inner)) in entries {
-			let attr = if plus {
-				Some(self.provider.getattr(node).await?)
-			} else {
-				None
-			};
-			let type_ = if let Some(attr) = attr {
-				match attr.inner {
-					AttrsInner::Directory => S_IFDIR,
-					AttrsInner::File { .. } => S_IFREG,
-					AttrsInner::Symlink => S_IFLNK,
-				}
-			} else {
-				Self::fuse_dirent_type(inner)
-			};
+			let type_ = Self::fuse_dirent_type(inner);
 			let name = name.into_bytes();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
 			let entry_size = struct_size + name.len() + padding;
@@ -1989,28 +1990,12 @@ where
 				type_,
 			};
 
-			if let Some(attr) = attr {
-				let _ = self
-					.provider
-					.handle_batch(vec![ProviderRequest::Remember { id: node }])
-					.await;
-				let entry = FuseDirentPlusHeader {
-					entry_out: Self::fuse_entry_out_from_attrs(node, attr),
-					dirent,
-				};
-				response.extend_from_slice(entry.as_bytes());
-			} else {
-				response.extend_from_slice(dirent.as_bytes());
-			}
+			response.extend_from_slice(dirent.as_bytes());
 			response.extend_from_slice(&name);
 			response.extend((0..padding).map(|_| 0));
 		}
 
-		if plus {
-			Ok(Some(Response::ReadDirPlus(response)))
-		} else {
-			Ok(Some(Response::ReadDir(response)))
-		}
+		Ok(Some(Response::ReadDir(response)))
 	}
 	fn build_read_dir_response_sync(
 		entries: Vec<(String, u64, crate::EntryKind)>,
@@ -2044,17 +2029,61 @@ where
 		Response::ReadDir(response)
 	}
 
+	async fn build_read_dir_plus_response(
+		&self,
+		entries: Vec<(String, u64, crate::Attrs)>,
+		request: fuse_read_in,
+	) -> Result<Response> {
+		let entries = entries.into_iter().enumerate();
+		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
+		for (offset, (name, node, attr)) in entries {
+			let offset = request.offset.to_usize().unwrap() + offset;
+			let name = name.into_bytes();
+			let struct_size = std::mem::size_of::<FuseDirentPlusHeader>();
+			let padding = (8 - (struct_size + name.len()) % 8) % 8;
+			let entry_size = struct_size + name.len() + padding;
+			if response.len() + entry_size > request.size.to_usize().unwrap() {
+				break;
+			}
+
+			let type_ = match attr.inner {
+				AttrsInner::Directory => S_IFDIR,
+				AttrsInner::File { .. } => S_IFREG,
+				AttrsInner::Symlink => S_IFLNK,
+			};
+
+			let dirent = FuseDirentHeader {
+				ino: node,
+				off: offset.to_u64().unwrap() + 1,
+				namelen: name.len().to_u32().unwrap(),
+				type_,
+			};
+
+			let _ = self
+				.provider
+				.handle_batch(vec![ProviderRequest::Remember { id: node }])
+				.await;
+			let entry = FuseDirentPlusHeader {
+				entry_out: Self::fuse_entry_out_from_attrs(node, attr),
+				dirent,
+			};
+			response.extend_from_slice(entry.as_bytes());
+			response.extend_from_slice(&name);
+			response.extend((0..padding).map(|_| 0));
+		}
+
+		Ok(Response::ReadDirPlus(response))
+	}
+
 	fn build_read_dir_plus_response_sync(
 		&self,
 		entries: Vec<(String, u64, crate::Attrs)>,
 		request: fuse_read_in,
 	) -> Response {
-		let entries = entries
-			.into_iter()
-			.enumerate()
-			.skip(request.offset.to_usize().unwrap());
+		let entries = entries.into_iter().enumerate();
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node, attr)) in entries {
+			let offset = request.offset.to_usize().unwrap() + offset;
 			let name = name.into_bytes();
 			let struct_size = std::mem::size_of::<FuseDirentPlusHeader>();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
