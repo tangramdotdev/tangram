@@ -7,13 +7,16 @@ use {
 	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, HashMap},
+		collections::BTreeMap,
 		io::{Read as _, Seek as _},
 		os::fd::OwnedFd,
 		os::unix::ffi::OsStrExt as _,
 		path::{Path, PathBuf},
 		pin::pin,
-		sync::atomic::{AtomicU64, Ordering},
+		sync::{
+			Mutex,
+			atomic::{AtomicU64, Ordering},
+		},
 	},
 	tangram_client::prelude::*,
 	tangram_object_store::prelude::*,
@@ -23,20 +26,24 @@ use {
 pub struct Provider {
 	file_handle_count: AtomicU64,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
-	node_count: AtomicU64,
 	nodes: Nodes,
 	server: Server,
 }
 
 struct Nodes {
-	nodes: DashMap<u64, Node, fnv::FnvBuildHasher>,
+	state: Mutex<State>,
+}
+
+struct State {
+	next: u64,
+	nodes: BTreeMap<u64, Node>,
 }
 
 #[derive(Clone)]
 struct Node {
 	artifact: Option<tg::artifact::Id>,
 	attrs: Option<vfs::Attrs>,
-	children: HashMap<String, u64, fnv::FnvBuildHasher>,
+	children: BTreeMap<String, u64>,
 	depth: u64,
 	lookup_count: u64,
 	name: Option<String>,
@@ -68,12 +75,10 @@ impl Provider {
 		// Create the provider.
 		let file_handle_count = AtomicU64::new(1000);
 		let file_handles = DashMap::default();
-		let node_count = AtomicU64::new(1000);
 		let server = server.clone();
 		let provider = Self {
 			file_handle_count,
 			file_handles,
-			node_count,
 			nodes,
 			server,
 		};
@@ -442,7 +447,9 @@ impl Provider {
 		// Insert the node.
 		let (artifact, depth) = entry.unwrap();
 		let attrs = Self::attrs_from_artifact(Some(&artifact));
-		let id = self.put(parent, name, artifact, depth, attrs).await?;
+		let id = self
+			.nodes
+			.get_or_insert_child(parent, name, artifact, depth, attrs)?;
 
 		Ok(Some(id))
 	}
@@ -511,7 +518,9 @@ impl Provider {
 		// Insert the node.
 		let (artifact, depth) = entry.unwrap();
 		let attrs = Self::attrs_from_artifact(Some(&artifact));
-		let id = self.put_sync(parent, name, &artifact, depth, attrs);
+		let id = self
+			.nodes
+			.get_or_insert_child(parent, name, artifact, depth, attrs)?;
 		Ok(Some(id))
 	}
 
@@ -694,13 +703,14 @@ impl Provider {
 		let entries = self.directory_entries_inner(directory, None).await?;
 		let mut result = Vec::with_capacity(entries.len());
 		for (name, artifact) in entries {
-			let entry = if let Some(entry) = self.nodes.lookup(parent, &name).await? {
-				entry
-			} else {
-				let attrs = Self::attrs_from_artifact(Some(&artifact));
-				self.put(parent, &name, artifact.clone(), depth + 1, attrs)
-					.await?
-			};
+			let attrs = Self::attrs_from_artifact(Some(&artifact));
+			let entry = self.nodes.get_or_insert_child(
+				parent,
+				&name,
+				artifact.clone(),
+				depth + 1,
+				attrs,
+			)?;
 			result.push((name, entry, artifact));
 		}
 		Ok(result)
@@ -716,12 +726,14 @@ impl Provider {
 		let entries = self.directory_entries_sync_inner(directory, None, transaction)?;
 		let mut result = Vec::with_capacity(entries.len());
 		for (name, artifact) in entries {
-			let entry = if let Some(entry) = self.nodes.lookup_sync(parent, &name) {
-				entry
-			} else {
-				let attrs = Self::attrs_from_artifact(Some(&artifact));
-				self.put_sync(parent, &name, &artifact, depth + 1, attrs)
-			};
+			let attrs = Self::attrs_from_artifact(Some(&artifact));
+			let entry = self.nodes.get_or_insert_child(
+				parent,
+				&name,
+				artifact.clone(),
+				depth + 1,
+				attrs,
+			)?;
 			result.push((name, entry, artifact));
 		}
 		Ok(result)
@@ -961,41 +973,6 @@ impl Provider {
 
 	fn get_sync(&self, id: u64) -> std::io::Result<NodeInfo> {
 		self.nodes.get_sync(id)
-	}
-
-	async fn put(
-		&self,
-		parent: u64,
-		name: &str,
-		artifact: tg::artifact::Id,
-		depth: u64,
-		attrs: Option<vfs::Attrs>,
-	) -> std::io::Result<u64> {
-		// Get a node ID.
-		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
-
-		// Add the node to the nodes storage.
-		self.nodes.insert(id, parent, name, artifact, depth, attrs);
-
-		Ok(id)
-	}
-
-	fn put_sync(
-		&self,
-		parent: u64,
-		name: &str,
-		artifact: &tg::artifact::Id,
-		depth: u64,
-		attrs: Option<vfs::Attrs>,
-	) -> u64 {
-		// Get a node ID.
-		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
-
-		// Add the node to the nodes storage.
-		self.nodes
-			.insert(id, parent, name, artifact.clone(), depth, attrs);
-
-		id
 	}
 
 	fn build_symlink_target(
@@ -1893,20 +1870,21 @@ impl Provider {
 
 impl Nodes {
 	fn new() -> Self {
-		let nodes = DashMap::default();
+		let mut nodes = BTreeMap::new();
 		nodes.insert(
 			vfs::ROOT_NODE_ID,
 			Node {
 				artifact: None,
 				attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
-				children: HashMap::default(),
+				children: BTreeMap::new(),
 				depth: 0,
 				lookup_count: u64::MAX,
 				name: None,
 				parent: vfs::ROOT_NODE_ID,
 			},
 		);
-		Self { nodes }
+		let state = Mutex::new(State { next: 1000, nodes });
+		Self { state }
 	}
 
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
@@ -1926,20 +1904,32 @@ impl Nodes {
 	}
 
 	fn lookup_sync(&self, parent: u64, name: &str) -> Option<u64> {
-		self.nodes
+		self.state
+			.lock()
+			.unwrap()
+			.nodes
 			.get(&parent)
 			.and_then(|node| node.children.get(name).copied())
 	}
 
 	fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
-		self.nodes.get(&id).map(|node| node.parent).ok_or_else(|| {
-			tracing::error!(%id, "node not found");
-			std::io::Error::from_raw_os_error(libc::ENOENT)
-		})
+		self.state
+			.lock()
+			.unwrap()
+			.nodes
+			.get(&id)
+			.map(|node| node.parent)
+			.ok_or_else(|| {
+				tracing::error!(%id, "node not found");
+				std::io::Error::from_raw_os_error(libc::ENOENT)
+			})
 	}
 
 	fn get_sync(&self, id: u64) -> std::io::Result<NodeInfo> {
-		self.nodes
+		self.state
+			.lock()
+			.unwrap()
+			.nodes
 			.get(&id)
 			.map(|node| NodeInfo {
 				artifact: node.artifact.clone(),
@@ -1954,14 +1944,21 @@ impl Nodes {
 	}
 
 	fn get_attrs_sync(&self, id: u64) -> std::io::Result<Option<vfs::Attrs>> {
-		self.nodes.get(&id).map(|node| node.attrs).ok_or_else(|| {
-			tracing::error!(%id, "node not found");
-			std::io::Error::from_raw_os_error(libc::ENOENT)
-		})
+		self.state
+			.lock()
+			.unwrap()
+			.nodes
+			.get(&id)
+			.map(|node| node.attrs)
+			.ok_or_else(|| {
+				tracing::error!(%id, "node not found");
+				std::io::Error::from_raw_os_error(libc::ENOENT)
+			})
 	}
 
 	fn set_attrs(&self, id: u64, attrs: vfs::Attrs) {
-		let Some(mut node) = self.nodes.get_mut(&id) else {
+		let mut state = self.state.lock().unwrap();
+		let Some(node) = state.nodes.get_mut(&id) else {
 			return;
 		};
 		node.attrs = Some(attrs);
@@ -1971,7 +1968,8 @@ impl Nodes {
 		if id == vfs::ROOT_NODE_ID {
 			return;
 		}
-		let Some(mut node) = self.nodes.get_mut(&id) else {
+		let mut state = self.state.lock().unwrap();
+		let Some(node) = state.nodes.get_mut(&id) else {
 			return;
 		};
 		node.lookup_count = node.lookup_count.saturating_add(1);
@@ -1982,28 +1980,28 @@ impl Nodes {
 			return Vec::new();
 		}
 
-		let Some(mut node) = self.nodes.get_mut(&id) else {
+		let mut state = self.state.lock().unwrap();
+		let Some(node) = state.nodes.get_mut(&id) else {
 			return Vec::new();
 		};
 		node.lookup_count = node.lookup_count.saturating_sub(nlookup);
 		let should_prune = node.lookup_count == 0 && node.children.is_empty();
-		drop(node);
 		if !should_prune {
 			return Vec::new();
 		}
 
 		let mut removed = Vec::new();
-		self.prune(id, &mut removed);
+		Self::prune(&mut state, id, &mut removed);
 		removed
 	}
 
-	fn prune(&self, mut id: u64, removed: &mut Vec<u64>) {
+	fn prune(state: &mut State, mut id: u64, removed: &mut Vec<u64>) {
 		loop {
 			if id == vfs::ROOT_NODE_ID {
 				return;
 			}
 
-			let Some(node) = self.nodes.get(&id) else {
+			let Some(node) = state.nodes.get(&id) else {
 				return;
 			};
 			if node.lookup_count != 0 || !node.children.is_empty() {
@@ -2011,21 +2009,21 @@ impl Nodes {
 			}
 			let parent = node.parent;
 			let name = node.name.clone();
-			drop(node);
 
-			self.nodes.remove(&id);
+			state.nodes.remove(&id);
 			removed.push(id);
 
-			let Some(mut parent_node) = self.nodes.get_mut(&parent) else {
-				return;
+			let prune_parent = {
+				let Some(parent_node) = state.nodes.get_mut(&parent) else {
+					return;
+				};
+				if let Some(name) = name {
+					parent_node.children.remove(&name);
+				}
+				parent != vfs::ROOT_NODE_ID
+					&& parent_node.lookup_count == 0
+					&& parent_node.children.is_empty()
 			};
-			if let Some(name) = name {
-				parent_node.children.remove(&name);
-			}
-			let prune_parent = parent != vfs::ROOT_NODE_ID
-				&& parent_node.lookup_count == 0
-				&& parent_node.children.is_empty();
-			drop(parent_node);
 			if !prune_parent {
 				return;
 			}
@@ -2033,32 +2031,49 @@ impl Nodes {
 		}
 	}
 
-	fn insert(
+	fn get_or_insert_child(
 		&self,
-		id: u64,
 		parent: u64,
 		name: &str,
 		artifact: tg::artifact::Id,
 		depth: u64,
 		attrs: Option<vfs::Attrs>,
-	) {
-		// Insert the new node.
-		self.nodes.insert(
+	) -> std::io::Result<u64> {
+		let mut state = self.state.lock().unwrap();
+		if let Some(id) = state
+			.nodes
+			.get(&parent)
+			.and_then(|node| node.children.get(name).copied())
+		{
+			return Ok(id);
+		}
+
+		if !state.nodes.contains_key(&parent) {
+			tracing::error!(%parent, "node not found");
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		}
+
+		let id = state.next;
+		state.next += 1;
+		state.nodes.insert(
 			id,
 			Node {
 				artifact: Some(artifact),
 				attrs,
-				children: HashMap::default(),
+				children: BTreeMap::new(),
 				depth,
 				lookup_count: 0,
 				name: Some(name.to_owned()),
 				parent,
 			},
 		);
-		// Update the parent's children map.
-		if let Some(mut parent_node) = self.nodes.get_mut(&parent) {
-			parent_node.children.insert(name.to_owned(), id);
-		}
+		state
+			.nodes
+			.get_mut(&parent)
+			.unwrap()
+			.children
+			.insert(name.to_owned(), id);
+		Ok(id)
 	}
 }
 
