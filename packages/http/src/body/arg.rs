@@ -24,12 +24,15 @@ pub fn get_header(headers: &http::HeaderMap) -> Result<bool> {
 	}
 }
 
-pub async fn get<T, R>(mut reader: &mut R) -> Result<T>
+pub async fn get<T, R>(mut reader: &mut R, max_len: u64) -> Result<T>
 where
 	T: DeserializeOwned,
 	R: AsyncRead + Unpin + Send + ?Sized,
 {
 	let len = reader.read_uvarint().await?;
+	if len > max_len {
+		return Err(std::io::Error::other("arg too large").into());
+	}
 	let len = len
 		.try_into()
 		.map_err(|_| std::io::Error::other("invalid arg length"))?;

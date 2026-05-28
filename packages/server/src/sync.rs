@@ -268,14 +268,14 @@ impl Session {
 
 		// Create the request body.
 		let mut reader = request.reader();
+		let max_frame_size = self.server.config.sync.max_frame_size;
 		let arg = if let Some(arg) = arg {
 			arg
 		} else {
-			tangram_http::body::arg::get(&mut reader)
+			tangram_http::body::arg::get(&mut reader, max_frame_size)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to read the sync arg"))?
 		};
-		let max_frame_size = self.server.config.sync.max_frame_size;
 		let stream = stream::try_unfold(reader, move |mut reader| async move {
 			let Some(len) = reader
 				.try_read_uvarint()
