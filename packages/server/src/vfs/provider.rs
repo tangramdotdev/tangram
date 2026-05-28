@@ -691,7 +691,7 @@ impl Provider {
 		depth: u64,
 		directory: &tg::artifact::Id,
 	) -> std::io::Result<Vec<(String, u64, tg::artifact::Id)>> {
-		let entries = self.directory_entries_inner(directory).await?;
+		let entries = self.directory_entries_inner(directory, None).await?;
 		let mut result = Vec::with_capacity(entries.len());
 		for (name, artifact) in entries {
 			let entry = if let Some(entry) = self.nodes.lookup(parent, &name).await? {
@@ -1125,11 +1125,13 @@ impl Provider {
 	async fn directory_entries_inner(
 		&self,
 		directory: &tg::artifact::Id,
+		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
 		let mut entries = BTreeMap::new();
-		let mut stack = vec![directory.clone()];
-		while let Some(directory) = stack.pop() {
+		let mut stack = vec![(directory.clone(), default_graph.cloned())];
+		while let Some((directory, default_graph)) = stack.pop() {
 			let (directory, graph) = self.directory_node_inner(&directory).await?;
+			let graph = graph.or(default_graph);
 			match directory {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
@@ -1143,7 +1145,7 @@ impl Provider {
 							child.directory,
 							graph.as_ref(),
 						)?;
-						stack.push(artifact);
+						stack.push((artifact, graph.clone()));
 					}
 				},
 			}
