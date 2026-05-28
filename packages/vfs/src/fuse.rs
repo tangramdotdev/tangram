@@ -1394,16 +1394,22 @@ where
 					});
 					actions.push(BatchAction::NeedsProvider);
 				},
-				RequestData::ReadDir(_) => {
-					provider_requests.push(ProviderRequest::ReadDir {
-						handle: request.header.nodeid,
-					});
+				RequestData::ReadDir(data) => {
+					let handle = if self.no_opendir_support {
+						request.header.nodeid
+					} else {
+						data.fh
+					};
+					provider_requests.push(ProviderRequest::ReadDir { handle });
 					actions.push(BatchAction::NeedsProvider);
 				},
-				RequestData::ReadDirPlus(_) => {
-					provider_requests.push(ProviderRequest::ReadDirPlus {
-						handle: request.header.nodeid,
-					});
+				RequestData::ReadDirPlus(data) => {
+					let handle = if self.no_opendir_support {
+						request.header.nodeid
+					} else {
+						data.fh
+					};
+					provider_requests.push(ProviderRequest::ReadDirPlus { handle });
 					actions.push(BatchAction::NeedsProvider);
 				},
 				RequestData::ReadLink => {
@@ -1919,7 +1925,12 @@ where
 		request: fuse_read_in,
 		plus: bool,
 	) -> Result<Option<Response>> {
-		let entries = self.provider.readdir(header.nodeid).await?;
+		let handle = if self.no_opendir_support {
+			header.nodeid
+		} else {
+			request.fh
+		};
+		let entries = self.provider.readdir(handle).await?;
 
 		let struct_size = if plus {
 			std::mem::size_of::<FuseDirentPlusHeader>()
