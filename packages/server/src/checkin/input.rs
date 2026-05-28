@@ -38,21 +38,32 @@ enum ParentVariant {
 	SymlinkArtifact,
 }
 
+pub(super) struct CheckinInputArg<'a> {
+	pub arg: &'a tg::checkin::Arg,
+	pub artifacts_path: Option<&'a Path>,
+	pub fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
+	pub graph: &'a mut Graph,
+	pub ignorer: Option<ignore::Ignorer>,
+	pub lock: Option<&'a tg::graph::Data>,
+	pub next: usize,
+	pub progress: crate::progress::Handle<super::TaskOutput>,
+	pub root: &'a Path,
+}
+
 impl Session {
-	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
-	pub(super) fn checkin_input(
-		&self,
-		arg: &tg::checkin::Arg,
-		artifacts_path: Option<&Path>,
-		fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
-		graph: &mut Graph,
-		ignorer: Option<ignore::Ignorer>,
-		lock: Option<&tg::graph::Data>,
-		next: usize,
-		progress: crate::progress::Handle<super::TaskOutput>,
-		root: &Path,
-	) -> tg::Result<()> {
+	pub(super) fn checkin_input(&self, arg: CheckinInputArg<'_>) -> tg::Result<()> {
+		let CheckinInputArg {
+			arg,
+			artifacts_path,
+			fixup_sender,
+			graph,
+			ignorer,
+			lock,
+			next,
+			progress,
+			root,
+		} = arg;
 		// Start the progress indicators.
 		progress.spinner("traversing", "traversing");
 		progress.start(

@@ -9,19 +9,31 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub(super) struct CheckinCreateBlobsArg<'a> {
+	pub arg: &'a tg::checkin::Arg,
+	pub graph: &'a mut Graph,
+	pub next: usize,
+	pub store_args: &'a mut StoreArgs,
+	pub index_object_args: &'a mut IndexObjectArgs,
+	pub touched_at: i64,
+	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
+}
+
 impl Session {
-	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_create_blobs(
 		&self,
-		arg: &tg::checkin::Arg,
-		graph: &mut Graph,
-		next: usize,
-		store_args: &mut StoreArgs,
-		index_object_args: &mut IndexObjectArgs,
-		touched_at: i64,
-		progress: &crate::progress::Handle<super::TaskOutput>,
+		arg: CheckinCreateBlobsArg<'_>,
 	) -> tg::Result<()> {
+		let CheckinCreateBlobsArg {
+			arg,
+			graph,
+			next,
+			store_args,
+			index_object_args,
+			touched_at,
+			progress,
+		} = arg;
 		let nodes = graph
 			.nodes
 			.range(next..)

@@ -345,17 +345,18 @@ impl Session {
 			let progress = progress.clone();
 			let root = root.to_owned();
 			move || {
-				session.checkin_input(
-					&arg,
-					artifacts_path.as_deref(),
+				let arg = input::CheckinInputArg {
+					arg: &arg,
+					artifacts_path: artifacts_path.as_deref(),
 					fixup_sender,
-					&mut graph,
+					graph: &mut graph,
 					ignorer,
-					lock.as_deref(),
+					lock: lock.as_deref(),
 					next,
 					progress,
-					&root,
-				)?;
+					root: &root,
+				};
+				session.checkin_input(arg)?;
 				Ok::<_, tg::Error>(graph)
 			}
 		})
@@ -364,17 +365,18 @@ impl Session {
 
 		// Solve.
 		if arg.options.solve {
-			self.checkin_solve(
-				&arg,
-				&mut graph,
+			let solve_arg = solve::CheckinSolveArg {
+				arg: &arg,
+				graph: &mut graph,
 				next,
-				lock.clone(),
-				&mut solutions,
+				lock: lock.clone(),
+				solutions: &mut solutions,
 				root,
 				progress,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to solve dependencies"))?;
+			};
+			self.checkin_solve(solve_arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to solve dependencies"))?;
 		}
 
 		// Get reference path edges.
@@ -393,34 +395,36 @@ impl Session {
 		let mut graph_data = IndexMap::default();
 
 		// Create blobs.
-		self.checkin_create_blobs(
-			&arg,
-			&mut graph,
+		let create_blobs_arg = blob::CheckinCreateBlobsArg {
+			arg: &arg,
+			graph: &mut graph,
 			next,
-			&mut store_args,
-			&mut index_object_args,
+			store_args: &mut store_args,
+			index_object_args: &mut index_object_args,
 			touched_at,
 			progress,
-		)
-		.await
-		.map_err(|error| tg::error!(!error, "failed to create blobs"))?;
+		};
+		self.checkin_create_blobs(create_blobs_arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create blobs"))?;
 
 		// Create artifacts.
 		let principal = self.write_principal();
-		Self::checkin_create_artifacts(
-			&self.server.config.checkin,
-			&arg,
-			&mut graph,
-			&paths,
+		let create_artifacts_arg = artifact::CheckinCreateArtifactsArg {
+			config: &self.server.config.checkin,
+			arg: &arg,
+			graph: &mut graph,
+			paths: &paths,
 			next,
-			&mut store_args,
-			&mut index_object_args,
-			&mut index_cache_entry_args,
-			&mut graph_data,
+			store_args: &mut store_args,
+			index_object_args: &mut index_object_args,
+			index_cache_entry_args: &mut index_cache_entry_args,
+			graph_data: &mut graph_data,
 			root,
 			touched_at,
-			principal.as_ref(),
-		)?;
+			principal: principal.as_ref(),
+		};
+		Self::checkin_create_artifacts(create_artifacts_arg)?;
 
 		// Cache.
 		if arg.options.cache_pointers {
@@ -428,17 +432,18 @@ impl Session {
 				task.await
 					.map_err(|error| tg::error!(!error, "failed to run the fixup task"))?;
 			}
-			self.checkin_cache(
-				&arg,
-				&graph,
+			let cache_arg = cache::CheckinCacheArg {
+				arg: &arg,
+				graph: &graph,
 				next,
 				root,
-				&index_cache_entry_args,
-				&mut graph_data,
+				index_cache_entry_args: &index_cache_entry_args,
+				graph_data: &mut graph_data,
 				progress,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to cache"))?;
+			};
+			self.checkin_cache(cache_arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to cache"))?;
 		}
 
 		// Store.
@@ -467,15 +472,16 @@ impl Session {
 					let watch = entry.get();
 
 					// Update the watch.
-					let success = watch.update(
-						&self.server,
+					let arg = crate::watch::UpdateArg {
+						server: &self.server,
 						root,
-						graph.clone(),
+						graph: graph.clone(),
 						lock,
 						solutions,
 						version,
 						next,
-					);
+					};
+					let success = watch.update(arg);
 
 					// If the update was not successful, then files were modified during checkin.
 					if !success {

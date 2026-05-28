@@ -439,10 +439,18 @@ impl<O: 'static> tg::Process<O> {
 			let stdout = stdout.clone();
 			let stderr = stderr.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
-				super::stdio::stdio_task(
-					handle, id, lease, location, stdin, stdout, stderr, local_tty, raw,
-				)
-				.await
+				let arg = super::stdio::StdioTaskArg {
+					handle,
+					id,
+					lease,
+					location,
+					stdin,
+					stdout,
+					stderr,
+					tty: local_tty,
+					raw,
+				};
+				super::stdio::stdio_task(arg).await
 			}))
 		} else {
 			None

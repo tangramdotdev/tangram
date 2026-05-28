@@ -114,21 +114,33 @@ impl std::str::FromStr for Stdio {
 	}
 }
 
-#[expect(clippy::too_many_arguments)]
-pub(super) async fn stdio_task<H>(
-	handle: H,
-	id: tg::process::Id,
-	lease: Option<String>,
-	location: Option<tg::Location>,
-	stdin: Option<tg::process::Stdio>,
-	stdout: Option<tg::process::Stdio>,
-	stderr: Option<tg::process::Stdio>,
-	tty: bool,
-	raw: bool,
-) -> tg::Result<()>
+pub(super) struct StdioTaskArg<H> {
+	pub handle: H,
+	pub id: tg::process::Id,
+	pub lease: Option<String>,
+	pub location: Option<tg::Location>,
+	pub stdin: Option<tg::process::Stdio>,
+	pub stdout: Option<tg::process::Stdio>,
+	pub stderr: Option<tg::process::Stdio>,
+	pub tty: bool,
+	pub raw: bool,
+}
+
+pub(super) async fn stdio_task<H>(arg: StdioTaskArg<H>) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
+	let StdioTaskArg {
+		handle,
+		id,
+		lease,
+		location,
+		stdin,
+		stdout,
+		stderr,
+		tty,
+		raw,
+	} = arg;
 	let mut stdin_task = stdin.map(|stdin| {
 		let handle = handle.clone();
 		let id = id.clone();

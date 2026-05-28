@@ -102,19 +102,28 @@ pub struct Referrer {
 	pub pattern: Option<tg::list::Pattern>,
 }
 
+pub(super) struct CheckinSolveArg<'a> {
+	pub arg: &'a tg::checkin::Arg,
+	pub graph: &'a mut Graph,
+	pub next: usize,
+	pub lock: Option<Arc<tg::graph::Data>>,
+	pub solutions: &'a mut Solutions,
+	pub root: &'a Path,
+	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
+}
+
 impl Session {
-	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
-	pub(super) async fn checkin_solve(
-		&self,
-		arg: &tg::checkin::Arg,
-		graph: &mut Graph,
-		next: usize,
-		lock: Option<Arc<tg::graph::Data>>,
-		solutions: &mut Solutions,
-		root: &Path,
-		progress: &crate::progress::Handle<super::TaskOutput>,
-	) -> tg::Result<()> {
+	pub(super) async fn checkin_solve(&self, arg: CheckinSolveArg<'_>) -> tg::Result<()> {
+		let CheckinSolveArg {
+			arg,
+			graph,
+			next,
+			lock,
+			solutions,
+			root,
+			progress,
+		} = arg;
 		progress.spinner("solving", "solving");
 		if solutions.is_empty() {
 			// If solutions is empty, then just solve.

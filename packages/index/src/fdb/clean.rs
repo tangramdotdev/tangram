@@ -21,6 +21,17 @@ enum Item {
 	Process(tg::process::Id),
 }
 
+pub(super) struct TaskCleanArg<'a> {
+	pub txn: &'a fdb::Transaction,
+	pub subspace: &'a Subspace,
+	pub max_object_touched_at: i64,
+	pub max_process_touched_at: i64,
+	pub batch_size: usize,
+	pub partition_start: u64,
+	pub partition_count: u64,
+	pub partition_total: u64,
+}
+
 impl Index {
 	pub async fn clean(
 		&self,
@@ -50,17 +61,17 @@ impl Index {
 		Ok(output)
 	}
 
-	#[allow(clippy::too_many_arguments)]
-	pub(super) async fn task_clean(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-		partition_start: u64,
-		partition_count: u64,
-		partition_total: u64,
-	) -> tg::Result<CleanOutput> {
+	pub(super) async fn task_clean(arg: TaskCleanArg<'_>) -> tg::Result<CleanOutput> {
+		let TaskCleanArg {
+			txn,
+			subspace,
+			max_object_touched_at,
+			max_process_touched_at,
+			batch_size,
+			partition_start,
+			partition_count,
+			partition_total,
+		} = arg;
 		let mut output = CleanOutput::default();
 		let mut candidates = Vec::new();
 

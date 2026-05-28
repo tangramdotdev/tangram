@@ -11,19 +11,28 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub(super) struct SyncPutQueueArg {
+	pub state: Arc<State>,
+	pub queue_object_receiver: async_channel::Receiver<ObjectItem>,
+	pub queue_process_receiver: async_channel::Receiver<ProcessItem>,
+	pub index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
+	pub index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
+	pub store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
+	pub store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
+}
+
 impl Session {
-	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(err, level = "trace", name = "queue", ret, skip_all)]
-	pub(super) async fn sync_put_queue(
-		&self,
-		state: Arc<State>,
-		queue_object_receiver: async_channel::Receiver<ObjectItem>,
-		queue_process_receiver: async_channel::Receiver<ProcessItem>,
-		index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
-		index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
-		store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
-		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
-	) -> tg::Result<()> {
+	pub(super) async fn sync_put_queue(&self, arg: SyncPutQueueArg) -> tg::Result<()> {
+		let SyncPutQueueArg {
+			state,
+			queue_object_receiver,
+			queue_process_receiver,
+			index_object_sender,
+			index_process_sender,
+			store_object_sender,
+			store_process_sender,
+		} = arg;
 		// Create the objects future.
 		let object_batch_size = self.server.config.sync.put.queue.object_batch_size;
 		let object_batch_timeout = self.server.config.sync.put.queue.object_batch_timeout;

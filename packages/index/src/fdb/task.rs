@@ -1,5 +1,5 @@
 use {
-	super::{Index, Request, RequestReceiver, Response, ResponseSender},
+	super::{Index, Request, RequestReceiver, Response, ResponseSender, TaskArg},
 	crate::{CleanOutput, PutArg, PutTagArg},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::{StreamExt as _, stream},
@@ -106,18 +106,18 @@ impl Metrics {
 }
 
 impl Index {
-	#[allow(clippy::too_many_arguments)]
-	pub(super) async fn task(
-		database: Arc<fdb::Database>,
-		subspace: fdbt::Subspace,
-		mut receiver_high: RequestReceiver,
-		mut receiver_medium: RequestReceiver,
-		mut receiver_low: RequestReceiver,
-		concurrency: usize,
-		max_items_per_transaction: usize,
-		partition_total: u64,
-		metrics: Metrics,
-	) {
+	pub(super) async fn task(arg: TaskArg) {
+		let TaskArg {
+			database,
+			subspace,
+			mut receiver_high,
+			mut receiver_medium,
+			mut receiver_low,
+			concurrency,
+			max_items_per_transaction,
+			partition_total,
+			metrics,
+		} = arg;
 		stream::unfold(
 			(&mut receiver_high, &mut receiver_medium, &mut receiver_low),
 			|(rh, rm, rl)| async move {
@@ -632,18 +632,19 @@ impl Index {
 				max_process_touched_at,
 				partition_count,
 				partition_start,
-			} => Self::task_clean(
-				txn,
-				subspace,
-				*max_object_touched_at,
-				*max_process_touched_at,
-				*batch_size,
-				*partition_start,
-				*partition_count,
-				partition_total,
-			)
-			.await
-			.map(Response::CleanOutput),
+			} => {
+				let arg = super::clean::TaskCleanArg {
+					txn,
+					subspace,
+					max_object_touched_at: *max_object_touched_at,
+					max_process_touched_at: *max_process_touched_at,
+					batch_size: *batch_size,
+					partition_start: *partition_start,
+					partition_count: *partition_count,
+					partition_total,
+				};
+				Self::task_clean(arg).await.map(Response::CleanOutput)
+			},
 			Request::DeleteTags(tags) => {
 				Self::task_delete_tags(txn, subspace, tags, partition_total)
 					.await

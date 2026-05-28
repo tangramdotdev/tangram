@@ -19,23 +19,82 @@ use {
 	tangram_object_store::prelude::*,
 };
 
+pub(super) struct CheckinCreateArtifactsArg<'a> {
+	pub config: &'a Checkin,
+	pub arg: &'a tg::checkin::Arg,
+	pub graph: &'a mut Graph,
+	pub paths: &'a Paths,
+	pub next: usize,
+	pub store_args: &'a mut StoreArgs,
+	pub index_object_args: &'a mut IndexObjectArgs,
+	pub index_cache_entry_args: &'a mut IndexCacheEntryArgs,
+	pub graph_data: &'a mut GraphData,
+	pub root: &'a Path,
+	pub touched_at: i64,
+	pub principal: Option<&'a tg::Principal>,
+}
+
+struct CheckinCreateNodeArtifactArg<'a> {
+	config: &'a Checkin,
+	graph: &'a mut Graph,
+	paths: &'a Paths,
+	store_args: &'a mut StoreArgs,
+	index_object_args: &'a mut IndexObjectArgs,
+	index: usize,
+	touched_at: i64,
+	principal: Option<&'a tg::Principal>,
+}
+
+struct CheckinCreateGraphArg<'a> {
+	graph: &'a mut Graph,
+	paths: &'a Paths,
+	store_args: &'a mut StoreArgs,
+	index_object_args: &'a mut IndexObjectArgs,
+	graph_data: &'a mut GraphData,
+	scc: &'a [usize],
+	touched_at: i64,
+	principal: Option<&'a tg::Principal>,
+}
+
+struct CheckinCreatePointerArtifactArg<'a> {
+	graph: &'a mut Graph,
+	store_args: &'a mut StoreArgs,
+	index_object_args: &'a mut IndexObjectArgs,
+	graph_id: &'a tg::graph::Id,
+	local: usize,
+	global: usize,
+	touched_at: i64,
+	principal: Option<&'a tg::Principal>,
+}
+
+struct CheckinUpdateBlobCachePointersArg<'a> {
+	arg: &'a tg::checkin::Arg,
+	graph: &'a Graph,
+	store_args: &'a mut StoreArgs,
+	index_object_args: &'a mut IndexObjectArgs,
+	index_cache_entry_args: &'a mut IndexCacheEntryArgs,
+	root: &'a Path,
+	sccs: &'a [Vec<usize>],
+	touched_at: i64,
+}
+
 impl Session {
-	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
-	pub(super) fn checkin_create_artifacts(
-		config: &Checkin,
-		arg: &tg::checkin::Arg,
-		graph: &mut Graph,
-		paths: &Paths,
-		next: usize,
-		store_args: &mut StoreArgs,
-		index_object_args: &mut IndexObjectArgs,
-		index_cache_entry_args: &mut IndexCacheEntryArgs,
-		graph_data: &mut GraphData,
-		root: &Path,
-		touched_at: i64,
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<()> {
+	pub(super) fn checkin_create_artifacts(arg: CheckinCreateArtifactsArg<'_>) -> tg::Result<()> {
+		let CheckinCreateArtifactsArg {
+			config,
+			arg,
+			graph,
+			paths,
+			next,
+			store_args,
+			index_object_args,
+			index_cache_entry_args,
+			graph_data,
+			root,
+			touched_at,
+			principal,
+		} = arg;
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
 		let mut sccs = petgraph::algo::tarjan_scc(&Petgraph { graph, next });
 		for scc in &mut sccs {
@@ -54,18 +113,19 @@ impl Session {
 					.children()
 					.contains(&scc[0])
 			{
-				Self::checkin_create_node_artifact(
+				let arg = CheckinCreateNodeArtifactArg {
 					config,
 					graph,
 					paths,
 					store_args,
 					index_object_args,
-					scc[0],
+					index: scc[0],
 					touched_at,
 					principal,
-				)?;
+				};
+				Self::checkin_create_node_artifact(arg)?;
 			} else {
-				Self::checkin_create_graph(
+				let arg = CheckinCreateGraphArg {
 					graph,
 					paths,
 					store_args,
@@ -74,52 +134,55 @@ impl Session {
 					scc,
 					touched_at,
 					principal,
-				)?;
+				};
+				Self::checkin_create_graph(arg)?;
 			}
 		}
 
 		// Update blob cache pointers now that artifact IDs are known.
-		Self::checkin_update_blob_cache_pointers(
+		let update_arg = CheckinUpdateBlobCachePointersArg {
 			arg,
 			graph,
 			store_args,
 			index_object_args,
 			index_cache_entry_args,
 			root,
-			&sccs,
+			sccs: &sccs,
 			touched_at,
-		);
+		};
+		Self::checkin_update_blob_cache_pointers(update_arg);
 
 		// Create a reference artifact for the path if necessary.
 		let index = graph.paths.get(&arg.path).copied().unwrap();
 		let node = graph.nodes.get(&index).unwrap();
 		if let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap().clone() {
-			Self::checkin_create_pointer_artifact(
+			let arg = CheckinCreatePointerArtifactArg {
 				graph,
 				store_args,
 				index_object_args,
-				pointer.graph.as_ref().unwrap(),
-				pointer.index,
-				index,
+				graph_id: pointer.graph.as_ref().unwrap(),
+				local: pointer.index,
+				global: index,
 				touched_at,
 				principal,
-			)?;
+			};
+			Self::checkin_create_pointer_artifact(arg)?;
 		}
 
 		Ok(())
 	}
 
-	#[expect(clippy::too_many_arguments)]
-	fn checkin_create_node_artifact(
-		config: &Checkin,
-		graph: &mut Graph,
-		paths: &Paths,
-		store_args: &mut StoreArgs,
-		index_object_args: &mut IndexObjectArgs,
-		index: usize,
-		touched_at: i64,
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<()> {
+	fn checkin_create_node_artifact(arg: CheckinCreateNodeArtifactArg<'_>) -> tg::Result<()> {
+		let CheckinCreateNodeArtifactArg {
+			config,
+			graph,
+			paths,
+			store_args,
+			index_object_args,
+			index,
+			touched_at,
+			principal,
+		} = arg;
 		// Get the node.
 		let node = graph.nodes.get(&index).unwrap();
 
@@ -274,17 +337,17 @@ impl Session {
 		Ok(())
 	}
 
-	#[expect(clippy::too_many_arguments)]
-	fn checkin_create_graph(
-		graph: &mut Graph,
-		paths: &Paths,
-		store_args: &mut StoreArgs,
-		index_object_args: &mut IndexObjectArgs,
-		graph_data: &mut GraphData,
-		scc: &[usize],
-		touched_at: i64,
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<()> {
+	fn checkin_create_graph(arg: CheckinCreateGraphArg<'_>) -> tg::Result<()> {
+		let CheckinCreateGraphArg {
+			graph,
+			paths,
+			store_args,
+			index_object_args,
+			graph_data,
+			scc,
+			touched_at,
+			principal,
+		} = arg;
 		// Run WL to compute canonical labels for all nodes in the SCC.
 		let canonical_labels = Self::checkin_graph_canonical_labels(graph, paths, scc)?;
 
@@ -544,17 +607,17 @@ impl Session {
 		Ok(())
 	}
 
-	#[expect(clippy::too_many_arguments)]
-	fn checkin_create_pointer_artifact(
-		graph: &mut Graph,
-		store_args: &mut StoreArgs,
-		index_object_args: &mut IndexObjectArgs,
-		graph_id: &tg::graph::Id,
-		local: usize,
-		global: usize,
-		touched_at: i64,
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<()> {
+	fn checkin_create_pointer_artifact(arg: CheckinCreatePointerArtifactArg<'_>) -> tg::Result<()> {
+		let CheckinCreatePointerArtifactArg {
+			graph,
+			store_args,
+			index_object_args,
+			graph_id,
+			local,
+			global,
+			touched_at,
+			principal,
+		} = arg;
 		let node = graph.nodes.get(&global).unwrap();
 		let artifact_kind = node.variant.kind();
 		let data = match &node.variant {
@@ -742,17 +805,17 @@ impl Session {
 		Ok((id, stored, metadata))
 	}
 
-	#[expect(clippy::too_many_arguments)]
-	fn checkin_update_blob_cache_pointers(
-		arg: &tg::checkin::Arg,
-		graph: &Graph,
-		store_args: &mut StoreArgs,
-		index_object_args: &mut IndexObjectArgs,
-		index_cache_entry_args: &mut IndexCacheEntryArgs,
-		root: &Path,
-		sccs: &[Vec<usize>],
-		touched_at: i64,
-	) {
+	fn checkin_update_blob_cache_pointers(arg: CheckinUpdateBlobCachePointersArg<'_>) {
+		let CheckinUpdateBlobCachePointersArg {
+			arg,
+			graph,
+			store_args,
+			index_object_args,
+			index_cache_entry_args,
+			root,
+			sccs,
+			touched_at,
+		} = arg;
 		// Skip if cache pointers are disabled.
 		if !arg.options.cache_pointers {
 			return;

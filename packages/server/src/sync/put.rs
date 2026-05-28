@@ -92,16 +92,17 @@ impl Session {
 		});
 
 		// Create the queue future.
+		let queue_arg = self::queue::SyncPutQueueArg {
+			state: state.clone(),
+			queue_object_receiver,
+			queue_process_receiver,
+			index_object_sender,
+			index_process_sender,
+			store_object_sender,
+			store_process_sender,
+		};
 		let queue_future = self
-			.sync_put_queue(
-				state.clone(),
-				queue_object_receiver,
-				queue_process_receiver,
-				index_object_sender,
-				index_process_sender,
-				store_object_sender,
-				store_process_sender,
-			)
+			.sync_put_queue(queue_arg)
 			.instrument(tracing::Span::current());
 
 		// Create the index future.

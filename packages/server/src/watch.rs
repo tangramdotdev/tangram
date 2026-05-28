@@ -40,6 +40,16 @@ pub struct Snapshot {
 	pub version: u64,
 }
 
+pub struct UpdateArg<'a> {
+	pub server: &'a Server,
+	pub root: &'a Path,
+	pub graph: crate::checkin::Graph,
+	pub lock: Option<Arc<tg::graph::Data>>,
+	pub solutions: crate::checkin::Solutions,
+	pub version: Option<u64>,
+	pub next: usize,
+}
+
 struct Message {
 	event: notify::Event,
 	sender: Option<tokio::sync::oneshot::Sender<()>>,
@@ -209,17 +219,16 @@ impl Watch {
 		}
 	}
 
-	#[expect(clippy::too_many_arguments)]
-	pub fn update(
-		&self,
-		server: &Server,
-		root: &Path,
-		graph: crate::checkin::Graph,
-		lock: Option<Arc<tg::graph::Data>>,
-		solutions: crate::checkin::Solutions,
-		version: Option<u64>,
-		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))] next: usize,
-	) -> bool {
+	pub fn update(&self, arg: UpdateArg<'_>) -> bool {
+		let UpdateArg {
+			server,
+			root,
+			graph,
+			lock,
+			solutions,
+			version,
+			next: _next,
+		} = arg;
 		let mut state = self.state.lock().unwrap();
 
 		if let Some(version) = version
@@ -240,7 +249,7 @@ impl Watch {
 
 		// On Linux, add the new paths.
 		#[cfg(target_os = "linux")]
-		state.add_paths_linux(next);
+		state.add_paths_linux(_next);
 
 		true
 	}

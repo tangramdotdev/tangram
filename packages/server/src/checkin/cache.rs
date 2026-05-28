@@ -15,19 +15,28 @@ use {
 	tangram_util::{iter::Ext as _, path},
 };
 
+pub(super) struct CheckinCacheArg<'a> {
+	pub arg: &'a tg::checkin::Arg,
+	pub graph: &'a Graph,
+	pub next: usize,
+	pub root: &'a Path,
+	pub index_cache_entry_args: &'a IndexCacheEntryArgs,
+	pub graph_data: &'a mut GraphData,
+	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
+}
+
 impl Session {
 	#[tracing::instrument(level = "trace", skip_all)]
-	#[allow(clippy::too_many_arguments)]
-	pub(super) async fn checkin_cache(
-		&self,
-		arg: &tg::checkin::Arg,
-		graph: &Graph,
-		next: usize,
-		root: &Path,
-		index_cache_entry_args: &IndexCacheEntryArgs,
-		graph_data: &mut GraphData,
-		progress: &crate::progress::Handle<super::TaskOutput>,
-	) -> tg::Result<()> {
+	pub(super) async fn checkin_cache(&self, arg: CheckinCacheArg<'_>) -> tg::Result<()> {
+		let CheckinCacheArg {
+			arg,
+			graph,
+			next,
+			root,
+			index_cache_entry_args,
+			graph_data,
+			progress,
+		} = arg;
 		if arg.options.destructive {
 			progress.spinner("checking", "checking");
 			self.checkin_ensure_dependencies_are_cached(

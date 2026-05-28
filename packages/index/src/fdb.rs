@@ -33,6 +33,18 @@ pub struct Options {
 	pub prefix: Option<String>,
 }
 
+struct TaskArg {
+	database: Arc<fdb::Database>,
+	subspace: fdbt::Subspace,
+	receiver_high: RequestReceiver,
+	receiver_medium: RequestReceiver,
+	receiver_low: RequestReceiver,
+	concurrency: usize,
+	max_items_per_transaction: usize,
+	partition_total: u64,
+	metrics: Metrics,
+}
+
 type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
 type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
 type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
@@ -213,7 +225,7 @@ impl Index {
 			let subspace = subspace.clone();
 			let metrics = metrics.clone();
 			async move {
-				Self::task(
+				let arg = TaskArg {
 					database,
 					subspace,
 					receiver_high,
@@ -223,8 +235,8 @@ impl Index {
 					max_items_per_transaction,
 					partition_total,
 					metrics,
-				)
-				.await;
+				};
+				Self::task(arg).await;
 			}
 		});
 
