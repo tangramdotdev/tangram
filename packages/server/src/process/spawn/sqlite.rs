@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -10,7 +11,7 @@ impl Session {
 		&self,
 		transaction: &db::sqlite::Transaction<'_>,
 		child_ids: Vec<String>,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		let mut current_ids = child_ids;
 
 		while !current_ids.is_empty() {
@@ -34,10 +35,11 @@ impl Session {
 					"
 				);
 				let params = db::params![child_id.clone()];
-				let parents: Vec<Parent> = transaction
+				let result = transaction
 					.query_all_into::<Parent>(statement.into(), params)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to query parent depths"))?;
+					.await;
+				let parents: Vec<Parent> =
+					crate::database::retry!(result, "failed to query parent depths");
 
 				// Update each parent's depth if needed.
 				for parent in parents {
@@ -51,10 +53,8 @@ impl Session {
 						);
 						let new_depth = max_child_depth + 1;
 						let params = db::params![new_depth, parent.process.clone()];
-						let rows = transaction
-							.execute(statement.into(), params)
-							.await
-							.map_err(|error| tg::error!(!error, "failed to update parent depth"))?;
+						let result = transaction.execute(statement.into(), params).await;
+						let rows = crate::database::retry!(result, "failed to update parent depth");
 
 						// If we updated this parent, track it for next iteration.
 						if rows > 0 {
@@ -73,6 +73,6 @@ impl Session {
 			current_ids = updated_ids;
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

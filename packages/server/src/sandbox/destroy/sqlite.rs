@@ -5,8 +5,9 @@ use {
 	},
 	indoc::indoc,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -15,7 +16,7 @@ impl Session {
 		transaction: &db::sqlite::Transaction<'_>,
 		id: &tg::sandbox::Id,
 		arg: InnerArg,
-	) -> tg::Result<InnerOutput> {
+	) -> tg::Result<ControlFlow<InnerOutput, db::sqlite::Error>> {
 		let id = id.clone();
 		transaction
 			.with(move |transaction, _cache| {
@@ -28,7 +29,7 @@ impl Session {
 		transaction: &mut sqlite::Transaction<'_>,
 		id: &tg::sandbox::Id,
 		arg: &InnerArg,
-	) -> tg::Result<InnerOutput> {
+	) -> tg::Result<ControlFlow<InnerOutput, db::sqlite::Error>> {
 		let (condition, max_heartbeat_at) = match arg.condition {
 			Some(Condition::HeartbeatExpired { max_heartbeat_at }) => {
 				(Some("heartbeat_expired"), Some(max_heartbeat_at))
@@ -51,7 +52,7 @@ impl Session {
 					);
 			"
 		);
-		let n = transaction
+		let result = transaction
 			.execute(
 				statement,
 				sqlite::params![
@@ -62,13 +63,14 @@ impl Session {
 					max_heartbeat_at,
 				],
 			)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n != 1 {
 			let output = InnerOutput {
 				destroyed: false,
 				unfinished_processes: Vec::new(),
 			};
-			return Ok(output);
+			return Ok(ControlFlow::Break(output));
 		}
 
 		let statement = indoc!(
@@ -77,12 +79,13 @@ impl Session {
 				values (?1, ?2, ?3);
 			"
 		);
-		transaction
+		let result = transaction
 			.execute(
 				statement,
 				sqlite::params![arg.now, id.to_string(), "created"],
 			)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
 
 		let statement = indoc!(
 			"
@@ -118,6 +121,6 @@ impl Session {
 			unfinished_processes,
 		};
 
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 }

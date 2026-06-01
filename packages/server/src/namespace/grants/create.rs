@@ -1,7 +1,7 @@
 use {
 	crate::{Session, context::Authentication},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -44,45 +44,52 @@ impl Session {
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
 
-		let mut connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let namespace_id =
-			Self::get_or_create_namespace_with_transaction(&transaction, &arg.namespace).await?;
-		match &arg.principal {
-			tg::Principal::All | tg::Principal::Root => {},
-			tg::Principal::Group(group) => {
-				Self::try_get_group_with_transaction(&transaction, &group.to_string())
+		crate::database::run!(&self.server.database, |transaction| {
+			let namespace_id =
+				match Self::get_or_create_namespace_with_transaction(transaction, &arg.namespace)
 					.await?
-					.ok_or_else(|| tg::error!("failed to find the group"))?;
-			},
-			tg::Principal::User(user) => {
-				Self::try_get_user_with_transaction(&transaction, &user.to_string())
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the user"))?;
-			},
-		}
-		let grant = Self::create_namespace_grant_with_transaction(
-			&transaction,
-			&arg.namespace,
-			namespace_id,
-			&arg.principal,
-			arg.permission,
-			created_by.as_ref(),
-		)
-		.await?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(grant)
+				{
+					ControlFlow::Break(namespace_id) => namespace_id,
+					ControlFlow::Continue(error) => {
+						return Ok::<ControlFlow<tg::Grant, crate::database::Error>, tg::Error>(
+							ControlFlow::Continue(error),
+						);
+					},
+				};
+			match &arg.principal {
+				tg::Principal::All | tg::Principal::Root => {},
+				tg::Principal::Group(group) => {
+					Self::try_get_group_with_transaction(transaction, &group.to_string())
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the group"))?;
+				},
+				tg::Principal::User(user) => {
+					Self::try_get_user_with_transaction(transaction, &user.to_string())
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the user"))?;
+				},
+			}
+			match Self::create_namespace_grant_with_transaction(
+				transaction,
+				&arg.namespace,
+				namespace_id,
+				&arg.principal,
+				arg.permission,
+				created_by.as_ref(),
+			)
+			.await?
+			{
+				ControlFlow::Break(grant) => Ok::<
+					ControlFlow<tg::Grant, crate::database::Error>,
+					tg::Error,
+				>(ControlFlow::Break(grant)),
+				ControlFlow::Continue(error) => Ok::<
+					ControlFlow<tg::Grant, crate::database::Error>,
+					tg::Error,
+				>(ControlFlow::Continue(error)),
+			}
+		})
+		.map_err(|error| tg::error!(!error, "failed to create the namespace grant"))
 	}
 
 	async fn create_namespace_grant_remote(

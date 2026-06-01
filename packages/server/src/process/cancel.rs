@@ -2,6 +2,7 @@ use {
 	crate::Session,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -56,34 +57,39 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
-		// Get a process store connection.
-		let mut connection = self
-			.server
-			.process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let id = id.clone();
+		let lease = arg.lease;
+		let deleted = crate::database::run!(&self.server.process_store, |transaction| {
+			self.try_cancel_process_with_transaction(transaction, &id, &lease)
+				.await
+		})
+		.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
 
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		if deleted.is_some_and(|deleted| deleted > 0) {
+			self.server.spawn_publish_watchdog_message_task();
+		}
 
+		Ok(deleted.map(drop))
+	}
+
+	async fn try_cancel_process_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		id: &tg::process::Id,
+		lease: &str,
+	) -> tg::Result<ControlFlow<Option<u64>, crate::database::Error>> {
 		let status = self
 			.server
-			.try_lock_process_with_transaction(&transaction, id)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to lock the process"))?;
+			.try_lock_process_with_transaction(transaction, id)
+			.await?;
+		let status = match status {
+			ControlFlow::Break(status) => status,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let Some(status) = status else {
-			transaction
-				.rollback()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to roll back the transaction"))?;
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 
-		// Delete the process lease.
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
@@ -91,41 +97,24 @@ impl Session {
 				where process = {p}1 and lease = {p}2;
 			"
 		);
-		let params = db::params![id.to_string(), arg.lease];
-		let deleted = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let params = db::params![id.to_string(), lease.to_owned()];
+		let result = transaction.execute(statement.into(), params).await;
+		let deleted = crate::database::retry!(result, "failed to execute the statement");
 
-		// If no lease was removed, then validate whether the lease was stale or invalid.
 		if deleted == 0 && !status.is_finished() {
-			transaction
-				.rollback()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to roll back the transaction"))?;
 			return Err(tg::error!("the process lease was not found"));
 		}
 
-		// Update the lease count.
-		self.server
-			.update_process_lease_count_with_transaction(&transaction, id)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to update the lease count"))?;
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		drop(connection);
-
-		// Publish the watchdog message if a lease was removed.
-		if deleted > 0 {
-			self.server.spawn_publish_watchdog_message_task();
+		let result = self
+			.server
+			.update_process_lease_count_with_transaction(transaction, id)
+			.await?;
+		match result {
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(Some(()))
+		Ok(ControlFlow::Break(Some(deleted)))
 	}
 
 	async fn try_cancel_process_regions(

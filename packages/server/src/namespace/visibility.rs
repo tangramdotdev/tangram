@@ -1,6 +1,7 @@
 use {
 	crate::{Session, database::Transaction},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -23,7 +24,7 @@ impl Session {
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		principal: &tg::Principal,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
 		let principal = principal.to_string();
 		for namespace_id in
@@ -37,22 +38,18 @@ impl Session {
 					do update set count = namespace_visibility.count + 1;
 				"
 			);
-			transaction
-				.execute(
-					statement.into(),
-					db::params![namespace_id, principal.clone()],
-				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let params = db::params![namespace_id, principal.clone()];
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn decrement_namespace_visibility_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
 		principal: &tg::Principal,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
 		let principal = principal.to_string();
 		for namespace_id in
@@ -64,13 +61,9 @@ impl Session {
 					where namespace = {p}1 and principal = {p}2 and count = 1;
 				"
 			);
-			let deleted = transaction
-				.execute(
-					statement.into(),
-					db::params![namespace_id, principal.clone()],
-				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let params = db::params![namespace_id, principal.clone()];
+			let result = transaction.execute(statement.into(), params).await;
+			let deleted = crate::database::retry!(result, "failed to execute the statement");
 			if deleted == 0 {
 				let statement = formatdoc!(
 					r"
@@ -79,15 +72,11 @@ impl Session {
 						where namespace = {p}1 and principal = {p}2 and count > 1;
 					"
 				);
-				transaction
-					.execute(
-						statement.into(),
-						db::params![namespace_id, principal.clone()],
-					)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				let params = db::params![namespace_id, principal.clone()];
+				let result = transaction.execute(statement.into(), params).await;
+				crate::database::retry!(result, "failed to execute the statement");
 			}
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

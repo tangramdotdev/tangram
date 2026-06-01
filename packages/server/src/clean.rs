@@ -2,7 +2,7 @@ use {
 	crate::{Server, Session, context::Authentication, database::Database, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	num::ToPrimitive as _,
-	std::{panic::AssertUnwindSafe, time::Duration},
+	std::{ops::ControlFlow, panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -15,6 +15,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn clean(
@@ -162,18 +164,12 @@ impl Session {
 		}
 
 		// Delete the list cache.
-		let connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let statement = "delete from list_cache;";
-		connection
-			.execute(statement.into(), db::params![])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the list cache"))?;
-		drop(connection);
+		crate::database::run!(&self.server.database, |transaction| {
+			let statement = "delete from list_cache;";
+			let result = transaction.execute(statement.into(), db::params![]).await;
+			crate::database::retry!(result, "failed to delete the list cache");
+			Ok(ControlFlow::Break(()))
+		})?;
 
 		Ok::<_, tg::Error>(output)
 	}
@@ -310,6 +306,11 @@ impl Server {
 				self.clean_processes_sqlite(process_store, processes, max_stored_at)
 					.await
 			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.clean_processes_turso(process_store, processes, max_stored_at)
+					.await
+			},
 		}
 	}
 
@@ -323,6 +324,11 @@ impl Server {
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
 				self.clean_expired_process_grants_sqlite(process_store, now)
+					.await
+			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.clean_expired_process_grants_turso(process_store, now)
 					.await
 			},
 		}

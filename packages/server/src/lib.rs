@@ -7,7 +7,7 @@ use {
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::{formatdoc, indoc},
 	std::{
-		ops::Deref,
+		ops::{ControlFlow, Deref},
 		os::fd::AsRawFd as _,
 		path::PathBuf,
 		sync::{Arc, Mutex},
@@ -265,6 +265,7 @@ impl Server {
 					let options = db::postgres::DatabaseOptions {
 						max: options.pool.max.unwrap_or(parallelism),
 						min: options.pool.min.unwrap_or(0),
+						retry: options.retry.clone().into(),
 						ttl: options.pool.ttl,
 						url: options.url.clone(),
 					};
@@ -290,12 +291,40 @@ impl Server {
 						max: config.pool.max.unwrap_or(parallelism),
 						min: config.pool.min.unwrap_or(0),
 						path: path.join(&config.path),
+						retry: config.retry.clone().into(),
 						ttl: config.pool.ttl,
 					};
 					let database = db::sqlite::Database::new(options)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 					Database::Sqlite(database)
+				}
+			},
+			self::config::Database::Turso(config) => {
+				#[cfg(not(feature = "turso"))]
+				{
+					let _ = config;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with turso support"
+					));
+				}
+				#[cfg(feature = "turso")]
+				{
+					let initialize: db::turso::Initialize = Arc::new(|connection| {
+						Box::pin(self::database::turso::initialize(connection))
+					});
+					let options = db::turso::DatabaseOptions {
+						initialize,
+						max: config.pool.max.unwrap_or(parallelism),
+						min: config.pool.min.unwrap_or(0),
+						path: path.join(&config.path),
+						retry: config.retry.clone().into(),
+						ttl: config.pool.ttl,
+					};
+					let database = db::turso::Database::new(options)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to create the database"))?;
+					Database::Turso(database)
 				}
 			},
 		};
@@ -315,6 +344,7 @@ impl Server {
 					let options = db::postgres::DatabaseOptions {
 						max: options.pool.max.unwrap_or(parallelism),
 						min: options.pool.min.unwrap_or(0),
+						retry: options.retry.clone().into(),
 						ttl: options.pool.ttl,
 						url: options.url.clone(),
 					};
@@ -343,6 +373,7 @@ impl Server {
 						max: config.pool.max.unwrap_or(parallelism),
 						min: config.pool.min.unwrap_or(0),
 						path: path.join(&config.path),
+						retry: config.retry.clone().into(),
 						ttl: config.pool.ttl,
 					};
 					let process_store =
@@ -350,6 +381,34 @@ impl Server {
 							tg::error!(!error, "failed to create the process store")
 						})?;
 					Database::Sqlite(process_store)
+				}
+			},
+			self::config::Database::Turso(config) => {
+				#[cfg(not(feature = "turso"))]
+				{
+					let _ = config;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with turso support"
+					));
+				}
+				#[cfg(feature = "turso")]
+				{
+					let initialize: db::turso::Initialize = Arc::new(|connection| {
+						Box::pin(self::database::turso::initialize(connection))
+					});
+					let options = db::turso::DatabaseOptions {
+						initialize,
+						max: config.pool.max.unwrap_or(parallelism),
+						min: config.pool.min.unwrap_or(0),
+						path: path.join(&config.path),
+						retry: config.retry.clone().into(),
+						ttl: config.pool.ttl,
+					};
+					let process_store =
+						db::turso::Database::new(options).await.map_err(|error| {
+							tg::error!(!error, "failed to create the process store")
+						})?;
+					Database::Turso(process_store)
 				}
 			},
 		};
@@ -640,10 +699,24 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
 		}
 
+		#[cfg(feature = "turso")]
+		if let Ok(database) = server.database.try_unwrap_turso_ref() {
+			self::database::turso::migrate(database)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
+		}
+
 		// Migrate the process store if necessary.
 		#[cfg(feature = "sqlite")]
 		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
 			self::process::store::sqlite::migrate(process_store)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
+		}
+
+		#[cfg(feature = "turso")]
+		if let Ok(process_store) = server.process_store.try_unwrap_turso_ref() {
+			self::process::store::turso::migrate(process_store)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
 		}
@@ -658,60 +731,53 @@ impl Server {
 
 		// Set the remotes if specified in the config.
 		if let Some(remotes) = &server.config.remotes {
-			let connection = server
-				.database
-				.write_connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-			#[derive(db::row::Deserialize)]
-			struct RemoteTokenRow {
-				name: String,
-				token: Option<String>,
-			}
-			let statement = indoc!(
-				r#"
-						select name, token
-						from remotes
-						where "user" is null;
-					"#,
-			);
-			let params = db::params![];
-			let tokens = connection
-				.query_all_into::<RemoteTokenRow>(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-				.into_iter()
-				.map(|row| (row.name, row.token))
-				.collect::<std::collections::BTreeMap<_, _>>();
-			let statement = indoc!(
-				r#"
-						delete from remotes
-						where "user" is null;
-					"#,
-			);
-			let params = db::params![];
-			connection
-				.execute(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to delete the remotes"))?;
-			for (name, remote) in remotes {
-				let p = connection.p();
-				let statement = formatdoc!(
+			let remotes = remotes.clone();
+			crate::database::run!(&server.database, |transaction| {
+				#[derive(db::row::Deserialize)]
+				struct RemoteTokenRow {
+					name: String,
+					token: Option<String>,
+				}
+				let statement = indoc!(
 					r#"
-								insert into remotes (name, "user", url, token)
-								values ({p}1, null, {p}2, {p}3);
-							"#,
+							select name, token
+							from remotes
+							where "user" is null;
+						"#,
 				);
-				let token = remote
-					.token
-					.clone()
-					.or_else(|| tokens.get(name).cloned().flatten());
-				let params = db::params![name, &remote.url.to_string(), token];
-				connection
-					.execute(statement.into(), params)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to insert the remote"))?;
-			}
+				let result = transaction
+					.query_all_into::<RemoteTokenRow>(statement.into(), db::params![])
+					.await;
+				let tokens = crate::database::retry!(result, "failed to execute the statement")
+					.into_iter()
+					.map(|row| (row.name, row.token))
+					.collect::<std::collections::BTreeMap<_, _>>();
+				let statement = indoc!(
+					r#"
+							delete from remotes
+							where "user" is null;
+						"#,
+				);
+				let result = transaction.execute(statement.into(), db::params![]).await;
+				crate::database::retry!(result, "failed to delete the remotes");
+				for (name, remote) in &remotes {
+					let p = transaction.p();
+					let statement = formatdoc!(
+						r#"
+									insert into remotes (name, "user", url, token)
+									values ({p}1, null, {p}2, {p}3);
+								"#,
+					);
+					let token = remote
+						.token
+						.clone()
+						.or_else(|| tokens.get(name).cloned().flatten());
+					let params = db::params![name.clone(), remote.url.to_string(), token];
+					let result = transaction.execute(statement.into(), params).await;
+					crate::database::retry!(result, "failed to insert the remote");
+				}
+				Ok(ControlFlow::Break(()))
+			})?;
 		}
 		// Spawn the indexer task.
 		let indexer_task = server.config.indexer.clone().map(|config| {

@@ -2,8 +2,9 @@ use {
 	crate::Session,
 	indoc::indoc,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -13,29 +14,14 @@ impl Session {
 		pattern: &tg::list::Pattern,
 		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		let output = connection
-			.with({
-				let pattern = pattern.clone();
-				move |connection, cache| {
-					let transaction = connection
-						.transaction()
-						.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-					let output =
-						Self::delete_tag_sqlite_sync(&transaction, cache, &pattern, recursive)?;
-					transaction
-						.commit()
-						.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-					Ok::<_, tg::Error>(output)
-				}
-			})
-			.await?;
-
-		Ok(output)
+		db::sqlite::run!(
+			database,
+			[pattern = pattern.clone()],
+			|transaction, cache| {
+				Self::delete_tag_sqlite_sync(transaction, cache, &pattern, recursive)
+			}
+		)
+		.map_err(|error| tg::error!(!error, "failed to delete the tags"))
 	}
 
 	pub(crate) fn delete_tag_sqlite_sync(
@@ -43,7 +29,7 @@ impl Session {
 		cache: &db::sqlite::Cache,
 		pattern: &tg::list::Pattern,
 		recursive: bool,
-	) -> tg::Result<tg::tag::delete::Output> {
+	) -> tg::Result<ControlFlow<tg::tag::delete::Output, db::sqlite::Error>> {
 		if pattern.is_empty() {
 			return Err(tg::error!("cannot delete an empty pattern"));
 		}
@@ -62,27 +48,28 @@ impl Session {
 		let mut deleted = Vec::new();
 		for m in matches {
 			let Some(namespace_id) =
-				Self::get_namespace_sqlite_sync(transaction, cache, &m.tag.namespace)?
+				Self::try_get_namespace_sqlite_sync(transaction, cache, &m.tag.namespace)?
 			else {
 				continue;
 			};
 			let statement = indoc!(
 				"
 					delete from tags
-					where namespace = ?1 and name = ?2 ;
+					where namespace = ?1 and name = ?2;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement,
 					sqlite::params![namespace_id, m.tag.name.to_string()],
 				)
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
 			let statement = indoc!(
 				r"
 					select principal, permission
 					from tag_grants
-					where namespace = ?1 and name = ?2 ;
+					where namespace = ?1 and name = ?2;
 				"
 			);
 			let mut statement = transaction
@@ -104,13 +91,16 @@ impl Session {
 					.parse::<tg::Permission>()
 					.map_err(|error| tg::error!(!error, "invalid permission"))?;
 				if permission.implies(tg::Permission::Read) {
-					Self::decrement_namespace_visibility_for_grant_sqlite_sync(
+					match Self::decrement_namespace_visibility_for_grant_sqlite_sync(
 						transaction,
 						&m.tag.namespace,
 						Some(principal.as_str()),
 						None,
 						false,
-					)?;
+					)? {
+						ControlFlow::Break(()) => {},
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
 				}
 			}
 			drop(rows);
@@ -118,18 +108,19 @@ impl Session {
 			let statement = indoc!(
 				"
 					delete from tag_grants
-					where namespace = ?1 and name = ?2 ;
+					where namespace = ?1 and name = ?2;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement,
 					sqlite::params![namespace_id, m.tag.name.to_string()],
 				)
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
 			deleted.push(m.tag);
 		}
 
-		Ok(tg::tag::delete::Output { deleted })
+		Ok(ControlFlow::Break(tg::tag::delete::Output { deleted }))
 	}
 }

@@ -6,7 +6,7 @@ use {
 	},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
-	std::{fmt::Write, pin::pin},
+	std::{fmt::Write, ops::ControlFlow, pin::pin},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -19,6 +19,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 #[derive(derive_more::Debug)]
 struct LocalOutput {
@@ -105,7 +107,9 @@ impl Session {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_spawn_process_local(arg, parent_sandbox).await?
+				self.try_spawn_process_local(arg, parent_sandbox)
+					.boxed()
+					.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -139,21 +143,11 @@ impl Session {
 
 		// Get the host.
 		let command_ = tg::Command::with_id(arg.command.item.clone());
-		let host = command_.host_with_handle(self).await.ok();
-
-		// Get a process store connection.
-		let mut connection = self
-			.server
-			.process_store
-			.write_connection()
+		let host = command_
+			.host_with_handle(self)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+			.ok()
+			.map(|host| host.to_string());
 
 		// Determine if the process is cacheable.
 		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
@@ -168,64 +162,19 @@ impl Session {
 			&& arg.stderr.is_log()
 			&& tty.is_none();
 
-		// Get or create a local process.
-		let mut output = if cacheable
-			&& matches!(arg.cached, None | Some(true))
-			&& let Some(output) = self
-				.try_get_cached_process_local(&transaction, &arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a cached local process"))?
-		{
-			tracing::trace!(?output, "got cached local process");
-			Some(output)
-		} else if cacheable
-			&& matches!(arg.cached, None | Some(true))
-			&& let Some(host) = &host
-			&& let Some(output) = self
-				.try_get_cached_process_with_mismatched_checksum_local(&transaction, &arg, host)
-				.await
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						"failed to get a cached local process with mismatched checksum"
-					)
-				})? {
-			tracing::trace!(?output, "got cached local process with mismatched checksum");
-			Some(output)
-		} else if matches!(arg.cached, None | Some(false)) {
-			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
-			let output = self
-				.create_local_process(
-					&transaction,
-					&arg,
-					parent_sandbox.as_ref(),
-					cacheable,
-					&host,
-				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create a local process"))?;
-			tracing::trace!(?output, "created local process");
-			Some(output)
-		} else {
-			None
-		};
-
-		if let (Some(output), Some(principal)) = (&output, self.write_principal()) {
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			self.server
-				.grant_process_with_transaction(&transaction, &output.id, &principal, now)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to grant the process"))?;
-		}
-
-		// Commit the transaction.
-		transaction
-			.commit()
+		// Get or create a local process in the process store.
+		let mut output = crate::database::run!(&self.server.process_store, |transaction| {
+			Self::try_spawn_process_local_with_transaction(
+				self,
+				transaction,
+				&arg,
+				parent_sandbox.as_ref(),
+				cacheable,
+				host.as_deref(),
+			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		// Drop the connection.
-		drop(connection);
+		})
+		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		// Wake the watchdog so depth-based limits are enforced promptly.
 		if output
@@ -644,11 +593,87 @@ impl Session {
 		Ok(None)
 	}
 
+	async fn try_spawn_process_local_with_transaction(
+		&self,
+		transaction: &database::Transaction<'_>,
+		arg: &tg::process::spawn::Arg,
+		parent_sandbox: Option<&tg::sandbox::Id>,
+		cacheable: bool,
+		host: Option<&str>,
+	) -> tg::Result<ControlFlow<Option<LocalOutput>, database::Error>> {
+		let mut output = None;
+		if cacheable && matches!(arg.cached, None | Some(true)) {
+			let result = self
+				.try_get_cached_process_local(transaction, arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get a cached local process"))?;
+			output = match result {
+				ControlFlow::Break(output) => output,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			if let Some(ref output) = output {
+				tracing::trace!(?output, "got cached local process");
+			} else if let Some(host) = host {
+				let result = self
+					.try_get_cached_process_with_mismatched_checksum_local(transaction, arg, host)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to get a cached local process with mismatched checksum"
+						)
+					})?;
+				let cached_output = match result {
+					ControlFlow::Break(output) => output,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				if let Some(ref output) = cached_output {
+					tracing::trace!(?output, "got cached local process with mismatched checksum");
+				}
+				output = cached_output;
+			}
+		}
+		let output = if let Some(output) = output {
+			Some(output)
+		} else if matches!(arg.cached, None | Some(false)) {
+			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
+			let output = match self
+				.create_local_process(transaction, arg, parent_sandbox, cacheable, host)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create a local process"))?
+			{
+				ControlFlow::Break(output) => output,
+				ControlFlow::Continue(error) => {
+					return Ok(ControlFlow::Continue(error));
+				},
+			};
+			tracing::trace!(?output, "created local process");
+			Some(output)
+		} else {
+			None
+		};
+
+		if let (Some(output), Some(principal)) = (&output, self.write_principal()) {
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let result = self
+				.server
+				.grant_process_with_transaction(transaction, &output.id, &principal, now)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to grant the process"))?;
+			match result {
+				ControlFlow::Break(()) => {},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		}
+
+		Ok(ControlFlow::Break(output))
+	}
+
 	async fn try_get_cached_process_local(
 		&self,
 		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
-	) -> tg::Result<Option<LocalOutput>> {
+	) -> tg::Result<ControlFlow<Option<LocalOutput>, database::Error>> {
 		let p = transaction.p();
 
 		// Attempt to get a matching process.
@@ -675,18 +700,24 @@ impl Session {
 			},
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "with params as (select ?1 as command, ?2 as checksum)",
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(_) => "with params as (select ?1 as command, ?2 as checksum)",
 		};
 		let is = match &transaction {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is not distinct from",
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "is",
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(_) => "is",
 		};
 		let isnt = match &transaction {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is distinct from",
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "is not",
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(_) => "is not",
 		};
 		let statement = formatdoc!(
 			"
@@ -727,18 +758,20 @@ impl Session {
 			sandbox_status,
 			status,
 			stored_at,
-		}) = transaction
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		}) = ({
+			let result = transaction
+				.query_optional_into::<Row>(statement.into(), params)
+				.await;
+			crate::database::retry!(result, "failed to execute the statement")
+		})
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 
 		// If the process failed and the retry flag is set, then return.
 		let failed = error.is_some() || exit.is_some_and(|exit| exit != 0);
 		if failed && arg.retry {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		}
 
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -759,7 +792,7 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 			if process.is_none() {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 		}
 
@@ -794,7 +827,7 @@ impl Session {
 			None
 		} else {
 			if sandbox_status.is_some_and(|status| status.is_destroyed()) {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 
 			let statement = formatdoc!(
@@ -805,24 +838,26 @@ impl Session {
 				"
 			);
 			let params = db::params![sandbox.to_string()];
-			let n = transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let result = transaction.execute(statement.into(), params).await;
+			let n = crate::database::retry!(result, "failed to execute the statement");
 			if n == 0 {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 
-			let status = self
+			let result = self
 				.server
 				.try_lock_process_with_transaction(transaction, &id)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to lock the process"))?;
+			let status = match result {
+				ControlFlow::Break(status) => status,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			let Some(status) = status else {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			};
 			if status.is_finished() {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 
 			let lease = Self::create_process_lease();
@@ -833,21 +868,24 @@ impl Session {
 				"
 			);
 			let params = db::params![id.to_string(), lease];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
 
 			// Update lease count.
-			self.server
+			let result = self
+				.server
 				.update_process_lease_count_with_transaction(transaction, &id)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to update the lease count"))?;
+			match result {
+				ControlFlow::Break(()) => {},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 
 			Some(lease)
 		};
 
-		Ok(Some(LocalOutput {
+		Ok(ControlFlow::Break(Some(LocalOutput {
 			cached: true,
 			created_by: None,
 			id: id.clone(),
@@ -857,7 +895,7 @@ impl Session {
 			sandbox_status,
 			status,
 			wait,
-		}))
+		})))
 	}
 
 	async fn try_get_cached_process_with_mismatched_checksum_local(
@@ -865,12 +903,12 @@ impl Session {
 		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
 		host: &str,
-	) -> tg::Result<Option<LocalOutput>> {
+	) -> tg::Result<ControlFlow<Option<LocalOutput>, database::Error>> {
 		let p = transaction.p();
 
 		// If the checksum is not set, then return.
 		let Some(expected_checksum) = arg.checksum.clone() else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 
 		// Attempt to get a process.
@@ -898,12 +936,30 @@ impl Session {
 			},
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "with params as (select ?1 as command, ?2 as checksum)",
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(_) => "with params as (select ?1 as command, ?2 as checksum)",
 		};
 		let is = match &transaction {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is not distinct from",
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "is",
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(_) => "is",
+		};
+		let checksum_prefix = match &transaction {
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(_) => {
+				"split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1)"
+			},
+			#[cfg(feature = "sqlite")]
+			database::Transaction::Sqlite(_) => {
+				"split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1)"
+			},
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(_) => {
+				"substr(processes.actual_checksum, 1, instr(processes.actual_checksum || ':', ':') - 1) = substr(params.checksum, 1, instr(params.checksum || ':', ':') - 1)"
+			},
 		};
 		let statement = formatdoc!(
 			"
@@ -925,7 +981,7 @@ impl Session {
 					processes.cacheable = true and
 					processes.error_code {is} 'checksum_mismatch' and
 					processes.actual_checksum is not null and
-					split_part(processes.actual_checksum, ':', 1) = split_part(params.checksum, ':', 1)
+					{checksum_prefix}
 				order by processes.created_at desc
 				limit 1;
 			"
@@ -940,12 +996,14 @@ impl Session {
 			sandbox_status,
 			status: source_status,
 			stored_at: source_stored_at,
-		}) = transaction
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		}) = ({
+			let result = transaction
+				.query_optional_into::<Row>(statement.into(), params)
+				.await;
+			crate::database::retry!(result, "failed to execute the statement")
+		})
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -966,7 +1024,7 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, id = %source, "failed to touch the process"))?;
 			if process.is_none() {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 		}
 
@@ -1128,10 +1186,8 @@ impl Session {
 			created_by,
 			tty.map(db::value::Json),
 		];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
 
 		// Copy the process children.
 		let statement = formatdoc!(
@@ -1157,12 +1213,10 @@ impl Session {
 			"
 		);
 		let params = db::params![id.to_string(), source.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
 
-		Ok(Some(LocalOutput {
+		Ok(ControlFlow::Break(Some(LocalOutput {
 			cached: true,
 			created_by: None,
 			id,
@@ -1176,7 +1230,7 @@ impl Session {
 				exit,
 				output,
 			}),
-		}))
+		})))
 	}
 
 	async fn create_local_process(
@@ -1186,7 +1240,7 @@ impl Session {
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
 		host: &str,
-	) -> tg::Result<LocalOutput> {
+	) -> tg::Result<ControlFlow<LocalOutput, database::Error>> {
 		let p = transaction.p();
 
 		// Create an ID.
@@ -1207,16 +1261,27 @@ impl Session {
 					tg::sandbox::Status::Created
 				};
 				let sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
-				let sandbox = self
+				let sandbox = match self
 					.create_local_sandbox_with_transaction(transaction, &sandbox_arg, status)
-					.await?;
+					.await?
+				{
+					ControlFlow::Break(sandbox) => sandbox,
+					ControlFlow::Continue(error) => {
+						return Ok(ControlFlow::Continue(error));
+					},
+				};
 				(sandbox, status, permit)
 			},
 			Some(tg::Either::Right(sandbox)) => {
-				let Some(status) = self
+				let result = self
 					.try_get_sandbox_with_transaction(transaction, sandbox)
-					.await?
-				else {
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?;
+				let status = match result {
+					ControlFlow::Break(status) => status,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let Some(status) = status else {
 					return Err(tg::error!("failed to find the sandbox"));
 				};
 				if status.is_destroyed() {
@@ -1357,10 +1422,8 @@ impl Session {
 			created_by,
 			tty.map(db::value::Json),
 		];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
 
 		// Insert the process lease.
 		let statement = formatdoc!(
@@ -1370,18 +1433,21 @@ impl Session {
 			"
 		);
 		let params = db::params![id.to_string(), lease];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
 
 		// Update lease count.
-		self.server
+		let result = self
+			.server
 			.update_process_lease_count_with_transaction(transaction, &id)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to update the lease count"))?;
+		match result {
+			ControlFlow::Break(()) => {},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 
-		Ok(LocalOutput {
+		Ok(ControlFlow::Break(LocalOutput {
 			cached: false,
 			created_by: created_by_id,
 			id,
@@ -1391,7 +1457,7 @@ impl Session {
 			sandbox_status: Some(sandbox_status),
 			status,
 			wait: None,
-		})
+		}))
 	}
 
 	async fn create_local_sandbox_with_transaction(
@@ -1399,7 +1465,7 @@ impl Session {
 		transaction: &database::Transaction<'_>,
 		arg: &tg::sandbox::create::Arg,
 		status: tg::sandbox::Status,
-	) -> tg::Result<tg::sandbox::Id> {
+	) -> tg::Result<ControlFlow<tg::sandbox::Id, database::Error>> {
 		let p = transaction.p();
 		let id = tg::sandbox::Id::new();
 		let created_by = self
@@ -1487,18 +1553,16 @@ impl Session {
 			db::value::DurationSeconds(ttl),
 			arg.user.clone(),
 		];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(id)
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(id))
 	}
 
 	async fn try_get_sandbox_with_transaction(
 		&self,
 		transaction: &database::Transaction<'_>,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<tg::sandbox::Status>> {
+	) -> tg::Result<ControlFlow<Option<tg::sandbox::Status>, database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -1513,11 +1577,11 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
 		}
-		let row = transaction
+		let result = transaction
 			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(row.map(|row| row.status))
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(row.map(|row| row.status)))
 	}
 
 	fn try_acquire_sandbox_permit(
@@ -1540,6 +1604,101 @@ impl Session {
 			.map(|permit| crate::sandbox::Permit(tg::Either::Left(permit)))
 	}
 
+	async fn add_process_child_creates_cycle_with_transaction(
+		transaction: &database::Transaction<'_>,
+		parent: &tg::process::Id,
+		child: &tg::process::Id,
+	) -> tg::Result<ControlFlow<bool, database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				with recursive ancestors as (
+					select {p}1 as id
+					union all
+					select process_children.process as id
+					from ancestors
+					join process_children on ancestors.id = process_children.child
+				)
+				select exists(
+					select 1 from ancestors where id = {p}2
+				);
+			"
+		);
+		let params = db::params![parent.to_string(), child.to_string()];
+		let result = transaction
+			.query_one_value_into::<bool>(statement.into(), params)
+			.await;
+		let cycle = crate::database::retry!(result, "failed to execute the cycle check");
+		Ok(ControlFlow::Break(cycle))
+	}
+
+	async fn find_add_process_child_cycle_path_with_transaction(
+		transaction: &database::Transaction<'_>,
+		parent: &tg::process::Id,
+		child: &tg::process::Id,
+	) -> tg::Result<ControlFlow<Option<String>, database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				with recursive reachable (current_process, path) as (
+					select {p}2, {p}2
+
+					union
+
+					select pc.child, r.path || ' ' || pc.child
+					from reachable r
+					join process_children pc on r.current_process = pc.process
+					where r.path not like '%' || pc.child || '%'
+				)
+				select
+					{p}1 || ' ' || path as cycle
+				from reachable
+				where current_process = {p}1
+				limit 1;
+			"
+		);
+		let params = db::params![parent.to_string(), child.to_string()];
+		let result = transaction
+			.query_one_value_into::<String>(statement.into(), params)
+			.await;
+		let cycle = match result {
+			Ok(cycle) => Some(cycle),
+			Err(error) => {
+				if db::Error::is_retry(&error) {
+					return Ok(ControlFlow::Continue(error));
+				}
+				tracing::error!(?error, "failed to get the cycle");
+				None
+			},
+		};
+		Ok(ControlFlow::Break(cycle))
+	}
+
+	async fn update_parent_depths_with_transaction(
+		&self,
+		transaction: &database::Transaction<'_>,
+		child: &tg::process::Id,
+	) -> tg::Result<ControlFlow<(), database::Error>> {
+		let result = match transaction {
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(transaction) => self
+				.update_parent_depths_postgres(transaction, child.to_string())
+				.await
+				.map(|result| result.map_continue(database::Error::Postgres)),
+			#[cfg(feature = "sqlite")]
+			database::Transaction::Sqlite(transaction) => self
+				.update_parent_depths_sqlite(transaction, vec![child.to_string()])
+				.await
+				.map(|result| result.map_continue(database::Error::Sqlite)),
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(transaction) => self
+				.update_parent_depths_turso(transaction, vec![child.to_string()])
+				.await
+				.map(|result| result.map_continue(database::Error::Turso)),
+		}?;
+		Ok(result)
+	}
+
 	async fn add_process_child(
 		&self,
 		parent: &tg::process::Id,
@@ -1548,42 +1707,20 @@ impl Session {
 		options: &tg::referent::Options,
 		lease: Option<&String>,
 	) -> tg::Result<()> {
-		// Get a process store connection.
-		let mut connection = self
-			.server
-			.process_store
-			.write_connection()
+		crate::database::run!(&self.server.process_store, |transaction| {
+			self.add_process_child_with_transaction(
+				transaction,
+				parent,
+				cached,
+				child,
+				options,
+				lease,
+			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-
-		// Add the process as a child.
-		self.add_process_child_with_transaction(
-			&transaction,
-			parent,
-			cached,
-			child,
-			options,
-			lease,
-		)
-		.await
+		})
 		.map_err(
 			|error| tg::error!(!error, %parent, %child, "failed to add the process as a child"),
 		)?;
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		// Drop the connection.
-		drop(connection);
 
 		// Publish the child message.
 		self.spawn_publish_process_child_message_task(parent);
@@ -1602,15 +1739,19 @@ impl Session {
 		child: &tg::process::Id,
 		options: &tg::referent::Options,
 		lease: Option<&String>,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), database::Error>> {
 		let p = transaction.p();
 
 		// Lock the parent and ensure that it is not finished.
-		let status = self
+		let result = self
 			.server
 			.try_lock_process_with_transaction(transaction, parent)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to lock the parent process"))?;
+		let status = match result {
+			ControlFlow::Break(status) => status,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let Some(status) = status else {
 			return Err(tg::error!("the parent process was not found"));
 		};
@@ -1619,54 +1760,102 @@ impl Session {
 		}
 
 		// Determine if adding this child process creates a cycle.
-		let statement = formatdoc!(
-			"
-				with recursive ancestors as (
-					select {p}1 as id
-					union all
-					select process_children.process as id
-					from ancestors
-					join process_children on ancestors.id = process_children.child
+		let cycle = match &transaction {
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(_) => {
+				let result = Self::add_process_child_creates_cycle_with_transaction(
+					transaction,
+					parent,
+					child,
 				)
-				select exists(
-					select 1 from ancestors where id = {p}2
-				);
-			"
-		);
-		let params = db::params![parent.to_string(), child.to_string()];
-		let cycle = transaction
-			.query_one_value_into::<bool>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the cycle check"))?;
+				.await
+				.map_err(|error| tg::error!(!error, "failed to check for a process cycle"))?;
+				match result {
+					ControlFlow::Break(cycle) => cycle,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
+			},
+			#[cfg(feature = "sqlite")]
+			database::Transaction::Sqlite(_) => {
+				let result = Self::add_process_child_creates_cycle_with_transaction(
+					transaction,
+					parent,
+					child,
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to check for a process cycle"))?;
+				match result {
+					ControlFlow::Break(cycle) => cycle,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
+			},
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(transaction) => {
+				let result = Self::add_process_child_creates_cycle_turso_with_transaction(
+					transaction,
+					parent,
+					child,
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to check for a process cycle"))?;
+				match result {
+					ControlFlow::Break(cycle) => cycle,
+					ControlFlow::Continue(error) => {
+						return Ok(ControlFlow::Continue(database::Error::Turso(error)));
+					},
+				}
+			},
+		};
 
 		// If adding this child creates a cycle, return an error.
 		if cycle {
 			// Try to reconstruct the cycle path by walking from the child through its descendants until we find a path back to the parent.
-			let statement = formatdoc!(
-				"
-					with recursive reachable (current_process, path) as (
-						select {p}2, {p}2
-
-						union
-
-						select pc.child, r.path || ' ' || pc.child
-						from reachable r
-						join process_children pc on r.current_process = pc.process
-						where r.path not like '%' || pc.child || '%'
+			let cycle = match &transaction {
+				#[cfg(feature = "postgres")]
+				database::Transaction::Postgres(_) => {
+					let result = Self::find_add_process_child_cycle_path_with_transaction(
+						transaction,
+						parent,
+						child,
 					)
-					select
-						{p}1 || ' ' || path as cycle
-					from reachable
-					where current_process = {p}1
-					limit 1;
-				"
-			);
-			let params = db::params![parent.to_string(), child.to_string()];
-			let cycle = transaction
-				.query_one_value_into::<String>(statement.into(), params)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to get the cycle"))
-				.ok();
+					.await
+					.map_err(|error| tg::error!(!error, "failed to find the process cycle"))?;
+					match result {
+						ControlFlow::Break(cycle) => cycle,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
+				},
+				#[cfg(feature = "sqlite")]
+				database::Transaction::Sqlite(_) => {
+					let result = Self::find_add_process_child_cycle_path_with_transaction(
+						transaction,
+						parent,
+						child,
+					)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to find the process cycle"))?;
+					match result {
+						ControlFlow::Break(cycle) => cycle,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
+				},
+				#[cfg(feature = "turso")]
+				database::Transaction::Turso(transaction) => {
+					let result = Self::find_add_process_child_cycle_path_turso_with_transaction(
+						transaction,
+						parent,
+						child,
+					)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to find the process cycle"))?;
+					match result {
+						ControlFlow::Break(cycle) => cycle,
+						ControlFlow::Continue(error) => {
+							return Ok(ControlFlow::Continue(database::Error::Turso(error)));
+						},
+					}
+				},
+			};
 			let mut message = String::from("adding this child process creates a cycle");
 			if let Some(cycle) = cycle {
 				let processes = cycle.split(' ').collect::<Vec<_>>();
@@ -1711,28 +1900,19 @@ impl Session {
 			db::value::Json(options),
 			lease
 		];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
 
-		// Update parent depths.
-		match &transaction {
-			#[cfg(feature = "postgres")]
-			database::Transaction::Postgres(transaction) => {
-				self.update_parent_depths_postgres(transaction, child.to_string())
-					.await
-					.map_err(|error| tg::error!(!error, "failed to update parent depths"))?;
-			},
-			#[cfg(feature = "sqlite")]
-			database::Transaction::Sqlite(transaction) => {
-				self.update_parent_depths_sqlite(transaction, vec![child.to_string()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to update parent depths"))?;
-			},
+		let result = self
+			.update_parent_depths_with_transaction(transaction, child)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to update parent depths"))?;
+		match result {
+			ControlFlow::Break(()) => {},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	fn spawn_publish_process_child_message_task(&self, parent: &tg::process::Id) {

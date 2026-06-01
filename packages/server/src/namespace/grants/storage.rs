@@ -1,6 +1,7 @@
 use {
 	crate::{Session, database::Transaction},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -13,7 +14,7 @@ impl Session {
 		principal: &tg::Principal,
 		permission: tg::Permission,
 		created_by: Option<&tg::user::Id>,
-	) -> tg::Result<tg::Grant> {
+	) -> tg::Result<ControlFlow<tg::Grant, crate::database::Error>> {
 		let p = transaction.p();
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let implies_read = permission.implies(tg::Permission::Read);
@@ -38,27 +39,30 @@ impl Session {
 			created_at,
 			created_by,
 		];
-		let n = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n > 0 && implies_read {
-			Self::increment_namespace_visibility_with_transaction(
+			match Self::increment_namespace_visibility_with_transaction(
 				transaction,
 				namespace,
 				principal,
 			)
-			.await?;
+			.await?
+			{
+				ControlFlow::Break(()) => {},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		}
 
-		Self::get_namespace_grant_with_transaction(
+		let grant = Self::get_namespace_grant_with_transaction(
 			transaction,
 			namespace,
 			namespace_id,
 			principal,
 			&permission,
 		)
-		.await
+		.await?;
+		Ok(ControlFlow::Break(grant))
 	}
 
 	pub(crate) async fn create_namespace_grant_for_user_with_transaction(
@@ -68,7 +72,7 @@ impl Session {
 		user: &tg::user::Id,
 		permission: tg::Permission,
 		created_by: Option<&tg::user::Id>,
-	) -> tg::Result<tg::Grant> {
+	) -> tg::Result<ControlFlow<tg::Grant, crate::database::Error>> {
 		Self::create_namespace_grant_with_transaction(
 			transaction,
 			namespace,
@@ -87,7 +91,7 @@ impl Session {
 		group: &tg::group::Id,
 		permission: tg::Permission,
 		created_by: Option<&tg::user::Id>,
-	) -> tg::Result<tg::Grant> {
+	) -> tg::Result<ControlFlow<tg::Grant, crate::database::Error>> {
 		Self::create_namespace_grant_with_transaction(
 			transaction,
 			namespace,
@@ -104,7 +108,7 @@ impl Session {
 		namespace: &tg::Namespace,
 		namespace_id: i64,
 		created_by: Option<&tg::user::Id>,
-	) -> tg::Result<tg::Grant> {
+	) -> tg::Result<ControlFlow<tg::Grant, crate::database::Error>> {
 		Self::create_namespace_grant_with_transaction(
 			transaction,
 			namespace,
@@ -121,7 +125,7 @@ impl Session {
 		namespace_id: i64,
 		principal: &tg::Principal,
 		permission: tg::Permission,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
@@ -130,22 +134,24 @@ impl Session {
 			"
 		);
 		let params = db::params![namespace_id, principal.to_string(), permission.to_string()];
-		let n = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n > 0 && permission.implies(tg::Permission::Read) {
 			let namespace = Self::namespace_for_id_with_transaction(transaction, namespace_id)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the namespace"))?;
-			Self::decrement_namespace_visibility_with_transaction(
+			match Self::decrement_namespace_visibility_with_transaction(
 				transaction,
 				&namespace,
 				principal,
 			)
-			.await?;
+			.await?
+			{
+				ControlFlow::Break(()) => {},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		}
-		Ok((n > 0).then_some(()))
+		Ok(ControlFlow::Break((n > 0).then_some(())))
 	}
 
 	pub(crate) async fn list_namespace_grants_for_user_with_transaction(

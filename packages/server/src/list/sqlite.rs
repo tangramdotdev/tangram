@@ -2,6 +2,7 @@ use {
 	crate::{Session, context::Authentication},
 	indoc::indoc,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -78,7 +79,7 @@ impl Session {
 					"
 						select output, timestamp
 						from list_cache
-						where arg = ?1 ;
+						where arg = ?1;
 					"
 				);
 				let mut statement = cache
@@ -111,31 +112,40 @@ impl Session {
 		output: &str,
 		timestamp: i64,
 	) -> tg::Result<()> {
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let arg = arg.to_owned();
 		let output = output.to_owned();
-		connection
-			.with(move |connection, cache| {
-				let statement = indoc!(
-					"
-						insert into list_cache (arg, output, timestamp)
-						values (?1, ?2, ?3)
-						on conflict (arg) do update
-						set output = excluded.output, timestamp = excluded.timestamp ;
-					"
-				);
-				let mut statement = cache
-					.get(connection, statement.into())
-					.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-				statement
-					.execute(sqlite::params![arg, output, timestamp])
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-				Ok(())
-			})
-			.await
+		db::sqlite::run!(
+			database,
+			[arg = arg.clone(), output = output.clone()],
+			|transaction, cache| {
+				Self::list_cache_put_sqlite_sync(transaction, cache, &arg, &output, timestamp)
+			},
+		)
+		.map_err(|error| tg::error!(!error, "failed to put the list cache"))
+	}
+
+	fn list_cache_put_sqlite_sync(
+		transaction: &sqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
+		arg: &str,
+		output: &str,
+		timestamp: i64,
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
+		let statement = indoc!(
+			"
+				insert into list_cache (arg, output, timestamp)
+				values (?1, ?2, ?3)
+				on conflict (arg) do update
+				set output = excluded.output, timestamp = excluded.timestamp;
+			"
+		);
+		let result = cache.get(transaction, statement.into());
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+		let result = statement
+			.execute(sqlite::params![arg, output, timestamp])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	fn list_namespace_entries_sqlite_sync(
@@ -164,7 +174,8 @@ impl Session {
 		cache: &db::sqlite::Cache,
 		pattern: &tg::list::Pattern,
 	) -> tg::Result<Vec<tg::Namespace>> {
-		let Some(parent) = Self::get_namespace_sqlite_sync(transaction, cache, &pattern.namespace)?
+		let Some(parent) =
+			Self::try_get_namespace_sqlite_sync(transaction, cache, &pattern.namespace)?
 		else {
 			return Ok(Vec::new());
 		};
@@ -177,7 +188,7 @@ impl Session {
 				"
 					select name
 					from namespaces
-					where parent = ?1 ;
+					where parent = ?1;
 				"
 			);
 			let mut statement = cache
@@ -200,7 +211,7 @@ impl Session {
 				"
 					select name
 					from namespaces
-					where parent = ?1 and component = ?2 ;
+					where parent = ?1 and component = ?2;
 				"
 			);
 			let mut statement = cache
@@ -236,7 +247,7 @@ impl Session {
 			pattern.to_namespace()
 		};
 		let names = if namespace.is_root() {
-			let statement = "select name from namespaces ;";
+			let statement = "select name from namespaces;";
 			let mut statement = cache
 				.get(transaction, statement.into())
 				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
@@ -263,7 +274,7 @@ impl Session {
 					select name
 					from namespaces
 					where name = ?1
-						or (name >= ?2 and name < ?3) ;
+						or (name >= ?2 and name < ?3);
 				"
 			);
 			let mut statement = cache
@@ -369,7 +380,7 @@ impl Session {
 		pattern: &tg::list::Pattern,
 	) -> tg::Result<Option<Match>> {
 		let Some(namespace) =
-			Self::get_namespace_sqlite_sync(transaction, cache, &pattern.namespace)?
+			Self::try_get_namespace_sqlite_sync(transaction, cache, &pattern.namespace)?
 		else {
 			return Ok(None);
 		};
@@ -377,7 +388,7 @@ impl Session {
 			"
 				select item
 				from tags
-				where namespace = ?1 and name = ?2 ;
+				where namespace = ?1 and name = ?2;
 			"
 		);
 		let mut statement = cache
@@ -413,7 +424,8 @@ impl Session {
 		cache: &db::sqlite::Cache,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Vec<Match>> {
-		let Some(namespace_id) = Self::get_namespace_sqlite_sync(transaction, cache, namespace)?
+		let Some(namespace_id) =
+			Self::try_get_namespace_sqlite_sync(transaction, cache, namespace)?
 		else {
 			return Ok(Vec::new());
 		};
@@ -421,7 +433,7 @@ impl Session {
 			"
 				select name, item
 				from tags
-				where namespace = ?1 ;
+				where namespace = ?1;
 			"
 		);
 		let mut statement = cache
@@ -462,7 +474,7 @@ impl Session {
 				"
 					select coalesce(namespaces.name, '') as namespace, tags.name, tags.item
 					from tags
-					left join namespaces on tags.namespace = namespaces.id ;
+					left join namespaces on tags.namespace = namespaces.id;
 				"
 			);
 			let mut statement = cache
@@ -487,7 +499,7 @@ impl Session {
 					from tags
 					join namespaces on tags.namespace = namespaces.id
 					where namespaces.name = ?1
-						or (namespaces.name >= ?2 and namespaces.name < ?3) ;
+						or (namespaces.name >= ?2 and namespaces.name < ?3);
 				"
 			);
 			let mut statement = cache

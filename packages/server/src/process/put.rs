@@ -12,6 +12,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn put_process(
@@ -82,6 +84,19 @@ impl Session {
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
 				self.put_process_sqlite(
+					id,
+					&arg,
+					process_store,
+					now,
+					principal.as_ref(),
+					created_by.as_ref(),
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
+			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.put_process_turso(
 					id,
 					&arg,
 					process_store,

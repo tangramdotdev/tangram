@@ -2,8 +2,9 @@ use {
 	crate::Session,
 	indoc::indoc,
 	num::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -38,20 +39,36 @@ impl Session {
 			return Ok(());
 		}
 
-		// Get a process store connection.
-		let mut connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let items = items
+			.iter()
+			.map(|(id, data)| ((*id).clone(), (*data).clone()))
+			.collect::<Vec<_>>();
+		let principal = principal.cloned();
+		let created_by = created_by.cloned();
+		let grant_ttl = self.server.config.process.grant_time_to_live;
 
-		// Begin a transaction.
-		let transaction = connection
-			.inner_mut()
-			.transaction()
+		db::postgres::run!(process_store, |transaction| {
+			Self::put_process_batch_postgres_with_transaction(
+				transaction,
+				&items,
+				stored_at,
+				principal.as_ref(),
+				grant_ttl,
+				created_by.as_ref(),
+			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		})
+		.map_err(|error| tg::error!(!error, "failed to put the process"))
+	}
 
-		// Collect all process data into column arrays.
+	pub(crate) async fn put_process_batch_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		items: &[(tg::process::Id, tg::process::Data)],
+		stored_at: i64,
+		principal: Option<&tg::Principal>,
+		grant_ttl: std::time::Duration,
+		created_by: Option<&tg::user::Id>,
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let mut actual_checksums: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut cacheables: Vec<bool> = Vec::with_capacity(items.len());
 		let mut commands = Vec::with_capacity(items.len());
@@ -163,7 +180,6 @@ impl Session {
 			);
 		}
 
-		// Insert all processes with UNNEST.
 		let statement = indoc!(
 			"
 				insert into processes (
@@ -257,7 +273,8 @@ impl Session {
 					tty = excluded.tty;
 			"
 		);
-		transaction
+		let result = transaction
+			.inner()
 			.execute(
 				statement,
 				&[
@@ -292,9 +309,9 @@ impl Session {
 				],
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::postgres::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
 
-		// Collect all children from all processes.
 		let mut child_processes = Vec::new();
 		let mut child_positions = Vec::new();
 		let mut child_cached = Vec::new();
@@ -313,7 +330,6 @@ impl Session {
 			}
 		}
 
-		// Insert all children with UNNEST.
 		if !child_processes.is_empty() {
 			let statement = indoc!(
 				"
@@ -322,7 +338,8 @@ impl Session {
 					on conflict (process, child) do nothing;
 				"
 			);
-			transaction
+			let result = transaction
+				.inner()
 				.execute(
 					statement,
 					&[
@@ -334,12 +351,12 @@ impl Session {
 					],
 				)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::postgres::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
 		}
 
 		if let Some(principal) = principal {
-			let grant_ttl = self.server.config.process.grant_time_to_live.as_secs();
-			let expires_at = stored_at + grant_ttl.to_i64().unwrap();
+			let expires_at = stored_at + grant_ttl.as_secs().to_i64().unwrap();
 			let processes = items
 				.iter()
 				.map(|(id, _)| id.to_string())
@@ -394,24 +411,17 @@ impl Session {
 						expires_at = greatest(process_grants.expires_at, excluded.expires_at);
 				"
 			);
-			transaction
+			let result = transaction
+				.inner()
 				.execute(
 					statement,
 					&[&processes, &principals, &created_ats, &expires_ats],
 				)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::postgres::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
 		}
 
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		// Drop the connection.
-		drop(connection);
-
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

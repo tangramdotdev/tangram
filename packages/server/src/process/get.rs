@@ -14,6 +14,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub async fn try_get_process(
@@ -96,6 +98,11 @@ impl Session {
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(process_store) => {
 					self.try_get_process_batch_sqlite(process_store, ids, &principal, now)
+						.await
+				},
+				#[cfg(feature = "turso")]
+				Database::Turso(process_store) => {
+					self.try_get_process_batch_turso(process_store, ids, &principal, now)
 						.await
 				},
 			}

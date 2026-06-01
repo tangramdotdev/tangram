@@ -4,6 +4,7 @@ use {
 		sandbox::destroy::{Condition, InnerArg, InnerOutput},
 	},
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -14,7 +15,7 @@ impl Session {
 		transaction: &db::postgres::Transaction<'_>,
 		id: &tg::sandbox::Id,
 		arg: InnerArg,
-	) -> tg::Result<InnerOutput> {
+	) -> tg::Result<ControlFlow<InnerOutput, db::postgres::Error>> {
 		let (condition, max_heartbeat_at) = match arg.condition {
 			Some(Condition::HeartbeatExpired { max_heartbeat_at }) => {
 				(Some("heartbeat_expired"), Some(max_heartbeat_at))
@@ -76,17 +77,17 @@ impl Session {
 			condition,
 			max_heartbeat_at,
 		];
+		let result = transaction
+			.query_one_into::<Row>(statement.into(), params)
+			.await;
 		let Row {
 			destroyed,
 			unfinished_processes,
-		} = transaction
-			.query_one_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		} = crate::database::retry!(result, "failed to execute the statement");
 		let output = InnerOutput {
 			destroyed,
 			unfinished_processes,
 		};
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 }

@@ -10,9 +10,10 @@ use {
 	std::{
 		collections::{BTreeSet, VecDeque},
 		io::{Cursor, SeekFrom},
+		ops::ControlFlow,
 	},
 	tangram_client::{self as tg},
-	tangram_database::{self as db, Database as _, Query as _},
+	tangram_database::{self as db, Query as _},
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_log_store::Store as _,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
@@ -176,25 +177,21 @@ impl Session {
 		let arg = tg::write::Arg::default();
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 
-		let connection = self
-			.server
-			.process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get db connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update processes
-				set log = {p}2
-				where id = {p}1 and log is null;
-			"
-		);
-		let params = db::params![process.to_string(), blob.to_string()];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		crate::database::run!(&self.server.process_store, |transaction| {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
+						update processes
+						set log = {p}2
+						where id = {p}1 and log is null;
+					"
+			);
+			let params = db::params![process.to_string(), blob.to_string()];
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
+			Ok(ControlFlow::Break(()))
+		})
+		.map_err(|error| tg::error!(!error, "failed to update the process log"))?;
 
 		self.server
 			.log_store

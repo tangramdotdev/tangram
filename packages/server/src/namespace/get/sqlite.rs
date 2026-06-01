@@ -27,14 +27,14 @@ impl Session {
 				let transaction = connection
 					.transaction()
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let output = Self::get_namespace_sqlite_sync(&transaction, cache, &namespace)?
+				let output = Self::try_get_namespace_sqlite_sync(&transaction, cache, &namespace)?
 					.map(|_| tg::namespace::get::Output { namespace });
 				Ok(output)
 			})
 			.await
 	}
 
-	pub(crate) fn get_namespace_sqlite_sync(
+	pub(crate) fn try_get_namespace_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		cache: &db::sqlite::Cache,
 		namespace: &tg::Namespace,
@@ -46,7 +46,7 @@ impl Session {
 			"
 				select id
 				from namespaces
-				where name = ?1 ;
+				where name = ?1;
 			"
 		);
 		let mut statement = cache

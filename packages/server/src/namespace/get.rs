@@ -10,6 +10,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn try_get_namespace(
@@ -31,6 +33,8 @@ impl Session {
 			Database::Postgres(database) => self.try_get_namespace_postgres(database, namespace).await,
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.try_get_namespace_sqlite(database, namespace).await,
+			#[cfg(feature = "turso")]
+			Database::Turso(database) => self.try_get_namespace_turso(database, namespace).await,
 		}
 	}
 

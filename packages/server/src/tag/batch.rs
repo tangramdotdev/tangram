@@ -1,8 +1,8 @@
 use {
 	crate::{Database, Session, context::Authentication},
 	futures::TryStreamExt as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -15,6 +15,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
@@ -87,6 +89,17 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
 				},
+				#[cfg(feature = "turso")]
+				Database::Turso(database) => {
+					self.post_tag_batch_turso(
+						database,
+						arg,
+						created_by.as_ref(),
+						&grant_creator_admin,
+					)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to post the tag batch"))?;
+				},
 			}
 		}
 
@@ -138,30 +151,29 @@ impl Session {
 	}
 
 	async fn authorize_tag_batch(&self, arg: &tg::tag::batch::Arg) -> tg::Result<Vec<bool>> {
-		let mut connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let mut grant_creator_admin = Vec::with_capacity(arg.tags.len());
-		for item in &arg.tags {
-			grant_creator_admin.push(
-				self.authorize_put_tag_with_transaction(&transaction, &item.tag)
-					.await?,
-			);
-		}
-		self.authorize_put_tag_item_batch_with_transaction(&transaction, &arg.tags)
-			.await?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(grant_creator_admin)
+		crate::database::run!(&self.server.database, |transaction| {
+			let mut grant_creator_admin = Vec::with_capacity(arg.tags.len());
+			for item in &arg.tags {
+				let value = match self
+					.authorize_put_tag_with_transaction(transaction, &item.tag)
+					.await?
+				{
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => {
+						return Ok::<ControlFlow<Vec<bool>, crate::database::Error>, tg::Error>(
+							ControlFlow::Continue(error),
+						);
+					},
+				};
+				grant_creator_admin.push(value);
+			}
+			self.authorize_put_tag_item_batch_with_transaction(transaction, &arg.tags)
+				.await?;
+			Ok::<ControlFlow<Vec<bool>, crate::database::Error>, tg::Error>(ControlFlow::Break(
+				grant_creator_admin,
+			))
+		})
+		.map_err(|error| tg::error!(!error, "failed to authorize the tag batch"))
 	}
 
 	async fn post_tag_batch_region(

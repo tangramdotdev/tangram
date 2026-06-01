@@ -1,8 +1,9 @@
 use {
 	crate::Server,
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::{self as db},
 };
 
 impl Server {
@@ -20,10 +21,18 @@ impl Server {
 			.iter()
 			.map(ToString::to_string)
 			.collect::<Vec<_>>();
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		db::postgres::run!(process_store, |transaction| {
+			Self::clean_processes_postgres_with_transaction(transaction, &processes, max_stored_at)
+				.await
+		})
+		.map_err(|error| tg::error!(!error, "failed to clean the process"))
+	}
+
+	async fn clean_processes_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		processes: &[String],
+		max_stored_at: i64,
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let statement = indoc!(
 			"
 				with deleted_processes as (
@@ -70,12 +79,13 @@ impl Server {
 				from deleted_processes;
 			"
 		);
-		connection
+		let result = transaction
 			.inner()
 			.query(statement, &[&processes, &max_stored_at])
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+			.map_err(db::postgres::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn clean_expired_process_grants_postgres(
@@ -83,21 +93,28 @@ impl Server {
 		process_store: &db::postgres::Database,
 		now: i64,
 	) -> tg::Result<()> {
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		db::postgres::run!(process_store, |transaction| {
+			Self::clean_expired_process_grants_postgres_with_transaction(transaction, now).await
+		})
+		.map_err(|error| tg::error!(!error, "failed to delete process grants"))
+	}
+
+	async fn clean_expired_process_grants_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		now: i64,
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let statement = indoc!(
 			"
 				delete from process_grants
 				where expires_at <= $1;
 			"
 		);
-		connection
+		let result = transaction
 			.inner()
 			.execute(statement, &[&now])
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+			.map_err(db::postgres::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 }

@@ -5,8 +5,9 @@ use {
 	},
 	indoc::indoc,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -15,7 +16,7 @@ impl Session {
 		transaction: &db::sqlite::Transaction<'_>,
 		id: &tg::process::Id,
 		arg: InnerArg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, db::sqlite::Error>> {
 		let id = id.clone();
 		transaction
 			.with(move |transaction, _cache| {
@@ -28,7 +29,7 @@ impl Session {
 		transaction: &mut sqlite::Transaction<'_>,
 		id: &tg::process::Id,
 		arg: &InnerArg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, db::sqlite::Error>> {
 		let error_code = arg.error_code.map(|code| code.to_string());
 		let error = arg.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
@@ -75,25 +76,25 @@ impl Session {
 					);
 			"
 		);
-		let n = transaction
-			.execute(
-				statement,
-				sqlite::params![
-					checksum.as_deref(),
-					error.as_deref(),
-					error_code.as_deref(),
-					i64::from(arg.exit),
-					arg.now,
-					output.as_deref(),
-					tg::process::Status::Finished.to_string(),
-					id.to_string(),
-					condition,
-					max_depth,
-				],
-			)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(
+			statement,
+			sqlite::params![
+				checksum.as_deref(),
+				error.as_deref(),
+				error_code.as_deref(),
+				i64::from(arg.exit),
+				arg.now,
+				output.as_deref(),
+				tg::process::Status::Finished.to_string(),
+				id.to_string(),
+				condition,
+				max_depth,
+			],
+		);
+		let result = result.map_err(db::sqlite::Error::from);
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n != 1 {
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		}
 
 		let statement = indoc!(
@@ -102,9 +103,10 @@ impl Session {
 				where process = ?1;
 			"
 		);
-		transaction
+		let result = transaction
 			.execute(statement, sqlite::params![id.to_string()])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
 
 		let statement = indoc!(
 			"
@@ -112,13 +114,14 @@ impl Session {
 				values (?1, ?2, ?3);
 			"
 		);
-		transaction
+		let result = transaction
 			.execute(
 				statement,
 				sqlite::params![arg.now, id.to_string(), "created"],
 			)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
 
-		Ok(true)
+		Ok(ControlFlow::Break(true))
 	}
 }

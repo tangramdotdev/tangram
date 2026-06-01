@@ -1,7 +1,7 @@
 use {
 	crate::{Session, context::Authentication, database::Database, database::Transaction},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
-	std::collections::BTreeMap,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -17,6 +17,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
@@ -72,6 +74,12 @@ impl Session {
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => {
 					self.put_tag_sqlite(database, tag, &arg, grant_creator_admin)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
+				},
+				#[cfg(feature = "turso")]
+				Database::Turso(database) => {
+					self.put_tag_turso(database, tag, &arg, grant_creator_admin)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
 				},
@@ -276,39 +284,38 @@ impl Session {
 		tag: &tg::Tag,
 		item: &tg::Either<tg::object::Id, tg::process::Id>,
 	) -> tg::Result<bool> {
-		let mut connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let grant_creator_admin = self
-			.authorize_put_tag_with_transaction(&transaction, tag)
-			.await?;
-		self.authorize_put_tag_item_with_transaction(&transaction, tag, item)
-			.await?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(grant_creator_admin)
+		crate::database::run!(&self.server.database, |transaction| {
+			let grant_creator_admin = match self
+				.authorize_put_tag_with_transaction(transaction, tag)
+				.await?
+			{
+				ControlFlow::Break(grant_creator_admin) => grant_creator_admin,
+				ControlFlow::Continue(error) => {
+					return Ok::<ControlFlow<bool, crate::database::Error>, tg::Error>(
+						ControlFlow::Continue(error),
+					);
+				},
+			};
+			self.authorize_put_tag_item_with_transaction(transaction, tag, item)
+				.await?;
+			Ok::<ControlFlow<bool, crate::database::Error>, tg::Error>(ControlFlow::Break(
+				grant_creator_admin,
+			))
+		})
+		.map_err(|error| tg::error!(!error, "failed to authorize the tag"))
 	}
 
 	pub(super) async fn authorize_put_tag_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		tag: &tg::Tag,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
 		if Self::try_get_tag_namespace_id_with_transaction(transaction, tag)
 			.await?
 			.is_some()
 		{
 			match &self.context.authentication {
-				Some(Authentication::Root) => return Ok(false),
+				Some(Authentication::Root) => return Ok(ControlFlow::Break(false)),
 				Some(Authentication::User(user))
 					if Self::user_has_tag_permission_with_transaction(
 						transaction,
@@ -318,7 +325,7 @@ impl Session {
 					)
 					.await? =>
 				{
-					return Ok(false);
+					return Ok(ControlFlow::Break(false));
 				},
 				_ => {},
 			}
@@ -334,7 +341,9 @@ impl Session {
 
 		if tag.namespace.is_root() {
 			return match &self.context.authentication {
-				Some(Authentication::Root | Authentication::User(_)) => Ok(true),
+				Some(Authentication::Root | Authentication::User(_)) => {
+					Ok(ControlFlow::Break(true))
+				},
 				_ => Err(tg::error!("unauthorized")),
 			};
 		}
@@ -344,7 +353,7 @@ impl Session {
 			.is_some()
 		{
 			match &self.context.authentication {
-				Some(Authentication::Root) => Ok(true),
+				Some(Authentication::Root) => Ok(ControlFlow::Break(true)),
 				Some(Authentication::User(user)) => {
 					if Self::user_has_namespace_permission_with_transaction(
 						transaction,
@@ -354,7 +363,7 @@ impl Session {
 					)
 					.await?
 					{
-						Ok(true)
+						Ok(ControlFlow::Break(true))
 					} else {
 						Err(tg::error!("unauthorized"))
 					}
@@ -362,9 +371,13 @@ impl Session {
 				_ => Err(tg::error!("unauthorized")),
 			}
 		} else {
-			self.create_missing_tag_parent_namespaces_with_transaction(transaction, &tag.namespace)
-				.await?;
-			Ok(true)
+			match self
+				.create_missing_tag_parent_namespaces_with_transaction(transaction, &tag.namespace)
+				.await?
+			{
+				ControlFlow::Break(()) => Ok(ControlFlow::Break(true)),
+				ControlFlow::Continue(error) => Ok(ControlFlow::Continue(error)),
+			}
 		}
 	}
 
@@ -372,7 +385,7 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let user = match &self.context.authentication {
 			Some(Authentication::Root) => None,
 			Some(Authentication::User(user)) => Some(user.id.clone()),
@@ -410,10 +423,17 @@ impl Session {
 					_ => return Err(tg::error!("unauthorized")),
 				}
 			}
-			let namespace_id =
-				Self::get_or_create_namespace_with_transaction(transaction, &current).await?;
+			let namespace_id = match Self::get_or_create_namespace_with_transaction(
+				transaction,
+				&current,
+			)
+			.await?
+			{
+				ControlFlow::Break(namespace_id) => namespace_id,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			if let Some(user) = user.as_ref() {
-				Self::create_namespace_grant_for_user_with_transaction(
+				match Self::create_namespace_grant_for_user_with_transaction(
 					transaction,
 					&current,
 					namespace_id,
@@ -421,11 +441,15 @@ impl Session {
 					tg::Permission::Admin,
 					Some(user),
 				)
-				.await?;
+				.await?
+				{
+					ControlFlow::Break(_) => {},
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
 			parent_created = true;
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn try_put_tag_region(

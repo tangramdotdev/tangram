@@ -8,7 +8,7 @@ use {
 	tokio_postgres as postgres,
 };
 
-pub use postgres::types::Json;
+pub use {crate::run, postgres::types::Json};
 
 pub mod row;
 pub mod util;
@@ -24,6 +24,7 @@ pub enum Error {
 pub struct DatabaseOptions {
 	pub max: usize,
 	pub min: usize,
+	pub retry: tangram_futures::retry::Options,
 	pub ttl: Option<Duration>,
 	pub url: Uri,
 }
@@ -40,6 +41,7 @@ pub struct Cache {
 
 pub struct Database {
 	pool: Pool<Connection, Error>,
+	retry: tangram_futures::retry::Options,
 }
 
 pub struct Connection {
@@ -94,7 +96,10 @@ impl Database {
 			let connection = Connection::connect(connection_options.clone()).await?;
 			pool.add(connection);
 		}
-		let database = Self { pool };
+		let database = Self {
+			pool,
+			retry: options.retry,
+		};
 		Ok(database)
 	}
 
@@ -169,6 +174,10 @@ impl super::Database for Database {
 	type Error = Error;
 
 	type Connection = pool::ExclusiveGuard<Connection, Error>;
+
+	fn retry(&self) -> tangram_futures::retry::Options {
+		self.retry.clone()
+	}
 
 	async fn connection_with_options(
 		&self,
@@ -304,10 +313,19 @@ impl super::Query for Transaction<'_> {
 
 impl super::Error for Error {
 	fn is_retry(&self) -> bool {
-		let Error::Postgres(error) = self else {
-			return false;
-		};
-		error.code().map(tokio_postgres::error::SqlState::code) == Some("40001")
+		match self {
+			Self::Postgres(error) => util::error_is_retryable(error),
+			Self::Other(error) => {
+				let mut current = Some(error.as_ref() as &dyn std::error::Error);
+				while let Some(error) = current {
+					if let Some(error) = error.downcast_ref::<Self>() {
+						return error.is_retry();
+					}
+					current = error.source();
+				}
+				false
+			},
+		}
 	}
 
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {

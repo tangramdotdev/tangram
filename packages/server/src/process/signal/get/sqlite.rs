@@ -2,8 +2,9 @@ use {
 	crate::Session,
 	indoc::indoc,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, Database as _},
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -13,24 +14,16 @@ impl Session {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Signal>> {
 		let id = id.clone();
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		connection
-			.with(move |connection, _cache| {
-				Self::try_dequeue_process_signal_sqlite_sync(connection, &id)
-			})
-			.await
+		db::sqlite::run!(process_store, [id = id.clone()], |transaction, _cache| {
+			Self::try_dequeue_process_signal_sqlite_sync(transaction, &id)
+		})
+		.map_err(|error| tg::error!(!error, "failed to dequeue the process signal"))
 	}
 
 	fn try_dequeue_process_signal_sqlite_sync(
-		connection: &mut sqlite::Connection,
+		transaction: &sqlite::Transaction<'_>,
 		id: &tg::process::Id,
-	) -> tg::Result<Option<tg::process::Signal>> {
-		let transaction = connection
-			.transaction()
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+	) -> tg::Result<ControlFlow<Option<tg::process::Signal>, db::sqlite::Error>> {
 		let statement = indoc!(
 			"
 				select position, signal
@@ -40,24 +33,24 @@ impl Session {
 				limit 1;
 			"
 		);
-		let mut statement = transaction
+		let result = transaction
 			.prepare(statement)
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
-			.query(sqlite::params![id.to_string()])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(None);
+			.map_err(db::sqlite::Error::from);
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+		let mut rows = {
+			let result = statement
+				.query(sqlite::params![id.to_string()])
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement")
 		};
-		let position = row
-			.get::<_, i64>(0)
-			.map_err(|error| tg::error!(!error, "failed to get the position"))?;
-		let signal = row
-			.get::<_, String>(1)
-			.map_err(|error| tg::error!(!error, "failed to get the signal"))?
+		let result = rows.next().map_err(db::sqlite::Error::from);
+		let Some(row) = crate::database::retry!(result, "failed to execute the statement") else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let result = row.get::<_, i64>(0).map_err(db::sqlite::Error::from);
+		let position = crate::database::retry!(result, "failed to get the position");
+		let result = row.get::<_, String>(1).map_err(db::sqlite::Error::from);
+		let signal = crate::database::retry!(result, "failed to get the signal")
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the signal"))?;
 		drop(rows);
@@ -68,12 +61,10 @@ impl Session {
 				where position = ?1;
 			"
 		);
-		transaction
+		let result = transaction
 			.execute(statement, sqlite::params![position])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		transaction
-			.commit()
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(Some(signal))
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(Some(signal)))
 	}
 }

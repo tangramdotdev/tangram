@@ -1,35 +1,46 @@
-use {crate::Session, indoc::indoc, tangram_client::prelude::*, tangram_database as db};
+use {
+	crate::Session,
+	indoc::indoc,
+	std::ops::ControlFlow,
+	tangram_client::prelude::*,
+	tangram_database::{self as db},
+};
 
 impl Session {
 	pub(crate) async fn increment_namespace_visibility_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
 		principal: &tg::Principal,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let principal = principal.to_string();
-		for namespace_id in namespace_visibility_ids_postgres(transaction, namespace).await? {
+		let namespace_ids = match namespace_visibility_ids_postgres(transaction, namespace).await? {
+			ControlFlow::Break(namespace_ids) => namespace_ids,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		for namespace_id in namespace_ids {
 			let statement = indoc!(
 				r"
 					insert into namespace_visibility (namespace, principal, count)
 					values ($1, $2, 1)
 					on conflict (namespace, principal)
-					do update set count = namespace_visibility.count + 1 ;
+					do update set count = namespace_visibility.count + 1;
 				"
 			);
-			transaction
+			let result = transaction
 				.inner()
 				.execute(statement, &[&namespace_id, &principal])
 				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::postgres::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn increment_namespace_visibility_for_user_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
 		user: &tg::user::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		Self::increment_namespace_visibility_postgres(
 			transaction,
 			namespace,
@@ -41,7 +52,7 @@ impl Session {
 	pub(crate) async fn increment_namespace_visibility_for_all_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		Self::increment_namespace_visibility_postgres(transaction, namespace, &tg::Principal::All)
 			.await
 	}
@@ -52,8 +63,12 @@ impl Session {
 		user: Option<&str>,
 		group: Option<&str>,
 		all: bool,
-	) -> tg::Result<()> {
-		for namespace_id in namespace_visibility_ids_postgres(transaction, namespace).await? {
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
+		let namespace_ids = match namespace_visibility_ids_postgres(transaction, namespace).await? {
+			ControlFlow::Break(namespace_ids) => namespace_ids,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		for namespace_id in namespace_ids {
 			let principal = if let Some(user) = user {
 				user
 			} else if let Some(group) = group {
@@ -63,14 +78,18 @@ impl Session {
 			} else {
 				continue;
 			};
-			decrement_namespace_visibility_for_principal_postgres(
+			match decrement_namespace_visibility_for_principal_postgres(
 				transaction,
 				namespace_id,
 				principal,
 			)
-			.await?;
+			.await?
+			{
+				ControlFlow::Break(()) => {},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn list_effective_namespace_permissions_for_user_postgres(
@@ -303,60 +322,65 @@ fn permissions_from_rows(rows: Vec<tokio_postgres::Row>) -> tg::Result<Vec<tg::P
 async fn namespace_visibility_ids_postgres(
 	transaction: &db::postgres::Transaction<'_>,
 	namespace: &tg::Namespace,
-) -> tg::Result<Vec<i64>> {
+) -> tg::Result<ControlFlow<Vec<i64>, db::postgres::Error>> {
 	let names = ancestor_names(namespace);
 	if names.is_empty() {
-		return Ok(Vec::new());
+		return Ok(ControlFlow::Break(Vec::new()));
 	}
 	let statement = indoc!(
 		"
 			select id
 			from namespaces
-			where name = any($1) ;
+			where name = any($1);
 		"
 	);
-	let rows = transaction
+	let result = transaction
 		.inner()
 		.query(statement, &[&names])
 		.await
-		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-	rows.into_iter()
+		.map_err(db::postgres::Error::from);
+	let rows = crate::database::retry!(result, "failed to execute the statement");
+	let ids = rows
+		.into_iter()
 		.map(|row| {
 			row.try_get(0)
 				.map_err(|error| tg::error!(!error, "failed to get the id column"))
 		})
-		.collect()
+		.collect::<tg::Result<Vec<_>>>()?;
+	Ok(ControlFlow::Break(ids))
 }
 
 async fn decrement_namespace_visibility_for_principal_postgres(
 	transaction: &db::postgres::Transaction<'_>,
 	namespace_id: i64,
 	principal: &str,
-) -> tg::Result<()> {
+) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 	let statement = indoc!(
 		r"
 			delete from namespace_visibility
-			where namespace = $1 and principal = $2 and count = 1 ;
+			where namespace = $1 and principal = $2 and count = 1;
 		"
 	);
-	let deleted = transaction
+	let result = transaction
 		.inner()
 		.execute(statement, &[&namespace_id, &principal])
 		.await
-		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		.map_err(db::postgres::Error::from);
+	let deleted = crate::database::retry!(result, "failed to execute the statement");
 	if deleted == 0 {
 		let statement = indoc!(
 			r"
 				update namespace_visibility
 				set count = count - 1
-				where namespace = $1 and principal = $2 and count > 1 ;
+				where namespace = $1 and principal = $2 and count > 1;
 			"
 		);
-		transaction
+		let result = transaction
 			.inner()
 			.execute(statement, &[&namespace_id, &principal])
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::postgres::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
 	}
-	Ok(())
+	Ok(ControlFlow::Break(()))
 }

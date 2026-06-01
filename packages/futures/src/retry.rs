@@ -50,6 +50,7 @@ pub fn stream(options: Options) -> impl Stream<Item = ()> {
 	)
 }
 
+#[must_use]
 fn delay_for_attempt(attempt: u64, options: &Options) -> Duration {
 	let jitter = Duration::from_millis(rand::random_range(
 		0..=options.jitter.as_millis().to_u64().unwrap(),
@@ -58,6 +59,12 @@ fn delay_for_attempt(attempt: u64, options: &Options) -> Duration {
 		.checked_shl(attempt.min(31).to_u32().unwrap())
 		.unwrap_or(u32::MAX);
 	(options.backoff * multiplier + jitter).min(options.max_delay)
+}
+
+impl Options {
+	pub async fn sleep_for_attempt(&self, attempt: u64) {
+		tokio::time::sleep(delay_for_attempt(attempt, self)).await;
+	}
 }
 
 impl Default for Options {

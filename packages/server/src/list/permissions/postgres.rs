@@ -3,7 +3,7 @@ use {
 	indoc::indoc,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db},
 };
 
 impl Session {

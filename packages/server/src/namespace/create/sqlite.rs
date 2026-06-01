@@ -1,15 +1,19 @@
 use {
-	crate::Session, indoc::indoc, rusqlite as sqlite, std::collections::HashMap,
+	crate::Session,
+	indoc::indoc,
+	rusqlite as sqlite,
+	std::{collections::HashMap, ops::ControlFlow},
 	tangram_client::prelude::*,
+	tangram_database::{self as db},
 };
 
 impl Session {
 	pub(crate) fn get_or_create_namespace_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		namespace: &tg::Namespace,
-	) -> tg::Result<i64> {
+	) -> tg::Result<ControlFlow<i64, db::sqlite::Error>> {
 		if namespace.is_root() {
-			return Ok(0);
+			return Ok(ControlFlow::Break(0));
 		}
 
 		let mut components = Vec::new();
@@ -58,20 +62,22 @@ impl Session {
 				"
 					insert into namespaces (parent, component, name)
 					values (?1, ?2, ?3)
-					on conflict (name) do nothing ;
+					on conflict (name) do nothing;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(statement, sqlite::params![parent, component, name])
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			parent = transaction
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
+			let result = transaction
 				.query_row(
 					"select id from namespaces where name = ?1;",
 					sqlite::params![name],
 					|row| row.get(0),
 				)
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			parent = crate::database::retry!(result, "failed to execute the statement");
 		}
-		Ok(parent)
+		Ok(ControlFlow::Break(parent))
 	}
 }

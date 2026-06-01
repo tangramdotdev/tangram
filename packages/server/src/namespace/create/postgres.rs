@@ -1,15 +1,18 @@
 use {
-	crate::Session, indoc::indoc, std::collections::HashMap, tangram_client::prelude::*,
-	tangram_database as db,
+	crate::Session,
+	indoc::indoc,
+	std::{collections::HashMap, ops::ControlFlow},
+	tangram_client::prelude::*,
+	tangram_database::{self as db},
 };
 
 impl Session {
 	pub(crate) async fn get_or_create_namespace_postgres(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
-	) -> tg::Result<i64> {
+	) -> tg::Result<ControlFlow<i64, db::postgres::Error>> {
 		if namespace.is_root() {
-			return Ok(0);
+			return Ok(ControlFlow::Break(0));
 		}
 
 		let mut components = Vec::new();
@@ -25,11 +28,12 @@ impl Session {
 		}
 
 		let statement = "select id, name from namespaces where name = any($1);";
-		let rows = transaction
+		let result = transaction
 			.inner()
 			.query(statement, &[&names])
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::postgres::Error::from);
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let mut existing = HashMap::<String, i64>::new();
 		for row in rows {
 			let id = row
@@ -53,14 +57,15 @@ impl Session {
 					values ($1, $2, $3)
 					on conflict (name) do update
 					set name = excluded.name
-					returning id ;
+					returning id;
 				"
 			);
-			let rows = transaction
+			let result = transaction
 				.inner()
 				.query(statement, &[&parent, component, name])
 				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::postgres::Error::from);
+			let rows = crate::database::retry!(result, "failed to execute the statement");
 			parent = rows
 				.first()
 				.ok_or_else(|| tg::error!("expected a row"))?
@@ -68,6 +73,6 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to get the id column"))?;
 		}
 
-		Ok(parent)
+		Ok(ControlFlow::Break(parent))
 	}
 }

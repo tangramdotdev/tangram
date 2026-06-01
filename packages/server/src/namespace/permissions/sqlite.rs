@@ -1,6 +1,10 @@
 use {
-	crate::Session, indoc::indoc, rusqlite as sqlite, std::collections::BTreeSet,
-	tangram_client::prelude::*, tangram_database as db,
+	crate::Session,
+	indoc::indoc,
+	rusqlite as sqlite,
+	std::{collections::BTreeSet, ops::ControlFlow},
+	tangram_client::prelude::*,
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -95,7 +99,7 @@ impl Session {
 								where group_members."group" = namespace_grants.principal
 									and group_members."user" = ?2
 							)
-						) ;
+						);
 				"#
 			);
 			let rows = permissions_sqlite_sync(
@@ -140,7 +144,7 @@ impl Session {
 							where group_members."group" = tag_grants.principal
 								and group_members."user" = ?3
 						)
-					) ;
+					);
 			"#
 		);
 		let user = user.to_string();
@@ -179,7 +183,7 @@ impl Session {
 							where group_members."group" = tag_grants.principal
 								and group_members."user" = ?3
 						)
-					) ;
+					);
 			"#
 		);
 		let rows = permissions_sqlite_sync(
@@ -199,7 +203,7 @@ impl Session {
 				r"
 					select 1
 					from namespace_grants
-					where namespace = ?1 and principal = 'all' and permission = 'read' ;
+					where namespace = ?1 and principal = 'all' and permission = 'read';
 				"
 			);
 			let mut statement = transaction
@@ -238,7 +242,7 @@ impl Session {
 			r"
 				select 1
 				from tag_grants
-				where namespace = ?1 and name = ?2 and principal = 'all' and permission = 'read' ;
+				where namespace = ?1 and name = ?2 and principal = 'all' and permission = 'read';
 			"
 		);
 		let mut statement = transaction
@@ -278,7 +282,7 @@ impl Session {
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 		principal: &tg::Principal,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		let principal = principal.to_string();
 		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
 			.into_iter()
@@ -289,21 +293,22 @@ impl Session {
 					insert into namespace_visibility (namespace, principal, count)
 					values (?1, ?2, 1)
 					on conflict (namespace, principal)
-					do update set count = namespace_visibility.count + 1 ;
+					do update set count = namespace_visibility.count + 1;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(statement, sqlite::params![namespace_id, principal.clone()])
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) fn increment_namespace_visibility_for_user_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 		user: &tg::user::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		Self::increment_namespace_visibility_sqlite_sync(
 			transaction,
 			namespace,
@@ -314,7 +319,7 @@ impl Session {
 	pub(crate) fn increment_namespace_visibility_for_all_sqlite_sync(
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		Self::increment_namespace_visibility_sqlite_sync(
 			transaction,
 			namespace,
@@ -328,7 +333,7 @@ impl Session {
 		user: Option<&str>,
 		group: Option<&str>,
 		all: bool,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
 			.into_iter()
 			.filter(|id| *id != 0)
@@ -344,22 +349,24 @@ impl Session {
 			};
 			let params: Vec<sqlite::types::Value> =
 				vec![namespace_id.into(), principal.to_owned().into()];
-			let deleted = transaction
+			let result = transaction
 				.execute(
-					"delete from namespace_visibility where namespace = ?1 and principal = ?2 and count = 1 ;",
+					"delete from namespace_visibility where namespace = ?1 and principal = ?2 and count = 1;",
 					sqlite::params_from_iter(params.iter()),
 				)
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			let deleted = crate::database::retry!(result, "failed to execute the statement");
 			if deleted == 0 {
-				transaction
+				let result = transaction
 					.execute(
-						"update namespace_visibility set count = count - 1 where namespace = ?1 and principal = ?2 and count > 1 ;",
+						"update namespace_visibility set count = count - 1 where namespace = ?1 and principal = ?2 and count > 1;",
 						sqlite::params_from_iter(params.iter()),
 					)
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.map_err(db::sqlite::Error::from);
+				crate::database::retry!(result, "failed to execute the statement");
 			}
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) fn get_namespace_ancestor_ids_sqlite_sync(
@@ -384,7 +391,7 @@ impl Session {
 			"
 				select id
 				from namespaces
-				where name in ({placeholders}) ;
+				where name in ({placeholders});
 			",
 		);
 		let mut statement = transaction
@@ -416,7 +423,7 @@ impl Session {
 			"
 				select id
 				from namespaces
-				where name = ?1 ;
+				where name = ?1;
 			"
 		);
 		let mut statement = transaction

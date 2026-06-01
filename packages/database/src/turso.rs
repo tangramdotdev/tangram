@@ -3,12 +3,27 @@ use {
 	bytes::Bytes,
 	futures::{Stream, stream},
 	indexmap::IndexMap,
-	std::{borrow::Cow, collections::HashMap, path::PathBuf, time::Duration},
+	std::{
+		borrow::Cow, collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc,
+		time::Duration,
+	},
 	tangram_pool::{self as pool, Pool},
 };
 
+use {crate::Query, futures::TryStreamExt as _};
+
+pub use crate::run;
+
 pub mod row;
 pub mod value;
+
+pub type Initialize = Arc<
+	dyn for<'a> Fn(
+			&'a turso::Connection,
+		) -> Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>
+		+ Send
+		+ Sync,
+>;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
@@ -17,9 +32,11 @@ pub enum Error {
 }
 
 pub struct DatabaseOptions {
+	pub initialize: Initialize,
 	pub max: usize,
 	pub min: usize,
 	pub path: PathBuf,
+	pub retry: tangram_futures::retry::Options,
 	pub ttl: Option<Duration>,
 }
 
@@ -32,6 +49,7 @@ pub struct Database {
 	#[expect(dead_code)]
 	db: turso::Database,
 	pool: Pool<Connection, Error>,
+	retry: tangram_futures::retry::Options,
 }
 
 pub struct Connection {
@@ -47,14 +65,14 @@ pub struct Transaction<'a> {
 impl Cache {
 	pub async fn get(
 		&self,
-		connection: &turso::Connection,
+		transaction: &turso::transaction::Transaction<'_>,
 		statement: Cow<'static, str>,
 	) -> Result<turso::Statement, Error> {
 		let key = CacheKey::new(statement);
 		if let Some(statement) = self.statements.lock().await.get(&key) {
 			return Ok(statement.clone());
 		}
-		let statement = connection.prepare(key.as_str()).await?;
+		let statement = transaction.prepare(key.as_str()).await?;
 		self.statements.lock().await.insert(key, statement.clone());
 		Ok(statement)
 	}
@@ -67,11 +85,14 @@ impl Database {
 			.to_str()
 			.ok_or_else(|| Error::Other("the path is not valid UTF-8".into()))?;
 		let db = turso::Builder::new_local(path).build().await?;
+		let initialize = options.initialize.clone();
 		let create = {
 			let db = db.clone();
+			let initialize = initialize.clone();
 			move || {
 				let db = db.clone();
-				async move { Connection::connect(&db) }
+				let initialize = initialize.clone();
+				async move { Connection::connect(&db, &initialize).await }
 			}
 		};
 		let pool = Pool::new(
@@ -84,10 +105,14 @@ impl Database {
 			create,
 		);
 		for _ in 0..options.min {
-			let connection = Connection::connect(&db)?;
+			let connection = Connection::connect(&db, &options.initialize).await?;
 			pool.add(connection);
 		}
-		let database = Self { db, pool };
+		let database = Self {
+			db,
+			pool,
+			retry: options.retry,
+		};
 		Ok(database)
 	}
 
@@ -95,15 +120,15 @@ impl Database {
 	pub fn pool(&self) -> &Pool<Connection, Error> {
 		&self.pool
 	}
-
-	pub async fn sync(&self) -> Result<(), Error> {
-		Ok(())
-	}
 }
 
 impl Connection {
-	pub fn connect(database: &turso::Database) -> Result<Self, Error> {
+	pub async fn connect(
+		database: &turso::Database,
+		initialize: &Initialize,
+	) -> Result<Self, Error> {
 		let connection = database.connect()?;
+		initialize(&connection).await?;
 		let cache = Cache::default();
 		Ok(Self { connection, cache })
 	}
@@ -138,6 +163,10 @@ impl super::Database for Database {
 
 	type Connection = pool::ExclusiveGuard<Connection, Error>;
 
+	fn retry(&self) -> tangram_futures::retry::Options {
+		self.retry.clone()
+	}
+
 	async fn connection_with_options(
 		&self,
 		options: super::ConnectionOptions,
@@ -147,7 +176,16 @@ impl super::Database for Database {
 	}
 
 	async fn sync(&self) -> Result<(), Self::Error> {
-		self.sync().await
+		let connection = self
+			.pool
+			.get_exclusive(tangram_pool::Priority::default())
+			.await?;
+		connection
+			.query("pragma wal_checkpoint(full)".into(), vec![])
+			.await?
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(())
 	}
 }
 
@@ -205,7 +243,14 @@ impl super::Query for Connection {
 		statement: Cow<'static, str>,
 		params: Vec<super::Value>,
 	) -> Result<u64, Self::Error> {
-		execute(&self.connection, &self.cache, statement, params).await
+		let transaction = turso::transaction::Transaction::new_unchecked(
+			&self.connection,
+			turso::transaction::TransactionBehavior::Deferred,
+		)
+		.await?;
+		let n = execute(&transaction, &self.cache, statement, params).await?;
+		transaction.commit().await?;
+		Ok(n)
 	}
 
 	async fn query(
@@ -213,7 +258,13 @@ impl super::Query for Connection {
 		statement: Cow<'static, str>,
 		params: Vec<super::Value>,
 	) -> Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error> {
-		query(&self.connection, &self.cache, statement, params).await
+		let transaction = turso::transaction::Transaction::new_unchecked(
+			&self.connection,
+			turso::transaction::TransactionBehavior::Deferred,
+		)
+		.await?;
+		let rows = query_rows(&transaction, &self.cache, statement, params).await?;
+		Ok(stream::iter(rows.into_iter().map(Ok)))
 	}
 }
 
@@ -263,16 +314,28 @@ impl super::Query for Transaction<'_> {
 		statement: Cow<'static, str>,
 		params: Vec<super::Value>,
 	) -> Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error> {
-		query(&self.transaction, self.cache, statement, params).await
+		let rows = query_rows(&self.transaction, self.cache, statement, params).await?;
+		Ok(stream::iter(rows.into_iter().map(Ok)))
 	}
 }
 
 impl super::Error for Error {
 	fn is_retry(&self) -> bool {
-		matches!(
-			self,
-			Error::Turso(turso::Error::Busy(_) | turso::Error::BusySnapshot(_))
-		)
+		match self {
+			Self::Turso(error) => {
+				matches!(error, turso::Error::Busy(_) | turso::Error::BusySnapshot(_))
+			},
+			Self::Other(error) => {
+				let mut current = Some(error.as_ref() as &dyn std::error::Error);
+				while let Some(error) = current {
+					if let Some(error) = error.downcast_ref::<Self>() {
+						return error.is_retry();
+					}
+					current = error.source();
+				}
+				false
+			},
+		}
 	}
 
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
@@ -281,25 +344,25 @@ impl super::Error for Error {
 }
 
 async fn execute(
-	connection: &turso::Connection,
+	transaction: &turso::transaction::Transaction<'_>,
 	cache: &Cache,
 	statement: Cow<'static, str>,
 	params: Vec<super::Value>,
 ) -> Result<u64, Error> {
 	let params: Vec<turso::Value> = params.into_iter().map(into_turso_value).collect();
-	let mut statement = cache.get(connection, statement).await?;
+	let mut statement = cache.get(transaction, statement).await?;
 	let n = statement.execute(params).await?;
 	Ok(n)
 }
 
-async fn query(
-	connection: &turso::Connection,
+async fn query_rows(
+	transaction: &turso::transaction::Transaction<'_>,
 	cache: &Cache,
 	statement: Cow<'static, str>,
 	params: Vec<super::Value>,
-) -> Result<impl Stream<Item = Result<super::Row, Error>> + Send, Error> {
+) -> Result<Vec<super::Row>, Error> {
 	let params: Vec<turso::Value> = params.into_iter().map(into_turso_value).collect();
-	let mut statement = cache.get(connection, statement).await?;
+	let mut statement = cache.get(transaction, statement).await?;
 	let column_names = statement.column_names();
 	let mut rows = statement.query(params).await?;
 	let mut results = Vec::new();
@@ -311,7 +374,7 @@ async fn query(
 		}
 		results.push(super::Row::with_entries(entries));
 	}
-	Ok(stream::iter(results.into_iter().map(Ok)))
+	Ok(results)
 }
 
 fn into_turso_value(value: super::Value) -> turso::Value {

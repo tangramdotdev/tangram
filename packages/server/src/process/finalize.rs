@@ -2,7 +2,7 @@ use {
 	crate::{Server, database::Database},
 	futures::{StreamExt as _, stream},
 	indoc::{formatdoc, indoc},
-	std::{collections::BTreeSet, pin::pin, time::Duration},
+	std::{collections::BTreeSet, ops::ControlFlow, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stopper},
@@ -15,6 +15,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Entry {
@@ -86,6 +88,11 @@ impl Server {
 				self.try_finalizer_dequeue_batch_sqlite(process_store, batch_size)
 					.await
 			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.try_finalizer_dequeue_batch_turso(process_store, batch_size)
+					.await
+			},
 		}
 	}
 
@@ -119,15 +126,16 @@ impl Server {
 	}
 
 	async fn complete_process_finalize_entry(&self, entry: &Entry) -> tg::Result<()> {
-		let mut connection = self
-			.process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to acquire a transaction"))?;
+		crate::database::run!(&self.process_store, |transaction| {
+			Self::complete_process_finalize_entry_with_transaction(transaction, entry).await
+		})
+		.map_err(|error| tg::error!(!error, "failed to complete the process finalize entry"))
+	}
+
+	async fn complete_process_finalize_entry_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		entry: &Entry,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -140,12 +148,10 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![now, "finished", entry.position];
-		let n = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n == 0 {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 		let statement = formatdoc!(
 			"
@@ -154,10 +160,8 @@ impl Server {
 			"
 		);
 		let params = db::params![entry.process.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
 		let statement = formatdoc!(
 			"
 				delete from process_finalize_queue
@@ -165,20 +169,14 @@ impl Server {
 			"
 		);
 		let params = db::params![entry.position];
-		let n = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n != 1 {
 			return Err(tg::error!(
 				"failed to delete the process finalize queue entry"
 			));
 		}
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn try_get_process_finalize_queue_max_position(

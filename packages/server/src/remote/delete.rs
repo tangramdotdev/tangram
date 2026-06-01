@@ -1,6 +1,7 @@
 use {
 	crate::{Session, context::Authentication},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -32,28 +33,25 @@ impl Session {
 			},
 		};
 
-		let connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				delete from remotes
-				where name = {p}1 and (
-					("user" is null and {p}2 is null) or
-					"user" = {p}2
-				);
-			"#,
-		);
+		let name = name.to_owned();
 		let user = user.map(ToString::to_string);
-		let params = db::params![&name, user];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let n = crate::database::run!(&self.server.database, |transaction| {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				r#"
+					delete from remotes
+					where name = {p}1 and (
+						("user" is null and {p}2 is null) or
+						"user" = {p}2
+					);
+				"#,
+			);
+			let params = db::params![name.clone(), user.clone()];
+			let result = transaction.execute(statement.into(), params).await;
+			let n = crate::database::retry!(result, "failed to execute the statement");
+			Ok(ControlFlow::Break(n))
+		})
+		.map_err(|error| tg::error!(!error, "failed to delete the remote"))?;
 
 		if n == 0 {
 			return Ok(None);

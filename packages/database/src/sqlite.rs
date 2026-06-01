@@ -13,19 +13,66 @@ use {
 pub mod row;
 pub mod value;
 
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __tangram_database_sqlite_run {
+	($database:expr, [$($name:ident = $value:expr),* $(,)?], |$transaction:ident, $cache:ident| $body:expr $(,)?) => {{
+		use $crate::prelude::*;
+
+		let options = $database.retry();
+		tangram_futures::retry::retry(&options, || async {
+			$(let $name = $value;)*
+			let connection = $database.write_connection().await?;
+			connection
+				.with(move |connection, cache| {
+					let transaction = connection.transaction()?;
+					let value = match {
+						let $transaction = &transaction;
+						let $cache = cache;
+						$body
+					} {
+						Ok(::std::ops::ControlFlow::Break(value)) => value,
+						Ok(::std::ops::ControlFlow::Continue(error)) => {
+							return Ok(::std::ops::ControlFlow::Continue(error));
+						},
+						Err(error) => return Err($crate::Error::other(error)),
+					};
+					if let Err(error) = transaction.commit() {
+						let error = error.into();
+						if $crate::Error::is_retry(&error) {
+							return Ok(::std::ops::ControlFlow::Continue(error));
+						}
+						return Err(error);
+					}
+					Ok(::std::ops::ControlFlow::Break(value))
+				})
+				.await
+		})
+		.await
+	}};
+	($database:expr, |$transaction:ident, $cache:ident| $body:expr $(,)?) => {{
+		$crate::__tangram_database_sqlite_run!($database, [], |$transaction, $cache| $body)
+	}};
+}
+
+pub use crate::__tangram_database_sqlite_run as run;
+
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
 	Sqlite(sqlite::Error),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-type Initialize = Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
+type Initialize = Arc<
+	dyn Fn(&sqlite::Connection, &ConnectionOptions) -> sqlite::Result<()> + Send + Sync + 'static,
+>;
 
 pub struct DatabaseOptions {
 	pub initialize: Initialize,
 	pub max: usize,
 	pub min: usize,
 	pub path: PathBuf,
+	pub retry: tangram_futures::retry::Options,
 	pub ttl: Option<Duration>,
 }
 
@@ -232,7 +279,7 @@ impl Connection {
 	pub async fn connect(options: ConnectionOptions) -> Result<Self, Error> {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let connection = sqlite::Connection::open_with_flags(&options.path, options.flags)?;
-		(options.initialize)(&connection)?;
+		(options.initialize)(&connection, &options)?;
 		std::thread::spawn(|| Self::run(connection, receiver));
 		let connection = Self { options, sender };
 		Ok(connection)
@@ -342,7 +389,24 @@ impl Transaction<'_> {
 
 impl super::Error for Error {
 	fn is_retry(&self) -> bool {
-		false
+		match self {
+			Self::Sqlite(error) => {
+				matches!(
+					error.sqlite_error_code(),
+					Some(sqlite::ErrorCode::DatabaseBusy | sqlite::ErrorCode::DatabaseLocked)
+				)
+			},
+			Self::Other(error) => {
+				let mut current = Some(error.as_ref() as &dyn std::error::Error);
+				while let Some(error) = current {
+					if let Some(error) = error.downcast_ref::<Self>() {
+						return error.is_retry();
+					}
+					current = error.source();
+				}
+				false
+			},
+		}
 	}
 
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
@@ -354,6 +418,10 @@ impl super::Database for Database {
 	type Error = Error;
 
 	type Connection = pool::ExclusiveGuard<Connection, Error>;
+
+	fn retry(&self) -> tangram_futures::retry::Options {
+		self.options.retry.clone()
+	}
 
 	async fn connection_with_options(
 		&self,
@@ -844,30 +912,32 @@ impl Cache {
 		statement: Cow<'static, str>,
 	) -> Result<CachedStatement<'a>, Error> {
 		let key = CacheKey::new(statement);
-		let stmt = {
+		let statement = {
 			let mut guard = self.statements.lock().unwrap();
-			if let Some(stmt) = guard.remove(&key) {
-				stmt
+			if let Some(statement) = guard.remove(&key) {
+				statement
 			} else {
-				let stmt = connection.prepare(key.as_str())?;
+				let statement = connection.prepare(key.as_str())?;
 				unsafe {
-					std::mem::transmute::<sqlite::Statement<'_>, sqlite::Statement<'static>>(stmt)
+					std::mem::transmute::<sqlite::Statement<'_>, sqlite::Statement<'static>>(
+						statement,
+					)
 				}
 			}
 		};
 		Ok(CachedStatement {
 			cache: self,
 			key,
-			statement: Some(stmt),
+			statement: Some(statement),
 		})
 	}
 }
 
 impl Drop for CachedStatement<'_> {
 	fn drop(&mut self) {
-		if let Some(stmt) = self.statement.take() {
+		if let Some(statement) = self.statement.take() {
 			let mut guard = self.cache.statements.lock().unwrap();
-			guard.insert(self.key.clone(), stmt);
+			guard.insert(self.key.clone(), statement);
 		}
 	}
 }

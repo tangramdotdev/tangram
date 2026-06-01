@@ -1,7 +1,7 @@
 use {
 	crate::{Session, context::Authentication},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -42,48 +42,47 @@ impl Session {
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
 
-		let mut connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		self.authorize_tag_with_transaction(&transaction, &arg.tag, tg::Permission::Admin)
-			.await?;
-		let namespace_id = Self::try_get_tag_namespace_id_with_transaction(&transaction, &arg.tag)
+		crate::database::run!(&self.server.database, |transaction| {
+			self.authorize_tag_with_transaction(transaction, &arg.tag, tg::Permission::Admin)
+				.await?;
+			let namespace_id =
+				Self::try_get_tag_namespace_id_with_transaction(transaction, &arg.tag)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the tag"))?;
+			match &arg.principal {
+				tg::Principal::All | tg::Principal::Root => {},
+				tg::Principal::User(user) => {
+					Self::try_get_user_with_transaction(transaction, &user.to_string())
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the user"))?;
+				},
+				tg::Principal::Group(group) => {
+					Self::try_get_group_with_transaction(transaction, &group.to_string())
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the group"))?;
+				},
+			}
+			match Self::create_tag_grant_with_transaction(
+				transaction,
+				&arg.tag,
+				namespace_id,
+				&arg.principal,
+				arg.permission,
+				created_by.as_ref(),
+			)
 			.await?
-			.ok_or_else(|| tg::error!("failed to find the tag"))?;
-		match &arg.principal {
-			tg::Principal::All | tg::Principal::Root => {},
-			tg::Principal::User(user) => {
-				Self::try_get_user_with_transaction(&transaction, &user.to_string())
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the user"))?;
-			},
-			tg::Principal::Group(group) => {
-				Self::try_get_group_with_transaction(&transaction, &group.to_string())
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the group"))?;
-			},
-		}
-		let grant = Self::create_tag_grant_with_transaction(
-			&transaction,
-			&arg.tag,
-			namespace_id,
-			&arg.principal,
-			arg.permission,
-			created_by.as_ref(),
-		)
-		.await?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(grant)
+			{
+				ControlFlow::Break(grant) => Ok::<
+					ControlFlow<tg::TagGrant, crate::database::Error>,
+					tg::Error,
+				>(ControlFlow::Break(grant)),
+				ControlFlow::Continue(error) => Ok::<
+					ControlFlow<tg::TagGrant, crate::database::Error>,
+					tg::Error,
+				>(ControlFlow::Continue(error)),
+			}
+		})
+		.map_err(|error| tg::error!(!error, "failed to create the tag grant"))
 	}
 
 	async fn create_tag_grant_remote(

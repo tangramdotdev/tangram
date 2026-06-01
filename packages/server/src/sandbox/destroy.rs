@@ -1,8 +1,8 @@
 use {
 	crate::{Session, context::Authentication, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -14,6 +14,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Condition {
@@ -97,97 +99,118 @@ impl Session {
 			return Ok(None);
 		}
 
-		// Get a process store connection.
-		let mut connection = self
-			.server
-			.process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to acquire a transaction"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let arg = InnerArg { condition, now };
+		let output = crate::database::run!(&self.server.process_store, |transaction| {
+			let arg = InnerArg { condition, now };
 
-		let InnerOutput {
-			destroyed,
-			unfinished_processes,
-		} = self
-			.try_destroy_sandbox_inner(&transaction, id, arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to destroy the sandbox"))?;
-		if !destroyed {
+			let InnerOutput {
+				destroyed,
+				unfinished_processes,
+			} = match self.try_destroy_sandbox_inner(transaction, id, arg).await? {
+				ControlFlow::Break(output) => output,
+				ControlFlow::Continue(error) => {
+					return Ok::<
+						ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>,
+						tg::Error,
+					>(ControlFlow::Continue(error));
+				},
+			};
+			if !destroyed {
+				return Ok::<
+					ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>,
+					tg::Error,
+				>(ControlFlow::Break((Some(false), Vec::new())));
+			}
+
+			// Finish the unfinished processes.
+			let mut finished_processes = Vec::new();
+			if !unfinished_processes.is_empty() {
+				let error = error.clone().unwrap_or_else(|| {
+					tg::Either::Left(tg::error::Data {
+						code: Some(tg::error::Code::Cancellation),
+						message: Some("the process was canceled".into()),
+						..Default::default()
+					})
+				});
+				let error_code = match error.as_ref() {
+					tg::Either::Left(data) => data.code,
+					tg::Either::Right(_) => None,
+				};
+				let error = self.store_process_error(error).await;
+				for process in unfinished_processes {
+					let arg = crate::process::finish::InnerArg {
+						checksum: None,
+						condition: None,
+						error: Some(error.clone()),
+						error_code,
+						exit: 1,
+						now,
+						output: None,
+					};
+					let finished = self
+						.try_finish_process_inner(transaction, &process, arg)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
+					let finished = match finished {
+						ControlFlow::Break(finished) => finished,
+						ControlFlow::Continue(error) => {
+							return Ok::<
+								ControlFlow<
+									(Option<bool>, Vec<tg::process::Id>),
+									crate::database::Error,
+								>,
+								tg::Error,
+							>(ControlFlow::Continue(error));
+						},
+					};
+					if finished {
+						finished_processes.push(process);
+					}
+				}
+			}
+
+			match self
+				.server
+				.delete_sandbox_tokens_with_transaction(transaction, id)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?
+			{
+				ControlFlow::Break(()) => {},
+				ControlFlow::Continue(error) => {
+					return Ok::<
+						ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>,
+						tg::Error,
+					>(ControlFlow::Continue(error));
+				},
+			}
+			match self
+				.server
+				.delete_sandbox_process_tokens_with_transaction(transaction, id)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to delete the process tokens"))?
+			{
+				ControlFlow::Break(()) => {},
+				ControlFlow::Continue(error) => {
+					return Ok::<
+						ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>,
+						tg::Error,
+					>(ControlFlow::Continue(error));
+				},
+			}
+
+			Ok::<ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>, tg::Error>(
+				ControlFlow::Break((Some(true), finished_processes)),
+			)
+		})
+		.map_err(|error| tg::error!(!error, "failed to destroy the sandbox"))?;
+
+		let (output, finished_processes) = output;
+		let Some(output) = output else {
+			return Ok(None);
+		};
+		if !output {
 			return Ok(Some(false));
 		}
-
-		// Finish the unfinished processes.
-		let mut finished_processes = Vec::new();
-		if !unfinished_processes.is_empty() {
-			let error = error.unwrap_or_else(|| {
-				tg::Either::Left(tg::error::Data {
-					code: Some(tg::error::Code::Cancellation),
-					message: Some("the process was canceled".into()),
-					..Default::default()
-				})
-			});
-			let error_code = match error.as_ref() {
-				tg::Either::Left(data) => data.code,
-				tg::Either::Right(_) => None,
-			};
-			let error = self.store_process_error(error).await;
-			let results = unfinished_processes
-				.into_iter()
-				.map(|process| {
-					let error = error.clone();
-					let transaction = &transaction;
-					async move {
-						let arg = crate::process::finish::InnerArg {
-							checksum: None,
-							condition: None,
-							error: Some(error),
-							error_code,
-							exit: 1,
-							now,
-							output: None,
-						};
-						let finished = self
-							.try_finish_process_inner(transaction, &process, arg)
-							.await
-							.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
-						Ok::<_, tg::Error>(finished.then_some(process))
-					}
-				})
-				.collect::<FuturesUnordered<_>>()
-				.collect::<Vec<_>>()
-				.await;
-			for process in results {
-				let Some(process) = process? else {
-					continue;
-				};
-				finished_processes.push(process);
-			}
-		}
-
-		self.server
-			.delete_sandbox_tokens_with_transaction(&transaction, id)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?;
-		self.server
-			.delete_sandbox_process_tokens_with_transaction(&transaction, id)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the process tokens"))?;
-
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		drop(connection);
 
 		// Spawn a task to publish the status message.
 		self.server.spawn_publish_sandbox_status_task(id);
@@ -207,17 +230,43 @@ impl Session {
 		transaction: &Transaction<'_>,
 		id: &tg::sandbox::Id,
 		arg: InnerArg,
-	) -> tg::Result<InnerOutput> {
+	) -> tg::Result<ControlFlow<InnerOutput, crate::database::Error>> {
 		match transaction {
 			#[cfg(feature = "postgres")]
 			Transaction::Postgres(transaction) => {
-				self.try_destroy_sandbox_inner_postgres(transaction, id, arg)
-					.await
+				match self
+					.try_destroy_sandbox_inner_postgres(transaction, id, arg)
+					.await?
+				{
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(error) => Ok(ControlFlow::Continue(
+						crate::database::Error::Postgres(error),
+					)),
+				}
 			},
 			#[cfg(feature = "sqlite")]
 			Transaction::Sqlite(transaction) => {
-				self.try_destroy_sandbox_inner_sqlite(transaction, id, arg)
-					.await
+				match self
+					.try_destroy_sandbox_inner_sqlite(transaction, id, arg)
+					.await?
+				{
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(error) => {
+						Ok(ControlFlow::Continue(crate::database::Error::Sqlite(error)))
+					},
+				}
+			},
+			#[cfg(feature = "turso")]
+			Transaction::Turso(transaction) => {
+				match self
+					.try_destroy_sandbox_inner_turso(transaction, id, arg)
+					.await?
+				{
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(error) => {
+						Ok(ControlFlow::Continue(crate::database::Error::Turso(error)))
+					},
+				}
 			},
 		}
 	}

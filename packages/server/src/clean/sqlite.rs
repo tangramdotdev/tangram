@@ -2,8 +2,9 @@ use {
 	crate::Server,
 	indoc::indoc,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, Database as _},
+	tangram_database::{self as db},
 };
 
 impl Server {
@@ -21,116 +22,117 @@ impl Server {
 			.iter()
 			.map(ToString::to_string)
 			.collect::<Vec<_>>();
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		connection
-			.with(move |connection, _cache| {
-				Self::clean_processes_sqlite_sync(connection, &processes, max_stored_at)
-			})
-			.await
-	}
-
-	fn clean_processes_sqlite_sync(
-		connection: &mut sqlite::Connection,
-		processes: &[String],
-		max_stored_at: i64,
-	) -> tg::Result<()> {
 		for process in processes {
-			let transaction = connection
-				.transaction()
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-
-			let statement = indoc!(
-				"
-					delete from processes
-					where id = ?1 and stored_at <= ?2;
-				"
-			);
-			let n = transaction
-				.execute(statement, sqlite::params![process, max_stored_at])
-				.map_err(|error| tg::error!(!error, "failed to delete the process"))?;
-			if n == 0 {
-				continue;
-			}
-
-			let statement = indoc!(
-				"
-					delete from process_grants
-					where process = ?1;
-				"
-			);
-			transaction
-				.execute(statement, sqlite::params![process])
-				.map_err(|error| tg::error!(!error, "failed to delete process_grants"))?;
-
-			let statement = indoc!(
-				"
-					delete from process_tokens
-					where process = ?1;
-				"
-			);
-			transaction
-				.execute(statement, sqlite::params![process])
-				.map_err(|error| tg::error!(!error, "failed to delete process_tokens"))?;
-
-			let statement = indoc!(
-				"
-					delete from process_children
-					where process = ?1;
-				"
-			);
-			transaction
-				.execute(statement, sqlite::params![process])
-				.map_err(|error| tg::error!(!error, "failed to delete process_children"))?;
-
-			let statement = indoc!(
-				"
-					delete from process_leases
-					where process = ?1;
-				"
-			);
-			transaction
-				.execute(statement, sqlite::params![process])
-				.map_err(|error| tg::error!(!error, "failed to delete process_leases"))?;
-
-			let statement = indoc!(
-				"
-					delete from process_finalize_queue
-					where process = ?1;
-				"
-			);
-			transaction
-				.execute(statement, sqlite::params![process])
-				.map_err(|error| tg::error!(!error, "failed to delete process_finalize_queue"))?;
-
-			let statement = indoc!(
-				"
-					delete from process_signals
-					where process = ?1;
-				"
-			);
-			transaction
-				.execute(statement, sqlite::params![process])
-				.map_err(|error| tg::error!(!error, "failed to delete process_signals"))?;
-
-			let statement = indoc!(
-				"
-					delete from process_stdio
-					where process = ?1;
-				"
-			);
-			transaction
-				.execute(statement, sqlite::params![process])
-				.map_err(|error| tg::error!(!error, "failed to delete process_stdio"))?;
-
-			transaction
-				.commit()
-				.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+			db::sqlite::run!(
+				process_store,
+				[process = process.clone()],
+				|transaction, _cache| {
+					Self::clean_processes_sqlite_sync(transaction, &process, max_stored_at)
+				},
+			)
+			.map_err(|error| tg::error!(!error, "failed to clean the process"))?;
 		}
 
 		Ok(())
+	}
+
+	fn clean_processes_sqlite_sync(
+		transaction: &sqlite::Transaction<'_>,
+		process: &str,
+		max_stored_at: i64,
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
+		let statement = indoc!(
+			"
+				delete from processes
+				where id = ?1 and stored_at <= ?2;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![process, max_stored_at])
+			.map_err(db::sqlite::Error::from);
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		if n == 0 {
+			return Ok(ControlFlow::Break(()));
+		}
+
+		let statement = indoc!(
+			"
+				delete from process_grants
+				where process = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![process])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+
+		let statement = indoc!(
+			"
+				delete from process_tokens
+				where process = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![process])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+
+		let statement = indoc!(
+			"
+				delete from process_children
+				where process = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![process])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+
+		let statement = indoc!(
+			"
+				delete from process_leases
+				where process = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![process])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+
+		let statement = indoc!(
+			"
+				delete from process_finalize_queue
+				where process = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![process])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+
+		let statement = indoc!(
+			"
+				delete from process_signals
+				where process = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![process])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+
+		let statement = indoc!(
+			"
+				delete from process_stdio
+				where process = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![process])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn clean_expired_process_grants_sqlite(
@@ -138,23 +140,26 @@ impl Server {
 		process_store: &db::sqlite::Database,
 		now: i64,
 	) -> tg::Result<()> {
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		connection
-			.with(move |connection, _cache| {
-				let statement = indoc!(
-					"
-						delete from process_grants
-						where expires_at <= ?1;
-					"
-				);
-				connection
-					.execute(statement, sqlite::params![now])
-					.map_err(|error| tg::error!(!error, "failed to delete process_grants"))?;
-				Ok(())
-			})
-			.await
+		db::sqlite::run!(process_store, |transaction, _cache| {
+			Self::clean_expired_process_grants_sqlite_sync(transaction, now)
+		})
+		.map_err(|error| tg::error!(!error, "failed to delete process grants"))
+	}
+
+	fn clean_expired_process_grants_sqlite_sync(
+		transaction: &sqlite::Transaction<'_>,
+		now: i64,
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
+		let statement = indoc!(
+			"
+				delete from process_grants
+				where expires_at <= ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![now])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 }

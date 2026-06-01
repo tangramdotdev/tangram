@@ -18,6 +18,7 @@ pub mod either;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod row;
+mod run;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 #[cfg(feature = "turso")]
@@ -58,6 +59,10 @@ pub trait Database {
 	) -> impl Future<Output = Result<Self::Connection, Self::Error>> + Send;
 
 	fn sync(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+	fn retry(&self) -> tangram_futures::retry::Options {
+		tangram_futures::retry::Options::default()
+	}
 }
 
 #[derive(Clone, Debug, Default)]

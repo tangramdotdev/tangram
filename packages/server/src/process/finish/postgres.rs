@@ -4,6 +4,7 @@ use {
 		process::finish::{Condition, InnerArg},
 	},
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -14,7 +15,7 @@ impl Session {
 		transaction: &db::postgres::Transaction<'_>,
 		id: &tg::process::Id,
 		arg: InnerArg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, db::postgres::Error>> {
 		let error_code = arg.error_code.map(|code| code.to_string());
 		let error = arg.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
@@ -75,7 +76,7 @@ impl Session {
 				select exists(select 1 from updated);
 			"
 		);
-		let finished = transaction
+		let result = transaction
 			.query_one_value_into::<bool>(
 				statement.into(),
 				db::params![
@@ -92,8 +93,8 @@ impl Session {
 					max_depth,
 				],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(finished)
+			.await;
+		let finished = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(finished))
 	}
 }

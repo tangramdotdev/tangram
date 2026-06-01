@@ -254,6 +254,12 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
 			},
+			#[cfg(feature = "turso")]
+			Database::Turso(database) => {
+				self.put_process_batch_turso(&batch_refs, database, now, principal.as_ref(), None)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
+			},
 		}
 
 		// Update the graph.

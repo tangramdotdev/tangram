@@ -11,6 +11,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn delete_tags(
@@ -65,6 +67,11 @@ impl Session {
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => self
 					.delete_tags_sqlite(database, &arg.pattern, arg.recursive)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to delete the tag"))?,
+				#[cfg(feature = "turso")]
+				Database::Turso(database) => self
+					.delete_tags_turso(database, &arg.pattern, arg.recursive)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to delete the tag"))?,
 			}

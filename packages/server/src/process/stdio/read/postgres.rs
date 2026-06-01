@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	bytes::Bytes,
-	std::collections::BTreeSet,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -13,28 +13,40 @@ impl Session {
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
-		let mut connection = process_store
-			.write_connection()
+		let id = id.to_string();
+		let streams = streams.iter().map(ToString::to_string).collect::<Vec<_>>();
+		db::postgres::run!(process_store, |transaction| {
+			Self::try_read_process_stdio_pipe_event_postgres_with_transaction(
+				transaction,
+				&id,
+				&streams,
+			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let transaction = connection
-			.inner_mut()
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		})
+		.map_err(|error| tg::error!(!error, "failed to read process stdio"))
+	}
 
-		#[derive(db::postgres::row::Deserialize)]
+	async fn try_read_process_stdio_pipe_event_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		id: &str,
+		streams: &[String],
+	) -> tg::Result<ControlFlow<Option<tg::process::stdio::read::Event>, db::postgres::Error>> {
+		let placeholders = (0..streams.len())
+			.map(|index| format!("${}", index + 2))
+			.collect::<Vec<_>>()
+			.join(", ");
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			position: i64,
-			bytes: Vec<u8>,
-			#[tangram_database(as = "db::postgres::value::FromStr")]
+			bytes: Bytes,
+			#[tangram_database(as = "db::value::FromStr")]
 			stream: tg::process::stdio::Stream,
 		}
 		let statement = "
 			with candidate as (
 				select position, stream, bytes
 				from process_stdio
-				where process = $1 and stream = any($2::text[])
+				where process = $1 and stream in ({placeholders})
 				order by position
 				limit 1
 				for update skip locked
@@ -47,30 +59,28 @@ impl Session {
 			select position, stream, bytes
 			from deleted;
 		";
-		let id = id.to_string();
-		let streams = streams.iter().map(ToString::to_string).collect::<Vec<_>>();
-		if let Some(row) = transaction
-			.query_opt(statement, &[&id, &streams])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		{
-			let row = <Row as db::postgres::row::Deserialize>::deserialize(&row)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
+		let statement = statement.replace("{placeholders}", &placeholders);
+		let mut params = vec![db::value::Serialize::serialize(&id.to_owned()).unwrap()];
+		params.extend(
+			streams
+				.iter()
+				.map(|stream| db::value::Serialize::serialize(stream).unwrap()),
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), params)
+			.await;
+		if let Some(row) = crate::database::retry!(result, "failed to execute the statement") {
 			let _ = row.position;
-			transaction
-				.commit()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-			return Ok(Some(tg::process::stdio::read::Event::Chunk(
-				tg::process::stdio::Chunk {
-					bytes: Bytes::from(row.bytes),
+			return Ok(ControlFlow::Break(Some(
+				tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
+					bytes: row.bytes,
 					position: None,
 					stream: row.stream,
-				},
+				}),
 			)));
 		}
 
-		#[derive(db::postgres::row::Deserialize)]
+		#[derive(db::row::Deserialize)]
 		struct OpenRow {
 			stdin: Option<bool>,
 			stdout: Option<bool>,
@@ -81,17 +91,14 @@ impl Session {
 			from processes
 			where id = $1;
 		";
-		let row = transaction
-			.query_opt(statement, &[&id])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.map(|row| {
-				<OpenRow as db::postgres::row::Deserialize>::deserialize(&row)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
-			})
-			.transpose()?;
+		let result = transaction
+			.query_optional_into::<OpenRow>(statement.into(), db::params![id.to_owned()])
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
 		let Some(row) = row else {
-			return Ok(Some(tg::process::stdio::read::Event::End));
+			return Ok(ControlFlow::Break(Some(
+				tg::process::stdio::read::Event::End,
+			)));
 		};
 		let closed = streams.iter().all(|stream| match stream.as_str() {
 			"stdin" => row.stdin == Some(false),
@@ -100,9 +107,11 @@ impl Session {
 			_ => false,
 		});
 		if closed {
-			return Ok(Some(tg::process::stdio::read::Event::End));
+			return Ok(ControlFlow::Break(Some(
+				tg::process::stdio::read::Event::End,
+			)));
 		}
 
-		Ok(None)
+		Ok(ControlFlow::Break(None))
 	}
 }

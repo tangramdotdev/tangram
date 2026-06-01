@@ -9,6 +9,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn list_processes(
@@ -73,6 +75,8 @@ impl Session {
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => self.list_processes_sqlite(process_store, principal).await,
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => self.list_processes_turso(process_store, principal).await,
 		}?;
 		let location = Some(self.server.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),

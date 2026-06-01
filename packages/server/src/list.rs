@@ -12,6 +12,8 @@ mod postgres;
 pub mod remote;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "list", skip_all)]
@@ -91,6 +93,8 @@ impl Session {
 			Database::Postgres(database) => self.list_postgres(database, arg).await,
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.list_sqlite(database, arg).await,
+			#[cfg(feature = "turso")]
+			Database::Turso(database) => self.list_turso(database, arg).await,
 		}
 	}
 
@@ -100,6 +104,8 @@ impl Session {
 			Database::Postgres(database) => self.list_cache_get_postgres(database, arg).await,
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.list_cache_get_sqlite(database, arg).await,
+			#[cfg(feature = "turso")]
+			Database::Turso(database) => self.list_cache_get_turso(database, arg).await,
 		}
 	}
 
@@ -113,6 +119,11 @@ impl Session {
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => {
 				self.list_cache_put_sqlite(database, arg, output, timestamp)
+					.await
+			},
+			#[cfg(feature = "turso")]
+			Database::Turso(database) => {
+				self.list_cache_put_turso(database, arg, output, timestamp)
 					.await
 			},
 		}

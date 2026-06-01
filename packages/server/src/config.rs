@@ -190,6 +190,8 @@ pub enum Database {
 	Postgres(PostgresDatabase),
 
 	Sqlite(SqliteDatabase),
+
+	Turso(TursoDatabase),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -198,6 +200,9 @@ pub struct PostgresDatabase {
 	pub pool: DatabasePool,
 
 	pub url: Uri,
+
+	#[serde(default = "database_retry_default")]
+	pub retry: Retry,
 }
 
 #[serde_as]
@@ -221,6 +226,20 @@ pub struct SqliteDatabase {
 	pub path: PathBuf,
 
 	pub pool: DatabasePool,
+
+	#[serde(default = "database_retry_default")]
+	pub retry: Retry,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TursoDatabase {
+	pub path: PathBuf,
+
+	pub pool: DatabasePool,
+
+	#[serde(default = "database_retry_default")]
+	pub retry: Retry,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1008,6 +1027,7 @@ impl Default for PostgresDatabase {
 		Self {
 			pool: DatabasePool::default(),
 			url: "postgres://localhost:5432".parse().unwrap(),
+			retry: database_retry_default(),
 		}
 	}
 }
@@ -1017,6 +1037,17 @@ impl Default for SqliteDatabase {
 		Self {
 			path: PathBuf::from("database"),
 			pool: DatabasePool::default(),
+			retry: database_retry_default(),
+		}
+	}
+}
+
+impl Default for TursoDatabase {
+	fn default() -> Self {
+		Self {
+			path: PathBuf::from("database"),
+			pool: DatabasePool::default(),
+			retry: database_retry_default(),
 		}
 	}
 }
@@ -1358,6 +1389,17 @@ impl Default for Write {
 	}
 }
 
+impl From<Retry> for tangram_futures::retry::Options {
+	fn from(retry: Retry) -> Self {
+		Self {
+			backoff: retry.backoff,
+			jitter: retry.jitter,
+			max_delay: retry.max_delay,
+			max_retries: retry.max_retries,
+		}
+	}
+}
+
 mod ip_range {
 	use {super::IpRange, std::net::Ipv4Addr, tangram_client::prelude::*};
 
@@ -1442,7 +1484,21 @@ fn default_process_store() -> Database {
 	Database::Sqlite(SqliteDatabase {
 		pool: DatabasePool::default(),
 		path: PathBuf::from("processes"),
+		retry: database_retry_default(),
 	})
+}
+
+fn database_retry_default() -> Retry {
+	let options = tangram_futures::retry::Options {
+		max_retries: 20,
+		..tangram_futures::retry::Options::default()
+	};
+	Retry {
+		backoff: options.backoff,
+		jitter: options.jitter,
+		max_delay: options.max_delay,
+		max_retries: options.max_retries,
+	}
 }
 
 fn default_time_to_index() -> Duration {

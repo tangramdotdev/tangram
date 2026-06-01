@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -10,7 +11,7 @@ impl Session {
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
 		child_id: String,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -18,10 +19,8 @@ impl Session {
 			"
 		);
 		let params = db::params![child_id];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 }
