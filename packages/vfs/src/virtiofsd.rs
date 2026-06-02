@@ -1,10 +1,10 @@
 use {
 	crate::{Attrs, AttrsInner, EntryKind, Provider, Result},
+	dashmap::DashMap,
 	std::{
-		collections::HashMap,
 		ffi::{CStr, CString},
 		io::{self, Write as _},
-		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
+		os::fd::{AsRawFd as _, FromRawFd as _, RawFd},
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
 		time::Duration,
@@ -31,11 +31,11 @@ impl Drop for State {
 	}
 }
 
-pub struct Adapter<P>(P, Mutex<AdapterFds>);
+pub struct Adapter<P>(P, DashMap<u64, InodeFd>);
 
-struct AdapterFds {
-	by_handle: HashMap<u64, Arc<OwnedFd>>,
-	by_inode: HashMap<u64, Arc<OwnedFd>>,
+struct InodeFd {
+	fd: std::fs::File,
+	count: usize,
 }
 
 pub struct DirIter {
@@ -59,13 +59,7 @@ impl Server {
 				.set_thread_pool_size(0)
 				.set_tag(None)
 				.set_dax_window_size(dax_window_size)
-				.build(Adapter(
-					provider,
-					Mutex::new(AdapterFds {
-						by_handle: HashMap::new(),
-						by_inode: HashMap::new(),
-					}),
-				))
+				.build(Adapter(provider, DashMap::new()))
 				.map_err(|error| {
 					io::Error::other(format!("failed to build the vhost-user backend: {error}"))
 				})?,
@@ -184,10 +178,13 @@ where
 	) -> Result<(Option<u64>, fs::fuse::OpenOptions)> {
 		let (handle, backing_fd) = self.0.open_sync(inode)?;
 		if let Some(fd) = backing_fd {
-			let fd = Arc::new(fd);
-			let mut fds = self.1.lock().unwrap();
-			fds.by_handle.insert(handle, Arc::clone(&fd));
-			fds.by_inode.entry(inode).or_insert(fd);
+			self.1
+				.entry(inode)
+				.and_modify(|entry| entry.count += 1)
+				.or_insert(InodeFd {
+					fd: fd.into(),
+					count: 1,
+				});
 		}
 		// Artifact content is immutable, so keep the guest page cache across reopens.
 		Ok((Some(handle), fs::fuse::OpenOptions::KEEP_CACHE))
@@ -206,7 +203,7 @@ where
 	fn read<W: fs::filesystem::ZeroCopyWriter>(
 		&self,
 		_ctx: fs::filesystem::Context,
-		_inode: u64,
+		inode: u64,
 		handle: u64,
 		mut w: W,
 		size: u32,
@@ -214,6 +211,15 @@ where
 		_lock_owner: Option<u64>,
 		_flags: u32,
 	) -> Result<usize> {
+		// Splice directly from the backing cache file when one is available. It begins at offset
+		// zero, so the requested offset is the file offset, and the read is positional, so sharing
+		// the descriptor across concurrent reads is safe.
+		if let Some(entry) = self.1.get(&inode) {
+			return w.read_from_file_at(&entry.fd, size as usize, offset, None);
+		}
+
+		// Fall back for blobs with no contiguous backing file: materialize the content and splice
+		// it through a memfd, since the transport only accepts a file.
 		let bytes = self.0.read_sync(handle, offset, u64::from(size))?;
 		if bytes.is_empty() {
 			return Ok(0);
@@ -230,14 +236,19 @@ where
 	fn release(
 		&self,
 		_ctx: fs::filesystem::Context,
-		_inode: u64,
+		inode: u64,
 		_flags: u32,
 		handle: u64,
 		_flush: bool,
 		_flock_release: bool,
 		_lock_owner: Option<u64>,
 	) -> Result<()> {
-		self.1.lock().unwrap().by_handle.remove(&handle);
+		// Drop the backing descriptor once the last handle for the inode is released. An active
+		// DAX mapping keeps the file alive on its own, so this is safe even while one exists.
+		self.1.remove_if_mut(&inode, |_, entry| {
+			entry.count -= 1;
+			entry.count == 0
+		});
 		self.0.close_sync(handle);
 		Ok(())
 	}
@@ -338,11 +349,10 @@ where
 		if flags.contains(fs::fuse::SetupmappingFlags::WRITE) {
 			return Err(io::Error::from_raw_os_error(libc::EROFS));
 		}
-		let fds = self.1.lock().unwrap();
-		let Some(fd) = fds.by_inode.get(&inode) else {
+		let Some(entry) = self.1.get(&inode) else {
 			return Err(io::Error::from_raw_os_error(libc::EBADF));
 		};
-		let raw = fd.as_raw_fd();
+		let raw = entry.fd.as_raw_fd();
 		// The backing descriptor refers to the whole artifact file beginning at offset zero, so the
 		// offset within it is the requested file offset.
 		Ok((raw, foffset))
