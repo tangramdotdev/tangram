@@ -139,6 +139,24 @@ impl Database {
 		T: Send + 'static,
 		E: Into<Error> + Send + 'static,
 	{
+		let options = db::ConnectionOptions {
+			kind: db::ConnectionKind::Write,
+			..Default::default()
+		};
+		self.run_with_options(options, f).await
+	}
+
+	pub async fn run_with_options<F, T, E>(
+		&self,
+		connection_options: db::ConnectionOptions,
+		f: F,
+	) -> tg::Result<T>
+	where
+		for<'a, 'b> F: Fn(&'a Transaction<'b>) -> BoxFuture<'a, std::result::Result<ControlFlow<T, Error>, E>>
+			+ Sync,
+		T: Send + 'static,
+		E: Into<Error> + Send + 'static,
+	{
 		let options = match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(database) => database.retry(),
@@ -148,12 +166,14 @@ impl Database {
 			Self::Turso(database) => database.retry(),
 		};
 		tangram_futures::retry::retry(&options, || async {
+			let connection_options = connection_options.clone();
 			match self {
 				#[cfg(feature = "postgres")]
 				Self::Postgres(database) => {
-					let mut connection = db::Database::write_connection(database)
-						.await
-						.map_err(Error::Postgres)?;
+					let mut connection =
+						db::Database::connection_with_options(database, connection_options.clone())
+							.await
+							.map_err(Error::Postgres)?;
 					let inner = db::Connection::transaction(&mut connection)
 						.await
 						.map_err(Error::Postgres)?;
@@ -174,9 +194,10 @@ impl Database {
 				},
 				#[cfg(feature = "sqlite")]
 				Self::Sqlite(database) => {
-					let mut connection = db::Database::write_connection(database)
-						.await
-						.map_err(Error::Sqlite)?;
+					let mut connection =
+						db::Database::connection_with_options(database, connection_options.clone())
+							.await
+							.map_err(Error::Sqlite)?;
 					let inner = db::Connection::transaction(&mut connection)
 						.await
 						.map_err(Error::Sqlite)?;
@@ -197,9 +218,10 @@ impl Database {
 				},
 				#[cfg(feature = "turso")]
 				Self::Turso(database) => {
-					let mut connection = db::Database::write_connection(database)
-						.await
-						.map_err(Error::Turso)?;
+					let mut connection =
+						db::Database::connection_with_options(database, connection_options)
+							.await
+							.map_err(Error::Turso)?;
 					let inner = db::Connection::transaction(&mut connection)
 						.await
 						.map_err(Error::Turso)?;
