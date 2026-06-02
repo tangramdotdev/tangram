@@ -63,10 +63,14 @@ impl Session {
 		database: &db::turso::Database,
 		arg: &str,
 	) -> tg::Result<Option<(String, i64)>> {
-		let connection = database
+		let mut connection = database
 			.write_connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let statement = indoc!(
 			"
 				select output, timestamp
@@ -79,7 +83,7 @@ impl Session {
 			output: String,
 			timestamp: i64,
 		}
-		let row = connection
+		let row = transaction
 			.query_optional_into::<Row>(statement.into(), db::params![arg])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;

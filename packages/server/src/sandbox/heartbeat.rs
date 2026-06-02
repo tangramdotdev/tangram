@@ -77,12 +77,18 @@ impl Session {
 					priority: db::Priority::High,
 				})
 				.await;
-			let connection = match result {
+			let mut connection = match result {
 				Ok(connection) => connection,
 				Err(error) if error.is_retry() => return Ok(ControlFlow::Continue(error)),
 				Err(error) => return Err(error),
 			};
-			let p = connection.p();
+			let result = connection.transaction().await;
+			let transaction = match result {
+				Ok(transaction) => transaction,
+				Err(error) if error.is_retry() => return Ok(ControlFlow::Continue(error)),
+				Err(error) => return Err(error),
+			};
+			let p = transaction.p();
 			let statement = formatdoc!(
 				"
 					update sandboxes
@@ -92,12 +98,18 @@ impl Session {
 			);
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			let params = db::params![now, id.to_string()];
-			let result = connection.execute(statement.into(), params).await;
+			let result = transaction.execute(statement.into(), params).await;
 			let n = match result {
 				Ok(n) => n,
 				Err(error) if error.is_retry() => return Ok(ControlFlow::Continue(error)),
 				Err(error) => return Err(error),
 			};
+			let result = transaction.commit().await;
+			match result {
+				Ok(()) => {},
+				Err(error) if error.is_retry() => return Ok(ControlFlow::Continue(error)),
+				Err(error) => return Err(error),
+			}
 			Ok(ControlFlow::Break(n > 0))
 		})
 		.await

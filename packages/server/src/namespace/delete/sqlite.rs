@@ -30,7 +30,11 @@ impl Session {
 		cache: &db::sqlite::Cache,
 		namespace: &tg::Namespace,
 	) -> tg::Result<ControlFlow<Option<()>, db::sqlite::Error>> {
-		let Some(id) = Self::try_get_namespace_sqlite_sync(transaction, cache, namespace)? else {
+		let id = match Self::try_get_namespace_sqlite_sync_retry(transaction, cache, namespace)? {
+			ControlFlow::Break(id) => id,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let Some(id) = id else {
 			return Ok(ControlFlow::Break(None));
 		};
 		let result = transaction.query_row(

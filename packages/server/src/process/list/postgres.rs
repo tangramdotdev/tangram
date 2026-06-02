@@ -11,10 +11,14 @@ impl Session {
 		process_store: &db::postgres::Database,
 		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
-		let connection = process_store
+		let mut connection = process_store
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
@@ -92,9 +96,9 @@ impl Session {
 		);
 		let principal_string = principal.to_string();
 		let rows = if principal.is_root() {
-			connection.inner().query(&statement, &[]).await
+			transaction.inner().query(&statement, &[]).await
 		} else {
-			connection
+			transaction
 				.inner()
 				.query(&statement, &[&principal_string])
 				.await
@@ -156,7 +160,6 @@ impl Session {
 				Ok(output)
 			})
 			.collect::<tg::Result<_>>()?;
-
 		Ok(outputs)
 	}
 }

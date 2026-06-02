@@ -47,9 +47,15 @@ impl Session {
 		matches.sort_by(|a, b| a.tag.cmp(&b.tag));
 		let mut deleted = Vec::new();
 		for m in matches {
-			let Some(namespace_id) =
-				Self::try_get_namespace_sqlite_sync(transaction, cache, &m.tag.namespace)?
-			else {
+			let namespace_id = match Self::try_get_namespace_sqlite_sync_retry(
+				transaction,
+				cache,
+				&m.tag.namespace,
+			)? {
+				ControlFlow::Break(id) => id,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let Some(namespace_id) = namespace_id else {
 				continue;
 			};
 			let statement = indoc!(
@@ -72,24 +78,30 @@ impl Session {
 					where namespace = ?1 and name = ?2;
 				"
 			);
-			let mut statement = transaction
+			let result = transaction
 				.prepare(statement)
-				.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-			let mut rows = statement
-				.query(sqlite::params![namespace_id, m.tag.name.to_string()])
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			while let Some(row) = rows
-				.next()
-				.map_err(|error| tg::error!(!error, "failed to get the next row"))?
-			{
-				let principal = row
-					.get::<_, String>(0)
-					.map_err(|error| tg::error!(!error, "failed to get the principal column"))?;
-				let permission = row
-					.get::<_, String>(1)
-					.map_err(|error| tg::error!(!error, "failed to get the permission column"))?
-					.parse::<tg::Permission>()
-					.map_err(|error| tg::error!(!error, "invalid permission"))?;
+				.map_err(db::sqlite::Error::from);
+			let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+			let mut rows = {
+				let result = statement
+					.query(sqlite::params![namespace_id, m.tag.name.to_string()])
+					.map_err(db::sqlite::Error::from);
+				crate::database::retry!(result, "failed to execute the statement")
+			};
+			loop {
+				let result = rows.next().map_err(db::sqlite::Error::from);
+				let Some(row) = crate::database::retry!(result, "failed to get the next row")
+				else {
+					break;
+				};
+				let result = row.get::<_, String>(0).map_err(db::sqlite::Error::from);
+				let principal =
+					crate::database::retry!(result, "failed to get the principal column");
+				let result = row.get::<_, String>(1).map_err(db::sqlite::Error::from);
+				let permission =
+					crate::database::retry!(result, "failed to get the permission column")
+						.parse::<tg::Permission>()
+						.map_err(|error| tg::error!(!error, "invalid permission"))?;
 				if permission.implies(tg::Permission::Read) {
 					match Self::decrement_namespace_visibility_for_grant_sqlite_sync(
 						transaction,

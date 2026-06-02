@@ -100,6 +100,21 @@ impl Session {
 		}
 
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let process_error = {
+			let error = error.unwrap_or_else(|| {
+				tg::Either::Left(tg::error::Data {
+					code: Some(tg::error::Code::Cancellation),
+					message: Some("the process was canceled".into()),
+					..Default::default()
+				})
+			});
+			let error_code = match error.as_ref() {
+				tg::Either::Left(data) => data.code,
+				tg::Either::Right(_) => None,
+			};
+			let error = self.store_process_error(error).await;
+			(error, error_code)
+		};
 		let output = crate::database::run!(&self.server.process_store, |transaction| {
 			let arg = InnerArg { condition, now };
 
@@ -125,24 +140,12 @@ impl Session {
 			// Finish the unfinished processes.
 			let mut finished_processes = Vec::new();
 			if !unfinished_processes.is_empty() {
-				let error = error.clone().unwrap_or_else(|| {
-					tg::Either::Left(tg::error::Data {
-						code: Some(tg::error::Code::Cancellation),
-						message: Some("the process was canceled".into()),
-						..Default::default()
-					})
-				});
-				let error_code = match error.as_ref() {
-					tg::Either::Left(data) => data.code,
-					tg::Either::Right(_) => None,
-				};
-				let error = self.store_process_error(error).await;
 				for process in unfinished_processes {
 					let arg = crate::process::finish::InnerArg {
 						checksum: None,
 						condition: None,
-						error: Some(error.clone()),
-						error_code,
+						error: Some(process_error.0.clone()),
+						error_code: process_error.1,
 						exit: 1,
 						now,
 						output: None,

@@ -97,20 +97,23 @@ impl Session {
 				order by created_at, id;
 			"
 		);
-		let mut statement = transaction
+		let result = transaction
 			.prepare(statement)
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
+			.map_err(db::sqlite::Error::from);
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+		let result = statement
 			.query(sqlite::params![id.to_string()])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		let mut rows = crate::database::retry!(result, "failed to execute the statement");
 		let mut unfinished_processes = Vec::new();
-		while let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		{
-			let process = row
-				.get::<_, String>(0)
-				.map_err(|error| tg::error!(!error, "failed to get the process"))?
+		loop {
+			let result = rows.next().map_err(db::sqlite::Error::from);
+			let Some(row) = crate::database::retry!(result, "failed to execute the statement")
+			else {
+				break;
+			};
+			let result = row.get::<_, String>(0).map_err(db::sqlite::Error::from);
+			let process = crate::database::retry!(result, "failed to get the process")
 				.parse()
 				.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 			unfinished_processes.push(process);

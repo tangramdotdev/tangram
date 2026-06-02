@@ -284,10 +284,12 @@ impl Session {
 		principal: &tg::Principal,
 	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		let principal = principal.to_string();
-		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
-			.into_iter()
-			.filter(|id| *id != 0)
+		let ids = match Self::get_namespace_ancestor_ids_sqlite_sync_retry(transaction, namespace)?
 		{
+			ControlFlow::Break(ids) => ids,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		for namespace_id in ids.into_iter().filter(|id| *id != 0) {
 			let statement = indoc!(
 				r"
 					insert into namespace_visibility (namespace, principal, count)
@@ -334,10 +336,12 @@ impl Session {
 		group: Option<&str>,
 		all: bool,
 	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
-		for namespace_id in Self::get_namespace_ancestor_ids_sqlite_sync(transaction, namespace)?
-			.into_iter()
-			.filter(|id| *id != 0)
+		let ids = match Self::get_namespace_ancestor_ids_sqlite_sync_retry(transaction, namespace)?
 		{
+			ControlFlow::Break(ids) => ids,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		for namespace_id in ids.into_iter().filter(|id| *id != 0) {
 			let principal = if let Some(user) = user {
 				user
 			} else if let Some(group) = group {
@@ -373,6 +377,16 @@ impl Session {
 		transaction: &sqlite::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Vec<i64>> {
+		match Self::get_namespace_ancestor_ids_sqlite_sync_retry(transaction, namespace)? {
+			ControlFlow::Break(ids) => Ok(ids),
+			ControlFlow::Continue(error) => Err(tg::error!(!error, "database error")),
+		}
+	}
+
+	fn get_namespace_ancestor_ids_sqlite_sync_retry(
+		transaction: &sqlite::Transaction<'_>,
+		namespace: &tg::Namespace,
+	) -> tg::Result<ControlFlow<Vec<i64>, db::sqlite::Error>> {
 		let mut ids = vec![0];
 		let mut names = Vec::new();
 		let mut name = String::new();
@@ -384,7 +398,7 @@ impl Session {
 			names.push(name.clone());
 		}
 		if names.is_empty() {
-			return Ok(ids);
+			return Ok(ControlFlow::Break(ids));
 		}
 		let placeholders = vec!["?"; names.len()].join(", ");
 		let statement = format!(
@@ -394,22 +408,24 @@ impl Session {
 				where name in ({placeholders});
 			",
 		);
-		let mut statement = transaction
+		let result = transaction
 			.prepare(&statement)
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
+			.map_err(db::sqlite::Error::from);
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+		let result = statement
 			.query(sqlite::params_from_iter(names.iter()))
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		while let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to get the next row"))?
-		{
-			let id = row
-				.get(0)
-				.map_err(|error| tg::error!(!error, "failed to get the id column"))?;
+			.map_err(db::sqlite::Error::from);
+		let mut rows = crate::database::retry!(result, "failed to execute the statement");
+		loop {
+			let result = rows.next().map_err(db::sqlite::Error::from);
+			let Some(row) = crate::database::retry!(result, "failed to get the next row") else {
+				break;
+			};
+			let result = row.get(0).map_err(db::sqlite::Error::from);
+			let id = crate::database::retry!(result, "failed to get the id column");
 			ids.push(id);
 		}
-		Ok(ids)
+		Ok(ControlFlow::Break(ids))
 	}
 
 	pub(crate) fn try_get_namespace_id_sqlite_sync(

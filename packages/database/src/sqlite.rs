@@ -369,7 +369,6 @@ impl Transaction<'_> {
 				},
 			}
 		}
-		transaction.rollback().ok();
 	}
 
 	pub async fn with<F, T, E>(&self, f: F) -> Result<T, E>

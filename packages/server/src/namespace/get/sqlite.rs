@@ -2,6 +2,7 @@ use {
 	crate::Session,
 	indoc::indoc,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -39,8 +40,19 @@ impl Session {
 		cache: &db::sqlite::Cache,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Option<i64>> {
+		match Self::try_get_namespace_sqlite_sync_retry(transaction, cache, namespace)? {
+			ControlFlow::Break(id) => Ok(id),
+			ControlFlow::Continue(error) => Err(tg::error!(!error, "database error")),
+		}
+	}
+
+	pub(crate) fn try_get_namespace_sqlite_sync_retry(
+		transaction: &sqlite::Transaction,
+		cache: &db::sqlite::Cache,
+		namespace: &tg::Namespace,
+	) -> tg::Result<ControlFlow<Option<i64>, db::sqlite::Error>> {
 		if namespace.is_root() {
-			return Ok(Some(0));
+			return Ok(ControlFlow::Break(Some(0)));
 		}
 		let statement = indoc!(
 			"
@@ -49,22 +61,17 @@ impl Session {
 				where name = ?1;
 			"
 		);
-		let mut statement = cache
-			.get(transaction, statement.into())
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
+		let result = cache.get(transaction, statement.into());
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
 		let params = sqlite::params![namespace.to_string()];
-		let mut rows = statement
-			.query(params)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to get the next row"))?
-		else {
-			return Ok(None);
+		let result = statement.query(params).map_err(db::sqlite::Error::from);
+		let mut rows = crate::database::retry!(result, "failed to execute the statement");
+		let result = rows.next().map_err(db::sqlite::Error::from);
+		let Some(row) = crate::database::retry!(result, "failed to get the next row") else {
+			return Ok(ControlFlow::Break(None));
 		};
-		let id = row
-			.get(0)
-			.map_err(|error| tg::error!(!error, "failed to get the id column"))?;
-		Ok(Some(id))
+		let result = row.get(0).map_err(db::sqlite::Error::from);
+		let id = crate::database::retry!(result, "failed to get the id column");
+		Ok(ControlFlow::Break(Some(id)))
 	}
 }

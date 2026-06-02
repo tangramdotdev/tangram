@@ -32,7 +32,6 @@ macro_rules! run {
 					{
 						Ok(::std::ops::ControlFlow::Break(value)) => value,
 						Ok(::std::ops::ControlFlow::Continue(error)) => {
-							transaction.rollback().await.ok();
 							return Ok(::std::ops::ControlFlow::Continue(error));
 						},
 						Err(error) => return Err($crate::database::Error::from(error)),
@@ -62,7 +61,6 @@ macro_rules! run {
 					{
 						Ok(::std::ops::ControlFlow::Break(value)) => value,
 						Ok(::std::ops::ControlFlow::Continue(error)) => {
-							transaction.rollback().await.ok();
 							return Ok(::std::ops::ControlFlow::Continue(error));
 						},
 						Err(error) => return Err($crate::database::Error::from(error)),
@@ -92,7 +90,6 @@ macro_rules! run {
 					{
 						Ok(::std::ops::ControlFlow::Break(value)) => value,
 						Ok(::std::ops::ControlFlow::Continue(error)) => {
-							transaction.rollback().await.ok();
 							return Ok(::std::ops::ControlFlow::Continue(error));
 						},
 						Err(error) => return Err($crate::database::Error::from(error)),

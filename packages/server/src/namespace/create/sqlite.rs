@@ -30,23 +30,26 @@ impl Session {
 
 		let placeholders = vec!["?"; names.len()].join(", ");
 		let statement = format!("select id, name from namespaces where name in ({placeholders});");
-		let mut statement = transaction
+		let result = transaction
 			.prepare(&statement)
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
-			.query(sqlite::params_from_iter(names.iter()))
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+		let mut rows = {
+			let result = statement
+				.query(sqlite::params_from_iter(names.iter()))
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement")
+		};
 		let mut existing = HashMap::<String, i64>::new();
-		while let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to get the next row"))?
-		{
-			let id = row
-				.get(0)
-				.map_err(|error| tg::error!(!error, "failed to get the id column"))?;
-			let name = row
-				.get(1)
-				.map_err(|error| tg::error!(!error, "failed to get the name column"))?;
+		loop {
+			let result = rows.next().map_err(db::sqlite::Error::from);
+			let Some(row) = crate::database::retry!(result, "failed to get the next row") else {
+				break;
+			};
+			let result = row.get(0).map_err(db::sqlite::Error::from);
+			let id = crate::database::retry!(result, "failed to get the id column");
+			let result = row.get(1).map_err(db::sqlite::Error::from);
+			let name = crate::database::retry!(result, "failed to get the name column");
 			existing.insert(name, id);
 		}
 		drop(rows);
