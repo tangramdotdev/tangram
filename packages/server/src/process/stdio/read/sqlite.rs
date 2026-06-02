@@ -16,14 +16,12 @@ impl Session {
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
 		let id = id.clone();
 		let streams = streams.clone();
-		db::sqlite::run!(
-			process_store,
-			[id = id.clone(), streams = streams.clone()],
-			|transaction, _cache| {
+		process_store
+			.run(move |transaction, _cache| {
 				Self::try_read_process_stdio_pipe_event_sqlite_sync(transaction, &id, &streams)
-			},
-		)
-		.map_err(|error| tg::error!(!error, "failed to read process stdio"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read process stdio"))
 	}
 
 	fn try_read_process_stdio_pipe_event_sqlite_sync(

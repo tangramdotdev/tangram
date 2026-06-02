@@ -13,14 +13,12 @@ impl Server {
 		process_store: &db::sqlite::Database,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		db::sqlite::run!(
-			process_store,
-			[batch_size = batch_size],
-			|transaction, _cache| {
+		process_store
+			.run(move |transaction, _cache| {
 				Self::try_dequeue_sandbox_finalize_batch_sqlite_sync(transaction, batch_size)
-			}
-		)
-		.map_err(|error| tg::error!(!error, "failed to dequeue sandbox finalize entries"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue sandbox finalize entries"))
 	}
 
 	fn try_dequeue_sandbox_finalize_batch_sqlite_sync(

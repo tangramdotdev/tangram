@@ -6,56 +6,15 @@ use {
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	rusqlite as sqlite,
-	std::{borrow::Cow, collections::HashMap, path::PathBuf, sync::Arc, time::Duration},
+	std::{
+		borrow::Cow, collections::HashMap, ops::ControlFlow, path::PathBuf, sync::Arc,
+		time::Duration,
+	},
 	tangram_pool::{self as pool, Pool},
 };
 
 pub mod row;
 pub mod value;
-
-#[macro_export]
-#[doc(hidden)]
-macro_rules! __tangram_database_sqlite_run {
-	($database:expr, [$($name:ident = $value:expr),* $(,)?], |$transaction:ident, $cache:ident| $body:expr $(,)?) => {{
-		use $crate::prelude::*;
-
-		let options = $database.retry();
-		tangram_futures::retry::retry(&options, || async {
-			$(let $name = $value;)*
-			let connection = $database.write_connection().await?;
-			connection
-				.with(move |connection, cache| {
-					let transaction = connection.transaction()?;
-					let value = match {
-						let $transaction = &transaction;
-						let $cache = cache;
-						$body
-					} {
-						Ok(::std::ops::ControlFlow::Break(value)) => value,
-						Ok(::std::ops::ControlFlow::Continue(error)) => {
-							return Ok(::std::ops::ControlFlow::Continue(error));
-						},
-						Err(error) => return Err($crate::Error::other(error)),
-					};
-					if let Err(error) = transaction.commit() {
-						let error = error.into();
-						if $crate::Error::is_retry(&error) {
-							return Ok(::std::ops::ControlFlow::Continue(error));
-						}
-						return Err(error);
-					}
-					Ok(::std::ops::ControlFlow::Break(value))
-				})
-				.await
-		})
-		.await
-	}};
-	($database:expr, |$transaction:ident, $cache:ident| $body:expr $(,)?) => {{
-		$crate::__tangram_database_sqlite_run!($database, [], |$transaction, $cache| $body)
-	}};
-}
-
-pub use crate::__tangram_database_sqlite_run as run;
 
 #[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
 pub enum Error {
@@ -258,6 +217,47 @@ impl Database {
 		}
 		let connection = sqlite::Connection::open_with_flags(&self.options.path, flags)?;
 		Ok(connection)
+	}
+
+	pub async fn run<F, T, E>(&self, f: F) -> Result<T, Error>
+	where
+		F: Fn(&sqlite::Transaction<'_>, &Cache) -> Result<ControlFlow<T, Error>, E>
+			+ Send
+			+ Sync
+			+ 'static,
+		T: Send + 'static,
+		E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
+	{
+		let options = self.options.retry.clone();
+		let f = Arc::new(f);
+		tangram_futures::retry::retry(&options, || {
+			let f = f.clone();
+			async move {
+				let connection = self
+					.write_pool
+					.get_exclusive(pool::Priority::default())
+					.await?;
+				connection
+					.with(move |connection, cache| {
+						let transaction = connection.transaction()?;
+						let value = match f(&transaction, cache) {
+							Ok(ControlFlow::Break(value)) => value,
+							Ok(ControlFlow::Continue(error)) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(Error::other(error)),
+						};
+						let result = transaction.commit().map_err(Error::from);
+						match result {
+							Ok(()) => Ok(ControlFlow::Break(value)),
+							Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+							Err(error) => Err(error),
+						}
+					})
+					.await
+			}
+		})
+		.await
 	}
 
 	pub async fn sync(&self) -> Result<(), Error> {

@@ -14,10 +14,12 @@ impl Session {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Signal>> {
 		let id = id.clone();
-		db::sqlite::run!(process_store, [id = id.clone()], |transaction, _cache| {
-			Self::try_dequeue_process_signal_sqlite_sync(transaction, &id)
-		})
-		.map_err(|error| tg::error!(!error, "failed to dequeue the process signal"))
+		process_store
+			.run(move |transaction, _cache| {
+				Self::try_dequeue_process_signal_sqlite_sync(transaction, &id)
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue the process signal"))
 	}
 
 	fn try_dequeue_process_signal_sqlite_sync(

@@ -23,14 +23,12 @@ impl Server {
 			.map(ToString::to_string)
 			.collect::<Vec<_>>();
 		for process in processes {
-			db::sqlite::run!(
-				process_store,
-				[process = process.clone()],
-				|transaction, _cache| {
+			process_store
+				.run(move |transaction, _cache| {
 					Self::clean_processes_sqlite_sync(transaction, &process, max_stored_at)
-				},
-			)
-			.map_err(|error| tg::error!(!error, "failed to clean the process"))?;
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "failed to clean the process"))?;
 		}
 
 		Ok(())
@@ -140,10 +138,12 @@ impl Server {
 		process_store: &db::sqlite::Database,
 		now: i64,
 	) -> tg::Result<()> {
-		db::sqlite::run!(process_store, |transaction, _cache| {
-			Self::clean_expired_process_grants_sqlite_sync(transaction, now)
-		})
-		.map_err(|error| tg::error!(!error, "failed to delete process grants"))
+		process_store
+			.run(move |transaction, _cache| {
+				Self::clean_expired_process_grants_sqlite_sync(transaction, now)
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete process grants"))
 	}
 
 	fn clean_expired_process_grants_sqlite_sync(

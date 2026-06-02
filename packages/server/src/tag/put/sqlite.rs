@@ -21,14 +21,10 @@ impl Session {
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
-		db::sqlite::run!(
-			database,
-			[
-				tag = tag.clone(),
-				arg = arg.clone(),
-				created_by = created_by.clone()
-			],
-			|transaction, cache| {
+		let tag = tag.clone();
+		let arg = arg.clone();
+		database
+			.run(move |transaction, cache| {
 				Self::put_tag_sqlite_sync(
 					transaction,
 					cache,
@@ -37,9 +33,9 @@ impl Session {
 					created_by.as_ref(),
 					grant_creator_admin,
 				)
-			}
-		)
-		.map_err(|error| tg::error!(!error, "failed to put the tag"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the tag"))
 	}
 
 	pub(crate) fn put_tag_sqlite_sync(

@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db},
+	tangram_database::{self as db, Error as _},
 };
 
 impl Session {
@@ -13,14 +13,11 @@ impl Session {
 		created_by: Option<&tg::user::Id>,
 		grant_creator_admin: &[bool],
 	) -> tg::Result<()> {
-		db::sqlite::run!(
-			database,
-			[
-				arg = arg.clone(),
-				created_by = created_by.cloned(),
-				grant_creator_admin = grant_creator_admin.to_vec(),
-			],
-			|transaction, cache| {
+		let arg = arg.clone();
+		let created_by = created_by.cloned();
+		let grant_creator_admin = grant_creator_admin.to_vec();
+		database
+			.run(move |transaction, cache| {
 				for (tg::tag::batch::Item { tag, item, force }, grant_creator_admin) in
 					arg.tags.iter().zip(&grant_creator_admin)
 				{
@@ -51,8 +48,8 @@ impl Session {
 					}
 				}
 				Ok::<ControlFlow<(), db::sqlite::Error>, db::sqlite::Error>(ControlFlow::Break(()))
-			}
-		)
-		.map_err(|error| tg::error!(!error, "failed to put tags"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put tags"))
 	}
 }

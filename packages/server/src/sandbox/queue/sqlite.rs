@@ -13,10 +13,12 @@ impl Session {
 		process_store: &db::sqlite::Database,
 		token: bool,
 	) -> tg::Result<Option<LocalOutput>> {
-		db::sqlite::run!(process_store, [token = token], |transaction, _cache| {
-			Self::try_dequeue_sandbox_sqlite_sync(transaction, token)
-		})
-		.map_err(|error| tg::error!(!error, "failed to dequeue the sandbox"))
+		process_store
+			.run(move |transaction, _cache| {
+				Self::try_dequeue_sandbox_sqlite_sync(transaction, token)
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue the sandbox"))
 	}
 
 	fn try_dequeue_sandbox_sqlite_sync(

@@ -18,14 +18,12 @@ impl Session {
 	) -> tg::Result<WriteOutput> {
 		let id = id.clone();
 		let bytes = bytes.clone();
-		db::sqlite::run!(
-			process_store,
-			[id = id.clone(), bytes = bytes.clone()],
-			|transaction, _cache| {
+		process_store
+			.run(move |transaction, _cache| {
 				Self::try_write_process_stdio_sqlite_sync(transaction, &id, stream, &bytes)
-			},
-		)
-		.map_err(|error| tg::error!(!error, "failed to write process stdio"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to write process stdio"))
 	}
 
 	fn try_write_process_stdio_sqlite_sync(
@@ -112,10 +110,12 @@ impl Session {
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
 		let id = id.clone();
-		db::sqlite::run!(process_store, [id = id.clone()], |transaction, _cache| {
-			Self::try_close_process_stdio_sqlite_sync(transaction, &id, stream)
-		})
-		.map_err(|error| tg::error!(!error, "failed to close process stdio"))
+		process_store
+			.run(move |transaction, _cache| {
+				Self::try_close_process_stdio_sqlite_sync(transaction, &id, stream)
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to close process stdio"))
 	}
 
 	fn try_close_process_stdio_sqlite_sync(

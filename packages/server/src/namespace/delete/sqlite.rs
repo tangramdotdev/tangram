@@ -15,14 +15,13 @@ impl Session {
 		if namespace.is_root() {
 			return Err(tg::error!("cannot delete the root namespace"));
 		}
-		db::sqlite::run!(
-			database,
-			[namespace = namespace.clone()],
-			|transaction, cache| {
+		let namespace = namespace.clone();
+		database
+			.run(move |transaction, cache| {
 				Self::try_delete_namespace_sqlite_sync(transaction, cache, &namespace)
-			}
-		)
-		.map_err(|error| tg::error!(!error, "failed to delete the namespace"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the namespace"))
 	}
 
 	fn try_delete_namespace_sqlite_sync(

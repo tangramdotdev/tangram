@@ -14,14 +14,13 @@ impl Session {
 		pattern: &tg::list::Pattern,
 		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
-		db::sqlite::run!(
-			database,
-			[pattern = pattern.clone()],
-			|transaction, cache| {
+		let pattern = pattern.clone();
+		database
+			.run(move |transaction, cache| {
 				Self::delete_tag_sqlite_sync(transaction, cache, &pattern, recursive)
-			}
-		)
-		.map_err(|error| tg::error!(!error, "failed to delete the tags"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the tags"))
 	}
 
 	pub(crate) fn delete_tag_sqlite_sync(

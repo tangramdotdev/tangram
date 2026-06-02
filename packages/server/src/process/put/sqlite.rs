@@ -49,14 +49,8 @@ impl Session {
 		let created_by = created_by.cloned();
 		let grant_ttl = self.server.config.process.grant_time_to_live;
 
-		db::sqlite::run!(
-			process_store,
-			[
-				items = items.clone(),
-				principal = principal.clone(),
-				created_by = created_by.clone()
-			],
-			|transaction, cache| {
+		process_store
+			.run(move |transaction, cache| {
 				Self::put_process_batch_sqlite_sync(
 					transaction,
 					cache,
@@ -66,9 +60,9 @@ impl Session {
 					grant_ttl,
 					created_by.as_ref(),
 				)
-			},
-		)
-		.map_err(|error| tg::error!(!error, "failed to put the process"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the process"))
 	}
 
 	pub(crate) fn put_process_batch_sqlite_sync(

@@ -14,14 +14,12 @@ impl Session {
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		let sandbox = sandbox.clone();
-		db::sqlite::run!(
-			process_store,
-			[sandbox = sandbox.clone()],
-			|transaction, _cache| {
+		process_store
+			.run(move |transaction, _cache| {
 				Self::try_dequeue_sandbox_process_sqlite_sync(transaction, &sandbox)
-			}
-		)
-		.map_err(|error| tg::error!(!error, "failed to dequeue the sandbox process"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue the sandbox process"))
 	}
 
 	fn try_dequeue_sandbox_process_sqlite_sync(

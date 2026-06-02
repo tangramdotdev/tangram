@@ -114,14 +114,12 @@ impl Session {
 	) -> tg::Result<()> {
 		let arg = arg.to_owned();
 		let output = output.to_owned();
-		db::sqlite::run!(
-			database,
-			[arg = arg.clone(), output = output.clone()],
-			|transaction, cache| {
+		database
+			.run(move |transaction, cache| {
 				Self::list_cache_put_sqlite_sync(transaction, cache, &arg, &output, timestamp)
-			},
-		)
-		.map_err(|error| tg::error!(!error, "failed to put the list cache"))
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the list cache"))
 	}
 
 	fn list_cache_put_sqlite_sync(
