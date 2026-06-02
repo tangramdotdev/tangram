@@ -5,48 +5,54 @@ impl tg::handle::Namespace for Server {
 		&self,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Option<tg::namespace::get::Output>> {
-		self.session(&self.context)
-			.try_get_namespace(namespace)
-			.await
+		// self.session(&self.context)
+		// 	.try_get_namespace(namespace)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn create_namespace(&self, namespace: &tg::Namespace) -> tg::Result<()> {
-		self.session(&self.context)
-			.create_namespace(tg::namespace::create::Arg {
-				namespace: namespace.clone(),
-				all: false,
-			})
-			.await
+		// self.session(&self.context)
+		// 	.create_namespace(tg::namespace::create::Arg {
+		// 		namespace: namespace.clone(),
+		// 		all: false,
+		// 	})
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn create_namespace_grant(
 		&self,
 		arg: tg::namespace::grants::create::Arg,
 	) -> tg::Result<tg::Grant> {
-		self.session(&self.context)
-			.create_namespace_grant(arg)
-			.await
+		// self.session(&self.context)
+		// 	.create_namespace_grant(arg)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn list_namespace_grants(
 		&self,
 		arg: tg::namespace::grants::list::Arg,
 	) -> tg::Result<Option<tg::namespace::grants::list::Output>> {
-		self.session(&self.context).list_namespace_grants(arg).await
+		// self.session(&self.context).list_namespace_grants(arg).await
+		Err(tg::error!("todo"))
 	}
 
 	async fn delete_namespace_grant(
 		&self,
 		arg: tg::namespace::grants::delete::Arg,
 	) -> tg::Result<Option<()>> {
-		self.session(&self.context)
-			.delete_namespace_grant(arg)
-			.await
+		// self.session(&self.context)
+		// 	.delete_namespace_grant(arg)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_delete_namespace(&self, namespace: &tg::Namespace) -> tg::Result<Option<()>> {
-		self.session(&self.context)
-			.try_delete_namespace(namespace)
-			.await
+		// self.session(&self.context)
+		// 	.try_delete_namespace(namespace)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 }

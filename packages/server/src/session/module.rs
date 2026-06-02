@@ -5,13 +5,15 @@ impl tg::handle::Module for Session {
 		&self,
 		arg: tg::module::resolve::Arg,
 	) -> tg::Result<tg::module::resolve::Output> {
-		self.resolve_module(arg).await
+		// self.resolve_module(arg).await
+		Err(tg::error!("todo"))
 	}
 
 	async fn load_module(
 		&self,
 		arg: tg::module::load::Arg,
 	) -> tg::Result<tg::module::load::Output> {
-		self.load_module(arg).await
+		// self.load_module(arg).await
+		Err(tg::error!("todo"))
 	}
 }

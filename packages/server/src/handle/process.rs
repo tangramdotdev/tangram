@@ -1,6 +1,6 @@
 use {
 	crate::Server,
-	futures::{Stream, stream::BoxStream},
+	futures::{Stream, future, stream, stream::BoxStream},
 	tangram_client::prelude::*,
 };
 
@@ -9,7 +9,8 @@ impl tg::handle::Process for Server {
 		&self,
 		arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
-		self.session(&self.context).list_processes(arg).await
+		// self.session(&self.context).list_processes(arg).await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_spawn_process(
@@ -20,7 +21,8 @@ impl tg::handle::Process for Server {
 		+ Send
 		+ 'static,
 	> {
-		self.session(&self.context).try_spawn_process(arg).await
+		// self.session(&self.context).try_spawn_process(arg).await
+		Ok(stream::once(future::ready(Err(tg::error!("todo")))))
 	}
 
 	async fn try_get_process_metadata(
@@ -28,9 +30,10 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::metadata::Arg,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		self.session(&self.context)
-			.try_get_process_metadata(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_get_process_metadata(id, arg)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_get_process(
@@ -38,7 +41,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		self.session(&self.context).try_get_process(id, arg).await
+		// self.session(&self.context).try_get_process(id, arg).await
+		Err(tg::error!("todo"))
 	}
 
 	async fn put_process(
@@ -46,7 +50,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		self.session(&self.context).put_process(id, arg).await
+		// self.session(&self.context).put_process(id, arg).await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_cancel_process(
@@ -54,9 +59,10 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
-		self.session(&self.context)
-			.try_cancel_process(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_cancel_process(id, arg)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_signal_process(
@@ -64,9 +70,10 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
-		self.session(&self.context)
-			.try_post_process_signal(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_post_process_signal(id, arg)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_get_process_signal_stream(
@@ -76,9 +83,10 @@ impl tg::handle::Process for Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static>,
 	> {
-		self.session(&self.context)
-			.try_get_process_signal_stream(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_get_process_signal_stream(id, arg)
+		// 	.await
+		Ok(Some(stream::once(future::ready(Err(tg::error!("todo"))))))
 	}
 
 	async fn try_get_process_status_stream(
@@ -88,9 +96,10 @@ impl tg::handle::Process for Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
 	> {
-		self.session(&self.context)
-			.try_get_process_status_stream(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_get_process_status_stream(id, arg)
+		// 	.await
+		Ok(Some(stream::once(future::ready(Err(tg::error!("todo"))))))
 	}
 
 	async fn try_get_process_children_stream(
@@ -100,9 +109,10 @@ impl tg::handle::Process for Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
 	> {
-		self.session(&self.context)
-			.try_get_process_children_stream(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_get_process_children_stream(id, arg)
+		// 	.await
+		Ok(Some(stream::once(future::ready(Err(tg::error!("todo"))))))
 	}
 
 	async fn try_get_process_tty_size_stream(
@@ -112,9 +122,10 @@ impl tg::handle::Process for Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static>,
 	> {
-		self.session(&self.context)
-			.try_get_process_tty_size_stream(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_get_process_tty_size_stream(id, arg)
+		// 	.await
+		Ok(Some(stream::once(future::ready(Err(tg::error!("todo"))))))
 	}
 
 	async fn try_set_process_tty_size(
@@ -122,9 +133,10 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
-		self.session(&self.context)
-			.try_set_process_tty_size(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_set_process_tty_size(id, arg)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_read_process_stdio(
@@ -134,9 +146,10 @@ impl tg::handle::Process for Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>,
 	> {
-		self.session(&self.context)
-			.try_read_process_stdio(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_read_process_stdio(id, arg)
+		// 	.await
+		Ok(Some(stream::once(future::ready(Err(tg::error!("todo"))))))
 	}
 
 	async fn try_write_process_stdio(
@@ -147,9 +160,10 @@ impl tg::handle::Process for Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>,
 	> {
-		self.session(&self.context)
-			.try_write_process_stdio(id, arg, stream)
-			.await
+		// self.session(&self.context)
+		// 	.try_write_process_stdio(id, arg, stream)
+		// 	.await
+		Ok(Some(stream::once(future::ready(Err(tg::error!("todo"))))))
 	}
 
 	async fn try_touch_process(
@@ -157,7 +171,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<Option<()>> {
-		self.session(&self.context).try_touch_process(id, arg).await
+		// self.session(&self.context).try_touch_process(id, arg).await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_finish_process(
@@ -165,9 +180,10 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> tg::Result<Option<bool>> {
-		self.session(&self.context)
-			.try_finish_process(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_finish_process(id, arg)
+		// 	.await
+		Err(tg::error!("todo"))
 	}
 
 	async fn try_wait_process_future(
@@ -179,8 +195,9 @@ impl tg::handle::Process for Server {
 			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
 		>,
 	> {
-		self.session(&self.context)
-			.try_wait_process_future(id, arg)
-			.await
+		// self.session(&self.context)
+		// 	.try_wait_process_future(id, arg)
+		// 	.await
+		Ok(Some(async move { Err(tg::error!("todo")) }))
 	}
 }

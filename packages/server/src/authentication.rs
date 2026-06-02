@@ -75,19 +75,19 @@ impl Server {
 	}
 
 	pub(crate) async fn authenticate_process(&self, token: &str) -> tg::Result<Option<Process>> {
-		if let Some(process) = self.sandboxes.iter().find_map(|sandbox| {
-			sandbox.get_process(token).map(|process| Process {
-				created_by: process.created_by().cloned(),
-				debug: process.debug().cloned(),
-				id: process.id().clone(),
-				location: process.location().cloned(),
-				retry: process.retry(),
-				sandbox: process.sandbox().clone(),
-				token: process.token().to_owned(),
-			})
-		}) {
-			return Ok(Some(process));
-		}
+		// if let Some(process) = self.sandboxes.iter().find_map(|sandbox| {
+		// 	sandbox.get_process(token).map(|process| Process {
+		// 		created_by: process.created_by().cloned(),
+		// 		debug: process.debug().cloned(),
+		// 		id: process.id().clone(),
+		// 		location: process.location().cloned(),
+		// 		retry: process.retry(),
+		// 		sandbox: process.sandbox().clone(),
+		// 		token: process.token().to_owned(),
+		// 	})
+		// }) {
+		// 	return Ok(Some(process));
+		// }
 
 		let connection = self
 			.process_store
@@ -183,17 +183,17 @@ impl Server {
 	}
 
 	pub(crate) async fn authenticate_sandbox(&self, token: &str) -> tg::Result<Option<Sandbox>> {
-		if let Some(sandbox) = self.sandboxes.iter().find_map(|sandbox| {
-			let sandbox = sandbox.value();
-			(sandbox.token() == Some(token)).then(|| Sandbox {
-				created_by: sandbox.created_by().cloned(),
-				id: sandbox.id().clone(),
-				location: sandbox.location().clone(),
-				token: Some(token.to_owned()),
-			})
-		}) {
-			return Ok(Some(sandbox));
-		}
+		// if let Some(sandbox) = self.sandboxes.iter().find_map(|sandbox| {
+		// 	let sandbox = sandbox.value();
+		// 	(sandbox.token() == Some(token)).then(|| Sandbox {
+		// 		created_by: sandbox.created_by().cloned(),
+		// 		id: sandbox.id().clone(),
+		// 		location: sandbox.location().clone(),
+		// 		token: Some(token.to_owned()),
+		// 	})
+		// }) {
+		// 	return Ok(Some(sandbox));
+		// }
 
 		let connection = self
 			.process_store

@@ -508,207 +508,206 @@ impl Server {
 
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
-			(http::Method::POST, ["cache"]) => session.cache_request(request).boxed(),
-			(http::Method::POST, ["check"]) => session.check_request(request).boxed(),
-			(http::Method::POST, ["checkin"]) => session.checkin_request(request).boxed(),
-			(http::Method::POST, ["checkout"]) => session.checkout_request(request).boxed(),
-			(http::Method::POST, ["clean"]) => session.clean_request(request).boxed(),
-			(http::Method::POST, ["document"]) => session.document_request(request).boxed(),
-			(http::Method::POST, ["format"]) => session.format_request(request).boxed(),
+			// (http::Method::POST, ["cache"]) => session.cache_request(request).boxed(),
+			// (http::Method::POST, ["check"]) => session.check_request(request).boxed(),
+			// (http::Method::POST, ["checkin"]) => session.checkin_request(request).boxed(),
+			// (http::Method::POST, ["checkout"]) => session.checkout_request(request).boxed(),
+			// (http::Method::POST, ["clean"]) => session.clean_request(request).boxed(),
+			// (http::Method::POST, ["document"]) => session.document_request(request).boxed(),
+			// (http::Method::POST, ["format"]) => session.format_request(request).boxed(),
 			(http::Method::GET, ["health"]) => session.health_request(request).boxed(),
-			(http::Method::POST, ["index"]) => session.index_request(request).boxed(),
-			(http::Method::GET, ["list"]) => session.list_request(request).boxed(),
-			(http::Method::POST, ["lsp"]) => session.lsp_request(request).boxed(),
-			(http::Method::POST, ["pull"]) => session.pull_request(request).boxed(),
-			(http::Method::POST, ["push"]) => session.push_request(request).boxed(),
-			(http::Method::GET, ["read"]) => session.try_read_stream_request(request).boxed(),
-			(http::Method::POST, ["sync"]) => session.sync_request(request).boxed(),
-			(http::Method::POST, ["write"]) => session.write_request(request).boxed(),
-			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
+			// (http::Method::POST, ["index"]) => session.index_request(request).boxed(),
+			// (http::Method::GET, ["list"]) => session.list_request(request).boxed(),
+			// (http::Method::POST, ["lsp"]) => session.lsp_request(request).boxed(),
+			// (http::Method::POST, ["pull"]) => session.pull_request(request).boxed(),
+			// (http::Method::POST, ["push"]) => session.push_request(request).boxed(),
+			// (http::Method::GET, ["read"]) => session.try_read_stream_request(request).boxed(),
+			// (http::Method::POST, ["sync"]) => session.sync_request(request).boxed(),
+			// (http::Method::POST, ["write"]) => session.write_request(request).boxed(),
+			// (http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
 
-			// Groups.
-			(http::Method::GET, ["groups"]) => session.get_or_list_groups_request(request).boxed(),
-			(http::Method::POST, ["groups"]) => session.create_group_request(request).boxed(),
-			(http::Method::DELETE, ["groups"]) => session.try_delete_group_request(request).boxed(),
-			(http::Method::GET, ["groups", "grants"]) => {
-				session.list_group_namespace_grants_request(request).boxed()
-			},
-			(http::Method::GET, ["groups", "members"]) => {
-				session.list_group_members_request(request).boxed()
-			},
-			(http::Method::PUT, ["groups", "members"]) => {
-				session.add_group_member_request(request).boxed()
-			},
-			(http::Method::DELETE, ["groups", "members"]) => {
-				session.remove_group_member_request(request).boxed()
-			},
+			// // Groups.
+			// (http::Method::GET, ["groups"]) => session.get_or_list_groups_request(request).boxed(),
+			// (http::Method::POST, ["groups"]) => session.create_group_request(request).boxed(),
+			// (http::Method::DELETE, ["groups"]) => session.try_delete_group_request(request).boxed(),
+			// (http::Method::GET, ["groups", "grants"]) => {
+			// 	session.list_group_namespace_grants_request(request).boxed()
+			// },
+			// (http::Method::GET, ["groups", "members"]) => {
+			// 	session.list_group_members_request(request).boxed()
+			// },
+			// (http::Method::PUT, ["groups", "members"]) => {
+			// 	session.add_group_member_request(request).boxed()
+			// },
+			// (http::Method::DELETE, ["groups", "members"]) => {
+			// 	session.remove_group_member_request(request).boxed()
+			// },
 
-			// Modules.
-			(http::Method::POST, ["modules", "load"]) => {
-				session.load_module_request(request).boxed()
-			},
-			(http::Method::POST, ["modules", "resolve"]) => {
-				session.resolve_module_request(request).boxed()
-			},
+			// // Modules.
+			// (http::Method::POST, ["modules", "load"]) => {
+			// 	session.load_module_request(request).boxed()
+			// },
+			// (http::Method::POST, ["modules", "resolve"]) => {
+			// 	session.resolve_module_request(request).boxed()
+			// },
 
-			// Namespaces.
-			(http::Method::GET, ["namespaces", "grants"]) => {
-				session.list_namespace_grants_request(request).boxed()
-			},
-			(http::Method::PUT, ["namespaces", "grants"]) => {
-				session.create_namespace_grant_request(request).boxed()
-			},
-			(http::Method::DELETE, ["namespaces", "grants"]) => {
-				session.delete_namespace_grant_request(request).boxed()
-			},
-			(http::Method::GET, ["namespaces"]) => {
-				session.try_get_namespace_request(request).boxed()
-			},
-			(http::Method::PUT, ["namespaces"]) => {
-				session.create_namespace_request(request).boxed()
-			},
-			(http::Method::DELETE, ["namespaces"]) => {
-				session.try_delete_namespace_request(request).boxed()
-			},
+			// // Namespaces.
+			// (http::Method::GET, ["namespaces", "grants"]) => {
+			// 	session.list_namespace_grants_request(request).boxed()
+			// },
+			// (http::Method::PUT, ["namespaces", "grants"]) => {
+			// 	session.create_namespace_grant_request(request).boxed()
+			// },
+			// (http::Method::DELETE, ["namespaces", "grants"]) => {
+			// 	session.delete_namespace_grant_request(request).boxed()
+			// },
+			// (http::Method::GET, ["namespaces"]) => {
+			// 	session.try_get_namespace_request(request).boxed()
+			// },
+			// (http::Method::PUT, ["namespaces"]) => {
+			// 	session.create_namespace_request(request).boxed()
+			// },
+			// (http::Method::DELETE, ["namespaces"]) => {
+			// 	session.try_delete_namespace_request(request).boxed()
+			// },
 
-			// Objects.
-			(http::Method::GET, ["objects", object, "metadata"]) => session
-				.try_get_object_metadata_request(request, object)
-				.boxed(),
-			(http::Method::GET, ["objects", object]) => {
-				session.try_get_object_request(request, object).boxed()
-			},
-			(http::Method::PUT, ["objects", object]) => {
-				session.put_object_request(request, object).boxed()
-			},
-			(http::Method::POST, ["objects", "batch"]) => {
-				session.post_object_batch_request(request).boxed()
-			},
-			(http::Method::POST, ["objects", object, "touch"]) => {
-				session.try_touch_object_request(request, object).boxed()
-			},
+			// // Objects.
+			// (http::Method::GET, ["objects", object, "metadata"]) => session
+			// 	.try_get_object_metadata_request(request, object)
+			// 	.boxed(),
+			// (http::Method::GET, ["objects", object]) => {
+			// 	session.try_get_object_request(request, object).boxed()
+			// },
+			// (http::Method::PUT, ["objects", object]) => {
+			// 	session.put_object_request(request, object).boxed()
+			// },
+			// (http::Method::POST, ["objects", "batch"]) => {
+			// 	session.post_object_batch_request(request).boxed()
+			// },
+			// (http::Method::POST, ["objects", object, "touch"]) => {
+			// 	session.try_touch_object_request(request, object).boxed()
+			// },
 
-			// Processes.
-			(http::Method::GET, ["processes"]) => session.list_processes_request(request).boxed(),
-			(http::Method::POST, ["processes", "spawn"]) => {
-				session.try_spawn_process_request(request).boxed()
-			},
-			(http::Method::GET, ["processes", process, "metadata"]) => session
-				.try_get_process_metadata_request(request, process)
-				.boxed(),
-			(http::Method::GET, ["processes", process]) => {
-				session.try_get_process_request(request, process).boxed()
-			},
-			(http::Method::PUT, ["processes", process]) => {
-				session.put_process_request(request, process).boxed()
-			},
-			(http::Method::POST, ["processes", process, "cancel"]) => {
-				session.try_cancel_process_request(request, process).boxed()
-			},
-			(http::Method::POST, ["processes", process, "signal"]) => {
-				session.try_signal_process_request(request, process).boxed()
-			},
-			(http::Method::GET, ["processes", process, "signal"]) => session
-				.try_get_process_signal_stream_request(request, process)
-				.boxed(),
-			(http::Method::GET, ["processes", process, "status"]) => session
-				.try_get_process_status_stream_request(request, process)
-				.boxed(),
-			(http::Method::GET, ["processes", process, "children"]) => session
-				.try_get_process_children_stream_request(request, process)
-				.boxed(),
-			(http::Method::GET, ["processes", process, "tty", "size"]) => session
-				.try_get_process_tty_size_stream_request(request, process)
-				.boxed(),
-			(http::Method::PUT, ["processes", process, "tty", "size"]) => session
-				.try_set_process_tty_size_request(request, process)
-				.boxed(),
-			(http::Method::GET, ["processes", process, "stdio"]) => session
-				.try_read_process_stdio_request(request, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "stdio"]) => session
-				.try_write_process_stdio_request(request, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "touch"]) => {
-				session.try_touch_process_request(request, process).boxed()
-			},
-			(http::Method::POST, ["processes", process, "finish"]) => {
-				session.try_finish_process_request(request, process).boxed()
-			},
-			(http::Method::POST, ["processes", process, "wait"]) => session
-				.try_wait_process_future_request(request, process)
-				.boxed(),
+			// // Processes.
+			// (http::Method::GET, ["processes"]) => session.list_processes_request(request).boxed(),
+			// (http::Method::POST, ["processes", "spawn"]) => {
+			// 	session.try_spawn_process_request(request).boxed()
+			// },
+			// (http::Method::GET, ["processes", process, "metadata"]) => session
+			// 	.try_get_process_metadata_request(request, process)
+			// 	.boxed(),
+			// (http::Method::GET, ["processes", process]) => {
+			// 	session.try_get_process_request(request, process).boxed()
+			// },
+			// (http::Method::PUT, ["processes", process]) => {
+			// 	session.put_process_request(request, process).boxed()
+			// },
+			// (http::Method::POST, ["processes", process, "cancel"]) => {
+			// 	session.try_cancel_process_request(request, process).boxed()
+			// },
+			// (http::Method::POST, ["processes", process, "signal"]) => {
+			// 	session.try_signal_process_request(request, process).boxed()
+			// },
+			// (http::Method::GET, ["processes", process, "signal"]) => session
+			// 	.try_get_process_signal_stream_request(request, process)
+			// 	.boxed(),
+			// (http::Method::GET, ["processes", process, "status"]) => session
+			// 	.try_get_process_status_stream_request(request, process)
+			// 	.boxed(),
+			// (http::Method::GET, ["processes", process, "children"]) => session
+			// 	.try_get_process_children_stream_request(request, process)
+			// 	.boxed(),
+			// (http::Method::GET, ["processes", process, "tty", "size"]) => session
+			// 	.try_get_process_tty_size_stream_request(request, process)
+			// 	.boxed(),
+			// (http::Method::PUT, ["processes", process, "tty", "size"]) => session
+			// 	.try_set_process_tty_size_request(request, process)
+			// 	.boxed(),
+			// (http::Method::GET, ["processes", process, "stdio"]) => session
+			// 	.try_read_process_stdio_request(request, process)
+			// 	.boxed(),
+			// (http::Method::POST, ["processes", process, "stdio"]) => session
+			// 	.try_write_process_stdio_request(request, process)
+			// 	.boxed(),
+			// (http::Method::POST, ["processes", process, "touch"]) => {
+			// 	session.try_touch_process_request(request, process).boxed()
+			// },
+			// (http::Method::POST, ["processes", process, "finish"]) => {
+			// 	session.try_finish_process_request(request, process).boxed()
+			// },
+			// (http::Method::POST, ["processes", process, "wait"]) => session
+			// 	.try_wait_process_future_request(request, process)
+			// 	.boxed(),
 
-			// Sandboxes.
-			(http::Method::POST, ["sandboxes"]) => session.create_sandbox_request(request).boxed(),
-			(http::Method::GET, ["sandboxes"]) => session.list_sandboxes_request(request).boxed(),
-			(http::Method::POST, ["sandboxes", "dequeue"]) => {
-				session.try_dequeue_sandbox_request(request).boxed()
-			},
-			(http::Method::GET, ["sandboxes", sandbox]) => {
-				session.try_get_sandbox_request(request, sandbox).boxed()
-			},
-			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => session
-				.try_dequeue_sandbox_process_request(request, sandbox)
-				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => session
-				.try_destroy_sandbox_request(request, sandbox)
-				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => session
-				.try_heartbeat_sandbox_request(request, sandbox)
-				.boxed(),
-			(http::Method::GET, ["sandboxes", sandbox, "status"]) => session
-				.try_get_sandbox_status_stream_request(request, sandbox)
-				.boxed(),
+			// // Sandboxes.
+			// (http::Method::POST, ["sandboxes"]) => session.create_sandbox_request(request).boxed(),
+			// (http::Method::GET, ["sandboxes"]) => session.list_sandboxes_request(request).boxed(),
+			// (http::Method::POST, ["sandboxes", "dequeue"]) => {
+			// 	session.try_dequeue_sandbox_request(request).boxed()
+			// },
+			// (http::Method::GET, ["sandboxes", sandbox]) => {
+			// 	session.try_get_sandbox_request(request, sandbox).boxed()
+			// },
+			// (http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => session
+			// 	.try_dequeue_sandbox_process_request(request, sandbox)
+			// 	.boxed(),
+			// (http::Method::POST, ["sandboxes", sandbox, "destroy"]) => session
+			// 	.try_destroy_sandbox_request(request, sandbox)
+			// 	.boxed(),
+			// (http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => session
+			// 	.try_heartbeat_sandbox_request(request, sandbox)
+			// 	.boxed(),
+			// (http::Method::GET, ["sandboxes", sandbox, "status"]) => session
+			// 	.try_get_sandbox_status_stream_request(request, sandbox)
+			// 	.boxed(),
 
-			// Remotes.
-			(http::Method::GET, ["remotes"]) => session.list_remotes_request(request).boxed(),
-			(http::Method::GET, ["remotes", name]) => {
-				session.try_get_remote_request(request, name).boxed()
-			},
-			(http::Method::PUT, ["remotes", name]) => {
-				session.put_remote_request(request, name).boxed()
-			},
-			(http::Method::DELETE, ["remotes", name]) => {
-				session.try_delete_remote_request(request, name).boxed()
-			},
+			// // Remotes.
+			// (http::Method::GET, ["remotes"]) => session.list_remotes_request(request).boxed(),
+			// (http::Method::GET, ["remotes", name]) => {
+			// 	session.try_get_remote_request(request, name).boxed()
+			// },
+			// (http::Method::PUT, ["remotes", name]) => {
+			// 	session.put_remote_request(request, name).boxed()
+			// },
+			// (http::Method::DELETE, ["remotes", name]) => {
+			// 	session.try_delete_remote_request(request, name).boxed()
+			// },
 
-			// Watches.
-			(http::Method::GET, ["watches"]) => session.list_watches_request(request).boxed(),
-			(http::Method::DELETE, ["watches"]) => {
-				session.try_delete_watch_request(request).boxed()
-			},
-			(http::Method::POST, ["watches", "touch"]) => {
-				session.touch_watch_request(request).boxed()
-			},
+			// // Watches.
+			// (http::Method::GET, ["watches"]) => session.list_watches_request(request).boxed(),
+			// (http::Method::DELETE, ["watches"]) => {
+			// 	session.try_delete_watch_request(request).boxed()
+			// },
+			// (http::Method::POST, ["watches", "touch"]) => {
+			// 	session.touch_watch_request(request).boxed()
+			// },
 
-			// Tags.
-			(http::Method::POST, ["tags", "batch"]) => {
-				session.post_tag_batch_request(request).boxed()
-			},
-			(http::Method::GET, ["tags", "grants"]) => {
-				session.list_tag_grants_request(request).boxed()
-			},
-			(http::Method::PUT, ["tags", "grants"]) => {
-				session.create_tag_grant_request(request).boxed()
-			},
-			(http::Method::DELETE, ["tags", "grants"]) => {
-				session.delete_tag_grant_request(request).boxed()
-			},
-			(http::Method::PUT, ["tags"]) => session.put_tag_request(request).boxed(),
-			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
+			// // Tags.
+			// (http::Method::POST, ["tags", "batch"]) => {
+			// 	session.post_tag_batch_request(request).boxed()
+			// },
+			// (http::Method::GET, ["tags", "grants"]) => {
+			// 	session.list_tag_grants_request(request).boxed()
+			// },
+			// (http::Method::PUT, ["tags", "grants"]) => {
+			// 	session.create_tag_grant_request(request).boxed()
+			// },
+			// (http::Method::DELETE, ["tags", "grants"]) => {
+			// 	session.delete_tag_grant_request(request).boxed()
+			// },
+			// (http::Method::PUT, ["tags"]) => session.put_tag_request(request).boxed(),
+			// (http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
 
-			// Users.
-			(http::Method::GET, ["users", user, "grants"]) => session
-				.list_user_namespace_grants_request(request, user)
-				.boxed(),
-			(http::Method::GET, ["users", user, "permissions"]) => session
-				.list_user_namespace_permissions_request(request, user)
-				.boxed(),
-			(http::Method::GET, ["users"]) => session.try_get_user_request(request).boxed(),
-			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
-			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
-
+			// // Users.
+			// (http::Method::GET, ["users", user, "grants"]) => session
+			// 	.list_user_namespace_grants_request(request, user)
+			// 	.boxed(),
+			// (http::Method::GET, ["users", user, "permissions"]) => session
+			// 	.list_user_namespace_permissions_request(request, user)
+			// 	.boxed(),
+			// (http::Method::GET, ["users"]) => session.try_get_user_request(request).boxed(),
+			// (http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
+			// (http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
 			(_, _) => future::ok(
 				http::Response::builder()
 					.status(http::StatusCode::NOT_FOUND)
