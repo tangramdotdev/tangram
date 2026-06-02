@@ -18,7 +18,6 @@ pub mod either;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod row;
-mod run;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 #[cfg(feature = "turso")]

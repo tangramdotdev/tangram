@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -76,25 +76,40 @@ impl Session {
 
 		// Insert the signal into the process store.
 		let process = id.to_string();
-		crate::database::run!(&self.server.process_store, |transaction| {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					insert into process_signals (process, signal)
-					values ({p}1, {p}2);
-				"
-			);
-			let params = db::params![process.clone(), signal.to_string()];
-			let result = transaction.execute(statement.into(), params).await;
-			crate::database::retry!(result, "failed to execute the statement");
-			Ok(ControlFlow::Break(()))
-		})
-		.map_err(|error| tg::error!(!error, "failed to insert the process signal"))?;
+		self.server
+			.process_store
+			.run(|transaction| {
+				let process = process.clone();
+				async move {
+					Self::post_process_signal_with_transaction(transaction, &process, signal).await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to insert the process signal"))?;
 
 		// Publish the signal message.
 		self.spawn_publish_process_signal_message_task(id);
 
 		Ok(Some(()))
+	}
+
+	async fn post_process_signal_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		process: &str,
+		signal: tg::process::Signal,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into process_signals (process, signal)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![process, signal.to_string()];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn try_post_process_signal_regions(

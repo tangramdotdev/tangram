@@ -1,6 +1,7 @@
 use {
 	crate::{Server, Session, database},
 	dashmap::DashMap,
+	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
@@ -84,32 +85,44 @@ impl Server {
 
 	pub(crate) async fn try_start_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let sandbox = id.to_string();
-		let n = crate::database::run!(&self.process_store, |transaction| {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					update sandboxes
-					set
-						heartbeat_at = {p}1,
-						started_at = case when started_at is null then {p}1 else started_at end,
-						status = 'started'
-					where
-						id = {p}2 and
-						status = 'created';
-				"
-			);
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let params = db::params![now, sandbox.clone()];
-			let result = transaction.execute(statement.into(), params).await;
-			let n = crate::database::retry!(result, "failed to execute the statement");
-			Ok(ControlFlow::Break(n))
-		})
-		.map_err(|error| tg::error!(!error, "failed to start the sandbox"))?;
+		let n = self
+			.process_store
+			.run(|transaction| {
+				let sandbox = sandbox.clone();
+				async move { Self::try_start_sandbox_with_transaction(transaction, &sandbox).await }
+					.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the sandbox"))?;
 		if n == 0 {
 			return Ok(false);
 		}
 		self.spawn_publish_sandbox_status_task(id);
 		Ok(true)
+	}
+
+	async fn try_start_sandbox_with_transaction(
+		transaction: &database::Transaction<'_>,
+		sandbox: &str,
+	) -> tg::Result<ControlFlow<u64, database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				update sandboxes
+				set
+					heartbeat_at = {p}1,
+					started_at = case when started_at is null then {p}1 else started_at end,
+					status = 'started'
+				where
+					id = {p}2 and
+					status = 'created';
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let params = db::params![now, sandbox];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(n))
 	}
 
 	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {

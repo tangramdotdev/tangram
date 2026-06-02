@@ -2,7 +2,7 @@ use {
 	self::store::{DeleteArg, ReadArg},
 	crate::Session,
 	futures::{
-		StreamExt as _,
+		FutureExt as _, StreamExt as _,
 		stream::{self, BoxStream},
 	},
 	indoc::formatdoc,
@@ -177,21 +177,18 @@ impl Session {
 		let arg = tg::write::Arg::default();
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 
-		crate::database::run!(&self.server.process_store, |transaction| {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-						update processes
-						set log = {p}2
-						where id = {p}1 and log is null;
-					"
-			);
-			let params = db::params![process.to_string(), blob.to_string()];
-			let result = transaction.execute(statement.into(), params).await;
-			crate::database::retry!(result, "failed to execute the statement");
-			Ok(ControlFlow::Break(()))
-		})
-		.map_err(|error| tg::error!(!error, "failed to update the process log"))?;
+		self.server
+			.process_store
+			.run(|transaction| {
+				let blob = blob.clone();
+				let process = process.clone();
+				async move {
+					Self::update_process_log_with_transaction(transaction, &process, &blob).await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to update the process log"))?;
 
 		self.server
 			.log_store
@@ -202,6 +199,25 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to delete the process log from store"))?;
 
 		Ok(())
+	}
+
+	async fn update_process_log_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		process: &tg::process::Id,
+		blob: &tg::blob::Id,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				update processes
+				set log = {p}2
+				where id = {p}1 and log is null;
+			"
+		);
+		let params = db::params![process.to_string(), blob.to_string()];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn process_log_stream(

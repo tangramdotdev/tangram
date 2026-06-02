@@ -1,18 +1,19 @@
 use {
 	crate::CacheKey,
 	bytes::Bytes,
-	futures::{Stream, stream},
+	futures::{Stream, future::BoxFuture, stream},
 	indexmap::IndexMap,
 	std::{
-		borrow::Cow, collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc,
+		borrow::Cow, collections::HashMap, ops::ControlFlow, path::PathBuf, pin::Pin, sync::Arc,
 		time::Duration,
 	},
 	tangram_pool::{self as pool, Pool},
 };
 
-use {crate::Query, futures::TryStreamExt as _};
-
-pub use crate::run;
+use {
+	crate::{Connection as _, Error as _, Query, Transaction as _},
+	futures::TryStreamExt as _,
+};
 
 pub mod row;
 pub mod value;
@@ -119,6 +120,34 @@ impl Database {
 	#[must_use]
 	pub fn pool(&self) -> &Pool<Connection, Error> {
 		&self.pool
+	}
+
+	pub async fn run<F, T, E>(&self, f: F) -> Result<T, Error>
+	where
+		for<'a, 'b> F:
+			Fn(&'a Transaction<'b>) -> BoxFuture<'a, Result<ControlFlow<T, Error>, E>> + Sync,
+		T: Send + 'static,
+		E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
+	{
+		let options = self.retry.clone();
+		tangram_futures::retry::retry(&options, || async {
+			let mut connection = self.pool.get_exclusive(pool::Priority::default()).await?;
+			let transaction = connection.transaction().await?;
+			let value = match f(&transaction).await {
+				Ok(ControlFlow::Break(value)) => value,
+				Ok(ControlFlow::Continue(error)) => {
+					return Ok(ControlFlow::Continue(error));
+				},
+				Err(error) => return Err(Error::other(error)),
+			};
+			let result = transaction.commit().await;
+			match result {
+				Ok(()) => Ok(ControlFlow::Break(value)),
+				Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+				Err(error) => Err(error),
+			}
+		})
+		.await
 	}
 }
 

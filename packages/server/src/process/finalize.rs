@@ -1,6 +1,6 @@
 use {
 	crate::{Server, database::Database},
-	futures::{StreamExt as _, stream},
+	futures::{FutureExt as _, StreamExt as _, stream},
 	indoc::{formatdoc, indoc},
 	std::{collections::BTreeSet, ops::ControlFlow, pin::pin, time::Duration},
 	tangram_client::prelude::*,
@@ -126,10 +126,18 @@ impl Server {
 	}
 
 	async fn complete_process_finalize_entry(&self, entry: &Entry) -> tg::Result<()> {
-		crate::database::run!(&self.process_store, |transaction| {
-			Self::complete_process_finalize_entry_with_transaction(transaction, entry).await
-		})
-		.map_err(|error| tg::error!(!error, "failed to complete the process finalize entry"))
+		let entry = entry.clone();
+		self.process_store
+			.run(|transaction| {
+				let entry = entry.clone();
+				async move {
+					Self::complete_process_finalize_entry_with_transaction(transaction, &entry)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to complete the process finalize entry"))
 	}
 
 	async fn complete_process_finalize_entry_with_transaction(

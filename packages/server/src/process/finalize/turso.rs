@@ -1,5 +1,6 @@
 use {
 	crate::{Server, process::finalize::Entry},
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -12,10 +13,19 @@ impl Server {
 		process_store: &db::turso::Database,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		db::turso::run!(process_store, |transaction| {
-			Self::try_finalizer_dequeue_batch_turso_with_transaction(transaction, batch_size).await
-		})
-		.map_err(|error| tg::error!(!error, "failed to dequeue finalize entries"))
+		process_store
+			.run(|transaction| {
+				async move {
+					Self::try_finalizer_dequeue_batch_turso_with_transaction(
+						transaction,
+						batch_size,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue finalize entries"))
 	}
 
 	async fn try_finalizer_dequeue_batch_turso_with_transaction(

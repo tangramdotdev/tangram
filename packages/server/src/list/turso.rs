@@ -1,5 +1,6 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -99,22 +100,47 @@ impl Session {
 	) -> tg::Result<()> {
 		let arg = arg.to_owned();
 		let output = output.to_owned();
-		db::turso::run!(database, |transaction| {
-			let statement = indoc!(
-				"
-					insert into list_cache (arg, output, timestamp)
-					values (?1, ?2, ?3)
-					on conflict (arg) do update
-					set output = excluded.output, timestamp = excluded.timestamp;
-				"
-			);
-			let result = transaction
-				.execute(statement.into(), db::params![arg, output, timestamp])
-				.await;
-			crate::database::retry!(result, "failed to execute the statement");
-			Ok(ControlFlow::Break(()))
-		})
-		.map_err(|error| tg::error!(!error, "failed to put the list cache"))
+		database
+			.run(|transaction| {
+				let arg = arg.clone();
+				let output = output.clone();
+				async move {
+					Self::list_cache_put_turso_with_transaction(
+						transaction,
+						&arg,
+						&output,
+						timestamp,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the list cache"))
+	}
+
+	async fn list_cache_put_turso_with_transaction(
+		transaction: &db::turso::Transaction<'_>,
+		arg: &str,
+		output: &str,
+		timestamp: i64,
+	) -> tg::Result<ControlFlow<(), db::turso::Error>> {
+		let statement = indoc!(
+			"
+				insert into list_cache (arg, output, timestamp)
+				values (?1, ?2, ?3)
+				on conflict (arg) do update
+				set output = excluded.output, timestamp = excluded.timestamp;
+			"
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![arg.to_owned(), output.to_owned(), timestamp],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn list_namespace_entries_turso_with_transaction(

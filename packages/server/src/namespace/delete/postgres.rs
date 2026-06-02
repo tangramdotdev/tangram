@@ -1,5 +1,6 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db},
@@ -14,10 +15,18 @@ impl Session {
 		if namespace.is_root() {
 			return Err(tg::error!("cannot delete the root namespace"));
 		}
-		db::postgres::run!(database, |transaction| {
-			Self::try_delete_namespace_postgres_with_transaction(transaction, namespace).await
-		})
-		.map_err(|error| tg::error!(!error, "failed to delete the namespace"))
+		let namespace = namespace.clone();
+		database
+			.run(|transaction| {
+				let namespace = namespace.clone();
+				async move {
+					Self::try_delete_namespace_postgres_with_transaction(transaction, &namespace)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the namespace"))
 	}
 
 	async fn try_delete_namespace_postgres_with_transaction(

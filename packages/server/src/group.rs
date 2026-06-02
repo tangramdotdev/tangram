@@ -1,5 +1,6 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -40,108 +41,113 @@ impl Session {
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
 		let namespace = Self::namespace_for_group(&arg.namespace)?;
-		crate::database::run!(&self.server.database, |transaction| {
-			let parent = if let Some(parent_namespace) = Self::parent_namespace(&namespace) {
-				let Some(parent) = Self::try_get_group_by_namespace_with_transaction(
+		self.server
+			.database
+			.run(|transaction| {
+				let created_by = created_by.clone();
+				let namespace = namespace.clone();
+				async move {
+					Self::create_group_with_transaction(
+						transaction,
+						&namespace,
+						created_by.as_ref(),
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the group"))
+	}
+
+	async fn create_group_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		namespace: &tg::Namespace,
+		created_by: Option<&tg::user::Id>,
+	) -> tg::Result<ControlFlow<tg::group::create::Output, crate::database::Error>> {
+		let parent = if let Some(parent_namespace) = Self::parent_namespace(namespace) {
+			let Some(parent) =
+				Self::try_get_group_by_namespace_with_transaction(transaction, &parent_namespace)
+					.await?
+			else {
+				return Err(tg::error!("failed to find the parent group"));
+			};
+			if let Some(user) = created_by
+				&& !Self::user_has_namespace_permission_with_transaction(
 					transaction,
+					user,
 					&parent_namespace,
+					tg::Permission::Admin,
 				)
 				.await?
-				else {
-					return Err(tg::error!("failed to find the parent group"));
-				};
-				if let Some(user) = &created_by
-					&& !Self::user_has_namespace_permission_with_transaction(
-						transaction,
-						user,
-						&parent_namespace,
-						tg::Permission::Admin,
-					)
-					.await?
-				{
-					return Err(tg::error!("unauthorized"));
-				}
-				Some(parent)
-			} else {
-				None
-			};
-
-			let p = transaction.p();
-			let namespace_string = namespace.to_string();
-			if Self::namespace_in_use_with_transaction(transaction, &namespace_string).await? {
-				return Err(tg::error!("namespace is already in use"));
+			{
+				return Err(tg::error!("unauthorized"));
 			}
+			Some(parent)
+		} else {
+			None
+		};
 
-			let id = tg::group::Id::new();
+		let p = transaction.p();
+		let namespace_string = namespace.to_string();
+		if Self::namespace_in_use_with_transaction(transaction, &namespace_string).await? {
+			return Err(tg::error!("namespace is already in use"));
+		}
+
+		let id = tg::group::Id::new();
+		let statement = formatdoc!(
+			r"
+				insert into groups (id, namespace, parent)
+				values ({p}1, {p}2, {p}3);
+			"
+		);
+		let params = db::params![
+			id.to_string(),
+			namespace.to_string(),
+			parent.as_ref().map(|group| group.id.to_string()),
+		];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		if let Some(user) = created_by {
 			let statement = formatdoc!(
-				r"
-					insert into groups (id, namespace, parent)
-					values ({p}1, {p}2, {p}3);
-				"
+				r#"
+					insert into group_members ("group", "user")
+					values ({p}1, {p}2)
+					on conflict ("group", "user") do nothing;
+				"#
 			);
-			let params = db::params![
-				id.to_string(),
-				namespace.to_string(),
-				parent.as_ref().map(|group| group.id.to_string()),
-			];
+			let params = db::params![id.to_string(), user.to_string()];
 			let result = transaction.execute(statement.into(), params).await;
 			crate::database::retry!(result, "failed to execute the statement");
+		}
 
-			if let Some(user) = &created_by {
-				let statement = formatdoc!(
-					r#"
-						insert into group_members ("group", "user")
-						values ({p}1, {p}2)
-						on conflict ("group", "user") do nothing;
-					"#
-				);
-				let params = db::params![id.to_string(), user.to_string()];
-				let result = transaction.execute(statement.into(), params).await;
-				crate::database::retry!(result, "failed to execute the statement");
-			}
+		let namespace_id =
+			match Self::get_or_create_namespace_with_transaction(transaction, namespace).await? {
+				ControlFlow::Break(namespace_id) => namespace_id,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		match Self::create_namespace_grant_for_group_with_transaction(
+			transaction,
+			namespace,
+			namespace_id,
+			&id,
+			tg::Permission::Admin,
+			created_by,
+		)
+		.await?
+		{
+			ControlFlow::Break(_) => {},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 
-			let namespace_id =
-				match Self::get_or_create_namespace_with_transaction(transaction, &namespace)
-					.await?
-				{
-					ControlFlow::Break(namespace_id) => namespace_id,
-					ControlFlow::Continue(error) => {
-						return Ok::<
-							ControlFlow<tg::group::create::Output, crate::database::Error>,
-							tg::Error,
-						>(ControlFlow::Continue(error));
-					},
-				};
-			match Self::create_namespace_grant_for_group_with_transaction(
-				transaction,
-				&namespace,
-				namespace_id,
-				&id,
-				tg::Permission::Admin,
-				created_by.as_ref(),
-			)
-			.await?
-			{
-				ControlFlow::Break(_) => {},
-				ControlFlow::Continue(error) => {
-					return Ok::<
-						ControlFlow<tg::group::create::Output, crate::database::Error>,
-						tg::Error,
-					>(ControlFlow::Continue(error));
-				},
-			}
-
-			Ok::<ControlFlow<tg::group::create::Output, crate::database::Error>, tg::Error>(
-				ControlFlow::Break(tg::group::create::Output {
-					group: tg::Group {
-						id,
-						namespace: namespace.clone(),
-						parent: parent.map(|group| group.id),
-					},
-				}),
-			)
-		})
-		.map_err(|error| tg::error!(!error, "failed to create the group"))
+		Ok(ControlFlow::Break(tg::group::create::Output {
+			group: tg::Group {
+				id,
+				namespace: namespace.clone(),
+				parent: parent.map(|group| group.id),
+			},
+		}))
 	}
 
 	pub(crate) async fn list_groups(
@@ -253,7 +259,7 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
-		let authentication = &self.context.authentication;
+		let authentication = self.context.authentication.clone();
 		if authentication
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
@@ -261,70 +267,87 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		crate::database::run!(&self.server.database, |transaction| {
-			let Some(group) = Self::try_get_group_with_transaction(transaction, group).await?
-			else {
-				return Ok::<ControlFlow<Option<()>, crate::database::Error>, tg::Error>(
-					ControlFlow::Break(None),
-				);
-			};
-			if let Some(Authentication::User(user)) = authentication
-				&& !Self::user_has_namespace_permission_with_transaction(
-					transaction,
-					&user.id,
-					&group.namespace,
-					tg::Permission::Admin,
-				)
-				.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
+		let group = group.to_owned();
+		self.server
+			.database
+			.run(|transaction| {
+				let authentication = authentication.clone();
+				let group = group.clone();
+				async move {
+					Self::try_delete_group_with_transaction(
+						transaction,
+						&group,
+						authentication.as_ref(),
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the group"))
+	}
 
-			let p = transaction.p();
-			let statement = formatdoc!(
+	async fn try_delete_group_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		group: &str,
+		authentication: Option<&Authentication>,
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
+		let Some(group) = Self::try_get_group_with_transaction(transaction, group).await? else {
+			return Ok(ControlFlow::Break(None));
+		};
+		if let Some(Authentication::User(user)) = authentication
+			&& !Self::user_has_namespace_permission_with_transaction(
+				transaction,
+				&user.id,
+				&group.namespace,
+				tg::Permission::Admin,
+			)
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r"
+				select 1
+				from groups
+				where parent = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional(statement.into(), db::params![group.id.to_string()])
+			.await;
+		if crate::database::retry!(result, "failed to execute the statement").is_some() {
+			return Err(tg::error!("the group has child groups"));
+		}
+
+		for statement in [
+			formatdoc!(
 				r"
-					select 1
-					from groups
-					where parent = {p}1;
+					delete from namespace_grants
+					where principal = {p}1;
 				"
-			);
+			),
+			formatdoc!(
+				r#"
+					delete from group_members
+					where "group" = {p}1;
+				"#
+			),
+			formatdoc!(
+				r"
+					delete from groups
+					where id = {p}1;
+				"
+			),
+		] {
 			let result = transaction
-				.query_optional(statement.into(), db::params![group.id.to_string()])
+				.execute(statement.into(), db::params![group.id.to_string()])
 				.await;
-			if crate::database::retry!(result, "failed to execute the statement").is_some() {
-				return Err(tg::error!("the group has child groups"));
-			}
-
-			for statement in [
-				formatdoc!(
-					r"
-						delete from namespace_grants
-						where principal = {p}1;
-					"
-				),
-				formatdoc!(
-					r#"
-						delete from group_members
-						where "group" = {p}1;
-					"#
-				),
-				formatdoc!(
-					r"
-						delete from groups
-						where id = {p}1;
-					"
-				),
-			] {
-				let result = transaction
-					.execute(statement.into(), db::params![group.id.to_string()])
-					.await;
-				crate::database::retry!(result, "failed to execute the statement");
-			}
-			Ok::<ControlFlow<Option<()>, crate::database::Error>, tg::Error>(ControlFlow::Break(
-				Some(()),
-			))
-		})
-		.map_err(|error| tg::error!(!error, "failed to delete the group"))
+			crate::database::retry!(result, "failed to execute the statement");
+		}
+		Ok(ControlFlow::Break(Some(())))
 	}
 
 	pub(crate) async fn list_group_members(
@@ -427,7 +450,7 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
-		let authentication = &self.context.authentication;
+		let authentication = self.context.authentication.clone();
 		if authentication
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
@@ -435,39 +458,65 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		crate::database::run!(&self.server.database, |transaction| {
-			let group = Self::try_get_group_with_transaction(transaction, group)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the group"))?;
-			if let Some(Authentication::User(current_user)) = authentication
-				&& !Self::user_has_namespace_permission_with_transaction(
-					transaction,
-					&current_user.id,
-					&group.namespace,
-					tg::Permission::Admin,
-				)
-				.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
-			let user = Self::try_get_user_with_transaction(transaction, user)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the user"))?;
+		let group = group.to_owned();
+		let user = user.to_owned();
+		self.server
+			.database
+			.run(|transaction| {
+				let authentication = authentication.clone();
+				let group = group.clone();
+				let user = user.clone();
+				async move {
+					Self::add_group_member_with_transaction(
+						transaction,
+						&group,
+						&user,
+						authentication.as_ref(),
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to add the group member"))
+	}
 
-			let p = transaction.p();
-			let statement = formatdoc!(
-				r#"
-					insert into group_members ("group", "user")
-					values ({p}1, {p}2)
-					on conflict ("group", "user") do nothing;
-				"#
-			);
-			let params = db::params![group.id.to_string(), user.id.to_string()];
-			let result = transaction.execute(statement.into(), params).await;
-			crate::database::retry!(result, "failed to execute the statement");
-			Ok::<ControlFlow<(), crate::database::Error>, tg::Error>(ControlFlow::Break(()))
-		})
-		.map_err(|error| tg::error!(!error, "failed to add the group member"))
+	async fn add_group_member_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		group: &str,
+		user: &str,
+		authentication: Option<&Authentication>,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let group = Self::try_get_group_with_transaction(transaction, group)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the group"))?;
+		if let Some(Authentication::User(current_user)) = authentication
+			&& !Self::user_has_namespace_permission_with_transaction(
+				transaction,
+				&current_user.id,
+				&group.namespace,
+				tg::Permission::Admin,
+			)
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+		let user = Self::try_get_user_with_transaction(transaction, user)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the user"))?;
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				insert into group_members ("group", "user")
+				values ({p}1, {p}2)
+				on conflict ("group", "user") do nothing;
+			"#
+		);
+		let params = db::params![group.id.to_string(), user.id.to_string()];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn remove_group_member(
@@ -483,7 +532,7 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
-		let authentication = &self.context.authentication;
+		let authentication = self.context.authentication.clone();
 		if authentication
 			.as_ref()
 			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
@@ -491,45 +540,64 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		crate::database::run!(&self.server.database, |transaction| {
-			let Some(group) = Self::try_get_group_with_transaction(transaction, group).await?
-			else {
-				return Ok::<ControlFlow<Option<()>, crate::database::Error>, tg::Error>(
-					ControlFlow::Break(None),
-				);
-			};
-			if let Some(Authentication::User(current_user)) = authentication
-				&& !Self::user_has_namespace_permission_with_transaction(
-					transaction,
-					&current_user.id,
-					&group.namespace,
-					tg::Permission::Admin,
-				)
-				.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
-			let Some(user) = Self::try_get_user_with_transaction(transaction, user).await? else {
-				return Ok::<ControlFlow<Option<()>, crate::database::Error>, tg::Error>(
-					ControlFlow::Break(None),
-				);
-			};
+		let group = group.to_owned();
+		let user = user.to_owned();
+		self.server
+			.database
+			.run(|transaction| {
+				let authentication = authentication.clone();
+				let group = group.clone();
+				let user = user.clone();
+				async move {
+					Self::remove_group_member_with_transaction(
+						transaction,
+						&group,
+						&user,
+						authentication.as_ref(),
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to remove the group member"))
+	}
 
-			let p = transaction.p();
-			let statement = formatdoc!(
-				r#"
-					delete from group_members
-					where "group" = {p}1 and "user" = {p}2;
-				"#
-			);
-			let params = db::params![group.id.to_string(), user.id.to_string()];
-			let result = transaction.execute(statement.into(), params).await;
-			let n = crate::database::retry!(result, "failed to execute the statement");
-			Ok::<ControlFlow<Option<()>, crate::database::Error>, tg::Error>(ControlFlow::Break(
-				(n > 0).then_some(()),
-			))
-		})
-		.map_err(|error| tg::error!(!error, "failed to remove the group member"))
+	async fn remove_group_member_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		group: &str,
+		user: &str,
+		authentication: Option<&Authentication>,
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
+		let Some(group) = Self::try_get_group_with_transaction(transaction, group).await? else {
+			return Ok(ControlFlow::Break(None));
+		};
+		if let Some(Authentication::User(current_user)) = authentication
+			&& !Self::user_has_namespace_permission_with_transaction(
+				transaction,
+				&current_user.id,
+				&group.namespace,
+				tg::Permission::Admin,
+			)
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+		let Some(user) = Self::try_get_user_with_transaction(transaction, user).await? else {
+			return Ok(ControlFlow::Break(None));
+		};
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				delete from group_members
+				where "group" = {p}1 and "user" = {p}2;
+			"#
+		);
+		let params = db::params![group.id.to_string(), user.id.to_string()];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break((n > 0).then_some(())))
 	}
 
 	pub(crate) async fn try_get_group_with_transaction(

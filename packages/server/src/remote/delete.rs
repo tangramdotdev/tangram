@@ -1,5 +1,6 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -35,29 +36,47 @@ impl Session {
 
 		let name = name.to_owned();
 		let user = user.map(ToString::to_string);
-		let n = crate::database::run!(&self.server.database, |transaction| {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				r#"
-					delete from remotes
-					where name = {p}1 and (
-						("user" is null and {p}2 is null) or
-						"user" = {p}2
-					);
-				"#,
-			);
-			let params = db::params![name.clone(), user.clone()];
-			let result = transaction.execute(statement.into(), params).await;
-			let n = crate::database::retry!(result, "failed to execute the statement");
-			Ok(ControlFlow::Break(n))
-		})
-		.map_err(|error| tg::error!(!error, "failed to delete the remote"))?;
+		let n = self
+			.server
+			.database
+			.run(|transaction| {
+				let name = name.clone();
+				let user = user.clone();
+				async move {
+					Self::try_delete_remote_with_transaction(transaction, &name, user.as_deref())
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the remote"))?;
 
 		if n == 0 {
 			return Ok(None);
 		}
 
 		Ok(Some(()))
+	}
+
+	async fn try_delete_remote_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		name: &str,
+		user: Option<&str>,
+	) -> tg::Result<ControlFlow<u64, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				delete from remotes
+				where name = {p}1 and (
+					("user" is null and {p}2 is null) or
+					"user" = {p}2
+				);
+			"#,
+		);
+		let params = db::params![name, user];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(n))
 	}
 
 	pub(crate) async fn try_delete_remote_request(

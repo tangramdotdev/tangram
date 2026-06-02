@@ -1,5 +1,6 @@
 use {
 	crate::Server,
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -19,11 +20,21 @@ impl Server {
 
 		for process in processes {
 			let process = process.to_string();
-			db::turso::run!(process_store, |transaction| {
-				Self::clean_processes_turso_with_transaction(transaction, &process, max_stored_at)
-					.await
-			})
-			.map_err(|error| tg::error!(!error, "failed to clean the process"))?;
+			process_store
+				.run(|transaction| {
+					let process = process.clone();
+					async move {
+						Self::clean_processes_turso_with_transaction(
+							transaction,
+							&process,
+							max_stored_at,
+						)
+						.await
+					}
+					.boxed()
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "failed to clean the process"))?;
 		}
 
 		Ok(())
@@ -136,10 +147,16 @@ impl Server {
 		process_store: &db::turso::Database,
 		now: i64,
 	) -> tg::Result<()> {
-		db::turso::run!(process_store, |transaction| {
-			Self::clean_expired_process_grants_turso_with_transaction(transaction, now).await
-		})
-		.map_err(|error| tg::error!(!error, "failed to delete process grants"))
+		process_store
+			.run(|transaction| {
+				async move {
+					Self::clean_expired_process_grants_turso_with_transaction(transaction, now)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete process grants"))
 	}
 
 	async fn clean_expired_process_grants_turso_with_transaction(

@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	bytes::Bytes,
+	futures::FutureExt as _,
 	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -15,15 +16,22 @@ impl Session {
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
 		let id = id.to_string();
 		let streams = streams.iter().map(ToString::to_string).collect::<Vec<_>>();
-		db::postgres::run!(process_store, |transaction| {
-			Self::try_read_process_stdio_pipe_event_postgres_with_transaction(
-				transaction,
-				&id,
-				&streams,
-			)
+		process_store
+			.run(|transaction| {
+				let id = id.clone();
+				let streams = streams.clone();
+				async move {
+					Self::try_read_process_stdio_pipe_event_postgres_with_transaction(
+						transaction,
+						&id,
+						&streams,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to read process stdio"))
+			.map_err(|error| tg::error!(!error, "failed to read process stdio"))
 	}
 
 	async fn try_read_process_stdio_pipe_event_postgres_with_transaction(

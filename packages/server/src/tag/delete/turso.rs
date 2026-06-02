@@ -1,5 +1,6 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -21,11 +22,21 @@ impl Session {
 				"cannot delete multiple tags without --recursive"
 			));
 		}
-		db::turso::run!(database, |transaction| {
-			self.delete_tags_turso_with_transaction(transaction, pattern, recursive)
-				.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to delete the tags"))
+		let pattern = pattern.clone();
+		let session = self.clone();
+		database
+			.run(|transaction| {
+				let pattern = pattern.clone();
+				let session = session.clone();
+				async move {
+					session
+						.delete_tags_turso_with_transaction(transaction, &pattern, recursive)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the tags"))
 	}
 
 	async fn delete_tags_turso_with_transaction(

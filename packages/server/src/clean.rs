@@ -164,14 +164,23 @@ impl Session {
 		}
 
 		// Delete the list cache.
-		crate::database::run!(&self.server.database, |transaction| {
-			let statement = "delete from list_cache;";
-			let result = transaction.execute(statement.into(), db::params![]).await;
-			crate::database::retry!(result, "failed to delete the list cache");
-			Ok(ControlFlow::Break(()))
-		})?;
+		self.server
+			.database
+			.run(|transaction| {
+				async move { Self::delete_list_cache_with_transaction(transaction).await }.boxed()
+			})
+			.await?;
 
 		Ok::<_, tg::Error>(output)
+	}
+
+	async fn delete_list_cache_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let statement = "delete from list_cache;";
+		let result = transaction.execute(statement.into(), db::params![]).await;
+		crate::database::retry!(result, "failed to delete the list cache");
+		Ok(ControlFlow::Break(()))
 	}
 }
 

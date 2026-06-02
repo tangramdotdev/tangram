@@ -1,14 +1,14 @@
 use {
-	crate::CacheKey,
-	futures::{Stream, TryStreamExt as _, future},
+	crate::{CacheKey, Connection as _, Error as _, Transaction as _},
+	futures::{Stream, TryStreamExt as _, future, future::BoxFuture},
 	indexmap::IndexMap,
-	std::{borrow::Cow, collections::HashMap, time::Duration},
+	std::{borrow::Cow, collections::HashMap, ops::ControlFlow, time::Duration},
 	tangram_pool::{self as pool, Pool},
 	tangram_uri::Uri,
 	tokio_postgres as postgres,
 };
 
-pub use {crate::run, postgres::types::Json};
+pub use postgres::types::Json;
 
 pub mod row;
 pub mod util;
@@ -110,6 +110,37 @@ impl Database {
 
 	pub async fn sync(&self) -> Result<(), Error> {
 		Ok(())
+	}
+
+	pub async fn run<F, T, E>(&self, f: F) -> Result<T, Error>
+	where
+		for<'a, 'b> F:
+			Fn(&'a Transaction<'b>) -> BoxFuture<'a, Result<ControlFlow<T, Error>, E>> + Sync,
+		T: Send + 'static,
+		E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
+	{
+		let options = self.retry.clone();
+		tangram_futures::retry::retry(&options, || async {
+			let mut connection = self.pool.get_exclusive(pool::Priority::default()).await?;
+			if connection.client.is_closed() {
+				connection.reconnect().await?;
+			}
+			let transaction = connection.transaction().await?;
+			let value = match f(&transaction).await {
+				Ok(ControlFlow::Break(value)) => value,
+				Ok(ControlFlow::Continue(error)) => {
+					return Ok(ControlFlow::Continue(error));
+				},
+				Err(error) => return Err(Error::other(error)),
+			};
+			let result = transaction.commit().await;
+			match result {
+				Ok(()) => Ok(ControlFlow::Break(value)),
+				Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+				Err(error) => Err(error),
+			}
+		})
+		.await
 	}
 }
 

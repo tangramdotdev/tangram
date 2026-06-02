@@ -1,6 +1,6 @@
 use {
 	crate::{Database, Session, context::Authentication},
-	futures::TryStreamExt as _,
+	futures::{FutureExt as _, TryStreamExt as _},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -151,29 +151,43 @@ impl Session {
 	}
 
 	async fn authorize_tag_batch(&self, arg: &tg::tag::batch::Arg) -> tg::Result<Vec<bool>> {
-		crate::database::run!(&self.server.database, |transaction| {
-			let mut grant_creator_admin = Vec::with_capacity(arg.tags.len());
-			for item in &arg.tags {
-				let value = match self
-					.authorize_put_tag_with_transaction(transaction, &item.tag)
-					.await?
-				{
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => {
-						return Ok::<ControlFlow<Vec<bool>, crate::database::Error>, tg::Error>(
-							ControlFlow::Continue(error),
-						);
-					},
-				};
-				grant_creator_admin.push(value);
-			}
-			self.authorize_put_tag_item_batch_with_transaction(transaction, &arg.tags)
-				.await?;
-			Ok::<ControlFlow<Vec<bool>, crate::database::Error>, tg::Error>(ControlFlow::Break(
-				grant_creator_admin,
-			))
-		})
-		.map_err(|error| tg::error!(!error, "failed to authorize the tag batch"))
+		let arg = arg.clone();
+		let session = self.clone();
+		self.server
+			.database
+			.run(|transaction| {
+				let arg = arg.clone();
+				let session = session.clone();
+				async move {
+					session
+						.authorize_tag_batch_with_transaction(transaction, &arg)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the tag batch"))
+	}
+
+	async fn authorize_tag_batch_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: &tg::tag::batch::Arg,
+	) -> tg::Result<ControlFlow<Vec<bool>, crate::database::Error>> {
+		let mut grant_creator_admin = Vec::with_capacity(arg.tags.len());
+		for item in &arg.tags {
+			let value = match self
+				.authorize_put_tag_with_transaction(transaction, &item.tag)
+				.await?
+			{
+				ControlFlow::Break(value) => value,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			grant_creator_admin.push(value);
+		}
+		self.authorize_put_tag_item_batch_with_transaction(transaction, &arg.tags)
+			.await?;
+		Ok(ControlFlow::Break(grant_creator_admin))
 	}
 
 	async fn post_tag_batch_region(

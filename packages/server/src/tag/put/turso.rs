@@ -1,5 +1,6 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -20,17 +21,27 @@ impl Session {
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
-		db::turso::run!(database, |transaction| {
-			Self::put_tag_turso_with_transaction(
-				transaction,
-				tag,
-				arg,
-				created_by.as_ref(),
-				grant_creator_admin,
-			)
+		let tag = tag.clone();
+		let arg = arg.clone();
+		database
+			.run(|transaction| {
+				let tag = tag.clone();
+				let arg = arg.clone();
+				let created_by = created_by.clone();
+				async move {
+					Self::put_tag_turso_with_transaction(
+						transaction,
+						&tag,
+						&arg,
+						created_by.as_ref(),
+						grant_creator_admin,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to put the tag"))
+			.map_err(|error| tg::error!(!error, "failed to put the tag"))
 	}
 
 	pub(crate) async fn put_tag_turso_with_transaction(

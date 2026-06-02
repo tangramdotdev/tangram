@@ -1,5 +1,6 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::ops::ControlFlow,
@@ -47,18 +48,26 @@ impl Session {
 		let created_by = created_by.cloned();
 		let grant_ttl = self.server.config.process.grant_time_to_live;
 
-		db::turso::run!(process_store, |transaction| {
-			Self::put_process_batch_turso_with_transaction(
-				transaction,
-				&items,
-				stored_at,
-				principal.as_ref(),
-				grant_ttl,
-				created_by.as_ref(),
-			)
+		process_store
+			.run(|transaction| {
+				let items = items.clone();
+				let principal = principal.clone();
+				let created_by = created_by.clone();
+				async move {
+					Self::put_process_batch_turso_with_transaction(
+						transaction,
+						&items,
+						stored_at,
+						principal.as_ref(),
+						grant_ttl,
+						created_by.as_ref(),
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to put the process"))
+			.map_err(|error| tg::error!(!error, "failed to put the process"))
 	}
 
 	pub(crate) async fn put_process_batch_turso_with_transaction(

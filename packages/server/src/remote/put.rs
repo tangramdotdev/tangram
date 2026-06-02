@@ -1,5 +1,6 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -36,37 +37,56 @@ impl Session {
 		let name = name.to_owned();
 		let url = arg.url.to_string();
 		let user = user.map(ToString::to_string);
-		crate::database::run!(&self.server.database, |transaction| {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				r#"
-					update remotes
-					set url = {p}3
-					where name = {p}1 and (
-						("user" is null and {p}2 is null) or
-						"user" = {p}2
-					);
-				"#,
-			);
-			let params = db::params![name.clone(), user.clone(), url.clone()];
-			let result = transaction.execute(statement.into(), params).await;
-			let n = crate::database::retry!(result, "failed to execute the statement");
-			if n == 0 {
-				let statement = formatdoc!(
-					r#"
-						insert into remotes (name, "user", url)
-						values ({p}1, {p}2, {p}3);
-					"#,
-				);
-				let params = db::params![name.clone(), user.clone(), url.clone()];
-				let result = transaction.execute(statement.into(), params).await;
-				crate::database::retry!(result, "failed to execute the statement");
-			}
-			Ok(ControlFlow::Break(()))
-		})
-		.map_err(|error| tg::error!(!error, "failed to put the remote"))?;
+		self.server
+			.database
+			.run(|transaction| {
+				let name = name.clone();
+				let url = url.clone();
+				let user = user.clone();
+				async move {
+					Self::put_remote_with_transaction(transaction, &name, user.as_deref(), &url)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the remote"))?;
 
 		Ok(())
+	}
+
+	async fn put_remote_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		name: &str,
+		user: Option<&str>,
+		url: &str,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				update remotes
+				set url = {p}3
+				where name = {p}1 and (
+					("user" is null and {p}2 is null) or
+					"user" = {p}2
+				);
+			"#,
+		);
+		let params = db::params![name, user, url];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		if n == 0 {
+			let statement = formatdoc!(
+				r#"
+					insert into remotes (name, "user", url)
+					values ({p}1, {p}2, {p}3);
+				"#,
+			);
+			let params = db::params![name, user, url];
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
+		}
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn put_remote_request(

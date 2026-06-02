@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -59,11 +59,23 @@ impl Session {
 	) -> tg::Result<Option<()>> {
 		let id = id.clone();
 		let lease = arg.lease;
-		let deleted = crate::database::run!(&self.server.process_store, |transaction| {
-			self.try_cancel_process_with_transaction(transaction, &id, &lease)
-				.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
+		let session = self.clone();
+		let deleted = self
+			.server
+			.process_store
+			.run(|transaction| {
+				let id = id.clone();
+				let lease = lease.clone();
+				let session = session.clone();
+				async move {
+					session
+						.try_cancel_process_with_transaction(transaction, &id, &lease)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
 
 		if deleted.is_some_and(|deleted| deleted > 0) {
 			self.server.spawn_publish_watchdog_message_task();

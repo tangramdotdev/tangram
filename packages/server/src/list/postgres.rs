@@ -1,5 +1,6 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -120,11 +121,23 @@ impl Session {
 	) -> tg::Result<()> {
 		let arg = arg.to_owned();
 		let output = output.to_owned();
-		db::postgres::run!(database, |transaction| {
-			Self::list_cache_put_postgres_with_transaction(transaction, &arg, &output, timestamp)
-				.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to put the list cache"))
+		database
+			.run(|transaction| {
+				let arg = arg.clone();
+				let output = output.clone();
+				async move {
+					Self::list_cache_put_postgres_with_transaction(
+						transaction,
+						&arg,
+						&output,
+						timestamp,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the list cache"))
 	}
 
 	async fn list_cache_put_postgres_with_transaction(

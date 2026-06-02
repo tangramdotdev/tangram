@@ -1,5 +1,6 @@
 use {
 	crate::Server,
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -21,11 +22,21 @@ impl Server {
 			.iter()
 			.map(ToString::to_string)
 			.collect::<Vec<_>>();
-		db::postgres::run!(process_store, |transaction| {
-			Self::clean_processes_postgres_with_transaction(transaction, &processes, max_stored_at)
-				.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to clean the process"))
+		process_store
+			.run(|transaction| {
+				let processes = processes.clone();
+				async move {
+					Self::clean_processes_postgres_with_transaction(
+						transaction,
+						&processes,
+						max_stored_at,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to clean the process"))
 	}
 
 	async fn clean_processes_postgres_with_transaction(
@@ -93,10 +104,16 @@ impl Server {
 		process_store: &db::postgres::Database,
 		now: i64,
 	) -> tg::Result<()> {
-		db::postgres::run!(process_store, |transaction| {
-			Self::clean_expired_process_grants_postgres_with_transaction(transaction, now).await
-		})
-		.map_err(|error| tg::error!(!error, "failed to delete process grants"))
+		process_store
+			.run(|transaction| {
+				async move {
+					Self::clean_expired_process_grants_postgres_with_transaction(transaction, now)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete process grants"))
 	}
 
 	async fn clean_expired_process_grants_postgres_with_transaction(

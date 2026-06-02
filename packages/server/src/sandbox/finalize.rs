@@ -1,6 +1,6 @@
 use {
 	crate::{Server, database::Database},
-	futures::{StreamExt as _, stream},
+	futures::{FutureExt as _, StreamExt as _, stream},
 	indoc::formatdoc,
 	std::{ops::ControlFlow, pin::pin, time::Duration},
 	tangram_client::prelude::*,
@@ -110,11 +110,21 @@ impl Server {
 	}
 
 	async fn handle_sandbox_finalize_entry(&self, entry: &Entry) -> tg::Result<()> {
-		crate::database::run!(&self.process_store, |transaction| {
-			self.handle_sandbox_finalize_entry_with_transaction(transaction, entry)
-				.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to handle the sandbox finalize entry"))
+		let entry = entry.clone();
+		let server = self.clone();
+		self.process_store
+			.run(|transaction| {
+				let entry = entry.clone();
+				let server = server.clone();
+				async move {
+					server
+						.handle_sandbox_finalize_entry_with_transaction(transaction, &entry)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to handle the sandbox finalize entry"))
 	}
 
 	async fn handle_sandbox_finalize_entry_with_transaction(

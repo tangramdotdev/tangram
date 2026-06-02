@@ -1,5 +1,6 @@
 use {
 	crate::{Server, sandbox::finalize::Entry},
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -12,14 +13,19 @@ impl Server {
 		process_store: &db::postgres::Database,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		db::postgres::run!(process_store, |transaction| {
-			Self::try_dequeue_sandbox_finalize_batch_postgres_with_transaction(
-				transaction,
-				batch_size,
-			)
+		process_store
+			.run(|transaction| {
+				async move {
+					Self::try_dequeue_sandbox_finalize_batch_postgres_with_transaction(
+						transaction,
+						batch_size,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to dequeue sandbox finalize entries"))
+			.map_err(|error| tg::error!(!error, "failed to dequeue sandbox finalize entries"))
 	}
 
 	async fn try_dequeue_sandbox_finalize_batch_postgres_with_transaction(

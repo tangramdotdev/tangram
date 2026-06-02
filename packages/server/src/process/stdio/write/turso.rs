@@ -2,6 +2,7 @@ use {
 	super::WriteOutput,
 	crate::{Session, process::stdio::MAX_UNREAD_PROCESS_STDIO_BYTES},
 	bytes::Bytes,
+	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -18,16 +19,23 @@ impl Session {
 	) -> tg::Result<WriteOutput> {
 		let id = id.to_string();
 		let bytes = bytes.clone();
-		db::turso::run!(process_store, |transaction| {
-			Self::try_write_process_stdio_turso_with_transaction(
-				transaction,
-				&id,
-				stream,
-				bytes.clone(),
-			)
+		process_store
+			.run(|transaction| {
+				let id = id.clone();
+				let bytes = bytes.clone();
+				async move {
+					Self::try_write_process_stdio_turso_with_transaction(
+						transaction,
+						&id,
+						stream,
+						bytes,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to write process stdio"))
+			.map_err(|error| tg::error!(!error, "failed to write process stdio"))
 	}
 
 	async fn try_write_process_stdio_turso_with_transaction(
@@ -109,10 +117,17 @@ impl Session {
 			tg::process::stdio::Stream::Stdout => "stdout_open",
 			tg::process::stdio::Stream::Stderr => "stderr_open",
 		};
-		db::turso::run!(process_store, |transaction| {
-			Self::try_close_process_stdio_turso_with_transaction(transaction, &id, column).await
-		})
-		.map_err(|error| tg::error!(!error, "failed to close process stdio"))
+		process_store
+			.run(|transaction| {
+				let id = id.clone();
+				async move {
+					Self::try_close_process_stdio_turso_with_transaction(transaction, &id, column)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to close process stdio"))
 	}
 
 	async fn try_close_process_stdio_turso_with_transaction(

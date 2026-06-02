@@ -1,5 +1,6 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -16,45 +17,63 @@ mod turso;
 
 impl Session {
 	pub(crate) async fn create_namespace(&self, arg: tg::namespace::create::Arg) -> tg::Result<()> {
-		let namespace = &arg.namespace;
 		let created_by = self
 			.context
 			.authentication
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
-		crate::database::run!(&self.server.database, |transaction| {
-			let namespace_id = match self
-				.create_namespace_with_transaction(transaction, namespace, created_by.as_ref())
-				.await?
-			{
-				ControlFlow::Break(namespace_id) => namespace_id,
-				ControlFlow::Continue(error) => {
-					return Ok::<ControlFlow<(), crate::database::Error>, tg::Error>(
-						ControlFlow::Continue(error),
-					);
-				},
-			};
-			if arg.all {
-				match Self::create_namespace_grant_for_all_with_transaction(
-					transaction,
-					namespace,
-					namespace_id,
-					created_by.as_ref(),
-				)
-				.await?
-				{
-					ControlFlow::Break(_) => {},
-					ControlFlow::Continue(error) => {
-						return Ok::<ControlFlow<(), crate::database::Error>, tg::Error>(
-							ControlFlow::Continue(error),
-						);
-					},
+		let arg = arg.clone();
+		let session = self.clone();
+		self.server
+			.database
+			.run(|transaction| {
+				let arg = arg.clone();
+				let created_by = created_by.clone();
+				let session = session.clone();
+				async move {
+					session
+						.create_namespace_inner_with_transaction(
+							transaction,
+							&arg,
+							created_by.as_ref(),
+						)
+						.await
 				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the namespace"))
+	}
+
+	async fn create_namespace_inner_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: &tg::namespace::create::Arg,
+		created_by: Option<&tg::user::Id>,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let namespace = &arg.namespace;
+		let namespace_id = match self
+			.create_namespace_with_transaction(transaction, namespace, created_by)
+			.await?
+		{
+			ControlFlow::Break(namespace_id) => namespace_id,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if arg.all {
+			match Self::create_namespace_grant_for_all_with_transaction(
+				transaction,
+				namespace,
+				namespace_id,
+				created_by,
+			)
+			.await?
+			{
+				ControlFlow::Break(_) => {},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
-			Ok::<ControlFlow<(), crate::database::Error>, tg::Error>(ControlFlow::Break(()))
-		})
-		.map_err(|error| tg::error!(!error, "failed to create the namespace"))
+		}
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn create_namespace_with_transaction(

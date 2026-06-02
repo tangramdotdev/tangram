@@ -732,52 +732,14 @@ impl Server {
 		// Set the remotes if specified in the config.
 		if let Some(remotes) = &server.config.remotes {
 			let remotes = remotes.clone();
-			crate::database::run!(&server.database, |transaction| {
-				#[derive(db::row::Deserialize)]
-				struct RemoteTokenRow {
-					name: String,
-					token: Option<String>,
-				}
-				let statement = indoc!(
-					r#"
-							select name, token
-							from remotes
-							where "user" is null;
-						"#,
-				);
-				let result = transaction
-					.query_all_into::<RemoteTokenRow>(statement.into(), db::params![])
-					.await;
-				let tokens = crate::database::retry!(result, "failed to execute the statement")
-					.into_iter()
-					.map(|row| (row.name, row.token))
-					.collect::<std::collections::BTreeMap<_, _>>();
-				let statement = indoc!(
-					r#"
-							delete from remotes
-							where "user" is null;
-						"#,
-				);
-				let result = transaction.execute(statement.into(), db::params![]).await;
-				crate::database::retry!(result, "failed to delete the remotes");
-				for (name, remote) in &remotes {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						r#"
-									insert into remotes (name, "user", url, token)
-									values ({p}1, null, {p}2, {p}3);
-								"#,
-					);
-					let token = remote
-						.token
-						.clone()
-						.or_else(|| tokens.get(name).cloned().flatten());
-					let params = db::params![name.clone(), remote.url.to_string(), token];
-					let result = transaction.execute(statement.into(), params).await;
-					crate::database::retry!(result, "failed to insert the remote");
-				}
-				Ok(ControlFlow::Break(()))
-			})?;
+			server
+				.database
+				.run(|transaction| {
+					let remotes = remotes.clone();
+					async move { Self::set_config_remotes_with_transaction(transaction, &remotes).await }
+						.boxed()
+				})
+				.await?;
 		}
 		// Spawn the indexer task.
 		let indexer_task = server.config.indexer.clone().map(|config| {
@@ -1305,6 +1267,56 @@ impl Server {
 	#[must_use]
 	pub(crate) fn session(&self, context: &Context) -> Session {
 		Session::new(self.clone(), context.clone())
+	}
+
+	async fn set_config_remotes_with_transaction(
+		transaction: &database::Transaction<'_>,
+		remotes: &std::collections::BTreeMap<String, crate::config::Remote>,
+	) -> tg::Result<ControlFlow<(), database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct RemoteTokenRow {
+			name: String,
+			token: Option<String>,
+		}
+		let statement = indoc!(
+			r#"
+				select name, token
+				from remotes
+				where "user" is null;
+			"#,
+		);
+		let result = transaction
+			.query_all_into::<RemoteTokenRow>(statement.into(), db::params![])
+			.await;
+		let tokens = crate::database::retry!(result, "failed to execute the statement")
+			.into_iter()
+			.map(|row| (row.name, row.token))
+			.collect::<std::collections::BTreeMap<_, _>>();
+		let statement = indoc!(
+			r#"
+				delete from remotes
+				where "user" is null;
+			"#,
+		);
+		let result = transaction.execute(statement.into(), db::params![]).await;
+		crate::database::retry!(result, "failed to delete the remotes");
+		for (name, remote) in remotes {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				r#"
+					insert into remotes (name, "user", url, token)
+					values ({p}1, null, {p}2, {p}3);
+				"#,
+			);
+			let token = remote
+				.token
+				.clone()
+				.or_else(|| tokens.get(name).cloned().flatten());
+			let params = db::params![name.clone(), remote.url.to_string(), token];
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to insert the remote");
+		}
+		Ok(ControlFlow::Break(()))
 	}
 
 	#[must_use]

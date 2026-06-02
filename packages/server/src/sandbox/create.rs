@@ -1,5 +1,6 @@
 use {
 	crate::{Server, Session, context::Authentication},
+	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::{
 		net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -9,6 +10,17 @@ use {
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
+
+#[derive(Clone)]
+struct CreateSandboxArg {
+	arg: tg::sandbox::create::Arg,
+	cpu: Option<i64>,
+	created_by: Option<tg::user::Id>,
+	id: tg::sandbox::Id,
+	memory: Option<i64>,
+	now: i64,
+	ttl: Option<std::time::Duration>,
+}
 
 impl Session {
 	pub(crate) async fn create_sandbox(
@@ -80,59 +92,23 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?;
 		let ttl = arg.ttl;
 		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
-		crate::database::run!(&self.server.process_store, |transaction| {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				r#"
-					insert into sandboxes (
-						id,
-						cpu,
-						created_at,
-						created_by,
-						hostname,
-						isolation,
-						memory,
-						mounts,
-						network,
-						status,
-						ttl,
-						"user"
-					)
-					values (
-						{p}1,
-						{p}2,
-						{p}3,
-						{p}4,
-						{p}5,
-						{p}6,
-						{p}7,
-						{p}8,
-						{p}9,
-						{p}10,
-						{p}11,
-						{p}12
-					);
-				"#
-			);
-			let params = db::params![
-				id.to_string(),
-				cpu,
-				now,
-				created_by.as_ref().map(ToString::to_string),
-				arg.hostname.clone(),
-				arg.isolation.map(db::value::Json),
-				memory,
-				(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-				arg.network.clone().map(db::value::Json),
-				tg::sandbox::Status::Created.to_string(),
-				db::value::DurationSeconds(ttl),
-				arg.user.clone(),
-			];
-			let result = transaction.execute(statement.into(), params).await;
-			crate::database::retry!(result, "failed to execute the statement");
-			Ok(ControlFlow::Break(()))
-		})
-		.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
+		let arg = CreateSandboxArg {
+			arg: arg.clone(),
+			cpu,
+			created_by,
+			id: id.clone(),
+			memory,
+			now,
+			ttl,
+		};
+		self.server
+			.process_store
+			.run(|transaction| {
+				let arg = arg.clone();
+				async move { Self::create_sandbox_with_transaction(transaction, arg).await }.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
 
 		self.server.spawn_publish_sandbox_status_task(&id);
 		self.spawn_publish_sandboxes_created_message_task();
@@ -140,6 +116,62 @@ impl Session {
 		let output = tg::sandbox::create::Output { id };
 
 		Ok(output)
+	}
+
+	async fn create_sandbox_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		arg: CreateSandboxArg,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				insert into sandboxes (
+					id,
+					cpu,
+					created_at,
+					created_by,
+					hostname,
+					isolation,
+					memory,
+					mounts,
+					network,
+					status,
+					ttl,
+					"user"
+				)
+				values (
+					{p}1,
+					{p}2,
+					{p}3,
+					{p}4,
+					{p}5,
+					{p}6,
+					{p}7,
+					{p}8,
+					{p}9,
+					{p}10,
+					{p}11,
+					{p}12
+				);
+			"#
+		);
+		let params = db::params![
+			arg.id.to_string(),
+			arg.cpu,
+			arg.now,
+			arg.created_by.as_ref().map(ToString::to_string),
+			arg.arg.hostname.clone(),
+			arg.arg.isolation.map(db::value::Json),
+			arg.memory,
+			(!arg.arg.mounts.is_empty()).then_some(db::value::Json(arg.arg.mounts)),
+			arg.arg.network.map(db::value::Json),
+			tg::sandbox::Status::Created.to_string(),
+			db::value::DurationSeconds(arg.ttl),
+			arg.arg.user,
+		];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn create_sandbox_region(

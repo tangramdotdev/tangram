@@ -1,5 +1,6 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -13,10 +14,17 @@ impl Session {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Signal>> {
 		let id = id.to_string();
-		db::postgres::run!(process_store, |transaction| {
-			Self::try_dequeue_process_signal_postgres_with_transaction(transaction, &id).await
-		})
-		.map_err(|error| tg::error!(!error, "failed to dequeue the process signal"))
+		process_store
+			.run(|transaction| {
+				let id = id.clone();
+				async move {
+					Self::try_dequeue_process_signal_postgres_with_transaction(transaction, &id)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue the process signal"))
 	}
 
 	async fn try_dequeue_process_signal_postgres_with_transaction(

@@ -163,18 +163,30 @@ impl Session {
 			&& tty.is_none();
 
 		// Get or create a local process in the process store.
-		let mut output = crate::database::run!(&self.server.process_store, |transaction| {
-			Self::try_spawn_process_local_with_transaction(
-				self,
-				transaction,
-				&arg,
-				parent_sandbox.as_ref(),
-				cacheable,
-				host.as_deref(),
-			)
+		let session = self.clone();
+		let mut output = self
+			.server
+			.process_store
+			.run(|transaction| {
+				let arg = arg.clone();
+				let host = host.clone();
+				let parent_sandbox = parent_sandbox.clone();
+				let session = session.clone();
+				async move {
+					session
+						.try_spawn_process_local_with_transaction(
+							transaction,
+							&arg,
+							parent_sandbox.as_ref(),
+							cacheable,
+							host.as_deref(),
+						)
+						.await
+				}
+				.boxed()
+			})
 			.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		// Wake the watchdog so depth-based limits are enforced promptly.
 		if output
@@ -1707,23 +1719,40 @@ impl Session {
 		options: &tg::referent::Options,
 		lease: Option<&String>,
 	) -> tg::Result<()> {
-		crate::database::run!(&self.server.process_store, |transaction| {
-			self.add_process_child_with_transaction(
-				transaction,
-				parent,
-				cached,
-				child,
-				options,
-				lease,
-			)
+		let child = child.clone();
+		let lease = lease.cloned();
+		let options = options.clone();
+		let parent = parent.clone();
+		let session = self.clone();
+		self.server
+			.process_store
+			.run(|transaction| {
+				let child = child.clone();
+				let lease = lease.clone();
+				let options = options.clone();
+				let parent = parent.clone();
+				let session = session.clone();
+				async move {
+					session
+						.add_process_child_with_transaction(
+							transaction,
+							&parent,
+							cached,
+							&child,
+							&options,
+							lease.as_ref(),
+						)
+						.await
+				}
+				.boxed()
+			})
 			.await
-		})
-		.map_err(
-			|error| tg::error!(!error, %parent, %child, "failed to add the process as a child"),
-		)?;
+			.map_err(
+				|error| tg::error!(!error, %parent, %child, "failed to add the process as a child"),
+			)?;
 
 		// Publish the child message.
-		self.spawn_publish_process_child_message_task(parent);
+		self.spawn_publish_process_child_message_task(&parent);
 
 		// Wake the watchdog so parent depth changes are observed promptly.
 		self.server.spawn_publish_watchdog_message_task();

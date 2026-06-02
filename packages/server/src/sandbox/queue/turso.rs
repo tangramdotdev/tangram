@@ -1,5 +1,6 @@
 use {
 	crate::{Server, Session, sandbox::queue::LocalOutput},
+	futures::FutureExt as _,
 	indoc::indoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -12,10 +13,15 @@ impl Session {
 		process_store: &db::turso::Database,
 		token: bool,
 	) -> tg::Result<Option<LocalOutput>> {
-		db::turso::run!(process_store, |transaction| {
-			Self::try_dequeue_sandbox_turso_with_transaction(transaction, token).await
-		})
-		.map_err(|error| tg::error!(!error, "failed to dequeue the sandbox"))
+		process_store
+			.run(|transaction| {
+				async move {
+					Self::try_dequeue_sandbox_turso_with_transaction(transaction, token).await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue the sandbox"))
 	}
 
 	async fn try_dequeue_sandbox_turso_with_transaction(

@@ -1,6 +1,6 @@
 use {
 	crate::{Session, context::Authentication, database::Transaction},
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -115,97 +115,29 @@ impl Session {
 			let error = self.store_process_error(error).await;
 			(error, error_code)
 		};
-		let output = crate::database::run!(&self.server.process_store, |transaction| {
-			let arg = InnerArg { condition, now };
-
-			let InnerOutput {
-				destroyed,
-				unfinished_processes,
-			} = match self.try_destroy_sandbox_inner(transaction, id, arg).await? {
-				ControlFlow::Break(output) => output,
-				ControlFlow::Continue(error) => {
-					return Ok::<
-						ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>,
-						tg::Error,
-					>(ControlFlow::Continue(error));
-				},
-			};
-			if !destroyed {
-				return Ok::<
-					ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>,
-					tg::Error,
-				>(ControlFlow::Break((Some(false), Vec::new())));
-			}
-
-			// Finish the unfinished processes.
-			let mut finished_processes = Vec::new();
-			if !unfinished_processes.is_empty() {
-				for process in unfinished_processes {
-					let arg = crate::process::finish::InnerArg {
-						checksum: None,
-						condition: None,
-						error: Some(process_error.0.clone()),
-						error_code: process_error.1,
-						exit: 1,
-						now,
-						output: None,
-					};
-					let finished = self
-						.try_finish_process_inner(transaction, &process, arg)
+		let session = self.clone();
+		let output = self
+			.server
+			.process_store
+			.run(|transaction| {
+				let id = id.clone();
+				let process_error = process_error.clone();
+				let session = session.clone();
+				async move {
+					session
+						.try_destroy_sandbox_with_transaction(
+							transaction,
+							&id,
+							condition,
+							now,
+							process_error,
+						)
 						.await
-						.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
-					let finished = match finished {
-						ControlFlow::Break(finished) => finished,
-						ControlFlow::Continue(error) => {
-							return Ok::<
-								ControlFlow<
-									(Option<bool>, Vec<tg::process::Id>),
-									crate::database::Error,
-								>,
-								tg::Error,
-							>(ControlFlow::Continue(error));
-						},
-					};
-					if finished {
-						finished_processes.push(process);
-					}
 				}
-			}
-
-			match self
-				.server
-				.delete_sandbox_tokens_with_transaction(transaction, id)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?
-			{
-				ControlFlow::Break(()) => {},
-				ControlFlow::Continue(error) => {
-					return Ok::<
-						ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>,
-						tg::Error,
-					>(ControlFlow::Continue(error));
-				},
-			}
-			match self
-				.server
-				.delete_sandbox_process_tokens_with_transaction(transaction, id)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to delete the process tokens"))?
-			{
-				ControlFlow::Break(()) => {},
-				ControlFlow::Continue(error) => {
-					return Ok::<
-						ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>,
-						tg::Error,
-					>(ControlFlow::Continue(error));
-				},
-			}
-
-			Ok::<ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>, tg::Error>(
-				ControlFlow::Break((Some(true), finished_processes)),
-			)
-		})
-		.map_err(|error| tg::error!(!error, "failed to destroy the sandbox"))?;
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to destroy the sandbox"))?;
 
 		let (output, finished_processes) = output;
 		let Some(output) = output else {
@@ -226,6 +158,78 @@ impl Session {
 		}
 
 		Ok(Some(true))
+	}
+
+	async fn try_destroy_sandbox_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		id: &tg::sandbox::Id,
+		condition: Option<Condition>,
+		now: i64,
+		process_error: (
+			tg::Either<tg::error::Data, tg::error::Id>,
+			Option<tg::error::Code>,
+		),
+	) -> tg::Result<ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>> {
+		let arg = InnerArg { condition, now };
+
+		let InnerOutput {
+			destroyed,
+			unfinished_processes,
+		} = match self.try_destroy_sandbox_inner(transaction, id, arg).await? {
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if !destroyed {
+			return Ok(ControlFlow::Break((Some(false), Vec::new())));
+		}
+
+		let mut finished_processes = Vec::new();
+		if !unfinished_processes.is_empty() {
+			for process in unfinished_processes {
+				let arg = crate::process::finish::InnerArg {
+					checksum: None,
+					condition: None,
+					error: Some(process_error.0.clone()),
+					error_code: process_error.1,
+					exit: 1,
+					now,
+					output: None,
+				};
+				let finished = self
+					.try_finish_process_inner(transaction, &process, arg)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
+				let finished = match finished {
+					ControlFlow::Break(finished) => finished,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				if finished {
+					finished_processes.push(process);
+				}
+			}
+		}
+
+		match self
+			.server
+			.delete_sandbox_tokens_with_transaction(transaction, id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?
+		{
+			ControlFlow::Break(()) => {},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		match self
+			.server
+			.delete_sandbox_process_tokens_with_transaction(transaction, id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete the process tokens"))?
+		{
+			ControlFlow::Break(()) => {},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break((Some(true), finished_processes)))
 	}
 
 	async fn try_destroy_sandbox_inner(

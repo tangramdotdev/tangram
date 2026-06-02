@@ -1,6 +1,6 @@
 use {
 	crate::{Session, context::Authentication, database::Database, database::Transaction},
-	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -284,25 +284,42 @@ impl Session {
 		tag: &tg::Tag,
 		item: &tg::Either<tg::object::Id, tg::process::Id>,
 	) -> tg::Result<bool> {
-		crate::database::run!(&self.server.database, |transaction| {
-			let grant_creator_admin = match self
-				.authorize_put_tag_with_transaction(transaction, tag)
-				.await?
-			{
-				ControlFlow::Break(grant_creator_admin) => grant_creator_admin,
-				ControlFlow::Continue(error) => {
-					return Ok::<ControlFlow<bool, crate::database::Error>, tg::Error>(
-						ControlFlow::Continue(error),
-					);
-				},
-			};
-			self.authorize_put_tag_item_with_transaction(transaction, tag, item)
-				.await?;
-			Ok::<ControlFlow<bool, crate::database::Error>, tg::Error>(ControlFlow::Break(
-				grant_creator_admin,
-			))
-		})
-		.map_err(|error| tg::error!(!error, "failed to authorize the tag"))
+		let item = item.clone();
+		let session = self.clone();
+		let tag = tag.clone();
+		self.server
+			.database
+			.run(|transaction| {
+				let item = item.clone();
+				let session = session.clone();
+				let tag = tag.clone();
+				async move {
+					session
+						.authorize_put_tag_inner_with_transaction(transaction, &tag, &item)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the tag"))
+	}
+
+	async fn authorize_put_tag_inner_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		tag: &tg::Tag,
+		item: &tg::Either<tg::object::Id, tg::process::Id>,
+	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
+		let grant_creator_admin = match self
+			.authorize_put_tag_with_transaction(transaction, tag)
+			.await?
+		{
+			ControlFlow::Break(grant_creator_admin) => grant_creator_admin,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		self.authorize_put_tag_item_with_transaction(transaction, tag, item)
+			.await?;
+		Ok(ControlFlow::Break(grant_creator_admin))
 	}
 
 	pub(super) async fn authorize_put_tag_with_transaction(

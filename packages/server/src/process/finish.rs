@@ -4,7 +4,7 @@ use {
 		context::Authentication,
 		database::{self, Transaction},
 	},
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -172,11 +172,23 @@ impl Session {
 
 		// Finish the process in the process store.
 		let id = id.clone();
-		let finished = crate::database::run!(&self.server.process_store, |transaction| {
-			self.try_finish_process_inner(transaction, &id, arg.clone())
-				.await
-		})
-		.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
+		let session = self.clone();
+		let finished = self
+			.server
+			.process_store
+			.run(|transaction| {
+				let arg = arg.clone();
+				let id = id.clone();
+				let session = session.clone();
+				async move {
+					session
+						.try_finish_process_inner(transaction, &id, arg)
+						.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
 		if !finished {
 			return Ok(Some(false));
 		}
