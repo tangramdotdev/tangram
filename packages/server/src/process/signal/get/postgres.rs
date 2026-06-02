@@ -1,6 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -11,10 +13,24 @@ impl Session {
 		process_store: &db::postgres::Database,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Signal>> {
-		let connection = process_store
-			.write_connection()
+		let id = id.to_string();
+		process_store
+			.run(|transaction| {
+				let id = id.clone();
+				async move {
+					Self::try_dequeue_process_signal_postgres_with_transaction(transaction, &id)
+						.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to dequeue the process signal"))
+	}
+
+	async fn try_dequeue_process_signal_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		id: &str,
+	) -> tg::Result<ControlFlow<Option<tg::process::Signal>, db::postgres::Error>> {
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
 			position: i64,
@@ -40,21 +56,21 @@ impl Session {
 				from deleted;
 			"
 		);
-		let id = id.to_string();
-		let row = connection
+		let result = transaction
 			.inner()
 			.query_opt(statement, &[&id])
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+			.map_err(db::postgres::Error::from);
+		let row = crate::database::retry!(result, "failed to execute the statement")
 			.map(|row| {
 				<Row as db::postgres::row::Deserialize>::deserialize(&row)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
 			})
 			.transpose()?;
 		let Some(row) = row else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		let _ = row.position;
-		Ok(Some(row.signal))
+		Ok(ControlFlow::Break(Some(row.signal)))
 	}
 }

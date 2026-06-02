@@ -1,6 +1,8 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -32,13 +34,34 @@ impl Session {
 			},
 		};
 
-		let connection = self
-			.server
+		let name = name.to_owned();
+		let url = arg.url.to_string();
+		let user = user.map(ToString::to_string);
+		self.server
 			.database
-			.write_connection()
+			.run(|transaction| {
+				let name = name.clone();
+				let url = url.clone();
+				let user = user.clone();
+				async move {
+					Self::put_remote_with_transaction(transaction, &name, user.as_deref(), &url)
+						.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+			.map_err(|error| tg::error!(!error, "failed to put the remote"))?;
+
+		Ok(())
+	}
+
+	async fn put_remote_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		name: &str,
+		user: Option<&str>,
+		url: &str,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
 				update remotes
@@ -49,12 +72,9 @@ impl Session {
 				);
 			"#,
 		);
-		let user = user.map(ToString::to_string);
-		let params = db::params![&name, user, &arg.url.to_string()];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to insert the remote"))?;
+		let params = db::params![name, user, url];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n == 0 {
 			let statement = formatdoc!(
 				r#"
@@ -62,15 +82,11 @@ impl Session {
 					values ({p}1, {p}2, {p}3);
 				"#,
 			);
-			let params = db::params![&name, user.clone(), &arg.url.to_string()];
-			connection
-				.execute(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to insert the remote"))?;
+			let params = db::params![name, user, url];
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
 		}
-		drop(connection);
-
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn put_remote_request(

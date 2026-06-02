@@ -11,12 +11,25 @@ let path = artifact {
 let output = tg build ($path + '#x') | complete
 failure $output
 
-# Extract only the cycle error message (the last error in the chain).
-let cycle_message = $output.stderr
-	| lines
-	| skip while { |line| not ($line | str starts-with '-> adding this child process creates a cycle') }
-	| str join "\n"
-	| str replace --all --regex 'pcs_[a-z0-9]+' '<process_id>'
+# Extract only the first cycle error block from the chain.
+let lines = ($output.stderr | lines)
+mut cycle_lines = []
+mut recording = false
+for line in $lines {
+	if ($line | str starts-with '-> adding this child process creates a cycle') {
+		if $recording {
+			break
+		}
+		$recording = true
+	}
+	if $recording {
+		$cycle_lines = ($cycle_lines | append $line)
+	}
+}
+if ($cycle_lines | is-empty) {
+	error make { msg: 'expected a cycle error message' }
+}
+let cycle_message = ($cycle_lines | str join "\n") | str replace --all --regex 'pcs_[a-z0-9]+' '<process_id>'
 
 snapshot $cycle_message '
 	-> adding this child process creates a cycle

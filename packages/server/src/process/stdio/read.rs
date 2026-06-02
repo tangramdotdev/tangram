@@ -24,6 +24,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 enum Source {
 	Pipe(BTreeSet<tg::process::stdio::Stream>),
@@ -400,6 +402,11 @@ impl Session {
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
 				self.try_read_process_stdio_pipe_event_sqlite(process_store, id, streams)
+					.await
+			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.try_read_process_stdio_pipe_event_turso(process_store, id, streams)
 					.await
 			},
 		}

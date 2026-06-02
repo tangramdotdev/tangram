@@ -2,6 +2,7 @@ use {
 	crate::{Server, database},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -13,13 +14,15 @@ impl Server {
 		process: &tg::process::Id,
 		principal: &tg::Principal,
 		now: i64,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), database::Error>> {
 		let p = transaction.p();
 		let max_expires_at = match transaction {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "greatest(process_grants.expires_at, excluded.expires_at)",
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "max(process_grants.expires_at, excluded.expires_at)",
+			#[cfg(feature = "turso")]
+			database::Transaction::Turso(_) => "max(process_grants.expires_at, excluded.expires_at)",
 		};
 		let grant_ttl = self.config.process.grant_time_to_live.as_secs();
 		let expires_at = now + grant_ttl.to_i64().unwrap();
@@ -71,10 +74,8 @@ impl Server {
 			"
 		);
 		let params = db::params![process.to_string(), principal.to_string(), now, expires_at];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to grant the process"))?;
-		Ok(())
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to grant the process");
+		Ok(ControlFlow::Break(()))
 	}
 }

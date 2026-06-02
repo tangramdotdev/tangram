@@ -20,6 +20,7 @@ def main [
 	--review (-r) # Review snapshots.
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 60sec # The timeout for each test.
+	--turso # Use Turso for the server database and process store.
 	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
@@ -115,7 +116,7 @@ def main [
 	let kernel_path_str = $kernel_path | default "" | into string
 	if $no_capture {
 		for test in $tests {
-			let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $vm $kernel_path_str
+			let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $turso $vm $kernel_path_str
 			print_test_result $result $print_passing_test_output
 			$results = $results | append $result
 		}
@@ -129,7 +130,7 @@ def main [
 
 		def spawn [test: record] {
 			job spawn {
-				let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $vm $kernel_path_str
+				let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $turso $vm $kernel_path_str
 				$result | job send 0
 			}
 		}
@@ -353,7 +354,7 @@ def main [
 	}
 }
 
-def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preserve_temps: bool, timeout: duration, vm: bool, kernel_path: string] {
+def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preserve_temps: bool, timeout: duration, turso: bool, vm: bool, kernel_path: string] {
 	# Create a temp directory for this test.
 	let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
 
@@ -395,6 +396,7 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 		TANGRAM_QUIET: true,
 		TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $quickjs { "1" } else { "" }),
+		TANGRAM_TEST_TURSO: (if $turso { "1" } else { "" }),
 		TANGRAM_TEST_VM: (if $vm { "1" } else { "" }),
 		TANGRAM_TEST_KERNEL_PATH: $kernel_path,
 		TMPDIR: $temp_path,
@@ -817,6 +819,22 @@ export def --env spawn [
 			runner: {
 				js: {
 					engine: 'quickjs',
+				},
+			},
+		}
+	}
+
+	let use_turso = (($env.TANGRAM_TEST_TURSO? | default "") | str length) > 0
+	if $use_turso {
+		$default_config = $default_config | merge deep {
+			database: {
+				kind: 'turso',
+				path: 'database',
+			},
+			process: {
+				store: {
+					kind: 'turso',
+					path: 'processes',
 				},
 			},
 		}

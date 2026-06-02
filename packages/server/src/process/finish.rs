@@ -1,7 +1,12 @@
 use {
-	crate::{Session, context::Authentication, database::Transaction},
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	crate::{
+		Session,
+		context::Authentication,
+		database::{self, Transaction},
+	},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -13,6 +18,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Condition {
@@ -20,6 +27,7 @@ pub(crate) enum Condition {
 	LeaseCountZero,
 }
 
+#[derive(Clone)]
 pub(crate) struct InnerArg {
 	pub checksum: Option<tg::Checksum>,
 	pub condition: Option<Condition>,
@@ -152,20 +160,6 @@ impl Session {
 			None => None,
 		};
 
-		// Get a process store connection.
-		let mut connection = self
-			.server
-			.process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "faile to acquire a transaction"))?;
-
 		let arg = InnerArg {
 			checksum: arg.checksum,
 			condition,
@@ -175,23 +169,31 @@ impl Session {
 			now: time::OffsetDateTime::now_utc().unix_timestamp(),
 			output,
 		};
+
+		// Finish the process in the process store.
+		let id = id.clone();
+		let session = self.clone();
 		let finished = self
-			.try_finish_process_inner(&transaction, id, arg)
+			.server
+			.process_store
+			.run(|transaction| {
+				let arg = arg.clone();
+				let id = id.clone();
+				let session = session.clone();
+				async move {
+					session
+						.try_finish_process_inner(transaction, &id, arg)
+						.await
+				}
+				.boxed()
+			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
 		if !finished {
 			return Ok(Some(false));
 		}
 
-		// Commit the transaction.
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		drop(connection);
-
-		self.spawn_process_finish_tasks(id);
+		self.spawn_process_finish_tasks(&id);
 
 		Ok(Some(true))
 	}
@@ -232,17 +234,46 @@ impl Session {
 		transaction: &Transaction<'_>,
 		id: &tg::process::Id,
 		arg: InnerArg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, database::Error>> {
 		match transaction {
 			#[cfg(feature = "postgres")]
 			Transaction::Postgres(transaction) => {
-				self.try_finish_process_inner_postgres(transaction, id, arg)
-					.await
+				let result = self
+					.try_finish_process_inner_postgres(transaction, id, arg)
+					.await;
+				match result {
+					Ok(ControlFlow::Break(finished)) => Ok(ControlFlow::Break(finished)),
+					Ok(ControlFlow::Continue(error)) => {
+						Ok(ControlFlow::Continue(database::Error::Postgres(error)))
+					},
+					Err(error) => Err(error),
+				}
 			},
 			#[cfg(feature = "sqlite")]
 			Transaction::Sqlite(transaction) => {
-				self.try_finish_process_inner_sqlite(transaction, id, arg)
-					.await
+				let result = self
+					.try_finish_process_inner_sqlite(transaction, id, arg)
+					.await;
+				match result {
+					Ok(ControlFlow::Break(finished)) => Ok(ControlFlow::Break(finished)),
+					Ok(ControlFlow::Continue(error)) => {
+						Ok(ControlFlow::Continue(database::Error::Sqlite(error)))
+					},
+					Err(error) => Err(error),
+				}
+			},
+			#[cfg(feature = "turso")]
+			Transaction::Turso(transaction) => {
+				let result = self
+					.try_finish_process_inner_turso(transaction, id, arg)
+					.await;
+				match result {
+					Ok(ControlFlow::Break(finished)) => Ok(ControlFlow::Break(finished)),
+					Ok(ControlFlow::Continue(error)) => {
+						Ok(ControlFlow::Continue(database::Error::Turso(error)))
+					},
+					Err(error) => Err(error),
+				}
 			},
 		}
 	}

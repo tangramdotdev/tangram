@@ -1,6 +1,8 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tracing::Instrument as _,
@@ -89,7 +91,7 @@ impl Session {
 			"
 				select output, timestamp
 				from list_cache
-				where arg = $1 ;
+				where arg = $1;
 			"
 		);
 		let rows = connection
@@ -117,26 +119,50 @@ impl Session {
 		output: &str,
 		timestamp: i64,
 	) -> tg::Result<()> {
-		let connection = database
-			.connection()
-			.instrument(tracing::trace_span!("connection"))
+		let arg = arg.to_owned();
+		let output = output.to_owned();
+		database
+			.run(|transaction| {
+				let arg = arg.clone();
+				let output = output.clone();
+				async move {
+					Self::list_cache_put_postgres_with_transaction(
+						transaction,
+						&arg,
+						&output,
+						timestamp,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the list cache"))
+	}
+
+	async fn list_cache_put_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		arg: &str,
+		output: &str,
+		timestamp: i64,
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let statement = indoc!(
 			"
 				insert into list_cache (arg, output, timestamp)
 				values ($1, $2, $3)
 				on conflict (arg) do update
-				set output = excluded.output, timestamp = excluded.timestamp ;
+				set output = excluded.output, timestamp = excluded.timestamp;
 			"
 		);
-		connection
-			.inner()
-			.execute(statement, &[&arg, &output, &timestamp])
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![arg.to_owned(), output.to_owned(), timestamp],
+			)
 			.instrument(tracing::trace_span!("query_cache_put"))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn list_namespace_entries_postgres(
@@ -166,7 +192,9 @@ impl Session {
 		authentication: Option<&Authentication>,
 		pattern: &tg::list::Pattern,
 	) -> tg::Result<Vec<tg::list::Entry>> {
-		let Some(parent) = Self::get_namespace_postgres(transaction, &pattern.namespace).await?
+		let Some(parent) =
+			Self::try_get_namespace_postgres_with_transaction(transaction, &pattern.namespace)
+				.await?
 		else {
 			return Ok(Vec::new());
 		};
@@ -180,7 +208,7 @@ impl Session {
 						"
 							select name
 							from namespaces
-							where parent = $1 ;
+							where parent = $1;
 						"
 					);
 					transaction
@@ -193,7 +221,7 @@ impl Session {
 						"
 							select name
 							from namespaces
-							where parent = $1 and component = $2 ;
+							where parent = $1 and component = $2;
 						"
 					);
 					transaction
@@ -218,7 +246,7 @@ impl Session {
 									from namespace_visibility
 									where namespace_visibility.namespace = namespaces.id
 										and namespace_visibility.principal = 'all'
-								) ;
+								);
 						"
 					);
 					transaction
@@ -238,7 +266,7 @@ impl Session {
 									from namespace_visibility
 									where namespace_visibility.namespace = namespaces.id
 										and namespace_visibility.principal = 'all'
-								) ;
+								);
 						"
 					);
 					transaction
@@ -272,7 +300,7 @@ impl Session {
 											from matching_principals
 											where namespace_visibility.principal = matching_principals.principal
 										)
-								) ;
+								);
 						"#
 					);
 					transaction
@@ -303,7 +331,7 @@ impl Session {
 											from matching_principals
 											where namespace_visibility.principal = matching_principals.principal
 										)
-								) ;
+								);
 						"#
 					);
 					transaction
@@ -331,7 +359,9 @@ impl Session {
 		transaction: &db::postgres::Transaction<'_>,
 		pattern: &tg::list::Pattern,
 	) -> tg::Result<Vec<tg::Namespace>> {
-		let Some(parent) = Self::get_namespace_postgres(transaction, &pattern.namespace).await?
+		let Some(parent) =
+			Self::try_get_namespace_postgres_with_transaction(transaction, &pattern.namespace)
+				.await?
 		else {
 			return Ok(Vec::new());
 		};
@@ -343,7 +373,7 @@ impl Session {
 				"
 					select name
 					from namespaces
-					where parent = $1 ;
+					where parent = $1;
 				"
 			);
 			async { transaction.inner().query(statement, &[&parent]).await }
@@ -355,7 +385,7 @@ impl Session {
 				"
 					select name
 					from namespaces
-					where parent = $1 and component = $2 ;
+					where parent = $1 and component = $2;
 				"
 			);
 			async {
@@ -391,7 +421,7 @@ impl Session {
 			pattern.to_namespace()
 		};
 		let rows = if namespace.is_root() {
-			let statement = "select name from namespaces ;";
+			let statement = "select name from namespaces;";
 			async { transaction.inner().query(statement, &[]).await }
 				.instrument(tracing::trace_span!("query_namespaces"))
 				.await
@@ -405,7 +435,7 @@ impl Session {
 					select name
 					from namespaces
 					where name = $1
-						or (name >= $2 and name < $3) ;
+						or (name >= $2 and name < $3);
 				"
 			);
 			async {
@@ -459,7 +489,8 @@ impl Session {
 		pattern: &tg::list::Pattern,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let Some(namespace_id) =
-			Self::get_namespace_postgres(transaction, &pattern.namespace).await?
+			Self::try_get_namespace_postgres_with_transaction(transaction, &pattern.namespace)
+				.await?
 		else {
 			return Ok(Vec::new());
 		};
@@ -473,7 +504,7 @@ impl Session {
 						"
 							select name, item
 							from tags
-							where namespace = $1 and name = $2 ;
+							where namespace = $1 and name = $2;
 						"
 					);
 					transaction
@@ -486,7 +517,7 @@ impl Session {
 						"
 							select name, item
 							from tags
-							where namespace = $1 ;
+							where namespace = $1;
 						"
 					);
 					transaction
@@ -533,7 +564,7 @@ impl Session {
 											and tag_grants.principal = 'all'
 											and tag_grants.permission = 'read'
 									)
-								) ;
+								);
 						"
 					);
 					transaction
@@ -573,7 +604,7 @@ impl Session {
 											and tag_grants.principal = 'all'
 											and tag_grants.permission = 'read'
 									)
-								) ;
+								);
 						"
 					);
 					transaction
@@ -631,7 +662,7 @@ impl Session {
 													where tag_grants.principal = matching_principals.principal
 												)
 									)
-								) ;
+								);
 						"#
 					);
 					transaction
@@ -684,7 +715,7 @@ impl Session {
 													where tag_grants.principal = matching_principals.principal
 												)
 									)
-								) ;
+								);
 						"#
 					);
 					transaction
@@ -771,7 +802,9 @@ impl Session {
 		transaction: &db::postgres::Transaction<'_>,
 		pattern: &tg::list::Pattern,
 	) -> tg::Result<Option<Match>> {
-		let Some(namespace) = Self::get_namespace_postgres(transaction, &pattern.namespace).await?
+		let Some(namespace) =
+			Self::try_get_namespace_postgres_with_transaction(transaction, &pattern.namespace)
+				.await?
 		else {
 			return Ok(None);
 		};
@@ -779,7 +812,7 @@ impl Session {
 			"
 				select item
 				from tags
-				where namespace = $1 and name = $2 ;
+				where namespace = $1 and name = $2;
 			"
 		);
 		let rows = async {
@@ -814,14 +847,16 @@ impl Session {
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Vec<Match>> {
-		let Some(namespace_id) = Self::get_namespace_postgres(transaction, namespace).await? else {
+		let Some(namespace_id) =
+			Self::try_get_namespace_postgres_with_transaction(transaction, namespace).await?
+		else {
 			return Ok(Vec::new());
 		};
 		let statement = indoc!(
 			"
 				select name, item
 				from tags
-				where namespace = $1 ;
+				where namespace = $1;
 			"
 		);
 		let rows = async { transaction.inner().query(statement, &[&namespace_id]).await }
@@ -855,7 +890,7 @@ impl Session {
 				"
 					select coalesce(namespaces.name, '') as namespace, tags.name, tags.item
 					from tags
-					left join namespaces on tags.namespace = namespaces.id ;
+					left join namespaces on tags.namespace = namespaces.id;
 				"
 			);
 			async { transaction.inner().query(statement, &[]).await }
@@ -872,7 +907,7 @@ impl Session {
 					from tags
 					join namespaces on tags.namespace = namespaces.id
 					where namespaces.name = $1
-						or (namespaces.name >= $2 and namespaces.name < $3) ;
+						or (namespaces.name >= $2 and namespaces.name < $3);
 				"
 			);
 			async {

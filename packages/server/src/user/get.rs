@@ -53,10 +53,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let output = Self::try_get_user_with_transaction(&transaction, user).await?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		Ok(output)
 	}

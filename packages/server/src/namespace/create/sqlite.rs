@@ -1,15 +1,19 @@
 use {
-	crate::Session, indoc::indoc, rusqlite as sqlite, std::collections::HashMap,
+	crate::Session,
+	indoc::indoc,
+	rusqlite as sqlite,
+	std::{collections::HashMap, ops::ControlFlow},
 	tangram_client::prelude::*,
+	tangram_database::{self as db},
 };
 
 impl Session {
 	pub(crate) fn get_or_create_namespace_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		namespace: &tg::Namespace,
-	) -> tg::Result<i64> {
+	) -> tg::Result<ControlFlow<i64, db::sqlite::Error>> {
 		if namespace.is_root() {
-			return Ok(0);
+			return Ok(ControlFlow::Break(0));
 		}
 
 		let mut components = Vec::new();
@@ -26,23 +30,26 @@ impl Session {
 
 		let placeholders = vec!["?"; names.len()].join(", ");
 		let statement = format!("select id, name from namespaces where name in ({placeholders});");
-		let mut statement = transaction
+		let result = transaction
 			.prepare(&statement)
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
-			.query(sqlite::params_from_iter(names.iter()))
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+		let mut rows = {
+			let result = statement
+				.query(sqlite::params_from_iter(names.iter()))
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement")
+		};
 		let mut existing = HashMap::<String, i64>::new();
-		while let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to get the next row"))?
-		{
-			let id = row
-				.get(0)
-				.map_err(|error| tg::error!(!error, "failed to get the id column"))?;
-			let name = row
-				.get(1)
-				.map_err(|error| tg::error!(!error, "failed to get the name column"))?;
+		loop {
+			let result = rows.next().map_err(db::sqlite::Error::from);
+			let Some(row) = crate::database::retry!(result, "failed to get the next row") else {
+				break;
+			};
+			let result = row.get(0).map_err(db::sqlite::Error::from);
+			let id = crate::database::retry!(result, "failed to get the id column");
+			let result = row.get(1).map_err(db::sqlite::Error::from);
+			let name = crate::database::retry!(result, "failed to get the name column");
 			existing.insert(name, id);
 		}
 		drop(rows);
@@ -58,20 +65,22 @@ impl Session {
 				"
 					insert into namespaces (parent, component, name)
 					values (?1, ?2, ?3)
-					on conflict (name) do nothing ;
+					on conflict (name) do nothing;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(statement, sqlite::params![parent, component, name])
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			parent = transaction
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
+			let result = transaction
 				.query_row(
 					"select id from namespaces where name = ?1;",
 					sqlite::params![name],
 					|row| row.get(0),
 				)
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			parent = crate::database::retry!(result, "failed to execute the statement");
 		}
-		Ok(parent)
+		Ok(ControlFlow::Break(parent))
 	}
 }

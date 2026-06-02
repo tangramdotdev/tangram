@@ -5,15 +5,23 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
-pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
-	connection.pragma_update(None, "auto_vaccum", "incremental")?;
+pub fn initialize(
+	connection: &sqlite::Connection,
+	options: &db::sqlite::ConnectionOptions,
+) -> sqlite::Result<()> {
+	if !options
+		.flags
+		.contains(sqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+	{
+		connection.pragma_update(None, "auto_vacuum", "incremental")?;
+		connection.pragma_update(None, "journal_mode", "wal")?;
+		connection.pragma_update(None, "synchronous", "off")?;
+	}
 	connection.pragma_update(None, "busy_timeout", "5000")?;
 	connection.pragma_update(None, "cache_size", "-20000")?;
 	connection.pragma_update(None, "foreign_keys", "on")?;
-	connection.pragma_update(None, "journal_mode", "wal")?;
 	connection.pragma_update(None, "mmap_size", "2147483648")?;
 	connection.pragma_update(None, "recursive_triggers", "on")?;
-	connection.pragma_update(None, "synchronous", "off")?;
 	connection.pragma_update(None, "temp_store", "memory")?;
 
 	let function = |context: &sqlite::functions::Context| -> sqlite::Result<sqlite::types::Value> {

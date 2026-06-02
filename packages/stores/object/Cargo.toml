@@ -20,12 +20,14 @@ doctest = false
 [lints]
 workspace = true
 
+[package.metadata.cargo-shear]
+ignored = ["num-traits"]
+
 [dev-dependencies]
 tangram_util = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }
-dashmap = { workspace = true }
 fnv = { workspace = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }

@@ -122,6 +122,10 @@ num-traits = "0.2"
 nu-ansi-term = "0.50"
 oauth2 = "5.0.0"
 octocrab = "0.51"
+opentelemetry = "0.32"
+opentelemetry-appender-tracing = "0.32"
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 owo-colors = "4"
 oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
@@ -197,10 +201,6 @@ tracing-opentelemetry = "0.33"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 tracing-tree = "0.4.1"
 turso = "0.6.0"
-opentelemetry = "0.32"
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
-opentelemetry-appender-tracing = "0.32"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }

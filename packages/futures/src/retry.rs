@@ -50,6 +50,7 @@ pub fn stream(options: Options) -> impl Stream<Item = ()> {
 	)
 }
 
+#[must_use]
 fn delay_for_attempt(attempt: u64, options: &Options) -> Duration {
 	let jitter = Duration::from_millis(rand::random_range(
 		0..=options.jitter.as_millis().to_u64().unwrap(),

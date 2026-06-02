@@ -1,6 +1,7 @@
 use {
 	crate::{Session, database::Transaction},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -155,14 +156,19 @@ impl Session {
 	pub(crate) async fn get_or_create_namespace_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &tg::Namespace,
-	) -> tg::Result<i64> {
+	) -> tg::Result<ControlFlow<i64, crate::database::Error>> {
 		#[cfg(feature = "postgres")]
 		if let Transaction::Postgres(transaction) = transaction {
-			return Self::get_or_create_namespace_postgres(transaction, namespace).await;
+			return match Self::get_or_create_namespace_postgres(transaction, namespace).await? {
+				ControlFlow::Break(id) => Ok(ControlFlow::Break(id)),
+				ControlFlow::Continue(error) => Ok(ControlFlow::Continue(
+					crate::database::Error::Postgres(error),
+				)),
+			};
 		}
 
 		if namespace.is_root() {
-			return Ok(0);
+			return Ok(ControlFlow::Break(0));
 		}
 
 		let p = transaction.p();
@@ -182,11 +188,10 @@ impl Session {
 				"
 			);
 			let params = db::params![name.clone()];
-			if let Some(id) = transaction
+			let result = transaction
 				.query_optional_value_into::<i64>(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			{
+				.await;
+			if let Some(id) = crate::database::retry!(result, "failed to execute the statement") {
 				parent = id;
 				continue;
 			}
@@ -199,10 +204,8 @@ impl Session {
 				"
 			);
 			let params = db::params![parent, component, name.clone()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
 
 			let statement = formatdoc!(
 				r"
@@ -212,12 +215,12 @@ impl Session {
 				"
 			);
 			let params = db::params![name.clone()];
-			parent = transaction
+			let result = transaction
 				.query_one_value_into::<i64>(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			parent = crate::database::retry!(result, "failed to execute the statement");
 		}
 
-		Ok(parent)
+		Ok(ControlFlow::Break(parent))
 	}
 }

@@ -1,7 +1,8 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -74,30 +75,41 @@ impl Session {
 		self.authorize_process_lease(id, Some(lease)).await?;
 
 		// Insert the signal into the process store.
-		let connection = self
-			.server
+		let process = id.to_string();
+		self.server
 			.process_store
-			.write_connection()
+			.run(|transaction| {
+				let process = process.clone();
+				async move {
+					Self::post_process_signal_with_transaction(transaction, &process, signal).await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
+			.map_err(|error| tg::error!(!error, "failed to insert the process signal"))?;
+
+		// Publish the signal message.
+		self.spawn_publish_process_signal_message_task(id);
+
+		Ok(Some(()))
+	}
+
+	async fn post_process_signal_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		process: &str,
+		signal: tg::process::Signal,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into process_signals (process, signal)
 				values ({p}1, {p}2);
 			"
 		);
-		let params = db::params![id.to_string(), signal.to_string()];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		drop(connection);
-
-		// Publish the signal message.
-		self.spawn_publish_process_signal_message_task(id);
-
-		Ok(Some(()))
+		let params = db::params![process, signal.to_string()];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn try_post_process_signal_regions(

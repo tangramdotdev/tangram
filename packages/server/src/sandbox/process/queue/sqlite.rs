@@ -2,8 +2,9 @@ use {
 	crate::{Server, Session},
 	indoc::indoc,
 	rusqlite::{self as sqlite, OptionalExtension as _},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, Database as _},
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -12,26 +13,19 @@ impl Session {
 		process_store: &db::sqlite::Database,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let sandbox = sandbox.to_string();
-		connection
-			.with(move |connection, _cache| {
-				Self::try_dequeue_sandbox_process_sqlite_sync(connection, &sandbox)
+		let sandbox = sandbox.clone();
+		process_store
+			.run(move |transaction, _cache| {
+				Self::try_dequeue_sandbox_process_sqlite_sync(transaction, &sandbox)
 			})
 			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue the sandbox process"))
 	}
 
 	fn try_dequeue_sandbox_process_sqlite_sync(
-		connection: &mut sqlite::Connection,
-		sandbox: &str,
-	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let transaction = connection
-			.transaction()
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-
+		transaction: &sqlite::Transaction<'_>,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<ControlFlow<Option<tg::sandbox::process::queue::Output>, db::sqlite::Error>> {
 		let statement = indoc!(
 			"
 				select id
@@ -41,16 +35,17 @@ impl Session {
 				limit 1;
 			"
 		);
-		let params = sqlite::params![sandbox];
-		let process = transaction
+		let params = sqlite::params![sandbox.to_string()];
+		let result = transaction
 			.query_row(statement, params, |row| row.get::<_, String>(0))
 			.optional()
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+			.map_err(db::sqlite::Error::from);
+		let process = crate::database::retry!(result, "failed to execute the statement")
 			.map(|id| id.parse::<tg::process::Id>())
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let Some(process) = process else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -63,12 +58,13 @@ impl Session {
 				where id = ?2 and sandbox = ?3 and status = 'created';
 			"
 		);
-		let params = sqlite::params![now, process.to_string(), sandbox];
-		let n = transaction
+		let params = sqlite::params![now, process.to_string(), sandbox.to_string()];
+		let result = transaction
 			.execute(statement, params)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n == 0 {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		}
 
 		let token = Server::create_process_token_string();
@@ -78,16 +74,13 @@ impl Session {
 				values (?1, ?2);
 			"
 		);
-		transaction
+		let result = transaction
 			.execute(statement, sqlite::params![process.to_string(), &token])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
 
-		transaction
-			.commit()
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		let output = tg::sandbox::process::queue::Output { process, token };
-
-		Ok(Some(output))
+		Ok(ControlFlow::Break(Some(
+			tg::sandbox::process::queue::Output { process, token },
+		)))
 	}
 }

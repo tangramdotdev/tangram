@@ -24,7 +24,7 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let output = Self::get_namespace_postgres(&transaction, namespace)
+		let output = Self::try_get_namespace_postgres_with_transaction(&transaction, namespace)
 			.await?
 			.map(|_| tg::namespace::get::Output {
 				namespace: namespace.clone(),
@@ -32,7 +32,7 @@ impl Session {
 		Ok(output)
 	}
 
-	pub(crate) async fn get_namespace_postgres(
+	pub(crate) async fn try_get_namespace_postgres_with_transaction(
 		transaction: &db::postgres::Transaction<'_>,
 		namespace: &tg::Namespace,
 	) -> tg::Result<Option<i64>> {
@@ -43,7 +43,7 @@ impl Session {
 			"
 				select id
 				from namespaces
-				where name = $1 ;
+				where name = $1;
 			"
 		);
 		let rows = transaction

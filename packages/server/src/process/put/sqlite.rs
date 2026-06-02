@@ -3,8 +3,9 @@ use {
 	indoc::indoc,
 	num::ToPrimitive as _,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -48,16 +49,10 @@ impl Session {
 		let created_by = created_by.cloned();
 		let grant_ttl = self.server.config.process.grant_time_to_live;
 
-		// Get a process store connection.
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-
-		connection
-			.with(move |connection, cache| {
+		process_store
+			.run(move |transaction, cache| {
 				Self::put_process_batch_sqlite_sync(
-					connection,
+					transaction,
 					cache,
 					&items,
 					stored_at,
@@ -66,26 +61,19 @@ impl Session {
 					created_by.as_ref(),
 				)
 			})
-			.await?;
-
-		Ok(())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the process"))
 	}
 
 	pub(crate) fn put_process_batch_sqlite_sync(
-		connection: &mut sqlite::Connection,
+		transaction: &sqlite::Transaction<'_>,
 		cache: &db::sqlite::Cache,
 		items: &[(tg::process::Id, tg::process::Data)],
 		stored_at: i64,
 		principal: Option<&tg::Principal>,
 		grant_ttl: std::time::Duration,
 		created_by: Option<&tg::user::Id>,
-	) -> tg::Result<()> {
-		// Begin a transaction.
-		let transaction = connection
-			.transaction()
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-
-		// Prepare the process insert statement.
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		let process_statement = indoc!(
 			"
 				insert into processes (
@@ -180,11 +168,10 @@ impl Session {
 					tty = ?28
 			"
 		);
-		let mut process_stmt = cache
-			.get(&transaction, process_statement.into())
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
+		let result = cache.get(transaction, process_statement.into());
+		let mut process_statement =
+			crate::database::retry!(result, "failed to prepare the statement");
 
-		// Prepare the children insert statement.
 		let children_statement = indoc!(
 			"
 				insert into process_children (process, position, cached, child, options)
@@ -192,9 +179,9 @@ impl Session {
 				on conflict (process, child) do nothing;
 			"
 		);
-		let mut children_stmt = cache
-			.get(&transaction, children_statement.into())
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
+		let result = cache.get(transaction, children_statement.into());
+		let mut children_statement =
+			crate::database::retry!(result, "failed to prepare the statement");
 
 		let grant_statement = indoc!(
 			"
@@ -230,11 +217,10 @@ impl Session {
 					expires_at = max(process_grants.expires_at, excluded.expires_at);
 			"
 		);
-		let mut grant_stmt = cache
-			.get(&transaction, grant_statement.into())
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
+		let result = cache.get(transaction, grant_statement.into());
+		let mut grant_statement =
+			crate::database::retry!(result, "failed to prepare the statement");
 
-		// Insert all processes and their children.
 		for (id, data) in items {
 			let error_string = data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
@@ -314,11 +300,11 @@ impl Session {
 				created_by.map(ToString::to_string),
 				tty_json
 			];
-			process_stmt
+			let result = process_statement
 				.execute(params)
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
 
-			// Insert children.
 			if let Some(children) = &data.children {
 				for (position, child) in children.iter().enumerate() {
 					let params = sqlite::params![
@@ -328,35 +314,31 @@ impl Session {
 						child.process.to_string(),
 						serde_json::to_string(&child.options).unwrap(),
 					];
-					children_stmt
+					let result = children_statement
 						.execute(params)
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+						.map_err(db::sqlite::Error::from);
+					crate::database::retry!(result, "failed to execute the statement");
 				}
 			}
 
 			if let Some(principal) = principal {
 				let expires_at = stored_at + grant_ttl.as_secs().to_i64().unwrap();
-				grant_stmt
+				let result = grant_statement
 					.execute(sqlite::params![
 						id.to_string(),
 						principal.to_string(),
 						stored_at,
 						expires_at
 					])
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.map_err(db::sqlite::Error::from);
+				crate::database::retry!(result, "failed to execute the statement");
 			}
 		}
 
-		// Drop the prepared statements before committing.
-		drop(process_stmt);
-		drop(children_stmt);
-		drop(grant_stmt);
+		drop(process_statement);
+		drop(children_statement);
+		drop(grant_statement);
 
-		// Commit the transaction.
-		transaction
-			.commit()
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

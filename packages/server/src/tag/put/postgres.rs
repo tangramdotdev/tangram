@@ -1,8 +1,10 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -19,52 +21,55 @@ impl Session {
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
-		let mut connection = database
-			.write_connection()
+		let tag = tag.clone();
+		let arg = arg.clone();
+		database
+			.run(|transaction| {
+				let tag = tag.clone();
+				let arg = arg.clone();
+				let created_by = created_by.clone();
+				async move {
+					Self::put_tag_postgres_inner(
+						transaction,
+						&tag,
+						&arg,
+						created_by.as_ref(),
+						grant_creator_admin,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let mut transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		Self::put_tag_postgres_inner(
-			&mut transaction,
-			tag,
-			arg,
-			created_by.as_ref(),
-			grant_creator_admin,
-		)
-		.await
-		.map_err(|error| tg::error!(!error, "failed to perform the transaction"))?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(())
+			.map_err(|error| tg::error!(!error, "failed to put the tag"))
 	}
 
 	pub(crate) async fn put_tag_postgres_inner(
-		transaction: &mut db::postgres::Transaction<'_>,
+		transaction: &db::postgres::Transaction<'_>,
 		tag: &tg::Tag,
 		arg: &tg::tag::put::Arg,
 		created_by: Option<&tg::user::Id>,
 		grant_creator_admin: bool,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		if tag.is_empty() {
 			return Err(tg::error!("cannot put an empty tag"));
 		}
 
-		let namespace = Self::get_or_create_namespace_postgres(transaction, &tag.namespace).await?;
+		let namespace =
+			match Self::get_or_create_namespace_postgres(transaction, &tag.namespace).await? {
+				ControlFlow::Break(namespace) => namespace,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 		let statement = indoc!(
 			"
 				insert into tags (namespace, name, item)
 				values ($1, $2, $3)
 				on conflict (namespace, name) do update
 				set item = excluded.item
-				where $4 or tags.item = excluded.item ;
+				where $4 or tags.item = excluded.item;
 			"
 		);
-		let n = transaction
+		let result = transaction
 			.inner()
 			.execute(
 				statement,
@@ -76,7 +81,8 @@ impl Session {
 				],
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::postgres::Error::from);
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n == 0 {
 			return Err(tg::error!("the tag already exists with a different item"));
 		}
@@ -95,21 +101,26 @@ impl Session {
 			);
 			let user_id = user.clone();
 			let user = user.to_string();
-			let n = transaction
+			let result = transaction
 				.inner()
 				.execute(
 					statement,
 					&[&namespace, &tag.name.to_string(), &user, &created_at],
 				)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::postgres::Error::from);
+			let n = crate::database::retry!(result, "failed to execute the statement");
 			if n > 0 {
-				Self::increment_namespace_visibility_for_user_postgres(
+				match Self::increment_namespace_visibility_for_user_postgres(
 					transaction,
 					&tag.namespace,
 					&user_id,
 				)
-				.await?;
+				.await?
+				{
+					ControlFlow::Break(()) => {},
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
 		}
 		if arg.all && !arg.replicate {
@@ -126,19 +137,27 @@ impl Session {
 					);
 				"
 			);
-			let n = transaction
+			let result = transaction
 				.inner()
 				.execute(
 					statement,
 					&[&namespace, &tag.name.to_string(), &created_at, &created_by],
 				)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::postgres::Error::from);
+			let n = crate::database::retry!(result, "failed to execute the statement");
 			if n > 0 {
-				Self::increment_namespace_visibility_for_all_postgres(transaction, &tag.namespace)
-					.await?;
+				match Self::increment_namespace_visibility_for_all_postgres(
+					transaction,
+					&tag.namespace,
+				)
+				.await?
+				{
+					ControlFlow::Break(()) => {},
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

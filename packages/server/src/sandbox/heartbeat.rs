@@ -2,6 +2,7 @@ use {
 	crate::{Session, context::Authentication},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -65,34 +66,58 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		let connection = self
-			.server
-			.process_store
-			.connection_with_options(db::ConnectionOptions {
-				kind: db::ConnectionKind::Write,
-				priority: db::Priority::High,
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update sandboxes
-				set heartbeat_at = case when status = 'started' then {p}1 else heartbeat_at end
-				where id = {p}2;
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, id.to_string()];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		if n == 0 {
+		let retry_options = self.server.process_store.retry();
+		let id = id.clone();
+		let updated = tangram_futures::retry::retry(&retry_options, || async {
+			let result = self
+				.server
+				.process_store
+				.connection_with_options(db::ConnectionOptions {
+					kind: db::ConnectionKind::Write,
+					priority: db::Priority::High,
+				})
+				.await;
+			let mut connection = match result {
+				Ok(connection) => connection,
+				Err(error) if error.is_retry() => return Ok(ControlFlow::Continue(error)),
+				Err(error) => return Err(error),
+			};
+			let result = connection.transaction().await;
+			let transaction = match result {
+				Ok(transaction) => transaction,
+				Err(error) if error.is_retry() => return Ok(ControlFlow::Continue(error)),
+				Err(error) => return Err(error),
+			};
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"
+					update sandboxes
+					set heartbeat_at = case when status = 'started' then {p}1 else heartbeat_at end
+					where id = {p}2;
+				"
+			);
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let params = db::params![now, id.to_string()];
+			let result = transaction.execute(statement.into(), params).await;
+			let n = match result {
+				Ok(n) => n,
+				Err(error) if error.is_retry() => return Ok(ControlFlow::Continue(error)),
+				Err(error) => return Err(error),
+			};
+			let result = transaction.commit().await;
+			match result {
+				Ok(()) => {},
+				Err(error) if error.is_retry() => return Ok(ControlFlow::Continue(error)),
+				Err(error) => return Err(error),
+			}
+			Ok(ControlFlow::Break(n > 0))
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to heartbeat the sandbox"))?;
+		if !updated {
 			return Ok(None);
 		}
-		drop(connection);
-		let status = self.get_sandbox_status_local(id).await?;
+		let status = self.get_sandbox_status_local(&id).await?;
 		Ok(Some(tg::sandbox::heartbeat::Output { status }))
 	}
 

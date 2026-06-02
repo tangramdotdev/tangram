@@ -1,8 +1,8 @@
 use {
-	crate::CacheKey,
-	futures::{Stream, TryStreamExt as _, future},
+	crate::{CacheKey, Connection as _, Error as _, Transaction as _},
+	futures::{Stream, TryStreamExt as _, future, future::BoxFuture},
 	indexmap::IndexMap,
-	std::{borrow::Cow, collections::HashMap, time::Duration},
+	std::{borrow::Cow, collections::HashMap, ops::ControlFlow, time::Duration},
 	tangram_pool::{self as pool, Pool},
 	tangram_uri::Uri,
 	tokio_postgres as postgres,
@@ -24,6 +24,7 @@ pub enum Error {
 pub struct DatabaseOptions {
 	pub max: usize,
 	pub min: usize,
+	pub retry: tangram_futures::retry::Options,
 	pub ttl: Option<Duration>,
 	pub url: Uri,
 }
@@ -40,6 +41,7 @@ pub struct Cache {
 
 pub struct Database {
 	pool: Pool<Connection, Error>,
+	retry: tangram_futures::retry::Options,
 }
 
 pub struct Connection {
@@ -94,7 +96,10 @@ impl Database {
 			let connection = Connection::connect(connection_options.clone()).await?;
 			pool.add(connection);
 		}
-		let database = Self { pool };
+		let database = Self {
+			pool,
+			retry: options.retry,
+		};
 		Ok(database)
 	}
 
@@ -105,6 +110,37 @@ impl Database {
 
 	pub async fn sync(&self) -> Result<(), Error> {
 		Ok(())
+	}
+
+	pub async fn run<F, T, E>(&self, f: F) -> Result<T, Error>
+	where
+		for<'a, 'b> F:
+			Fn(&'a Transaction<'b>) -> BoxFuture<'a, Result<ControlFlow<T, Error>, E>> + Sync,
+		T: Send + 'static,
+		E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
+	{
+		let options = self.retry.clone();
+		tangram_futures::retry::retry(&options, || async {
+			let mut connection = self.pool.get_exclusive(pool::Priority::default()).await?;
+			if connection.client.is_closed() {
+				connection.reconnect().await?;
+			}
+			let transaction = connection.transaction().await?;
+			let value = match f(&transaction).await {
+				Ok(ControlFlow::Break(value)) => value,
+				Ok(ControlFlow::Continue(error)) => {
+					return Ok(ControlFlow::Continue(error));
+				},
+				Err(error) => return Err(Error::other(error)),
+			};
+			let result = transaction.commit().await;
+			match result {
+				Ok(()) => Ok(ControlFlow::Break(value)),
+				Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+				Err(error) => Err(error),
+			}
+		})
+		.await
 	}
 }
 
@@ -169,6 +205,10 @@ impl super::Database for Database {
 	type Error = Error;
 
 	type Connection = pool::ExclusiveGuard<Connection, Error>;
+
+	fn retry(&self) -> tangram_futures::retry::Options {
+		self.retry.clone()
+	}
 
 	async fn connection_with_options(
 		&self,
@@ -304,10 +344,10 @@ impl super::Query for Transaction<'_> {
 
 impl super::Error for Error {
 	fn is_retry(&self) -> bool {
-		let Error::Postgres(error) = self else {
-			return false;
-		};
-		error.code().map(tokio_postgres::error::SqlState::code) == Some("40001")
+		match self {
+			Self::Postgres(error) => util::error_is_retryable(error),
+			Self::Other(_) => false,
+		}
 	}
 
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {

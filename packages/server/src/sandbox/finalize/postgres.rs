@@ -1,6 +1,8 @@
 use {
 	crate::{Server, sandbox::finalize::Entry},
+	futures::FutureExt as _,
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -11,63 +13,78 @@ impl Server {
 		process_store: &db::postgres::Database,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		let connection = process_store
-			.write_connection()
+		process_store
+			.run(|transaction| {
+				async move {
+					Self::try_dequeue_sandbox_finalize_batch_postgres_with_transaction(
+						transaction,
+						batch_size,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		#[derive(db::postgres::row::Deserialize)]
+			.map_err(|error| tg::error!(!error, "failed to dequeue sandbox finalize entries"))
+	}
+
+	async fn try_dequeue_sandbox_finalize_batch_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		batch_size: usize,
+	) -> tg::Result<ControlFlow<Option<Vec<Entry>>, db::postgres::Error>> {
+		#[derive(db::row::Deserialize)]
 		struct Row {
 			position: i64,
-			#[tangram_database(as = "db::postgres::value::FromStr")]
+			#[tangram_database(as = "db::value::FromStr")]
 			sandbox: tg::sandbox::Id,
 		}
 		let statement = indoc!(
 			"
-				with candidate as (
-					select position, sandbox
-					from sandbox_finalize_queue
-					where status = 'created'
-					order by position
-					limit $1
-					for update skip locked
-				),
-				started as (
-					update sandbox_finalize_queue
-					set
-						started_at = coalesce(started_at, $2),
-						status = 'started'
-					where position in (select position from candidate)
-					returning position, sandbox
-				)
 				select position, sandbox
-				from started
-				order by position;
+				from sandbox_finalize_queue
+				where status = 'created'
+				order by position
+				limit $1;
 			"
 		);
-		let batch_size = i64::try_from(batch_size).unwrap();
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let rows = connection
-			.inner()
-			.query(statement, &[&batch_size, &now])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction
+			.query_all_into::<Row>(
+				statement.into(),
+				db::params![i64::try_from(batch_size).unwrap()],
+			)
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let entries = rows
-			.iter()
-			.map(|row| {
-				<Row as db::postgres::row::Deserialize>::deserialize(row)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the row"))
+			.into_iter()
+			.map(|row| Entry {
+				position: row.position,
+				sandbox: row.sandbox,
 			})
-			.map(|row| {
-				let row = row?;
-				Ok(Entry {
-					position: row.position,
-					sandbox: row.sandbox,
-				})
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<Vec<_>>();
 		if entries.is_empty() {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		}
-		Ok(Some(entries))
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let statement = indoc!(
+			"
+				update sandbox_finalize_queue
+				set
+					started_at = coalesce(started_at, $1),
+					status = 'started'
+				where position = $2;
+			"
+		);
+		for entry in &entries {
+			let result = transaction
+				.execute(statement.into(), db::params![now, entry.position])
+				.await;
+			let n = crate::database::retry!(result, "failed to execute the statement");
+			if n != 1 {
+				return Err(tg::error!(
+					"failed to claim the sandbox finalize queue entry"
+				));
+			}
+		}
+		Ok(ControlFlow::Break(Some(entries)))
 	}
 }

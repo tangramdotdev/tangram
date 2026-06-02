@@ -7,11 +7,11 @@ use {
 };
 
 #[cfg(feature = "postgres")]
-#[path = "permissions/postgres.rs"]
 mod postgres;
 #[cfg(feature = "sqlite")]
-#[path = "permissions/sqlite.rs"]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn list_effective_namespace_permissions_for_user_with_transaction(

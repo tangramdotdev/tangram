@@ -17,7 +17,6 @@ doctest = false
 workspace = true
 
 [dependencies]
-derive_more = { workspace = true }
 futures = { workspace = true }
 tangram_futures = { workspace = true }
 tokio = { workspace = true }

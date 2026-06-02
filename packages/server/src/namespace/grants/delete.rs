@@ -1,7 +1,8 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -40,52 +41,58 @@ impl Session {
 		self.authorize_namespace(&arg.namespace, tg::Permission::Admin)
 			.await?;
 
-		let mut connection = self
-			.server
+		self.server
 			.database
-			.write_connection()
+			.run(|transaction| {
+				let arg = arg.clone();
+				async move {
+					Self::delete_namespace_grant_inner_with_transaction(transaction, &arg).await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete the namespace grant"))
+	}
+
+	async fn delete_namespace_grant_inner_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		arg: &tg::namespace::grants::delete::Arg,
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
 		let Some(namespace_id) =
-			Self::try_get_namespace_id_with_transaction(&transaction, &arg.namespace).await?
+			Self::try_get_namespace_id_with_transaction(transaction, &arg.namespace).await?
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		match &arg.principal {
 			tg::Principal::All | tg::Principal::Root => {},
 			tg::Principal::Group(group) => {
-				if Self::try_get_group_with_transaction(&transaction, &group.to_string())
+				if Self::try_get_group_with_transaction(transaction, &group.to_string())
 					.await?
 					.is_none()
 				{
-					return Ok(None);
+					return Ok(ControlFlow::Break(None));
 				}
 			},
 			tg::Principal::User(user) => {
-				if Self::try_get_user_with_transaction(&transaction, &user.to_string())
+				if Self::try_get_user_with_transaction(transaction, &user.to_string())
 					.await?
 					.is_none()
 				{
-					return Ok(None);
+					return Ok(ControlFlow::Break(None));
 				}
 			},
 		}
-		let output = Self::delete_namespace_grant_with_transaction(
-			&transaction,
+		match Self::delete_namespace_grant_with_transaction(
+			transaction,
 			namespace_id,
 			&arg.principal,
 			arg.permission,
 		)
-		.await?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(output)
+		.await?
+		{
+			ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+			ControlFlow::Continue(error) => Ok(ControlFlow::Continue(error)),
+		}
 	}
 
 	async fn delete_namespace_grant_remote(

@@ -1,8 +1,8 @@
 use {
 	crate::{Server, database::Database},
-	futures::{StreamExt as _, stream},
+	futures::{FutureExt as _, StreamExt as _, stream},
 	indoc::formatdoc,
-	std::{pin::pin, time::Duration},
+	std::{ops::ControlFlow, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stopper},
@@ -14,6 +14,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Entry {
@@ -85,6 +87,11 @@ impl Server {
 				self.try_dequeue_sandbox_finalize_batch_sqlite(process_store, batch_size)
 					.await
 			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.try_dequeue_sandbox_finalize_batch_turso(process_store, batch_size)
+					.await
+			},
 		}
 	}
 
@@ -103,15 +110,28 @@ impl Server {
 	}
 
 	async fn handle_sandbox_finalize_entry(&self, entry: &Entry) -> tg::Result<()> {
-		let mut connection = self
-			.process_store
-			.write_connection()
+		let entry = entry.clone();
+		let server = self.clone();
+		self.process_store
+			.run(|transaction| {
+				let entry = entry.clone();
+				let server = server.clone();
+				async move {
+					server
+						.handle_sandbox_finalize_entry_with_transaction(transaction, &entry)
+						.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to acquire a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to handle the sandbox finalize entry"))
+	}
+
+	async fn handle_sandbox_finalize_entry_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		entry: &Entry,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
 
 		let statement = formatdoc!(
@@ -124,10 +144,8 @@ impl Server {
 			entry.sandbox.to_string(),
 			tg::sandbox::Status::Destroyed.to_string()
 		];
-		let n = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n == 0 {
 			let statement = formatdoc!(
 				"
@@ -137,20 +155,28 @@ impl Server {
 				"
 			);
 			let params = db::params![entry.sandbox.to_string()];
-			let exists = transaction
+			let result = transaction
 				.query_one_value_into::<bool>(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			let exists = crate::database::retry!(result, "failed to execute the statement");
 			if exists {
 				return Err(tg::error!("failed to delete the destroyed sandbox"));
 			}
 		}
-		self.delete_sandbox_process_tokens_with_transaction(&transaction, &entry.sandbox)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the process tokens"))?;
-		self.delete_sandbox_tokens_with_transaction(&transaction, &entry.sandbox)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?;
+		match self
+			.delete_sandbox_process_tokens_with_transaction(transaction, &entry.sandbox)
+			.await?
+		{
+			ControlFlow::Break(()) => {},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		match self
+			.delete_sandbox_tokens_with_transaction(transaction, &entry.sandbox)
+			.await?
+		{
+			ControlFlow::Break(()) => {},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 
 		let statement = formatdoc!(
 			"
@@ -163,10 +189,8 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![now, "finished", entry.position];
-		let n = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n != 1 {
 			return Err(tg::error!(
 				"failed to update the sandbox finalize queue entry"
@@ -180,22 +204,15 @@ impl Server {
 			"
 		);
 		let params = db::params![entry.position];
-		let n = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n != 1 {
 			return Err(tg::error!(
 				"failed to delete the sandbox finalize queue entry"
 			));
 		}
 
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) fn spawn_publish_sandbox_finalize_message_task(&self) {

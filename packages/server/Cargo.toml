@@ -24,9 +24,10 @@ lmdb = ["dep:heed", "tangram_index/lmdb", "tangram_log_store/lmdb", "tangram_obj
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 quickjs = ["tangram_js/quickjs"]
-sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
 scylla = ["tangram_object_store/scylla"]
+sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
 tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls"]
+turso = ["dep:turso", "tangram_database/turso"]
 typescript = ["tangram_compiler/typescript"]
 v8 = ["tangram_js/v8"]
 vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
@@ -106,6 +107,7 @@ tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
+turso = { workspace = true, optional = true }
 unicode-width = { workspace = true }
 uuid = { workspace = true }
 xattr = { workspace = true }

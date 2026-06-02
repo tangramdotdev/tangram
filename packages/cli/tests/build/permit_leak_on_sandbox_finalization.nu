@@ -22,6 +22,5 @@ for round in 1..20 {
 
 sleep 2sec
 
-let db = ($server.directory | path join processes)
-let stuck = ^sqlite3 $db "select count(*) from sandboxes where status = 'started';" | str trim | into int
+let stuck = (tg sandbox list | from json | where status == started | length)
 assert ($stuck == 0) $"($stuck) sandboxes are stuck in 'started' after their only process finished"

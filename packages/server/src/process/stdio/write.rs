@@ -23,6 +23,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 enum Destination {
 	Log,
@@ -342,6 +344,11 @@ impl Session {
 				self.try_write_process_stdio_sqlite(process_store, id, stream, bytes)
 					.await
 			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.try_write_process_stdio_turso(process_store, id, stream, bytes)
+					.await
+			},
 		}
 	}
 
@@ -370,6 +377,11 @@ impl Session {
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
 				self.try_close_process_stdio_sqlite(process_store, id, stream)
+					.await
+			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.try_close_process_stdio_turso(process_store, id, stream)
 					.await
 			},
 		}

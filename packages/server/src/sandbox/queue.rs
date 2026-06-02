@@ -13,6 +13,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 pub(super) struct LocalOutput {
 	created_by: Option<tg::user::Id>,
@@ -99,6 +101,8 @@ impl Session {
 				},
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(process_store) => self.try_dequeue_sandbox_sqlite(process_store, true).await?,
+				#[cfg(feature = "turso")]
+				Database::Turso(process_store) => self.try_dequeue_sandbox_turso(process_store, true).await?,
 			};
 			if let Some(output) = output {
 				let output = tg::sandbox::queue::Output {

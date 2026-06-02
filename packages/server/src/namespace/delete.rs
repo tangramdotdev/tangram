@@ -10,6 +10,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn try_delete_namespace(
@@ -34,6 +36,8 @@ impl Session {
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.try_delete_namespace_sqlite(database, namespace).await,
+			#[cfg(feature = "turso")]
+			Database::Turso(database) => self.try_delete_namespace_turso(database, namespace).await,
 		}
 	}
 

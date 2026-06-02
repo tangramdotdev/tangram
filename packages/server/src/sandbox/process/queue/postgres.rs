@@ -1,6 +1,8 @@
 use {
 	crate::{Server, Session},
+	futures::FutureExt as _,
 	indoc::indoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -11,15 +13,28 @@ impl Session {
 		process_store: &db::postgres::Database,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let mut connection = process_store
-			.write_connection()
+		let sandbox = sandbox.to_string();
+		process_store
+			.run(|transaction| {
+				let sandbox = sandbox.clone();
+				async move {
+					Self::try_dequeue_sandbox_process_postgres_with_transaction(
+						transaction,
+						&sandbox,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let transaction = connection
-			.inner_mut()
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to dequeue the sandbox process"))
+	}
+
+	async fn try_dequeue_sandbox_process_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		sandbox: &str,
+	) -> tg::Result<ControlFlow<Option<tg::sandbox::process::queue::Output>, db::postgres::Error>>
+	{
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let statement = indoc!(
 			"
@@ -39,17 +54,19 @@ impl Session {
 				returning id;
 			"
 		);
-		let sandbox = sandbox.to_string();
-		let rows = transaction
-			.query(statement, &[&sandbox, &now])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let Some(row) = rows.first() else {
-			return Ok(None);
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			id: String,
+		}
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![sandbox.to_owned(), now])
+			.await;
+		let Some(row) = crate::database::retry!(result, "failed to execute the statement") else {
+			return Ok(ControlFlow::Break(None));
 		};
-		let process = row
-			.get::<_, String>(0)
-			.parse::<tg::process::Id>()
+		let process: tg::process::Id = row
+			.id
+			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		let token = Server::create_process_token_string();
@@ -59,19 +76,16 @@ impl Session {
 				values ($1, $2);
 			"
 		);
-		let process_string = process.to_string();
-		transaction
-			.execute(statement, &[&process_string, &token])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![process.to_string(), token.clone()],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
 
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		let output = tg::sandbox::process::queue::Output { process, token };
-
-		Ok(Some(output))
+		Ok(ControlFlow::Break(Some(
+			tg::sandbox::process::queue::Output { process, token },
+		)))
 	}
 }

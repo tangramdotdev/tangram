@@ -2,9 +2,9 @@ use {
 	crate::Session,
 	bytes::Bytes,
 	rusqlite as sqlite,
-	std::collections::BTreeSet,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, Database as _},
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -16,26 +16,19 @@ impl Session {
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
 		let id = id.clone();
 		let streams = streams.clone();
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		connection
-			.with(move |connection, _cache| {
-				Self::try_read_process_stdio_pipe_event_sqlite_sync(connection, &id, &streams)
+		process_store
+			.run(move |transaction, _cache| {
+				Self::try_read_process_stdio_pipe_event_sqlite_sync(transaction, &id, &streams)
 			})
 			.await
+			.map_err(|error| tg::error!(!error, "failed to read process stdio"))
 	}
 
 	fn try_read_process_stdio_pipe_event_sqlite_sync(
-		connection: &mut sqlite::Connection,
+		transaction: &sqlite::Transaction<'_>,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
-		let transaction = connection
-			.transaction()
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-
+	) -> tg::Result<ControlFlow<Option<tg::process::stdio::read::Event>, db::sqlite::Error>> {
 		let placeholders = (0..streams.len())
 			.map(|index| format!("?{}", index + 2))
 			.collect::<Vec<_>>()
@@ -49,49 +42,46 @@ impl Session {
 				limit 1;
 			"
 		);
-		let mut statement = transaction
+		let result = transaction
 			.prepare(&statement)
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
 		let mut params = Vec::with_capacity(streams.len() + 1);
 		params.push(id.to_string());
 		params.extend(streams.iter().map(ToString::to_string));
-		let mut rows = statement
-			.query(sqlite::params_from_iter(params.iter()))
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		if let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		{
-			let position = row
-				.get::<_, i64>(0)
-				.map_err(|error| tg::error!(!error, "failed to get the position"))?;
-			let stream = row
-				.get::<_, String>(1)
-				.map_err(|error| tg::error!(!error, "failed to get the stream"))?
+		let mut rows = {
+			let result = statement
+				.query(sqlite::params_from_iter(params.iter()))
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement")
+		};
+		let result = rows.next().map_err(db::sqlite::Error::from);
+		if let Some(row) = crate::database::retry!(result, "failed to execute the statement") {
+			let result = row.get::<_, i64>(0).map_err(db::sqlite::Error::from);
+			let position = crate::database::retry!(result, "failed to get the position");
+			let result = row.get::<_, String>(1).map_err(db::sqlite::Error::from);
+			let stream = crate::database::retry!(result, "failed to get the stream")
 				.parse()
 				.map_err(|error| tg::error!(!error, "failed to parse the stream"))?;
-			let bytes = row
-				.get::<_, Vec<u8>>(2)
-				.map_err(|error| tg::error!(!error, "failed to get the bytes"))?;
+			let result = row.get::<_, Vec<u8>>(2).map_err(db::sqlite::Error::from);
+			let bytes = crate::database::retry!(result, "failed to get the bytes");
 			drop(rows);
 			drop(statement);
 			let statement = "
 				delete from process_stdio
 				where position = ?1;
 			";
-			transaction
+			let result = transaction
 				.execute(statement, sqlite::params![position])
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			transaction
-				.commit()
-				.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
 			let chunk = tg::process::stdio::Chunk {
 				bytes: Bytes::from(bytes),
 				position: None,
 				stream,
 			};
 			let event = tg::process::stdio::read::Event::Chunk(chunk);
-			return Ok(Some(event));
+			return Ok(ControlFlow::Break(Some(event)));
 		}
 		drop(rows);
 		drop(statement);
@@ -101,36 +91,45 @@ impl Session {
 			from processes
 			where id = ?1;
 		";
-		let mut statement = transaction
+		let result = transaction
 			.prepare(statement)
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
-			.query(sqlite::params![id.to_string()])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(Some(tg::process::stdio::read::Event::End));
+			.map_err(db::sqlite::Error::from);
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+		let mut rows = {
+			let result = statement
+				.query(sqlite::params![id.to_string()])
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement")
 		};
-		let stdin_open = row
+		let result = rows.next().map_err(db::sqlite::Error::from);
+		let Some(row) = crate::database::retry!(result, "failed to execute the statement") else {
+			return Ok(ControlFlow::Break(Some(
+				tg::process::stdio::read::Event::End,
+			)));
+		};
+		let result = row
 			.get::<_, Option<bool>>(0)
-			.map_err(|error| tg::error!(!error, "failed to get stdin_open"))?;
-		let stdout_open = row
+			.map_err(db::sqlite::Error::from);
+		let stdin_open = crate::database::retry!(result, "failed to get stdin_open");
+		let result = row
 			.get::<_, Option<bool>>(1)
-			.map_err(|error| tg::error!(!error, "failed to get stdout_open"))?;
-		let stderr_open = row
+			.map_err(db::sqlite::Error::from);
+		let stdout_open = crate::database::retry!(result, "failed to get stdout_open");
+		let result = row
 			.get::<_, Option<bool>>(2)
-			.map_err(|error| tg::error!(!error, "failed to get stderr_open"))?;
+			.map_err(db::sqlite::Error::from);
+		let stderr_open = crate::database::retry!(result, "failed to get stderr_open");
 		let closed = streams.iter().all(|stream| match stream {
 			tg::process::stdio::Stream::Stdin => stdin_open == Some(false),
 			tg::process::stdio::Stream::Stdout => stdout_open == Some(false),
 			tg::process::stdio::Stream::Stderr => stderr_open == Some(false),
 		});
 		if closed {
-			return Ok(Some(tg::process::stdio::read::Event::End));
+			return Ok(ControlFlow::Break(Some(
+				tg::process::stdio::read::Event::End,
+			)));
 		}
 
-		Ok(None)
+		Ok(ControlFlow::Break(None))
 	}
 }

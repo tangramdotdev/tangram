@@ -1,6 +1,8 @@
 use {
 	crate::{Server, Session, database},
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_messenger::prelude::*,
@@ -30,24 +32,37 @@ impl Server {
 		process: &tg::process::Id,
 	) -> tg::Result<String> {
 		let token = Self::create_process_token_string();
-		let connection = self
-			.process_store
-			.write_connection()
+		let process = process.to_string();
+		self.process_store
+			.run(|transaction| {
+				let process = process.clone();
+				let token = token.clone();
+				async move {
+					Self::create_process_token_with_transaction(transaction, &process, &token).await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
+			.map_err(|error| tg::error!(!error, "failed to create the process token"))?;
+		Ok(token)
+	}
+
+	async fn create_process_token_with_transaction(
+		transaction: &database::Transaction<'_>,
+		process: &str,
+		token: &str,
+	) -> tg::Result<ControlFlow<(), database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into process_tokens (process, token)
 				values ({p}1, {p}2);
 			"
 		);
-		let params = db::params![process.to_string(), token.clone()];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(token)
+		let params = db::params![process, token];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) fn create_process_token_string() -> String {
@@ -61,7 +76,7 @@ impl Server {
 		&self,
 		transaction: &database::Transaction<'_>,
 		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -74,20 +89,38 @@ impl Server {
 			"
 		);
 		let params = db::params![sandbox.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn try_start_process_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
-		let connection = self
+		let id = id.to_string();
+		let n = self
 			.process_store
-			.write_connection()
+			.run(|transaction| {
+				let id = id.clone();
+				async move { Self::try_start_process_with_transaction(transaction, &id).await }
+					.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+			.map_err(|error| tg::error!(!error, "failed to start the process"))?;
+
+		if n == 0 {
+			return Ok(false);
+		}
+
+		let subject = format!("processes.{id}.status");
+		self.messenger.publish(subject, ()).await.ok();
+
+		Ok(true)
+	}
+
+	async fn try_start_process_with_transaction(
+		transaction: &database::Transaction<'_>,
+		id: &str,
+	) -> tg::Result<ControlFlow<u64, database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				update processes
@@ -98,21 +131,10 @@ impl Server {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, id.to_string()];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		drop(connection);
-
-		if n == 0 {
-			return Ok(false);
-		}
-
-		let subject = format!("processes.{id}.status");
-		self.messenger.publish(subject, ()).await.ok();
-
-		Ok(true)
+		let params = db::params![now, id];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(n))
 	}
 }
 
@@ -234,7 +256,7 @@ impl Server {
 		&self,
 		transaction: &database::Transaction<'_>,
 		id: &tg::process::Id,
-	) -> tg::Result<Option<tg::process::Status>> {
+	) -> tg::Result<ControlFlow<Option<tg::process::Status>, database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -245,21 +267,21 @@ impl Server {
 			"
 		);
 		let params = db::params![id.to_string()];
-		let status = transaction
+		let result = transaction
 			.query_optional_value_into::<db::value::Serde<tg::process::Status>>(
 				statement.into(),
 				params,
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(status.map(|status| status.0))
+			.await;
+		let status = crate::database::retry!(result, "failed to lock the process");
+		Ok(ControlFlow::Break(status.map(|status| status.0)))
 	}
 
 	pub(crate) async fn update_process_lease_count_with_transaction(
 		&self,
 		transaction: &database::Transaction<'_>,
 		id: &tg::process::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -273,10 +295,8 @@ impl Server {
 			"
 		);
 		let params = db::params![id.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to update the lease count");
+		Ok(ControlFlow::Break(()))
 	}
 }

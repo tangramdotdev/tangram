@@ -1,7 +1,9 @@
 use {
 	crate::{Session, process::stdio::MAX_UNREAD_PROCESS_STDIO_BYTES},
 	bytes::Bytes,
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -16,43 +18,58 @@ impl Session {
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<WriteOutput> {
-		let mut connection = process_store
-			.write_connection()
+		let id = id.to_string();
+		let bytes = bytes.clone();
+		process_store
+			.run(|transaction| {
+				let id = id.clone();
+				let bytes = bytes.clone();
+				async move {
+					Self::try_write_process_stdio_postgres_with_transaction(
+						transaction,
+						&id,
+						stream,
+						bytes,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+			.map_err(|error| tg::error!(!error, "failed to write process stdio"))
+	}
 
-		let transaction = connection
-			.inner_mut()
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-
+	async fn try_write_process_stdio_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		id: &str,
+		stream: tg::process::stdio::Stream,
+		bytes: Bytes,
+	) -> tg::Result<ControlFlow<WriteOutput, db::postgres::Error>> {
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
 			tg::process::stdio::Stream::Stdout => "stdout_open",
 			tg::process::stdio::Stream::Stderr => "stderr_open",
 		};
+		#[derive(db::row::Deserialize)]
+		struct OpenRow {
+			open: Option<bool>,
+		}
 		let statement = formatdoc!(
 			"
-				select {column}
+				select {column} as open
 				from processes
 				where id = $1
 				for update;
 			"
 		);
-		let id = id.to_string();
-		let Some(row) = transaction
-			.query_opt(&statement, &[&id])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(WriteOutput::Closed);
+		let result = transaction
+			.query_optional_into::<OpenRow>(statement.into(), db::params![id.to_owned()])
+			.await;
+		let Some(row) = crate::database::retry!(result, "failed to execute the statement") else {
+			return Ok(ControlFlow::Break(WriteOutput::Closed));
 		};
-		let open = row
-			.try_get::<_, Option<bool>>(0)
-			.map_err(|error| tg::error!(!error, "failed to get the open state"))?;
-		if open != Some(true) {
-			return Ok(WriteOutput::Closed);
+		if row.open != Some(true) {
+			return Ok(ControlFlow::Break(WriteOutput::Closed));
 		}
 
 		let statement = "
@@ -60,35 +77,33 @@ impl Session {
 			from process_stdio
 			where process = $1 and stream = $2;
 		";
-		let written_len = transaction
-			.query_one(statement, &[&id, &stream.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.try_get::<_, i64>(0)
-			.map_err(|error| tg::error!(!error, "failed to get the written bytes"))?;
+		let result = transaction
+			.query_one_value_into::<i64>(
+				statement.into(),
+				db::params![id.to_owned(), stream.to_string()],
+			)
+			.await;
+		let written_len = crate::database::retry!(result, "failed to execute the statement");
 		let written_len = u64::try_from(written_len).unwrap();
 		let bytes_len = u64::try_from(bytes.len()).unwrap();
 		if written_len != 0
 			&& written_len.saturating_add(bytes_len) > MAX_UNREAD_PROCESS_STDIO_BYTES
 		{
-			return Ok(WriteOutput::Full);
+			return Ok(ControlFlow::Break(WriteOutput::Full));
 		}
 
 		let statement = "
 			insert into process_stdio (process, stream, bytes)
 			values ($1, $2, $3);
 		";
-		transaction
-			.execute(statement, &[&id, &stream.to_string(), &&bytes[..]])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-
-		Ok(WriteOutput::Written)
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![id.to_owned(), stream.to_string(), bytes],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(WriteOutput::Written))
 	}
 
 	pub(crate) async fn try_close_process_stdio_postgres(
@@ -97,15 +112,34 @@ impl Session {
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let id = id.to_string();
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
 			tg::process::stdio::Stream::Stdout => "stdout_open",
 			tg::process::stdio::Stream::Stderr => "stderr_open",
 		};
+		process_store
+			.run(|transaction| {
+				let id = id.clone();
+				async move {
+					Self::try_close_process_stdio_postgres_with_transaction(
+						transaction,
+						&id,
+						column,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to close process stdio"))
+	}
+
+	async fn try_close_process_stdio_postgres_with_transaction(
+		transaction: &db::postgres::Transaction<'_>,
+		id: &str,
+		column: &str,
+	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let statement = formatdoc!(
 			"
 				update processes
@@ -113,12 +147,10 @@ impl Session {
 				where id = $1;
 			"
 		);
-		let id = id.to_string();
-		connection
-			.inner()
-			.execute(&statement, &[&id])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+		let result = transaction
+			.execute(statement.into(), db::params![id.to_owned()])
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 }

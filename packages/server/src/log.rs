@@ -2,7 +2,7 @@ use {
 	self::store::{DeleteArg, ReadArg},
 	crate::Session,
 	futures::{
-		StreamExt as _,
+		FutureExt as _, StreamExt as _,
 		stream::{self, BoxStream},
 	},
 	indoc::formatdoc,
@@ -10,9 +10,10 @@ use {
 	std::{
 		collections::{BTreeSet, VecDeque},
 		io::{Cursor, SeekFrom},
+		ops::ControlFlow,
 	},
 	tangram_client::{self as tg},
-	tangram_database::{self as db, Database as _, Query as _},
+	tangram_database::{self as db, Query as _},
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_log_store::Store as _,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
@@ -176,25 +177,18 @@ impl Session {
 		let arg = tg::write::Arg::default();
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 
-		let connection = self
-			.server
+		self.server
 			.process_store
-			.write_connection()
+			.run(|transaction| {
+				let blob = blob.clone();
+				let process = process.clone();
+				async move {
+					Self::update_process_log_with_transaction(transaction, &process, &blob).await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get db connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update processes
-				set log = {p}2
-				where id = {p}1 and log is null;
-			"
-		);
-		let params = db::params![process.to_string(), blob.to_string()];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to update the process log"))?;
 
 		self.server
 			.log_store
@@ -205,6 +199,25 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to delete the process log from store"))?;
 
 		Ok(())
+	}
+
+	async fn update_process_log_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		process: &tg::process::Id,
+		blob: &tg::blob::Id,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				update processes
+				set log = {p}2
+				where id = {p}1 and log is null;
+			"
+		);
+		let params = db::params![process.to_string(), blob.to_string()];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn process_log_stream(

@@ -23,6 +23,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn try_get_process_signal_stream(
@@ -191,6 +193,11 @@ impl Session {
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
 				self.try_dequeue_process_signal_sqlite(process_store, id)
+					.await
+			},
+			#[cfg(feature = "turso")]
+			Database::Turso(process_store) => {
+				self.try_dequeue_process_signal_turso(process_store, id)
 					.await
 			},
 		}

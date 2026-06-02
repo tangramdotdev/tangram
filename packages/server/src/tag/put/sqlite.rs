@@ -2,8 +2,9 @@ use {
 	crate::Session,
 	indoc::indoc,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::{self as db},
 };
 
 impl Session {
@@ -20,37 +21,21 @@ impl Session {
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		connection
-			.with({
-				let tag = tag.clone();
-				let arg = arg.clone();
-				let created_by = created_by.clone();
-				move |connection, cache| {
-					let transaction = connection
-						.transaction()
-						.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-					Self::put_tag_sqlite_sync(
-						&transaction,
-						cache,
-						&tag,
-						&arg,
-						created_by.as_ref(),
-						grant_creator_admin,
-					)?;
-					transaction
-						.commit()
-						.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-					Ok::<_, tg::Error>(())
-				}
+		let tag = tag.clone();
+		let arg = arg.clone();
+		database
+			.run(move |transaction, cache| {
+				Self::put_tag_sqlite_sync(
+					transaction,
+					cache,
+					&tag,
+					&arg,
+					created_by.as_ref(),
+					grant_creator_admin,
+				)
 			})
-			.await?;
-
-		Ok(())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the tag"))
 	}
 
 	pub(crate) fn put_tag_sqlite_sync(
@@ -60,22 +45,26 @@ impl Session {
 		arg: &tg::tag::put::Arg,
 		created_by: Option<&tg::user::Id>,
 		grant_creator_admin: bool,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		if tag.is_empty() {
 			return Err(tg::error!("cannot put an empty tag"));
 		}
 
-		let namespace = Self::get_or_create_namespace_sqlite_sync(transaction, &tag.namespace)?;
+		let namespace =
+			match Self::get_or_create_namespace_sqlite_sync(transaction, &tag.namespace)? {
+				ControlFlow::Break(namespace) => namespace,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 		let statement = indoc!(
 			"
 				insert into tags (namespace, name, item)
 				values (?1, ?2, ?3)
 				on conflict (namespace, name) do update
 				set item = excluded.item
-				where ?4 or tags.item = excluded.item ;
+				where ?4 or tags.item = excluded.item;
 			"
 		);
-		let n = transaction
+		let result = transaction
 			.execute(
 				statement,
 				sqlite::params![
@@ -85,7 +74,8 @@ impl Session {
 					arg.force
 				],
 			)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n == 0 {
 			return Err(tg::error!("the tag already exists with a different item"));
 		}
@@ -102,7 +92,7 @@ impl Session {
 					);
 				"
 			);
-			let n = transaction
+			let result = transaction
 				.execute(
 					statement,
 					sqlite::params![
@@ -112,13 +102,17 @@ impl Session {
 						created_at
 					],
 				)
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			let n = crate::database::retry!(result, "failed to execute the statement");
 			if n > 0 {
-				Self::increment_namespace_visibility_for_user_sqlite_sync(
+				match Self::increment_namespace_visibility_for_user_sqlite_sync(
 					transaction,
 					&tag.namespace,
 					user,
-				)?;
+				)? {
+					ControlFlow::Break(()) => {},
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
 		}
 		if arg.all && !arg.replicate {
@@ -135,20 +129,24 @@ impl Session {
 					);
 				"
 			);
-			let n = transaction
+			let result = transaction
 				.execute(
 					statement,
 					sqlite::params![namespace, tag.name.to_string(), created_at, created_by],
 				)
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(db::sqlite::Error::from);
+			let n = crate::database::retry!(result, "failed to execute the statement");
 			if n > 0 {
-				Self::increment_namespace_visibility_for_all_sqlite_sync(
+				match Self::increment_namespace_visibility_for_all_sqlite_sync(
 					transaction,
 					&tag.namespace,
-				)?;
+				)? {
+					ControlFlow::Break(()) => {},
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

@@ -6,7 +6,10 @@ use {
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	rusqlite as sqlite,
-	std::{borrow::Cow, collections::HashMap, path::PathBuf, sync::Arc, time::Duration},
+	std::{
+		borrow::Cow, collections::HashMap, ops::ControlFlow, path::PathBuf, sync::Arc,
+		time::Duration,
+	},
 	tangram_pool::{self as pool, Pool},
 };
 
@@ -19,13 +22,16 @@ pub enum Error {
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-type Initialize = Arc<dyn Fn(&sqlite::Connection) -> sqlite::Result<()> + Send + Sync + 'static>;
+type Initialize = Arc<
+	dyn Fn(&sqlite::Connection, &ConnectionOptions) -> sqlite::Result<()> + Send + Sync + 'static,
+>;
 
 pub struct DatabaseOptions {
 	pub initialize: Initialize,
 	pub max: usize,
 	pub min: usize,
 	pub path: PathBuf,
+	pub retry: tangram_futures::retry::Options,
 	pub ttl: Option<Duration>,
 }
 
@@ -213,6 +219,47 @@ impl Database {
 		Ok(connection)
 	}
 
+	pub async fn run<F, T, E>(&self, f: F) -> Result<T, Error>
+	where
+		F: Fn(&sqlite::Transaction<'_>, &Cache) -> Result<ControlFlow<T, Error>, E>
+			+ Send
+			+ Sync
+			+ 'static,
+		T: Send + 'static,
+		E: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
+	{
+		let options = self.options.retry.clone();
+		let f = Arc::new(f);
+		tangram_futures::retry::retry(&options, || {
+			let f = f.clone();
+			async move {
+				let connection = self
+					.write_pool
+					.get_exclusive(pool::Priority::default())
+					.await?;
+				connection
+					.with(move |connection, cache| {
+						let transaction = connection.transaction()?;
+						let value = match f(&transaction, cache) {
+							Ok(ControlFlow::Break(value)) => value,
+							Ok(ControlFlow::Continue(error)) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(Error::other(error)),
+						};
+						let result = transaction.commit().map_err(Error::from);
+						match result {
+							Ok(()) => Ok(ControlFlow::Break(value)),
+							Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+							Err(error) => Err(error),
+						}
+					})
+					.await
+			}
+		})
+		.await
+	}
+
 	pub async fn sync(&self) -> Result<(), Error> {
 		let connection = self
 			.write_pool
@@ -232,7 +279,7 @@ impl Connection {
 	pub async fn connect(options: ConnectionOptions) -> Result<Self, Error> {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let connection = sqlite::Connection::open_with_flags(&options.path, options.flags)?;
-		(options.initialize)(&connection)?;
+		(options.initialize)(&connection, &options)?;
 		std::thread::spawn(|| Self::run(connection, receiver));
 		let connection = Self { options, sender };
 		Ok(connection)
@@ -322,7 +369,6 @@ impl Transaction<'_> {
 				},
 			}
 		}
-		transaction.rollback().ok();
 	}
 
 	pub async fn with<F, T, E>(&self, f: F) -> Result<T, E>
@@ -342,7 +388,15 @@ impl Transaction<'_> {
 
 impl super::Error for Error {
 	fn is_retry(&self) -> bool {
-		false
+		match self {
+			Self::Sqlite(error) => {
+				matches!(
+					error.sqlite_error_code(),
+					Some(sqlite::ErrorCode::DatabaseBusy | sqlite::ErrorCode::DatabaseLocked)
+				)
+			},
+			Self::Other(_) => false,
+		}
 	}
 
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
@@ -354,6 +408,10 @@ impl super::Database for Database {
 	type Error = Error;
 
 	type Connection = pool::ExclusiveGuard<Connection, Error>;
+
+	fn retry(&self) -> tangram_futures::retry::Options {
+		self.options.retry.clone()
+	}
 
 	async fn connection_with_options(
 		&self,
@@ -844,30 +902,32 @@ impl Cache {
 		statement: Cow<'static, str>,
 	) -> Result<CachedStatement<'a>, Error> {
 		let key = CacheKey::new(statement);
-		let stmt = {
+		let statement = {
 			let mut guard = self.statements.lock().unwrap();
-			if let Some(stmt) = guard.remove(&key) {
-				stmt
+			if let Some(statement) = guard.remove(&key) {
+				statement
 			} else {
-				let stmt = connection.prepare(key.as_str())?;
+				let statement = connection.prepare(key.as_str())?;
 				unsafe {
-					std::mem::transmute::<sqlite::Statement<'_>, sqlite::Statement<'static>>(stmt)
+					std::mem::transmute::<sqlite::Statement<'_>, sqlite::Statement<'static>>(
+						statement,
+					)
 				}
 			}
 		};
 		Ok(CachedStatement {
 			cache: self,
 			key,
-			statement: Some(stmt),
+			statement: Some(statement),
 		})
 	}
 }
 
 impl Drop for CachedStatement<'_> {
 	fn drop(&mut self) {
-		if let Some(stmt) = self.statement.take() {
+		if let Some(statement) = self.statement.take() {
 			let mut guard = self.cache.statements.lock().unwrap();
-			guard.insert(self.key.clone(), stmt);
+			guard.insert(self.key.clone(), statement);
 		}
 	}
 }

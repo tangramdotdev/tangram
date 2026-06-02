@@ -1,12 +1,12 @@
 use {
+	super::WriteOutput,
 	crate::{Session, process::stdio::MAX_UNREAD_PROCESS_STDIO_BYTES},
 	bytes::Bytes,
 	rusqlite as sqlite,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, Database as _},
+	tangram_database::{self as db},
 };
-
-use super::WriteOutput;
 
 impl Session {
 	pub(crate) async fn try_write_process_stdio_sqlite(
@@ -17,27 +17,21 @@ impl Session {
 		bytes: Bytes,
 	) -> tg::Result<WriteOutput> {
 		let id = id.clone();
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		connection
-			.with(move |connection, _cache| {
-				Self::try_write_process_stdio_sqlite_sync(connection, &id, stream, &bytes)
+		let bytes = bytes.clone();
+		process_store
+			.run(move |transaction, _cache| {
+				Self::try_write_process_stdio_sqlite_sync(transaction, &id, stream, &bytes)
 			})
 			.await
+			.map_err(|error| tg::error!(!error, "failed to write process stdio"))
 	}
 
 	fn try_write_process_stdio_sqlite_sync(
-		connection: &mut sqlite::Connection,
+		transaction: &sqlite::Transaction<'_>,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 		bytes: &Bytes,
-	) -> tg::Result<WriteOutput> {
-		let transaction = connection
-			.transaction()
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-
+	) -> tg::Result<ControlFlow<WriteOutput, db::sqlite::Error>> {
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
 			tg::process::stdio::Stream::Stdout => "stdout_open",
@@ -50,23 +44,26 @@ impl Session {
 				where id = ?1;
 			"
 		);
-		let mut statement = transaction
+		let result = transaction
 			.prepare(&statement)
-			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = statement
-			.query(sqlite::params![id.to_string()])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let Some(row) = rows
-			.next()
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(WriteOutput::Closed);
+			.map_err(db::sqlite::Error::from);
+		let mut statement = crate::database::retry!(result, "failed to prepare the statement");
+		let mut rows = {
+			let result = statement
+				.query(sqlite::params![id.to_string()])
+				.map_err(db::sqlite::Error::from);
+			crate::database::retry!(result, "failed to execute the statement")
 		};
-		let open = row
+		let result = rows.next().map_err(db::sqlite::Error::from);
+		let Some(row) = crate::database::retry!(result, "failed to execute the statement") else {
+			return Ok(ControlFlow::Break(WriteOutput::Closed));
+		};
+		let result = row
 			.get::<_, Option<bool>>(0)
-			.map_err(|error| tg::error!(!error, "failed to get the open state"))?;
+			.map_err(db::sqlite::Error::from);
+		let open = crate::database::retry!(result, "failed to get the open state");
 		if open != Some(true) {
-			return Ok(WriteOutput::Closed);
+			return Ok(ControlFlow::Break(WriteOutput::Closed));
 		}
 		drop(rows);
 		drop(statement);
@@ -76,35 +73,34 @@ impl Session {
 			from process_stdio
 			where process = ?1 and stream = ?2;
 		";
-		let written_len = transaction
+		let result = transaction
 			.query_row(
 				statement,
 				sqlite::params![id.to_string(), stream.to_string()],
 				|row| row.get::<_, i64>(0),
 			)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(db::sqlite::Error::from);
+		let written_len = crate::database::retry!(result, "failed to execute the statement");
 		let written_len = u64::try_from(written_len).unwrap();
 		let bytes_len = u64::try_from(bytes.len()).unwrap();
 		if written_len != 0
 			&& written_len.saturating_add(bytes_len) > MAX_UNREAD_PROCESS_STDIO_BYTES
 		{
-			return Ok(WriteOutput::Full);
+			return Ok(ControlFlow::Break(WriteOutput::Full));
 		}
 
 		let statement = "
 			insert into process_stdio (process, stream, bytes)
 			values (?1, ?2, ?3);
 		";
-		transaction
+		let result = transaction
 			.execute(
 				statement,
 				sqlite::params![id.to_string(), stream.to_string(), bytes.as_ref()],
 			)
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		transaction
-			.commit()
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(WriteOutput::Written)
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(WriteOutput::Written))
 	}
 
 	pub(crate) async fn try_close_process_stdio_sqlite(
@@ -114,22 +110,19 @@ impl Session {
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
 		let id = id.clone();
-		let connection = process_store
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		connection
-			.with(move |connection, _cache| {
-				Self::try_close_process_stdio_sqlite_sync(connection, &id, stream)
+		process_store
+			.run(move |transaction, _cache| {
+				Self::try_close_process_stdio_sqlite_sync(transaction, &id, stream)
 			})
 			.await
+			.map_err(|error| tg::error!(!error, "failed to close process stdio"))
 	}
 
 	fn try_close_process_stdio_sqlite_sync(
-		connection: &mut sqlite::Connection,
+		transaction: &sqlite::Transaction<'_>,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
 			tg::process::stdio::Stream::Stdout => "stdout_open",
@@ -142,9 +135,10 @@ impl Session {
 				where id = ?1;
 			"
 		);
-		connection
+		let result = transaction
 			.execute(&statement, sqlite::params![id.to_string()])
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 }

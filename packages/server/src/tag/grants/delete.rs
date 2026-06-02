@@ -1,7 +1,8 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -38,55 +39,66 @@ impl Session {
 			return Err(tg::error!("all grants may only be read"));
 		}
 
-		let mut connection = self
-			.server
+		let session = self.clone();
+		self.server
 			.database
-			.write_connection()
+			.run(|transaction| {
+				let arg = arg.clone();
+				let session = session.clone();
+				async move {
+					session
+						.delete_tag_grant_inner_with_transaction(transaction, &arg)
+						.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		self.authorize_tag_with_transaction(&transaction, &arg.tag, tg::Permission::Admin)
+			.map_err(|error| tg::error!(!error, "failed to delete the tag grant"))
+	}
+
+	async fn delete_tag_grant_inner_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: &tg::tag::grants::delete::Arg,
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
+		self.authorize_tag_with_transaction(transaction, &arg.tag, tg::Permission::Admin)
 			.await?;
 		let Some(namespace_id) =
-			Self::try_get_tag_namespace_id_with_transaction(&transaction, &arg.tag).await?
+			Self::try_get_tag_namespace_id_with_transaction(transaction, &arg.tag).await?
 		else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		match &arg.principal {
 			tg::Principal::All | tg::Principal::Root => {},
 			tg::Principal::Group(group) => {
-				if Self::try_get_group_with_transaction(&transaction, &group.to_string())
+				if Self::try_get_group_with_transaction(transaction, &group.to_string())
 					.await?
 					.is_none()
 				{
-					return Ok(None);
+					return Ok(ControlFlow::Break(None));
 				}
 			},
 			tg::Principal::User(user) => {
-				if Self::try_get_user_with_transaction(&transaction, &user.to_string())
+				if Self::try_get_user_with_transaction(transaction, &user.to_string())
 					.await?
 					.is_none()
 				{
-					return Ok(None);
+					return Ok(ControlFlow::Break(None));
 				}
 			},
 		}
-		let output = Self::delete_tag_grant_with_transaction(
-			&transaction,
+		match Self::delete_tag_grant_with_transaction(
+			transaction,
 			namespace_id,
 			&arg.tag.name,
 			&arg.principal,
 			arg.permission,
 		)
-		.await?;
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		Ok(output)
+		.await?
+		{
+			ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+			ControlFlow::Continue(error) => Ok(ControlFlow::Continue(error)),
+		}
 	}
 
 	async fn delete_tag_grant_remote(

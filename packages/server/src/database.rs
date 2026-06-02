@@ -1,27 +1,40 @@
 use {
-	futures::{Stream, StreamExt as _},
-	std::borrow::Cow,
-	tangram_database as db,
+	futures::{Stream, StreamExt as _, future::BoxFuture},
+	std::{borrow::Cow, ops::ControlFlow},
+	tangram_client as tg,
+	tangram_database::{self as db, Database as _, Error as _, Transaction as _},
 };
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
+#[cfg(feature = "turso")]
+pub mod turso;
+
+mod retry;
+
+pub(crate) use retry::retry;
+
 #[derive(
 	Debug,
-	derive_more::IsVariant,
 	derive_more::Display,
 	derive_more::Error,
+	derive_more::From,
+	derive_more::IsVariant,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
 )]
-#[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Error {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Error),
+
 	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::Error),
+
+	#[cfg(feature = "turso")]
+	Turso(db::turso::Error),
+
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -31,8 +44,12 @@ pub enum Error {
 pub enum Database {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Database),
+
 	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::Database),
+
+	#[cfg(feature = "turso")]
+	Turso(db::turso::Database),
 }
 
 #[expect(dead_code)]
@@ -42,8 +59,12 @@ pub enum Database {
 pub enum DatabaseOptions {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::DatabaseOptions),
+
 	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::DatabaseOptions),
+
+	#[cfg(feature = "turso")]
+	Turso(db::turso::DatabaseOptions),
 }
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -52,8 +73,12 @@ pub enum DatabaseOptions {
 pub enum Connection {
 	#[cfg(feature = "postgres")]
 	Postgres(tangram_pool::ExclusiveGuard<db::postgres::Connection, db::postgres::Error>),
+
 	#[cfg(feature = "sqlite")]
 	Sqlite(tangram_pool::ExclusiveGuard<db::sqlite::Connection, db::sqlite::Error>),
+
+	#[cfg(feature = "turso")]
+	Turso(tangram_pool::ExclusiveGuard<db::turso::Connection, db::turso::Error>),
 }
 
 #[expect(dead_code)]
@@ -63,6 +88,7 @@ pub enum Connection {
 pub enum ConnectionOptions {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::ConnectionOptions),
+
 	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::ConnectionOptions),
 }
@@ -73,22 +99,12 @@ pub enum ConnectionOptions {
 pub enum Transaction<'a> {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Transaction<'a>),
+
 	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::Transaction<'a>),
-}
 
-#[cfg(feature = "postgres")]
-impl From<db::postgres::Error> for Error {
-	fn from(error: db::postgres::Error) -> Self {
-		Self::Postgres(error)
-	}
-}
-
-#[cfg(feature = "sqlite")]
-impl From<db::sqlite::Error> for Error {
-	fn from(error: db::sqlite::Error) -> Self {
-		Self::Sqlite(error)
-	}
+	#[cfg(feature = "turso")]
+	Turso(db::turso::Transaction<'a>),
 }
 
 impl db::Error for Error {
@@ -98,12 +114,114 @@ impl db::Error for Error {
 			Self::Postgres(e) => e.is_retry(),
 			#[cfg(feature = "sqlite")]
 			Self::Sqlite(e) => e.is_retry(),
+			#[cfg(feature = "turso")]
+			Self::Turso(e) => e.is_retry(),
 			Self::Other(_) => false,
 		}
 	}
 
 	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
 		Self::Other(error.into())
+	}
+}
+
+impl From<tg::Error> for Error {
+	fn from(error: tg::Error) -> Self {
+		Self::Other(Box::new(error))
+	}
+}
+
+impl Database {
+	pub async fn run<F, T, E>(&self, f: F) -> tg::Result<T>
+	where
+		for<'a, 'b> F: Fn(&'a Transaction<'b>) -> BoxFuture<'a, std::result::Result<ControlFlow<T, Error>, E>>
+			+ Sync,
+		T: Send + 'static,
+		E: Into<Error> + Send + 'static,
+	{
+		let options = match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(database) => database.retry(),
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(database) => database.retry(),
+			#[cfg(feature = "turso")]
+			Self::Turso(database) => database.retry(),
+		};
+		tangram_futures::retry::retry(&options, || async {
+			match self {
+				#[cfg(feature = "postgres")]
+				Self::Postgres(database) => {
+					let mut connection = db::Database::write_connection(database)
+						.await
+						.map_err(Error::Postgres)?;
+					let inner = db::Connection::transaction(&mut connection)
+						.await
+						.map_err(Error::Postgres)?;
+					let transaction = Transaction::Postgres(inner);
+					let value = match f(&transaction).await {
+						Ok(ControlFlow::Break(value)) => value,
+						Ok(ControlFlow::Continue(error)) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error.into()),
+					};
+					let result = transaction.commit().await;
+					match result {
+						Ok(()) => Ok(ControlFlow::Break(value)),
+						Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+						Err(error) => Err(error),
+					}
+				},
+				#[cfg(feature = "sqlite")]
+				Self::Sqlite(database) => {
+					let mut connection = db::Database::write_connection(database)
+						.await
+						.map_err(Error::Sqlite)?;
+					let inner = db::Connection::transaction(&mut connection)
+						.await
+						.map_err(Error::Sqlite)?;
+					let transaction = Transaction::Sqlite(inner);
+					let value = match f(&transaction).await {
+						Ok(ControlFlow::Break(value)) => value,
+						Ok(ControlFlow::Continue(error)) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error.into()),
+					};
+					let result = transaction.commit().await;
+					match result {
+						Ok(()) => Ok(ControlFlow::Break(value)),
+						Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+						Err(error) => Err(error),
+					}
+				},
+				#[cfg(feature = "turso")]
+				Self::Turso(database) => {
+					let mut connection = db::Database::write_connection(database)
+						.await
+						.map_err(Error::Turso)?;
+					let inner = db::Connection::transaction(&mut connection)
+						.await
+						.map_err(Error::Turso)?;
+					let transaction = Transaction::Turso(inner);
+					let value = match f(&transaction).await {
+						Ok(ControlFlow::Break(value)) => value,
+						Ok(ControlFlow::Continue(error)) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error.into()),
+					};
+					let result = transaction.commit().await;
+					match result {
+						Ok(()) => Ok(ControlFlow::Break(value)),
+						Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+						Err(error) => Err(error),
+					}
+				},
+			}
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "database error"))
 	}
 }
 
@@ -115,7 +233,7 @@ impl db::Database for Database {
 	async fn connection_with_options(
 		&self,
 		options: db::ConnectionOptions,
-	) -> Result<Self::Connection, Self::Error> {
+	) -> std::result::Result<Self::Connection, Error> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => {
@@ -133,15 +251,25 @@ impl db::Database for Database {
 					.map_err(Error::Sqlite)?;
 				Ok(Connection::Sqlite(connection))
 			},
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => {
+				let connection = s
+					.connection_with_options(options)
+					.await
+					.map_err(Error::Turso)?;
+				Ok(Connection::Turso(connection))
+			},
 		}
 	}
 
-	async fn sync(&self) -> Result<(), Self::Error> {
+	async fn sync(&self) -> std::result::Result<(), Error> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.sync().await.map_err(Error::Postgres),
 			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.sync().await.map_err(Error::Sqlite),
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => s.sync().await.map_err(Error::Turso),
 		}
 	}
 }
@@ -151,7 +279,7 @@ impl db::Connection for Connection {
 
 	type Transaction<'a> = Transaction<'a>;
 
-	async fn transaction(&mut self) -> Result<Self::Transaction<'_>, Self::Error> {
+	async fn transaction(&mut self) -> std::result::Result<Self::Transaction<'_>, Error> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => {
@@ -163,6 +291,11 @@ impl db::Connection for Connection {
 				let transaction = s.transaction().await.map_err(Error::Sqlite)?;
 				Ok(Transaction::Sqlite(transaction))
 			},
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => {
+				let transaction = s.transaction().await.map_err(Error::Turso)?;
+				Ok(Transaction::Turso(transaction))
+			},
 		}
 	}
 }
@@ -170,21 +303,25 @@ impl db::Connection for Connection {
 impl db::Transaction for Transaction<'_> {
 	type Error = Error;
 
-	async fn rollback(self) -> Result<(), Self::Error> {
+	async fn rollback(self) -> std::result::Result<(), Error> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.rollback().await.map_err(Error::Postgres),
 			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.rollback().await.map_err(Error::Sqlite),
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => s.rollback().await.map_err(Error::Turso),
 		}
 	}
 
-	async fn commit(self) -> Result<(), Self::Error> {
+	async fn commit(self) -> std::result::Result<(), Error> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.commit().await.map_err(Error::Postgres),
 			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.commit().await.map_err(Error::Sqlite),
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => s.commit().await.map_err(Error::Turso),
 		}
 	}
 }
@@ -198,6 +335,8 @@ impl db::Query for Connection {
 			Self::Postgres(s) => s.p(),
 			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.p(),
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => s.p(),
 		}
 	}
 
@@ -205,12 +344,14 @@ impl db::Query for Connection {
 		&self,
 		statement: Cow<'static, str>,
 		params: Vec<db::Value>,
-	) -> Result<u64, Self::Error> {
+	) -> std::result::Result<u64, Error> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.execute(statement, params).await.map_err(Error::Postgres),
 			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.execute(statement, params).await.map_err(Error::Sqlite),
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => s.execute(statement, params).await.map_err(Error::Turso),
 		}
 	}
 
@@ -218,7 +359,8 @@ impl db::Query for Connection {
 		&self,
 		statement: Cow<'static, str>,
 		params: Vec<db::Value>,
-	) -> Result<impl Stream<Item = Result<db::Row, Self::Error>> + Send, Self::Error> {
+	) -> std::result::Result<impl Stream<Item = std::result::Result<db::Row, Error>> + Send, Error>
+	{
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => {
@@ -229,6 +371,11 @@ impl db::Query for Connection {
 			Self::Sqlite(s) => {
 				let stream = s.query(statement, params).await.map_err(Error::Sqlite)?;
 				Ok(stream.map(|result| result.map_err(Error::Sqlite)).boxed())
+			},
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => {
+				let stream = s.query(statement, params).await.map_err(Error::Turso)?;
+				Ok(stream.map(|result| result.map_err(Error::Turso)).boxed())
 			},
 		}
 	}
@@ -243,6 +390,8 @@ impl db::Query for Transaction<'_> {
 			Self::Postgres(s) => s.p(),
 			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.p(),
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => s.p(),
 		}
 	}
 
@@ -250,12 +399,14 @@ impl db::Query for Transaction<'_> {
 		&self,
 		statement: Cow<'static, str>,
 		params: Vec<db::Value>,
-	) -> Result<u64, Self::Error> {
+	) -> std::result::Result<u64, Error> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.execute(statement, params).await.map_err(Error::Postgres),
 			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.execute(statement, params).await.map_err(Error::Sqlite),
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => s.execute(statement, params).await.map_err(Error::Turso),
 		}
 	}
 
@@ -263,7 +414,8 @@ impl db::Query for Transaction<'_> {
 		&self,
 		statement: Cow<'static, str>,
 		params: Vec<db::Value>,
-	) -> Result<impl Stream<Item = Result<db::Row, Self::Error>> + Send, Self::Error> {
+	) -> std::result::Result<impl Stream<Item = std::result::Result<db::Row, Error>> + Send, Error>
+	{
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => {
@@ -274,6 +426,11 @@ impl db::Query for Transaction<'_> {
 			Self::Sqlite(s) => {
 				let stream = s.query(statement, params).await.map_err(Error::Sqlite)?;
 				Ok(stream.map(|result| result.map_err(Error::Sqlite)).boxed())
+			},
+			#[cfg(feature = "turso")]
+			Self::Turso(s) => {
+				let stream = s.query(statement, params).await.map_err(Error::Turso)?;
+				Ok(stream.map(|result| result.map_err(Error::Turso)).boxed())
 			},
 		}
 	}

@@ -13,6 +13,8 @@ use {
 mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
+#[cfg(feature = "turso")]
+mod turso;
 
 impl Session {
 	pub(crate) async fn try_dequeue_sandbox_process(
@@ -117,6 +119,11 @@ impl Session {
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(process_store) => {
 					self.try_dequeue_sandbox_process_sqlite(process_store, sandbox)
+						.await?
+				},
+				#[cfg(feature = "turso")]
+				Database::Turso(process_store) => {
+					self.try_dequeue_sandbox_process_turso(process_store, sandbox)
 						.await?
 				},
 			};

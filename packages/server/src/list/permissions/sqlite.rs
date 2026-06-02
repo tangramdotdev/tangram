@@ -109,7 +109,7 @@ impl Session {
 				r"
 					select 1
 					from namespace_visibility
-					where namespace = ?1 and principal = 'all' ;
+					where namespace = ?1 and principal = 'all';
 				"
 			);
 			let mut statement = transaction
@@ -133,7 +133,7 @@ impl Session {
 									where group_members."group" = namespace_visibility.principal
 										and group_members."user" = ?2
 								)
-							) ;
+							);
 					"#
 			);
 			let mut statement = transaction

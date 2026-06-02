@@ -58,6 +58,10 @@ pub trait Database {
 	) -> impl Future<Output = Result<Self::Connection, Self::Error>> + Send;
 
 	fn sync(&self) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+	fn retry(&self) -> tangram_futures::retry::Options {
+		tangram_futures::retry::Options::default()
+	}
 }
 
 #[derive(Clone, Debug, Default)]

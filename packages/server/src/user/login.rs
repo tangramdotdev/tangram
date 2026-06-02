@@ -1,6 +1,8 @@
 use {
 	crate::{Session, context::Authentication},
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -46,24 +48,31 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		let mut connection = self
-			.server
+		self.server
 			.database
-			.write_connection()
+			.run(|transaction| {
+				let email = email.clone();
+				let namespace = namespace.clone();
+				async move {
+					Self::login_user_local_with_transaction(transaction, &namespace, email).await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to log in the user"))
+	}
 
-		// Get or create the user.
+	async fn login_user_local_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		namespace: &tg::Namespace,
+		email: Option<String>,
+	) -> tg::Result<ControlFlow<tg::user::login::Output, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct UserRow {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
 		}
-		Self::namespace_for_user(&namespace)?;
+		Self::namespace_for_user(namespace)?;
 		let namespace_string = namespace.to_string();
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -74,14 +83,14 @@ impl Session {
 			"
 		);
 		let params = db::params![namespace_string.clone()];
-		let user = transaction
+		let result = transaction
 			.query_optional_into::<UserRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let user = crate::database::retry!(result, "failed to execute the statement");
 		let id = if let Some(user) = user {
 			user.id
 		} else {
-			if Self::namespace_in_use_with_transaction(&transaction, &namespace_string).await? {
+			if Self::namespace_in_use_with_transaction(transaction, &namespace_string).await? {
 				return Err(tg::error!("namespace is already in use"));
 			}
 
@@ -93,22 +102,28 @@ impl Session {
 				"
 			);
 			let params = db::params![id.to_string(), namespace_string.clone()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
 
 			let namespace_id =
-				Self::get_or_create_namespace_with_transaction(&transaction, &namespace).await?;
-			Self::create_namespace_grant_for_user_with_transaction(
-				&transaction,
-				&namespace,
+				match Self::get_or_create_namespace_with_transaction(transaction, namespace).await?
+				{
+					ControlFlow::Break(namespace_id) => namespace_id,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+			match Self::create_namespace_grant_for_user_with_transaction(
+				transaction,
+				namespace,
 				namespace_id,
 				&id,
 				tg::Permission::Admin,
 				Some(&id),
 			)
-			.await?;
+			.await?
+			{
+				ControlFlow::Break(_) => {},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 
 			id
 		};
@@ -121,10 +136,10 @@ impl Session {
 					where email = {p}1;
 				"#
 			);
-			let email_user = transaction
+			let result = transaction
 				.query_optional_value_into::<String>(statement.into(), db::params![email.clone()])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			let email_user = crate::database::retry!(result, "failed to execute the statement");
 			match email_user {
 				Some(email_user) if email_user != id.to_string() => {
 					return Err(tg::error!("email is already in use"));
@@ -138,15 +153,12 @@ impl Session {
 						"#
 					);
 					let params = db::params![id.to_string(), email];
-					transaction
-						.execute(statement.into(), params)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					let result = transaction.execute(statement.into(), params).await;
+					crate::database::retry!(result, "failed to execute the statement");
 				},
 			}
 		}
 
-		// Create the token.
 		let token = Self::create_user_token();
 		let statement = formatdoc!(
 			r#"
@@ -155,12 +167,9 @@ impl Session {
 			"#
 		);
 		let params = db::params![token.clone(), id.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
 
-		// Get the user's emails.
 		#[derive(db::row::Deserialize)]
 		struct EmailRow {
 			email: String,
@@ -174,27 +183,20 @@ impl Session {
 			"#
 		);
 		let params = db::params![id.to_string()];
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<EmailRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let emails = rows.into_iter().map(|row| row.email).collect();
-
-		transaction
-			.commit()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		drop(connection);
 
 		let user = tg::User {
 			emails,
-			namespace: Some(namespace),
+			namespace: Some(namespace.clone()),
 			id,
 			location: None,
 		};
 		let output = tg::user::login::Output { token, user };
-
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn login_user_remote(
@@ -225,13 +227,48 @@ impl Session {
 			)
 		})?;
 
-		let connection = self
-			.server
+		let user = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
+			.map(|user| user.id.to_string());
+		let remote_name = remote.name.clone();
+		let token = output.token.clone();
+		self.server
 			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+			.run(|transaction| {
+				let remote_name = remote_name.clone();
+				let token = token.clone();
+				let user = user.clone();
+				async move {
+					Self::update_remote_token_with_transaction(
+						transaction,
+						&remote_name,
+						&token,
+						user.as_deref(),
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
+
+		output.user.location = Some(tg::Location::Remote(tg::location::Remote {
+			name: remote.name,
+			region: None,
+		}));
+
+		Ok(output)
+	}
+
+	async fn update_remote_token_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		remote_name: &str,
+		token: &str,
+		user: Option<&str>,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
 				update remotes
@@ -242,25 +279,10 @@ impl Session {
 				);
 			"#,
 		);
-		let user = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.map(|user| user.id.to_string());
-		let params = db::params![&remote.name, output.token, user];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to update the remote"))?;
-		drop(connection);
-
-		output.user.location = Some(tg::Location::Remote(tg::location::Remote {
-			name: remote.name,
-			region: None,
-		}));
-
-		Ok(output)
+		let params = db::params![remote_name, token, user];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to update the remote");
+		Ok(ControlFlow::Break(()))
 	}
 
 	fn create_user_token() -> String {

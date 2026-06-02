@@ -1,8 +1,9 @@
 use {
 	crate::{Server, Session, database},
 	dashmap::DashMap,
+	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::sync::Arc,
+	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_messenger::prelude::*,
@@ -45,7 +46,7 @@ impl Server {
 		&self,
 		transaction: &database::Transaction<'_>,
 		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -54,11 +55,9 @@ impl Server {
 			"
 		);
 		let params = db::params![sandbox.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn get_sandbox_exists_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
@@ -85,12 +84,28 @@ impl Server {
 	}
 
 	pub(crate) async fn try_start_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
-		let connection = self
+		let sandbox = id.to_string();
+		let n = self
 			.process_store
-			.write_connection()
+			.run(|transaction| {
+				let sandbox = sandbox.clone();
+				async move { Self::try_start_sandbox_with_transaction(transaction, &sandbox).await }
+					.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+			.map_err(|error| tg::error!(!error, "failed to start the sandbox"))?;
+		if n == 0 {
+			return Ok(false);
+		}
+		self.spawn_publish_sandbox_status_task(id);
+		Ok(true)
+	}
+
+	async fn try_start_sandbox_with_transaction(
+		transaction: &database::Transaction<'_>,
+		sandbox: &str,
+	) -> tg::Result<ControlFlow<u64, database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				update sandboxes
@@ -104,17 +119,10 @@ impl Server {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, id.to_string()];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		drop(connection);
-		if n == 0 {
-			return Ok(false);
-		}
-		self.spawn_publish_sandbox_status_task(id);
-		Ok(true)
+		let params = db::params![now, sandbox];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(n))
 	}
 
 	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {
