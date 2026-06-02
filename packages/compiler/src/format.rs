@@ -4,20 +4,16 @@ impl Compiler {
 	pub fn format(text: &str) -> tg::Result<String> {
 		let allocator = oxc::allocator::Allocator::default();
 		let source_type = oxc::span::SourceType::ts();
-		let options = oxc::parser::ParseOptions {
-			preserve_parens: false,
+		let options = oxc_formatter::JsFormatOptions {
+			indent_style: "tab".parse().unwrap(),
+			line_width: 80.try_into().unwrap(),
 			..Default::default()
 		};
-		let output = oxc::parser::Parser::new(&allocator, text, source_type)
-			.with_options(options)
-			.parse();
-		let options = oxc_formatter::FormatOptions {
-			indent_style: oxc_formatter::IndentStyle::Tab,
-			line_width: oxc_formatter::LineWidth::try_from(80).unwrap(),
-			..Default::default()
-		};
-		let formatter = oxc_formatter::Formatter::new(&allocator, options);
-		let formatted = formatter.build(&output.program);
+		let formatted = oxc_formatter::format(&allocator, text, source_type, options, None)
+			.map_err(|error| tg::error!(!error, "failed to format the module"))?
+			.print()
+			.map_err(|error| tg::error!(source = error, "failed to print the formatted module"))?
+			.into_code();
 		Ok(formatted)
 	}
 }
