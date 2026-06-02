@@ -77,6 +77,24 @@ pub fn run() -> tg::Result<ExitCode> {
 		tg::error!(!source, "error waiting for virtiofs tags to connect")
 	})?;
 	tracing::trace!("virtiofs tags ready");
+
+	// Both shares are attached at boot and captured in the snapshot. Signal that the guest is ready
+	// to be snapshotted, then block on a byte from the serial console. The snapshot freezes the
+	// guest here, before either share is mounted; on resume the host writes the byte and the shares
+	// mount fresh against their reconnected backends.
+	signal_ready();
+	let mut resume = [0u8; 1];
+	loop {
+		let n = unsafe { libc::read(libc::STDIN_FILENO, resume.as_mut_ptr().cast(), resume.len()) };
+		if n >= 0 {
+			break;
+		}
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() != Some(libc::EINTR) {
+			return Err(tg::error!(!error, "failed to read the resume signal"));
+		}
+	}
+	tracing::trace!("resumed");
 	online_cpus();
 
 	mount_virtiofs(SANDBOX_FS_TAG, HOST_MOUNT_POINT, None)?;
@@ -535,8 +553,6 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		unsafe { libc::close(socket) };
 		return Ok(());
 	}
-
-	signal_ready();
 
 	let mut buf = [0u8; 8192];
 	while !pending.is_empty() {

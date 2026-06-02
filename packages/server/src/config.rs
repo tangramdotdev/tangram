@@ -1256,7 +1256,7 @@ impl Default for SandboxIsolation {
 impl Default for Dax {
 	fn default() -> Self {
 		Self {
-			window_size_kib: 512 * 1024,
+			window_size_kib: 8 * 1024 * 1024,
 		}
 	}
 }

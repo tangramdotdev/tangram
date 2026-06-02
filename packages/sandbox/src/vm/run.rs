@@ -5,6 +5,7 @@ use {
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
 		hash::{Hash as _, Hasher as _},
+		io::Write as _,
 		net::Ipv4Addr,
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
@@ -261,8 +262,11 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 
 	let mut helpers: Vec<ChildProcess> = Vec::new();
-	if arg.create_snapshot.is_none() {
-		// Spawn the sandbox virtiofsd, serving the host share dir.
+	{
+		// Spawn the sandbox virtiofsd, serving the host share dir. Spawn it even when creating a
+		// snapshot, with an empty share, so the sandbox share device is attached at boot and
+		// captured in the snapshot rather than hotplugged on resume. On resume the device
+		// reconnects to a fresh sandbox virtiofsd serving the real per-sandbox content.
 		let sandbox_socket_path =
 			host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SANDBOX_SOCKET_NAME);
 		tracing::trace!(
@@ -303,8 +307,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		)?;
 		tracing::trace!("sandbox virtiofsd helper pid={sandbox_pid}");
 		helpers.push(ChildProcess::new(sandbox_pid));
-	} else {
-		tracing::trace!("snapshot mode: skipping virtiofsd helpers");
 	}
 
 	let cloud_hypervisor_bin = find_in_path("cloud-hypervisor")
@@ -358,10 +360,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		cloud_hypervisor_args.push(
 			format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on,sparse=off,image_type=raw").into(),
 		);
-		// Attach the artifacts share at boot, including when creating a snapshot, so its DAX
-		// cache window is allocated at boot and captured in the snapshot. The cache window is a
-		// PCI BAR that cannot be allocated when hotplugging the device on resume, so the device
-		// must be present in the snapshot.
 		cloud_hypervisor_args.push("--fs".into());
 		let artifacts_fs = if let Some(window_size) = arg.dax {
 			format!(
@@ -371,14 +369,9 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}")
 		};
 		cloud_hypervisor_args.push(artifacts_fs.into());
-		// The sandbox share is per-sandbox, so attach it only on a cold boot. On resume it is
-		// hotplugged after restoring the snapshot.
-		if arg.create_snapshot.is_none() {
-			cloud_hypervisor_args.push("--fs".into());
-			cloud_hypervisor_args.push(
-				format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into(),
-			);
-		}
+		cloud_hypervisor_args.push("--fs".into());
+		cloud_hypervisor_args
+			.push(format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into());
 		cloud_hypervisor_args.push("--vsock".into());
 		cloud_hypervisor_args.push(format!("cid={VMM_GUEST_CID},socket={VMM_VSOCK_SOCKET}").into());
 		cloud_hypervisor_args.push("--console".into());
@@ -404,7 +397,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let mut cloud_hypervisor = ChildProcess::new(cloud_hypervisor_pid);
 
 	let serial_socket_path = host_vm_path_from_root(&arg.path).join(SERIAL_SOCKET_NAME);
-	let serial_stream = connect_serial_socket(&serial_socket_path, Duration::from_secs(10))?;
+	let mut serial_stream = connect_serial_socket(&serial_socket_path, Duration::from_secs(10))?;
 	tracing::trace!("connected to guest serial socket; tailing to stderr");
 	let serial_reader = serial_stream
 		.try_clone()
@@ -534,15 +527,12 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				&["add-net", net],
 			)?;
 		}
-		ch_remote_run(
-			&ch_remote_bin,
-			&api_socket,
-			&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
-			&[
-				"add-fs",
-				&format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}"),
-			],
-		)?;
+		serial_stream
+			.write_all(b"\n")
+			.map_err(|error| tg::error!(!error, "failed to write the resume signal"))?;
+		serial_stream
+			.flush()
+			.map_err(|error| tg::error!(!error, "failed to flush the resume signal"))?;
 	}
 
 	wait_for_cloud_hypervisor(&mut cloud_hypervisor, &mut helpers)
@@ -569,6 +559,16 @@ fn connect_serial_socket(
 						"timed out waiting for the cloud-hypervisor serial socket",
 					)
 				})?;
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+				if Instant::now() >= deadline {
+					return Err(tg::error!(
+						!error,
+						path = %path.display(),
+						"timed out connecting to the guest serial socket",
+					));
+				}
+				std::thread::sleep(Duration::from_millis(10));
 			},
 			Err(error) => {
 				return Err(tg::error!(
