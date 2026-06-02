@@ -23,39 +23,50 @@ impl Session {
 				let created_by = created_by.clone();
 				let grant_creator_admin = grant_creator_admin.clone();
 				async move {
-					Ok::<_, tg::Error>({
-						for (tg::tag::batch::Item { tag, item, force }, grant_creator_admin) in
-							arg.tags.iter().zip(&grant_creator_admin)
-						{
-							let arg = tg::tag::put::Arg {
-								force: *force,
-								item: item.clone(),
-								location: None,
-								all: false,
-								replicate: false,
-								tag: None,
-							};
-							let result = Self::put_tag_turso_with_transaction(
-								transaction,
-								tag,
-								&arg,
-								created_by.as_ref(),
-								*grant_creator_admin,
-							)
-							.await?;
-							match result {
-								ControlFlow::Break(()) => {},
-								ControlFlow::Continue(error) => {
-									return Ok(ControlFlow::Continue(error));
-								},
-							}
-						}
-						ControlFlow::Break(())
-					})
+					Self::post_tag_batch_turso_with_transaction(
+						transaction,
+						&arg,
+						created_by.as_ref(),
+						&grant_creator_admin,
+					)
+					.await
 				}
 				.boxed()
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to post the tag batch"))
+	}
+
+	async fn post_tag_batch_turso_with_transaction(
+		transaction: &db::turso::Transaction<'_>,
+		arg: &tg::tag::batch::Arg,
+		created_by: Option<&tg::user::Id>,
+		grant_creator_admin: &[bool],
+	) -> tg::Result<ControlFlow<(), db::turso::Error>> {
+		for (tg::tag::batch::Item { tag, item, force }, grant_creator_admin) in
+			arg.tags.iter().zip(grant_creator_admin)
+		{
+			let arg = tg::tag::put::Arg {
+				force: *force,
+				item: item.clone(),
+				location: None,
+				all: false,
+				replicate: false,
+				tag: None,
+			};
+			let result = Self::put_tag_turso_with_transaction(
+				transaction,
+				tag,
+				&arg,
+				created_by,
+				*grant_creator_admin,
+			)
+			.await?;
+			match result {
+				ControlFlow::Break(()) => {},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		}
+		Ok(ControlFlow::Break(()))
 	}
 }

@@ -18,38 +18,50 @@ impl Session {
 		let grant_creator_admin = grant_creator_admin.to_vec();
 		database
 			.run(move |transaction, cache| {
-				for (tg::tag::batch::Item { tag, item, force }, grant_creator_admin) in
-					arg.tags.iter().zip(&grant_creator_admin)
-				{
-					let arg = tg::tag::put::Arg {
-						force: *force,
-						item: item.clone(),
-						location: None,
-						all: false,
-						replicate: false,
-						tag: None,
-					};
-					let result = Self::put_tag_sqlite_sync(
-						transaction,
-						cache,
-						tag,
-						&arg,
-						created_by.as_ref(),
-						*grant_creator_admin,
-					);
-					match result {
-						Ok(ControlFlow::Break(())) => {},
-						Ok(ControlFlow::Continue(error)) => {
-							return Ok::<ControlFlow<(), db::sqlite::Error>, db::sqlite::Error>(
-								ControlFlow::Continue(error),
-							);
-						},
-						Err(error) => return Err(db::sqlite::Error::other(error)),
-					}
-				}
-				Ok::<ControlFlow<(), db::sqlite::Error>, db::sqlite::Error>(ControlFlow::Break(()))
+				Self::post_tag_batch_sqlite_sync(
+					transaction,
+					cache,
+					&arg,
+					created_by.as_ref(),
+					&grant_creator_admin,
+				)
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put tags"))
+	}
+
+	fn post_tag_batch_sqlite_sync(
+		transaction: &rusqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
+		arg: &tg::tag::batch::Arg,
+		created_by: Option<&tg::user::Id>,
+		grant_creator_admin: &[bool],
+	) -> Result<ControlFlow<(), db::sqlite::Error>, db::sqlite::Error> {
+		for (tg::tag::batch::Item { tag, item, force }, grant_creator_admin) in
+			arg.tags.iter().zip(grant_creator_admin)
+		{
+			let arg = tg::tag::put::Arg {
+				force: *force,
+				item: item.clone(),
+				location: None,
+				all: false,
+				replicate: false,
+				tag: None,
+			};
+			let result = Self::put_tag_sqlite_sync(
+				transaction,
+				cache,
+				tag,
+				&arg,
+				created_by,
+				*grant_creator_admin,
+			);
+			match result {
+				Ok(ControlFlow::Break(())) => {},
+				Ok(ControlFlow::Continue(error)) => return Ok(ControlFlow::Continue(error)),
+				Err(error) => return Err(db::sqlite::Error::other(error)),
+			}
+		}
+		Ok(ControlFlow::Break(()))
 	}
 }
