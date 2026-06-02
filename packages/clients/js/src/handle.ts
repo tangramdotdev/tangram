@@ -124,7 +124,6 @@ export namespace Handle {
 	};
 
 	export type SignalArg = {
-		lease: string;
 		location?: tg.Location.Arg | undefined;
 		signal: tg.Process.Signal;
 	};
@@ -141,7 +140,6 @@ export namespace Handle {
 	};
 
 	export type ProcessStdioReadArg = {
-		lease?: string | undefined;
 		length?: number | undefined;
 		location?: tg.Location.Arg | undefined;
 		position?: number | string | undefined;
@@ -151,7 +149,6 @@ export namespace Handle {
 	};
 
 	export type ProcessStdioWriteArg = {
-		lease?: string | undefined;
 		location?: tg.Location.Arg | undefined;
 		streams: Array<tg.Process.Stdio.Stream>;
 	};

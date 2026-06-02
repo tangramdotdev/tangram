@@ -490,15 +490,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		stdout !== undefined ||
 		stderr !== undefined ||
 		localTty
-			? stdio.task(
-					output.process,
-					output.lease,
-					location,
-					stdin,
-					stdout,
-					stderr,
-					localTty,
-				)
+			? stdio.task(output.process, location, stdin, stdout, stderr, localTty)
 			: undefined;
 	let process = new tg.Process<O>({
 		id: output.process,

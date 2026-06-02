@@ -420,11 +420,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			location = this.#location;
 		}
-		if (this.#lease === undefined) {
-			throw new Error("missing lease");
-		}
 		let arg = {
-			lease: this.#lease,
 			location,
 			signal,
 		};

@@ -92,8 +92,7 @@ impl Session {
 			return Ok(None);
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
-		self.authorize_process_stdio_read(id, &source, arg.lease.as_deref())
-			.await?;
+		self.authorize_process_stdio_read(id, &source).await?;
 		let stream = match source {
 			Source::Pipe(streams) => {
 				self.try_read_process_stdio_pipe_local(id, &streams, arg.timeout)
@@ -112,7 +111,6 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		source: &Source,
-		lease: Option<&str>,
 	) -> tg::Result<()> {
 		let Source::Pipe(streams) = source else {
 			return Ok(());
@@ -131,11 +129,10 @@ impl Session {
 				}
 				Ok(())
 			},
-			(false, true) => self.authorize_process_lease(id, lease).await,
+			(false, _) => Ok(()),
 			(true, true) => Err(tg::error!(
 				"cannot read stdin and stdout or stderr in a single request"
 			)),
-			(false, false) => Ok(()),
 		}
 	}
 

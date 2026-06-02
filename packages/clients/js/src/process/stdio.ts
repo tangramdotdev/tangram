@@ -13,7 +13,6 @@ export namespace Stdio {
 
 	export namespace Read {
 		export type Arg = {
-			lease?: string | undefined;
 			length?: number | undefined;
 			location?: tg.Location.Arg | undefined;
 			position?: number | string | undefined;
@@ -76,7 +75,6 @@ export namespace Stdio {
 
 	export namespace Write {
 		export type Arg = {
-			lease?: string | undefined;
 			location?: tg.Location.Arg | undefined;
 			streams: Array<tg.Process.Stdio.Stream>;
 		};
@@ -156,7 +154,6 @@ export namespace Stdio {
 					throw new Error("expected a sandboxed process id");
 				}
 				let input = await tg.handle.readProcessStdio(this.#process.id, {
-					lease: this.#process.lease,
 					location: this.#process.location,
 					streams: [this.#stream],
 				});
@@ -208,7 +205,7 @@ export namespace Stdio {
 		}
 
 		/** Read all remaining bytes as UTF-8 text. */
-		async text(): Promise<string> {
+		async readAllToString(): Promise<string> {
 			return tg.encoding.utf8.decode(await this.readAll());
 		}
 	}
@@ -269,7 +266,6 @@ export namespace Stdio {
 				await tg.handle.writeProcessStdio(
 					process.id,
 					{
-						lease: process.lease,
 						location,
 						streams: [stream],
 					},
@@ -312,7 +308,6 @@ export namespace Stdio {
 			await tg.handle.writeProcessStdio(
 				process!.id,
 				{
-					lease: process!.lease,
 					location,
 					streams: [stream],
 				},
@@ -349,7 +344,6 @@ export namespace Stdio {
 
 export let task = async (
 	id: tg.Process.Id,
-	lease: string | undefined,
 	location: tg.Location.Arg | undefined,
 	stdin: "pipe" | "tty" | undefined,
 	stdout: "pipe" | "tty" | undefined,
@@ -362,7 +356,7 @@ export let task = async (
 		stdin !== undefined ? await tg.host.stopperOpen() : undefined;
 	let stdinTask_ =
 		stdin !== undefined && stdinStopper !== undefined
-			? stdinTask(id, lease, location, stdin, stdinStopper).catch((error) => {
+			? stdinTask(id, location, stdin, stdinStopper).catch((error) => {
 					if (!stdinClosing) {
 						stdinError = error;
 					}
@@ -380,7 +374,6 @@ export let task = async (
 	try {
 		stdoutStderrError = await stdoutStderrTask(
 			id,
-			lease,
 			location,
 			stdout,
 			stderr,
@@ -429,7 +422,6 @@ async function cleanup(
 
 async function stdinTask(
 	id: tg.Process.Id,
-	lease: string | undefined,
 	location: tg.Location.Arg | undefined,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
@@ -463,7 +455,6 @@ async function stdinTask(
 		await tg.handle.writeProcessStdio(
 			id,
 			{
-				lease,
 				location,
 				streams: ["stdin"],
 			},
@@ -489,7 +480,6 @@ async function stdinTask(
 
 async function stdoutStderrTask(
 	id: tg.Process.Id,
-	lease: string | undefined,
 	location: tg.Location.Arg | undefined,
 	stdout: "pipe" | "tty" | undefined,
 	stderr: "pipe" | "tty" | undefined,
@@ -505,7 +495,6 @@ async function stdoutStderrTask(
 		return;
 	}
 	let iterator = await tg.handle.readProcessStdio(id, {
-		lease,
 		location,
 		streams,
 	});

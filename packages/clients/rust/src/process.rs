@@ -334,12 +334,7 @@ impl<O> Process<O> {
 		}
 
 		self.ensure_location_with_handle(handle).await?;
-		let lease = self
-			.lease()
-			.ok_or_else(|| tg::error!("missing lease"))?
-			.clone();
 		let arg = tg::process::signal::post::Arg {
-			lease,
 			location: self.location(),
 			signal,
 		};

@@ -19,9 +19,6 @@ pub struct Arg {
 	pub length: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub lease: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -126,7 +123,7 @@ impl<O> tg::Process<O> {
 	pub async fn try_read_stdio_all<H>(
 		&self,
 		handle: &H,
-		mut arg: tg::process::stdio::read::Arg,
+		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>>
 	where
 		H: tg::Handle,
@@ -193,9 +190,6 @@ impl<O> tg::Process<O> {
 		}
 
 		let id = self.id().unwrap_right();
-		if arg.lease.is_none() {
-			arg.lease = self.lease().cloned();
-		}
 		let Some(stream) = handle.try_read_process_stdio_all(id, arg).await? else {
 			return Ok(None);
 		};

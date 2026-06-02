@@ -103,7 +103,6 @@ impl Session {
 		location: Option<tg::Location>,
 	) -> tg::Result<()> {
 		let arg = tg::process::stdio::write::Arg {
-			lease: None,
 			location: location.map(Into::into),
 			streams: vec![
 				tg::process::stdio::Stream::Stdout,

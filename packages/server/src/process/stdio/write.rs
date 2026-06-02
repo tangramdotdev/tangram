@@ -56,7 +56,6 @@ impl Session {
 				self.try_write_process_stdio_local(
 					id,
 					&arg.streams,
-					arg.lease.as_deref(),
 					input,
 					self.context.stopper.clone(),
 				)
@@ -84,7 +83,6 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
-		lease: Option<&str>,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
@@ -96,8 +94,7 @@ impl Session {
 			return Ok(None);
 		};
 		let data = output.data;
-		self.authorize_process_stdio_write(id, streams, lease)
-			.await?;
+		self.authorize_process_stdio_write(id, streams).await?;
 		let (sender, receiver) = tokio::sync::mpsc::channel(4);
 		let task = Task::spawn({
 			let session = self.clone();
@@ -147,14 +144,13 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
-		lease: Option<&str>,
 	) -> tg::Result<()> {
 		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
 		let output = streams
 			.iter()
 			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
 		match (stdin, output) {
-			(true, false) => self.authorize_process_lease(id, lease).await,
+			(_, false) => Ok(()),
 			(false, true) => {
 				if !matches!(
 					self.context.authentication.as_ref(),
@@ -167,7 +163,6 @@ impl Session {
 			(true, true) => Err(tg::error!(
 				"cannot write stdin and stdout or stderr in a single request"
 			)),
-			(false, false) => Ok(()),
 		}
 	}
 
@@ -401,7 +396,6 @@ impl Session {
 			region: Some(region.clone()),
 		});
 		let arg = tg::process::stdio::write::Arg {
-			lease: arg.lease.clone(),
 			location: Some(location.into()),
 			streams: arg.streams.clone(),
 		};
@@ -424,7 +418,6 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::stdio::write::Arg {
-			lease: arg.lease.clone(),
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			streams: arg.streams.clone(),
 		};

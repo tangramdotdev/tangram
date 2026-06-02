@@ -70,10 +70,8 @@ impl Writer {
 		}
 		drop(fd);
 		if let Some(process) = process {
-			let (location, lease, process) =
-				ensure_process_with_handle(Some(process), handle).await?;
+			let (location, process) = ensure_process_with_handle(Some(process), handle).await?;
 			let arg = tg::process::stdio::write::Arg {
-				lease,
 				location,
 				streams: vec![stream],
 			};
@@ -109,9 +107,8 @@ impl Writer {
 		};
 		let stream = state.stream;
 		drop(state);
-		let (location, lease, process) = ensure_process_with_handle(Some(process), handle).await?;
+		let (location, process) = ensure_process_with_handle(Some(process), handle).await?;
 		let arg = tg::process::stdio::write::Arg {
-			lease,
 			location,
 			streams: vec![stream],
 		};
@@ -158,7 +155,7 @@ impl std::fmt::Debug for Writer {
 async fn ensure_process_with_handle<H>(
 	process: Option<Weak<tg::process::Inner>>,
 	handle: &H,
-) -> tg::Result<(Option<tg::location::Arg>, Option<String>, tg::process::Id)>
+) -> tg::Result<(Option<tg::location::Arg>, tg::process::Id)>
 where
 	H: tg::Handle,
 {
@@ -168,12 +165,11 @@ where
 	let handle_process = crate::process::Process::<tg::Value>(process.clone(), PhantomData);
 	handle_process.ensure_location_with_handle(handle).await?;
 	let location = process.location.read().unwrap().clone();
-	let lease = process.lease.clone();
 	let id = process
 		.id
 		.as_ref()
 		.right()
 		.cloned()
 		.ok_or_else(|| tg::error!("the process is not available"))?;
-	Ok((location, lease, id))
+	Ok((location, id))
 }

@@ -11,9 +11,6 @@ pub struct Args {
 	#[arg(long)]
 	pub length: Option<i64>,
 
-	#[arg(long)]
-	pub lease: Option<String>,
-
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
@@ -68,7 +65,7 @@ impl Cli {
 			locations.clone(),
 			None,
 			None,
-			args.lease.clone(),
+			None,
 			None,
 		);
 		let streams = if args.streams.is_empty() {
@@ -81,7 +78,6 @@ impl Cli {
 		};
 		let arg = tg::process::stdio::read::Arg {
 			length: args.length,
-			lease: args.lease,
 			location: locations,
 			position: args.position,
 			size: args.size,

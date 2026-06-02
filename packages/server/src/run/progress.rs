@@ -32,13 +32,8 @@ impl Session {
 				let location = process
 					.location()
 					.and_then(|location| location.to_location());
-				self.write_progress_stream_to_tty(
-					process.id().unwrap_right(),
-					process.lease().cloned(),
-					location,
-					stream,
-				)
-				.await?
+				self.write_progress_stream_to_tty(process.id().unwrap_right(), location, stream)
+					.await?
 			},
 			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
 				return Err(tg::error!("invalid stdio"));
@@ -75,7 +70,6 @@ impl Session {
 							continue;
 						}
 						let arg = tg::process::stdio::write::Arg {
-							lease: process.lease().cloned(),
 							location: process
 								.location()
 								.and_then(|location| location.to_location())
@@ -107,7 +101,6 @@ impl Session {
 	async fn write_progress_stream_to_tty<T: Send + 'static>(
 		&self,
 		id: &tg::process::Id,
-		lease: Option<String>,
 		location: Option<tg::Location>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
@@ -159,7 +152,6 @@ impl Session {
 		let id = id.clone();
 		let stderr_task = Task::spawn(|_| async move {
 			let arg = tg::process::stdio::write::Arg {
-				lease,
 				location: location.map(Into::into),
 				streams: vec![tg::process::stdio::Stream::Stderr],
 			};

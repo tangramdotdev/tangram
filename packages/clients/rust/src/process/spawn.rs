@@ -429,11 +429,9 @@ impl<O: 'static> tg::Process<O> {
 			.cloned()
 			.ok_or_else(|| tg::error!("expected a sandboxed process id"))?;
 		let location = output.location.clone();
-		let lease = output.lease.clone();
 		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty {
 			let handle = handle.clone();
 			let id = id.clone();
-			let lease = lease.clone();
 			let location = location.clone();
 			let stdin = stdin.clone();
 			let stdout = stdout.clone();
@@ -442,7 +440,6 @@ impl<O: 'static> tg::Process<O> {
 				let arg = super::stdio::StdioTaskArg {
 					handle,
 					id,
-					lease,
 					location,
 					stdin,
 					stdout,

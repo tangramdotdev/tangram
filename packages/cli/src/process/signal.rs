@@ -4,9 +4,6 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
-	pub lease: String,
-
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
@@ -25,7 +22,7 @@ impl Cli {
 			args.location.get(),
 			None,
 			None,
-			Some(args.lease),
+			None,
 			None,
 		);
 
