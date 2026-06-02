@@ -7835,7 +7835,6 @@ name = "tangram_object_store"
 version = "0.0.0"
 dependencies = [
  "bytes",
- "dashmap",
  "fnv",
  "foundationdb-tuple",
  "futures",
@@ -7858,7 +7857,6 @@ dependencies = [
 name = "tangram_pool"
 version = "0.0.0"
 dependencies = [
- "derive_more",
  "futures",
  "tangram_futures",
  "tokio",
