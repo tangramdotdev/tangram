@@ -395,16 +395,7 @@ impl super::Error for Error {
 					Some(sqlite::ErrorCode::DatabaseBusy | sqlite::ErrorCode::DatabaseLocked)
 				)
 			},
-			Self::Other(error) => {
-				let mut current = Some(error.as_ref() as &dyn std::error::Error);
-				while let Some(error) = current {
-					if let Some(error) = error.downcast_ref::<Self>() {
-						return error.is_retry();
-					}
-					current = error.source();
-				}
-				false
-			},
+			Self::Other(_) => false,
 		}
 	}
 

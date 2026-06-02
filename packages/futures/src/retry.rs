@@ -61,12 +61,6 @@ fn delay_for_attempt(attempt: u64, options: &Options) -> Duration {
 	(options.backoff * multiplier + jitter).min(options.max_delay)
 }
 
-impl Options {
-	pub async fn sleep_for_attempt(&self, attempt: u64) {
-		tokio::time::sleep(delay_for_attempt(attempt, self)).await;
-	}
-}
-
 impl Default for Options {
 	fn default() -> Self {
 		Self {

@@ -263,7 +263,7 @@ impl super::Query for Connection {
 			turso::transaction::TransactionBehavior::Deferred,
 		)
 		.await?;
-		let rows = query_rows(&transaction, &self.cache, statement, params).await?;
+		let rows = query(&transaction, &self.cache, statement, params).await?;
 		Ok(stream::iter(rows.into_iter().map(Ok)))
 	}
 }
@@ -314,7 +314,7 @@ impl super::Query for Transaction<'_> {
 		statement: Cow<'static, str>,
 		params: Vec<super::Value>,
 	) -> Result<impl Stream<Item = Result<super::Row, Self::Error>> + Send, Self::Error> {
-		let rows = query_rows(&self.transaction, self.cache, statement, params).await?;
+		let rows = query(&self.transaction, self.cache, statement, params).await?;
 		Ok(stream::iter(rows.into_iter().map(Ok)))
 	}
 }
@@ -325,16 +325,7 @@ impl super::Error for Error {
 			Self::Turso(error) => {
 				matches!(error, turso::Error::Busy(_) | turso::Error::BusySnapshot(_))
 			},
-			Self::Other(error) => {
-				let mut current = Some(error.as_ref() as &dyn std::error::Error);
-				while let Some(error) = current {
-					if let Some(error) = error.downcast_ref::<Self>() {
-						return error.is_retry();
-					}
-					current = error.source();
-				}
-				false
-			},
+			Self::Other(_) => false,
 		}
 	}
 
@@ -355,7 +346,7 @@ async fn execute(
 	Ok(n)
 }
 
-async fn query_rows(
+async fn query(
 	transaction: &turso::transaction::Transaction<'_>,
 	cache: &Cache,
 	statement: Cow<'static, str>,

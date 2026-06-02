@@ -15,14 +15,10 @@ impl Session {
 		now: i64,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		// Get a process store connection.
-		let mut connection = process_store
+		let connection = process_store
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Get the processes.
 		#[derive(db::postgres::row::Deserialize)]
@@ -107,9 +103,9 @@ impl Session {
 		let id_strings = ids.iter().map(ToString::to_string).collect::<Vec<_>>();
 		let principal_string = principal.to_string();
 		let rows = if principal.is_root() {
-			transaction.inner().query(&statement, &[&id_strings]).await
+			connection.inner().query(&statement, &[&id_strings]).await
 		} else {
-			transaction
+			connection
 				.inner()
 				.query(&statement, &[&id_strings, &principal_string, &now])
 				.await
@@ -171,6 +167,7 @@ impl Session {
 				Ok((row.id, output))
 			})
 			.collect::<tg::Result<HashMap<_, _>>>()?;
+
 		let outputs = ids.iter().map(|id| outputs.get(id).cloned()).collect();
 
 		Ok(outputs)
