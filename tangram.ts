@@ -270,11 +270,13 @@ export const testCloud = async () => {
 };
 
 export const testProxy = async () => {
+	const built = await build({ proxy: true, profile: "dev", captureStderr: true });
 	const output = await $`tg --help > ${tg.output}`
-		.env(build({ proxy: true, profile: "dev" }))
+		.env(built)
 		.then(tg.File.expect)
 		.then((f) => f.text);
 	tg.assert(output.includes("Usage:"));
+	return built;
 };
 
 // Internal helpers.
