@@ -18,10 +18,9 @@ let root = artifact {
 }
 
 let process = tg build -dv $root | from json | get process
-tg wait $process | ignore
-
+let output = tg wait $process 
+snapshot $output '{"exit":0,"output":"hello"}'
 let tree = (tg view --mode inline --expand-processes $process | ansi strip)
-print $tree
 
 snapshot $tree '
 	✓ fil_01731x2q4mzw95rx8497dn61a8qfm6asqcnqrf2re4mf2w8v2r65a0#default
