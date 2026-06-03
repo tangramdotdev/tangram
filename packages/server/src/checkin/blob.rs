@@ -60,7 +60,7 @@ impl Session {
 
 		let cache_pointers = arg.options.cache_pointers;
 		let blobs = stream::iter(nodes)
-			.map(|(index, path, size)| {
+			.map(|(index, path, _)| {
 				let progress = progress.clone();
 				let session = self.clone();
 				async move {
@@ -78,7 +78,7 @@ impl Session {
 								})
 							};
 							session
-								.write_inner_sync(file, destination.as_ref())
+								.write_inner_sync(file, destination.as_ref(), &progress)
 								.map_err(
 									|error| tg::error!(!error, path = %path.display(), "failed to create the blob"),
 								)
@@ -86,9 +86,6 @@ impl Session {
 					})
 					.await
 					.map_err(|error| tg::error!(!error, "the blob task panicked"))??;
-					if let Some(size) = size {
-						progress.increment("bytes", size);
-					}
 					Ok::<_, tg::Error>((index, blob))
 				}
 			})

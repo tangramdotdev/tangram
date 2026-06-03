@@ -220,6 +220,7 @@ impl Session {
 		&self,
 		mut reader: impl Read,
 		destination: Option<&Destination>,
+		progress: &crate::progress::Handle<crate::checkin::TaskOutput>,
 	) -> tg::Result<Output> {
 		let principal = self.write_principal();
 
@@ -276,7 +277,7 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to store the leaf"))?;
 				},
 			}
-
+			progress.increment("bytes", chunk.length.to_u64().unwrap());
 			blobs.push(blob);
 		}
 
