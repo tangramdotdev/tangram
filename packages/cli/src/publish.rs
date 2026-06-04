@@ -44,7 +44,7 @@ struct State {
 	file_tree: radix_trie::Trie<PathBuf, tg::Artifact>,
 	all_packages: Vec<tg::Referent<tg::Object>>,
 	source_packages: Vec<tg::Referent<tg::Object>>,
-	tags: Vec<(tg::Tag, tg::object::Id)>,
+	tags: Vec<(tg::Specifier, tg::object::Id)>,
 	graph: Graph,
 }
 
@@ -59,7 +59,7 @@ enum Step {
 struct Item {
 	referent: tg::Referent<tg::object::Id>,
 	path: Option<PathBuf>,
-	tag: tg::Tag,
+	tag: tg::Specifier,
 }
 
 impl Cli {
@@ -144,13 +144,13 @@ impl Cli {
 					tags.push((tag.clone(), id.clone()));
 					let arg = tg::tag::put::Arg {
 						force: args.force,
-						item: tg::Either::Left(id),
+						item: id.into(),
 						location: None,
 						all: false,
 						replicate: false,
-						tag: None,
+						specifier: tag.clone(),
 					};
-					client.put_tag(&tag, arg).await.map_err(
+					client.put_tag(arg).await.map_err(
 						|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
 					)?;
 				},
@@ -164,13 +164,13 @@ impl Cli {
 						let id = publish_checkin(&client, path, false).await?;
 						let arg = tg::tag::put::Arg {
 							force: args.force,
-							item: tg::Either::Left(id),
+							item: id.into(),
 							location: None,
 							all: false,
 							replicate: false,
-							tag: None,
+							specifier: item.tag.clone(),
 						};
-						client.put_tag(&item.tag, arg).await.map_err(
+						client.put_tag(arg).await.map_err(
 							|error| tg::error!(!error, tag = %item.tag, "failed to put local tag"),
 						)?;
 					}
@@ -183,13 +183,13 @@ impl Cli {
 						tags.push((tag.clone(), id.clone()));
 						let arg = tg::tag::put::Arg {
 							force: true,
-							item: tg::Either::Left(id),
+							item: id.into(),
 							location: None,
 							all: false,
 							replicate: false,
-							tag: None,
+							specifier: tag.clone(),
 						};
-						client.put_tag(&tag, arg).await.map_err(
+						client.put_tag(arg).await.map_err(
 							|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
 						)?;
 					}
@@ -206,20 +206,21 @@ impl Cli {
 		});
 
 		// Push.
+		let arg = tg::push::Arg {
+			commands: false,
+			destination: Some(location.clone()),
+			eager: true,
+			errors: true,
+			force: false,
+			items,
+			logs: false,
+			metadata: false,
+			outputs: true,
+			recursive: false,
+			source: None,
+		};
 		let stream = client
-			.push(tg::push::Arg {
-				commands: false,
-				destination: Some(location.clone()),
-				eager: true,
-				errors: true,
-				force: false,
-				items,
-				logs: false,
-				metadata: false,
-				outputs: true,
-				recursive: false,
-				source: None,
-			})
+			.push(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push items"))?;
 		let output = self
@@ -244,21 +245,22 @@ impl Cli {
 		let tags = tags
 			.into_iter()
 			.map(|(tag, item)| tg::tag::batch::Item {
-				tag,
-				item: tg::Either::Left(item),
+				specifier: tag,
+				item: item.into(),
 				force: args.force,
 			})
 			.collect::<Vec<_>>();
+		let arg = tg::tag::batch::Arg {
+			location: Some(location.into()),
+			replicate: false,
+			tags: tags.clone(),
+		};
 		client
-			.post_tag_batch(tg::tag::batch::Arg {
-				location: Some(location.into()),
-				replicate: false,
-				tags: tags.clone(),
-			})
+			.post_tag_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to publish tags to remote"))?;
 		for item in &tags {
-			let message = format!("tagged {} {}", item.tag, item.item);
+			let message = format!("tagged {} {:?}", item.specifier, item.item);
 			self.print_info_message(&message);
 		}
 
@@ -271,7 +273,7 @@ async fn try_get_package_tag(
 	client: &impl tg::Handle,
 	object: &tg::Object,
 	package_path: Option<&Path>,
-) -> tg::Result<Option<tg::Tag>> {
+) -> tg::Result<Option<tg::Specifier>> {
 	// Get the file text and module file name from the object.
 	let (text, module_name) = match object {
 		tg::Object::File(file) => {
@@ -406,7 +408,7 @@ impl State {
 	async fn create_plan(
 		&mut self,
 		client: &impl tg::Handle,
-		mut tag: Option<tg::Tag>,
+		mut tag: Option<tg::Specifier>,
 	) -> tg::Result<Vec<Step>> {
 		// Fetch all package tags in parallel with limited concurrency.
 		let packages: Vec<_> = self
@@ -421,7 +423,7 @@ impl State {
 				)
 			})
 			.collect();
-		let tags: HashMap<tg::object::Id, Option<tg::Tag>> = futures::stream::iter(packages)
+		let tags: HashMap<tg::object::Id, Option<tg::Specifier>> = futures::stream::iter(packages)
 			.map(|(id, object, path)| async move {
 				let tag = try_get_package_tag(client, &object, path.as_deref()).await?;
 				Ok::<_, tg::Error>((id, tag))

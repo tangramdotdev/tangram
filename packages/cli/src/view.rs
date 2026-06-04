@@ -113,26 +113,41 @@ impl Cli {
 		let root = match args.kind {
 			Kind::Tag => {
 				let item = args.reference.item();
-				let pattern = item.clone().try_unwrap_tag().map_err(
+				let pattern = item.clone().try_unwrap_specifier().map_err(
 					|error| tg::error!(!error, reference = %args.reference, "expected a tag"),
 				)?;
-				tg::Referent::with_item(crate::viewer::Item::Namespace(pattern.to_namespace()))
+				let pattern = pattern
+					.to_string()
+					.parse::<tg::specifier::Pattern>()
+					.map_err(|error| tg::error!(!error, "failed to parse the pattern"))?;
+				tg::Referent::with_item(crate::viewer::Item::Group(pattern.to_specifier()))
 			},
 			Kind::Value | Kind::Package => {
 				let referent = self.get_reference(&args.reference).await?;
 				let item = match referent.item() {
-					tg::Either::Left(tg::graph::Edge::Object(object)) => {
-						tg::Either::Left(object.clone())
+					tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
+						tg::Either::Right(tg::Process::new(
+							id.clone().try_into()?,
+							None,
+							None,
+							None,
+							None,
+							None,
+						))
 					},
-					tg::Either::Left(tg::graph::Edge::Pointer(pointer)) => {
-						let graph = pointer
-							.graph
-							.clone()
-							.ok_or_else(|| tg::error!("expected a graph"))?
-							.into();
+					tg::get::Item::Id(id) => {
+						tg::Either::Left(tg::Object::with_id(id.clone().try_into()?))
+					},
+					tg::get::Item::Pointer(pointer) => {
+						let graph = tg::Graph::with_id(
+							pointer
+								.graph
+								.clone()
+								.ok_or_else(|| tg::error!("expected a graph"))?,
+						)
+						.into();
 						tg::Either::Left(graph)
 					},
-					tg::Either::Right(process) => tg::Either::Right(process.clone()),
 				};
 				let item = match (&item, args.kind) {
 					(tg::Either::Left(object), Kind::Package) => {
@@ -183,7 +198,7 @@ impl Cli {
 					let options = crate::viewer::Options {
 						collapse_process_children: args.collapse_process_children,
 						depth: args.depth,
-						expand_namespaces: args.expand_tags,
+						expand_groups: args.expand_tags,
 						expand_objects: args.expand_objects,
 						expand_processes: args.expand_processes,
 						expand_metadata: args.expand_metadata,

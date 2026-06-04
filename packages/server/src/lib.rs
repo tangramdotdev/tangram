@@ -1,6 +1,7 @@
 use {
 	self::{
-		context::Context, database::Database, messenger::Messenger, session::Session, temp::Temp,
+		context::Context, database::Database, index::Index, messenger::Messenger, session::Session,
+		temp::Temp, watch::Watch,
 	},
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
@@ -21,48 +22,50 @@ use {
 };
 
 mod authentication;
-// mod cache;
-// mod check;
-// mod checkin;
-// mod checkout;
-// mod checksum;
-// mod clean;
-// mod compiler;
+mod cache;
+mod check;
+mod checkin;
+mod checkout;
+mod checksum;
+mod clean;
+mod compiler;
 mod context;
 mod database;
-// mod directory;
-// mod document;
-// mod format;
-// mod get;
-// mod group;
+mod directory;
+mod document;
+mod format;
+mod get;
+mod grant;
+mod group;
 mod handle;
 mod health;
 mod http;
-// mod index;
-// mod list;
+mod index;
+mod list;
 mod location;
-// mod log;
+mod log;
 mod messenger;
-// mod module;
-// mod namespace;
-// mod object;
-// mod process;
-// mod pull;
-// mod push;
-// mod read;
+mod module;
+mod node;
+mod object;
+mod organization;
+mod process;
+mod pull;
+mod push;
+mod read;
 mod region;
 mod remote;
-// mod run;
-// mod sandbox;
+mod run;
+mod sandbox;
 mod session;
-// mod sync;
-// mod tag;
+mod sync;
+mod tag;
 mod temp;
-// mod user;
-// mod vfs;
-// mod watch;
-// mod watchdog;
-// mod write;
+mod user;
+mod vfs;
+mod watch;
+mod watchdog;
+mod write;
 
 pub use self::config::Config;
 
@@ -81,44 +84,44 @@ pub struct Owned {
 pub struct Server(Arc<State>);
 
 pub struct State {
-	// cache_graph_tasks: self::cache::GraphTasks,
-	// cache_tasks: self::cache::Tasks,
-	// checkin_tasks: self::checkin::Tasks,
+	cache_graph_tasks: self::cache::GraphTasks,
+	cache_tasks: self::cache::Tasks,
+	checkin_tasks: self::checkin::Tasks,
 	config: Config,
 	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
-	// index: Index,
+	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
 	#[cfg(target_os = "linux")]
 	ip_pool: tangram_sandbox::network::ip::Pool,
 	library: Mutex<Option<Arc<Temp>>>,
 	lock: Mutex<Option<tokio::fs::File>>,
-	// log_store: self::log::Store,
+	log_store: self::log::Store,
 	messenger: Messenger,
-	// object_get_tasks: self::object::get::Tasks,
-	// object_store: self::object::Store,
+	object_get_tasks: self::object::get::Tasks,
+	object_store: self::object::Store,
 	path: PathBuf,
 	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-	// remote_list_tasks: self::list::remote::Tasks,
+	remote_list_tasks: self::list::remote::Tasks,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_container_root: PathBuf,
-	// sandbox_permits: self::sandbox::Permits,
+	sandbox_permits: self::sandbox::Permits,
 	sandbox_seatbelt_root: PathBuf,
-	// sandbox_semaphore: Arc<tokio::sync::Semaphore>,
-	// sandbox_tasks: self::sandbox::Tasks,
+	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
+	sandbox_tasks: self::sandbox::Tasks,
 	sandbox_vm_image: Option<PathBuf>,
 	#[cfg(target_os = "linux")]
 	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
-	// sandboxes: self::sandbox::Map,
+	sandboxes: self::sandbox::Map,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
-	// vfs: Mutex<Option<self::vfs::Server>>,
-	// watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
+	vfs: Mutex<Option<self::vfs::Server>>,
+	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
 }
 
 impl Owned {
@@ -225,28 +228,28 @@ impl Server {
 		tokio::fs::remove_file(&socket_path).await.ok();
 
 		// Create the cache graph tasks.
-		// let cache_graph_tasks = tangram_futures::task::Map::default();
+		let cache_graph_tasks = tangram_futures::task::Map::default();
 
 		// Create the cache tasks.
-		// let cache_tasks = tangram_futures::task::Map::default();
+		let cache_tasks = tangram_futures::task::Map::default();
 
 		// Create the checkin tasks.
-		// let checkin_tasks = tangram_futures::task::Map::default();
+		let checkin_tasks = tangram_futures::task::Map::default();
 
 		// Create the context.
 		let context = Context::root();
 
 		// Create the sandbox permits and semaphore.
-		// let sandboxes = DashMap::default();
-		// let sandbox_permits = DashMap::default();
-		// let permits = config
-		// 	.runner
-		// 	.as_ref()
-		// 	.map_or(0, |runner| runner.concurrency.unwrap_or(parallelism));
-		// let sandbox_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
+		let sandboxes = DashMap::default();
+		let sandbox_permits = DashMap::default();
+		let permits = config
+			.runner
+			.as_ref()
+			.map_or(0, |runner| runner.concurrency.unwrap_or(parallelism));
+		let sandbox_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Create the sandbox tasks.
-		// let sandbox_tasks = tangram_futures::task::Map::default();
+		let sandbox_tasks = tangram_futures::task::Map::default();
 
 		// Create the database.
 		let database = match &config.database {
@@ -414,50 +417,50 @@ impl Server {
 		// Create the diagnostics.
 		let diagnostics = Mutex::new(Vec::new());
 
-		// // Create the index.
-		// let index = match &config.index {
-		// 	self::config::Index::Fdb(options) => {
-		// 		#[cfg(not(feature = "foundationdb"))]
-		// 		{
-		// 			let _ = options;
-		// 			return Err(tg::error!(
-		// 				"this version of tangram was not compiled with foundationdb support"
-		// 			));
-		// 		}
-		// 		#[cfg(feature = "foundationdb")]
-		// 		{
-		// 			let options = tangram_index::fdb::Options {
-		// 				cluster: options.cluster.clone(),
-		// 				concurrency: options.concurrency,
-		// 				max_items_per_transaction: options.max_items_per_transaction,
-		// 				partition_total: options.partition_total,
-		// 				prefix: options.prefix.clone(),
-		// 			};
-		// 			Index::new_fdb(&options)
-		// 				.map_err(|error| tg::error!(!error, "failed to create the index"))?
-		// 		}
-		// 	},
-		// 	self::config::Index::Lmdb(options) => {
-		// 		#[cfg(not(feature = "lmdb"))]
-		// 		{
-		// 			let _ = options;
-		// 			return Err(tg::error!(
-		// 				"this version of tangram was not compiled with lmdb support"
-		// 			));
-		// 		}
-		// 		#[cfg(feature = "lmdb")]
-		// 		{
-		// 			let path = directory.join(&options.path);
-		// 			let config = tangram_index::lmdb::Config {
-		// 				map_size: options.map_size,
-		// 				max_items_per_transaction: options.max_items_per_transaction,
-		// 				path,
-		// 			};
-		// 			Index::new_lmdb(&config)
-		// 				.map_err(|error| tg::error!(!error, "failed to create the index"))?
-		// 		}
-		// 	},
-		// };
+		// Create the index.
+		let index = match &config.index {
+			self::config::Index::Fdb(options) => {
+				#[cfg(not(feature = "foundationdb"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with foundationdb support"
+					));
+				}
+				#[cfg(feature = "foundationdb")]
+				{
+					let options = tangram_index::fdb::Options {
+						cluster: options.cluster.clone(),
+						concurrency: options.concurrency,
+						max_items_per_transaction: options.max_items_per_transaction,
+						partition_total: options.partition_total,
+						prefix: options.prefix.clone(),
+					};
+					Index::new_fdb(&options)
+						.map_err(|error| tg::error!(!error, "failed to create the index"))?
+				}
+			},
+			self::config::Index::Lmdb(options) => {
+				#[cfg(not(feature = "lmdb"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with lmdb support"
+					));
+				}
+				#[cfg(feature = "lmdb")]
+				{
+					let path = directory.join(&options.path);
+					let config = tangram_index::lmdb::Config {
+						map_size: options.map_size,
+						max_items_per_transaction: options.max_items_per_transaction,
+						path,
+					};
+					Index::new_lmdb(&config)
+						.map_err(|error| tg::error!(!error, "failed to create the index"))?
+				}
+			},
+		};
 
 		// Create the index tasks.
 		let index_tasks = tangram_futures::task::Set::default();
@@ -529,17 +532,15 @@ impl Server {
 		let regions = DashMap::default();
 
 		// Create the object get tasks.
-		// let object_get_tasks = tangram_futures::task::Map::default();
+		let object_get_tasks = tangram_futures::task::Map::default();
 
 		// Create the remote clients.
 		let remote_clients = DashMap::default();
 
 		// Create the remote list tasks.
-		// let remote_list_tasks = tangram_futures::task::Map::default();
+		let remote_list_tasks = tangram_futures::task::Map::default();
 
-		// Create the sandbox container root. If the config declares a VM isolation,
-		// record the path where the squashfs image will be built when the
-		// first VM sandbox actually needs it.
+		// Create the sandbox container root.
 		let sandbox_container_root_path = path.join("container/root");
 		let sandbox_seatbelt_root_path = path.join("seatbelt/root");
 		let tangram_path = tangram_util::env::current_exe()
@@ -563,74 +564,74 @@ impl Server {
 			tangram_path: tangram_path.clone(),
 		})?;
 
-		// // Create the log store.
-		// let log_store = match &config.logs.store {
-		// 	config::LogStore::Fdb(options) => {
-		// 		#[cfg(not(feature = "foundationdb"))]
-		// 		{
-		// 			let _ = options;
-		// 			return Err(tg::error!(
-		// 				"this version of tangram was not compiled with foundationdb support"
-		// 			));
-		// 		}
-		// 		#[cfg(feature = "foundationdb")]
-		// 		{
-		// 			self::log::Store::new_fdb(options)
-		// 				.map_err(|error| tg::error!(!error, "failed to create the log store"))?
-		// 		}
-		// 	},
-		// 	config::LogStore::Lmdb(lmdb) => {
-		// 		#[cfg(not(feature = "lmdb"))]
-		// 		{
-		// 			let _ = lmdb;
-		// 			return Err(tg::error!(
-		// 				"this version of tangram was not compiled with lmdb support"
-		// 			));
-		// 		}
-		// 		#[cfg(feature = "lmdb")]
-		// 		{
-		// 			self::log::Store::new_lmdb(&path, lmdb)
-		// 				.map_err(|error| tg::error!(!error, "failed to create the log store"))?
-		// 		}
-		// 	},
-		// 	config::LogStore::Memory => self::log::Store::new_memory(),
-		// };
+		// Create the log store.
+		let log_store = match &config.logs.store {
+			config::LogStore::Fdb(options) => {
+				#[cfg(not(feature = "foundationdb"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with foundationdb support"
+					));
+				}
+				#[cfg(feature = "foundationdb")]
+				{
+					self::log::Store::new_fdb(options)
+						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
+				}
+			},
+			config::LogStore::Lmdb(lmdb) => {
+				#[cfg(not(feature = "lmdb"))]
+				{
+					let _ = lmdb;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with lmdb support"
+					));
+				}
+				#[cfg(feature = "lmdb")]
+				{
+					self::log::Store::new_lmdb(&path, lmdb)
+						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
+				}
+			},
+			config::LogStore::Memory => self::log::Store::new_memory(),
+		};
 
-		// // Create the object store.
-		// let object_store = match &config.object.store {
-		// 	config::ObjectStore::Lmdb(lmdb) => {
-		// 		#[cfg(not(feature = "lmdb"))]
-		// 		{
-		// 			let _ = lmdb;
-		// 			return Err(tg::error!(
-		// 				"this version of tangram was not compiled with lmdb support"
-		// 			));
-		// 		}
-		// 		#[cfg(feature = "lmdb")]
-		// 		{
-		// 			self::object::Store::new_lmdb(&path, lmdb)
-		// 				.map_err(|error| tg::error!(!error, "failed to create the object store"))?
-		// 		}
-		// 	},
+		// Create the object store.
+		let object_store = match &config.object.store {
+			config::ObjectStore::Lmdb(lmdb) => {
+				#[cfg(not(feature = "lmdb"))]
+				{
+					let _ = lmdb;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with lmdb support"
+					));
+				}
+				#[cfg(feature = "lmdb")]
+				{
+					self::object::Store::new_lmdb(&path, lmdb)
+						.map_err(|error| tg::error!(!error, "failed to create the object store"))?
+				}
+			},
 
-		// 	config::ObjectStore::Memory(memory) => self::object::Store::new_memory(memory),
+			config::ObjectStore::Memory(memory) => self::object::Store::new_memory(memory),
 
-		// 	config::ObjectStore::Scylla(scylla) => {
-		// 		#[cfg(not(feature = "scylla"))]
-		// 		{
-		// 			let _ = scylla;
-		// 			return Err(tg::error!(
-		// 				"this version of tangram was not compiled with scylla support"
-		// 			));
-		// 		}
-		// 		#[cfg(feature = "scylla")]
-		// 		{
-		// 			self::object::Store::new_scylla(scylla)
-		// 				.await
-		// 				.map_err(|error| tg::error!(!error, "failed to create the object store"))?
-		// 		}
-		// 	},
-		// };
+			config::ObjectStore::Scylla(scylla) => {
+				#[cfg(not(feature = "scylla"))]
+				{
+					let _ = scylla;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with scylla support"
+					));
+				}
+				#[cfg(feature = "scylla")]
+				{
+					self::object::Store::new_scylla(scylla)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to create the object store"))?
+				}
+			},
+		};
 
 		// Create the temp paths.
 		let temps = DashSet::default();
@@ -642,51 +643,51 @@ impl Server {
 			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 
 		// Create the vfs.
-		// let vfs = Mutex::new(None);
+		let vfs = Mutex::new(None);
 
 		// Create the watches.
-		// let watches = DashMap::default();
+		let watches = DashMap::default();
 
 		// Create the server.
 		let server = Self(Arc::new(State {
-			// cache_graph_tasks,
-			// cache_tasks,
-			// checkin_tasks,
+			cache_graph_tasks,
+			cache_tasks,
+			checkin_tasks,
 			config,
 			context,
 			database,
 			diagnostics,
-			// index,
+			index,
 			index_tasks,
 			#[cfg(target_os = "linux")]
 			ip_pool,
 			library,
 			lock,
-			// log_store,
+			log_store,
 			messenger,
-			// object_get_tasks,
-			// object_store,
+			object_get_tasks,
+			object_store,
 			path,
 			process_store,
 			regions,
-			// remote_list_tasks,
+			remote_list_tasks,
 			remote_clients,
 			sandbox_container_root,
-			// sandbox_permits,
+			sandbox_permits,
 			sandbox_seatbelt_root,
-			// sandbox_semaphore,
-			// sandbox_tasks,
+			sandbox_semaphore,
+			sandbox_tasks,
 			sandbox_vm_image,
 			#[cfg(target_os = "linux")]
 			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
-			// sandboxes,
+			sandboxes,
 			tangram_path,
 			temps,
 			version,
-			// vfs,
-			// watches,
+			vfs,
+			watches,
 		}));
 
 		// Migrate the database if necessary.
@@ -704,20 +705,26 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
 		}
 
-		// // Migrate the process store if necessary.
-		// #[cfg(feature = "sqlite")]
-		// if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
-		// 	self::process::store::sqlite::migrate(process_store)
-		// 		.await
-		// 		.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
-		// }
+		server
+			.session(&server.context)
+			.bootstrap_nodes()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to bootstrap the node data"))?;
 
-		// #[cfg(feature = "turso")]
-		// if let Ok(process_store) = server.process_store.try_unwrap_turso_ref() {
-		// 	self::process::store::turso::migrate(process_store)
-		// 		.await
-		// 		.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
-		// }
+		// Migrate the process store if necessary.
+		#[cfg(feature = "sqlite")]
+		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
+			self::process::store::sqlite::migrate(process_store)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
+		}
+
+		#[cfg(feature = "turso")]
+		if let Ok(process_store) = server.process_store.try_unwrap_turso_ref() {
+			self::process::store::turso::migrate(process_store)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
+		}
 
 		// // Destroy unfinished sandboxes if single process mode is enabled.
 		// if server.config().advanced.single_process {
@@ -740,103 +747,103 @@ impl Server {
 				.await?;
 		}
 
-		// // Spawn the indexer task.
-		// let indexer_task = server.config.indexer.clone().map(|config| {
-		// 	Task::spawn({
-		// 		let server = server.clone();
-		// 		|_| async move {
-		// 			let result = server.indexer_task(&config).await;
-		// 			if let Err(error) = result {
-		// 				tracing::error!(error = %error.trace());
-		// 			}
-		// 		}
-		// 	})
-		// });
+		// Spawn the indexer task.
+		let indexer_task = server.config.indexer.clone().map(|config| {
+			Task::spawn({
+				let server = server.clone();
+				|_| async move {
+					let result = server.indexer_task(&config).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace());
+					}
+				}
+			})
+		});
 
-		// // Spawn the cleaner task.
-		// let cleaner_task = server.config.cleaner.clone().map(|config| {
-		// 	Task::spawn({
-		// 		let server = server.clone();
-		// 		|_| async move {
-		// 			let result = server.cleaner_task(&config).await;
-		// 			if let Err(error) = result {
-		// 				tracing::error!(error = %error.trace());
-		// 			}
-		// 		}
-		// 	})
-		// });
+		// Spawn the cleaner task.
+		let cleaner_task = server.config.cleaner.clone().map(|config| {
+			Task::spawn({
+				let server = server.clone();
+				|_| async move {
+					let result = server.cleaner_task(&config).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace());
+					}
+				}
+			})
+		});
 
-		// // Start the VFS if enabled.
-		// let artifacts_path = server.path.join("artifacts");
-		// let cache_path = server.path.join("cache");
-		// let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
-		// 	Ok(exists) => exists,
-		// 	Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
-		// 		if cfg!(target_os = "macos") {
-		// 			self::vfs::Server::unmount(self::vfs::Kind::Nfs, &artifacts_path).await?;
-		// 		} else if cfg!(target_os = "linux") {
-		// 			self::vfs::Server::unmount(self::vfs::Kind::Fuse, &artifacts_path).await?;
-		// 		} else {
-		// 			return Err(tg::error!("unsupported operating system"));
-		// 		}
-		// 		true
-		// 	},
-		// 	Err(error) => {
-		// 		return Err(tg::error!(!error, "failed to stat the path"));
-		// 	},
-		// };
-		// let cache_exists = tokio::fs::try_exists(&cache_path)
-		// 	.await
-		// 	.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
-		// if let Some(options) = server.config.vfs {
-		// 	if artifacts_exists && !cache_exists {
-		// 		tokio::fs::rename(&artifacts_path, &cache_path)
-		// 			.await
-		// 			.map_err(|error| {
-		// 				tg::error!(
-		// 					!error,
-		// 					"failed to move the artifacts directory to the cache path"
-		// 				)
-		// 			})?;
-		// 	}
-		// 	tokio::fs::create_dir_all(&artifacts_path)
-		// 		.await
-		// 		.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
-		// 	tokio::fs::create_dir_all(&cache_path)
-		// 		.await
-		// 		.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
-		// 	let kind = if cfg!(target_os = "macos") {
-		// 		vfs::Kind::Nfs
-		// 	} else if cfg!(target_os = "linux") {
-		// 		vfs::Kind::Fuse
-		// 	} else {
-		// 		unreachable!()
-		// 	};
-		// 	let artifacts_path = server.artifacts_path();
-		// 	let vfs = self::vfs::Server::start(&server, kind, &artifacts_path, options)
-		// 		.await
-		// 		.inspect_err(|error| {
-		// 			tracing::error!(?error, "failed to start the VFS");
-		// 		})
-		// 		.ok();
-		// 	if let Some(vfs) = vfs {
-		// 		server.vfs.lock().unwrap().replace(vfs);
-		// 	}
-		// } else {
-		// 	if cache_exists {
-		// 		tokio::fs::rename(&cache_path, &artifacts_path)
-		// 			.await
-		// 			.map_err(|error| {
-		// 				tg::error!(
-		// 					!error,
-		// 					"failed to move the artifacts directory to the cache directory"
-		// 				)
-		// 			})?;
-		// 	}
-		// 	tokio::fs::create_dir_all(&artifacts_path)
-		// 		.await
-		// 		.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
-		// }
+		// Start the VFS if enabled.
+		let artifacts_path = server.path.join("artifacts");
+		let cache_path = server.path.join("cache");
+		let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
+			Ok(exists) => exists,
+			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
+				if cfg!(target_os = "macos") {
+					self::vfs::Server::unmount(self::vfs::Kind::Nfs, &artifacts_path).await?;
+				} else if cfg!(target_os = "linux") {
+					self::vfs::Server::unmount(self::vfs::Kind::Fuse, &artifacts_path).await?;
+				} else {
+					return Err(tg::error!("unsupported operating system"));
+				}
+				true
+			},
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to stat the path"));
+			},
+		};
+		let cache_exists = tokio::fs::try_exists(&cache_path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
+		if let Some(options) = server.config.vfs {
+			if artifacts_exists && !cache_exists {
+				tokio::fs::rename(&artifacts_path, &cache_path)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to move the artifacts directory to the cache path"
+						)
+					})?;
+			}
+			tokio::fs::create_dir_all(&artifacts_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
+			tokio::fs::create_dir_all(&cache_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
+			let kind = if cfg!(target_os = "macos") {
+				vfs::Kind::Nfs
+			} else if cfg!(target_os = "linux") {
+				vfs::Kind::Fuse
+			} else {
+				unreachable!()
+			};
+			let artifacts_path = server.artifacts_path();
+			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path, options)
+				.await
+				.inspect_err(|error| {
+					tracing::error!(?error, "failed to start the VFS");
+				})
+				.ok();
+			if let Some(vfs) = vfs {
+				server.vfs.lock().unwrap().replace(vfs);
+			}
+		} else {
+			if cache_exists {
+				tokio::fs::rename(&cache_path, &artifacts_path)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to move the artifacts directory to the cache directory"
+						)
+					})?;
+			}
+			tokio::fs::create_dir_all(&artifacts_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
+		}
 
 		// Spawn the HTTP task.
 		let http_listeners = server
@@ -929,37 +936,37 @@ impl Server {
 			}
 		}));
 
-		// // Spawn the process finalizer task.
-		// let process_finalizer_task = server.config.process.finalizer.clone().map(|config| {
-		// 	Task::spawn({
-		// 		let server = server.clone();
-		// 		|stopper| async move {
-		// 			server
-		// 				.finalizer_task(&config, stopper)
-		// 				.await
-		// 				.inspect_err(|error| {
-		// 					tracing::error!(error = %error.trace(), "the process finalizer task failed");
-		// 				})
-		// 				.ok();
-		// 		}
-		// 	})
-		// });
+		// Spawn the process finalizer task.
+		let process_finalizer_task = server.config.process.finalizer.clone().map(|config| {
+			Task::spawn({
+				let server = server.clone();
+				|stopper| async move {
+					server
+						.finalizer_task(&config, stopper)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(error = %error.trace(), "the process finalizer task failed");
+						})
+						.ok();
+				}
+			})
+		});
 
-		// // Spawn the sandbox finalizer task.
-		// let sandbox_finalizer_task = server.config.sandbox.finalizer.clone().map(|config| {
-		// 	Task::spawn({
-		// 		let server = server.clone();
-		// 		|stopper| async move {
-		// 			server
-		// 				.sandbox_finalizer_task(&config, stopper)
-		// 				.await
-		// 				.inspect_err(|error| {
-		// 					tracing::error!(error = %error.trace(), "the sandbox finalizer task failed");
-		// 				})
-		// 				.ok();
-		// 		}
-		// 	})
-		// });
+		// Spawn the sandbox finalizer task.
+		let sandbox_finalizer_task = server.config.sandbox.finalizer.clone().map(|config| {
+			Task::spawn({
+				let server = server.clone();
+				|stopper| async move {
+					server
+						.sandbox_finalizer_task(&config, stopper)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(error = %error.trace(), "the sandbox finalizer task failed");
+						})
+						.ok();
+				}
+			})
+		});
 
 		// // Spawn the watchdog task.
 		// let watchdog_task = server.config.watchdog.as_ref().map(|config| {
@@ -978,17 +985,17 @@ impl Server {
 		// 	})
 		// });
 
-		// // Spawn the runner task.
-		// let runner_task = if server.config.runner.is_some() {
-		// 	Some(Task::spawn({
-		// 		let server = server.clone();
-		// 		|_| async move {
-		// 			server.runner_task().await;
-		// 		}
-		// 	}))
-		// } else {
-		// 	None
-		// };
+		// Spawn the runner task.
+		let runner_task = if server.config.runner.is_some() {
+			Some(Task::spawn({
+				let server = server.clone();
+				|_| async move {
+					server.runner_task().await;
+				}
+			}))
+		} else {
+			None
+		};
 
 		let shutdown = {
 			let server = server.clone();
@@ -1007,66 +1014,66 @@ impl Server {
 					tracing::trace!("http task");
 				}
 
-				// // Abort the runner task.
-				// if let Some(task) = runner_task {
-				// 	task.abort();
-				// 	let result = task.wait().await;
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "the runner task panicked");
-				// 	}
-				// 	tracing::trace!("runner task");
-				// }
+				// Abort the runner task.
+				if let Some(task) = runner_task {
+					task.abort();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the runner task panicked");
+					}
+					tracing::trace!("runner task");
+				}
 
-				// // Abort the sandbox tasks.
-				// server.sandbox_tasks.abort_all();
-				// let results = server.sandbox_tasks.wait().await;
-				// for result in results {
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "a sandbox task panicked");
-				// 	}
-				// }
-				// tracing::trace!("sandbox tasks");
+				// Abort the sandbox tasks.
+				server.sandbox_tasks.abort_all();
+				let results = server.sandbox_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a sandbox task panicked");
+					}
+				}
+				tracing::trace!("sandbox tasks");
 
-				// // Stop the VFS.
-				// let vfs = server.vfs.lock().unwrap().take();
-				// if let Some(vfs) = vfs {
-				// 	vfs.stop();
-				// 	vfs.wait().await;
-				// 	tracing::trace!("vfs task");
-				// }
+				// Stop the VFS.
+				let vfs = server.vfs.lock().unwrap().take();
+				if let Some(vfs) = vfs {
+					vfs.stop();
+					vfs.wait().await;
+					tracing::trace!("vfs task");
+				}
 
 				// Abort the diagnostics task.
 				if let Some(task) = diagnostics_task {
 					task.abort();
 				}
 
-				// // Abort the process finalizer task.
-				// if let Some(task) = process_finalizer_task {
-				// 	task.abort();
-				// 	let result = task.wait().await;
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "the process finalizer task panicked");
-				// 	}
-				// 	tracing::trace!("process finalizer task");
-				// }
+				// Abort the process finalizer task.
+				if let Some(task) = process_finalizer_task {
+					task.abort();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the process finalizer task panicked");
+					}
+					tracing::trace!("process finalizer task");
+				}
 
-				// // Abort the sandbox finalizer task.
-				// if let Some(task) = sandbox_finalizer_task {
-				// 	task.abort();
-				// 	let result = task.wait().await;
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "the sandbox finalizer task panicked");
-				// 	}
-				// 	tracing::trace!("sandbox finalizer task");
-				// }
+				// Abort the sandbox finalizer task.
+				if let Some(task) = sandbox_finalizer_task {
+					task.abort();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the sandbox finalizer task panicked");
+					}
+					tracing::trace!("sandbox finalizer task");
+				}
 
 				// // Abort the watchdog task.
 				// if let Some(task) = watchdog_task {
@@ -1131,45 +1138,45 @@ impl Server {
 				// }
 				// tracing::trace!("object get tasks");
 
-				// // Abort the remote list tasks.
-				// server.remote_list_tasks.abort_all();
-				// let results = server.remote_list_tasks.wait().await;
-				// for result in results {
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "a remote list task panicked");
-				// 	}
-				// }
-				// tracing::trace!("remote list tasks");
+				// Abort the remote list tasks.
+				server.remote_list_tasks.abort_all();
+				let results = server.remote_list_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a remote list task panicked");
+					}
+				}
+				tracing::trace!("remote list tasks");
 
 				// Abort the index tasks.
 				server.index_tasks.abort_all();
 				server.index_tasks.wait().await;
 
-				// // Abort the cleaner task.
-				// if let Some(task) = cleaner_task {
-				// 	task.abort();
-				// 	let result = task.wait().await;
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "the clean task panicked");
-				// 	}
-				// 	tracing::trace!("cleaner task");
-				// }
+				// Abort the cleaner task.
+				if let Some(task) = cleaner_task {
+					task.abort();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the clean task panicked");
+					}
+					tracing::trace!("cleaner task");
+				}
 
-				// // Abort the indexer task.
-				// if let Some(task) = indexer_task {
-				// 	task.abort();
-				// 	let result = task.wait().await;
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "the index task panicked");
-				// 	}
-				// 	tracing::trace!("indexer task");
-				// }
+				// Abort the indexer task.
+				if let Some(task) = indexer_task {
+					task.abort();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the index task panicked");
+					}
+					tracing::trace!("indexer task");
+				}
 
 				// Remove the temp paths.
 				server
@@ -1330,11 +1337,11 @@ impl Server {
 
 	#[must_use]
 	fn cache_path(&self) -> PathBuf {
-		// if self.vfs.lock().unwrap().is_some() {
-		// self.path.join("cache")
-		// } else {
-		self.artifacts_path()
-		// }
+		if self.vfs.lock().unwrap().is_some() {
+			self.path.join("cache")
+		} else {
+			self.artifacts_path()
+		}
 	}
 
 	#[must_use]
@@ -1396,14 +1403,14 @@ impl Deref for Server {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
-		// self.cache_graph_tasks.abort_all();
-		// self.cache_tasks.abort_all();
+		self.cache_graph_tasks.abort_all();
+		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();
-		// self.sandbox_tasks.abort_all();
-		// self.object_get_tasks.abort_all();
-		// self.remote_list_tasks.abort_all();
+		self.sandbox_tasks.abort_all();
+		self.object_get_tasks.abort_all();
+		self.remote_list_tasks.abort_all();
 		self.index_tasks.abort_all();
-		// self.vfs.lock().unwrap().take();
-		// self.watches.clear();
+		self.vfs.lock().unwrap().take();
+		self.watches.clear();
 	}
 }

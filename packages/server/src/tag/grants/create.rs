@@ -1,8 +1,10 @@
 use {
 	crate::{Session, context::Authentication},
 	futures::FutureExt as _,
+	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -33,16 +35,12 @@ impl Session {
 		&self,
 		arg: tg::tag::grants::create::Arg,
 	) -> tg::Result<tg::TagGrant> {
-		if matches!(arg.principal, tg::Principal::All) && arg.permission != tg::Permission::Read {
-			return Err(tg::error!("all grants may only be read"));
-		}
 		let created_by = self
 			.context
 			.authentication
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| user.id.clone());
-
 		let session = self.clone();
 		self.server
 			.database
@@ -51,57 +49,65 @@ impl Session {
 				let created_by = created_by.clone();
 				let session = session.clone();
 				async move {
-					session
-						.create_tag_grant_inner_with_transaction(
-							transaction,
-							&arg,
-							created_by.as_ref(),
-						)
-						.await
+					let grant = session
+						.create_tag_grant_with_transaction(transaction, &arg, created_by.as_ref())
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(grant))
 				}
 				.boxed()
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to create the tag grant"))
 	}
 
-	async fn create_tag_grant_inner_with_transaction(
+	async fn create_tag_grant_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: &tg::tag::grants::create::Arg,
 		created_by: Option<&tg::user::Id>,
-	) -> tg::Result<ControlFlow<tg::TagGrant, crate::database::Error>> {
-		self.authorize_tag_with_transaction(transaction, &arg.tag, tg::Permission::Admin)
-			.await?;
-		let namespace_id = Self::try_get_tag_namespace_id_with_transaction(transaction, &arg.tag)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the tag"))?;
-		match &arg.principal {
-			tg::Principal::All | tg::Principal::Root => {},
-			tg::Principal::User(user) => {
-				Self::try_get_user_with_transaction(transaction, &user.to_string())
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the user"))?;
-			},
-			tg::Principal::Group(group) => {
-				Self::try_get_group_with_transaction(transaction, &group.to_string())
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the group"))?;
-			},
+	) -> tg::Result<tg::TagGrant> {
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(transaction, &arg.tag).await?
+		else {
+			return Err(tg::error!("failed to find the tag"));
+		};
+		if node.kind != tg::id::Kind::Tag {
+			return Err(tg::error!("failed to find the tag"));
 		}
-		match Self::create_tag_grant_with_transaction(
+		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into tag_grants (tag, principal, permission, created_at, created_by)
+				values ({p}1, {p}2, {p}3, {p}4, {p}5)
+				on conflict (tag, principal, permission) do nothing;
+			"
+		);
+		transaction
+			.execute(
+				statement.into(),
+				db::params![
+					node.id.to_string(),
+					arg.principal.to_string(),
+					arg.permission.to_string(),
+					created_at,
+					created_by.map(ToString::to_string)
+				],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Self::increment_visibility_with_transaction(
 			transaction,
-			&arg.tag,
-			namespace_id,
-			&arg.principal,
-			arg.permission,
-			created_by,
+			&node.id,
+			&arg.principal.to_string(),
 		)
-		.await?
-		{
-			ControlFlow::Break(grant) => Ok(ControlFlow::Break(grant)),
-			ControlFlow::Continue(error) => Ok(ControlFlow::Continue(error)),
-		}
+		.await?;
+		Ok(tg::TagGrant {
+			created_at,
+			created_by: created_by.cloned(),
+			permission: arg.permission,
+			principal: arg.principal.clone(),
+			resource: node.id,
+		})
 	}
 
 	async fn create_tag_grant_remote(
@@ -109,24 +115,13 @@ impl Session {
 		mut arg: tg::tag::grants::create::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<tg::TagGrant> {
-		let client = self
-			.get_remote_session(&remote.name)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					remote = %remote.name,
-					"failed to get the remote client"
-				)
-			})?;
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client.create_tag_grant(arg).await.map_err(|error| {
-			tg::error!(
-				!error,
-				remote = %remote.name,
-				"failed to create the tag grant"
-			)
-		})
+		client.create_tag_grant(arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to create the tag grant"),
+		)
 	}
 
 	pub(crate) async fn create_tag_grant_request(
@@ -141,18 +136,14 @@ impl Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		let output = self
-			.create_tag_grant(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the tag grant"))?;
+		let output = self.create_tag_grant(arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
-				let content_type = mime::APPLICATION_JSON;
 				let body = serde_json::to_vec(&output).unwrap();
-				(Some(content_type), BoxBody::with_bytes(body))
+				(Some(mime::APPLICATION_JSON), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));

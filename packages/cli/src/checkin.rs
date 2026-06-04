@@ -24,7 +24,7 @@ pub struct Args {
 		num_args = 1..,
 		short,
 	)]
-	pub updates: Option<Vec<tg::list::Pattern>>,
+	pub updates: Option<Vec<tg::specifier::Pattern>>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]

@@ -19,8 +19,8 @@ pub struct Arg {
 pub struct Item {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
-	pub tag: tg::Tag,
-	pub item: tg::Either<tg::object::Id, tg::process::Id>,
+	pub specifier: tg::Specifier,
+	pub item: tg::tag::data::Item,
 }
 
 impl tg::Session {

@@ -1,25 +1,14 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	pub group: String,
-}
-
 impl tg::Session {
-	pub async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		let arg = tg::group::get::Arg {
-			group: group.to_owned(),
-		};
-		let uri = Uri::builder()
-			.path("/groups")
-			.query_params(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+	pub async fn try_get_group(
+		&self,
+		group: &tg::group::Selector,
+	) -> tg::Result<Option<tg::Group>> {
+		let uri = format!("/groups/{}", group.to_string().replace('/', ":"));
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)
@@ -47,11 +36,5 @@ impl tg::Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
 		Ok(Some(output))
-	}
-}
-
-impl tg::Client {
-	pub async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		self.session(self.context()).try_get_group(group).await
 	}
 }

@@ -1,19 +1,14 @@
 use {
-	crate::{Database, Session, context::Authentication},
+	crate::{Session, context::Authentication},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	indoc::formatdoc,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-mod permissions;
-#[cfg(feature = "postgres")]
-mod postgres;
 pub mod remote;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-#[cfg(feature = "turso")]
-mod turso;
 
 impl Session {
 	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "list", skip_all)]
@@ -25,28 +20,6 @@ impl Session {
 			.is_some_and(Authentication::is_process)
 		{
 			return Err(tg::error!("unauthorized"));
-		}
-
-		if !arg.pattern.is_empty() && !arg.pattern.contains_operators() {
-			if arg.tags
-				&& let Some(pattern) = arg.pattern.exact()
-			{
-				let output = self
-					.list_inner(tg::list::Arg {
-						length: None,
-						namespaces: false,
-						pattern,
-						recursive: false,
-						..arg.clone()
-					})
-					.await?;
-				if !output.data.is_empty() {
-					return Ok(truncate(output, arg.length));
-				}
-			}
-			if let Some(pattern) = arg.pattern.children() {
-				return self.list_inner(tg::list::Arg { pattern, ..arg }).await;
-			}
 		}
 
 		self.list_inner(arg).await
@@ -87,46 +60,187 @@ impl Session {
 		Ok(truncate(tg::list::Output { data }, arg.length))
 	}
 
+	pub(super) async fn list_cache_get(&self, arg: &str) -> tg::Result<Option<(String, i64)>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			output: String,
+			timestamp: i64,
+		}
+		let connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select output, timestamp
+				from list_cache
+				where arg = {p}1;
+			"
+		);
+		let row = connection
+			.query_optional_into::<Row>(statement.into(), db::params![arg])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(row.map(|row| (row.output, row.timestamp)))
+	}
+
+	pub(super) async fn list_cache_put(
+		&self,
+		arg: &str,
+		output: &str,
+		timestamp: i64,
+	) -> tg::Result<()> {
+		let connection = self
+			.server
+			.database
+			.write_connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into list_cache (arg, output, timestamp)
+				values ({p}1, {p}2, {p}3)
+				on conflict (arg) do update
+				set output = excluded.output, timestamp = excluded.timestamp;
+			"
+		);
+		connection
+			.execute(statement.into(), db::params![arg, output, timestamp])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(())
+	}
+
 	pub(crate) async fn list_local(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
-		match &self.server.database {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => self.list_postgres(database, arg).await,
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(database) => self.list_sqlite(database, arg).await,
-			#[cfg(feature = "turso")]
-			Database::Turso(database) => self.list_turso(database, arg).await,
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let mut data = Vec::new();
+		if arg.groups {
+			data.extend(self.list_local_groups(&transaction, &arg).await?);
 		}
+		if arg.tags {
+			data.extend(self.list_local_tags(&transaction, &arg).await?);
+		}
+		data.sort_by(|a, b| compare_entries(a, b, arg.reverse));
+		Ok(truncate(tg::list::Output { data }, arg.length))
 	}
 
-	async fn list_cache_get(&self, arg: &str) -> tg::Result<Option<(String, i64)>> {
-		match &self.server.database {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => self.list_cache_get_postgres(database, arg).await,
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(database) => self.list_cache_get_sqlite(database, arg).await,
-			#[cfg(feature = "turso")]
-			Database::Turso(database) => self.list_cache_get_turso(database, arg).await,
+	async fn list_local_groups(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: &tg::list::Arg,
+	) -> tg::Result<Vec<tg::list::Entry>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::Id,
+			#[tangram_database(as = "db::value::FromStr")]
+			specifier: tg::Specifier,
 		}
+		let rows = transaction
+			.query_all_into::<Row>(
+				"
+					select id, specifier
+					from nodes
+					where kind = 'group'
+					order by specifier;
+				"
+				.into(),
+				db::params![],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let mut entries = Vec::new();
+		for row in rows {
+			let specifier = row.specifier.to_string();
+			if !matches_pattern(&specifier, arg) {
+				continue;
+			}
+			if !self
+				.node_is_visible_with_transaction(transaction, &row.id)
+				.await?
+			{
+				continue;
+			}
+			entries.push(tg::list::Entry::Group {
+				location: None,
+				group: row.specifier,
+			});
+		}
+		Ok(entries)
 	}
 
-	async fn list_cache_put(&self, arg: &str, output: &str, timestamp: i64) -> tg::Result<()> {
-		match &self.server.database {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => {
-				self.list_cache_put_postgres(database, arg, output, timestamp)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(database) => {
-				self.list_cache_put_sqlite(database, arg, output, timestamp)
-					.await
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(database) => {
-				self.list_cache_put_turso(database, arg, output, timestamp)
-					.await
-			},
+	async fn list_local_tags(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: &tg::list::Arg,
+	) -> tg::Result<Vec<tg::list::Entry>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::Id,
+			item: String,
+			#[tangram_database(as = "db::value::FromStr")]
+			specifier: tg::Specifier,
 		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select nodes.id, tags.item, nodes.specifier
+				from nodes
+				join tags on tags.id = nodes.id
+				where nodes.kind = 'tag'
+				order by nodes.specifier
+				limit {p}1;
+			"
+		);
+		let rows = transaction
+			.query_all_into::<Row>(
+				statement.into(),
+				db::params![
+					arg.length
+						.and_then(|length| length.to_i64())
+						.unwrap_or(i64::MAX)
+				],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let mut entries = Vec::new();
+		for row in rows {
+			let specifier = row.specifier.to_string();
+			if !matches_pattern(&specifier, arg) {
+				continue;
+			}
+			if !self
+				.node_is_visible_with_transaction(transaction, &row.id)
+				.await?
+			{
+				continue;
+			}
+			let item = parse_tag_item(&row.item)?;
+			let item = match item {
+				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+				tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+			};
+			entries.push(tg::list::Entry::Tag {
+				item,
+				location: None,
+				tag: row.specifier,
+			});
+		}
+		Ok(entries)
 	}
 
 	pub(crate) async fn list_request(
@@ -182,14 +296,11 @@ fn compare_entries(a: &tg::list::Entry, b: &tg::list::Entry, reverse: bool) -> s
 
 fn compare_entry_names(a: &tg::list::Entry, b: &tg::list::Entry) -> std::cmp::Ordering {
 	match (a, b) {
-		(
-			tg::list::Entry::Namespace { namespace: a, .. },
-			tg::list::Entry::Namespace { namespace: b, .. },
-		) => a.cmp(b),
-		(tg::list::Entry::Namespace { namespace: a, .. }, tg::list::Entry::Tag { tag: b, .. }) => {
-			a.to_string().cmp(&b.to_string())
+		(tg::list::Entry::Group { group: a, .. }, tg::list::Entry::Group { group: b, .. }) => {
+			a.cmp(b)
 		},
-		(tg::list::Entry::Tag { tag: a, .. }, tg::list::Entry::Namespace { namespace: b, .. }) => {
+		(tg::list::Entry::Group { group: a, .. }, tg::list::Entry::Tag { tag: b, .. })
+		| (tg::list::Entry::Tag { tag: a, .. }, tg::list::Entry::Group { group: b, .. }) => {
 			a.to_string().cmp(&b.to_string())
 		},
 		(tg::list::Entry::Tag { tag: a, .. }, tg::list::Entry::Tag { tag: b, .. }) => a.cmp(b),
@@ -198,12 +309,8 @@ fn compare_entry_names(a: &tg::list::Entry, b: &tg::list::Entry) -> std::cmp::Or
 
 fn compare_entry_kinds(a: &tg::list::Entry, b: &tg::list::Entry) -> std::cmp::Ordering {
 	match (a, b) {
-		(tg::list::Entry::Namespace { .. }, tg::list::Entry::Tag { .. }) => {
-			std::cmp::Ordering::Less
-		},
-		(tg::list::Entry::Tag { .. }, tg::list::Entry::Namespace { .. }) => {
-			std::cmp::Ordering::Greater
-		},
+		(tg::list::Entry::Group { .. }, tg::list::Entry::Tag { .. }) => std::cmp::Ordering::Less,
+		(tg::list::Entry::Tag { .. }, tg::list::Entry::Group { .. }) => std::cmp::Ordering::Greater,
 		_ => std::cmp::Ordering::Equal,
 	}
 }
@@ -228,8 +335,58 @@ fn compare_entry_locations(a: &tg::list::Entry, b: &tg::list::Entry) -> std::cmp
 
 fn entry_location(entry: &tg::list::Entry) -> Option<&tg::Location> {
 	match entry {
-		tg::list::Entry::Namespace { location, .. } | tg::list::Entry::Tag { location, .. } => {
+		tg::list::Entry::Group { location, .. } | tg::list::Entry::Tag { location, .. } => {
 			location.as_ref()
 		},
 	}
+}
+
+fn matches_pattern(specifier: &str, arg: &tg::list::Arg) -> bool {
+	if arg.pattern.is_empty() {
+		return true;
+	}
+	if !arg.pattern.contains_operators() {
+		let pattern = arg.pattern.to_specifier().to_string();
+		return if arg.recursive {
+			specifier == pattern || specifier.starts_with(&format!("{pattern}/"))
+		} else {
+			let parent = pattern.rsplit_once('/').map(|(parent, _)| parent);
+			match parent {
+				Some(parent) => specifier.starts_with(&format!("{parent}/")),
+				None => !specifier.contains('/'),
+			}
+		};
+	}
+	let pattern = arg.pattern.to_string();
+	if arg.recursive {
+		let prefix = pattern.trim_end_matches('*').trim_end_matches('/');
+		specifier == prefix || specifier.starts_with(&format!("{prefix}/"))
+	} else {
+		let Some((parent, component)) = pattern.rsplit_once('/') else {
+			return !specifier.contains('/') && component_matches(specifier, &pattern);
+		};
+		let Some((specifier_parent, specifier_component)) = specifier.rsplit_once('/') else {
+			return false;
+		};
+		specifier_parent == parent && component_matches(specifier_component, component)
+	}
+}
+
+fn component_matches(component: &str, pattern: &str) -> bool {
+	if pattern.is_empty() || pattern == "*" {
+		return true;
+	}
+	if let Some(pattern) = pattern.strip_prefix('=') {
+		return component == pattern;
+	}
+	component == pattern
+}
+
+fn parse_tag_item(item: &str) -> tg::Result<tg::tag::data::Item> {
+	serde_json::from_str(item)
+		.or_else(|_| {
+			item.parse::<tg::Either<tg::object::Id, tg::process::Id>>()
+				.map(Into::into)
+		})
+		.map_err(|error| tg::error!(!error, "failed to parse the tag item"))
 }

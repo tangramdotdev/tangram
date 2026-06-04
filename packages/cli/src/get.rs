@@ -27,42 +27,77 @@ impl Cli {
 		let locations = args.locations;
 		let print = args.print;
 		let referent = self.get_reference(&args.reference).await?;
-		let item = match referent.item() {
-			tg::Either::Left(edge) => tg::Either::Left(
-				edge.try_unwrap_object_ref()
-					.map_err(|_| tg::error!("expected an object"))?
-					.id(),
-			),
-			tg::Either::Right(process) => {
-				let id = process
-					.id()
-					.right()
-					.ok_or_else(|| tg::error!("expected a process id"))?
-					.clone();
-				tg::Either::Right(id)
-			},
-		};
-		let referent = referent.map(|_| item);
-		self.print_info_message(&referent.to_string());
+		self.print_info_message(&args.reference.to_string());
 		match referent.item {
-			tg::Either::Left(object) => {
-				let args = crate::object::get::Args {
-					bytes: args.bytes,
-					locations: locations.clone(),
-					metadata: args.metadata,
-					object,
-					print,
-				};
-				self.command_object_get(args).await?;
+			tg::get::Item::Id(id) => match id.kind() {
+				tg::id::Kind::Blob
+				| tg::id::Kind::Directory
+				| tg::id::Kind::File
+				| tg::id::Kind::Symlink
+				| tg::id::Kind::Graph
+				| tg::id::Kind::Command
+				| tg::id::Kind::Error => {
+					let args = crate::object::get::Args {
+						bytes: args.bytes,
+						locations,
+						metadata: args.metadata,
+						object: id.try_into()?,
+						print,
+					};
+					self.command_object_get(args).await?;
+				},
+				tg::id::Kind::Process => {
+					let args = crate::process::get::Args {
+						locations,
+						metadata: args.metadata,
+						print,
+						process: id.try_into()?,
+					};
+					self.command_process_get(args).await?;
+				},
+				tg::id::Kind::User => {
+					let args = crate::user::get::Args {
+						location: locations,
+						print,
+						user: tg::Selector::Id(id.try_into()?),
+					};
+					self.command_user_get(args).await?;
+				},
+				tg::id::Kind::Group => {
+					let args = crate::group::get::Args {
+						group: tg::Selector::Id(id.try_into()?),
+						print,
+					};
+					self.command_group_get(args).await?;
+				},
+				tg::id::Kind::Organization => {
+					let args = crate::organization::get::Args {
+						organization: tg::Selector::Id(id.try_into()?),
+						print,
+					};
+					self.command_organization_get(args).await?;
+				},
+				tg::id::Kind::Tag => {
+					let args = crate::tag::get::Args {
+						print,
+						tag: tg::Selector::Id(id.try_into()?),
+					};
+					self.command_tag_get(args).await?;
+				},
+				tg::id::Kind::Sandbox => {
+					let args = crate::sandbox::get::Args {
+						locations,
+						print,
+						sandbox: id.try_into()?,
+					};
+					self.command_sandbox_get(args).await?;
+				},
+				_ => {
+					self.print_serde(id, print).await?;
+				},
 			},
-			tg::Either::Right(process) => {
-				let args = crate::process::get::Args {
-					locations,
-					metadata: args.metadata,
-					print,
-					process,
-				};
-				self.command_process_get(args).await?;
+			tg::get::Item::Pointer(pointer) => {
+				self.print_serde(pointer, print).await?;
 			},
 		}
 		Ok(())
@@ -71,7 +106,7 @@ impl Cli {
 	pub(crate) async fn get_reference(
 		&mut self,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>> {
+	) -> tg::Result<tg::Referent<tg::get::Item>> {
 		self.get_reference_with_arg(reference, tg::get::Arg::default())
 			.boxed()
 			.await
@@ -81,28 +116,15 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>> {
+	) -> tg::Result<tg::Referent<tg::get::Item>> {
 		if reference.options() == &tg::reference::Options::default() {
 			match reference.item() {
-				tg::reference::Item::Object(edge) => {
-					let edge = match edge {
-						tg::graph::data::Edge::Object(id) => {
-							tg::graph::Edge::Object(tg::Object::with_id(id.clone()))
-						},
-						tg::graph::data::Edge::Pointer(pointer) => {
-							tg::graph::Edge::Pointer(tg::graph::Pointer {
-								graph: pointer.graph.clone().map(tg::Graph::with_id),
-								index: pointer.index,
-								kind: pointer.kind,
-							})
-						},
-					};
-					let referent = tg::Referent::with_item(tg::Either::Left(edge));
+				tg::reference::Item::Id(id) => {
+					let referent = tg::Referent::with_item(tg::get::Item::Id(id.clone()));
 					return Ok(referent);
 				},
-				tg::reference::Item::Process(id) => {
-					let process = tg::Process::new(id.clone(), None, None, None, None, None);
-					let referent = tg::Referent::with_item(tg::Either::Right(process));
+				tg::reference::Item::Pointer(pointer) => {
+					let referent = tg::Referent::with_item(tg::get::Item::Pointer(pointer.clone()));
 					return Ok(referent);
 				},
 				_ => (),
@@ -153,7 +175,7 @@ impl Cli {
 	pub(crate) async fn get_references(
 		&mut self,
 		references: &[tg::Reference],
-	) -> tg::Result<Vec<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>>> {
+	) -> tg::Result<Vec<tg::Referent<tg::get::Item>>> {
 		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
 			let referent = self.get_reference(reference).await?;
@@ -179,11 +201,7 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_reference(reference).await?;
-		let item = referent
-			.item
-			.clone()
-			.left()
-			.ok_or_else(|| tg::error!("expected an object"))?;
+		let item = get_item_to_graph_edge(referent.item.clone())?;
 		let mut referent = referent.map(|_| item);
 		let module = match referent.item.clone() {
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
@@ -277,5 +295,18 @@ impl Cli {
 		};
 
 		Ok(module)
+	}
+}
+
+pub(crate) fn get_item_to_graph_edge(
+	item: tg::get::Item,
+) -> tg::Result<tg::graph::Edge<tg::Object>> {
+	match item {
+		tg::get::Item::Id(id) => Ok(tg::graph::Edge::Object(tg::Object::with_id(id.try_into()?))),
+		tg::get::Item::Pointer(pointer) => Ok(tg::graph::Edge::Pointer(tg::graph::Pointer {
+			graph: pointer.graph.map(tg::Graph::with_id),
+			index: pointer.index,
+			kind: pointer.kind,
+		})),
 	}
 }

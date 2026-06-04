@@ -42,10 +42,10 @@ pub struct Reference {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {
-	Object(tg::graph::data::Edge<tg::object::Id>),
+	Id(tg::Id),
 	Path(PathBuf),
-	Process(tg::process::Id),
-	Tag(tg::list::Pattern),
+	Pointer(tg::graph::data::Pointer),
+	Specifier(tg::specifier::Pattern),
 }
 
 #[derive(
@@ -83,7 +83,7 @@ pub struct Options {
 	pub source: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub tag: Option<tg::Tag>,
+	pub tag: Option<tg::Specifier>,
 }
 
 impl Reference {
@@ -116,12 +116,12 @@ impl Reference {
 
 	#[must_use]
 	pub fn with_object(object: tg::object::Id) -> Self {
-		Self::with_item(Item::Object(tg::graph::data::Edge::Object(object)))
+		Self::with_item(Item::Id(object.into()))
 	}
 
 	#[must_use]
 	pub fn with_pointer(pointer: tg::graph::data::Pointer) -> Self {
-		Self::with_item(Item::Object(tg::graph::data::Edge::Pointer(pointer)))
+		Self::with_item(Item::Pointer(pointer))
 	}
 
 	#[must_use]
@@ -131,12 +131,12 @@ impl Reference {
 
 	#[must_use]
 	pub fn with_process(process: tg::process::Id) -> Self {
-		Self::with_item(Item::Process(process))
+		Self::with_item(Item::Id(process.into()))
 	}
 
 	#[must_use]
-	pub fn with_tag(tag: tg::list::Pattern) -> Self {
-		Self::with_item(Item::Tag(tag))
+	pub fn with_specifier(specifier: tg::specifier::Pattern) -> Self {
+		Self::with_item(Item::Specifier(specifier))
 	}
 
 	#[must_use]
@@ -189,17 +189,12 @@ impl Reference {
 		builder.build().unwrap()
 	}
 
-	pub async fn get(
-		&self,
-	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>> {
+	pub async fn get(&self) -> tg::Result<tg::Referent<tg::get::Item>> {
 		let handle = tg::handle()?;
 		self.get_with_handle(handle).await
 	}
 
-	pub async fn get_with_handle<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>>
+	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Referent<tg::get::Item>>
 	where
 		H: tg::Handle,
 	{
@@ -221,7 +216,7 @@ impl Reference {
 
 	#[must_use]
 	pub fn is_solvable(&self) -> bool {
-		self.item().is_tag()
+		self.item().is_specifier()
 	}
 }
 
@@ -244,8 +239,8 @@ impl std::str::FromStr for Reference {
 impl std::fmt::Display for Item {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Item::Object(object) => {
-				write!(f, "{object}")?;
+			Item::Id(id) => {
+				write!(f, "{id}")?;
 			},
 			Item::Path(path) => {
 				if path
@@ -257,11 +252,15 @@ impl std::fmt::Display for Item {
 				}
 				write!(f, "{}", path.display())?;
 			},
-			Item::Process(process) => {
-				write!(f, "{process}")?;
+			Item::Pointer(pointer) => {
+				write!(
+					f,
+					"{}",
+					tg::graph::data::Edge::<tg::object::Id>::Pointer(pointer.clone())
+				)?;
 			},
-			Item::Tag(tag) => {
-				write!(f, "{tag}")?;
+			Item::Specifier(specifier) => {
+				write!(f, "{specifier}")?;
 			},
 		}
 		Ok(())
@@ -272,18 +271,20 @@ impl std::str::FromStr for Item {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if let Ok(object) = s.parse() {
-			return Ok(Self::Object(object));
+		if let Ok(id) = s.parse() {
+			return Ok(Self::Id(id));
 		}
 		if s.starts_with('.') || s.starts_with('/') {
 			let path = s.strip_prefix("./").unwrap_or(s).into();
 			return Ok(Self::Path(path));
 		}
-		if let Ok(process) = s.parse() {
-			return Ok(Self::Process(process));
+		if let Ok(pointer) = s.parse::<tg::graph::data::Edge<tg::object::Id>>()
+			&& let tg::graph::data::Edge::Pointer(pointer) = pointer
+		{
+			return Ok(Self::Pointer(pointer));
 		}
-		if let Ok(tag) = s.parse() {
-			return Ok(Self::Tag(tag));
+		if let Ok(specifier) = s.parse() {
+			return Ok(Self::Specifier(specifier));
 		}
 		Err(tg::error!(%s, "invalid item"))
 	}
@@ -309,8 +310,8 @@ mod tests {
 		let reference = tg::Reference::with_path(path).to_string();
 		assert_snapshot!(reference, @"/foo/bar/../baz");
 
-		let tag = "std/<0.0.1".parse().unwrap();
-		let reference = tg::Reference::with_tag(tag).to_string();
+		let specifier = "std/<0.0.1".parse().unwrap();
+		let reference = tg::Reference::with_specifier(specifier).to_string();
 		assert_snapshot!(reference, @"std/<0.0.1");
 	}
 

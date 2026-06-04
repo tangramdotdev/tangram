@@ -7,10 +7,6 @@ use {
 	tangram_util::serde::{is_false, is_true, return_true},
 };
 
-pub mod pattern;
-
-pub use self::pattern::Pattern;
-
 #[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -24,10 +20,10 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub namespaces: bool,
+	pub groups: bool,
 
-	#[serde(default, skip_serializing_if = "Pattern::is_empty")]
-	pub pattern: Pattern,
+	#[serde(default, skip_serializing_if = "tg::specifier::Pattern::is_empty")]
+	pub pattern: tg::specifier::Pattern,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,
@@ -49,14 +45,14 @@ pub struct Output {
 	pub data: Vec<Entry>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Entry {
-	Namespace {
+	Group {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		location: Option<tg::Location>,
 
-		namespace: tg::Namespace,
+		group: tg::Specifier,
 	},
 	Tag {
 		item: tg::Either<tg::object::Id, tg::process::Id>,
@@ -64,7 +60,7 @@ pub enum Entry {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		location: Option<tg::Location>,
 
-		tag: tg::Tag,
+		tag: tg::Specifier,
 	},
 }
 
@@ -74,8 +70,8 @@ impl Default for Arg {
 			cached: false,
 			length: None,
 			location: None,
-			namespaces: true,
-			pattern: Pattern::default(),
+			groups: true,
+			pattern: tg::specifier::Pattern::default(),
 			recursive: false,
 			reverse: false,
 			tags: true,
@@ -121,7 +117,7 @@ impl tg::Session {
 }
 
 #[must_use]
-fn matches(t: &str, p: &str) -> bool {
+pub(crate) fn matches(t: &str, p: &str) -> bool {
 	for p in p.split(',') {
 		if p == "*" {
 		} else if let Some(p) = p.strip_prefix("^") {

@@ -1,16 +1,11 @@
-use {
-	crate::Session,
-	futures::{Stream, future, stream},
-	tangram_client::prelude::*,
-};
+use {crate::Session, futures::Stream, tangram_client::prelude::*};
 
 impl tg::handle::Sandbox for Session {
 	async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		// self.create_sandbox(arg).await
-		Err(tg::error!("todo"))
+		self.create_sandbox(arg).await
 	}
 
 	async fn try_get_sandbox(
@@ -18,24 +13,21 @@ impl tg::handle::Sandbox for Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		// self.try_get_sandbox(id, arg).await
-		Err(tg::error!("todo"))
+		self.try_get_sandbox(id, arg).await
 	}
 
 	async fn try_dequeue_sandbox(
 		&self,
 		arg: tg::sandbox::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		// self.try_dequeue_sandbox(arg).await
-		Err(tg::error!("todo"))
+		self.try_dequeue_sandbox(arg).await
 	}
 
 	async fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
 	) -> tg::Result<tg::sandbox::list::Output> {
-		// self.list_sandboxes(arg).await
-		Err(tg::error!("todo"))
+		self.list_sandboxes(arg).await
 	}
 
 	async fn try_destroy_sandbox(
@@ -43,8 +35,7 @@ impl tg::handle::Sandbox for Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
-		// self.try_destroy_sandbox(id, arg).await
-		Err(tg::error!("todo"))
+		self.try_destroy_sandbox(id, arg).await
 	}
 
 	async fn try_heartbeat_sandbox(
@@ -52,8 +43,7 @@ impl tg::handle::Sandbox for Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		// self.try_heartbeat_sandbox(id, arg).await
-		Err(tg::error!("todo"))
+		self.try_heartbeat_sandbox(id, arg).await
 	}
 
 	async fn try_get_sandbox_status_stream(
@@ -63,8 +53,7 @@ impl tg::handle::Sandbox for Session {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 	> {
-		// self.try_get_sandbox_status_stream(id, arg).await
-		Ok(Some(stream::once(future::ready(Err(tg::error!("todo"))))))
+		self.try_get_sandbox_status_stream(id, arg).await
 	}
 
 	async fn try_dequeue_sandbox_process(
@@ -72,7 +61,6 @@ impl tg::handle::Sandbox for Session {
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::process::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		// self.try_dequeue_sandbox_process(sandbox, arg).await
-		Err(tg::error!("todo"))
+		self.try_dequeue_sandbox_process(sandbox, arg).await
 	}
 }

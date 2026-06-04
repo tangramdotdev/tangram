@@ -6,8 +6,6 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub group: String,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 }
@@ -19,12 +17,14 @@ pub struct Output {
 }
 
 impl tg::Session {
-	pub async fn list_group_namespace_grants(
+	pub async fn try_get_group_grants(
 		&self,
+		group: &tg::group::Selector,
 		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
+		let path = format!("/groups/{}/grants", group.to_string().replace('/', ":"));
 		let uri = Uri::builder()
-			.path("/groups/grants")
+			.path(&path)
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()

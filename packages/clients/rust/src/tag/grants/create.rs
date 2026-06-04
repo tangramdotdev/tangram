@@ -9,9 +9,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	pub principal: tg::Principal,
-	pub permission: tg::Permission,
-	pub tag: tg::Tag,
+	pub principal: tg::grant::Principal,
+	pub permission: tg::grant::Permission,
+	pub tag: tg::tag::Selector,
 }
 
 impl tg::Session {

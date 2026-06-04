@@ -5,14 +5,10 @@ where
 	L: tg::handle::Tag,
 	R: tg::handle::Tag,
 {
-	fn put_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	fn put_tag(&self, arg: tg::tag::put::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.put_tag(tag, arg).left_future(),
-			tg::Either::Right(s) => s.put_tag(tag, arg).right_future(),
+			tg::Either::Left(s) => s.put_tag(arg).left_future(),
+			tg::Either::Right(s) => s.put_tag(arg).right_future(),
 		}
 	}
 
@@ -30,6 +26,16 @@ where
 		match self {
 			tg::Either::Left(s) => s.post_tag_batch(arg).left_future(),
 			tg::Either::Right(s) => s.post_tag_batch(arg).right_future(),
+		}
+	}
+
+	fn try_get_tag(
+		&self,
+		tag: &tg::tag::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.try_get_tag(tag).left_future(),
+			tg::Either::Right(s) => s.try_get_tag(tag).right_future(),
 		}
 	}
 

@@ -43,7 +43,7 @@ enum Request {
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
 	},
-	DeleteTags(Vec<tg::Tag>),
+	DeleteTags(Vec<tg::Specifier>),
 	Put(PutArg),
 	PutTags(Vec<PutTagArg>),
 	TouchCacheEntries {
@@ -81,7 +81,7 @@ enum Key {
 	CacheEntry(tg::artifact::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
-	Tag(tg::Tag),
+	Tag(tg::Specifier),
 	CacheEntryDependency {
 		cache_entry: tg::artifact::Id,
 		dependency: tg::artifact::Id,
@@ -126,7 +126,7 @@ enum Key {
 	},
 	ItemTag {
 		item: Vec<u8>,
-		tag: tg::Tag,
+		tag: tg::Specifier,
 	},
 	Clean {
 		touched_at: i64,
@@ -338,7 +338,7 @@ impl crate::Index for Index {
 		self.put_tags(args).await
 	}
 
-	async fn delete_tags(&self, tags: &[tg::Tag]) -> tg::Result<()> {
+	async fn delete_tags(&self, tags: &[tg::Specifier]) -> tg::Result<()> {
 		self.delete_tags(tags).await
 	}
 

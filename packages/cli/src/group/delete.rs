@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub group: String,
+	pub group: tg::group::Selector,
 }
 
 impl Cli {

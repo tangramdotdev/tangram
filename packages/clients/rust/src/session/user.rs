@@ -8,6 +8,14 @@ impl tg::handle::User for tg::Session {
 		self.get_current_user(arg)
 	}
 
+	fn try_get_user(
+		&self,
+		user: &tg::user::Selector,
+		arg: tg::user::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
+		self.try_get_user(user, arg)
+	}
+
 	fn login_user(
 		&self,
 		arg: tg::user::login::Arg,
@@ -15,11 +23,11 @@ impl tg::handle::User for tg::Session {
 		self.login_user(arg)
 	}
 
-	fn list_user_namespace_grants(
+	fn try_get_user_grants(
 		&self,
-		user: &str,
+		user: &tg::user::Selector,
 		arg: tg::user::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::user::grants::Output>>> {
-		self.list_user_namespace_grants(user, arg)
+		self.try_get_user_grants(user, arg)
 	}
 }

@@ -11,7 +11,7 @@ impl Session {
 	pub(crate) async fn delete_tags_sqlite(
 		&self,
 		database: &db::sqlite::Database,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let pattern = pattern.clone();
@@ -26,7 +26,7 @@ impl Session {
 	pub(crate) fn delete_tag_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		cache: &db::sqlite::Cache,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 		recursive: bool,
 	) -> tg::Result<ControlFlow<tg::tag::delete::Output, db::sqlite::Error>> {
 		if pattern.is_empty() {

@@ -418,15 +418,15 @@ impl Session {
 						parent: Some(parent),
 					});
 					dependencies.insert(reference, None);
-				} else if let Ok(edge) = reference.item().try_unwrap_object_ref() {
-					if let tg::graph::data::Edge::Pointer(p) = edge
+				} else if let Some(edge) = reference_item_to_object_edge(reference.item()) {
+					if let tg::graph::data::Edge::Pointer(p) = &edge
 						&& p.graph.is_none()
 					{
 						return Err(tg::error!(%reference, "expected a graph"));
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
-						let id = match edge {
+						let id = match &edge {
 							tg::graph::data::Edge::Object(id) => Some(id.clone()),
 							tg::graph::data::Edge::Pointer(_) => None,
 						};
@@ -439,7 +439,7 @@ impl Session {
 						tg::referent::Options::default()
 					};
 					let dependency = tg::graph::data::Dependency(tg::Referent {
-						item: Some(edge.clone()),
+						item: Some(edge),
 						options,
 					});
 					dependencies.insert(reference, Some(dependency));
@@ -518,15 +518,15 @@ impl Session {
 						path: referent,
 						parent: Some(parent),
 					});
-				} else if let Ok(edge) = reference.item().try_unwrap_object_ref() {
-					if let tg::graph::data::Edge::Pointer(p) = edge
+				} else if let Some(edge) = reference_item_to_object_edge(reference.item()) {
+					if let tg::graph::data::Edge::Pointer(p) = &edge
 						&& p.graph.is_none()
 					{
 						return Err(tg::error!(%reference, "expected a graph"));
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
-						let id = match edge {
+						let id = match &edge {
 							tg::graph::data::Edge::Object(id) => Some(id.clone()),
 							tg::graph::data::Edge::Pointer(_) => None,
 						};
@@ -539,7 +539,7 @@ impl Session {
 						tg::referent::Options::default()
 					};
 					let dependency = tg::graph::data::Dependency(tg::Referent {
-						item: Some(edge.clone()),
+						item: Some(edge),
 						options,
 					});
 					dependencies.insert(reference, Some(dependency));
@@ -551,7 +551,7 @@ impl Session {
 
 		// Spawn tasks to pull the tag dependencies.
 		for reference in dependencies.keys() {
-			if let Ok(pattern) = reference.item().try_unwrap_tag_ref() {
+			if let Ok(pattern) = reference.item().try_unwrap_specifier_ref() {
 				tokio::spawn({
 					let session = self.clone();
 					let pattern = pattern.clone();
@@ -939,5 +939,19 @@ impl Session {
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the module kind"))?;
 		Ok(Some(kind))
+	}
+}
+
+fn reference_item_to_object_edge(
+	item: &tg::reference::Item,
+) -> Option<tg::graph::data::Edge<tg::object::Id>> {
+	match item {
+		tg::reference::Item::Id(id) => tg::object::Id::try_from(id.clone())
+			.ok()
+			.map(tg::graph::data::Edge::Object),
+		tg::reference::Item::Pointer(pointer) => {
+			Some(tg::graph::data::Edge::Pointer(pointer.clone()))
+		},
+		tg::reference::Item::Path(_) | tg::reference::Item::Specifier(_) => None,
 	}
 }

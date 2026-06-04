@@ -11,8 +11,9 @@ pub struct Args {
 impl Cli {
 	pub async fn command_group_list(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let arg = tg::group::list::Arg::default();
 		let output = client
-			.list_groups(tg::group::list::Arg::default())
+			.list_groups(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to list the groups"))?;
 		self.print_serde(output, args.print).await?;

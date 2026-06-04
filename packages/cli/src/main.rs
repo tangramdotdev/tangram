@@ -25,7 +25,7 @@ mod error;
 mod extract;
 mod format;
 mod get;
-mod grant;
+mod grants;
 mod group;
 mod health;
 mod id;
@@ -37,9 +37,9 @@ mod list;
 mod location;
 mod lsp;
 mod metadata;
-mod namespace;
 mod new;
 mod object;
+mod organization;
 mod outdated;
 mod print;
 mod process;
@@ -52,7 +52,6 @@ mod read;
 mod remote;
 #[cfg(feature = "js")]
 mod repl;
-mod revoke;
 mod sandbox;
 mod server;
 mod shell;
@@ -266,7 +265,9 @@ enum Command {
 
 	Get(self::get::Args),
 
-	Grant(self::grant::Args),
+	Grant(self::grants::create::Args),
+
+	Grants(self::grants::Args),
 
 	#[command(alias = "groups")]
 	Group(self::group::Args),
@@ -299,10 +300,10 @@ enum Command {
 
 	New(self::new::Args),
 
-	#[command(alias = "ns")]
-	Namespace(self::namespace::Args),
-
 	Object(self::object::Args),
+
+	#[command(alias = "org")]
+	Organization(self::organization::Args),
 
 	Outdated(self::outdated::Args),
 
@@ -327,7 +328,7 @@ enum Command {
 
 	Remote(self::remote::Args),
 
-	Revoke(self::revoke::Args),
+	Revoke(self::grants::delete::Args),
 
 	#[cfg(feature = "js")]
 	Repl(self::repl::Args),
@@ -610,7 +611,8 @@ impl Cli {
 			Command::Extract(args) => self.command_extract(args).boxed_local(),
 			Command::Format(args) => self.command_format(args).boxed_local(),
 			Command::Get(args) => self.command_get(args).boxed_local(),
-			Command::Grant(args) => self.command_grant(args).boxed_local(),
+			Command::Grant(args) => self.command_grants_create(args).boxed_local(),
+			Command::Grants(args) => self.command_grants(args).boxed_local(),
 			Command::Group(args) => self.command_group(args).boxed_local(),
 			Command::Health(args) => self.command_health(args).boxed_local(),
 			Command::Id(args) => self.command_id(args).boxed_local(),
@@ -625,8 +627,8 @@ impl Cli {
 			Command::Lsp(args) => self.command_lsp(args).boxed_local(),
 			Command::Metadata(args) => self.command_metadata(args).boxed_local(),
 			Command::New(args) => self.command_new(args).boxed_local(),
-			Command::Namespace(args) => self.command_namespace(args).boxed_local(),
 			Command::Object(args) => self.command_object(args).boxed_local(),
+			Command::Organization(args) => self.command_organization(args).boxed_local(),
 			Command::Outdated(args) => self.command_outdated(args).boxed_local(),
 			Command::Output(args) => self.command_process_output(args).boxed_local(),
 			Command::Process(args) => self.command_process(args).boxed_local(),
@@ -637,7 +639,7 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed_local(),
 			Command::Read(args) => self.command_read(args).boxed_local(),
 			Command::Remote(args) => self.command_remote(args).boxed_local(),
-			Command::Revoke(args) => self.command_revoke(args).boxed_local(),
+			Command::Revoke(args) => self.command_grants_delete(args).boxed_local(),
 			#[cfg(feature = "js")]
 			Command::Repl(args) => self.command_repl(args).boxed_local(),
 			Command::Run(args) => self.command_run(args).boxed_local(),

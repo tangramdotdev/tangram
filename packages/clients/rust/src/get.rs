@@ -20,7 +20,28 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub referent: tg::Referent<tg::Either<tg::graph::data::Edge<tg::object::Id>, tg::process::Id>>,
+	pub referent: tg::Referent<tg::get::Item>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[serde(untagged)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Item {
+	Id(tg::Id),
+	Pointer(tg::graph::data::Pointer),
 }
 
 impl tg::Session {

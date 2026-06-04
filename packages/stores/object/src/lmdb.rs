@@ -436,7 +436,7 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::All;
+		let principal = tg::Principal::Root;
 
 		store
 			.put(crate::PutArg {
@@ -479,7 +479,7 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::All;
+		let principal = tg::Principal::Root;
 
 		store
 			.put(crate::PutArg {
@@ -542,7 +542,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				principal: Some(tg::Principal::All),
+				principal: Some(tg::Principal::Root),
 				stored_at: 12345,
 			})
 			.await
@@ -575,7 +575,7 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::All;
+		let principal = tg::Principal::Root;
 
 		store
 			.put(crate::PutArg {
@@ -615,7 +615,7 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::All;
+		let principal = tg::Principal::Root;
 
 		store
 			.put(crate::PutArg {

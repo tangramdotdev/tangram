@@ -145,7 +145,7 @@ impl Session {
 
 	async fn list_namespace_entries_turso_with_transaction(
 		transaction: &db::turso::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 		recursive: bool,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let namespaces = if recursive {
@@ -164,7 +164,7 @@ impl Session {
 
 	async fn query_namespace_children_turso_with_transaction(
 		transaction: &db::turso::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<tg::Namespace>> {
 		let Some(parent) =
 			Self::try_get_namespace_turso_with_transaction(transaction, &pattern.namespace).await?
@@ -209,7 +209,7 @@ impl Session {
 
 	async fn query_namespace_subtree_turso_with_transaction(
 		transaction: &db::turso::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<tg::Namespace>> {
 		if pattern.contains_operators() && pattern.name.as_str() != "*" {
 			return Ok(Vec::new());
@@ -249,7 +249,7 @@ impl Session {
 
 	async fn list_tag_entries_turso_with_transaction(
 		transaction: &db::turso::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 		recursive: bool,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let matches = if recursive {
@@ -269,7 +269,7 @@ impl Session {
 
 	pub(crate) async fn list_tag_matches_for_list_turso_with_transaction(
 		transaction: &db::turso::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<Match>> {
 		if !pattern.is_empty() && !pattern.contains_operators() {
 			return Ok(
@@ -290,7 +290,7 @@ impl Session {
 
 	pub(crate) async fn match_tags_for_list_turso_with_transaction(
 		transaction: &db::turso::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<Match>> {
 		if pattern.is_empty() {
 			return Self::query_tags_in_namespace_subtree_for_list_turso_with_transaction(
@@ -325,7 +325,7 @@ impl Session {
 
 	async fn get_tag_match_for_list_turso_with_transaction(
 		transaction: &db::turso::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Option<Match>> {
 		let Some(namespace) =
 			Self::try_get_namespace_turso_with_transaction(transaction, &pattern.namespace).await?

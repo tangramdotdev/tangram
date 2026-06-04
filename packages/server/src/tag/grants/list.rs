@@ -1,7 +1,8 @@
 use {
 	crate::{Session, context::Authentication},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -44,16 +45,44 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		self.authorize_tag_with_transaction(&transaction, &arg.tag, tg::Permission::Admin)
-			.await?;
-		let Some(namespace_id) =
-			Self::try_get_tag_namespace_id_with_transaction(&transaction, &arg.tag).await?
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(&transaction, &arg.tag).await?
 		else {
 			return Ok(None);
 		};
-		let data =
-			Self::list_tag_grants_for_tag_with_transaction(&transaction, &arg.tag, namespace_id)
-				.await?;
+		let p = transaction.p();
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			created_by: Option<tg::user::Id>,
+			#[tangram_database(as = "db::value::FromStr")]
+			permission: tg::grant::Permission,
+			#[tangram_database(as = "db::value::FromStr")]
+			principal: tg::grant::Principal,
+		}
+		let statement = formatdoc!(
+			"
+				select created_at, created_by, permission, principal
+				from tag_grants
+				where tag = {p}1
+				order by principal, permission;
+			"
+		);
+		let rows = transaction
+			.query_all_into::<Row>(statement.into(), db::params![node.id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let data = rows
+			.into_iter()
+			.map(|row| tg::TagGrant {
+				created_at: row.created_at,
+				created_by: row.created_by,
+				permission: row.permission,
+				principal: row.principal,
+				resource: node.id.clone(),
+			})
+			.collect();
 		Ok(Some(tg::tag::grants::list::Output { data }))
 	}
 
@@ -62,24 +91,13 @@ impl Session {
 		mut arg: tg::tag::grants::list::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<tg::tag::grants::list::Output>> {
-		let client = self
-			.get_remote_session(&remote.name)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					remote = %remote.name,
-					"failed to get the remote client"
-				)
-			})?;
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client.list_tag_grants(arg).await.map_err(|error| {
-			tg::error!(
-				!error,
-				remote = %remote.name,
-				"failed to list the tag grants"
-			)
-		})
+		client.list_tag_grants(arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to list the tag grants"),
+		)
 	}
 
 	pub(crate) async fn list_tag_grants_request(
@@ -95,11 +113,7 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(output) = self
-			.list_tag_grants(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list the tag grants"))?
-		else {
+		let Some(output) = self.list_tag_grants(arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
@@ -111,9 +125,8 @@ impl Session {
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
-				let content_type = mime::APPLICATION_JSON;
 				let body = serde_json::to_vec(&output).unwrap();
-				(Some(content_type), BoxBody::with_bytes(body))
+				(Some(mime::APPLICATION_JSON), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));

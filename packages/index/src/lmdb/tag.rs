@@ -95,7 +95,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub async fn delete_tags(&self, tags: &[tg::Tag]) -> tg::Result<()> {
+	pub async fn delete_tags(&self, tags: &[tg::Specifier]) -> tg::Result<()> {
 		if tags.is_empty() {
 			return Ok(());
 		}
@@ -114,7 +114,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		tags: &[tg::Tag],
+		tags: &[tg::Specifier],
 	) -> tg::Result<()> {
 		for tag in tags {
 			let key = Key::Tag(tag.clone());

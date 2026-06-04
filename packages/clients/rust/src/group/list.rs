@@ -50,12 +50,3 @@ impl tg::Session {
 		Ok(output)
 	}
 }
-
-impl tg::Client {
-	pub async fn list_groups(
-		&self,
-		arg: tg::group::list::Arg,
-	) -> tg::Result<tg::group::list::Output> {
-		self.session(self.context()).list_groups(arg).await
-	}
-}

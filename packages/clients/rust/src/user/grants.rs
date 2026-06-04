@@ -8,6 +8,9 @@ use {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<tg::Specifier>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -17,12 +20,12 @@ pub struct Output {
 }
 
 impl tg::Session {
-	pub async fn list_user_namespace_grants(
+	pub async fn try_get_user_grants(
 		&self,
-		user: &str,
+		user: &tg::user::Selector,
 		arg: tg::user::grants::Arg,
 	) -> tg::Result<Option<tg::user::grants::Output>> {
-		let path = format!("/users/{user}/grants");
+		let path = format!("/users/{}/grants", user.to_string().replace('/', ":"));
 		let uri = Uri::builder()
 			.path(&path)
 			.query_params(&arg)

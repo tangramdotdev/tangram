@@ -3,23 +3,23 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	pub pattern: tg::list::Pattern,
+	pub tag: tg::tag::Selector,
 
 	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub replicate: Option<Vec<tg::Tag>>,
+	pub replicate: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub deleted: Vec<tg::Tag>,
+	pub deleted: Vec<tg::tag::Data>,
 }
 
 impl tg::Session {
@@ -28,7 +28,7 @@ impl tg::Session {
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let method = http::Method::DELETE;
-		let uri = "/tags".to_owned();
+		let uri = format!("/tags/{}", arg.tag.to_string().replace('/', ":"));
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

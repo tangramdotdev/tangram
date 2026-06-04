@@ -46,7 +46,7 @@ pub type UpdateReceiver = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewer)>
 pub enum Item {
 	Package(Package),
 	Process(tg::Process),
-	Namespace(tg::Namespace),
+	Group(tg::Specifier),
 	Value(tg::Value),
 }
 
@@ -57,7 +57,7 @@ pub struct Package(pub tg::Object);
 pub struct Options {
 	pub collapse_process_children: bool,
 	pub depth: Option<u32>,
-	pub expand_namespaces: bool,
+	pub expand_groups: bool,
 	pub expand_objects: bool,
 	pub expand_metadata: bool,
 	pub expand_packages: bool,

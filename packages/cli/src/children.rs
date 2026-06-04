@@ -45,7 +45,23 @@ impl Cli {
 
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
-			tg::Either::Left(edge) => {
+			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
+				let args = crate::process::children::Args {
+					length: None,
+					locations,
+					position: None,
+					print,
+					process: id.try_into()?,
+					size: None,
+					timeout: crate::process::children::Timeout {
+						timeout: timeout.get(),
+						no_timeout: timeout.no_timeout,
+					},
+				};
+				self.command_process_children(args).await?;
+			},
+			item => {
+				let edge = crate::get::get_item_to_graph_edge(item)?;
 				let object = edge
 					.try_unwrap_object()
 					.map_err(|_| tg::error!("expected an object"))?
@@ -56,21 +72,6 @@ impl Cli {
 					print,
 				};
 				self.command_object_children(args).await?;
-			},
-			tg::Either::Right(process) => {
-				let args = crate::process::children::Args {
-					length: None,
-					locations,
-					position: None,
-					print,
-					process: process.id().unwrap_right().clone(),
-					size: None,
-					timeout: crate::process::children::Timeout {
-						timeout: timeout.get(),
-						no_timeout: timeout.no_timeout,
-					},
-				};
-				self.command_process_children(args).await?;
 			},
 		}
 		Ok(())

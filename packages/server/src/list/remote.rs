@@ -26,7 +26,6 @@ impl Session {
 			arg: remote_arg.clone(),
 		};
 		let key_json = serde_json::to_string(&key).unwrap();
-
 		let use_cache = self.server.config().authentication.is_none();
 		if use_cache
 			&& arg.ttl != Some(Duration::ZERO)
@@ -48,7 +47,6 @@ impl Session {
 				return Ok(entries);
 			}
 		}
-
 		if arg.cached {
 			return Ok(Vec::new());
 		}
@@ -85,7 +83,6 @@ impl Session {
 			.list(arg.clone())
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?;
-
 		if self.server.config().authentication.is_none() {
 			let key = serde_json::to_string(&Key { remote, arg }).unwrap();
 			let output_json = serde_json::to_string(&output.data).unwrap();
@@ -114,7 +111,7 @@ fn remote_arg(arg: &tg::list::Arg, regions: Option<Vec<String>>) -> tg::list::Ar
 
 fn set_entry_location(entry: &mut tg::list::Entry, remote: &str) {
 	let location = match entry {
-		tg::list::Entry::Namespace { location, .. } | tg::list::Entry::Tag { location, .. } => {
+		tg::list::Entry::Group { location, .. } | tg::list::Entry::Tag { location, .. } => {
 			location.take()
 		},
 	};
@@ -127,7 +124,7 @@ fn set_entry_location(entry: &mut tg::list::Entry, remote: &str) {
 		region,
 	}));
 	match entry {
-		tg::list::Entry::Namespace {
+		tg::list::Entry::Group {
 			location: entry_location,
 			..
 		}

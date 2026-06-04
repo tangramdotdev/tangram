@@ -1,10 +1,14 @@
 use {
 	crate::{Session, context::Authentication},
 	futures::FutureExt as _,
+	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
-		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+		body::Boxed as BoxBody,
+		request::Ext as _,
+		response::{Ext as _, builder::Ext as _},
 	},
 };
 
@@ -35,10 +39,6 @@ impl Session {
 		&self,
 		arg: tg::tag::grants::delete::Arg,
 	) -> tg::Result<Option<()>> {
-		if matches!(arg.principal, tg::Principal::All) && arg.permission != tg::Permission::Read {
-			return Err(tg::error!("all grants may only be read"));
-		}
-
 		let session = self.clone();
 		self.server
 			.database
@@ -46,59 +46,54 @@ impl Session {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
-					session
-						.delete_tag_grant_inner_with_transaction(transaction, &arg)
-						.await
+					let output = session
+						.delete_tag_grant_with_transaction(transaction, &arg)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
 				}
 				.boxed()
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the tag grant"))
 	}
 
-	async fn delete_tag_grant_inner_with_transaction(
+	async fn delete_tag_grant_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: &tg::tag::grants::delete::Arg,
-	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
-		self.authorize_tag_with_transaction(transaction, &arg.tag, tg::Permission::Admin)
-			.await?;
-		let Some(namespace_id) =
-			Self::try_get_tag_namespace_id_with_transaction(transaction, &arg.tag).await?
+	) -> tg::Result<Option<()>> {
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(transaction, &arg.tag).await?
 		else {
-			return Ok(ControlFlow::Break(None));
+			return Ok(None);
 		};
-		match &arg.principal {
-			tg::Principal::All | tg::Principal::Root => {},
-			tg::Principal::Group(group) => {
-				if Self::try_get_group_with_transaction(transaction, &group.to_string())
-					.await?
-					.is_none()
-				{
-					return Ok(ControlFlow::Break(None));
-				}
-			},
-			tg::Principal::User(user) => {
-				if Self::try_get_user_with_transaction(transaction, &user.to_string())
-					.await?
-					.is_none()
-				{
-					return Ok(ControlFlow::Break(None));
-				}
-			},
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				delete from tag_grants
+				where tag = {p}1 and principal = {p}2 and permission = {p}3;
+			"
+		);
+		let n = transaction
+			.execute(
+				statement.into(),
+				db::params![
+					node.id.to_string(),
+					arg.principal.to_string(),
+					arg.permission.to_string()
+				],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		if n == 0 {
+			return Ok(None);
 		}
-		match Self::delete_tag_grant_with_transaction(
+		Self::decrement_visibility_with_transaction(
 			transaction,
-			namespace_id,
-			&arg.tag.name,
-			&arg.principal,
-			arg.permission,
+			&node.id,
+			&arg.principal.to_string(),
 		)
-		.await?
-		{
-			ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
-			ControlFlow::Continue(error) => Ok(ControlFlow::Continue(error)),
-		}
+		.await?;
+		Ok(Some(()))
 	}
 
 	async fn delete_tag_grant_remote(
@@ -106,61 +101,31 @@ impl Session {
 		mut arg: tg::tag::grants::delete::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<()>> {
-		let client = self
-			.get_remote_session(&remote.name)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					remote = %remote.name,
-					"failed to get the remote client"
-				)
-			})?;
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client.delete_tag_grant(arg).await.map_err(|error| {
-			tg::error!(
-				!error,
-				remote = %remote.name,
-				"failed to delete the tag grant"
-			)
-		})
+		client.delete_tag_grant(arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to delete the tag grant"),
+		)
 	}
 
 	pub(crate) async fn delete_tag_grant_request(
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let accept = request
-			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let arg = request
 			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("expected query params"))?;
-		if self
-			.delete_tag_grant(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the tag grant"))?
-			.is_none()
-		{
+		let Some(()) = self.delete_tag_grant(arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
 				.boxed_body());
-		}
-		match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR)) => (),
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
-			},
-		}
-		let response = http::Response::builder().empty().unwrap().boxed_body();
-		Ok(response)
+		};
+		Ok(http::Response::builder().empty().unwrap().boxed_body())
 	}
 }

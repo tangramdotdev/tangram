@@ -14,11 +14,11 @@ use crate::prelude::*;
 	serde_with::SerializeDisplay,
 )]
 pub enum Principal {
-	#[display("all")]
-	All,
-
 	#[display("{_0}")]
 	Group(tg::group::Id),
+
+	#[display("{_0}")]
+	Organization(tg::organization::Id),
 
 	#[display("root")]
 	Root,
@@ -31,14 +31,14 @@ impl std::str::FromStr for Principal {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if s == "all" {
-			return Ok(Self::All);
+		if let Ok(id) = s.parse::<tg::group::Id>() {
+			return Ok(Self::Group(id));
+		}
+		if let Ok(id) = s.parse::<tg::organization::Id>() {
+			return Ok(Self::Organization(id));
 		}
 		if s == "root" {
 			return Ok(Self::Root);
-		}
-		if let Ok(id) = s.parse::<tg::group::Id>() {
-			return Ok(Self::Group(id));
 		}
 		if let Ok(id) = s.parse::<tg::user::Id>() {
 			return Ok(Self::User(id));

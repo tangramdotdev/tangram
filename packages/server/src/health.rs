@@ -42,55 +42,54 @@ impl Session {
 		let include_processes = include_field("processes");
 		let include_version = include_field("version");
 
-		// let processes = if include_processes {
-		// 	// Get a process store connection.
-		// 	let connection = self
-		// 		.server
-		// 		.process_store
-		// 		.connection()
-		// 		.await
-		// 		.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let processes = if include_processes {
+			// Get a process store connection.
+			let connection = self
+				.server
+				.process_store
+				.connection()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 
-		// 	// Get the process health.
-		// 	let permits = if self.server.config.runner.is_some() {
-		// 		Some(
-		// 			self.server
-		// 				.sandbox_semaphore
-		// 				.available_permits()
-		// 				.to_u64()
-		// 				.unwrap(),
-		// 		)
-		// 	} else {
-		// 		None
-		// 	};
+			// Get the process health.
+			let permits = if self.server.config.runner.is_some() {
+				Some(
+					self.server
+						.sandbox_semaphore
+						.available_permits()
+						.to_u64()
+						.unwrap(),
+				)
+			} else {
+				None
+			};
 
-		// 	#[derive(db::row::Deserialize)]
-		// 	struct Row {
-		// 		created: u64,
-		// 		started: u64,
-		// 	}
-		// 	let statement = indoc!(
-		// 		"
-		// 			select
-		// 				(select count(*) from processes where status = 'created') as created,
-		// 				(select count(*) from processes where status = 'started') as started;
-		// 		"
-		// 	);
-		// 	let params = db::params![];
-		// 	let Row { created, started } = connection
-		// 		.query_one_into::<Row>(statement.into(), params)
-		// 		.await
-		// 		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			#[derive(db::row::Deserialize)]
+			struct Row {
+				created: u64,
+				started: u64,
+			}
+			let statement = indoc!(
+				"
+					select
+						(select count(*) from processes where status = 'created') as created,
+						(select count(*) from processes where status = 'started') as started;
+				"
+			);
+			let params = db::params![];
+			let Row { created, started } = connection
+				.query_one_into::<Row>(statement.into(), params)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-		// 	Some(tg::health::Processes {
-		// 		created,
-		// 		permits,
-		// 		started,
-		// 	})
-		// } else {
-		// 	None
-		// };
-		let processes = None;
+			Some(tg::health::Processes {
+				created,
+				permits,
+				started,
+			})
+		} else {
+			None
+		};
 
 		let database = if include_database {
 			let available_connections = match &self.server.database {

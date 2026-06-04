@@ -17,13 +17,9 @@ impl Cli {
 		for reference in &args.references {
 			let arg = tg::get::Arg::default();
 			let referent = self.get_reference_with_arg(reference, arg).await?;
-			let edge = referent
-				.item()
-				.as_ref()
-				.left()
-				.ok_or_else(|| tg::error!("expected an object"))?;
+			let edge = crate::get::get_item_to_graph_edge(referent.item)?;
 
-			let blob = match edge {
+			let blob = match &edge {
 				tg::graph::Edge::Object(tg::Object::Blob(blob)) => blob.clone(),
 				tg::graph::Edge::Object(tg::Object::File(file)) => file
 					.contents_with_handle(&client)

@@ -11,7 +11,7 @@ impl Session {
 	pub(crate) async fn delete_tags_turso(
 		&self,
 		database: &db::turso::Database,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 		recursive: bool,
 	) -> tg::Result<tg::tag::delete::Output> {
 		if pattern.is_empty() {
@@ -42,7 +42,7 @@ impl Session {
 	async fn delete_tags_turso_with_transaction(
 		&self,
 		transaction: &db::turso::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 		recursive: bool,
 	) -> tg::Result<ControlFlow<tg::tag::delete::Output, db::turso::Error>> {
 		let mut matches = if recursive {

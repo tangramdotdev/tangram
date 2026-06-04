@@ -107,19 +107,11 @@ impl Cli {
 		let items: Vec<_> = referents
 			.into_iter()
 			.map(|referent| match referent.item {
-				tg::Either::Left(edge) => Ok::<_, tg::Error>(tg::Either::Left(
-					edge.try_unwrap_object()
-						.map_err(|_| tg::error!("expected an object"))?
-						.id(),
-				)),
-				tg::Either::Right(process) => {
-					let id = process
-						.id()
-						.right()
-						.ok_or_else(|| tg::error!("expected a process id"))?
-						.clone();
-					Ok(tg::Either::Right(id))
+				tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
+					Ok::<_, tg::Error>(tg::Either::Right(id.try_into()?))
 				},
+				tg::get::Item::Id(id) => Ok(tg::Either::Left(id.try_into()?)),
+				tg::get::Item::Pointer(_) => Err(tg::error!("expected an object or process id")),
 			})
 			.try_collect()?;
 
@@ -159,28 +151,25 @@ impl Cli {
 		// Put tags.
 		future::try_join_all(std::iter::zip(&args.references, &items).map(
 			async |(reference, item)| {
-				if let tg::reference::Item::Tag(pattern) = reference.item()
-					&& let Ok(tag) = pattern.clone().try_into()
-				{
+				if let Ok(specifier) = reference.item().try_unwrap_specifier_ref() {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
-						item: item.clone(),
+						item: tag_item_from_item(item.clone()),
 						location: location.clone().map(Into::into),
 						all: false,
 						replicate: false,
-						tag: None,
+						specifier: specifier.clone().try_into()?,
 					};
-					client
-						.put_tag(&tag, arg)
-						.await
-						.map_err(|error| tg::error!(!error, %tag, "failed to put the tag"))?;
+					client.put_tag(arg).await.map_err(
+						|error| tg::error!(!error, tag = %specifier, "failed to put the tag"),
+					)?;
 				}
 				Ok::<_, tg::Error>(())
 			},
 		))
 		.await?;
 		for (reference, item) in std::iter::zip(&args.references, &items) {
-			if reference.item().is_tag() {
+			if reference.item().is_specifier() {
 				let message = format!("tagged {reference} {item}");
 				self.print_info_message(&message);
 			}
@@ -188,4 +177,8 @@ impl Cli {
 
 		Ok(())
 	}
+}
+
+fn tag_item_from_item(item: tg::Either<tg::object::Id, tg::process::Id>) -> tg::tag::data::Item {
+	item.into()
 }

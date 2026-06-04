@@ -13,10 +13,13 @@ pub trait Group: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_get_group(
 		&self,
-		group: &str,
+		group: &tg::group::Selector,
 	) -> impl Future<Output = tg::Result<Option<tg::Group>>> + Send;
 
-	fn delete_group(&self, group: &str) -> impl Future<Output = tg::Result<()>> + Send {
+	fn delete_group(
+		&self,
+		group: &tg::group::Selector,
+	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
 			self.try_delete_group(group)
 				.await?
@@ -24,28 +27,32 @@ pub trait Group: Clone + Unpin + Send + Sync + 'static {
 		}
 	}
 
-	fn try_delete_group(&self, group: &str) -> impl Future<Output = tg::Result<Option<()>>> + Send;
-
-	fn list_group_namespace_grants(
+	fn try_delete_group(
 		&self,
+		group: &tg::group::Selector,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+
+	fn try_get_group_grants(
+		&self,
+		group: &tg::group::Selector,
 		arg: tg::group::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> + Send;
 
 	fn list_group_members(
 		&self,
-		group: &str,
-	) -> impl Future<Output = tg::Result<tg::group::member::list::Output>> + Send;
+		group: &tg::group::Selector,
+	) -> impl Future<Output = tg::Result<tg::group::members::list::Output>> + Send;
 
 	fn add_group_member(
 		&self,
-		group: &str,
-		user: &str,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn remove_group_member(
 		&self,
-		group: &str,
-		user: &str,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 }
 
@@ -61,36 +68,48 @@ impl tg::handle::Group for tg::Client {
 		self.session(&self.context).list_groups(arg).await
 	}
 
-	async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
+	async fn try_get_group(&self, group: &tg::group::Selector) -> tg::Result<Option<tg::Group>> {
 		self.session(&self.context).try_get_group(group).await
 	}
 
-	async fn try_delete_group(&self, group: &str) -> tg::Result<Option<()>> {
+	async fn try_delete_group(&self, group: &tg::group::Selector) -> tg::Result<Option<()>> {
 		self.session(&self.context).try_delete_group(group).await
 	}
 
-	async fn list_group_namespace_grants(
+	async fn try_get_group_grants(
 		&self,
+		group: &tg::group::Selector,
 		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
 		self.session(&self.context)
-			.list_group_namespace_grants(arg)
+			.try_get_group_grants(group, arg)
 			.await
 	}
 
-	async fn list_group_members(&self, group: &str) -> tg::Result<tg::group::member::list::Output> {
+	async fn list_group_members(
+		&self,
+		group: &tg::group::Selector,
+	) -> tg::Result<tg::group::members::list::Output> {
 		self.session(&self.context).list_group_members(group).await
 	}
 
-	async fn add_group_member(&self, group: &str, user: &str) -> tg::Result<()> {
+	async fn add_group_member(
+		&self,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+	) -> tg::Result<()> {
 		self.session(&self.context)
-			.add_group_member(group, user)
+			.add_group_member(group, member)
 			.await
 	}
 
-	async fn remove_group_member(&self, group: &str, user: &str) -> tg::Result<Option<()>> {
+	async fn remove_group_member(
+		&self,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.remove_group_member(group, user)
+			.remove_group_member(group, member)
 			.await
 	}
 }

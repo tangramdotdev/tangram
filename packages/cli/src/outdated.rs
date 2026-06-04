@@ -30,7 +30,7 @@ pub struct Graph {
 
 #[derive(Clone, Debug)]
 struct Node {
-	edges: Vec<(Option<tg::list::Pattern>, Edge)>,
+	edges: Vec<(Option<tg::specifier::Pattern>, Edge)>,
 	options: tg::referent::Options,
 	path: Vec<usize>,
 }
@@ -38,14 +38,14 @@ struct Node {
 #[derive(Clone, Debug)]
 enum Edge {
 	Node(usize),
-	Tag(tg::Tag),
+	Tag(tg::Specifier),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 struct Entry {
-	current: tg::Tag,
-	compatible: Option<tg::Tag>,
-	latest: Option<tg::Tag>,
+	current: tg::Specifier,
+	compatible: Option<tg::Specifier>,
+	latest: Option<tg::Specifier>,
 	referrer: tg::Referent<()>,
 }
 
@@ -86,46 +86,50 @@ impl Cli {
 					},
 					Edge::Tag(tag) => tag.clone(),
 				};
-				let compatible = client
-					.list(tg::list::Arg {
-						cached: false,
-						length: Some(1),
-						location: None,
-						namespaces: false,
-						pattern: pattern.clone(),
-						recursive: false,
-						reverse: true,
-						tags: true,
-						ttl: None,
-					})
-					.await?
-					.data
-					.into_iter()
-					.find_map(|entry| match entry {
-						tg::list::Entry::Tag { tag, .. } => Some(tag),
-						tg::list::Entry::Namespace { .. } => None,
-					});
+				let arg = tg::list::Arg {
+					cached: false,
+					length: Some(1),
+					location: None,
+					groups: false,
+					pattern: pattern.clone(),
+					recursive: false,
+					reverse: true,
+					tags: true,
+					ttl: None,
+				};
+				let compatible =
+					client
+						.list(arg)
+						.await?
+						.data
+						.into_iter()
+						.find_map(|entry| match entry {
+							tg::list::Entry::Tag { tag, .. } => Some(tag),
+							tg::list::Entry::Group { .. } => None,
+						});
 
-				let pattern = tg::list::Pattern::any_in_namespace(pattern.namespace.clone());
-				let latest = client
-					.list(tg::list::Arg {
-						cached: false,
-						length: Some(1),
-						location: None,
-						namespaces: false,
-						pattern,
-						recursive: false,
-						reverse: true,
-						tags: true,
-						ttl: None,
-					})
-					.await?
-					.data
-					.into_iter()
-					.find_map(|entry| match entry {
-						tg::list::Entry::Tag { tag, .. } => Some(tag),
-						tg::list::Entry::Namespace { .. } => None,
-					});
+				let pattern = tg::specifier::Pattern::any_in_parent(pattern.parent.clone());
+				let arg = tg::list::Arg {
+					cached: false,
+					length: Some(1),
+					location: None,
+					groups: false,
+					pattern,
+					recursive: false,
+					reverse: true,
+					tags: true,
+					ttl: None,
+				};
+				let latest =
+					client
+						.list(arg)
+						.await?
+						.data
+						.into_iter()
+						.find_map(|entry| match entry {
+							tg::list::Entry::Tag { tag, .. } => Some(tag),
+							tg::list::Entry::Group { .. } => None,
+						});
 
 				let entry = Entry {
 					current,
@@ -229,14 +233,22 @@ fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
 			},
 			tg::graph::data::Node::File(file) => {
 				for (reference, dependency) in &file.dependencies {
-					let pattern = reference.item().try_unwrap_tag_ref().ok().cloned();
+					let pattern = reference
+						.item()
+						.try_unwrap_specifier_ref()
+						.ok()
+						.and_then(|pattern| pattern.to_string().parse().ok());
 					let Some(dependency) = dependency else {
 						continue;
 					};
 					match (dependency.item(), dependency.tag()) {
 						(Some(tg::graph::data::Edge::Pointer(pointer)), tag) => {
 							if pointer.graph.is_none() {
-								let reference = reference.item().try_unwrap_tag_ref().ok().cloned();
+								let reference = reference
+									.item()
+									.try_unwrap_specifier_ref()
+									.ok()
+									.and_then(|pattern| pattern.to_string().parse().ok());
 								node.edges.push((reference, Edge::Node(pointer.index)));
 								let mut child_options = dependency.options.clone();
 								let mut path = node.path.clone();

@@ -168,7 +168,7 @@ impl Session {
 	async fn list_namespace_entries_postgres(
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 		recursive: bool,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let namespaces = if recursive {
@@ -190,7 +190,7 @@ impl Session {
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
 		authentication: Option<&Authentication>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let Some(parent) =
 			Self::try_get_namespace_postgres_with_transaction(transaction, &pattern.namespace)
@@ -357,7 +357,7 @@ impl Session {
 
 	async fn query_namespace_children_postgres(
 		transaction: &db::postgres::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<tg::Namespace>> {
 		let Some(parent) =
 			Self::try_get_namespace_postgres_with_transaction(transaction, &pattern.namespace)
@@ -410,7 +410,7 @@ impl Session {
 
 	async fn query_namespace_subtree_postgres(
 		transaction: &db::postgres::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<tg::Namespace>> {
 		if pattern.contains_operators() && pattern.name.as_str() != "*" {
 			return Ok(Vec::new());
@@ -461,7 +461,7 @@ impl Session {
 	async fn list_tag_entries_postgres(
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 		recursive: bool,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let matches = if recursive {
@@ -486,7 +486,7 @@ impl Session {
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
 		authentication: Option<&Authentication>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let Some(namespace_id) =
 			Self::try_get_namespace_postgres_with_transaction(transaction, &pattern.namespace)
@@ -752,7 +752,7 @@ impl Session {
 	pub(crate) async fn list_tag_matches_for_list_postgres(
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<Match>> {
 		if !pattern.is_empty() && !pattern.contains_operators() {
 			return Ok(Self::get_tag_match_for_list_postgres(transaction, pattern)
@@ -770,7 +770,7 @@ impl Session {
 	pub(crate) async fn match_tags_for_list_postgres(
 		&self,
 		transaction: &db::postgres::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Vec<Match>> {
 		if pattern.is_empty() {
 			return Self::query_tags_in_namespace_subtree_for_list_postgres(
@@ -800,7 +800,7 @@ impl Session {
 
 	async fn get_tag_match_for_list_postgres(
 		transaction: &db::postgres::Transaction<'_>,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<Option<Match>> {
 		let Some(namespace) =
 			Self::try_get_namespace_postgres_with_transaction(transaction, &pattern.namespace)

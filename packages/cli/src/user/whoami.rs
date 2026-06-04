@@ -15,10 +15,11 @@ impl Cli {
 	pub async fn command_user_whoami(&mut self, args: Args) -> tg::Result<()> {
 		let location = args.location.to_location()?;
 		let client = self.client().await?;
+		let arg = tg::user::current::Arg {
+			location: location.map(Into::into),
+		};
 		let user = client
-			.get_current_user(tg::user::current::Arg {
-				location: location.map(Into::into),
-			})
+			.get_current_user(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the user"))?
 			.ok_or_else(|| tg::error!("not logged in"))?;

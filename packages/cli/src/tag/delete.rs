@@ -8,7 +8,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub pattern: tg::list::Pattern,
+	pub tag: tg::tag::Selector,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -22,13 +22,14 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::tag::delete::Arg {
 			location: args.location.get(),
-			pattern: args.pattern.clone(),
+			tag: args.tag.clone(),
 			recursive: args.recursive,
 			replicate: None,
 		};
-		let output = client.delete_tags(arg).await.map_err(
-			|error| tg::error!(!error, pattern = %args.pattern, "failed to delete the tag"),
-		)?;
+		let output = client
+			.delete_tags(arg)
+			.await
+			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to delete the tag"))?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

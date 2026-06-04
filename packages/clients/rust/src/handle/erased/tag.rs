@@ -4,11 +4,7 @@ use {
 };
 
 pub trait Tag: Send + Sync + 'static {
-	fn put_tag<'a>(
-		&'a self,
-		tag: &'a tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	fn put_tag(&self, arg: tg::tag::put::Arg) -> BoxFuture<'_, tg::Result<()>>;
 
 	fn create_tag_grant(
 		&self,
@@ -16,6 +12,11 @@ pub trait Tag: Send + Sync + 'static {
 	) -> BoxFuture<'_, tg::Result<tg::TagGrant>>;
 
 	fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> BoxFuture<'_, tg::Result<()>>;
+
+	fn try_get_tag<'a>(
+		&'a self,
+		tag: &'a tg::tag::Selector,
+	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>>;
 
 	fn list_tag_grants(
 		&self,
@@ -37,12 +38,8 @@ impl<T> Tag for T
 where
 	T: tg::handle::Tag,
 {
-	fn put_tag<'a>(
-		&'a self,
-		tag: &'a tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.put_tag(tag, arg).boxed()
+	fn put_tag(&self, arg: tg::tag::put::Arg) -> BoxFuture<'_, tg::Result<()>> {
+		self.put_tag(arg).boxed()
 	}
 
 	fn create_tag_grant(
@@ -54,6 +51,13 @@ where
 
 	fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> BoxFuture<'_, tg::Result<()>> {
 		self.post_tag_batch(arg).boxed()
+	}
+
+	fn try_get_tag<'a>(
+		&'a self,
+		tag: &'a tg::tag::Selector,
+	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>> {
+		self.try_get_tag(tag).boxed()
 	}
 
 	fn list_tag_grants(

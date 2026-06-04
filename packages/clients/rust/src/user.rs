@@ -1,69 +1,25 @@
 use crate::prelude::*;
 
 pub mod current;
+pub mod data;
 pub mod get;
 pub mod grants;
+pub mod id;
 pub mod login;
-pub mod permissions;
+pub mod selector;
 
-#[derive(
-	Clone,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	derive_more::Debug,
-	derive_more::Display,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-#[debug(r#"tg::user::Id("{_0}")"#)]
-#[serde(into = "tg::Id", try_from = "tg::Id")]
-pub struct Id(tg::Id);
+pub use self::{data::Data, id::Id, selector::Selector};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct User {
-	pub id: Id,
-
 	pub emails: Vec<String>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub namespace: Option<tg::Namespace>,
+	pub id: Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
-}
 
-impl tg::user::Id {
-	#[expect(clippy::new_without_default)]
-	#[must_use]
-	pub fn new() -> Self {
-		Self(tg::Id::new_uuidv7(tg::id::Kind::User))
-	}
-}
+	pub name: String,
 
-impl From<tg::user::Id> for tg::Id {
-	fn from(value: tg::user::Id) -> Self {
-		value.0
-	}
-}
-
-impl TryFrom<tg::Id> for tg::user::Id {
-	type Error = tg::Error;
-
-	fn try_from(value: tg::Id) -> tg::Result<Self, Self::Error> {
-		if value.kind() != tg::id::Kind::User {
-			return Err(tg::error!(%value, "invalid kind"));
-		}
-		Ok(Self(value))
-	}
-}
-
-impl std::str::FromStr for tg::user::Id {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		tg::Id::from_str(s)?.try_into()
-	}
+	pub specifier: tg::Specifier,
 }

@@ -60,7 +60,7 @@ pub struct Options {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub tag: Option<tg::Tag>,
+	pub tag: Option<tg::Specifier>,
 }
 
 impl<T> Referent<T> {
@@ -99,7 +99,7 @@ impl<T> Referent<T> {
 		self.options.path.as_deref()
 	}
 
-	pub fn tag(&self) -> Option<&tg::Tag> {
+	pub fn tag(&self) -> Option<&tg::Specifier> {
 		self.options.tag.as_ref()
 	}
 

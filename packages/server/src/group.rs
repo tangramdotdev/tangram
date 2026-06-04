@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, node::Node, user::parse_selector},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -10,233 +10,187 @@ use {
 	},
 };
 
-pub mod grants;
-
 impl Session {
 	pub(crate) async fn create_group(
 		&self,
 		arg: tg::group::create::Arg,
 	) -> tg::Result<tg::group::create::Output> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		let created_by = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.map(|user| user.id.clone());
-		let namespace = Self::namespace_for_group(&arg.namespace)?;
+		let session = self.clone();
 		self.server
 			.database
 			.run(|transaction| {
-				let created_by = created_by.clone();
-				let namespace = namespace.clone();
+				let arg = arg.clone();
+				let session = session.clone();
 				async move {
-					Self::create_group_with_transaction(
-						transaction,
-						&namespace,
-						created_by.as_ref(),
-					)
-					.await
+					let group = session
+						.create_group_with_transaction(transaction, arg)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(tg::group::create::Output {
+						group,
+					}))
 				}
 				.boxed()
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to create the group"))
 	}
 
 	async fn create_group_with_transaction(
+		&self,
 		transaction: &crate::database::Transaction<'_>,
-		namespace: &tg::Namespace,
-		created_by: Option<&tg::user::Id>,
-	) -> tg::Result<ControlFlow<tg::group::create::Output, crate::database::Error>> {
-		let parent = if let Some(parent_namespace) = Self::parent_namespace(namespace) {
-			let Some(parent) =
-				Self::try_get_group_by_namespace_with_transaction(transaction, &parent_namespace)
-					.await?
-			else {
-				return Err(tg::error!("failed to find the parent group"));
-			};
-			if let Some(user) = created_by
-				&& !Self::user_has_namespace_permission_with_transaction(
-					transaction,
-					user,
-					&parent_namespace,
-					tg::Permission::Admin,
-				)
-				.await?
-			{
-				return Err(tg::error!("unauthorized"));
-			}
-			Some(parent)
-		} else {
-			None
-		};
+		arg: tg::group::create::Arg,
+	) -> tg::Result<tg::Group> {
+		let node = self
+			.create_group_path_with_transaction(transaction, &arg.specifier)
+			.await?;
+		group_from_node(node)
+	}
 
-		let p = transaction.p();
-		let namespace_string = namespace.to_string();
-		if Self::namespace_in_use_with_transaction(transaction, &namespace_string).await? {
-			return Err(tg::error!("namespace is already in use"));
+	async fn create_group_path_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		specifier: &tg::Specifier,
+	) -> tg::Result<Node> {
+		let components = specifier.components().collect::<Vec<_>>();
+		if components.is_empty() {
+			return Err(tg::error!("invalid specifier"));
 		}
+		let mut parent = None;
+		let mut node = None;
+		for index in 0..components.len() {
+			let specifier = tg::Specifier::with_components(
+				components[..=index]
+					.iter()
+					.map(|component| tg::specifier::Component::new((*component).to_owned())),
+			);
+			if let Some(existing) =
+				Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
+			{
+				if existing.kind != tg::id::Kind::Group {
+					return Err(tg::error!("specifier is already in use"));
+				}
+				if index == components.len() - 1 {
+					return Err(tg::error!("specifier is already in use"));
+				}
+				parent = Some(existing.id.clone());
+				node = Some(existing);
+				continue;
+			}
+			let created = self
+				.create_group_node_with_transaction(transaction, &specifier, parent.as_ref())
+				.await?;
+			parent = Some(created.id.clone());
+			node = Some(created);
+		}
+		node.ok_or_else(|| tg::error!("invalid specifier"))
+	}
 
+	async fn create_group_node_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		specifier: &tg::Specifier,
+		parent: Option<&tg::Id>,
+	) -> tg::Result<Node> {
 		let id = tg::group::Id::new();
+		let id_: tg::Id = id.clone().into();
+		let node = Self::create_node_with_transaction(
+			transaction,
+			&id_,
+			tg::id::Kind::Group,
+			specifier,
+			parent,
+		)
+		.await?;
+		let p = transaction.p();
 		let statement = formatdoc!(
-			r"
-				insert into groups (id, namespace, parent)
+			"
+				insert into groups (id, name, parent)
 				values ({p}1, {p}2, {p}3);
 			"
 		);
-		let params = db::params![
-			id.to_string(),
-			namespace.to_string(),
-			parent.as_ref().map(|group| group.id.to_string()),
-		];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-
-		if let Some(user) = created_by {
-			let statement = formatdoc!(
-				r#"
-					insert into group_members ("group", "user")
-					values ({p}1, {p}2)
-					on conflict ("group", "user") do nothing;
-				"#
-			);
-			let params = db::params![id.to_string(), user.to_string()];
-			let result = transaction.execute(statement.into(), params).await;
-			crate::database::retry!(result, "failed to execute the statement");
+		transaction
+			.execute(
+				statement.into(),
+				db::params![
+					id.to_string(),
+					node.name.clone(),
+					node.parent.as_ref().map(ToString::to_string)
+				],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		if let Some(principal) = self.write_user_principal() {
+			self.create_grant_with_transaction(
+				transaction,
+				tg::grant::create::Arg {
+					principal,
+					permission: tg::grant::Permission::Admin,
+					resource: tg::grant::Resource::Id(id.clone().into()),
+				},
+			)
+			.await?;
 		}
-
-		let namespace_id =
-			match Self::get_or_create_namespace_with_transaction(transaction, namespace).await? {
-				ControlFlow::Break(namespace_id) => namespace_id,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-		match Self::create_namespace_grant_for_group_with_transaction(
-			transaction,
-			namespace,
-			namespace_id,
-			&id,
-			tg::Permission::Admin,
-			created_by,
-		)
-		.await?
-		{
-			ControlFlow::Break(_) => {},
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-
-		Ok(ControlFlow::Break(tg::group::create::Output {
-			group: tg::Group {
-				id,
-				namespace: namespace.clone(),
-				parent: parent.map(|group| group.id),
-			},
-		}))
+		Ok(node)
 	}
 
 	pub(crate) async fn list_groups(
 		&self,
-		_arg: tg::group::list::Arg,
+		arg: tg::group::list::Arg,
 	) -> tg::Result<tg::group::list::Output> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			namespace: String,
-			parent: Option<String>,
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::group::Id,
-		}
-
-		let connection = self
+		let _ = arg;
+		let mut connection = self
 			.server
 			.database
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let rows = connection
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::Id,
+			name: String,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			parent: Option<tg::Id>,
+			#[tangram_database(as = "db::value::FromStr")]
+			specifier: tg::Specifier,
+		}
+		let rows = transaction
 			.query_all_into::<Row>(
 				"
-					select id, namespace, parent
-					from groups
-					order by namespace;
+					select nodes.id, nodes.name, nodes.parent, nodes.specifier
+					from nodes
+					where kind = 'group'
+					order by specifier;
 				"
 				.into(),
 				db::params![],
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let data = rows
-			.into_iter()
-			.map(|row| {
-				Ok(tg::Group {
-					id: row.id,
-					namespace: row
-						.namespace
-						.parse()
-						.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
-					parent: row
-						.parent
-						.map(|parent| parent.parse())
-						.transpose()
-						.map_err(|error| {
-							tg::error!(!error, "failed to parse the parent group id")
-						})?,
-				})
-			})
-			.collect::<tg::Result<_>>()?;
+		let mut data = Vec::new();
+		for row in rows {
+			if self
+				.node_is_visible_with_transaction(&transaction, &row.id)
+				.await?
+			{
+				data.push(tg::Group {
+					id: row.id.try_into()?,
+					name: row.name,
+					parent: row.parent,
+					specifier: row.specifier,
+				});
+			}
+		}
 		Ok(tg::group::list::Output { data })
 	}
 
-	pub(crate) async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
+	pub(crate) async fn try_get_group(
+		&self,
+		group: &tg::group::Selector,
+	) -> tg::Result<Option<tg::Group>> {
 		let mut connection = self
 			.server
 			.database
@@ -247,129 +201,76 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		Self::try_get_group_with_transaction(&transaction, group).await
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(&transaction, group).await?
+		else {
+			return Ok(None);
+		};
+		if node.kind != tg::id::Kind::Group
+			|| !self
+				.node_is_visible_with_transaction(&transaction, &node.id)
+				.await?
+		{
+			return Ok(None);
+		}
+		group_from_node(node).map(Some)
 	}
 
-	pub(crate) async fn try_delete_group(&self, group: &str) -> tg::Result<Option<()>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		let authentication = self.context.authentication.clone();
-		if authentication
-			.as_ref()
-			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
-		let group = group.to_owned();
+	pub(crate) async fn try_delete_group(
+		&self,
+		group: &tg::group::Selector,
+	) -> tg::Result<Option<()>> {
+		let session = self.clone();
 		self.server
 			.database
 			.run(|transaction| {
-				let authentication = authentication.clone();
 				let group = group.clone();
+				let session = session.clone();
 				async move {
-					Self::try_delete_group_with_transaction(
-						transaction,
-						&group,
-						authentication.as_ref(),
-					)
-					.await
+					let output = session
+						.delete_group_with_transaction(transaction, &group)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
 				}
 				.boxed()
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the group"))
 	}
 
-	async fn try_delete_group_with_transaction(
+	async fn delete_group_with_transaction(
+		&self,
 		transaction: &crate::database::Transaction<'_>,
-		group: &str,
-		authentication: Option<&Authentication>,
-	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
-		let Some(group) = Self::try_get_group_with_transaction(transaction, group).await? else {
-			return Ok(ControlFlow::Break(None));
+		group: &tg::group::Selector,
+	) -> tg::Result<Option<()>> {
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(transaction, group).await?
+		else {
+			return Ok(None);
 		};
-		if let Some(Authentication::User(user)) = authentication
-			&& !Self::user_has_namespace_permission_with_transaction(
-				transaction,
-				&user.id,
-				&group.namespace,
-				tg::Permission::Admin,
-			)
-			.await?
-		{
-			return Err(tg::error!("unauthorized"));
+		if node.kind != tg::id::Kind::Group {
+			return Ok(None);
 		}
-
 		let p = transaction.p();
-		let statement = formatdoc!(
-			r"
-				select 1
-				from groups
-				where parent = {p}1;
-			"
-		);
-		let result = transaction
-			.query_optional(statement.into(), db::params![group.id.to_string()])
-			.await;
-		if crate::database::retry!(result, "failed to execute the statement").is_some() {
-			return Err(tg::error!("the group has child groups"));
-		}
-
 		for statement in [
-			formatdoc!(
-				r"
-					delete from namespace_grants
-					where principal = {p}1;
-				"
-			),
-			formatdoc!(
-				r#"
-					delete from group_members
-					where "group" = {p}1;
-				"#
-			),
-			formatdoc!(
-				r"
-					delete from groups
-					where id = {p}1;
-				"
-			),
+			format!("delete from group_members where \"group\" = {p}1 or member = {p}1;"),
+			format!("delete from organization_members where member = {p}1;"),
+			format!("delete from grants where resource = {p}1 or principal = {p}1;"),
+			format!("delete from visibility where resource = {p}1 or principal = {p}1;"),
+			format!("delete from groups where id = {p}1;"),
+			format!("delete from nodes where id = {p}1;"),
 		] {
-			let result = transaction
-				.execute(statement.into(), db::params![group.id.to_string()])
-				.await;
-			crate::database::retry!(result, "failed to execute the statement");
+			transaction
+				.execute(statement.into(), db::params![node.id.to_string()])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}
-		Ok(ControlFlow::Break(Some(())))
+		Ok(Some(()))
 	}
 
 	pub(crate) async fn list_group_members(
 		&self,
-		group: &str,
-	) -> tg::Result<Option<tg::group::member::list::Output>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		let authentication = &self.context.authentication;
-		if authentication
-			.as_ref()
-			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
+		group: &tg::group::Selector,
+	) -> tg::Result<tg::group::members::list::Output> {
 		let mut connection = self
 			.server
 			.database
@@ -380,372 +281,209 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
-			return Ok(None);
-		};
-		if let Some(Authentication::User(user)) = authentication
-			&& !Self::user_has_namespace_permission_with_transaction(
-				&transaction,
-				&user.id,
-				&group.namespace,
-				tg::Permission::Read,
-			)
+		let group = Self::try_get_node_by_selector_with_transaction(&transaction, group)
 			.await?
+			.ok_or_else(|| tg::error!("failed to find the group"))?;
+		if group.kind != tg::id::Kind::Group
+			|| !self
+				.node_is_visible_with_transaction(&transaction, &group.id)
+				.await?
 		{
-			return Err(tg::error!("unauthorized"));
+			return Err(tg::error!("failed to find the group"));
 		}
-
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			email: Option<String>,
-			namespace: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::user::Id,
+			member: tg::Id,
 		}
-
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
-				select users.id, users.namespace, user_emails.email
+				select member
 				from group_members
-				join users on users.id = group_members."user"
-				left join user_emails on user_emails."user" = users.id
-				where group_members."group" = {p}1
-				order by users.namespace, users.id, user_emails.email;
+				where "group" = {p}1
+				order by member;
 			"#
 		);
 		let rows = transaction
 			.query_all_into::<Row>(statement.into(), db::params![group.id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let mut data = Vec::<tg::User>::new();
-		for row in rows {
-			if let Some(user) = data.iter_mut().find(|user| user.id == row.id) {
-				if let Some(email) = row.email {
-					user.emails.push(email);
-				}
-				continue;
-			}
-			data.push(tg::User {
-				id: row.id,
-				emails: row.email.into_iter().collect(),
-				namespace: row
-					.namespace
-					.map(|namespace| namespace.parse())
-					.transpose()
-					.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
-				location: None,
-			});
-		}
-
-		Ok(Some(tg::group::member::list::Output { data }))
+		let data = rows
+			.into_iter()
+			.map(|row| row.member.try_into())
+			.collect::<tg::Result<_>>()?;
+		Ok(tg::group::members::list::Output { data })
 	}
 
-	pub(crate) async fn add_group_member(&self, group: &str, user: &str) -> tg::Result<()> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		let authentication = self.context.authentication.clone();
-		if authentication
-			.as_ref()
-			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
-		let group = group.to_owned();
-		let user = user.to_owned();
+	pub(crate) async fn add_group_member(
+		&self,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+	) -> tg::Result<()> {
+		let session = self.clone();
 		self.server
 			.database
 			.run(|transaction| {
-				let authentication = authentication.clone();
 				let group = group.clone();
-				let user = user.clone();
+				let member = member.clone();
+				let session = session.clone();
 				async move {
-					Self::add_group_member_with_transaction(
-						transaction,
-						&group,
-						&user,
-						authentication.as_ref(),
-					)
-					.await
+					session
+						.add_group_member_with_transaction(transaction, &group, &member)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
 				}
 				.boxed()
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to add the group member"))
 	}
 
-	async fn add_group_member_with_transaction(
+	pub(crate) async fn add_group_member_with_transaction(
+		&self,
 		transaction: &crate::database::Transaction<'_>,
-		group: &str,
-		user: &str,
-		authentication: Option<&Authentication>,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
-		let group = Self::try_get_group_with_transaction(transaction, group)
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+	) -> tg::Result<()> {
+		let group = Self::try_get_node_by_selector_with_transaction(transaction, group)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if let Some(Authentication::User(current_user)) = authentication
-			&& !Self::user_has_namespace_permission_with_transaction(
-				transaction,
-				&current_user.id,
-				&group.namespace,
-				tg::Permission::Admin,
-			)
-			.await?
-		{
-			return Err(tg::error!("unauthorized"));
+		if group.kind != tg::id::Kind::Group {
+			return Err(tg::error!("failed to find the group"));
 		}
-		let user = Self::try_get_user_with_transaction(transaction, user)
+		let member_id: tg::Id = member.clone().into();
+		if Self::try_get_node_by_id_with_transaction(transaction, &member_id)
 			.await?
-			.ok_or_else(|| tg::error!("failed to find the user"))?;
-
+			.is_none()
+		{
+			return Err(tg::error!("failed to find the member"));
+		}
+		if matches!(member, tg::group::Member::Group(_))
+			&& group_contains_group_with_transaction(transaction, &member_id, &group.id).await?
+		{
+			return Err(tg::error!("membership cycle"));
+		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
-				insert into group_members ("group", "user")
+				insert into group_members ("group", member)
 				values ({p}1, {p}2)
-				on conflict ("group", "user") do nothing;
+				on conflict ("group", member) do nothing;
 			"#
 		);
-		let params = db::params![group.id.to_string(), user.id.to_string()];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-		Ok(ControlFlow::Break(()))
+		transaction
+			.execute(
+				statement.into(),
+				db::params![group.id.to_string(), member_id.to_string()],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		self.create_grant_with_transaction(
+			transaction,
+			tg::grant::create::Arg {
+				principal: member_to_principal(member),
+				permission: tg::grant::Permission::Read,
+				resource: tg::grant::Resource::Id(group.id),
+			},
+		)
+		.await?;
+		Ok(())
 	}
 
 	pub(crate) async fn remove_group_member(
 		&self,
-		group: &str,
-		user: &str,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
 	) -> tg::Result<Option<()>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		let authentication = self.context.authentication.clone();
-		if authentication
-			.as_ref()
-			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
-		let group = group.to_owned();
-		let user = user.to_owned();
+		let session = self.clone();
 		self.server
 			.database
 			.run(|transaction| {
-				let authentication = authentication.clone();
 				let group = group.clone();
-				let user = user.clone();
+				let member = member.clone();
+				let session = session.clone();
 				async move {
-					Self::remove_group_member_with_transaction(
-						transaction,
-						&group,
-						&user,
-						authentication.as_ref(),
-					)
-					.await
+					let output = session
+						.remove_group_member_with_transaction(transaction, &group, &member)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
 				}
 				.boxed()
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to remove the group member"))
 	}
 
 	async fn remove_group_member_with_transaction(
+		&self,
 		transaction: &crate::database::Transaction<'_>,
-		group: &str,
-		user: &str,
-		authentication: Option<&Authentication>,
-	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
-		let Some(group) = Self::try_get_group_with_transaction(transaction, group).await? else {
-			return Ok(ControlFlow::Break(None));
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+	) -> tg::Result<Option<()>> {
+		let Some(group) =
+			Self::try_get_node_by_selector_with_transaction(transaction, group).await?
+		else {
+			return Ok(None);
 		};
-		if let Some(Authentication::User(current_user)) = authentication
-			&& !Self::user_has_namespace_permission_with_transaction(
-				transaction,
-				&current_user.id,
-				&group.namespace,
-				tg::Permission::Admin,
-			)
-			.await?
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		let Some(user) = Self::try_get_user_with_transaction(transaction, user).await? else {
-			return Ok(ControlFlow::Break(None));
-		};
-
+		let member_id: tg::Id = member.clone().into();
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
 				delete from group_members
-				where "group" = {p}1 and "user" = {p}2;
+				where "group" = {p}1 and member = {p}2;
 			"#
 		);
-		let params = db::params![group.id.to_string(), user.id.to_string()];
-		let result = transaction.execute(statement.into(), params).await;
-		let n = crate::database::retry!(result, "failed to execute the statement");
-		Ok(ControlFlow::Break((n > 0).then_some(())))
-	}
-
-	pub(crate) async fn try_get_group_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		group: &str,
-	) -> tg::Result<Option<tg::Group>> {
-		if let Ok(id) = group.parse::<tg::group::Id>() {
-			Self::try_get_group_by_id_with_transaction(transaction, &id).await
-		} else {
-			let namespace = group
-				.parse::<tg::Namespace>()
-				.map_err(|error| tg::error!(!error, "invalid namespace"))?;
-			Self::namespace_for_group(&namespace)?;
-			Self::try_get_group_by_namespace_with_transaction(transaction, &namespace).await
-		}
-	}
-
-	pub(crate) async fn try_get_group_by_id_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		id: &tg::group::Id,
-	) -> tg::Result<Option<tg::Group>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			namespace: String,
-			parent: Option<String>,
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::group::Id,
-		}
-
-		let p = transaction.p();
-		let statement = formatdoc!(
-			r"
-				select id, namespace, parent
-				from groups
-				where id = {p}1;
-			"
-		);
-		let row = transaction
-			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
+		let deleted = transaction
+			.execute(
+				statement.into(),
+				db::params![group.id.to_string(), member_id.to_string()],
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		row.map(|row| Self::group_from_row(row.id, &row.namespace, row.parent.as_deref()))
-			.transpose()
+		if deleted == 0 {
+			return Ok(None);
+		}
+		self.delete_grant_with_transaction(
+			transaction,
+			tg::grant::delete::Arg {
+				principal: member_to_principal(member),
+				permission: tg::grant::Permission::Read,
+				resource: tg::grant::Resource::Id(group.id),
+			},
+		)
+		.await?;
+		Ok(Some(()))
 	}
 
-	pub(crate) async fn try_get_group_by_namespace_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		namespace: &tg::Namespace,
-	) -> tg::Result<Option<tg::Group>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			namespace: String,
-			parent: Option<String>,
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::group::Id,
-		}
-
-		let p = transaction.p();
-		let statement = formatdoc!(
-			r"
-				select id, namespace, parent
-				from groups
-				where namespace = {p}1;
-			"
-		);
-		let row = transaction
-			.query_optional_into::<Row>(statement.into(), db::params![namespace.to_string()])
+	pub(crate) async fn try_get_group_grants(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::grants::Arg,
+	) -> tg::Result<Option<tg::group::grants::Output>> {
+		let _ = arg;
+		let mut connection = self
+			.server
+			.database
+			.connection()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		row.map(|row| Self::group_from_row(row.id, &row.namespace, row.parent.as_deref()))
-			.transpose()
-	}
-
-	fn group_from_row(
-		id: tg::group::Id,
-		namespace: &str,
-		parent: Option<&str>,
-	) -> tg::Result<tg::Group> {
-		Ok(tg::Group {
-			id,
-			namespace: namespace
-				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the namespace"))?,
-			parent: parent
-				.map(str::parse)
-				.transpose()
-				.map_err(|error| tg::error!(!error, "failed to parse the parent group id"))?,
-		})
-	}
-
-	pub(crate) fn namespace_for_user(namespace: &tg::Namespace) -> tg::Result<()> {
-		if namespace.is_root() || namespace.components().count() != 1 {
-			return Err(tg::error!("invalid namespace"));
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(&transaction, group).await?
+		else {
+			return Ok(None);
+		};
+		if node.kind != tg::id::Kind::Group
+			|| !self
+				.node_is_visible_with_transaction(&transaction, &node.id)
+				.await?
+		{
+			return Ok(None);
 		}
-		Ok(())
-	}
-
-	pub(crate) fn namespace_for_group(namespace: &tg::Namespace) -> tg::Result<tg::Namespace> {
-		if namespace.is_root() {
-			return Err(tg::error!("invalid namespace"));
-		}
-		Ok(namespace.clone())
-	}
-
-	pub(crate) fn parent_namespace(namespace: &tg::Namespace) -> Option<tg::Namespace> {
-		let components = namespace
-			.components()
-			.map(ToString::to_string)
-			.collect::<Vec<_>>();
-		if components.len() <= 1 {
-			return None;
-		}
-		Some(tg::Namespace::with_components(
-			components[..components.len() - 1].iter().cloned(),
-		))
-	}
-
-	pub(crate) async fn namespace_in_use_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		namespace: &str,
-	) -> tg::Result<bool> {
-		let p = transaction.p();
-		for statement in [
-			formatdoc!(
-				r"
-					select 1
-					from users
-					where namespace = {p}1;
-				"
-			),
-			formatdoc!(
-				r"
-					select 1
-					from groups
-					where namespace = {p}1;
-				"
-			),
-		] {
-			if transaction
-				.query_optional(statement.into(), db::params![namespace])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-				.is_some()
-			{
-				return Ok(true);
-			}
-		}
-		Ok(false)
+		let data = Self::list_direct_grants_with_transaction(&transaction, &node.id).await?;
+		Ok(Some(tg::group::grants::Output { data }))
 	}
 
 	pub(crate) async fn create_group_request(
@@ -760,10 +498,7 @@ impl Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		let output = self
-			.create_group(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the group"))?;
+		let output = self.create_group(arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
@@ -781,7 +516,7 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap())
+		Ok(response.body(body).unwrap().boxed_body())
 	}
 
 	pub(crate) async fn list_groups_request(
@@ -797,10 +532,7 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let output = self
-			.list_groups(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list the groups"))?;
+		let output = self.list_groups(arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
@@ -818,38 +550,20 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap())
-	}
-
-	pub(crate) async fn get_or_list_groups_request(
-		&self,
-		request: http::Request<BoxBody>,
-	) -> tg::Result<http::Response<BoxBody>> {
-		if request.uri().query().is_some() {
-			self.try_get_group_request(request).await
-		} else {
-			self.list_groups_request(request).await
-		}
+		Ok(response.body(body).unwrap().boxed_body())
 	}
 
 	pub(crate) async fn try_get_group_request(
 		&self,
 		request: http::Request<BoxBody>,
+		group: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let arg = request
-			.query_params::<tg::group::get::Arg>()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(output) = self
-			.try_get_group(&arg.group)
-			.await
-			.map_err(|error| tg::error!(!error, group = %arg.group, "failed to get the group"))?
-		else {
+		let group = parse_selector::<tg::group::Id>(group)?;
+		let Some(output) = self.try_get_group(&group).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
@@ -873,61 +587,106 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap())
+		Ok(response.body(body).unwrap().boxed_body())
 	}
 
 	pub(crate) async fn try_delete_group_request(
 		&self,
 		request: http::Request<BoxBody>,
+		group: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let accept = request
-			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let arg = request
-			.query_params::<tg::group::delete::Arg>()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(()) = self.try_delete_group(&arg.group).await.map_err(
-			|error| tg::error!(!error, group = %arg.group, "failed to delete the group"),
-		)?
-		else {
+		drop(request);
+		let group = parse_selector::<tg::group::Id>(group)?;
+		let Some(()) = self.try_delete_group(&group).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
 				.boxed_body());
 		};
-		match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR)) => (),
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
-			},
-		}
 		Ok(http::Response::builder().empty().unwrap().boxed_body())
 	}
 
 	pub(crate) async fn list_group_members_request(
 		&self,
 		request: http::Request<BoxBody>,
+		group: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+		let group = parse_selector::<tg::group::Id>(group)?;
+		let output = self.list_group_members(&group).await?;
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = serde_json::to_vec(&output).unwrap();
+				(Some(content_type), BoxBody::with_bytes(body))
+			},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+			},
+		};
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		Ok(response.body(body).unwrap().boxed_body())
+	}
+
+	pub(crate) async fn add_group_member_request(
+		&self,
+		request: http::Request<BoxBody>,
+		group: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let arg: tg::group::members::add::Arg = request
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+		let group = parse_selector::<tg::group::Id>(group)?;
+		self.add_group_member(&group, &arg.member).await?;
+		Ok(http::Response::builder().empty().unwrap().boxed_body())
+	}
+
+	pub(crate) async fn remove_group_member_request(
+		&self,
+		request: http::Request<BoxBody>,
+		group: &str,
+		member: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let _ = request;
+		let group = parse_selector::<tg::group::Id>(group)?;
+		let member = member.replace(':', "/").parse()?;
+		let Some(()) = self.remove_group_member(&group, &member).await? else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
+		Ok(http::Response::builder().empty().unwrap().boxed_body())
+	}
+
+	pub(crate) async fn try_get_group_grants_request(
+		&self,
+		request: http::Request<BoxBody>,
+		group: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let arg = request
-			.query_params::<tg::group::member::list::Arg>()
+			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(output) = self.list_group_members(&arg.group).await.map_err(
-			|error| tg::error!(!error, group = %arg.group, "failed to list the group members"),
-		)?
-		else {
+			.unwrap_or(tg::group::grants::Arg { location: None });
+		let group = parse_selector::<tg::group::Id>(group)?;
+		let Some(output) = self.try_get_group_grants(&group, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
@@ -951,83 +710,76 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap())
+		Ok(response.body(body).unwrap().boxed_body())
 	}
 
-	pub(crate) async fn add_group_member_request(
-		&self,
-		request: http::Request<BoxBody>,
-	) -> tg::Result<http::Response<BoxBody>> {
-		let accept = request
-			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let arg = request
-			.json::<tg::group::member::add::Arg>()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		self.add_group_member(&arg.group, &arg.user)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					group = %arg.group,
-					user = %arg.user,
-					"failed to add the group member"
-				)
-			})?;
-		match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR)) => (),
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+	fn write_user_principal(&self) -> Option<tg::grant::Principal> {
+		match self.context.authentication.as_ref() {
+			Some(crate::context::Authentication::User(user)) => {
+				Some(tg::grant::Principal::User(user.id.clone()))
 			},
+			_ => None,
 		}
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
 	}
+}
 
-	pub(crate) async fn remove_group_member_request(
-		&self,
-		request: http::Request<BoxBody>,
-	) -> tg::Result<http::Response<BoxBody>> {
-		let accept = request
-			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let arg = request
-			.query_params::<tg::group::member::remove::Arg>()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(()) = self
-			.remove_group_member(&arg.group, &arg.user)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					group = %arg.group,
-					user = %arg.user,
-					"failed to remove the group member"
-				)
-			})?
-		else {
-			return Ok(http::Response::builder()
-				.not_found()
-				.empty()
-				.unwrap()
-				.boxed_body());
-		};
-		match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR)) => (),
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
-			},
-		}
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+fn group_from_node(node: Node) -> tg::Result<tg::Group> {
+	Ok(tg::Group {
+		id: node.id.try_into()?,
+		name: node.name,
+		parent: node.parent,
+		specifier: node.specifier,
+	})
+}
+
+fn member_to_principal(member: &tg::group::Member) -> tg::grant::Principal {
+	match member {
+		tg::group::Member::Group(id) => tg::grant::Principal::Group(id.clone()),
+		tg::group::Member::User(id) => tg::grant::Principal::User(id.clone()),
 	}
+}
+
+pub(crate) fn organization_member_to_principal(
+	member: &tg::organization::Member,
+) -> tg::grant::Principal {
+	match member {
+		tg::organization::Member::Group(id) => tg::grant::Principal::Group(id.clone()),
+		tg::organization::Member::User(id) => tg::grant::Principal::User(id.clone()),
+	}
+}
+
+async fn group_contains_group_with_transaction(
+	transaction: &crate::database::Transaction<'_>,
+	group: &tg::Id,
+	member: &tg::Id,
+) -> tg::Result<bool> {
+	#[derive(db::row::Deserialize)]
+	struct Row {
+		#[tangram_database(as = "db::value::FromStr")]
+		member: tg::Id,
+	}
+	let mut stack = vec![group.clone()];
+	let mut visited = std::collections::BTreeSet::new();
+	while let Some(group) = stack.pop() {
+		if !visited.insert(group.clone()) {
+			continue;
+		}
+		if &group == member {
+			return Ok(true);
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				select member
+				from group_members
+				where "group" = {p}1;
+			"#
+		);
+		let rows = transaction
+			.query_all_into::<Row>(statement.into(), db::params![group.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		stack.extend(rows.into_iter().map(|row| row.member));
+	}
+	Ok(false)
 }

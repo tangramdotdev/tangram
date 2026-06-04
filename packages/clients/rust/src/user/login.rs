@@ -5,7 +5,7 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub namespace: tg::Namespace,
+	pub parent: tg::Specifier,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub email: Option<String>,

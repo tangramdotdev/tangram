@@ -1,11 +1,7 @@
 use crate::prelude::*;
 
 pub trait Tag: Clone + Unpin + Send + Sync + 'static {
-	fn put_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	fn put_tag(&self, arg: tg::tag::put::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn create_tag_grant(
 		&self,
@@ -16,6 +12,11 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		arg: tg::tag::batch::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_get_tag(
+		&self,
+		tag: &tg::tag::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> + Send;
 
 	fn list_tag_grants(
 		&self,
@@ -34,8 +35,8 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Tag for tg::Client {
-	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
-		self.session(&self.context).put_tag(tag, arg).await
+	async fn put_tag(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		self.session(&self.context).put_tag(arg).await
 	}
 
 	async fn create_tag_grant(
@@ -47,6 +48,13 @@ impl tg::handle::Tag for tg::Client {
 
 	async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
 		self.session(&self.context).post_tag_batch(arg).await
+	}
+
+	async fn try_get_tag(
+		&self,
+		tag: &tg::tag::Selector,
+	) -> tg::Result<Option<tg::tag::get::Output>> {
+		self.session(&self.context).try_get_tag(tag).await
 	}
 
 	async fn list_tag_grants(

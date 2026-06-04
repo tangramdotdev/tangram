@@ -1,12 +1,8 @@
 use crate::prelude::*;
 
 impl tg::handle::Tag for tg::Session {
-	fn put_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.put_tag(tag, arg)
+	fn put_tag(&self, arg: tg::tag::put::Arg) -> impl Future<Output = tg::Result<()>> {
+		self.put_tag(arg)
 	}
 
 	fn create_tag_grant(
@@ -21,6 +17,13 @@ impl tg::handle::Tag for tg::Session {
 		arg: tg::tag::batch::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.post_tag_batch(arg)
+	}
+
+	fn try_get_tag(
+		&self,
+		tag: &tg::tag::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
+		self.try_get_tag(tag)
 	}
 
 	fn list_tag_grants(
