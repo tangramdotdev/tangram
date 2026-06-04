@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+# Publishing a package whose dependency is imported from a submodule publishes exactly the package and its dependency, does not treat internal submodules as separate packages, and syncs objects and metadata to the remote.
+
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

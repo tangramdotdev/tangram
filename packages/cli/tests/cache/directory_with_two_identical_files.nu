@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a directory containing two entries with identical contents writes the directory into the artifacts cache.
+
 let server = spawn
 
 # Create the artifact.

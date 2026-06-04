@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that a module with xattr (but no .tg.ts extension) can be built by ID.
+# A module with xattr (but no .tg.ts extension) can be built by ID.
 
 let server = spawn
 

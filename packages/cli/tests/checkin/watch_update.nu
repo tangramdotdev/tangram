@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that --watch with --update selectively updates dependencies.
+# --watch with --update selectively updates dependencies.
 
 let server = spawn
 

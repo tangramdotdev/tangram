@@ -113,6 +113,7 @@ impl crate::Store for Store {
 mod tests {
 	use {super::*, bytes::Bytes, std::borrow::Cow};
 
+	// Deleting an object removes both the object and its grants.
 	#[test]
 	fn delete_removes_object_grants() {
 		let store = Store::default();
@@ -158,6 +159,7 @@ mod tests {
 		assert!(output.grants.is_empty());
 	}
 
+	// Cleaning grants removes those past their time to live while keeping live grants and the latest upgraded subtree grant.
 	#[test]
 	fn clean_grants_removes_expired_grants() {
 		let store = Store::new(&Config { grant_ttl: 5 });

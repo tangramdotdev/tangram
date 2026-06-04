@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Rerunning a build whose command throws produces the same failure and identical error output on each run.
+
 let server = spawn
 
 let path = artifact {
@@ -12,11 +14,11 @@ cd $path
 let output = tg build | complete
 assert equal $output.exit_code 1
 let first_output = $output.stderr 
-	| str replace --regex --all 'pcs_[a-z0-9]+' "PROCESS"
+	| redact
 snapshot $first_output '
 	error an error occurred
 	-> the process failed
-	   id = PROCESS
+	   id = <process>
 	-> whoops
 	   ╭─[./tangram.ts:1:33]
 	 1 │ export default () => { throw tg.error("whoops"); };
@@ -29,5 +31,5 @@ snapshot $first_output '
 let output = tg build | complete
 assert equal $output.exit_code 1
 let second_output = $output.stderr 
-	| str replace --regex --all 'pcs_\w+' "PROCESS"
+	| redact
 assert equal $first_output $second_output

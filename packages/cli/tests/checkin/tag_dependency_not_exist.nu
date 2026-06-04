@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package that depends on a nonexistent tag fails with the expected output.
+
 let server = spawn
 
 let path = artifact {
@@ -10,7 +12,7 @@ let path = artifact {
 
 let output = tg checkin $path | complete
 failure $output "the checkin should fail when the tag does not exist"
-let stdout = $output.stdout | str replace -a $path ''
-let stderr = $output.stderr | str replace -a $path ''
-snapshot -n stderr $stderr
-snapshot -n stdout $stdout
+let stdout = $output.stdout | redact $path
+let stderr = $output.stderr | redact $path
+snapshot --name stderr $stderr
+snapshot --name stdout $stdout

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A graph pointer referencing a file node can be inspected as an object and built to resolve the file module's default export.
+
 let server = spawn
 let artifact = '
 	tg.graph({

@@ -105,6 +105,7 @@ impl<V> Default for Node<V> {
 mod tests {
 	use {super::*, std::path::PathBuf};
 
+	// A value inserted at a path can be retrieved at the same path.
 	#[test]
 	fn test_insert_and_get() {
 		let mut trie = PathTrie::default();
@@ -114,6 +115,7 @@ mod tests {
 		assert_eq!(trie.get(&path), Some(&42));
 	}
 
+	// Getting a path that was never inserted returns None.
 	#[test]
 	fn test_get_nonexistent() {
 		let trie: PathTrie<i32> = PathTrie::default();
@@ -122,6 +124,7 @@ mod tests {
 		assert_eq!(trie.get(&path), None);
 	}
 
+	// Multiple distinct paths can coexist and each retains its own value.
 	#[test]
 	fn test_multiple_paths() {
 		let mut trie = PathTrie::default();
@@ -138,6 +141,7 @@ mod tests {
 		assert_eq!(trie.get(&path3), Some(&3));
 	}
 
+	// A path and its ancestors can each hold a separate value simultaneously.
 	#[test]
 	fn test_nested_paths() {
 		let mut trie = PathTrie::default();
@@ -154,6 +158,7 @@ mod tests {
 		assert_eq!(trie.get(&path3), Some(&3));
 	}
 
+	// Inserting at an existing path replaces the previous value.
 	#[test]
 	fn test_overwrite_value() {
 		let mut trie = PathTrie::default();
@@ -166,6 +171,7 @@ mod tests {
 		assert_eq!(trie.get(&path), Some(&2));
 	}
 
+	// Removing a leaf path returns its value and leaves the path absent.
 	#[test]
 	fn test_remove_leaf() {
 		let mut trie = PathTrie::default();
@@ -176,6 +182,7 @@ mod tests {
 		assert_eq!(trie.get(&path), None);
 	}
 
+	// Removing a path that was never inserted returns None.
 	#[test]
 	fn test_remove_nonexistent() {
 		let mut trie: PathTrie<i32> = PathTrie::default();
@@ -184,6 +191,7 @@ mod tests {
 		assert_eq!(trie.remove(&path), None);
 	}
 
+	// Removing the last value under a shared prefix prunes the now-empty nodes so that the trie becomes empty.
 	#[test]
 	fn test_remove_cleans_up_empty_nodes() {
 		let mut trie = PathTrie::default();
@@ -200,6 +208,7 @@ mod tests {
 		assert!(trie.is_empty());
 	}
 
+	// Removing the value at an intermediate node clears that value while preserving the values of its descendants.
 	#[test]
 	fn test_remove_intermediate_node_with_children() {
 		let mut trie = PathTrie::default();
@@ -214,6 +223,7 @@ mod tests {
 		assert_eq!(trie.get(&path2), Some(&2));
 	}
 
+	// is_empty reports true for a new trie, false after an insert, and true again after the value is removed.
 	#[test]
 	fn test_is_empty() {
 		let mut trie: PathTrie<i32> = PathTrie::default();
@@ -227,6 +237,7 @@ mod tests {
 		assert!(trie.is_empty());
 	}
 
+	// Clear removes all entries and leaves the trie empty.
 	#[test]
 	fn test_clear() {
 		let mut trie = PathTrie::default();
@@ -242,6 +253,7 @@ mod tests {
 		assert_eq!(trie.get(&path2), None);
 	}
 
+	// The empty path can be used as a key for insert, get, and remove at the root.
 	#[test]
 	fn test_empty_path() {
 		let mut trie = PathTrie::default();
@@ -254,6 +266,7 @@ mod tests {
 		assert!(trie.is_empty());
 	}
 
+	// roots returns only the shallowest path holding a value along each branch, excluding deeper descendants.
 	#[test]
 	fn test_roots() {
 		let mut trie = PathTrie::default();
@@ -271,6 +284,7 @@ mod tests {
 		assert_eq!(roots[1], PathBuf::from("c"));
 	}
 
+	// When the root itself holds a value, roots returns only the empty path and no descendants.
 	#[test]
 	fn test_roots_with_root_value() {
 		let mut trie = PathTrie::default();
@@ -285,6 +299,7 @@ mod tests {
 		assert_eq!(roots[0], PathBuf::from(""));
 	}
 
+	// roots returns an empty list for an empty trie.
 	#[test]
 	fn test_roots_empty() {
 		let trie: PathTrie<i32> = PathTrie::default();

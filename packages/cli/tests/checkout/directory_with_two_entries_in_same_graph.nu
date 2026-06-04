@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a directory whose two entries reference each other within the same graph materializes the directory on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

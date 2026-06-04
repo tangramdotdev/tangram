@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The tree command with the package kind renders the expected dependency tree for a diamond of tagged packages where two dependents share a common bottom dependency.
+
 let server = spawn
 
 let bottom_path = artifact {

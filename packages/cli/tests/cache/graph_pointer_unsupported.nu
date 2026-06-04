@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a graph pointer reference fails with an error reporting that an object was expected.
+
 let server = spawn
 
 # Put a graph and capture its id.

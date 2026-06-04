@@ -82,6 +82,7 @@ impl TryFrom<String> for tg::sandbox::Id {
 
 #[cfg(test)]
 mod tests {
+	// A sandbox id round-trips through its byte representation.
 	#[test]
 	fn roundtrip_bytes() {
 		let id = super::Id::new();
@@ -89,6 +90,7 @@ mod tests {
 		assert_eq!(roundtrip, id);
 	}
 
+	// A sandbox id round-trips through its string representation and uses the sbx_ prefix.
 	#[test]
 	fn roundtrip_string() {
 		let id = super::Id::new();

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a directory containing a symlink that points back into the directory, forming a cycle, writes the directory into the artifacts cache.
+
 let server = spawn --config { write: { cache_pointers: false } }
 
 # Create the artifact.
@@ -31,7 +33,7 @@ let artifact = artifact {
 }
 let id = tg checkin --no-cache-pointers $artifact
 let id = tg build $id
-rm -rf ($server.directory | path join "artifacts")
+rm --recursive --force ($server.directory | path join "artifacts")
 mkdir ($server.directory | path join "artifacts")
 
 # Cache.

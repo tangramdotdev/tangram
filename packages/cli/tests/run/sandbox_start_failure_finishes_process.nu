@@ -1,12 +1,14 @@
 use ../../test.nu *
 
+# When a sandbox fails to start because of an invalid mount, the process still finishes with a nonzero exit and an error rather than hanging, and the sandbox is eventually destroyed.
+
 if $nu.os-info.name != 'linux' {
-	return
+	skip_test 'this test requires linux'
 }
 
 let server = spawn
 
-let mount = mktemp -d
+let mount = mktemp --directory
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
@@ -28,19 +30,7 @@ let state = tg process get $process | from json
 assert ($state.status == "finished")
 
 let sandbox = $state.sandbox
-mut output = { exit_code: 0, stdout: '', stderr: '' }
-for _ in 0..100 {
-	$output = (tg sandbox get $sandbox | complete)
-	if $output.exit_code != 0 {
-		break
-	}
-	let state = $output.stdout | from json
-	if $state.status == "destroyed" {
-		break
-	}
-	sleep 0.05sec
-}
-if $output.exit_code == 0 {
-	let state = $output.stdout | from json
-	assert ($state.status == "destroyed")
-}
+wait_until {
+	let output = tg sandbox get $sandbox | complete
+	$output.exit_code != 0 or (($output.stdout | from json | get status) == "destroyed")
+} "the sandbox should be destroyed"

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# When a child process throws an error, both the child error and the parent's wrapping error carry the expected message, source, and stack information.
+
 let server = spawn
 
 let path = artifact {
@@ -15,7 +17,7 @@ let path = artifact {
 }
 
 # Build and get process ID.
-let process_id = tg build -d $path | str trim
+let process_id = tg build --detach $path | str trim
 
 # Wait for process to complete.
 tg wait $process_id
@@ -29,16 +31,11 @@ let child_id = $process.children | first | get process
 let child = tg get $child_id | from json
 let child_error = $child.error
 
-def normalize [] {
-	str replace -ar 'err_[0-9a-z]+' 'ERROR'
-		| str replace -ar 'pcs_[0-9a-z]+' 'PROCESS'
-		| str replace -ar 'fil_[0-9a-z]+' 'FILE'
-}
-let output = tg get $parent_error --pretty | normalize
+let output = tg get $parent_error --pretty | redact
 snapshot $output '
 	tg.error({
 	  "message": "the child process failed",
-	  "source": ERROR,
+	  "source": <error>,
 	  "stack": [
 	    {
 	      "file": {
@@ -46,7 +43,7 @@ snapshot $output '
 	        "value": {
 	          "kind": "ts",
 	          "referent": {
-	            "item": FILE,
+	            "item": <file>,
 	          },
 	        },
 	      },
@@ -64,12 +61,12 @@ snapshot $output '
 	    },
 	  ],
 	  "values": {
-	    "id": "PROCESS",
+	    "id": "<process>",
 	  },
 	})
 '
 
-snapshot (tg get $child_error --pretty | normalize) '
+snapshot (tg get $child_error --pretty | redact) '
 	tg.error({
 	  "message": "oops",
 	  "stack": [
@@ -79,7 +76,7 @@ snapshot (tg get $child_error --pretty | normalize) '
 	        "value": {
 	          "kind": "ts",
 	          "referent": {
-	            "item": FILE,
+	            "item": <file>,
 	          },
 	        },
 	      },

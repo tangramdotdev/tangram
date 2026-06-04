@@ -1,8 +1,8 @@
 use ../../test.nu *
 
-# Test that --lock=attr writes an xattr for a file with a tag dependency.
+# --lock=attr writes an xattr for a file with a tag dependency.
 
-let tmp = mktemp -d
+let tmp = mktemp --directory
 
 let server = spawn
 

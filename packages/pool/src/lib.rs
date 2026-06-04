@@ -871,11 +871,13 @@ mod tests {
 		}
 	}
 
+	// A pool without a time to live does not spawn the expiration task and can be constructed outside of an async runtime.
 	#[test]
 	fn pool_without_ttl_can_be_created_without_a_runtime() {
 		let _pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
 	}
 
+	// Dropping an exclusive guard returns the value to the pool, preserving any mutations, so that it can be leased again.
 	#[tokio::test]
 	async fn exclusive_returns_value_on_drop() {
 		let pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
@@ -889,6 +891,7 @@ mod tests {
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 1);
 	}
 
+	// Adding values does not exceed the maximum, so the first added value is the one that is leased.
 	#[tokio::test]
 	async fn add_respects_max() {
 		let pool = Pool::new(options(1), || async { Ok::<_, Error>(2) });
@@ -897,6 +900,7 @@ mod tests {
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 0);
 	}
 
+	// Adding a value while a creation is pending does not exceed the maximum capacity, so the added value is dropped rather than admitted.
 	#[tokio::test]
 	async fn add_respects_pending_capacity() {
 		let (sender, receiver) = tokio::sync::oneshot::channel::<()>();
@@ -925,6 +929,7 @@ mod tests {
 		assert_eq!(pool.available(), 1);
 	}
 
+	// A new request does not trigger a creation while an earlier queued request is waiting, so the queued request is the one that is woken to create.
 	#[tokio::test]
 	async fn new_requests_do_not_create_before_queued_requests() {
 		let pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
@@ -952,6 +957,7 @@ mod tests {
 		low.abort();
 	}
 
+	// When a leased value is dispatched to a request whose receiver has been dropped, the value is returned to the pool rather than lost.
 	#[tokio::test]
 	async fn cancelled_lease_receiver_returns_value() {
 		let pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
@@ -974,6 +980,7 @@ mod tests {
 		assert_eq!(pool.available(), 1);
 	}
 
+	// A single value can be shared up to the configured shared limit, and a further shared request waits until a shared guard is dropped.
 	#[tokio::test]
 	async fn shared_guards_respect_the_limit() {
 		let mut options = options(1);
@@ -993,6 +1000,7 @@ mod tests {
 		assert_eq!(*c, 0);
 	}
 
+	// A shared waiter that arrives during another request's creation shares the newly created value once it becomes available rather than creating a second value.
 	#[tokio::test]
 	async fn shared_waiters_can_use_a_newly_created_value() {
 		let mut options = options(1);
@@ -1028,6 +1036,7 @@ mod tests {
 		assert_eq!(*second, 0);
 	}
 
+	// An exclusive request cannot acquire a value that is currently held by a shared guard, so it waits until the shared guard is dropped.
 	#[tokio::test]
 	async fn shared_and_exclusive_access_exclude_each_other() {
 		let pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
@@ -1042,6 +1051,7 @@ mod tests {
 		assert_eq!(*exclusive.await.unwrap(), 0);
 	}
 
+	// A later shared request does not jump ahead of an earlier queued exclusive request to share an active value, so the exclusive request is served first.
 	#[tokio::test]
 	async fn shared_requests_do_not_bypass_queued_exclusive_requests() {
 		let mut options = options(1);
@@ -1067,6 +1077,7 @@ mod tests {
 		assert_eq!(*shared_.await.unwrap(), 0);
 	}
 
+	// Waiters are served by descending priority and, within the same priority, in first in first out order.
 	#[tokio::test]
 	async fn priority_and_fifo_order_are_preserved() {
 		let pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
@@ -1098,6 +1109,7 @@ mod tests {
 		assert_eq!(low.await.unwrap(), 0);
 	}
 
+	// A cancelled waiter is skipped when a value becomes available, so the next live waiter receives the value.
 	#[tokio::test]
 	async fn cancelled_waiters_are_skipped() {
 		let pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
@@ -1115,6 +1127,7 @@ mod tests {
 		assert_eq!(*next.await.unwrap(), 0);
 	}
 
+	// The pool creates at most the maximum number of values, so a further request waits rather than creating an additional value.
 	#[tokio::test]
 	async fn creation_stops_at_max() {
 		let created = Arc::new(AtomicUsize::new(0));
@@ -1139,6 +1152,7 @@ mod tests {
 		drop(b);
 	}
 
+	// A shared request reuses an already active value with available shared capacity rather than creating a new value.
 	#[tokio::test]
 	async fn shared_reuses_active_value_before_creating() {
 		let mut options = options(2);
@@ -1158,6 +1172,7 @@ mod tests {
 		assert_eq!(created.load(Ordering::SeqCst), 1);
 	}
 
+	// Discarding an exclusive guard removes its value and frees capacity, so the next request creates a fresh value.
 	#[tokio::test]
 	async fn discarded_exclusive_guard_frees_capacity() {
 		let created = Arc::new(AtomicUsize::new(0));
@@ -1174,6 +1189,7 @@ mod tests {
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 1);
 	}
 
+	// Discarding a shared guard prevents the value from being reused, so the next shared request creates a fresh value.
 	#[tokio::test]
 	async fn discarded_shared_guard_is_not_reused() {
 		let mut options = options(1);
@@ -1192,6 +1208,7 @@ mod tests {
 		assert_eq!(*pool.get_shared(Priority::default()).await.unwrap(), 1);
 	}
 
+	// A value with a discarded shared guard is removed only once all of its other shared guards are dropped, so a waiter is served only afterward.
 	#[tokio::test]
 	async fn discarded_shared_guard_waits_for_other_shared_guards() {
 		let mut options = options(1);
@@ -1217,6 +1234,7 @@ mod tests {
 		assert_eq!(*next.await.unwrap(), 1);
 	}
 
+	// Clearing the pool immediately drops available values and retires active values so that they are dropped once their guards are released.
 	#[tokio::test]
 	async fn clear_drops_available_values_and_retires_active_values() {
 		let mut options = options(2);
@@ -1232,6 +1250,7 @@ mod tests {
 		assert_eq!(drops.load(Ordering::SeqCst), 2);
 	}
 
+	// After clearing, each still active exclusive guard retains its capacity slot, so a new request can create immediately only once a retired guard is dropped.
 	#[tokio::test]
 	async fn clear_retains_capacity_for_each_active_exclusive_guard() {
 		let created = Arc::new(AtomicUsize::new(0));
@@ -1262,6 +1281,7 @@ mod tests {
 		assert_eq!(*next_b.await.unwrap(), 3);
 	}
 
+	// Dropping an exclusive guard that was retired by a clear does not repopulate the entry created after the clear, so subsequent requests create fresh values.
 	#[tokio::test]
 	async fn cleared_exclusive_guard_does_not_repopulate_new_exclusive_entry() {
 		let created = Arc::new(AtomicUsize::new(0));
@@ -1283,6 +1303,7 @@ mod tests {
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 3);
 	}
 
+	// A creation that completes after a clear is discarded and its value dropped, so the original request retries and creates a new value.
 	#[tokio::test]
 	async fn clear_discards_pending_creation() {
 		let (sender, receiver) = tokio::sync::oneshot::channel::<()>();
@@ -1321,6 +1342,7 @@ mod tests {
 		assert_eq!(drops.load(Ordering::SeqCst), 1);
 	}
 
+	// Clearing releases the capacity reserved by a pending creation, so a new request can proceed without waiting for the retired creation.
 	#[tokio::test]
 	async fn clear_releases_capacity_from_pending_creation() {
 		let (_sender, receiver) = tokio::sync::oneshot::channel::<()>();
@@ -1359,6 +1381,7 @@ mod tests {
 		retired.abort();
 	}
 
+	// An error from a creation that completes after a clear is discarded rather than returned, so the request retries and ultimately succeeds.
 	#[tokio::test]
 	async fn clear_discards_errors_from_pending_creation() {
 		let (sender, receiver) = tokio::sync::oneshot::channel::<()>();
@@ -1397,6 +1420,7 @@ mod tests {
 		assert_eq!(attempts.load(Ordering::SeqCst), 2);
 	}
 
+	// A value created under a zero time to live is not pruned before the requesting checkout receives it.
 	#[tokio::test]
 	async fn zero_ttl_does_not_expire_a_newly_created_value_before_checkout() {
 		let mut options = options(1);
@@ -1405,6 +1429,7 @@ mod tests {
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 0);
 	}
 
+	// When several values are available, an exclusive lease reuses the value with the most recent expiration first.
 	#[tokio::test]
 	async fn ttl_reuse_is_most_recent_first() {
 		let pool = Pool::new(options(2), || async { Ok::<_, Error>(0) });
@@ -1418,6 +1443,7 @@ mod tests {
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 1);
 	}
 
+	// Expiration prunes expired values down to the configured minimum, leaving exactly the minimum number available.
 	#[tokio::test]
 	async fn ttl_expiration_drops_to_min() {
 		let mut options = options(3);
@@ -1431,6 +1457,7 @@ mod tests {
 		assert_eq!(pool.available(), 1);
 	}
 
+	// When pruning down to the minimum, expiration keeps the most recently added values and discards the older ones.
 	#[tokio::test]
 	async fn ttl_expiration_keeps_the_most_recent_min_values() {
 		let mut options = options(2);
@@ -1444,6 +1471,7 @@ mod tests {
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 2);
 	}
 
+	// The background expiration task prunes expired values down to the minimum without any further pool activity.
 	#[tokio::test]
 	async fn ttl_task_expires_values_without_pool_activity() {
 		let mut options = options(3);
@@ -1458,6 +1486,7 @@ mod tests {
 		assert_eq!(drops.load(Ordering::SeqCst), 2);
 	}
 
+	// The background expiration task does not hold a strong reference to the pool, so dropping the pool drops its values even with a long time to live.
 	#[tokio::test]
 	async fn ttl_task_does_not_keep_the_pool_alive() {
 		let mut options = options(1);
@@ -1471,6 +1500,7 @@ mod tests {
 		assert_eq!(drops.load(Ordering::SeqCst), 1);
 	}
 
+	// After expiring one value, the background expiration task reschedules and continues to expire the next value at its later deadline.
 	#[tokio::test]
 	async fn ttl_task_continues_to_the_next_expiration() {
 		let mut options = options(3);
@@ -1484,6 +1514,7 @@ mod tests {
 		assert_eq!(drops.load(Ordering::SeqCst), 2);
 	}
 
+	// A creation error does not consume a capacity slot, so a subsequent request can create a value successfully.
 	#[tokio::test]
 	async fn factory_errors_do_not_consume_capacity() {
 		let attempts = Arc::new(AtomicUsize::new(0));
@@ -1507,6 +1538,7 @@ mod tests {
 		assert_eq!(*pool.get_exclusive(Priority::default()).await.unwrap(), 1);
 	}
 
+	// When a request that was creating a value is cancelled, the freed capacity wakes a waiting request so that it can create the value instead.
 	#[tokio::test]
 	async fn cancelled_creation_wakes_a_waiter() {
 		let attempts = Arc::new(AtomicUsize::new(0));
@@ -1545,6 +1577,7 @@ mod tests {
 		assert_eq!(*guard, 1);
 	}
 
+	// When a waiter drops the creation response it was sent, the reserved capacity is released and the next queued waiter is woken to create.
 	#[tokio::test]
 	async fn cancelled_creation_response_wakes_a_waiter() {
 		let pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
@@ -1580,6 +1613,7 @@ mod tests {
 		assert!(matches!(response, Response::Create(_)));
 	}
 
+	// A creation error is returned to the request that initiated the creation, and the freed capacity wakes a waiter that then creates successfully.
 	#[tokio::test]
 	async fn factory_errors_are_returned_to_the_creator_and_wake_a_waiter() {
 		let attempts = Arc::new(AtomicUsize::new(0));
@@ -1610,6 +1644,7 @@ mod tests {
 		assert_eq!(*waiter.await.unwrap(), 1);
 	}
 
+	// When a creating request is cancelled, the waiters retain their relative order so that the earliest queued waiter is served first.
 	#[tokio::test]
 	async fn cancelled_creation_preserves_waiter_order() {
 		let attempts = Arc::new(AtomicUsize::new(0));

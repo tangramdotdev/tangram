@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local
+# Eagerly pushing a graph pointer reference fails with an error reporting that an object was expected but a pointer was given.
+
+let remote = spawn --cloud --name remote
+let local = spawn --name local
 let output = tg remote put default $remote.url | complete
 success $output
 let artifact = '

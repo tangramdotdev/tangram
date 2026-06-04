@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A destructive checkin of a package with a cyclic path dependency produces the expected graph object in the cache.
+
 let server = spawn
 
 # Check for cyclic dependencies.

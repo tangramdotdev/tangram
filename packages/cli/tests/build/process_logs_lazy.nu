@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn -n remote
-let local = spawn -n local
+# Pushing a process's logs lazily makes them readable from the remote, and a lazy log push of a process with no logs still succeeds.
+
+let remote = spawn --name remote
+let local = spawn --name local
 
 let path = artifact {
 	tangram.ts: '
@@ -12,7 +14,7 @@ let path = artifact {
 	'
 }
 
-let id = tg build -d $path | str trim
+let id = tg build --detach $path | str trim
 tg wait $id
 
 tg remote put default $remote.url
@@ -36,7 +38,7 @@ let no_log_path = artifact {
 	'
 }
 
-let no_log_id = tg build -d $no_log_path | str trim
+let no_log_id = tg build --detach $no_log_path | str trim
 tg wait $no_log_id
 
 let output = tg push --lazy --logs $no_log_id | complete

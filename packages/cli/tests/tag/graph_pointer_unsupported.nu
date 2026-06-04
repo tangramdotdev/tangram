@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# tg tag put fails when the item is a graph pointer reference, because tagging graph pointers is unsupported.
+
 let server = spawn
 
 # Put a graph and capture its id.

@@ -1,5 +1,7 @@
 use ../test.nu *
 
+# A package with a circular dependency between two packages can be built, cleaned, and built again successfully.
+
 # Create a server.
 let server = spawn
 
@@ -22,16 +24,16 @@ let path = artifact {
 let foo_path = $path | path join foo
 
 # Checkin the artifact.
-let id = tg -u $server.url checkin $foo_path | from json
+let id = tg --url $server.url checkin $foo_path | from json
 
 # Tag the artifact.
-tg -u $server.url tag foo $id
+tg --url $server.url tag foo $id
 
 # Build the artifact.
-tg -u $server.url build foo
+tg --url $server.url build foo
 
 # Clean the server.
-tg -u $server.url clean
+tg --url $server.url clean
 
 # Build the artifact again after clean.
-tg -u $server.url build foo
+tg --url $server.url build foo

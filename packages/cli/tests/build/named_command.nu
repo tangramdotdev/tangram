@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Building a package with a named export selects that export's command and returns its value.
+
 let server = spawn
 
 let path = artifact {

@@ -1,4 +1,4 @@
-# This test verifies that tg.Unresolved<tg.Command<A, R>> properly accepts functions of the correct type.
+# tg.Unresolved<tg.Command<A, R>> properly accepts functions of the correct type.
 use ../../test.nu *
 
 let server = spawn

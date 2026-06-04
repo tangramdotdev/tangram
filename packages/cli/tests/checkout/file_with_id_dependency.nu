@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a file with an id-keyed dependency, with dependencies disabled, materializes only the file on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

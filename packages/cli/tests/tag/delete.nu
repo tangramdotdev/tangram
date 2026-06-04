@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# tg tag delete removes a single leaf tag, refuses star patterns and empty patterns, and does not delete a namespace that still has or once had children.
+
 let server = spawn
 
 # Create and tag an artifact.

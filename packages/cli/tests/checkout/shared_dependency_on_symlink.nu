@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a directory whose two files share a dependency on the same directory containing a symlink, with dependencies enabled, materializes the shared dependency on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

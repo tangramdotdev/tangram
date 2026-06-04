@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A build can produce a symlink that points to an artifact and the resulting object and cached output match their snapshots.
+
 let server = spawn --busybox
 
 let path = artifact {

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that `tg run -b .` caches artifacts referenced in the command before executing.
+# `tg run --build .` caches artifacts referenced in the command before executing.
 
 let server = spawn
 
@@ -24,7 +24,7 @@ let path = artifact {
 }
 
 # The command's args template references a directory artifact that must be cached.
-let output = tg run -b $path | complete
+let output = tg run --build $path | complete
 success $output
 snapshot $output.stdout '
 	Hello from cached artifact

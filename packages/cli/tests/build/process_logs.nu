@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn -n remote
-let local = spawn -n local
+# A process's stdout, stderr, combined, and mid-stream-position logs can be read both locally and after pushing the logs to a remote.
+
+let remote = spawn --name remote
+let local = spawn --name local
 
 let path = artifact {
 	tangram.ts: '
@@ -14,7 +16,7 @@ let path = artifact {
 	'
 }
 
-let id = tg build -d $path | str trim
+let id = tg build --detach $path | str trim
 tg wait $id
 
 let combined = tg process log $id o+e>| complete

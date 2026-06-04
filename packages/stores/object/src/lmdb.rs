@@ -219,6 +219,7 @@ impl Key<'_> {
 mod tests {
 	use {super::*, bytes::Bytes, std::borrow::Cow};
 
+	// An object put with bytes can be retrieved with the same bytes.
 	#[tokio::test]
 	async fn test_put_and_get_object() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -263,6 +264,7 @@ mod tests {
 		);
 	}
 
+	// An object first put without bytes stores no bytes and a later put with bytes makes the bytes retrievable.
 	#[tokio::test]
 	async fn test_put_object_without_bytes_then_with_bytes() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -334,6 +336,7 @@ mod tests {
 		);
 	}
 
+	// An object put and retrieved through the synchronous functions, as the server uses them, round-trips the bytes.
 	#[tokio::test]
 	async fn test_put_and_get_object_sync() {
 		// This test mimics what the server does using sync functions.
@@ -378,6 +381,7 @@ mod tests {
 		);
 	}
 
+	// An object put through the batch function can be retrieved with the same bytes.
 	#[tokio::test]
 	async fn test_put_batch_and_get_object() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -419,6 +423,7 @@ mod tests {
 		);
 	}
 
+	// A get by the same principal that was granted access returns the grant and the object bytes.
 	#[tokio::test]
 	async fn test_object_grant_authorizes_matching_principal() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -462,6 +467,7 @@ mod tests {
 		);
 	}
 
+	// A non-subtree grant can be upgraded to a subtree grant by a subsequent grant call.
 	#[tokio::test]
 	async fn test_object_grant_can_be_upgraded_to_subtree() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -519,6 +525,7 @@ mod tests {
 		assert!(output.grants.iter().any(|grant| grant.subtree));
 	}
 
+	// A get by a principal different from the one granted access returns the object but no grants.
 	#[tokio::test]
 	async fn test_object_grant_does_not_authorize_different_principal() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -558,6 +565,7 @@ mod tests {
 		assert!(output.object.is_some());
 	}
 
+	// A grant is no longer returned once the requested time is past its time to live, while the object remains.
 	#[tokio::test]
 	async fn test_object_grant_expires() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -598,6 +606,7 @@ mod tests {
 		assert!(output.object.is_some());
 	}
 
+	// Deleting an object removes both the object and its grants.
 	#[tokio::test]
 	async fn test_delete_removes_object_grants() {
 		let temp = tangram_util::fs::Temp::new().unwrap();

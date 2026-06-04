@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A process that fails with an internal error is not reused as a cache hit, so a second build of the same command runs a fresh process.
+
 let server = spawn
 
 let path = artifact {
@@ -15,7 +17,7 @@ let path = artifact {
 	',
 }
 
-let first = tg build -dv $"($path)#first" | from json
+let first = tg build --detach --verbose $"($path)#first" | from json
 let first_output = tg output $first.process | complete
 failure $first_output
 
@@ -24,7 +26,7 @@ let first_error = tg get $first_child | from json | get error
 let first_error_pretty = tg get $first_error --pretty
 assert ($first_error_pretty | str contains '"code": "internal"') "The error should have the internal code."
 
-let second = tg build -dv $"($path)#second" | from json
+let second = tg build --detach --verbose $"($path)#second" | from json
 let second_output = tg output $second.process | complete
 failure $second_output
 

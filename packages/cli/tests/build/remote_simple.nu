@@ -1,10 +1,12 @@
 use ../../test.nu *
 
+# A remote build executed through a runner completes with a zero exit code and returns the expected output.
+
 # Start the remote server.
 let config = {
 	runner: false,
 }
-let remote = spawn -n remote --cloud --config $config
+let remote = spawn --name remote --cloud --config $config
 
 # Start the runner server.
 let config = {
@@ -17,7 +19,7 @@ let config = {
 		remote: "default",
 	}
 }
-let runner = spawn -n runner --config $config
+let runner = spawn --name runner --config $config
 
 # Start the local server.
 let config = {
@@ -27,7 +29,7 @@ let config = {
 		}
 	}
 }
-let local = spawn -n local --config $config
+let local = spawn --name local --config $config
 
 let path = artifact {
 	tangram.ts: '
@@ -37,7 +39,7 @@ let path = artifact {
 };
 
 # Run a remote build
-let id = tg build --remote -d $path
+let id = tg build --remote --detach $path
 let output = tg wait $id | from json
 assert ($output.exit == 0)
 snapshot $output.output '42'

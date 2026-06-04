@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that --watch with --no-solve skips dependency resolution.
+# --watch with --no-solve skips dependency resolution.
 
 let server = spawn
 

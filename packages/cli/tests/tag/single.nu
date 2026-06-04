@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A single tag put on a checked-in artifact can be listed and retrieved with tg list and tg tag get.
+
 let server = spawn
 
 # Write the artifact to a temp.
@@ -14,7 +16,7 @@ tg tag put $pattern $id
 
 # List tags.
 let list_output = tg list --no-groups
-snapshot -n list $list_output
+snapshot --name list $list_output
 
 # Get tag.
 let tag = tg tag get $pattern | from json

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The tg.File.raw template literal preserves the leading indentation and whitespace of a multiline file and the text matches the snapshot.
+
 let server = spawn
 
 let path = artifact {

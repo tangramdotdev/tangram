@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n push
-let local = spawn -n local
+# Indexing computes the expected process metadata locally and the metadata matches after pushing the process to a remote and indexing there.
+
+let remote = spawn --cloud --name push
+let local = spawn --name local
 tg remote put default $remote.url
 
 let path = artifact {
@@ -9,15 +11,15 @@ let path = artifact {
 		export default () => {};
 	'#
 }
-let id = tg build -d $path | str trim
+let id = tg build --detach $path | str trim
 tg wait $id
 
 tg index
 
 let metadata = tg process metadata $id | from json
 let metadata = $metadata | update node.command { reject size } | update subtree.command { reject size }
-let metadata = $metadata | to json -i 2
-snapshot -n local_metadata $metadata '
+let metadata = $metadata | to json --indent 2
+snapshot --name local_metadata $metadata '
 	{
 	  "node": {
 	    "command": {
@@ -83,10 +85,10 @@ snapshot -n local_metadata $metadata '
 
 tg push $id
 
-tg -u $remote.url index
+tg --url $remote.url index
 
-let remote_metadata = tg -u $remote.url metadata --pretty $id
-snapshot -n remote_metadata $remote_metadata '
+let remote_metadata = tg --url $remote.url metadata --pretty $id
+snapshot --name remote_metadata $remote_metadata '
 	{
 	  "node": {
 	    "error": {

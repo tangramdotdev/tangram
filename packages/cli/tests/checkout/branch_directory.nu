@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking out a directory whose entry count exceeds the configured max_leaf_entries, forcing it into a branch directory, materializes all of the entries with their correct contents.
+
 # Spawn a server with a small max_leaf_entries to trigger branch directories with few files.
 let server = spawn --config {
 	checkin: {
@@ -23,8 +25,8 @@ let path = artifact {
 let id = tg checkin $path
 
 # Checkout the branch directory.
-let checkout_path = mktemp -d | path join 'checkout'
+let checkout_path = mktemp --directory | path join 'checkout'
 tg checkout $id $checkout_path
 
 # Verify all files are present and have correct contents.
-snapshot -p $checkout_path
+snapshot --path $checkout_path

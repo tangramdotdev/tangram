@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching two files that depend on each other, forming a cycle, writes the files into the artifacts cache.
+
 let server = spawn --config { write: { cache_pointers: false } }
 
 let path = artifact {
@@ -19,7 +21,7 @@ let path = artifact {
 	'#
 }
 let id = tg build --no-cache-pointers $path
-rm -rf ($server.directory | path join "artifacts")
+rm --recursive --force ($server.directory | path join "artifacts")
 mkdir ($server.directory | path join "artifacts")
 
 # Cache.

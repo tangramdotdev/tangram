@@ -5,13 +5,13 @@ use ../../test.nu *
 # Also verifies that a full push produces identical metadata.
 
 # Create the local server.
-let local = spawn -n local
+let local = spawn --name local
 
 # Create the remote server (receives incremental puts).
-let remote = spawn --cloud -n remote
+let remote = spawn --cloud --name remote
 
 # Create another server (receives a full push for comparison).
-let other = spawn --cloud -n other
+let other = spawn --cloud --name other
 
 # Create a package that imports the tagged dependency.
 let path = artifact {
@@ -22,35 +22,35 @@ let path = artifact {
 }
 
 # Check in the package on the local server.
-let id = tg -u $local.url checkin --unsolved-dependencies $path
+let id = tg --url $local.url checkin --unsolved-dependencies $path
 let dir_id = $id
 
 # Get the file id.
-let output = tg -u $local.url children $id
+let output = tg --url $local.url children $id
 let fil_id = $output | from json | get 0
 
 # Get the blob id.
-let output = tg -u $local.url children $fil_id
+let output = tg --url $local.url children $fil_id
 let blb_id = $output | from json | get 0
 
 # Index the local server to get the expected metadata.
-tg -u $local.url index
-let expected_metadata = tg -u $local.url object metadata $dir_id --pretty
+tg --url $local.url index
+let expected_metadata = tg --url $local.url object metadata $dir_id --pretty
 
 # Put only the directory to the remote server.
-tg -u $local.url get --bytes $dir_id | tg -u $remote.url put --bytes -k dir
+tg --url $local.url get --bytes $dir_id | tg --url $remote.url put --bytes --kind dir
 
 # The directory should exist on remote server, but file should not.
-let output = tg -u $remote.url get $dir_id | complete
+let output = tg --url $remote.url get $dir_id | complete
 success $output "directory should exist on remote server"
 
-let output = tg -u $remote.url get $fil_id | complete
+let output = tg --url $remote.url get $fil_id | complete
 failure $output "file should NOT exist on remote server"
 
 # Index and check metadata - should be incomplete.
-tg -u $remote.url index
-let incomplete_metadata = tg -u $remote.url object metadata $dir_id --pretty
-snapshot -n incomplete_metadata $incomplete_metadata '
+tg --url $remote.url index
+let incomplete_metadata = tg --url $remote.url object metadata $dir_id --pretty
+snapshot --name incomplete_metadata $incomplete_metadata '
 	{
 	  "node": {
 	    "size": 60,
@@ -61,12 +61,12 @@ snapshot -n incomplete_metadata $incomplete_metadata '
 '
 
 # Now put the file
-tg -u $local.url get --bytes $fil_id | tg -u $remote.url put --bytes -k fil
+tg --url $local.url get --bytes $fil_id | tg --url $remote.url put --bytes --kind fil
 
 # Index and check metadata - should still be incomplete because blob is missing.
-tg -u $remote.url index
-let partial_metadata = tg -u $remote.url object metadata $dir_id --pretty
-snapshot -n partial_metadata $partial_metadata '
+tg --url $remote.url index
+let partial_metadata = tg --url $remote.url object metadata $dir_id --pretty
+snapshot --name partial_metadata $partial_metadata '
 	{
 	  "node": {
 	    "size": 60,
@@ -77,12 +77,12 @@ snapshot -n partial_metadata $partial_metadata '
 '
 
 # Now put the blob.
-tg -u $local.url get --bytes $blb_id | tg -u $remote.url put --bytes -k blob
+tg --url $local.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
 
 # Index and check metadata - should now be complete.
-tg -u $remote.url index
-let complete_metadata = tg -u $remote.url object metadata $dir_id --pretty
-snapshot -n complete_metadata $complete_metadata '
+tg --url $remote.url index
+let complete_metadata = tg --url $remote.url object metadata $dir_id --pretty
+snapshot --name complete_metadata $complete_metadata '
 	{
 	  "node": {
 	    "size": 60,
@@ -103,12 +103,12 @@ snapshot -n complete_metadata $complete_metadata '
 assert equal $complete_metadata $expected_metadata
 
 # Now test push: add the other server as a remote and push the directory.
-tg -u $local.url remote put push $other.url
-tg -u $local.url push --remote=push $dir_id
+tg --url $local.url remote put push $other.url
+tg --url $local.url push --remote=push $dir_id
 
 # Index the other server and verify metadata matches.
-tg -u $other.url index
-let other_metadata = tg -u $other.url object metadata $dir_id --pretty
+tg --url $other.url index
+let other_metadata = tg --url $other.url object metadata $dir_id --pretty
 
 # All three servers should have identical metadata.
 assert equal $other_metadata $expected_metadata

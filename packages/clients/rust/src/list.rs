@@ -267,6 +267,7 @@ pub fn compare(a: &str, b: &str) -> Ordering {
 mod tests {
 	use super::*;
 
+	// Numeric segments compare by value, ignoring leading zeros.
 	#[test]
 	fn test_compare_numeric_leading_zeros() {
 		assert_eq!(compare("1.0010", "1.10"), Ordering::Equal);
@@ -275,6 +276,7 @@ mod tests {
 		assert_eq!(compare("000", "0"), Ordering::Equal);
 	}
 
+	// Numeric segments are ordered by their integer value rather than lexically.
 	#[test]
 	fn test_compare_numeric_segments() {
 		assert_eq!(compare("1.0010", "1.9"), Ordering::Greater);
@@ -283,6 +285,7 @@ mod tests {
 		assert_eq!(compare("1.2", "1.10"), Ordering::Less);
 	}
 
+	// A version with additional segments is ordered after a shorter prefix of it.
 	#[test]
 	fn test_compare_length_differs() {
 		assert_eq!(compare("1.0", "1"), Ordering::Greater);
@@ -291,6 +294,7 @@ mod tests {
 		assert_eq!(compare("1.2", "1.2.3"), Ordering::Less);
 	}
 
+	// Non-alphanumeric separator characters are ignored when comparing versions.
 	#[test]
 	fn test_compare_separators_ignored() {
 		assert_eq!(compare("fc4", "fc.4"), Ordering::Equal);
@@ -299,6 +303,7 @@ mod tests {
 		assert_eq!(compare("a_b_c", "a.b.c"), Ordering::Equal);
 	}
 
+	// A numeric segment is ordered after an alphabetic segment at the same position.
 	#[test]
 	fn test_compare_numeric_vs_alphabetic() {
 		assert_eq!(compare("2a", "2.0"), Ordering::Less);
@@ -308,6 +313,7 @@ mod tests {
 		assert_eq!(compare("0", "Z"), Ordering::Greater);
 	}
 
+	// Alphabetic segments are compared case-sensitively, so uppercase sorts before lowercase.
 	#[test]
 	fn test_compare_alphabetic_case_sensitive() {
 		assert_eq!(compare("FC5", "fc4"), Ordering::Less);
@@ -316,6 +322,7 @@ mod tests {
 		assert_eq!(compare("ZULU", "add"), Ordering::Less);
 	}
 
+	// Alphabetic segments are ordered lexicographically.
 	#[test]
 	fn test_compare_alphabetic_lexicographic() {
 		assert_eq!(compare("b", "a"), Ordering::Greater);
@@ -324,6 +331,7 @@ mod tests {
 		assert_eq!(compare("xyz", "abc"), Ordering::Greater);
 	}
 
+	// Identical version strings, including empty strings, compare as equal.
 	#[test]
 	fn test_compare_equal() {
 		assert_eq!(compare("1.0", "1.0"), Ordering::Equal);
@@ -332,6 +340,7 @@ mod tests {
 		assert_eq!(compare("", ""), Ordering::Equal);
 	}
 
+	// An empty string is ordered before any non-empty string.
 	#[test]
 	fn test_compare_empty_strings() {
 		assert_eq!(compare("", "1"), Ordering::Less);
@@ -340,6 +349,7 @@ mod tests {
 		assert_eq!(compare("a", ""), Ordering::Greater);
 	}
 
+	// Versions mixing numeric, alphabetic, and tilde segments compare correctly.
 	#[test]
 	fn test_compare_complex_mixed() {
 		assert_eq!(compare("1.2alpha3", "1.2alpha4"), Ordering::Less);
@@ -348,6 +358,7 @@ mod tests {
 		assert_eq!(compare("1.2.3~rc1", "1.2.3"), Ordering::Less);
 	}
 
+	// A tilde segment sorts before everything else, including the absence of a segment.
 	#[test]
 	fn test_compare_tilde() {
 		assert_eq!(compare("1.0~rc1", "1.0"), Ordering::Less);
@@ -357,6 +368,7 @@ mod tests {
 		assert_eq!(compare("1.0~", "1.0"), Ordering::Less);
 	}
 
+	// Runs of arbitrary separator characters are all ignored when comparing versions.
 	#[test]
 	fn test_compare_all_separators() {
 		assert_eq!(compare("1...2", "1.2"), Ordering::Equal);
@@ -364,6 +376,7 @@ mod tests {
 		assert_eq!(compare("1@#$%2", "1.2"), Ordering::Equal);
 	}
 
+	// The comparison produces the expected ordering for realistic semantic version strings.
 	#[test]
 	fn test_compare_realistic_versions() {
 		assert_eq!(compare("1.0.0", "0.9.9"), Ordering::Greater);
@@ -373,6 +386,7 @@ mod tests {
 		assert_eq!(compare("3.14.159", "3.14.16"), Ordering::Greater);
 	}
 
+	// The wildcard pattern matches any version string.
 	#[test]
 	fn test_matches_star() {
 		assert!(matches("1.0.0", "*"));
@@ -380,6 +394,7 @@ mod tests {
 		assert!(matches("", "*"));
 	}
 
+	// A bare version pattern matches only an identical version.
 	#[test]
 	fn test_matches_exact() {
 		assert!(matches("1.0.0", "1.0.0"));
@@ -388,6 +403,7 @@ mod tests {
 		assert!(!matches("1.2.3", "1.2.4"));
 	}
 
+	// The greater-than operator matches only versions strictly above the bound.
 	#[test]
 	fn test_matches_greater_than() {
 		assert!(matches("2.0.0", ">1.0.0"));
@@ -396,6 +412,7 @@ mod tests {
 		assert!(!matches("0.9", ">1.0"));
 	}
 
+	// The greater-than-or-equal operator matches versions at or above the bound.
 	#[test]
 	fn test_matches_greater_than_or_equal() {
 		assert!(matches("2.0.0", ">=1.0.0"));
@@ -404,6 +421,7 @@ mod tests {
 		assert!(!matches("0.9", ">=1.0"));
 	}
 
+	// The less-than operator matches only versions strictly below the bound.
 	#[test]
 	fn test_matches_less_than() {
 		assert!(matches("0.9", "<1.0"));
@@ -412,6 +430,7 @@ mod tests {
 		assert!(!matches("2.0", "<1.0"));
 	}
 
+	// The less-than-or-equal operator matches versions at or below the bound.
 	#[test]
 	fn test_matches_less_than_or_equal() {
 		assert!(matches("0.9", "<=1.0"));
@@ -420,6 +439,7 @@ mod tests {
 		assert!(!matches("1.1", "<=1.0"));
 	}
 
+	// The explicit equality operator matches only an identical version.
 	#[test]
 	fn test_matches_equal_operator() {
 		assert!(matches("1.0.0", "=1.0.0"));
@@ -427,6 +447,7 @@ mod tests {
 		assert!(!matches("1.0.1", "=1.0.0"));
 	}
 
+	// The caret operator matches versions from the bound up to the next major version.
 	#[test]
 	fn test_matches_caret() {
 		assert!(matches("1.2.3", "^1.2.3"));
@@ -440,6 +461,7 @@ mod tests {
 		assert!(!matches("3.0.0", "^1.2.3"));
 	}
 
+	// A comma-separated pattern matches only versions satisfying every constraint.
 	#[test]
 	fn test_matches_multiple_constraints() {
 		assert!(matches("1.5", ">=1.0,<2.0"));
@@ -450,6 +472,7 @@ mod tests {
 		assert!(!matches("2.1", ">=1.0,<2.0"));
 	}
 
+	// Range matching treats tilde prerelease versions as ordered before their release.
 	#[test]
 	fn test_matches_with_tilde() {
 		assert!(matches("1.0~rc1", "<1.0"));
@@ -458,6 +481,7 @@ mod tests {
 		assert!(!matches("1.0", "<1.0~rc1"));
 	}
 
+	// Combined lower- and upper-bound range patterns match versions within the range.
 	#[test]
 	fn test_matches_complex_patterns() {
 		assert!(matches("1.2.5", ">=1.2.0,<1.3.0"));

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reproduces a bug where reading a compacted log fails with early eof.
 
-let remote = spawn -n remote
+let remote = spawn --name remote
 
 let path = artifact {
 	tangram.ts: '
@@ -14,7 +14,7 @@ let path = artifact {
 	'
 }
 
-let id = tg build -d $path | str trim
+let id = tg build --detach $path | str trim
 tg wait $id
 tg remote put default $remote.url | complete
 tg push --logs $id

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A watched package whose tag dependency does not yet exist checks in unsolved, then resolves the dependency once the tag is created.
+
 let server = spawn
 
 # Create a package that depends on a/^1 which does not exist yet.
@@ -14,7 +16,7 @@ let id1 = tg checkin --watch --unsolved-dependencies $path
 tg index
 
 let object1 = tg object get --blobs --depth=inf --pretty $id1
-snapshot -n object_before $object1
+snapshot --name object_before $object1
 
 # Now create the tag.
 let a = artifact {
@@ -27,8 +29,8 @@ let id2 = tg checkin --watch $path
 tg index
 
 let object2 = tg object get --blobs --depth=inf --pretty $id2
-snapshot -n object_after $object2
+snapshot --name object_after $object2
 
 let lockfile_path = $path | path join 'tangram.lock'
 let lock = open $lockfile_path | from json
-snapshot -n lock ($lock | to json -i 2)
+snapshot --name lock ($lock | to json --indent 2)

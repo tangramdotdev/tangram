@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Calling process.signal with TERM on a running unsandboxed process terminates it and wait reports the corresponding exit status.
+
 let server = spawn --busybox
 
 let path = artifact {

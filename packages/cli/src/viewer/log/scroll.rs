@@ -510,6 +510,7 @@ mod tests {
 		tangram_client::prelude::*,
 	};
 
+	// Scrolling up by one line and then back down by one line returns to the original start, end, and rendered lines.
 	#[test]
 	fn scroll_up_and_down() {
 		let chunks = [Chunk {
@@ -530,6 +531,7 @@ mod tests {
 		assert_eq!(init_lines.content, lines.content);
 	}
 
+	// An invalid UTF-8 byte between valid chunks is decoded as the replacement character when stepping graphemes forward and backward.
 	#[test]
 	fn invalid_utf8() {
 		let chunks = vec![
@@ -571,6 +573,7 @@ mod tests {
 		assert_eq!(ch, "a");
 	}
 
+	// Multi-byte emoji graphemes spanning chunks render into the expected lines for both non-trailing and trailing newline cases.
 	#[test]
 	fn emoji() {
 		// Non tailing case.
@@ -636,6 +639,7 @@ mod tests {
 		);
 	}
 
+	// Emoji wider than the view wrap onto separate lines at the width boundary.
 	#[test]
 	fn word_wrap_emoji() {
 		let chunks = vec![Chunk {
@@ -649,6 +653,7 @@ mod tests {
 		assert_eq!(&lines.content[1], "😀");
 	}
 
+	// Reading lines from a freshly tailed scroll produces one line per chunk plus the trailing empty line.
 	#[test]
 	fn tailing() {
 		let mut position = 0;
@@ -668,6 +673,7 @@ mod tests {
 		assert_eq!(lines.content.len(), chunks.len() + 1);
 	}
 
+	// Scrolling up moves the position toward the start and clamps at zero once the top is reached.
 	#[test]
 	fn scroll_up() {
 		let mut buffer = Vec::new();
@@ -699,6 +705,7 @@ mod tests {
 		assert_eq!(new_position, 0);
 	}
 
+	// Scrolling down moves the position toward the end and clamps at the end once it is reached.
 	#[test]
 	fn scroll_down() {
 		let mut buffer = Vec::new();
@@ -739,6 +746,7 @@ mod tests {
 		);
 	}
 
+	// Scrolling up past the beginning of the available chunks reports a prepend error.
 	#[test]
 	fn incomplete() {
 		let mut buffer = Vec::new();

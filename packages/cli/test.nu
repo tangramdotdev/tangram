@@ -15,9 +15,13 @@ def main [
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
+	--offline # Skip tests which require network access.
 	--print-passing-test-output # Print the output of passing tests.
 	--quickjs # Use QuickJS as the JS engine.
+	--release # Use a release build of tangram. Some bugs are only observable in release mode.
 	--review (-r) # Review snapshots.
+	--stress # Run the matching tests repeatedly until one fails.
+	--stress-count: int # Run the matching tests this many times, then stop. Implies --stress.
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 60sec # The timeout for each test.
 	--turso # Use Turso for the server database and process store.
@@ -33,6 +37,18 @@ def main [
 	}
 	if $kernel_path != null and not ($kernel_path | path exists) {
 		error make { msg: $'--kernel-path does not exist: ($kernel_path)' }
+	}
+	# Validate the release flag combination.
+	if $release and $tangram_path != null {
+		error make { msg: '--release may not be combined with --tangram-path' }
+	}
+	# Validate the stress flag combination.
+	let stress = $stress or $stress_count != null
+	if $stress and ($accept or $review) {
+		error make { msg: '--stress may not be combined with --accept or --review' }
+	}
+	if $stress_count != null and $stress_count < 1 {
+		error make { msg: '--stress-count must be at least one' }
 	}
 	# Clean up leftover test resources if requested.
 	if $clean {
@@ -81,6 +97,10 @@ def main [
 		ln -sf $tangram_path ($tg_dir | path join 'tg')
 		path add ($tangram_path | path dirname)
 		path add $tg_dir
+	} else if $release {
+		cargo build --release --all-features
+		ln -sf tangram target/release/tg
+		path add ($repository_path | path join 'target/release')
 	} else {
 		cargo build --all-features
 		ln -sf tangram target/debug/tg
@@ -113,34 +133,58 @@ def main [
 		$jobs
 	}
 
-	let kernel_path_str = $kernel_path | default "" | into string
+	let options = {
+		cloud: $cloud,
+		offline: $offline,
+		quickjs: $quickjs,
+		no_capture: $no_capture,
+		preserve_temps: $preserve_temps,
+		stress: $stress,
+		timeout: $timeout,
+		turso: $turso,
+		vm: $vm,
+		kernel_path: ($kernel_path | default "" | into string),
+	}
 	if $no_capture {
-		for test in $tests {
-			let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $turso $vm $kernel_path_str
-			print_test_result $result $print_passing_test_output
-			$results = $results | append $result
+		mut round = 1
+		mut stop = false
+		while not $stop {
+			for test in $tests {
+				let result = run_test $test $options
+				print_test_result $result $print_passing_test_output
+				$results = $results | append $result
+				if $stress and (is_failed $result) {
+					print -e $'(ansi red)($result.name) failed on round ($round)(ansi reset)'
+					$stop = true
+					break
+				}
+			}
+			if not $stress or ($stress_count != null and $round >= $stress_count) {
+				$stop = true
+			}
+			$round = $round + 1
 		}
 	} else {
 		# Create the state.
-		mut pending = $tests
+		mut pending = round_entries $tests 1 0
+		mut next_seq = $tests | length
+		mut round = 1
+		mut stress_stopped = false
 		mut running = []
 
 		let start = date now
-		let total = $pending | length
+		let total = if $stress {
+			if $stress_count != null { ($tests | length) * $stress_count } else { 0 }
+		} else {
+			$pending | length
+		}
+		let total_display = if $stress and $stress_count == null { '∞' } else { $total }
 
 		def spawn [test: record] {
 			job spawn {
-				let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $turso $vm $kernel_path_str
-				$result | job send 0
+				let result = run_test $test $options
+				$result | merge { seq: $test.seq, round: $test.round } | job send 0
 			}
-		}
-
-		# Fill the worker pool.
-		while ($running | length) < $jobs and ($pending | length) > 0 {
-			let test = $pending | first
-			$pending = $pending | skip 1
-			let id = spawn $test
-			$running = $running | append { id: $id, name: $test.name, start: (date now) }
 		}
 
 		# Spawn a job that sends a null message every 100ms to trigger progress updates.
@@ -156,6 +200,23 @@ def main [
 
 		# Process results as they complete.
 		while ($running | length) > 0 or ($pending | length) > 0 {
+			# Keep the worker pool full. In stress mode, refill the queue with the next round as necessary, so the pool stays full even when fewer tests match than there are jobs.
+			while ($running | length) < $jobs {
+				if ($pending | is-empty) {
+					if $stress and not $stress_stopped and ($stress_count == null or $round < $stress_count) {
+						$round = $round + 1
+						$pending = round_entries $tests $round $next_seq
+						$next_seq = $next_seq + ($tests | length)
+					} else {
+						break
+					}
+				}
+				let test = $pending | first
+				$pending = $pending | skip 1
+				let id = spawn $test
+				$running = $running | append { id: $id, seq: $test.seq, name: $test.name, start: (date now) }
+			}
+
 			# Wait for the next event (either test completion or ticker).
 			let result = job recv
 
@@ -169,14 +230,13 @@ def main [
 				$results = $results | append $result
 
 				# Remove the completed job from the running list.
-				$running = $running | where name != $result.name
+				$running = $running | where seq != $result.seq
 
-				# Spawn a new job if there are more tests to run.
-				if ($pending | length) > 0 {
-					let test = $pending | first
-					$pending = $pending | skip 1
-					let id = spawn $test
-					$running = $running | append { id: $id, name: $test.name, start: (date now) }
+				# In stress mode, stop spawning new tests after the first failure.
+				if $stress and (is_failed $result) {
+					print -e $'(ansi red)($result.name) failed on round ($result.round)(ansi reset)'
+					$pending = []
+					$stress_stopped = true
 				}
 			}
 
@@ -197,13 +257,14 @@ def main [
 			# Print the progress bar.
 			let completed = $results | length
 			let passed = $results | where output.exit_code == 0 | length
-			let failed = $results | where output.exit_code != 0 | length
+			let skipped = $results | where output.exit_code == 77 | length
+			let failed = $results | where { |result| is_failed $result } | length
 			let ratio = if $total > 0 { $completed / $total } else { 0 }
 			let filled = ($ratio * 10) | math floor
 			let bar = if $filled > 0 { (1..$filled | each { '=' } | str join) + '>' } else { '>' }
 			let bar = if $filled < 10 { $bar + (1..(9 - $filled) | each { ' ' } | str join) } else { $bar }
 			let elapsed = ((date now) - $start) / 1sec | math floor | into duration -u sec
-			let progress = $'[($bar)] ($completed)/($total): ($running | length) running, (ansi green)($passed) passed(ansi reset), (ansi red)($failed) failed(ansi reset), ($elapsed)'
+			let progress = $'[($bar)] ($completed)/($total_display): ($running | length) running, (ansi green)($passed) passed(ansi reset), (ansi yellow)($skipped) skipped(ansi reset), (ansi red)($failed) failed(ansi reset), ($elapsed)'
 			print -e -n $'($progress)'
 
 			# Move the cursor up.
@@ -330,15 +391,14 @@ def main [
 
 	# Print the summary.
 	let passed = $results | where output.exit_code == 0 | length
-	let failed = $results | where output.exit_code != 0 | length
+	let skipped = $results | where output.exit_code == 77 | length
+	let failed = $results | where { |result| is_failed $result }
 	let total = $results | length
-	print -e $'(ansi green)($passed) passed(ansi reset), (ansi red)($failed) failed(ansi reset), ($total) total'
+	print -e $'(ansi green)($passed) passed(ansi reset), (ansi yellow)($skipped) skipped(ansi reset), (ansi red)($failed | length) failed(ansi reset), ($total) total'
 
 	# Print the failed tests.
-	if $failed > 0 {
-		for result in ($results | where output.exit_code != 0) {
-			print -e $'(ansi red)✗(ansi reset) ($result.name) ($result.duration)'
-		}
+	for result in $failed {
+		print -e $'(ansi red)✗(ansi reset) ($result.name) ($result.duration)'
 	}
 
 	if $preserve_temps {
@@ -349,38 +409,50 @@ def main [
 		}
 	}
 
-	if $failed > 0 {
+	if not ($failed | is-empty) {
 		exit 1
 	}
 }
 
-def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preserve_temps: bool, timeout: duration, turso: bool, vm: bool, kernel_path: string] {
+# Report whether a result represents a failure. Exit code 77 means the test was skipped.
+def is_failed [result: record] {
+	$result.output.exit_code != 0 and $result.output.exit_code != 77
+}
+
+# Create the pending entries for one round of tests. Each entry carries a unique sequence number, because in stress mode the same test may run concurrently with itself, so results cannot be matched to running entries by name.
+def round_entries [tests: list, round: int, first_seq: int] {
+	$tests | enumerate | each { |entry| $entry.item | merge { seq: ($first_seq + $entry.index), round: $round } }
+}
+
+def run_test [test: record, options: record] {
 	# Create a temp directory for this test.
 	let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
 
-	# Remove inline, pending, and touch files.
+	# Remove inline, pending, and touch files. Skip this in stress mode, because concurrent runs of the same test would race on these files.
 	let parsed = $test.path | path parse
-	for path in (glob $'($parsed.parent | path join $parsed.stem){.{inline,pending,touched},/*.{pending,touched}}') {
-		rm $path
+	if not $options.stress {
+		for path in (glob $'($parsed.parent | path join $parsed.stem){.{inline,pending,touched},/*.{pending,touched}}') {
+			rm $path
+		}
 	}
 
 	# Run the test.
 	let start = date now
-	let timeout = $timeout | into int | $in / 1_000_000_000
+	let timeout = $options.timeout | into int | $in / 1_000_000_000
 	mut config = {}
-	if $preserve_temps {
+	if $options.preserve_temps {
 		$config = $config | merge deep {
 			advanced: {
 				preserve_temp_directories: true,
 			},
 		}
 	}
-	if $vm {
+	if $options.vm {
 		$config = $config | merge deep {
 			sandbox: {
 				isolation: {
 					vm : {
-						kernel_path: $kernel_path,
+						kernel_path: $options.kernel_path,
 					},
 				},
 			},
@@ -394,15 +466,16 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 		TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 		TANGRAM_MODE: client,
 		TANGRAM_QUIET: true,
-		TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
-		TANGRAM_TEST_QUICKJS: (if $quickjs { "1" } else { "" }),
-		TANGRAM_TEST_TURSO: (if $turso { "1" } else { "" }),
-		TANGRAM_TEST_VM: (if $vm { "1" } else { "" }),
-		TANGRAM_TEST_KERNEL_PATH: $kernel_path,
+		TANGRAM_TEST_CLOUD: (if $options.cloud { "1" } else { "" }),
+		TANGRAM_TEST_OFFLINE: (if $options.offline { "1" } else { "" }),
+		TANGRAM_TEST_QUICKJS: (if $options.quickjs { "1" } else { "" }),
+		TANGRAM_TEST_TURSO: (if $options.turso { "1" } else { "" }),
+		TANGRAM_TEST_VM: (if $options.vm { "1" } else { "" }),
+		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
 		TMPDIR: $temp_path,
 	} {
 		let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
-		if $no_capture {
+		if $options.no_capture {
 			open /dev/null | timeout $timeout nu -c $command o+e> /dev/stderr
 			let exit_code = $env.LAST_EXIT_CODE
 			{ exit_code: $exit_code, stdout: '', stderr: '' }
@@ -418,8 +491,8 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 	let end = date now
 	let duration = $end - $start
 
-	# If the test passed, delete snapshots which were not touched and remove touch files.
-	if $output.exit_code == 0 {
+	# If the test passed, delete snapshots which were not touched and remove touch files. Skip this in stress mode, because concurrent runs of the same test would race on these files.
+	if $output.exit_code == 0 and not $options.stress {
 		let parent_path = $test.path | path dirname
 		let stem = $test.path | path parse | get stem
 		for path in (glob $'($parent_path | path join $stem){.snapshot,/*.snapshot}') {
@@ -459,7 +532,7 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 	}
 
 	# Clean up the temp directory.
-	if not $preserve_temps {
+	if not $options.preserve_temps {
 		remove_temp_directory $temp_path
 	}
 
@@ -474,11 +547,18 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 def print_test_result [result: record, print_passing_test_output: bool] {
 	let symbol = if $result.output.exit_code == 0 {
 		$'(ansi green)✓(ansi reset)'
+	} else if $result.output.exit_code == 77 {
+		$'(ansi yellow)⊘(ansi reset)'
 	} else {
 		$'(ansi red)✗(ansi reset)'
 	}
 	print -e $'($symbol) ($result.name) ($result.duration)'
-	if $print_passing_test_output or $result.output.exit_code != 0 {
+	if $result.output.exit_code == 77 {
+		let reason = $result.output.stderr | str trim
+		if ($reason | str length) > 0 {
+			print -e $'  ($reason)'
+		}
+	} else if $print_passing_test_output or $result.output.exit_code != 0 {
 		print -e -n $result.output.stderr
 	}
 }
@@ -994,6 +1074,7 @@ export def --env spawn [
 
 	# Tag busybox if requested.
 	if $busybox {
+		skip_if_offline
 		let path = mktemp -d
 		let source = '
 			const SOURCES: Record<string, { url: string, checksum: tg.Checksum }> = {
@@ -1100,6 +1181,65 @@ export def --env success [
 			help: $output.stderr,
 		}
 	}
+}
+
+# Skip the test, reporting the reason. The runner treats exit code 77 as skipped rather than passed or failed. This is named skip_test because skip is a Nushell builtin.
+export def skip_test [reason: string] {
+	print --stderr $reason
+	exit 77
+}
+
+# Skip the test when the runner was invoked with --offline. Call this at the top of tests which require network access.
+export def skip_if_offline [] {
+	if (($env.TANGRAM_TEST_OFFLINE? | default '') | str length) > 0 {
+		skip_test 'this test requires network access'
+	}
+}
+
+# Poll a condition until it returns true, erroring if the timeout elapses. Prefer this over a bare sleep, so the test runs as soon as the condition holds and tolerates slow machines.
+export def wait_until [
+	condition: closure
+	message?: string
+	--timeout: duration = 10sec
+	--interval: duration = 50ms
+] {
+	let start = date now
+	loop {
+		if (do $condition) {
+			return
+		}
+		if ((date now) - $start) > $timeout {
+			error make {
+				msg: ($message | default 'the condition was not met within the timeout'),
+				label: {
+					span: (metadata $condition).span,
+					text: 'the condition',
+				},
+			}
+		}
+		sleep $interval
+	}
+}
+
+# Replace nondeterministic data in the input with canonical tokens for snapshotting. Only the IDs that vary from run to run become their kind in angle brackets, for example `<process>`, and any provided paths become `<path>`. Content-addressed object IDs such as files, directories, and commands are deterministic, so they are left intact. Errors are content-addressed but embed nondeterministic data, so they are redacted. The length floor in the regex keeps identifiers such as `pcs_id` from being redacted.
+export def redact [...paths: string] {
+	mut value = $in
+	let tokens = {
+		err: '<error>',
+		sbx: '<sandbox>',
+		pcs: '<process>',
+		usr: '<user>',
+		grp: '<group>',
+		org: '<organization>',
+	}
+	for entry in ($tokens | transpose prefix token) {
+		$value = $value | str replace --all --regex $'($entry.prefix)_[0-9a-z]{20,}' $entry.token
+	}
+	$value = $value | str replace --all --regex 'id = [0-9]+' 'id = <process>'
+	for path in $paths {
+		$value = $value | str replace --all $path '<path>'
+	}
+	$value
 }
 
 export def --env failure [

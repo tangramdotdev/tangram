@@ -3,7 +3,7 @@ use ../../test.nu *
 # Bug: Checking in from different entry points in a cycle produces different graph node orderings,
 # which results in different IDs for the same packages.
 
-let local = spawn -n local
+let local = spawn --name local
 
 # Create a cycle: A -> B -> C -> A
 let root = artifact {

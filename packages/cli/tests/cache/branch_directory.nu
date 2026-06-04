@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a directory whose entry count exceeds the configured max_leaf_entries, forcing it into a branch directory, writes all of the entries into the artifacts cache.
+
 # Spawn a server with a small max_leaf_entries to trigger branch directories with few files.
 let server = spawn --config {
 	checkin: {

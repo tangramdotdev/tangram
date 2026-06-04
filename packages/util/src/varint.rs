@@ -79,6 +79,7 @@ pub fn decode_ivarint(bytes: &[u8]) -> Option<i64> {
 mod tests {
 	use super::*;
 
+	// Encoding then decoding an unsigned varint recovers the original value across boundary cases.
 	#[test]
 	fn test_uvarint_roundtrip() {
 		for value in [0, 1, 127, 128, 255, 256, 16383, 16384, u64::MAX] {
@@ -88,6 +89,7 @@ mod tests {
 		}
 	}
 
+	// Encoding then decoding a signed varint recovers the original value, including negative and extreme values.
 	#[test]
 	fn test_ivarint_roundtrip() {
 		for value in [0, 1, -1, 63, -64, 64, -65, i64::MAX, i64::MIN] {
@@ -97,6 +99,7 @@ mod tests {
 		}
 	}
 
+	// The encoded length of an unsigned varint grows by one byte at each seven-bit boundary.
 	#[test]
 	fn test_uvarint_size() {
 		assert_eq!(encode_uvarint(0).len(), 1);
@@ -106,6 +109,7 @@ mod tests {
 		assert_eq!(encode_uvarint(16384).len(), 3);
 	}
 
+	// The ReadExt and WriteExt extension traits read and write varints directly on readers and writers, including reading several consecutive values.
 	#[test]
 	fn test_extension_traits() {
 		// Test reading from a slice using the extension trait.

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A build whose default export throws fails rather than succeeding.
+
 let server = spawn
 
 let path = artifact {

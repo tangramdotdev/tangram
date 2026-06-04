@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Recursively pushing a process without commands leaves the tree's commands absent on the remote, and a subsequent recursive push with commands makes every command present and records the expected metadata fields, under both eager and lazy push.
+
 # Recursively find all children commands and collect them into a list.
 def collect_commands [process_id: string] {
 	let process = tg get $process_id | from json
@@ -12,16 +14,16 @@ def collect_commands [process_id: string] {
 
 def test [path: string, ...args] {
 	# Create a remote server.
-	let remote = spawn --cloud -n remote
+	let remote = spawn --cloud --name remote
 
 	# Create a local server.
-	let local = spawn -n local
+	let local = spawn --name local
 
 	# Add the remote.
 	tg remote put default $remote.url
 
 	# Build the module.
-	let process_id = tg build -d $path | str trim
+	let process_id = tg build --detach $path | str trim
 
 	# Wait for the process to finish.
 	tg wait $process_id
@@ -42,7 +44,7 @@ def test [path: string, ...args] {
 	# Confirm output is present.
 	if (($output.output | describe) | str starts-with 'record') {
 		if $output.output.kind == "object" {
-			tg -u $remote.url get $output.output.value --pretty
+			tg --url $remote.url get $output.output.value --pretty
 		}
 	}
 
@@ -51,7 +53,7 @@ def test [path: string, ...args] {
 
 	# For each command, confirm that they are NOT present on the remote.
 	for command in $commands {
-		let output = tg -u $remote.url get $command | complete
+		let output = tg --url $remote.url get $command | complete
 		failure $output
 	}
 
@@ -59,10 +61,10 @@ def test [path: string, ...args] {
 	tg push "--recursive" "--commands" ...$args $process_id
 
 	# Index on the remote.
-	tg -u $remote.url index
+	tg --url $remote.url index
 
 	# Confirm that all expected fields are present in the top-level metadata.
-	let remote_metadata = tg -u $remote.url metadata $process_id | from json
+	let remote_metadata = tg --url $remote.url metadata $process_id | from json
 	assert ($remote_metadata.subtree?.count? != null) "the metadata should contain the subtree.count field"
 	assert ($remote_metadata.subtree?.command? != null) "the metadata should contain the subtree.command field"
 	assert ($remote_metadata.subtree?.output? != null) "the metadata should contain the subtree.output field"
@@ -71,7 +73,7 @@ def test [path: string, ...args] {
 
 	# For each of the commands, confirm that they are present.
 	for command in $commands {
-		tg -u $remote.url get $command --pretty
+		tg --url $remote.url get $command --pretty
 	}
 }
 

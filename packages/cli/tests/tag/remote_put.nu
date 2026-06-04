@@ -1,8 +1,10 @@
 use ../../test.nu *
 
+# tg tag put --remote pushes a tag to the configured remote server so the same tag resolves to the same item on both the local and the remote server.
+
 # Spawn a remote and local server.
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

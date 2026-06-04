@@ -1,9 +1,11 @@
 use ../../test.nu *
 
+# Bundling a checked-in file with no dependencies produces a bundled object that matches the snapshot.
+
 let server = spawn
 
-let temp_file = mktemp -t
-"hello!" | save -f $temp_file
+let temp_file = mktemp --tmpdir
+"hello!" | save --force $temp_file
 
 # Check in the file.
 let id = tg checkin $temp_file

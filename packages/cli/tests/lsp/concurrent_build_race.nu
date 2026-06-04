@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-# Test for V8 race condition between LSP TypeScript service and build JS runtime.
-# The crash occurs when both V8 isolates are running concurrently.
+# Builds running concurrently with the LSP TypeScript service do not crash the
+# server when both V8 isolates run at the same time.
+#
+# Regression test for 596e23f2 (#757).
 
 let server = spawn
 
@@ -27,6 +29,7 @@ let hovers = 1..500 | each { |i|
 # Start LSP with hover requests in background.
 job spawn { ($init + $initialized + $did_open + $hovers) | tg lsp | ignore }
 
+# There is no observable condition for the hover requests being in flight, so give the LSP a moment to start processing them before building concurrently.
 sleep 100ms
 
 # Run multiple builds while LSP is processing to increase chance of hitting race.

@@ -1,5 +1,10 @@
 use ../../test.nu *
 
+# Two concurrent sandboxed runs launched from a single build
+# complete without hanging.
+#
+# Regression test added in f24be798.
+
 let server = spawn
 
 let path = artifact {

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Cleaning removes processes unreachable from any tag while retaining tagged processes and the processes they depend on.
+
 let server = spawn
 
 let path = artifact {

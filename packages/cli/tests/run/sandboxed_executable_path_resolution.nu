@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let parent_path_bin = mktemp -d
+# A sandboxed process resolves its executable against the sandbox's standard PATH rather than the parent client's PATH, so an executable only on the parent's PATH cannot be found.
+
+let parent_path_bin = mktemp --directory
 ln -s /bin/sh ($parent_path_bin | path join "parent-only-sh")
 
 with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {

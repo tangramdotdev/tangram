@@ -1,5 +1,7 @@
 use ../test.nu *
 
+# After a remote runner produces a process output, restarting the remote server preserves the process log so it can still be retrieved from the local server.
+
 # Spawn a server in a given directory.
 let config =  { 
 	runner: false,
@@ -7,10 +9,10 @@ let config =  {
 		single_process: false,
 	}
 }
-let remote = spawn -n remote --cloud --config $config --url http://localhost:8476
+let remote = spawn --name remote --cloud --config $config --url http://localhost:8476
 
 # Spawn a remote runner.
-let runner = spawn -n runner --config {
+let runner = spawn --name runner --config {
 	runner: {
 		remote: "default"
 	}
@@ -22,7 +24,7 @@ let runner = spawn -n runner --config {
 }
 
 # Spawn a local server.
-let local = spawn -n local --config {
+let local = spawn --name local --config {
 	remotes: {
 		default: {
 			url: $remote.url
@@ -42,10 +44,10 @@ let path = artifact {
 }
 
 # Run the process.
-let process = tg -u $local.url run -d $path --remote
+let process = tg --url $local.url run --detach $path --remote
 
 # Wait for the process to finish.
-let output = tg -u $local.url process wait $process | complete
+let output = tg --url $local.url process wait $process | complete
 success $output
 snapshot ($output.stdout | from json) '
 	exit: 0
@@ -58,18 +60,18 @@ let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 2 $pid
 
 # Wait for the server to stop.
-if $nu.os-info.name == "linux" { ^tail --pid $pid -f /dev/null } else { while (ps | where pid == $pid | is-not-empty) { sleep 10ms } }
+wait_until { ps | where pid == $pid | is-empty } "the server should stop"
 print 'server stopped.'
 
 # Restart the remote server.
-spawn --directory $remote.directory -n remote --cloud --config $config --url $remote.url
+spawn --directory $remote.directory --name remote --cloud --config $config --url $remote.url
 
 # Ensure we can check the health.
-let health = tg -u $remote.url health | complete
+let health = tg --url $remote.url health | complete
 success $health
 
 # Get the output.
-let output = tg -u $local.url log --no-timeout $process | complete
+let output = tg --url $local.url log --no-timeout $process | complete
 success $output
 snapshot $output.stdout '
 	log line 0

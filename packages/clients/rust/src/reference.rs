@@ -298,6 +298,7 @@ mod tests {
 		std::path::{Path, PathBuf},
 	};
 
+	// References built from an object id, a path, and a tag each render to the expected uri string.
 	#[test]
 	fn test() {
 		let id = "dir_010000000000000000000000000000000000000000000000000000"
@@ -315,6 +316,7 @@ mod tests {
 		assert_snapshot!(reference, @"std/<0.0.1");
 	}
 
+	// Reference query parameters are parsed into the corresponding options fields.
 	#[test]
 	fn options() {
 		let reference = "dir_010000000000000000000000000000000000000000000000000000?id=dir_020000000000000000000000000000000000000000000000000000&name=main&path=lib/main.tg.ts&tag=foo&get=src/util.tg.ts"

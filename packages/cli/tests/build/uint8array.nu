@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A build whose default export returns a Uint8Array produces the expected serialized output.
+
 let server = spawn
 
 let path = artifact {

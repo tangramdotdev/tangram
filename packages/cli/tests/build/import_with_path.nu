@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A module can import a specific file from a tagged package using the "get" import attribute and read its contents.
+
 let server = spawn
 let path = artifact {
 	"subdirectory": {

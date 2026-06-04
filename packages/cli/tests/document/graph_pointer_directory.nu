@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Documenting a graph directory pointer containing a tangram.ts module produces documentation JSON that matches the snapshot.
+
 let server = spawn
 
 # Create a graph with a directory node containing a tangram.ts module.
@@ -19,7 +21,7 @@ let graph_id = tg put $artifact | str trim
 let output = tg document $"graph=($graph_id)&index=0&kind=directory" | complete
 success $output
 let json = $output.stdout | from json
-snapshot ($json | to json -i 2) '
+snapshot ($json | to json --indent 2) '
 	{
 	  "exports": {
 	    "default": {

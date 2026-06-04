@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A build whose command sets an explicit sha256 checksum fails when the command is not eligible for a checksum.
+
 let server = spawn
 
 let path = artifact {

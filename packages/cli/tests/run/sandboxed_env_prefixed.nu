@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# An environment variable set on a sandboxed process is visible both under its plain name and under its TANGRAM_ENV_ prefixed name.
+
 let server = spawn --busybox
 
 let path = artifact {

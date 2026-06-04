@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package that imports a dependency by object ID with a get path option resolves to the artifact at that path.
+
 let server = spawn
 
 # Create a directory with nested structure and checkin to get an ID.

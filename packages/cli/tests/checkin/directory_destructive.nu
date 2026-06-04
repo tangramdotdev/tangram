@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A destructive checkin of a directory containing chained relative symlinks produces the expected object and writes no lockfile.
+
 let server = spawn
 
 let path = artifact {
@@ -22,10 +24,10 @@ let id = tg checkin --destructive --ignore=false ($path | path join 'directory')
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 let lockfile_path = $path | path join 'directory' 'tangram.lock'
 assert (not ($lockfile_path | path exists))

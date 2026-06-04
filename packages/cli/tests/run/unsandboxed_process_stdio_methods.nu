@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The piped stdio methods of an unsandboxed process allow writing to stdin and reading the full stdout and stderr streams.
+
 let server = spawn
 
 let path = artifact {

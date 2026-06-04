@@ -4,6 +4,8 @@ use ../../test.nu *
 # that a child system process finished. Matches the pattern from the std
 # build: default -> tg.build(inner) -> inner calls tg.run with network/sandbox
 # which creates a separate sandbox with ttl=0 for the child.
+#
+# Regression test added in f24be798.
 
 let server = spawn
 

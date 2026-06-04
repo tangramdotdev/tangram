@@ -1,6 +1,8 @@
 use ../../test.nu *
 use ./process.nu test
 
+# Pushing a process that spawns a child process makes the process and its selected commands, children, and outputs present on the remote across the combinations of the commands and recursive flags, under both eager and lazy push.
+
 # Create some test content.
 let path = artifact {
 	tangram.ts: r#'

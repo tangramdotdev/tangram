@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Passing a TANGRAM_ENV_ prefixed environment variable via --env-string fails because the prefix is reserved.
+
 let server = spawn
 
 let path = artifact {

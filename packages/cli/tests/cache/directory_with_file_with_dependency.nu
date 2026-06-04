@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a directory containing a file with a dependency writes the directory into the artifacts cache.
+
 let server = spawn
 
 # Create the artifact.

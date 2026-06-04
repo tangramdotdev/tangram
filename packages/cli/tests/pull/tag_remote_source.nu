@@ -1,20 +1,22 @@
 use ../../test.nu *
 
-let other = spawn --cloud -n other
-let source = spawn --cloud -n source
-let local = spawn -n local
+# Pulling a tag with a specified remote fetches the object from that remote even when another remote has a conflicting tag of the same name.
 
-let other_id = tg -u $other.url put 'tg.file("from the other remote")' | str trim
-tg -u $other.url tag conflict/1.0.0 $other_id
+let other = spawn --cloud --name other
+let source = spawn --cloud --name source
+let local = spawn --name local
 
-let source_id = tg -u $source.url put 'tg.file("from the source remote")' | str trim
-tg -u $source.url tag conflict/1.0.0 $source_id
+let other_id = tg --url $other.url put 'tg.file("from the other remote")' | str trim
+tg --url $other.url tag conflict/1.0.0 $other_id
 
-tg -u $local.url remote put other $other.url
-tg -u $local.url remote put source $source.url
+let source_id = tg --url $source.url put 'tg.file("from the source remote")' | str trim
+tg --url $source.url tag conflict/1.0.0 $source_id
 
-let output = tg -u $local.url pull --remote=source conflict/1.0.0 | complete
+tg --url $local.url remote put other $other.url
+tg --url $local.url remote put source $source.url
+
+let output = tg --url $local.url pull --remote=source conflict/1.0.0 | complete
 success $output
 
-let output = tg -u $local.url object get --local $source_id --pretty | complete
+let output = tg --url $local.url object get --local $source_id --pretty | complete
 success $output

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A build fails with the rejection error rather than hanging when a promise is rejected and a catch handler is attached after the program would otherwise await forever.
+
 let server = spawn
 
 let path = artifact {

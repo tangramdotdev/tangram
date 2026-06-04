@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a directory containing a symlink whose artifact is a dependency file, with dependencies enabled, materializes the directory and symlink on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

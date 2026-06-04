@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Stdout written after a delay by a sandboxed child process is inherited and captured on the parent run's stdout.
+
 let server = spawn
 
 let path = artifact {

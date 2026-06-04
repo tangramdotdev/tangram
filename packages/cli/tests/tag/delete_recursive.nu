@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# tg tag delete --recursive removes all tags in a nested hierarchy, deleting children before their parents, and leaves no matching tags behind.
+
 let server = spawn
 
 # Create and tag an artifact.
@@ -18,8 +20,8 @@ assert (($output | from json | length) > 0) "the tags should exist"
 
 # Recursively delete from the root - should delete all children in correct order.
 let output = tg tag delete --recursive "test/*" | from json | get deleted.specifier | to json -r
-snapshot -n deleted $output
+snapshot --name deleted $output
 
 # Verify all tags are deleted.
 let output = tg list --no-groups --recursive "test/*"
-snapshot -n list $output
+snapshot --name list $output

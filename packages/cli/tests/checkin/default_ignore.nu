@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package ignores the default-ignored entries such as the .DS_Store, .git, and .tangram entries.
+
 let server = spawn
 
 let path = artifact {
@@ -17,10 +19,10 @@ let id = tg checkin $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 let lockfile_path = $path | path join 'tangram.lock'
 assert (not ($lockfile_path | path exists))

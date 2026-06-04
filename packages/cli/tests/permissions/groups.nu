@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Group membership controls namespace and group management permissions, including that non-members are unauthorized and nested subgroups require admin on the parent.
+
 let server = spawn --config { authentication: true }
 
 def current_token [] {

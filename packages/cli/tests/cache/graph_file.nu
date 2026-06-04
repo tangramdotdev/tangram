@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a file defined through a graph node writes the file into the artifacts cache.
+
 let server = spawn
 
 # Create the artifact.

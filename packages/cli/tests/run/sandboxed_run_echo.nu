@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A sandboxed tg.run template command's stdout is inherited and captured on the parent run's stdout.
+
 let server = spawn
 
 let path = artifact {

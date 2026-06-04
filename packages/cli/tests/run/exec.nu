@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The tg exec, tg process exec, and tg.exec commands run a command unsandboxed and replace the current process, and exec rejects the sandbox and piped-stdio options.
+
 let server = spawn
 
 let path = artifact {

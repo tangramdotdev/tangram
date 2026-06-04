@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out an executable file materializes the file on disk with its executable bit preserved.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Requesting metadata for a graph directory pointer fails with an error indicating that a pointer was found instead of an object.
+
 let server = spawn
 let artifact = '
 	tg.graph({

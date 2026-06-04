@@ -1,5 +1,6 @@
 use ../../test.nu *
 
+# Checking in with --update for a single tag updates only that dependency while preserving a source-path override on another dependency.
 
 let server = spawn
 

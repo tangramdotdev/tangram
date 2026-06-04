@@ -1,5 +1,9 @@
 use ../../test.nu *
 
+# Concurrent checkins of distinct files under the same root all succeed.
+#
+# Regression test for 4245d307.
+
 let server = spawn
 
 let path = artifact {

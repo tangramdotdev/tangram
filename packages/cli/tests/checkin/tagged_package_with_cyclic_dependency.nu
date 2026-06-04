@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package that imports a tagged package whose modules form a cycle resolves and writes the expected lockfile.
+
 let server = spawn
 
 # Tag the a dependency.
@@ -23,12 +25,12 @@ let id = tg checkin $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 # This should create a lockfile since it has a tagged dependency.
 let lockfile_path = $path | path join 'tangram.lock'
 let lock = open $lockfile_path | from json
-snapshot -n lock ($lock | to json -i 2)
+snapshot --name lock ($lock | to json --indent 2)

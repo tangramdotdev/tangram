@@ -1,9 +1,9 @@
-# Test that publishing a package with the same metadata tag as a previously published package
+# Publishing a package with the same metadata tag as a previously published package
 # requires --force to overwrite the tag.
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# When a build fails with a checksum mismatch, a subsequent build with a different checksum copies the original process's children rather than losing them.
+
 let server = spawn
 
 let path = artifact {
@@ -25,7 +27,7 @@ let path = artifact {
 	',
 }
 
-let first = tg build -dv $"($path)#first" | from json
+let first = tg build --detach --verbose $"($path)#first" | from json
 let output = tg output $first.process | complete
 failure $output
 
@@ -33,7 +35,7 @@ let first_root = tg process children $first.process | from json | get 0.process
 let first_root_children = tg process children $first_root | from json
 assert equal ($first_root_children | length) 1 "the original checksum-mismatch process should have a child"
 
-let second = tg build -dv $"($path)#second" | from json
+let second = tg build --detach --verbose $"($path)#second" | from json
 let output = tg output $second.process | complete
 failure $output
 

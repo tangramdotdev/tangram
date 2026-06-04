@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that xattr is used when filename doesn't match a known pattern.
+# Xattr is used when filename doesn't match a known pattern.
 # A file named foo.ts (not .tg.ts) with xattr "ts" should be detected as "ts".
 
 let server = spawn

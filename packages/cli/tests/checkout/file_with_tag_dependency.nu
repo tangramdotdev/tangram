@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a file with a tagged dependency, with dependencies disabled, materializes the file with the lock recorded in its user.tangram.lock xattr.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

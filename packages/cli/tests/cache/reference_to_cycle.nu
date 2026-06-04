@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Caching a reference to a directory that points into a cycle writes the directory into the artifacts cache.
+
+let tmp = mktemp --directory
 
 let server = spawn --config { write: { cache_pointers: false } }
 
@@ -19,7 +21,7 @@ let artifact = artifact {
 	'
 }
 let id = tg build --no-cache-pointers $artifact
-rm -rf ($server.directory | path join "artifacts")
+rm --recursive --force ($server.directory | path join "artifacts")
 mkdir ($server.directory | path join "artifacts")
 
 let output = tg cache $id

@@ -1,4 +1,7 @@
 use ../../test.nu *
+
+# A process's console.log and console.error output are routed to the run command's stdout and stderr respectively, preserving order.
+
 let server = spawn
 let path = artifact {
 	tangram.ts: r#'
@@ -19,7 +22,7 @@ let output = tg run $path | complete
 success $output
 
 # Check that we can read just one chunk forwards
-let stdout = $output.stdout | str trim -r -c "\n"
+let stdout = $output.stdout | str trim --right --char "\n"
 assert ($stdout == ([
 	"stdout aaaaaaaaaaaaaaaaaaaa",
 	"stdout bbbbbbbbbbbbbbbbbbbb",
@@ -49,7 +52,7 @@ assert ($stdout == ([
 	"stdout zzzzzzzzzzzzzzzzzzzz",
 ] | str join "\n"))
 let stderr = $output.stderr
-let stderr = $stderr | str replace -ar 'id = (pcs_00[0-9a-z]{26}|[0-9]+)' 'id = PROCESS'
+let stderr = $stderr | redact
 snapshot $stderr '
 	stderr aaaaaaaaaaaaaaaaaaaa
 	stderr bbbbbbbbbbbbbbbbbbbb

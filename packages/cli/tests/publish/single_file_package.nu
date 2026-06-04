@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+# Publishing a single-file package tags it on both the local and remote servers, syncs the object, and produces matching metadata.
+
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 
@@ -14,7 +16,7 @@ let file_content = '
 	};
 '
 
-let temp_dir = mktemp -d
+let temp_dir = mktemp --directory
 let file_path = $temp_dir | path join "package.ts"
 $file_content | save $file_path
 

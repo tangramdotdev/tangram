@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# An error thrown in a child process spawned via tg.run propagates to the parent, causing the run to fail with the expected diagnostic on stderr.
+
 let server = spawn
 
 let path = artifact {
@@ -17,5 +19,5 @@ let path = artifact {
 let output = do { cd $path; tg run } | complete
 failure $output
 let stderr = $output.stderr
-let stderr = $stderr | str replace -ar 'id = (pcs_00[0-9a-z]{26}|[0-9]+)' 'id = PROCESS'
+let stderr = $stderr | redact
 snapshot $stderr

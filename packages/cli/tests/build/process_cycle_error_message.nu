@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A self-referential build fails with a process cycle error and the formatted error message matches the snapshot.
+
 let server = spawn
 
 let path = artifact {
@@ -29,9 +31,9 @@ for line in $lines {
 if ($cycle_lines | is-empty) {
 	error make { msg: 'expected a cycle error message' }
 }
-let cycle_message = ($cycle_lines | str join "\n") | str replace --all --regex 'pcs_[a-z0-9]+' '<process_id>'
+let cycle_message = ($cycle_lines | str join "\n") | redact
 
 snapshot $cycle_message '
 	-> adding this child process creates a cycle
-	   <process_id> tried to add child <process_id>
+	   <process> tried to add child <process>
 '

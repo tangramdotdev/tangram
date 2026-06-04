@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The check command succeeds when building the default export of a tagged dependency imported either as a directory or as a ts file, treating its return as a tg.Directory.
+
 let server = spawn
 
 let source = 'export default (): PromiseLike<tg.Directory> => tg.directory();'
@@ -8,7 +10,7 @@ let source = 'export default (): PromiseLike<tg.Directory> => tg.directory();'
 tg tag test-dir (artifact { tangram.ts: $source })
 
 # File tag.
-let temp = mktemp -d
+let temp = mktemp --directory
 $source | save ($temp | path join "dep.tg.ts")
 tg tag test-file ($temp | path join "dep.tg.ts")
 

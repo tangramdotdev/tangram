@@ -1,6 +1,8 @@
 use ../../test.nu *
 use ../lib/lsp.nu
 
+# Document-link and go-to-definition requests against a nested tagged dependency resolve to the materialized tag path, including a re-export through a nested module, and the materialized definition reports no diagnostics.
+
 let server = spawn
 
 let dep_path = artifact {
