@@ -9,7 +9,7 @@ use ../../test.nu *
 #    Fix: Resolve external pointers to object IDs in checkin_graph_node_initial_label.
 #
 # 2. Symmetric nodes (identical content and structure) produce identical WL labels.
-#    Fix: Use node paths as a tiebreaker in the sort.
+#    Fix: Use filesystem paths as a tiebreaker in the sort.
 
 let server = spawn
 

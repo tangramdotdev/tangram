@@ -40,12 +40,29 @@ impl Session {
 		arg: tg::group::create::Arg,
 	) -> tg::Result<tg::Group> {
 		let node = self
-			.create_group_path_with_transaction(transaction, &arg.specifier)
+			.create_group_with_ancestors_with_transaction(transaction, &arg.specifier)
 			.await?;
 		group_from_node(node)
 	}
 
-	async fn create_group_path_with_transaction(
+	async fn create_group_with_ancestors_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		specifier: &tg::Specifier,
+	) -> tg::Result<Node> {
+		if Self::try_get_node_by_specifier_with_transaction(transaction, specifier)
+			.await?
+			.is_some()
+		{
+			return Err(tg::error!("specifier is already in use"));
+		}
+		let node = self
+			.ensure_group_with_ancestors_with_transaction(transaction, specifier)
+			.await?;
+		Ok(node)
+	}
+
+	pub(crate) async fn ensure_group_with_ancestors_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		specifier: &tg::Specifier,
@@ -66,9 +83,6 @@ impl Session {
 				Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
 			{
 				if existing.kind != tg::id::Kind::Group {
-					return Err(tg::error!("specifier is already in use"));
-				}
-				if index == components.len() - 1 {
 					return Err(tg::error!("specifier is already in use"));
 				}
 				parent = Some(existing.id.clone());

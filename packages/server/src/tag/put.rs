@@ -53,7 +53,9 @@ impl Session {
 		transaction: &Transaction<'_>,
 		arg: tg::tag::put::Arg,
 	) -> tg::Result<tg::tag::Data> {
-		let parent = parent_for_specifier(transaction, &arg.specifier).await?;
+		let parent = self
+			.ensure_parent_groups_for_specifier(transaction, &arg.specifier)
+			.await?;
 		let existing =
 			Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier).await?;
 		let item_json = serde_json::to_string(&arg.item)
@@ -181,26 +183,27 @@ impl Session {
 	}
 }
 
-async fn parent_for_specifier(
-	transaction: &Transaction<'_>,
-	specifier: &tg::Specifier,
-) -> tg::Result<Option<tg::Id>> {
-	let components = specifier.components().collect::<Vec<_>>();
-	if components.is_empty() {
-		return Err(tg::error!("invalid specifier"));
+impl Session {
+	async fn ensure_parent_groups_for_specifier(
+		&self,
+		transaction: &Transaction<'_>,
+		specifier: &tg::Specifier,
+	) -> tg::Result<Option<tg::Id>> {
+		let components = specifier.components().collect::<Vec<_>>();
+		if components.is_empty() {
+			return Err(tg::error!("invalid specifier"));
+		}
+		if components.len() == 1 {
+			return Ok(None);
+		}
+		let parent = tg::Specifier::with_components(
+			components[..components.len() - 1]
+				.iter()
+				.map(|component| tg::specifier::Component::new((*component).to_owned())),
+		);
+		let node = self
+			.ensure_group_with_ancestors_with_transaction(transaction, &parent)
+			.await?;
+		Ok(Some(node.id))
 	}
-	if components.len() == 1 {
-		return Ok(None);
-	}
-	let parent = tg::Specifier::with_components(
-		components[..components.len() - 1]
-			.iter()
-			.map(|component| tg::specifier::Component::new((*component).to_owned())),
-	);
-	let Some(node) =
-		Session::try_get_node_by_specifier_with_transaction(transaction, &parent).await?
-	else {
-		return Err(tg::error!("failed to find the parent"));
-	};
-	Ok(Some(node.id))
 }
