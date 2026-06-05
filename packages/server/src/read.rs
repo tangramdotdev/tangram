@@ -251,9 +251,6 @@ impl Reader {
 			.try_get(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		if !Session::authorize_object(&principal, &object, false) {
-			return Err(tg::error!(%id, "failed to get the blob object"));
-		}
 		let cache_pointer = object.object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = session
@@ -292,9 +289,6 @@ impl Reader {
 			.object_store
 			.try_get_sync(&arg)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		if !Session::authorize_object(&principal, &object, false) {
-			return Err(tg::error!(%id, "failed to get the blob object"));
-		}
 		let cache_pointer = object.object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = session

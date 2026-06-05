@@ -60,20 +60,6 @@ impl Session {
 		}
 	}
 
-	#[must_use]
-	pub(crate) fn authorize_object(
-		principal: &tg::Principal,
-		output: &crate::object::store::TryGetOutput,
-		subtree: bool,
-	) -> bool {
-		matches!(principal, tg::Principal::Root)
-			|| if subtree {
-				output.grants.iter().any(|grant| grant.subtree)
-			} else {
-				!output.grants.is_empty()
-			}
-	}
-
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let Some(sandbox) = self
 			.context

@@ -32,8 +32,6 @@ let bob_user_id = $bob_user.id
 let carol_user = tg user login carol | from json
 let carol = current_token
 let carol_user_id = $carol_user.id
-let public_group = tg --token $alice group get public | from json
-let public_group_id = $public_group.id
 
 tg --token $alice group create project
 tg --token $alice group get project
@@ -41,11 +39,11 @@ tg --token $alice grants list project
 tg --token $alice group create project/pkg
 
 tg --token $alice group create location-flags
-tg --token $alice grants create $bob_user_id read location-flags
+tg --token $alice grant $bob_user_id read location-flags
 tg --token $alice grant $carol_user_id write location-flags
 tg --token $alice grants list location-flags
 tg --token $alice user grants bob
-tg --token $alice user grants carol location-flags
+tg --token $alice user grants carol
 tg --token $alice grants delete $bob_user_id read location-flags
 tg --token $alice revoke $carol_user_id write location-flags
 
@@ -72,7 +70,7 @@ let id = tg --token $alice checkin $path
 
 tg --token $alice group create tag-location-flags
 tg --token $alice tag tag-location-flags/pkg $id
-tg --token $alice grants create $bob_user_id read tag-location-flags/pkg
+tg --token $alice grant $bob_user_id read tag-location-flags/pkg
 tg --token $alice grant $carol_user_id write tag-location-flags/pkg
 tg --token $alice grants list tag-location-flags/pkg
 tg --token $alice grants delete $bob_user_id read tag-location-flags/pkg
@@ -82,7 +80,7 @@ let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg group get project | complete }
 assert_unauthorized $output "An anonymous user should not be able to get a private claimed group."
 
-tg --token $alice grants create $public_group_id read public
+tg --token $alice grant public read public
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg group get public | complete }
 success $output "An anonymous user should be able to get a public group."
@@ -135,12 +133,12 @@ assert_unauthorized $output "A tag grant should not grant write access to siblin
 let output = tg --token $bob grants list tag-private/pkg | complete
 assert_unauthorized $output "A write tag grant should not allow Bob to inspect tag grants."
 
-tg --token $alice grants create $bob_user_id admin tag-private/pkg
-tg --token $bob grants create $carol_user_id read tag-private/pkg
+tg --token $alice grant $bob_user_id admin tag-private/pkg
+tg --token $bob grant $carol_user_id read tag-private/pkg
 tg --token $carol tag get tag-private/pkg
 tg --token $bob revoke $carol_user_id read tag-private/pkg
 
-let output = tg --token $bob grants create $carol_user_id read tag-private/sibling | complete
+let output = tg --token $bob grant $carol_user_id read tag-private/sibling | complete
 assert_unauthorized $output "A tag admin grant should not allow Bob to manage sibling tag grants."
 
 tg --token $alice group create exact-public
@@ -157,7 +155,7 @@ tg --token $alice tag apple/macos/code/26 $id
 tg --token $alice tag apple/macos/code/27 $id
 tg --token $alice tag apple/macos/builds/26 $id
 tg --token $alice tag apple/macos/builds/27 $id
-tg --token $alice grants create $public_group_id read apple/macos/builds/26
+tg --token $alice grant public read apple/macos/builds/26
 
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg ls apple | complete }
@@ -175,7 +173,7 @@ success $output "An anonymous user should be able to list the readable release p
 assert ($output.stdout | str contains "apple/macos/builds/26") "The released build should be visible."
 assert (not ($output.stdout | str contains "apple/macos/builds/27")) "The unreleased build should not be visible."
 
-tg --token $alice grants delete $public_group_id read apple/macos/builds/26
+tg --token $alice grants delete public read apple/macos/builds/26
 let output = with-env { TANGRAM_CONFIG: $config } { tg ls apple | complete }
 success $output "An anonymous user should be able to list a private parent after the grant is revoked."
 assert (not ($output.stdout | str contains "apple/macos")) "The group specifier should stop being visible without readable descendants."
@@ -200,7 +198,7 @@ assert_unauthorized $output "Write permission should not allow Bob to inspect gr
 let bob_grants = tg --token $bob user grants bob | from json
 assert (($bob_grants | length) > 0) "Bob should be able to inspect his own grants."
 
-let output = tg --token $bob user grants carol alice/project | complete
+let output = tg --token $bob user grants carol | complete
 assert_unauthorized $output "Write permission should not allow Bob to inspect Carol's grants."
 
 let output = tg --token $carol group get alice/project | complete
@@ -226,22 +224,22 @@ let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-groups --recurs
 success $output "An anonymous user should be able to list readable entries."
 assert (not ($output.stdout | str contains "alice/project/pkg")) "The private tag should not be visible without a public read grant."
 
-tg --token $alice grants create $public_group_id read alice/project
+tg --token $alice grant public read alice/project
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-groups --recursive alice/project | complete }
 success $output "An anonymous user should be able to list all entries."
 assert ($output.stdout | str contains "alice/project/pkg") "The public tag should be visible without a token."
 
-tg --token $alice revoke $public_group_id read alice/project
+tg --token $alice revoke public read alice/project
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-groups --recursive alice/project | complete }
 success $output "An anonymous user should be able to list readable entries after revocation."
 assert (not ($output.stdout | str contains "alice/project/pkg")) "The tag should stop being visible after the public read grant is revoked."
 
-let output = tg --token $bob grants create $carol_user_id read alice/project | complete
+let output = tg --token $bob grant $carol_user_id read alice/project | complete
 assert_unauthorized $output "Write permission should not allow Bob to manage grants."
 
-tg --token $alice grants create $carol_user_id read alice/project
+tg --token $alice grant $carol_user_id read alice/project
 tg --token $carol group get alice/project
 tg --token $carol tag get alice/project/pkg
 
@@ -260,10 +258,10 @@ assert_unauthorized $output "Read permission should not allow Carol to put a tag
 let output = tg --token $carol tag delete alice/project/pkg | complete
 assert_unauthorized $output "Read permission should not allow Carol to delete a tag."
 
-tg --token $alice grants create $bob_user_id admin alice/project
+tg --token $alice grant $bob_user_id admin alice/project
 tg --token $bob grants list alice/project
-tg --token $bob user grants carol alice/project
-tg --token $bob grants create $carol_user_id write alice/project
+tg --token $bob user grants carol
+tg --token $bob grant $carol_user_id write alice/project
 let carol_id = tg --token $carol checkin $path
 tg --token $carol tag put alice/project/carol $carol_id
 tg --token $carol tag delete alice/project/carol
