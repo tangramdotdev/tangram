@@ -98,7 +98,7 @@ impl Session {
 		node.ok_or_else(|| tg::error!("invalid specifier"))
 	}
 
-	async fn create_group_node_with_transaction(
+	pub(crate) async fn create_group_node_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		specifier: &tg::Specifier,

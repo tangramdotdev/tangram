@@ -205,14 +205,33 @@ impl Session {
 		if components.len() == 1 {
 			return Ok(None);
 		}
-		let parent = tg::Specifier::with_components(
-			components[..components.len() - 1]
-				.iter()
-				.map(|component| tg::specifier::Component::new((*component).to_owned())),
-		);
-		let node = self
-			.ensure_group_with_ancestors_with_transaction(transaction, &parent)
-			.await?;
-		Ok(Some(node.id))
+		let mut parent = None;
+		let mut node = None;
+		for index in 0..components.len() - 1 {
+			let specifier = tg::Specifier::with_components(
+				components[..=index]
+					.iter()
+					.map(|component| tg::specifier::Component::new((*component).to_owned())),
+			);
+			if let Some(existing) =
+				Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
+			{
+				if existing.kind == tg::id::Kind::Tag {
+					return Err(tg::error!("specifier is already in use"));
+				}
+				if index > 0 && existing.kind != tg::id::Kind::Group {
+					return Err(tg::error!("specifier is already in use"));
+				}
+				parent = Some(existing.id.clone());
+				node = Some(existing);
+				continue;
+			}
+			let created = self
+				.create_group_node_with_transaction(transaction, &specifier, parent.as_ref())
+				.await?;
+			parent = Some(created.id.clone());
+			node = Some(created);
+		}
+		Ok(node.map(|node| node.id))
 	}
 }
