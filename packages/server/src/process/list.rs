@@ -29,7 +29,9 @@ impl Session {
 					.transaction()
 					.await
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				tg::Principal::Group(Self::ensure_all_group_with_transaction(&transaction).await?)
+				tg::Principal::Group(
+					Self::ensure_public_group_with_transaction(&transaction).await?,
+				)
 			},
 			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
 			Some(Authentication::Process(_) | Authentication::Sandbox(_)) => {

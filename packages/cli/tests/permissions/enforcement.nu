@@ -32,8 +32,8 @@ let bob_user_id = $bob_user.id
 let carol_user = tg user login carol | from json
 let carol = current_token
 let carol_user_id = $carol_user.id
-let all_group = tg --token $alice group get all | from json
-let all_group_id = $all_group.id
+let public_group = tg --token $alice group get public | from json
+let public_group_id = $public_group.id
 
 tg --token $alice group create project
 tg --token $alice group get project
@@ -83,7 +83,7 @@ let output = with-env { TANGRAM_CONFIG: $config } { tg group get project | compl
 assert_unauthorized $output "An anonymous user should not be able to get a private claimed group."
 
 tg --token $alice group create public
-tg --token $alice grants create $all_group_id read public
+tg --token $alice grants create $public_group_id read public
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg group get public | complete }
 success $output "An anonymous user should be able to get a public group."
@@ -124,7 +124,7 @@ tg --token $alice tag tag-private/sibling $id
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg tag get tag-private/pkg | complete }
 failure $output "An anonymous user should not be able to get a private tag."
-assert ($output.stderr | str contains "failed to find the tag") "The private tag should not be visible without an all read grant."
+assert ($output.stderr | str contains "failed to find the tag") "The private tag should not be visible without a public read grant."
 
 tg --token $alice grant $bob_user_id write tag-private/pkg
 tg --token $bob tag get tag-private/pkg
@@ -158,7 +158,7 @@ tg --token $alice tag apple/macos/code/26 $id
 tg --token $alice tag apple/macos/code/27 $id
 tg --token $alice tag apple/macos/builds/26 $id
 tg --token $alice tag apple/macos/builds/27 $id
-tg --token $alice grants create $all_group_id read apple/macos/builds/26
+tg --token $alice grants create $public_group_id read apple/macos/builds/26
 
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg ls apple | complete }
@@ -176,7 +176,7 @@ success $output "An anonymous user should be able to list the readable release p
 assert ($output.stdout | str contains "apple/macos/builds/26") "The released build should be visible."
 assert (not ($output.stdout | str contains "apple/macos/builds/27")) "The unreleased build should not be visible."
 
-tg --token $alice grants delete $all_group_id read apple/macos/builds/26
+tg --token $alice grants delete $public_group_id read apple/macos/builds/26
 let output = with-env { TANGRAM_CONFIG: $config } { tg ls apple | complete }
 success $output "An anonymous user should be able to list a private parent after the grant is revoked."
 assert (not ($output.stdout | str contains "apple/macos")) "The group specifier should stop being visible without readable descendants."
@@ -225,19 +225,19 @@ success $output "A bad token in the config should not prevent anonymous-capable 
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-groups --recursive alice/project | complete }
 success $output "An anonymous user should be able to list readable entries."
-assert (not ($output.stdout | str contains "alice/project/pkg")) "The private tag should not be visible without an all read grant."
+assert (not ($output.stdout | str contains "alice/project/pkg")) "The private tag should not be visible without a public read grant."
 
-tg --token $alice grants create $all_group_id read alice/project
+tg --token $alice grants create $public_group_id read alice/project
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-groups --recursive alice/project | complete }
 success $output "An anonymous user should be able to list all entries."
-assert ($output.stdout | str contains "alice/project/pkg") "The all-readable tag should be visible without a token."
+assert ($output.stdout | str contains "alice/project/pkg") "The public tag should be visible without a token."
 
-tg --token $alice revoke $all_group_id read alice/project
+tg --token $alice revoke $public_group_id read alice/project
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg list --no-groups --recursive alice/project | complete }
 success $output "An anonymous user should be able to list readable entries after revocation."
-assert (not ($output.stdout | str contains "alice/project/pkg")) "The tag should stop being visible after the all read grant is revoked."
+assert (not ($output.stdout | str contains "alice/project/pkg")) "The tag should stop being visible after the public read grant is revoked."
 
 let output = tg --token $bob grants create $carol_user_id read alice/project | complete
 assert_unauthorized $output "Write permission should not allow Bob to manage grants."

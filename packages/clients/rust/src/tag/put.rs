@@ -15,7 +15,7 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub all: bool,
+	pub public: bool,
 
 	pub specifier: tg::Specifier,
 }

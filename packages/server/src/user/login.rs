@@ -95,11 +95,11 @@ impl Session {
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			let all = Self::ensure_all_group_with_transaction(transaction).await?;
+			let public = Self::ensure_public_group_with_transaction(transaction).await?;
 			Self::add_group_member_with_transaction(
 				self,
 				transaction,
-				&tg::Selector::Id(all),
+				&tg::Selector::Id(public),
 				&tg::group::Member::User(id.clone()),
 			)
 			.await?;

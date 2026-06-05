@@ -21,7 +21,7 @@ impl Session {
 			.database
 			.run(|transaction| {
 				async move {
-					Self::ensure_all_group_with_transaction(transaction).await?;
+					Self::ensure_public_group_with_transaction(transaction).await?;
 					Ok::<_, crate::database::Error>(std::ops::ControlFlow::Break(()))
 				}
 				.boxed()
@@ -29,12 +29,14 @@ impl Session {
 			.await
 	}
 
-	pub(crate) async fn ensure_all_group_with_transaction(
+	pub(crate) async fn ensure_public_group_with_transaction(
 		transaction: &Transaction<'_>,
 	) -> tg::Result<tg::group::Id> {
-		if let Some(node) =
-			Self::try_get_node_by_specifier_with_transaction(transaction, &"all".parse().unwrap())
-				.await?
+		if let Some(node) = Self::try_get_node_by_specifier_with_transaction(
+			transaction,
+			&"public".parse().unwrap(),
+		)
+		.await?
 		{
 			return node.id.try_into();
 		}
@@ -43,7 +45,7 @@ impl Session {
 		let statement = formatdoc!(
 			"
 				insert into nodes (id, kind, parent, name, specifier)
-				values ({p}1, 'group', null, 'all', 'all');
+				values ({p}1, 'group', null, 'public', 'public');
 			"
 		);
 		let result = transaction
@@ -53,7 +55,7 @@ impl Session {
 		let statement = formatdoc!(
 			"
 				insert into groups (id, name, parent)
-				values ({p}1, 'all', null);
+				values ({p}1, 'public', null);
 			"
 		);
 		let result = transaction
@@ -227,8 +229,8 @@ impl Session {
 		{
 			return Ok(Vec::new());
 		}
-		let all = Self::ensure_all_group_with_transaction(transaction).await?;
-		let mut principals = vec![all.to_string()];
+		let public = Self::ensure_public_group_with_transaction(transaction).await?;
+		let mut principals = vec![public.to_string()];
 		if let Some(Authentication::User(user)) = &self.context.authentication {
 			principals.push(user.id.to_string());
 			principals.extend(

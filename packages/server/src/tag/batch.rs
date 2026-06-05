@@ -46,7 +46,7 @@ impl Session {
 							force: item.force,
 							item: item.item,
 							location: None,
-							all: false,
+							public: false,
 							specifier: item.specifier,
 						};
 						data.push(session.put_tag_with_transaction(transaction, arg).await?);

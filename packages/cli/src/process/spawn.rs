@@ -432,7 +432,7 @@ impl Cli {
 				force: false,
 				item: id.into(),
 				location: location.clone(),
-				all: false,
+				public: false,
 				specifier: tag.clone(),
 			};
 			client

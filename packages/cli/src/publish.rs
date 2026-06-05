@@ -146,7 +146,7 @@ impl Cli {
 						force: args.force,
 						item: id.into(),
 						location: None,
-						all: false,
+						public: false,
 						specifier: tag.clone(),
 					};
 					client.put_tag(arg).await.map_err(
@@ -165,7 +165,7 @@ impl Cli {
 							force: args.force,
 							item: id.into(),
 							location: None,
-							all: false,
+							public: false,
 							specifier: item.tag.clone(),
 						};
 						client.put_tag(arg).await.map_err(
@@ -183,7 +183,7 @@ impl Cli {
 							force: true,
 							item: id.into(),
 							location: None,
-							all: false,
+							public: false,
 							specifier: tag.clone(),
 						};
 						client.put_tag(arg).await.map_err(

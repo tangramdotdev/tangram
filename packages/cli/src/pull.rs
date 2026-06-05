@@ -111,7 +111,7 @@ impl Cli {
 						force: args.force,
 						item: tag_item_from_item(item.clone()),
 						location: location.clone().map(Into::into),
-						all: false,
+						public: false,
 						specifier: specifier.clone().try_into()?,
 					};
 					client.put_tag(arg).await.map_err(

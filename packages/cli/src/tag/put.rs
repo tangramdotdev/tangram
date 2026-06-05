@@ -49,7 +49,7 @@ impl Cli {
 			force: args.force,
 			item,
 			location: args.location.get(),
-			all: args.public,
+			public: args.public,
 			specifier: args
 				.specifier
 				.clone()
