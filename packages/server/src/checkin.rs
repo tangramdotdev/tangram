@@ -41,7 +41,7 @@ pub type Tasks = tangram_futures::task::Map<
 pub struct TaskKey {
 	pub options: tg::checkin::Options,
 	pub root: PathBuf,
-	pub updates: Vec<tg::list::Pattern>,
+	pub updates: Vec<tg::specifier::Pattern>,
 }
 
 #[derive(Clone)]

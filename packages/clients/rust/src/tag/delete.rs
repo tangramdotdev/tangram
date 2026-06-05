@@ -1,25 +1,23 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	pub pattern: tg::list::Pattern,
+	pub pattern: tg::specifier::Pattern,
 
 	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub recursive: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub replicate: Option<Vec<tg::Tag>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub deleted: Vec<tg::Tag>,
+	pub deleted: Vec<tg::tag::Data>,
 }
 
 impl tg::Session {
@@ -28,17 +26,17 @@ impl tg::Session {
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let method = http::Method::DELETE;
-		let uri = "/tags".to_owned();
+		let uri = Uri::builder()
+			.path("/tags")
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.json(arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.empty()
 			.unwrap();
 		let response = self
 			.send_with_retry(request)

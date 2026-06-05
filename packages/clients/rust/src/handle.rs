@@ -9,8 +9,8 @@ mod either;
 mod ext;
 mod group;
 mod module;
-mod namespace;
 mod object;
+mod organization;
 mod process;
 mod remote;
 mod sandbox;
@@ -19,12 +19,14 @@ mod user;
 mod watch;
 
 pub use self::{
-	ext::Ext, group::Group, module::Module, namespace::Namespace, object::Object, process::Process,
-	remote::Remote, sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
+	ext::Ext, grant::Grant, group::Group, module::Module, object::Object,
+	organization::Organization, process::Process, remote::Remote, sandbox::Sandbox, tag::Tag,
+	user::User, watch::Watch,
 };
 
 pub mod dynamic;
 pub mod erased;
+mod grant;
 
 pub static HANDLE: OnceLock<tg::Client> = OnceLock::new();
 
@@ -52,10 +54,11 @@ pub(crate) fn handle() -> tg::Result<&'static tg::Client> {
 }
 
 pub trait Handle:
-	Group
+	Grant
+	+ Group
 	+ Module
-	+ Namespace
 	+ Object
+	+ Organization
 	+ Process
 	+ Remote
 	+ Sandbox
@@ -168,13 +171,8 @@ pub trait Handle:
 		arg: tg::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<
-				Item = tg::Result<
-					tg::progress::Event<
-						tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>,
-					>,
-				>,
-			> + Send
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::Referent<tg::get::Item>>>>
+			+ Send
 			+ 'static,
 		>,
 	> + Send {
@@ -191,24 +189,7 @@ pub trait Handle:
 						Ok(tg::progress::Event::Indicators(indicators))
 					},
 					tg::progress::Event::Output(output) => output
-						.map(|output| {
-							let referent = output.referent.map(|item| {
-								item.map_left(|edge| match edge {
-									tg::graph::data::Edge::Object(id) => {
-										tg::graph::Edge::Object(tg::Object::with_id(id))
-									},
-									tg::graph::data::Edge::Pointer(pointer) => {
-										tg::graph::Edge::Pointer(tg::graph::Pointer {
-											graph: pointer.graph.map(tg::Graph::with_id),
-											index: pointer.index,
-											kind: pointer.kind,
-										})
-									},
-								})
-								.map_right(|id| tg::Process::new(id, None, None, None, None, None))
-							});
-							tg::progress::Event::Output(referent)
-						})
+						.map(|output| tg::progress::Event::Output(output.referent))
 						.ok_or_else(|| tg::error!(%reference, "failed to get the reference")),
 				})
 			});

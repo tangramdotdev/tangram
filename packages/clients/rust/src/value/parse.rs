@@ -158,7 +158,6 @@ fn id_kind(input: &mut Input) -> ModalResult<tg::id::Kind> {
 			alt(("sbx", "sandbox")).value(tg::id::Kind::Sandbox),
 			alt(("pcs", "process")).value(tg::id::Kind::Process),
 			alt(("usr", "user")).value(tg::id::Kind::User),
-			alt(("req", "request")).value(tg::id::Kind::Request),
 		)),
 	))
 	.parse_next(input)

@@ -6,10 +6,11 @@ use {
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
+mod grant;
 mod group;
 mod module;
-mod namespace;
 mod object;
+mod organization;
 mod process;
 mod remote;
 mod sandbox;
@@ -32,12 +33,11 @@ impl Session {
 	#[must_use]
 	pub(crate) fn read_principal(&self) -> tg::Principal {
 		match self.context.authentication.as_ref() {
-			None | Some(Authentication::Runner) => tg::Principal::All,
+			None | Some(Authentication::Runner | Authentication::Root) => tg::Principal::Root,
 			Some(Authentication::Process(process)) => process
 				.created_by
 				.clone()
 				.map_or(tg::Principal::Root, tg::Principal::User),
-			Some(Authentication::Root) => tg::Principal::Root,
 			Some(Authentication::Sandbox(sandbox)) => sandbox
 				.created_by
 				.clone()
@@ -58,20 +58,6 @@ impl Session {
 			},
 			None | Some(Authentication::Root | Authentication::Runner) => None,
 		}
-	}
-
-	#[must_use]
-	pub(crate) fn authorize_object(
-		principal: &tg::Principal,
-		output: &crate::object::store::TryGetOutput,
-		subtree: bool,
-	) -> bool {
-		matches!(principal, tg::Principal::Root)
-			|| if subtree {
-				output.grants.iter().any(|grant| grant.subtree)
-			} else {
-				!output.grants.is_empty()
-			}
 	}
 
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {

@@ -3,7 +3,7 @@ use {std::sync::Arc, tangram_client::prelude::*, tangram_futures::task::Stopper}
 #[derive(Clone, Debug)]
 pub struct Context {
 	pub authentication: Option<Authentication>,
-	pub id: Option<tg::Id>,
+	pub id: Option<String>,
 	pub sandbox: bool,
 	pub stopper: Option<Stopper>,
 }
@@ -35,24 +35,6 @@ pub struct Sandbox {
 	pub id: tg::sandbox::Id,
 	pub location: tg::Location,
 	pub token: Option<String>,
-}
-
-impl Authentication {
-	#[must_use]
-	pub fn uses_all_grants(authentication: Option<&Self>) -> bool {
-		matches!(
-			authentication,
-			None | Some(Self::Process(_) | Self::Runner | Self::Sandbox(_))
-		)
-	}
-
-	#[must_use]
-	pub fn user_id(authentication: Option<&Self>) -> Option<&tg::user::Id> {
-		let Some(Self::User(user)) = authentication else {
-			return None;
-		};
-		Some(&user.id)
-	}
 }
 
 impl Context {

@@ -64,14 +64,14 @@ let published_dep_id = do $extract_published_id "test-dep/1.0.0"
 let published_main_id = do $extract_published_id "test-main/1.0.0"
 
 # Verify both packages are tagged on local with the published IDs.
-let local_dep_tag = tg tag get test-dep/1.0.0 | from json | get item
-let local_main_tag = tg tag get test-main/1.0.0 | from json | get item
+let local_dep_tag = tg tag get test-dep/1.0.0 | from json | get item.id
+let local_main_tag = tg tag get test-main/1.0.0 | from json | get item.id
 assert equal $local_dep_tag $published_dep_id "Local dependency tag does not match published ID."
 assert equal $local_main_tag $published_main_id "Local main tag does not match published ID."
 
 # Verify both packages are tagged on remote with the published IDs.
-let remote_dep_tag = tg --url $remote.url tag get test-dep/1.0.0 | from json | get item
-let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item
+let remote_dep_tag = tg --url $remote.url tag get test-dep/1.0.0 | from json | get item.id
+let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item.id
 assert equal $remote_dep_tag $published_dep_id "Remote dependency tag does not match published ID."
 assert equal $remote_main_tag $published_main_id "Remote main tag does not match published ID."
 

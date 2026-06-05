@@ -5,7 +5,10 @@ use {
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {}
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
@@ -48,14 +51,5 @@ impl tg::Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
 		Ok(output)
-	}
-}
-
-impl tg::Client {
-	pub async fn list_groups(
-		&self,
-		arg: tg::group::list::Arg,
-	) -> tg::Result<tg::group::list::Output> {
-		self.session(self.context()).list_groups(arg).await
 	}
 }

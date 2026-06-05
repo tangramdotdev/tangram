@@ -6,16 +6,19 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub namespace: String,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Session {
-	pub async fn try_get_user(&self, arg: tg::user::get::Arg) -> tg::Result<Option<tg::User>> {
+	pub async fn try_get_user(
+		&self,
+		user: &tg::user::Selector,
+		arg: tg::user::get::Arg,
+	) -> tg::Result<Option<tg::User>> {
+		let path = format!("/users/{}", user.to_string().replace('/', ":"));
 		let uri = Uri::builder()
-			.path("/users")
+			.path(&path)
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
@@ -47,11 +50,5 @@ impl tg::Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
 		Ok(Some(output))
-	}
-}
-
-impl tg::Client {
-	pub async fn try_get_user(&self, arg: tg::user::get::Arg) -> tg::Result<Option<tg::User>> {
-		self.session(self.context()).try_get_user(arg).await
 	}
 }

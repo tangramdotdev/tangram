@@ -127,7 +127,7 @@ pub struct Options {
 
 	/// Tag the process.
 	#[arg(long)]
-	pub tag: Option<tg::Tag>,
+	pub tag: Option<tg::Specifier>,
 
 	#[command(flatten)]
 	pub tty: Tty,
@@ -325,7 +325,7 @@ pub(crate) struct InnerOutput {
 	pub location: Option<tg::location::Arg>,
 	pub referent: tg::Referent<tg::graph::Edge<tg::Object>>,
 	pub sandboxed: bool,
-	pub tag: Option<tg::Tag>,
+	pub tag: Option<tg::Specifier>,
 }
 
 impl Cli {
@@ -428,17 +428,15 @@ impl Cli {
 				.right()
 				.cloned()
 				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
-			let item = tg::Either::Right(id);
 			let arg = tg::tag::put::Arg {
 				force: false,
-				item,
+				item: id.into(),
 				location: location.clone(),
-				all: false,
-				replicate: false,
-				tag: None,
+				public: false,
+				specifier: tag.clone(),
 			};
 			client
-				.put_tag(&tag, arg)
+				.put_tag(arg)
 				.await
 				.map_err(|error| tg::error!(!error, %tag, "failed to tag the process"))?;
 		}
@@ -557,14 +555,11 @@ impl Cli {
 		// Get the reference.
 		let arg = tg::get::Arg {
 			checkin: options.checkin.to_options(),
+			resolve: true,
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&reference, arg).await?;
-		let item = referent
-			.item
-			.clone()
-			.left()
-			.ok_or_else(|| tg::error!("expected an object"))?;
+		let item = referent.item.clone().to_graph_edge()?;
 		let mut referent = referent.map(|_| item);
 
 		// Create the command builder.

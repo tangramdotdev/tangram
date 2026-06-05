@@ -19,11 +19,8 @@ pub struct Args {
 impl Cli {
 	pub async fn command_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let referent = self.get_reference(&args.reference).await?;
-		let edge = referent
-			.item
-			.left()
-			.ok_or_else(|| tg::error!("expected an object"))?;
+		let referent = self.get_resolved_reference(&args.reference).await?;
+		let edge = referent.item.to_graph_edge()?;
 		let object = edge
 			.try_unwrap_object()
 			.map_err(|_| tg::error!("expected an object"))?;

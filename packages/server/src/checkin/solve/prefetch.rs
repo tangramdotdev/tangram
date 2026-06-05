@@ -11,10 +11,10 @@ type ObjectTasks = tangram_futures::task::Map<
 	tg::id::BuildHasher,
 >;
 
-type Tags = Arc<DashMap<tg::list::Pattern, tg::list::Output, fnv::FnvBuildHasher>>;
+type Tags = Arc<DashMap<tg::specifier::Pattern, tg::list::Output, fnv::FnvBuildHasher>>;
 
 type TagTasks = tangram_futures::task::Map<
-	tg::list::Pattern,
+	tg::specifier::Pattern,
 	tg::Result<tg::list::Output>,
 	(),
 	fnv::FnvBuildHasher,
@@ -192,7 +192,7 @@ impl Session {
 			},
 			tg::graph::data::Node::File(file) => {
 				for reference in file.dependencies.keys() {
-					if let tg::reference::Item::Tag(pattern) = reference.item() {
+					if let tg::reference::Item::Specifier(pattern) = reference.item() {
 						self.checkin_solve_get_or_spawn_tag_task(prefetch, pattern);
 					}
 				}
@@ -286,7 +286,7 @@ impl Session {
 	pub(super) async fn checkin_solve_list_tag_entries(
 		&self,
 		prefetch: &Prefetch,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<tg::list::Output> {
 		// Return a cached result if one is available.
 		if let Some(output) = prefetch.tags.get(pattern).map(|value| value.clone()) {
@@ -302,7 +302,7 @@ impl Session {
 	fn checkin_solve_get_or_spawn_tag_task(
 		&self,
 		prefetch: &Prefetch,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tangram_futures::task::Shared<tg::Result<tg::list::Output>, ()> {
 		prefetch.tag_tasks.get_or_spawn(pattern.clone(), {
 			let session = self.clone();
@@ -331,7 +331,7 @@ impl Session {
 	async fn checkin_solve_fetch_tags(
 		&self,
 		prefetch: &Prefetch,
-		pattern: &tg::list::Pattern,
+		pattern: &tg::specifier::Pattern,
 	) -> tg::Result<tg::list::Output> {
 		// List tags.
 		let output = if prefetch.arg.options.deterministic {
@@ -341,7 +341,7 @@ impl Session {
 				cached: false,
 				length: None,
 				location: None,
-				namespaces: false,
+				groups: false,
 				pattern: pattern.clone(),
 				recursive: false,
 				reverse: true,

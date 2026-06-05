@@ -1,19 +1,35 @@
-create table users (
+create table nodes (
 	id text primary key,
-	namespace text
+	kind text not null check (kind in ('user', 'group', 'organization', 'tag')),
+	parent text,
+	name text not null,
+	specifier text not null unique,
+	foreign key (parent) references nodes (id)
 );
 
-create unique index users_namespace_index on users (namespace);
+create unique index nodes_parent_name_index on nodes (coalesce(parent, ''), name);
+
+create index nodes_parent_index on nodes (parent);
+
+create index nodes_kind_index on nodes (kind);
+
+create table users (
+	id text primary key,
+	name text not null,
+	foreign key (id) references nodes (id)
+);
 
 create table user_emails (
 	"user" text not null,
 	email text not null unique,
-	primary key ("user", email)
+	primary key ("user", email),
+	foreign key ("user") references users (id)
 );
 
 create table user_tokens (
 	id text primary key,
-	"user" text not null
+	"user" text not null,
+	foreign key ("user") references users (id)
 );
 
 create table runner_tokens (
@@ -22,85 +38,71 @@ create table runner_tokens (
 
 create table groups (
 	id text primary key,
-	namespace text not null,
-	parent text
+	name text not null,
+	parent text,
+	foreign key (id) references nodes (id),
+	foreign key (parent) references nodes (id)
 );
-
-create unique index groups_namespace_index on groups (namespace);
 
 create index groups_parent_index on groups (parent);
 
+create table organizations (
+	id text primary key,
+	name text not null,
+	foreign key (id) references nodes (id)
+);
+
 create table group_members (
 	"group" text not null,
-	"user" text not null,
-	primary key ("group", "user")
+	member text not null,
+	primary key ("group", member),
+	foreign key ("group") references groups (id),
+	foreign key (member) references nodes (id)
 );
 
-create index group_members_user_index on group_members ("user");
+create index group_members_member_index on group_members (member);
 
-create table namespace_grants (
-	namespace integer not null default 0,
+create table organization_members (
+	organization text not null,
+	member text not null,
+	primary key (organization, member),
+	foreign key (organization) references organizations (id),
+	foreign key (member) references nodes (id)
+);
+
+create index organization_members_member_index on organization_members (member);
+
+create table grants (
+	resource text not null,
 	principal text not null,
 	permission text not null,
 	created_at integer not null,
 	created_by text,
-	check (principal != 'all' or permission = 'read')
+	unique (resource, principal, permission)
 );
 
-create unique index namespace_grants_index
-	on namespace_grants (namespace, principal, permission);
+create index grants_resource_index on grants (resource);
 
-create index namespace_grants_principal_lookup_index
-	on namespace_grants (principal, namespace, permission);
+create index grants_principal_index on grants (principal);
 
-create table namespace_visibility (
-	namespace integer not null default 0,
+create table visibility (
+	resource text not null,
 	principal text not null,
 	count integer not null,
-	check (count > 0)
+	check (count > 0),
+	unique (resource, principal)
 );
 
-create unique index namespace_visibility_index
-	on namespace_visibility (namespace, principal);
-
-create index namespace_visibility_principal_lookup_index
-	on namespace_visibility (principal, namespace);
-
-create table namespaces (
-	id integer primary key autoincrement,
-	parent integer not null default 0,
-	component text not null,
-	name text not null
-);
-
-create index namespaces_parent_index on namespaces (parent);
-
-create unique index namespaces_name_index on namespaces (name);
-
-create unique index namespaces_parent_component_index on namespaces (parent, component);
+create index visibility_principal_resource_index on visibility (principal, resource);
 
 create table tags (
-	namespace integer not null default 0,
+	id text primary key,
 	name text not null,
+	parent text,
 	item text not null,
-	primary key (namespace, name)
+	foreign key (id) references nodes (id),
+	foreign key (parent) references nodes (id)
 );
-
-create table tag_grants (
-	namespace integer not null default 0,
-	name text not null,
-	principal text not null,
-	permission text not null,
-	created_at integer not null,
-	created_by text,
-	check (principal != 'all' or permission = 'read')
-);
-
-create unique index tag_grants_index
-	on tag_grants (namespace, name, principal, permission);
-
-create index tag_grants_principal_lookup_index
-	on tag_grants (principal, namespace, name, permission);
 
 create table list_cache (
 	arg text not null,

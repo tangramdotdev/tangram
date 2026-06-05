@@ -20,11 +20,11 @@ let output = tg tag put test $id2 | complete
 failure $output "The tag command should fail without --force."
 assert ($output.stderr | str contains "the tag already exists with a different item") "The error should mention that the tag already exists."
 
-let item = tg tag get test | from json | get item
+let item = tg tag get test | from json | get item.id
 assert equal $item $id1 "The tag should still point to the original item."
 
 # --force overwrites the tag.
 tg tag put --force test $id2
 
-let item = tg tag get test | from json | get item
+let item = tg tag get test | from json | get item.id
 assert equal $item $id2 "The tag should point to the new item."

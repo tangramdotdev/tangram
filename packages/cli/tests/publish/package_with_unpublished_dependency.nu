@@ -40,8 +40,8 @@ let main_id = tg checkin $main_path
 tg publish $main_path | complete | success $in
 
 # Verify both packages are tagged on remote.
-let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item
-let remote_dep_tag = tg --url $remote.url tag get test-dep/1.0.0 | from json | get item
+let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item.id
+let remote_dep_tag = tg --url $remote.url tag get test-dep/1.0.0 | from json | get item.id
 assert equal $remote_main_tag $main_id "Remote main tag does not match expected ID."
 assert equal $remote_dep_tag $dep_id "Remote dependency tag does not match expected ID."
 

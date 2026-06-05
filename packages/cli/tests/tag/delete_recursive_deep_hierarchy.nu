@@ -13,7 +13,7 @@ for tag in $tags {
 }
 
 # Recursively delete - should process in order from deepest to shallowest.
-let output = tg tag delete --recursive "test/*"
+let output = tg tag delete --recursive "test/*" | from json | get deleted.specifier | to json -r
 
 # Verify the order: longest paths first (children before parents).
 snapshot -n deleted $output

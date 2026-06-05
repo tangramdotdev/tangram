@@ -15,15 +15,14 @@ impl Cli {
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
 		for reference in &args.references {
-			let arg = tg::get::Arg::default();
+			let arg = tg::get::Arg {
+				resolve: true,
+				..Default::default()
+			};
 			let referent = self.get_reference_with_arg(reference, arg).await?;
-			let edge = referent
-				.item()
-				.as_ref()
-				.left()
-				.ok_or_else(|| tg::error!("expected an object"))?;
+			let edge = referent.item.to_graph_edge()?;
 
-			let blob = match edge {
+			let blob = match &edge {
 				tg::graph::Edge::Object(tg::Object::Blob(blob)) => blob.clone(),
 				tg::graph::Edge::Object(tg::Object::File(file)) => file
 					.contents_with_handle(&client)

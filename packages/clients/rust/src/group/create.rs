@@ -5,7 +5,10 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub namespace: tg::Namespace,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+
+	pub specifier: tg::Specifier,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -47,14 +50,5 @@ impl tg::Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
 		Ok(output)
-	}
-}
-
-impl tg::Client {
-	pub async fn create_group(
-		&self,
-		arg: tg::group::create::Arg,
-	) -> tg::Result<tg::group::create::Output> {
-		self.session(self.context()).create_group(arg).await
 	}
 }

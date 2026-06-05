@@ -14,7 +14,7 @@ let a_path = artifact {
 }
 tg tag a/1.1.0 $a_path
 
-let a_id = tg tag get a/1.0.0 | from json | get 'item'
+let a_id = tg tag get a/1.0.0 | from json | get item.id
 let lock = {
 	nodes: [
 		{

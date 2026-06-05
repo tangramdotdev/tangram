@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -8,42 +8,27 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn list_group_namespace_grants(
+	pub(crate) async fn try_get_group_grants(
 		&self,
+		group: &tg::group::Selector,
 		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
-			return Err(tg::error!("unauthorized"));
-		}
 		let location = self
 			.server
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) => self.list_group_namespace_grants_local(&arg.group).await,
+			tg::Location::Local(_) => self.try_get_group_grants_local(group).await,
 			tg::Location::Remote(remote) => {
-				self.list_group_namespace_grants_remote(arg, remote).await
+				self.try_get_group_grants_remote(group, arg, remote).await
 			},
 		}
 	}
 
-	async fn list_group_namespace_grants_local(
+	async fn try_get_group_grants_local(
 		&self,
-		group: &str,
+		group: &tg::group::Selector,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		let authentication = &self.context.authentication;
-		if authentication
-			.as_ref()
-			.is_none_or(|authentication| authentication.is_runner() || authentication.is_sandbox())
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let mut connection = self
 			.server
 			.database
@@ -54,78 +39,59 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(group) = Self::try_get_group_with_transaction(&transaction, group).await? else {
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(&transaction, group).await?
+		else {
 			return Ok(None);
 		};
-		if let Some(Authentication::User(current_user)) = authentication
-			&& !Self::user_has_namespace_permission_with_transaction(
-				&transaction,
-				&current_user.id,
-				&group.namespace,
-				tg::Permission::Admin,
-			)
-			.await?
+		if node.kind != tg::id::Kind::Group
+			|| !self
+				.node_is_visible_with_transaction(&transaction, &node.id)
+				.await?
 		{
-			return Err(tg::error!("unauthorized"));
+			return Ok(None);
 		}
-		let data =
-			Self::list_namespace_grants_for_group_with_transaction(&transaction, &group.id).await?;
+		let data = Self::list_direct_grants_with_transaction(&transaction, &node.id).await?;
 		Ok(Some(tg::group::grants::Output { data }))
 	}
 
-	async fn list_group_namespace_grants_remote(
+	async fn try_get_group_grants_remote(
 		&self,
+		group: &tg::group::Selector,
 		mut arg: tg::group::grants::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		let client = self
-			.get_remote_session(&remote.name)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					remote = %remote.name,
-					"failed to get the remote client"
-				)
-			})?;
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client
-			.list_group_namespace_grants(arg)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					remote = %remote.name,
-					"failed to list the namespace grants"
-				)
-			})
+		client.try_get_group_grants(group, arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to list the group grants"),
+		)
 	}
 
-	pub(crate) async fn list_group_namespace_grants_request(
+	pub(crate) async fn try_get_group_grants_request(
 		&self,
 		request: http::Request<BoxBody>,
+		group: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let arg = request
-			.query_params::<tg::group::grants::Arg>()
+			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(output) = self
-			.list_group_namespace_grants(arg.clone())
-			.await
-			.map_err(
-				|error| tg::error!(!error, group = %arg.group, "failed to list the namespace grants"),
-			)?
-		else {
-			return Ok(http::Response::builder()
+			.unwrap_or(tg::group::grants::Arg { location: None });
+		let group = group.replace(':', "/").parse()?;
+		let Some(output) = self.try_get_group_grants(&group, arg).await? else {
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()
@@ -144,6 +110,7 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap())
+		let response = response.body(body).unwrap().boxed_body();
+		Ok(response)
 	}
 }

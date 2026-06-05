@@ -8,7 +8,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub pattern: tg::list::Pattern,
+	pub pattern: tg::specifier::Pattern,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -24,7 +24,6 @@ impl Cli {
 			location: args.location.get(),
 			pattern: args.pattern.clone(),
 			recursive: args.recursive,
-			replicate: None,
 		};
 		let output = client.delete_tags(arg).await.map_err(
 			|error| tg::error!(!error, pattern = %args.pattern, "failed to delete the tag"),

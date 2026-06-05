@@ -4,18 +4,21 @@ use {
 	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub group: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Session {
-	pub async fn try_delete_group(&self, group: &str) -> tg::Result<Option<()>> {
-		let arg = tg::group::delete::Arg {
-			group: group.to_owned(),
-		};
+	pub async fn try_delete_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let path = format!("/groups/{}", group.to_string().replace('/', ":"));
 		let uri = Uri::builder()
-			.path("/groups")
+			.path(&path)
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
@@ -42,17 +45,5 @@ impl tg::Session {
 			return Err(error);
 		}
 		Ok(Some(()))
-	}
-}
-
-impl tg::Client {
-	pub async fn try_delete_group(&self, group: &str) -> tg::Result<Option<()>> {
-		self.session(self.context()).try_delete_group(group).await
-	}
-
-	pub async fn delete_group(&self, group: &str) -> tg::Result<()> {
-		self.try_delete_group(group)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the group"))
 	}
 }

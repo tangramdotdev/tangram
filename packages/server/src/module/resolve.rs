@@ -102,18 +102,15 @@ impl Session {
 	fn resolve_module_without_referrer(
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		let edge = import
-			.reference
-			.item()
-			.try_unwrap_object_ref()
-			.map_err(|_| tg::error!("expected a fully specified import"))?;
+		let edge = reference_item_to_object_edge(import.reference.item())
+			.ok_or_else(|| tg::error!("expected a fully specified import"))?;
 		if import.reference.options().get.is_some() {
 			return Err(tg::error!("expected a fully specified import"));
 		}
 		if import.reference.options().source.is_some() {
 			return Err(tg::error!("expected a fully specified import"));
 		}
-		let item = tg::module::data::Item::Edge(edge.clone());
+		let item = tg::module::data::Item::Edge(edge);
 		let reference_options = import.reference.options();
 		let options = tg::referent::Options {
 			artifact: reference_options.artifact.clone(),
@@ -408,30 +405,36 @@ impl Session {
 			.ok_or_else(|| tg::error!("expected the output"))?
 			.ok_or_else(|| tg::error!("expected the reference to exist"))?;
 		let tg::Referent { item, options } = output.referent;
-		let edge = item
-			.left()
-			.ok_or_else(|| tg::error!("expected an object"))?;
-		let object = edge.try_unwrap_object_ref().map_or_else(
-			|_| {
-				let pointer = edge
-					.try_unwrap_pointer_ref()
-					.map_err(|_| tg::error!("expected an object"))?;
+		let object = match item {
+			tg::get::Item::Id(id) => {
+				let id = tg::object::Id::try_from(id)?;
+				tg::Object::with_id(id)
+			},
+			tg::get::Item::Pointer(pointer) => {
 				let graph = pointer
 					.graph
 					.clone()
 					.map(tg::Graph::with_id)
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				Ok::<_, tg::Error>(
-					tg::Artifact::with_pointer(tg::graph::Pointer {
-						graph: Some(graph),
-						index: pointer.index,
-						kind: pointer.kind,
-					})
-					.into(),
-				)
+				tg::Artifact::with_pointer(tg::graph::Pointer {
+					graph: Some(graph),
+					index: pointer.index,
+					kind: pointer.kind,
+				})
+				.into()
 			},
-			|id| Ok(tg::Object::with_id(id.clone())),
-		)?;
+		};
+		let edge = match &object {
+			tg::Object::Blob(blob) => tg::graph::data::Edge::Object(blob.id().into()),
+			tg::Object::Directory(directory) => {
+				tg::graph::data::Edge::Object(directory.id().into())
+			},
+			tg::Object::File(file) => tg::graph::data::Edge::Object(file.id().into()),
+			tg::Object::Symlink(symlink) => tg::graph::data::Edge::Object(symlink.id().into()),
+			tg::Object::Graph(graph) => tg::graph::data::Edge::Object(graph.id().into()),
+			tg::Object::Command(command) => tg::graph::data::Edge::Object(command.id().into()),
+			tg::Object::Error(error) => tg::graph::data::Edge::Object(error.id().into()),
+		};
 		let referent = match (import.kind, &object) {
 			(
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
@@ -592,5 +595,19 @@ impl Session {
 		}
 		let response = response.body(body).unwrap();
 		Ok(response)
+	}
+}
+
+fn reference_item_to_object_edge(
+	item: &tg::reference::Item,
+) -> Option<tg::graph::data::Edge<tg::object::Id>> {
+	match item {
+		tg::reference::Item::Id(id) => tg::object::Id::try_from(id.clone())
+			.ok()
+			.map(tg::graph::data::Edge::Object),
+		tg::reference::Item::Pointer(pointer) => {
+			Some(tg::graph::data::Edge::Pointer(pointer.clone()))
+		},
+		tg::reference::Item::Path(_) | tg::reference::Item::Specifier(_) => None,
 	}
 }

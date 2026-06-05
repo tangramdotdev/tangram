@@ -2,6 +2,7 @@ use {
 	crate::{Session, context::Authentication, database::Database},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
+	tangram_database::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -19,7 +20,19 @@ impl Session {
 	) -> tg::Result<tg::process::list::Output> {
 		let principal = match self.context.authentication.as_ref() {
 			None | Some(Authentication::Root) => tg::Principal::Root,
-			Some(Authentication::Runner) => tg::Principal::All,
+			Some(Authentication::Runner) => {
+				let mut connection =
+					self.server.database.connection().await.map_err(|error| {
+						tg::error!(!error, "failed to get a database connection")
+					})?;
+				let transaction = connection
+					.transaction()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+				tg::Principal::Group(
+					Self::ensure_public_group_with_transaction(&transaction).await?,
+				)
+			},
 			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
 			Some(Authentication::Process(_) | Authentication::Sandbox(_)) => {
 				return Err(tg::error!("unauthorized"));

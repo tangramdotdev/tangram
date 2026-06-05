@@ -13,9 +13,12 @@ let pattern = "test"
 tg tag put $pattern $id
 
 # List tags.
-let list_output = tg list --no-namespaces
+let list_output = tg list --no-groups
 snapshot -n list $list_output
 
 # Get tag.
-let get_output = tg tag get $pattern
-snapshot -n get $get_output
+let tag = tg tag get $pattern | from json
+assert equal $tag.item.id $id
+assert equal $tag.item.kind object
+assert equal $tag.name test
+assert equal $tag.specifier test

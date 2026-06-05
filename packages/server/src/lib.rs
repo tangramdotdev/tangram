@@ -35,7 +35,7 @@ mod directory;
 mod document;
 mod format;
 mod get;
-
+mod grant;
 mod group;
 mod handle;
 mod health;
@@ -46,8 +46,9 @@ mod location;
 mod log;
 mod messenger;
 mod module;
-mod namespace;
+mod node;
 mod object;
+mod organization;
 mod process;
 mod pull;
 mod push;
@@ -539,9 +540,7 @@ impl Server {
 		// Create the remote list tasks.
 		let remote_list_tasks = tangram_futures::task::Map::default();
 
-		// Create the sandbox container root. If the config declares a VM isolation,
-		// record the path where the squashfs image will be built when the
-		// first VM sandbox actually needs it.
+		// Create the sandbox container root.
 		let sandbox_container_root_path = path.join("container/root");
 		let sandbox_seatbelt_root_path = path.join("seatbelt/root");
 		let tangram_path = tangram_util::env::current_exe()
@@ -706,6 +705,12 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
 		}
 
+		server
+			.session(&server.context)
+			.bootstrap_nodes()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to bootstrap the node data"))?;
+
 		// Migrate the process store if necessary.
 		#[cfg(feature = "sqlite")]
 		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
@@ -721,13 +726,13 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
 		}
 
-		// Destroy unfinished sandboxes if single process mode is enabled.
-		if server.config().advanced.single_process {
-			let result = server.destroy_unfinished_sandboxes().await;
-			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
-			}
-		}
+		// // Destroy unfinished sandboxes if single process mode is enabled.
+		// if server.config().advanced.single_process {
+		// 	let result = server.destroy_unfinished_sandboxes().await;
+		// 	if let Err(error) = result {
+		// 		tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
+		// 	}
+		// }
 
 		// Set the remotes if specified in the config.
 		if let Some(remotes) = &server.config.remotes {
@@ -741,6 +746,7 @@ impl Server {
 				})
 				.await?;
 		}
+
 		// Spawn the indexer task.
 		let indexer_task = server.config.indexer.clone().map(|config| {
 			Task::spawn({
@@ -1081,56 +1087,56 @@ impl Server {
 					tracing::trace!("watchdog task");
 				}
 
-				// Remove the watches.
-				server.watches.clear();
+				// // Remove the watches.
+				// server.watches.clear();
 
-				// Abort the checkin tasks.
-				server.checkin_tasks.abort_all();
-				let results = server.checkin_tasks.wait().await;
-				for result in results {
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "a checkin task panicked");
-					}
-				}
-				tracing::trace!("checkin tasks");
+				// // Abort the checkin tasks.
+				// server.checkin_tasks.abort_all();
+				// let results = server.checkin_tasks.wait().await;
+				// for result in results {
+				// 	if let Err(error) = result
+				// 		&& !error.is_cancelled()
+				// 	{
+				// 		tracing::error!(?error, "a checkin task panicked");
+				// 	}
+				// }
+				// tracing::trace!("checkin tasks");
 
-				// Abort the cache graph tasks.
-				server.cache_graph_tasks.abort_all();
-				let results = server.cache_graph_tasks.wait().await;
-				for result in results {
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "a cache graph task failed");
-					}
-				}
-				tracing::trace!("cache graph tasks");
+				// // Abort the cache graph tasks.
+				// server.cache_graph_tasks.abort_all();
+				// let results = server.cache_graph_tasks.wait().await;
+				// for result in results {
+				// 	if let Err(error) = result
+				// 		&& !error.is_cancelled()
+				// 	{
+				// 		tracing::error!(?error, "a cache graph task failed");
+				// 	}
+				// }
+				// tracing::trace!("cache graph tasks");
 
-				// Abort the cache tasks.
-				server.cache_tasks.abort_all();
-				let results = server.cache_tasks.wait().await;
-				for result in results {
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "a cache task panicked");
-					}
-				}
-				tracing::trace!("cache tasks");
+				// // Abort the cache tasks.
+				// server.cache_tasks.abort_all();
+				// let results = server.cache_tasks.wait().await;
+				// for result in results {
+				// 	if let Err(error) = result
+				// 		&& !error.is_cancelled()
+				// 	{
+				// 		tracing::error!(?error, "a cache task panicked");
+				// 	}
+				// }
+				// tracing::trace!("cache tasks");
 
-				// Abort the object get tasks.
-				server.object_get_tasks.abort_all();
-				let results = server.object_get_tasks.wait().await;
-				for result in results {
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "an object get task panicked");
-					}
-				}
-				tracing::trace!("object get tasks");
+				// // Abort the object get tasks.
+				// server.object_get_tasks.abort_all();
+				// let results = server.object_get_tasks.wait().await;
+				// for result in results {
+				// 	if let Err(error) = result
+				// 		&& !error.is_cancelled()
+				// 	{
+				// 		tracing::error!(?error, "an object get task panicked");
+				// 	}
+				// }
+				// tracing::trace!("object get tasks");
 
 				// Abort the remote list tasks.
 				server.remote_list_tasks.abort_all();
@@ -1205,36 +1211,36 @@ impl Server {
 		Ok(owned)
 	}
 
-	async fn destroy_unfinished_sandboxes(&self) -> tg::Result<()> {
-		let session = self.session(&self.context);
-		let outputs = session
-			.list_sandboxes_local()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
-		outputs
-			.into_iter()
-			.map(|output| {
-				let session = session.clone();
-				async move {
-					let error = tg::error::Data {
-						code: Some(tg::error::Code::HeartbeatExpiration),
-						message: Some("heartbeat expired".into()),
-						..Default::default()
-					};
-					let error = Some(tg::Either::Left(error));
-					if let Err(error) = session
-						.try_destroy_sandbox_local(&output.id, error, None)
-						.await
-					{
-						tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
-					}
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<()>()
-			.await;
-		Ok(())
-	}
+	// async fn destroy_unfinished_sandboxes(&self) -> tg::Result<()> {
+	// 	let session = self.session(&self.context);
+	// 	let outputs = session
+	// 		.list_sandboxes_local()
+	// 		.await
+	// 		.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
+	// 	outputs
+	// 		.into_iter()
+	// 		.map(|output| {
+	// 			let session = session.clone();
+	// 			async move {
+	// 				let error = tg::error::Data {
+	// 					code: Some(tg::error::Code::HeartbeatExpiration),
+	// 					message: Some("heartbeat expired".into()),
+	// 					..Default::default()
+	// 				};
+	// 				let error = Some(tg::Either::Left(error));
+	// 				if let Err(error) = session
+	// 					.try_destroy_sandbox_local(&output.id, error, None)
+	// 					.await
+	// 				{
+	// 					tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
+	// 				}
+	// 			}
+	// 		})
+	// 		.collect::<FuturesUnordered<_>>()
+	// 		.collect::<()>()
+	// 		.await;
+	// 	Ok(())
+	// }
 
 	#[must_use]
 	pub fn arg(&self) -> tg::Arg {

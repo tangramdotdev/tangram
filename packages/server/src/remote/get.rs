@@ -307,11 +307,12 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %name, "failed to get the remote"))?
 		else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 
 		// Create the response.

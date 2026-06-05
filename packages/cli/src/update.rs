@@ -30,7 +30,7 @@ pub struct Args {
 		index = 2,
 		num_args = 1..,
 	)]
-	pub updates: Option<Vec<tg::list::Pattern>>,
+	pub updates: Option<Vec<tg::specifier::Pattern>>,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +40,7 @@ struct Graph {
 
 #[derive(Clone, Debug)]
 struct Node {
-	edges: Vec<(Option<tg::list::Pattern>, Edge)>,
+	edges: Vec<(Option<tg::specifier::Pattern>, Edge)>,
 	options: tg::referent::Options,
 	path: Vec<usize>,
 }
@@ -48,14 +48,14 @@ struct Node {
 #[derive(Clone, Debug)]
 enum Edge {
 	Node(usize),
-	Tag(tg::Tag),
+	Tag(tg::Specifier),
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
 struct Update {
-	pattern: tg::Referent<tg::list::Pattern>,
-	old: Option<tg::Tag>,
-	new: Option<tg::Tag>,
+	pattern: tg::Referent<tg::specifier::Pattern>,
+	old: Option<tg::Specifier>,
+	new: Option<tg::Specifier>,
 }
 
 impl Cli {
@@ -265,14 +265,22 @@ fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
 			},
 			tg::graph::data::Node::File(file) => {
 				for (reference, dependency) in &file.dependencies {
-					let pattern = reference.item().try_unwrap_tag_ref().ok().cloned();
+					let pattern = reference
+						.item()
+						.try_unwrap_specifier_ref()
+						.ok()
+						.and_then(|pattern| pattern.to_string().parse().ok());
 					let Some(dependency) = dependency else {
 						continue;
 					};
 					match (dependency.item(), dependency.tag()) {
 						(Some(tg::graph::data::Edge::Pointer(pointer)), tag) => {
 							if pointer.graph.is_none() {
-								let reference = reference.item().try_unwrap_tag_ref().ok().cloned();
+								let reference = reference
+									.item()
+									.try_unwrap_specifier_ref()
+									.ok()
+									.and_then(|pattern| pattern.to_string().parse().ok());
 								node.edges.push((reference, Edge::Node(pointer.index)));
 								let mut child_options = dependency.options.clone();
 								let mut path = node.path.clone();
@@ -309,7 +317,9 @@ fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
 	Graph { nodes }
 }
 
-fn graph_dependencies(graph: &Graph) -> HashMap<tg::Referent<tg::list::Pattern>, tg::Tag> {
+fn graph_dependencies(
+	graph: &Graph,
+) -> HashMap<tg::Referent<tg::specifier::Pattern>, tg::Specifier> {
 	graph
 		.nodes
 		.iter()
@@ -389,7 +399,7 @@ pub(crate) fn format_referrer<T>(referrer: &tg::Referent<T>) -> String {
 	let mut name = name
 		.clone()
 		.or_else(|| artifact.as_ref().map(tg::artifact::Id::to_string))
-		.or_else(|| tag.as_ref().map(tg::Tag::to_string))
+		.or_else(|| tag.as_ref().map(ToString::to_string))
 		.unwrap_or_default();
 	if let Some(path) = path {
 		name = PathBuf::from(name).join(path).to_str().unwrap().to_owned();

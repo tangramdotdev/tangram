@@ -23,11 +23,11 @@ tg tag put $tag $id | complete
 tg publish $path
 
 # Verify tag on local.
-let local_tag = tg tag get $tag | from json | get item
+let local_tag = tg tag get $tag | from json | get item.id
 assert equal $local_tag $id "Local tag does not match expected ID."
 
 # Verify tag on remote.
-let remote_tag = tg --url $remote.url tag get $tag | from json | get item
+let remote_tag = tg --url $remote.url tag get $tag | from json | get item.id
 assert equal $remote_tag $id "Remote tag does not match expected ID."
 
 # Verify object synced.

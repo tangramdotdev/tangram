@@ -4,10 +4,11 @@ use {
 	tangram_futures::{BoxAsyncBufRead, BoxAsyncRead, BoxAsyncWrite},
 };
 
+mod grant;
 mod group;
 mod module;
-mod namespace;
 mod object;
+mod organization;
 mod process;
 mod remote;
 mod sandbox;
@@ -16,15 +17,16 @@ mod user;
 mod watch;
 
 pub use self::{
-	group::Group, module::Module, namespace::Namespace, object::Object, process::Process,
-	remote::Remote, sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
+	grant::Grant, group::Group, module::Module, object::Object, organization::Organization,
+	process::Process, remote::Remote, sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
 };
 
 pub trait Handle:
-	Group
+	Grant
+	+ Group
 	+ Module
-	+ Namespace
 	+ Object
+	+ Organization
 	+ Process
 	+ Remote
 	+ Sandbox

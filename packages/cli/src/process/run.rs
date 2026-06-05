@@ -174,7 +174,7 @@ impl Cli {
 					let viewer_options = crate::viewer::Options {
 						collapse_process_children: true,
 						depth: None,
-						expand_namespaces: false,
+						expand_groups: false,
 						expand_objects: false,
 						expand_processes: true,
 						expand_metadata: false,

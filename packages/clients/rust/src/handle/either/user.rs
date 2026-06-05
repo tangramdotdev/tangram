@@ -15,6 +15,17 @@ where
 		}
 	}
 
+	fn try_get_user(
+		&self,
+		user: &tg::user::Selector,
+		arg: tg::user::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
+		match self {
+			tg::Either::Left(s) => s.try_get_user(user, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_user(user, arg).right_future(),
+		}
+	}
+
 	fn login_user(
 		&self,
 		arg: tg::user::login::Arg,
@@ -25,14 +36,14 @@ where
 		}
 	}
 
-	fn list_user_namespace_grants(
+	fn try_get_user_grants(
 		&self,
-		user: &str,
+		user: &tg::user::Selector,
 		arg: tg::user::grants::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::user::grants::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.list_user_namespace_grants(user, arg).left_future(),
-			tg::Either::Right(s) => s.list_user_namespace_grants(user, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_user_grants(user, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_user_grants(user, arg).right_future(),
 		}
 	}
 }

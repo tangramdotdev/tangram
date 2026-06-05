@@ -30,9 +30,8 @@ pub use {
 		location::Location,
 		module::Module,
 		mutation::Mutation,
-		namespace::Namespace,
 		object::Handle as Object,
-		permission::Permission,
+		organization::Organization,
 		placeholder::Placeholder,
 		position::Position,
 		principal::Principal,
@@ -40,9 +39,11 @@ pub use {
 		range::Range,
 		reference::Reference,
 		referent::Referent,
+		selector::Selector,
 		session::Session,
+		specifier::Specifier,
 		symlink::Handle as Symlink,
-		tag::{Grant as TagGrant, Tag},
+		tag::Tag,
 		template::Template,
 		user::User,
 		value::Value,
@@ -83,9 +84,8 @@ pub mod list;
 pub mod location;
 pub mod module;
 pub mod mutation;
-pub mod namespace;
 pub mod object;
-pub mod permission;
+pub mod organization;
 pub mod placeholder;
 pub mod position;
 pub mod principal;
@@ -99,6 +99,8 @@ pub mod reference;
 pub mod referent;
 pub mod remote;
 pub mod sandbox;
+pub mod selector;
+pub mod specifier;
 pub mod symlink;
 pub mod sync;
 pub mod tag;
@@ -111,8 +113,9 @@ pub mod write;
 pub mod prelude {
 	pub use {
 		super::handle::{
-			Ext as _, Group as _, Handle as _, Module as _, Namespace as _, Object as _,
-			Process as _, Remote as _, Sandbox as _, Tag as _, User as _, Watch as _,
+			Ext as _, Grant as _, Group as _, Handle as _, Module as _, Object as _,
+			Organization as _, Process as _, Remote as _, Sandbox as _, Tag as _, User as _,
+			Watch as _,
 		},
 		crate as tg,
 	};

@@ -208,6 +208,11 @@ export namespace Stdio {
 		async readAllToString(): Promise<string> {
 			return tg.encoding.utf8.decode(await this.readAll());
 		}
+
+		/** Read all remaining bytes as UTF-8 text. */
+		async text(): Promise<string> {
+			return this.readAllToString();
+		}
 	}
 
 	export class Writer {

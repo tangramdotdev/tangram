@@ -20,7 +20,7 @@ pub struct Args {
 	pub reference: tg::Reference,
 
 	#[arg(index = 1)]
-	pub tag: Option<tg::Tag>,
+	pub specifier: Option<tg::Specifier>,
 }
 
 impl Cli {
@@ -30,22 +30,18 @@ impl Cli {
 		// Get the reference.
 		let arg = tg::get::Arg {
 			checkin: args.checkin.to_options(),
+			resolve: true,
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
 		let item = match referent.item {
-			tg::Either::Left(edge) => tg::Either::Left(
-				edge.try_unwrap_object()
-					.map_err(|_| tg::error!("expected an object"))?
-					.id(),
-			),
-			tg::Either::Right(process) => tg::Either::Right(
-				process
-					.id()
-					.right()
-					.ok_or_else(|| tg::error!("expected a process id"))?
-					.clone(),
-			),
+			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => id
+				.try_into()
+				.map(|id: tg::process::Id| tg::tag::data::Item::from(id))?,
+			tg::get::Item::Id(id) => id
+				.try_into()
+				.map(|id: tg::object::Id| tg::tag::data::Item::from(id))?,
+			tg::get::Item::Pointer(_) => return Err(tg::error!("expected an ID")),
 		};
 
 		// Put the tag.
@@ -53,15 +49,16 @@ impl Cli {
 			force: args.force,
 			item,
 			location: args.location.get(),
-			all: args.public,
-			replicate: false,
-			tag: None,
+			public: args.public,
+			specifier: args
+				.specifier
+				.clone()
+				.ok_or_else(|| tg::error!("expected a specifier"))?,
 		};
-		let tag = args.tag.unwrap();
 		client
-			.put_tag(&tag, arg)
+			.put_tag(arg)
 			.await
-			.map_err(|error| tg::error!(!error, %tag, "failed to put the tag"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
 
 		Ok(())
 	}

@@ -1,19 +1,8 @@
 use crate::prelude::*;
 
 impl tg::handle::Tag for tg::Session {
-	fn put_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.put_tag(tag, arg)
-	}
-
-	fn create_tag_grant(
-		&self,
-		arg: tg::tag::grants::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::TagGrant>> {
-		self.create_tag_grant(arg)
+	fn put_tag(&self, arg: tg::tag::put::Arg) -> impl Future<Output = tg::Result<()>> {
+		self.put_tag(arg)
 	}
 
 	fn post_tag_batch(
@@ -23,18 +12,19 @@ impl tg::handle::Tag for tg::Session {
 		self.post_tag_batch(arg)
 	}
 
-	fn list_tag_grants(
+	fn try_get_tag(
 		&self,
-		arg: tg::tag::grants::list::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::list::Output>>> {
-		self.list_tag_grants(arg)
+		tag: &tg::tag::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
+		self.try_get_tag(tag)
 	}
 
-	fn delete_tag_grant(
+	fn try_get_tag_grants(
 		&self,
-		arg: tg::tag::grants::delete::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.delete_tag_grant(arg)
+		tag: &tg::tag::Selector,
+		arg: tg::tag::grants::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::Output>>> {
+		self.try_get_tag_grants(tag, arg)
 	}
 
 	fn delete_tags(

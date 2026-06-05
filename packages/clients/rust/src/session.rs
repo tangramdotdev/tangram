@@ -4,10 +4,11 @@ use {
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
+mod grant;
 mod group;
 mod module;
-mod namespace;
 mod object;
+mod organization;
 mod process;
 mod remote;
 mod sandbox;

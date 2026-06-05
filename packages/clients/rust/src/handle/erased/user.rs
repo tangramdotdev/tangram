@@ -9,14 +9,20 @@ pub trait User: Send + Sync + 'static {
 		arg: tg::user::current::Arg,
 	) -> BoxFuture<'_, tg::Result<Option<tg::User>>>;
 
+	fn try_get_user<'a>(
+		&'a self,
+		user: &'a tg::user::Selector,
+		arg: tg::user::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::User>>>;
+
 	fn login_user(
 		&self,
 		arg: tg::user::login::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::user::login::Output>>;
 
-	fn list_user_namespace_grants<'a>(
+	fn try_get_user_grants<'a>(
 		&'a self,
-		user: &'a str,
+		user: &'a tg::user::Selector,
 		arg: tg::user::grants::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::user::grants::Output>>>;
 }
@@ -32,6 +38,14 @@ where
 		self.get_current_user(arg).boxed()
 	}
 
+	fn try_get_user<'a>(
+		&'a self,
+		user: &'a tg::user::Selector,
+		arg: tg::user::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::User>>> {
+		self.try_get_user(user, arg).boxed()
+	}
+
 	fn login_user(
 		&self,
 		arg: tg::user::login::Arg,
@@ -39,11 +53,11 @@ where
 		self.login_user(arg).boxed()
 	}
 
-	fn list_user_namespace_grants<'a>(
+	fn try_get_user_grants<'a>(
 		&'a self,
-		user: &'a str,
+		user: &'a tg::user::Selector,
 		arg: tg::user::grants::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::user::grants::Output>>> {
-		self.list_user_namespace_grants(user, arg).boxed()
+		self.try_get_user_grants(user, arg).boxed()
 	}
 }

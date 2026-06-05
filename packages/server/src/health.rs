@@ -63,6 +63,7 @@ impl Session {
 			} else {
 				None
 			};
+
 			#[derive(db::row::Deserialize)]
 			struct Row {
 				created: u64,

@@ -1,6 +1,6 @@
 use {crate::Cli, std::time::Duration, tangram_client::prelude::*};
 
-/// List namespaces and tags.
+/// List groups and tags.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -15,7 +15,7 @@ pub struct Args {
 	pub locations: crate::location::Args,
 
 	#[arg(default_value = "*", index = 1)]
-	pub pattern: tg::list::Pattern,
+	pub pattern: tg::specifier::Pattern,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -36,13 +36,13 @@ pub struct Entries {
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
-		overrides_with = "no_namespaces",
+		overrides_with = "no_groups",
 		require_equals = true,
 	)]
-	namespaces: Option<bool>,
+	groups: Option<bool>,
 
-	#[arg(long, overrides_with = "namespaces")]
-	no_namespaces: bool,
+	#[arg(long, overrides_with = "groups")]
+	no_groups: bool,
 
 	#[arg(
 		default_missing_value = "true",
@@ -67,11 +67,11 @@ pub struct Ttl {
 }
 
 impl Entries {
-	fn namespaces(&self) -> bool {
-		if self.no_namespaces {
+	fn groups(&self) -> bool {
+		if self.no_groups {
 			false
 		} else {
-			self.namespaces.unwrap_or(true)
+			self.groups.unwrap_or(true)
 		}
 	}
 
@@ -97,7 +97,7 @@ impl Cli {
 			cached: args.cached,
 			length: None,
 			location: args.locations.get(),
-			namespaces: args.entries.namespaces(),
+			groups: args.entries.groups(),
 			pattern: args.pattern.clone(),
 			recursive: args.recursive,
 			reverse: args.reverse,

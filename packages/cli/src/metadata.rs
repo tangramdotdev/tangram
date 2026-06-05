@@ -20,9 +20,18 @@ impl Cli {
 		let print = args.print;
 
 		// Get the reference.
-		let referent = self.get_reference(&args.reference).await?;
+		let referent = self.get_resolved_reference(&args.reference).await?;
 		match referent.item {
-			tg::Either::Left(edge) => {
+			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
+				let args = crate::process::metadata::Args {
+					locations,
+					print,
+					process: id.try_into()?,
+				};
+				self.command_process_metadata(args).await?;
+			},
+			item => {
+				let edge = item.to_graph_edge()?;
 				let object = edge
 					.try_unwrap_object()
 					.map_err(|_| tg::error!("expected an object"))?
@@ -33,19 +42,6 @@ impl Cli {
 					print,
 				};
 				self.command_object_metadata(args).await?;
-			},
-			tg::Either::Right(process) => {
-				let process = process
-					.id()
-					.right()
-					.ok_or_else(|| tg::error!("expected a process id"))?
-					.clone();
-				let args = crate::process::metadata::Args {
-					locations,
-					print,
-					process,
-				};
-				self.command_process_metadata(args).await?;
 			},
 		}
 

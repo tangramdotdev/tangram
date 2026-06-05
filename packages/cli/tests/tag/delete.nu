@@ -20,26 +20,25 @@ failure $output "The delete command with star should fail."
 let output = tg tag delete "test/1.0.0" | from json
 assert (($output.deleted | length) == 1) "The command should delete one tag."
 
-# Deleting a namespace as a tag should not delete its children.
+# Deleting a parent as a tag should not delete its children.
 let output = tg tag delete "test/foo" | from json
-assert (($output.deleted | length) == 0) "The command should not delete a namespace."
+assert (($output.deleted | length) == 0) "The command should not delete a parent."
 
 # Delete one child leaf.
 tg tag delete "test/foo/bar"
 
-# Deleting the namespace should still not delete the remaining child.
+# Deleting the parent should still not delete the remaining child.
 let output = tg tag delete "test/foo" | from json
-assert (($output.deleted | length) == 0) "The command should not delete a namespace."
+assert (($output.deleted | length) == 0) "The command should not delete a parent."
 
 # Delete remaining child.
 tg tag delete "test/foo/baz"
 
-# Deleting the empty namespace as a tag should still delete nothing.
+# Deleting the empty parent as a tag should still delete nothing.
 let output = tg tag delete "test/foo" | from json
-assert (($output.deleted | length) == 0) "The command should not delete a namespace."
+assert (($output.deleted | length) == 0) "The command should not delete a parent."
 
 # Try to delete with empty pattern - should fail.
 let output = tg tag delete "" | complete
-failure $output "The command cannot delete an empty pattern."
-let stderr = $output.stderr
-assert ($stderr | str contains "cannot delete an empty pattern") "The error message should mention empty pattern."
+failure $output "The command should reject an empty pattern."
+assert ($output.stderr | str contains "invalid specifier pattern") "The error should mention the invalid pattern."

@@ -5,7 +5,7 @@ pub mod delete;
 pub mod get;
 pub mod grants;
 pub mod list;
-pub mod member;
+pub mod members;
 
 /// Manage groups.
 #[derive(Clone, Debug, clap::Args)]
@@ -30,8 +30,7 @@ pub enum Command {
 	#[command(alias = "ls")]
 	List(self::list::Args),
 
-	#[command(alias = "members")]
-	Member(self::member::Args),
+	Members(self::members::Args),
 }
 
 impl Cli {
@@ -42,7 +41,7 @@ impl Cli {
 			Command::Get(args) => self.command_group_get(args).await?,
 			Command::Grants(args) => self.command_group_grants(args).await?,
 			Command::List(args) => self.command_group_list(args).await?,
-			Command::Member(args) => self.command_group_member(args).await?,
+			Command::Members(args) => self.command_group_members(args).await?,
 		}
 		Ok(())
 	}

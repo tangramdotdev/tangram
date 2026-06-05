@@ -474,11 +474,11 @@ impl Server {
 		request: http::Request<BoxBody>,
 		mut context: Context,
 	) -> http::Response<BoxBody> {
-		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
+		let id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 		context.id = Some(id.clone());
 
 		let span = tracing::Span::current();
-		span.record("id", id.to_string());
+		span.record("id", id.as_str());
 		span.record("method", request.method().as_str());
 		span.record("path", request.uri().path());
 
@@ -526,22 +526,31 @@ impl Server {
 			(http::Method::POST, ["write"]) => session.write_request(request).boxed(),
 			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
 
+			// Grants.
+			(http::Method::POST, ["grants"]) => session.create_grant_request(request).boxed(),
+			(http::Method::DELETE, ["grants"]) => session.delete_grant_request(request).boxed(),
+
 			// Groups.
-			(http::Method::GET, ["groups"]) => session.get_or_list_groups_request(request).boxed(),
+			(http::Method::GET, ["groups"]) => session.list_groups_request(request).boxed(),
 			(http::Method::POST, ["groups"]) => session.create_group_request(request).boxed(),
-			(http::Method::DELETE, ["groups"]) => session.try_delete_group_request(request).boxed(),
-			(http::Method::GET, ["groups", "grants"]) => {
-				session.list_group_namespace_grants_request(request).boxed()
+			(http::Method::GET, ["groups", group]) => {
+				session.try_get_group_request(request, group).boxed()
 			},
-			(http::Method::GET, ["groups", "members"]) => {
-				session.list_group_members_request(request).boxed()
+			(http::Method::DELETE, ["groups", group]) => {
+				session.try_delete_group_request(request, group).boxed()
 			},
-			(http::Method::PUT, ["groups", "members"]) => {
-				session.add_group_member_request(request).boxed()
+			(http::Method::GET, ["groups", group, "grants"]) => {
+				session.try_get_group_grants_request(request, group).boxed()
 			},
-			(http::Method::DELETE, ["groups", "members"]) => {
-				session.remove_group_member_request(request).boxed()
+			(http::Method::GET, ["groups", group, "members"]) => {
+				session.list_group_members_request(request, group).boxed()
 			},
+			(http::Method::POST, ["groups", group, "members"]) => {
+				session.add_group_member_request(request, group).boxed()
+			},
+			(http::Method::DELETE, ["groups", group, "members", member]) => session
+				.remove_group_member_request(request, group, member)
+				.boxed(),
 
 			// Modules.
 			(http::Method::POST, ["modules", "load"]) => {
@@ -549,26 +558,6 @@ impl Server {
 			},
 			(http::Method::POST, ["modules", "resolve"]) => {
 				session.resolve_module_request(request).boxed()
-			},
-
-			// Namespaces.
-			(http::Method::GET, ["namespaces", "grants"]) => {
-				session.list_namespace_grants_request(request).boxed()
-			},
-			(http::Method::PUT, ["namespaces", "grants"]) => {
-				session.create_namespace_grant_request(request).boxed()
-			},
-			(http::Method::DELETE, ["namespaces", "grants"]) => {
-				session.delete_namespace_grant_request(request).boxed()
-			},
-			(http::Method::GET, ["namespaces"]) => {
-				session.try_get_namespace_request(request).boxed()
-			},
-			(http::Method::PUT, ["namespaces"]) => {
-				session.create_namespace_request(request).boxed()
-			},
-			(http::Method::DELETE, ["namespaces"]) => {
-				session.try_delete_namespace_request(request).boxed()
 			},
 
 			// Objects.
@@ -587,6 +576,29 @@ impl Server {
 			(http::Method::POST, ["objects", object, "touch"]) => {
 				session.try_touch_object_request(request, object).boxed()
 			},
+
+			// Organizations.
+			(http::Method::POST, ["organizations"]) => {
+				session.create_organization_request(request).boxed()
+			},
+			(http::Method::GET, ["organizations", organization]) => session
+				.try_get_organization_request(request, organization)
+				.boxed(),
+			(http::Method::DELETE, ["organizations", organization]) => session
+				.try_delete_organization_request(request, organization)
+				.boxed(),
+			(http::Method::GET, ["organizations", organization, "grants"]) => session
+				.try_get_organization_grants_request(request, organization)
+				.boxed(),
+			(http::Method::GET, ["organizations", organization, "members"]) => session
+				.list_organization_members_request(request, organization)
+				.boxed(),
+			(http::Method::POST, ["organizations", organization, "members"]) => session
+				.add_organization_member_request(request, organization)
+				.boxed(),
+			(http::Method::DELETE, ["organizations", organization, "members", member]) => session
+				.remove_organization_member_request(request, organization, member)
+				.boxed(),
 
 			// Processes.
 			(http::Method::GET, ["processes"]) => session.list_processes_request(request).boxed(),
@@ -639,6 +651,18 @@ impl Server {
 				.try_wait_process_future_request(request, process)
 				.boxed(),
 
+			// Remotes.
+			(http::Method::GET, ["remotes"]) => session.list_remotes_request(request).boxed(),
+			(http::Method::GET, ["remotes", name]) => {
+				session.try_get_remote_request(request, name).boxed()
+			},
+			(http::Method::PUT, ["remotes", name]) => {
+				session.put_remote_request(request, name).boxed()
+			},
+			(http::Method::DELETE, ["remotes", name]) => {
+				session.try_delete_remote_request(request, name).boxed()
+			},
+
 			// Sandboxes.
 			(http::Method::POST, ["sandboxes"]) => session.create_sandbox_request(request).boxed(),
 			(http::Method::GET, ["sandboxes"]) => session.list_sandboxes_request(request).boxed(),
@@ -661,17 +685,28 @@ impl Server {
 				.try_get_sandbox_status_stream_request(request, sandbox)
 				.boxed(),
 
-			// Remotes.
-			(http::Method::GET, ["remotes"]) => session.list_remotes_request(request).boxed(),
-			(http::Method::GET, ["remotes", name]) => {
-				session.try_get_remote_request(request, name).boxed()
+			// Tags.
+			(http::Method::POST, ["tags", "batch"]) => {
+				session.post_tag_batch_request(request).boxed()
 			},
-			(http::Method::PUT, ["remotes", name]) => {
-				session.put_remote_request(request, name).boxed()
+			(http::Method::GET, ["tags", tag, "grants"]) => {
+				session.try_get_tag_grants_request(request, tag).boxed()
 			},
-			(http::Method::DELETE, ["remotes", name]) => {
-				session.try_delete_remote_request(request, name).boxed()
+			(http::Method::GET, ["tags", path @ ..]) => {
+				session.try_get_tag_request(request, path).boxed()
 			},
+			(http::Method::PUT, ["tags"]) => session.put_tag_request(request).boxed(),
+			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
+
+			// Users.
+			(http::Method::GET, ["users", user, "grants"]) => {
+				session.try_get_user_grants_request(request, user).boxed()
+			},
+			(http::Method::GET, ["users", user]) => {
+				session.try_get_user_request(request, user).boxed()
+			},
+			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
+			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
 
 			// Watches.
 			(http::Method::GET, ["watches"]) => session.list_watches_request(request).boxed(),
@@ -681,33 +716,6 @@ impl Server {
 			(http::Method::POST, ["watches", "touch"]) => {
 				session.touch_watch_request(request).boxed()
 			},
-
-			// Tags.
-			(http::Method::POST, ["tags", "batch"]) => {
-				session.post_tag_batch_request(request).boxed()
-			},
-			(http::Method::GET, ["tags", "grants"]) => {
-				session.list_tag_grants_request(request).boxed()
-			},
-			(http::Method::PUT, ["tags", "grants"]) => {
-				session.create_tag_grant_request(request).boxed()
-			},
-			(http::Method::DELETE, ["tags", "grants"]) => {
-				session.delete_tag_grant_request(request).boxed()
-			},
-			(http::Method::PUT, ["tags"]) => session.put_tag_request(request).boxed(),
-			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
-
-			// Users.
-			(http::Method::GET, ["users", user, "grants"]) => session
-				.list_user_namespace_grants_request(request, user)
-				.boxed(),
-			(http::Method::GET, ["users", user, "permissions"]) => session
-				.list_user_namespace_permissions_request(request, user)
-				.boxed(),
-			(http::Method::GET, ["users"]) => session.try_get_user_request(request).boxed(),
-			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
-			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
 
 			(_, _) => future::ok(
 				http::Response::builder()
@@ -736,7 +744,7 @@ impl Server {
 
 		// Add the request ID to the response.
 		let key = http::HeaderName::from_static("x-tg-request-id");
-		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
+		let value = http::HeaderValue::from_str(&id).unwrap();
 		response.headers_mut().insert(key, value);
 
 		response

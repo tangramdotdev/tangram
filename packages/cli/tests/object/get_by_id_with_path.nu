@@ -24,6 +24,6 @@ snapshot $output.stdout '
 
 '
 snapshot $output.stderr '
-	info fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60?id=dir_0141ez1f9wny9knjrbegp3gnx9z4am8fa9ww584xbv64fm8azg1g80&path=foo/bar/file.txt
+	info dir_0141ez1f9wny9knjrbegp3gnx9z4am8fa9ww584xbv64fm8azg1g80?get=foo/bar/file.txt
 
 '

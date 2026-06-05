@@ -26,48 +26,52 @@ for tag in $tags {
 	tg tag put $tag $id
 }
 
-# List empty pattern.
-let output = tg list --no-namespaces ""
-snapshot -n "list_empty" $output
+# Empty pattern is not valid.
+let output = tg list --no-groups "" | complete
+failure $output "The command should reject an empty pattern."
+assert ($output.stderr | str contains "invalid specifier pattern") "The error should mention the invalid pattern."
 
 # List test.
-let output = tg list --no-namespaces "test"
+let output = tg list --no-groups "test"
 snapshot -n "list_test" $output
 
-# Operators are not allowed in namespace components.
-let output = tg list --no-namespaces "test/*/*" | complete
-failure $output "The command should reject operators in namespace components."
-assert ($output.stderr | str contains "invalid namespace") "The error should mention the namespace."
+# Operators are not allowed in parent components.
+let output = tg list --no-groups "test/*/*" | complete
+failure $output "The command should reject operators in parent components."
+assert ($output.stderr | str contains "invalid parent") "The error should mention the parent."
 
 # List test/*
-let output = tg list --no-namespaces "test/*"
+let output = tg list --no-groups "test/*"
 snapshot -n "list_test_star" $output
 
-# Operators are not allowed in namespace components.
-let output = tg list --no-namespaces "test/=0.0.1/*" | complete
-failure $output "The command should reject operators in namespace components."
-assert ($output.stderr | str contains "invalid namespace") "The error should mention the namespace."
+# Operators are not allowed in parent components.
+let output = tg list --no-groups "test/=0.0.1/*" | complete
+failure $output "The command should reject operators in parent components."
+assert ($output.stderr | str contains "invalid parent") "The error should mention the parent."
 
 # List test/=0.0.1
-let output = tg list --no-namespaces "test/=0.0.1"
+let output = tg list --no-groups "test/=0.0.1"
 snapshot -n "list_test_exact" $output
 
 # List test/* recursive.
-let output = tg list --no-namespaces --recursive "test/*"
+let output = tg list --no-groups --recursive "test/*"
 snapshot -n "list_test_star_recursive" $output
 
 # List test recursive.
-let output = tg list --no-namespaces --recursive "test"
+let output = tg list --no-groups --recursive "test"
 snapshot -n "list_test_recursive" $output
 
 # Get test/1.2.0 (exact tag).
-let output = tg tag get "test/1.2.0"
-snapshot -n "get_test_exact" $output
+let tag = tg tag get "test/1.2.0" | from json
+assert equal $tag.item.id $id
+assert equal $tag.item.kind object
+assert equal $tag.name "1.2.0"
+assert equal $tag.specifier "test/1.2.0"
 
 # List test/^1 (latest matching ^1).
-let output = tg list --no-namespaces --reverse "test/^1"
+let output = tg list --no-groups --reverse "test/^1"
 snapshot -n "list_test_caret1" $output
 
 # List test/^10 (latest matching ^10).
-let output = tg list --no-namespaces --reverse "test/^10"
+let output = tg list --no-groups --reverse "test/^10"
 snapshot -n "list_test_caret10" $output

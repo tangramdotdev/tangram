@@ -9,9 +9,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub replicate: bool,
-
 	pub tags: Vec<Item>,
 }
 
@@ -19,8 +16,8 @@ pub struct Arg {
 pub struct Item {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
-	pub tag: tg::Tag,
-	pub item: tg::Either<tg::object::Id, tg::process::Id>,
+	pub specifier: tg::Specifier,
+	pub item: tg::tag::data::Item,
 }
 
 impl tg::Session {

@@ -15,20 +15,14 @@ impl Cli {
 	pub async fn command_touch(&mut self, args: Args) -> tg::Result<()> {
 		let locations = args.locations;
 
-		let referent = self.get_reference(&args.reference).await?;
+		let referent = self.get_resolved_reference(&args.reference).await?;
 		let item = match referent.item {
-			tg::Either::Left(edge) => tg::Either::Left(
-				edge.try_unwrap_object()
-					.map_err(|_| tg::error!("expected an object"))?
-					.id(),
-			),
-			tg::Either::Right(process) => {
-				let id = process
-					.id()
-					.right()
-					.ok_or_else(|| tg::error!("expected a process id"))?
-					.clone();
-				tg::Either::Right(id)
+			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
+				tg::Either::Right(id.try_into()?)
+			},
+			tg::get::Item::Id(id) => tg::Either::Left(id.try_into()?),
+			tg::get::Item::Pointer(_) => {
+				return Err(tg::error!("expected an object or process id"));
 			},
 		};
 

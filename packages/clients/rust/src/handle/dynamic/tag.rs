@@ -1,37 +1,27 @@
 use {super::Handle, crate::prelude::*, futures::future::BoxFuture};
 
 impl tg::handle::Tag for Handle {
-	fn put_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_tag(tag, arg)) }
-	}
-
-	fn create_tag_grant(
-		&self,
-		arg: tg::tag::grants::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::TagGrant>> {
-		self.0.create_tag_grant(arg)
+	fn put_tag(&self, arg: tg::tag::put::Arg) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_tag(arg)) }
 	}
 
 	fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> impl Future<Output = tg::Result<()>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.post_tag_batch(arg)) }
 	}
 
-	fn list_tag_grants(
+	fn try_get_tag(
 		&self,
-		arg: tg::tag::grants::list::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::list::Output>>> {
-		self.0.list_tag_grants(arg)
+		tag: &tg::tag::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(tag)) }
 	}
 
-	fn delete_tag_grant(
+	fn try_get_tag_grants(
 		&self,
-		arg: tg::tag::grants::delete::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.0.delete_tag_grant(arg)
+		tag: &tg::tag::Selector,
+		arg: tg::tag::grants::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::Output>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag_grants(tag, arg)) }
 	}
 
 	fn delete_tags(

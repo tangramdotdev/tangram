@@ -8,7 +8,7 @@ use {
 impl Session {
 	pub(crate) async fn pull_tag(
 		&self,
-		pattern: tg::list::Pattern,
+		pattern: tg::specifier::Pattern,
 		location: Option<tg::location::Arg>,
 	) -> tg::Result<()> {
 		let list = self
@@ -16,7 +16,7 @@ impl Session {
 				cached: false,
 				length: None,
 				location,
-				namespaces: false,
+				groups: false,
 				pattern: pattern.clone(),
 				recursive: false,
 				reverse: false,

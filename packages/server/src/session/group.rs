@@ -12,32 +12,52 @@ impl tg::handle::Group for Session {
 		self.list_groups(arg).await
 	}
 
-	async fn try_get_group(&self, group: &str) -> tg::Result<Option<tg::Group>> {
-		self.try_get_group(group).await
-	}
-
-	async fn try_delete_group(&self, group: &str) -> tg::Result<Option<()>> {
-		self.try_delete_group(group).await
-	}
-
-	async fn list_group_namespace_grants(
+	async fn try_get_group(
 		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::get::Arg,
+	) -> tg::Result<Option<tg::Group>> {
+		self.try_get_group(group, arg).await
+	}
+
+	async fn try_delete_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		self.try_delete_group(group, arg).await
+	}
+
+	async fn try_get_group_grants(
+		&self,
+		group: &tg::group::Selector,
 		arg: tg::group::grants::Arg,
 	) -> tg::Result<Option<tg::group::grants::Output>> {
-		self.list_group_namespace_grants(arg).await
+		self.try_get_group_grants(group, arg).await
 	}
 
-	async fn list_group_members(&self, group: &str) -> tg::Result<tg::group::member::list::Output> {
-		self.list_group_members(group)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the group"))
+	async fn list_group_members(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::members::list::Arg,
+	) -> tg::Result<tg::group::members::list::Output> {
+		self.list_group_members(group, arg).await
 	}
 
-	async fn add_group_member(&self, group: &str, user: &str) -> tg::Result<()> {
-		self.add_group_member(group, user).await
+	async fn add_group_member(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::members::add::Arg,
+	) -> tg::Result<()> {
+		self.add_group_member(group, arg).await
 	}
 
-	async fn remove_group_member(&self, group: &str, user: &str) -> tg::Result<Option<()>> {
-		self.remove_group_member(group, user).await
+	async fn remove_group_member(
+		&self,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+		arg: tg::group::members::remove::Arg,
+	) -> tg::Result<Option<()>> {
+		self.remove_group_member(group, member, arg).await
 	}
 }

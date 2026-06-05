@@ -1,26 +1,76 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
-	serde_with::serde_as,
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::is_default,
+	tangram_util::serde::{is_default, is_false},
 };
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: tg::checkin::Options,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[serde(flatten)]
 	pub options: tg::reference::Options,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub resolve: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub ttl: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub referent: tg::Referent<tg::Either<tg::graph::data::Edge<tg::object::Id>, tg::process::Id>>,
+	pub referent: tg::Referent<tg::get::Item>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	derive_more::Display,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[serde(untagged)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Item {
+	#[display("{_0}")]
+	Id(tg::Id),
+	#[display("{_0}")]
+	Pointer(tg::graph::data::Pointer),
+}
+
+impl Item {
+	pub fn to_graph_edge(self) -> tg::Result<tg::graph::Edge<tg::Object>> {
+		match self {
+			tg::get::Item::Id(id) => {
+				Ok(tg::graph::Edge::Object(tg::Object::with_id(id.try_into()?)))
+			},
+			tg::get::Item::Pointer(pointer) => Ok(tg::graph::Edge::Pointer(tg::graph::Pointer {
+				graph: pointer.graph.map(tg::Graph::with_id),
+				index: pointer.index,
+				kind: pointer.kind,
+			})),
+		}
+	}
 }
 
 impl tg::Session {

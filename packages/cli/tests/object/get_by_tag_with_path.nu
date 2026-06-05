@@ -15,8 +15,8 @@ let path = artifact {
 let dir_id = tg checkin $path
 tg tag test $dir_id
 
-# Get the nested file using the path option with a tag reference.
-let output = tg --no-quiet get --pretty "test?get=foo/bar/file.txt" | complete
+# Get the nested file using the path option with a resolved tag reference.
+let output = tg --no-quiet get -R --pretty "test?get=foo/bar/file.txt" | complete
 
 # Verify the output is a file ID.
 snapshot $output.stdout '
@@ -26,6 +26,6 @@ snapshot $output.stdout '
 
 '
 snapshot $output.stderr '
-	info fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60?id=dir_0141ez1f9wny9knjrbegp3gnx9z4am8fa9ww584xbv64fm8azg1g80&path=foo/bar/file.txt&tag=test
+	info test?get=foo/bar/file.txt
 
 '

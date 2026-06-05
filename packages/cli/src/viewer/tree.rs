@@ -61,7 +61,7 @@ struct Node {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum NodeID {
-	Namespace(String),
+	Group(String),
 	Object(tg::object::Id),
 	Package(tg::object::Id),
 	Process(tg::process::Id),
@@ -206,9 +206,9 @@ impl Tree {
 			Some(Item::Process(process)) if options.expand_processes => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Process(process.id().unwrap_right().clone())),
-			Some(Item::Namespace(namespace)) if options.expand_namespaces => expanded_nodes
+			Some(Item::Group(group)) if options.expand_groups => expanded_nodes
 				.borrow_mut()
-				.insert(NodeID::Namespace(namespace.to_string())),
+				.insert(NodeID::Group(group.to_string())),
 			Some(Item::Value(tg::Value::Object(object))) if options.expand_objects => {
 				expanded_nodes
 					.borrow_mut()
@@ -1343,37 +1343,36 @@ impl Tree {
 		Ok(())
 	}
 
-	async fn expand_namespace(
+	async fn expand_group(
 		client: &tg::Client,
 		counter: UpdateCounter,
-		namespace: &tg::Namespace,
+		group: &tg::Specifier,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		// List the direct child namespaces and tags.
+		// List the direct child groups and tags.
+		let arg = tg::list::Arg {
+			cached: false,
+			length: None,
+			location: None,
+			groups: true,
+			pattern: tg::specifier::Pattern::any_in_parent(Some(group.clone())),
+			recursive: false,
+			reverse: false,
+			tags: true,
+			ttl: None,
+		};
 		let output = client
-			.list(tg::list::Arg {
-				cached: false,
-				length: None,
-				location: None,
-				namespaces: true,
-				pattern: tg::list::Pattern::any_in_namespace(namespace.clone()),
-				recursive: false,
-				reverse: false,
-				tags: true,
-				ttl: None,
-			})
+			.list(arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, namespace = %namespace, "failed to list entries"),
-			)?;
+			.map_err(|error| tg::error!(!error, group = %group, "failed to list entries"))?;
 
-		// Get the children of this namespace.
+		// Get the children of this group.
 		let mut children = output
 			.data
 			.into_iter()
 			.map(move |entry| match entry {
-				tg::list::Entry::Namespace { namespace, .. } => {
-					(None, tg::Referent::with_item(Item::Namespace(namespace)))
+				tg::list::Entry::Group { group, .. } => {
+					(None, tg::Referent::with_item(Item::Group(group)))
 				},
 				tg::list::Entry::Tag { item, tag, .. } => {
 					let options = tg::referent::Options {
@@ -1663,9 +1662,8 @@ impl Tree {
 				let referent = referent.clone().map(|_| package.0.clone());
 				Self::expand_package(client, counter.clone(), referent, update_sender.clone()).await
 			},
-			Item::Namespace(namespace) => {
-				Self::expand_namespace(client, counter.clone(), namespace, update_sender.clone())
-					.await
+			Item::Group(group) => {
+				Self::expand_group(client, counter.clone(), group, update_sender.clone()).await
 			},
 		};
 		if let Err(error) = result {
@@ -1853,7 +1851,7 @@ impl Tree {
 
 	fn item_title(referent: &tg::Referent<Item>) -> String {
 		match referent.item() {
-			Item::Namespace(namespace) => namespace.to_string(),
+			Item::Group(group) => group.to_string(),
 			Item::Package(package) => package.0.id().to_string(),
 			Item::Value(value) => match value {
 				tg::Value::Null => "null".to_owned(),
@@ -1900,9 +1898,9 @@ impl Tree {
 			Item::Process(process) if options.expand_processes => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Process(process.id().unwrap_right().clone())),
-			Item::Namespace(namespace) if options.expand_namespaces => expanded_nodes
+			Item::Group(group) if options.expand_groups => expanded_nodes
 				.borrow_mut()
-				.insert(NodeID::Namespace(namespace.to_string())),
+				.insert(NodeID::Group(group.to_string())),
 			Item::Value(tg::Value::Object(object)) if options.expand_objects => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Object(object.id())),
@@ -2452,7 +2450,7 @@ impl Tree {
 								};
 								value.print(options)
 							},
-							Item::Namespace(namespace) => namespace.to_string(),
+							Item::Group(group) => group.to_string(),
 						}
 					}
 				};
@@ -2531,7 +2529,7 @@ impl Tree {
 			return;
 		};
 		let contents = match referent.item() {
-			Item::Namespace(namespace) => namespace.to_string(),
+			Item::Group(group) => group.to_string(),
 			Item::Package(package) => package.0.id().to_string(),
 			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => {
@@ -2637,7 +2635,7 @@ impl tg::object::Visitor<tg::Client> for PackageVisitor {
 		self.dependencies.extend(
 			dependencies
 				.into_iter()
-				.filter(|(reference, _)| reference.item().is_tag()),
+				.filter(|(reference, _)| reference.item().is_specifier()),
 		);
 		Ok(true)
 	}

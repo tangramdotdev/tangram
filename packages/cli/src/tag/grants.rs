@@ -1,35 +1,31 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-pub mod add;
-pub mod delete;
-pub mod list;
-
-/// Manage tag grants.
+/// List grants for a tag.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[command(subcommand)]
-	pub command: Command,
-}
+	#[command(flatten)]
+	pub location: crate::location::Args,
 
-#[derive(Clone, Debug, clap::Subcommand)]
-pub enum Command {
-	Add(self::add::Args),
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
-	#[command(alias = "remove", alias = "revoke", alias = "rm")]
-	Delete(self::delete::Args),
-
-	#[command(alias = "ls")]
-	List(self::list::Args),
+	#[arg(index = 1)]
+	pub tag: tg::tag::Selector,
 }
 
 impl Cli {
 	pub async fn command_tag_grants(&mut self, args: Args) -> tg::Result<()> {
-		match args.command {
-			Command::Add(args) => self.command_tag_grants_add(args).await?,
-			Command::Delete(args) => self.command_tag_grants_delete(args).await?,
-			Command::List(args) => self.command_tag_grants_list(args).await?,
-		}
+		let client = self.client().await?;
+		let arg = tg::tag::grants::Arg {
+			location: args.location.get(),
+		};
+		let output = client
+			.try_get_tag_grants(&args.tag, arg)
+			.await
+			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to list the grants"))?
+			.ok_or_else(|| tg::error!(tag = %args.tag, "failed to find the tag"))?;
+		self.print_serde(output, args.print).await?;
 		Ok(())
 	}
 }
