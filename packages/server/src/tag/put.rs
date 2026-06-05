@@ -10,6 +10,7 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -34,18 +35,27 @@ impl Session {
 
 	async fn put_tag_local(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		let session = self.clone();
-		self.server
+		let data = self
+			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
-					session.put_tag_with_transaction(transaction, arg).await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					let data = session.put_tag_with_transaction(transaction, arg).await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(data))
 				}
 				.boxed()
 			})
+			.await?;
+		self.server
+			.index
+			.put_tags(&[tangram_index::PutTagArg {
+				tag: data.specifier,
+				item: tag_data_item_to_index_item(data.item),
+			}])
 			.await
+			.map_err(|error| tg::error!(!error, "failed to index the tag"))
 	}
 
 	pub(crate) async fn put_tag_with_transaction(
@@ -180,6 +190,15 @@ impl Session {
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| tg::grant::Principal::User(user.id.clone()))
+	}
+}
+
+fn tag_data_item_to_index_item(
+	item: tg::tag::data::Item,
+) -> tg::Either<tg::object::Id, tg::process::Id> {
+	match item {
+		tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+		tg::tag::data::Item::Process(id) => tg::Either::Right(id),
 	}
 }
 

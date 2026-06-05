@@ -56,7 +56,7 @@ pub(crate) fn tangram() -> syntect::highlighting::Theme {
 				blue,
 				None,
 			),
-			item("entity.name.parent,entity.name.tag", blue, None),
+			item("entity.name.namespace,entity.name.tag", blue, None),
 			item(
 				"support.type.builtin,support.class.builtin,entity.name.tag.builtin",
 				cyan,

@@ -31,7 +31,7 @@ impl Cli {
 				self.command_process_metadata(args).await?;
 			},
 			item => {
-				let edge = crate::get::get_item_to_graph_edge(item)?;
+				let edge = item.to_graph_edge()?;
 				let object = edge
 					.try_unwrap_object()
 					.map_err(|_| tg::error!("expected an object"))?

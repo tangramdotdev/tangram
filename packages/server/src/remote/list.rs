@@ -23,11 +23,9 @@ impl Session {
 		&self,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		let authentication = self
-			.context
-			.authentication
-			.as_ref()
-			.ok_or_else(|| tg::error!("unauthenticated"))?;
+		let Some(authentication) = self.context.authentication.as_ref() else {
+			return self.list_remotes_root().await;
+		};
 		match authentication {
 			Authentication::Process(process) => self.list_remotes_process(process).await,
 			Authentication::Root => self.list_remotes_root().await,

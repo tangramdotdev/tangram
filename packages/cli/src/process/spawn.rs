@@ -560,7 +560,7 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&reference, arg).await?;
-		let item = crate::get::get_item_to_graph_edge(referent.item.clone())?;
+		let item = referent.item.clone().to_graph_edge()?;
 		let mut referent = referent.map(|_| item);
 
 		// Create the command builder.

@@ -1,8 +1,7 @@
 use {
 	crate::{Session, context::Authentication},
-	indoc::formatdoc,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -50,39 +49,14 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let p = transaction.p();
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			created_at: i64,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			created_by: Option<tg::user::Id>,
-			#[tangram_database(as = "db::value::FromStr")]
-			permission: tg::grant::Permission,
-			#[tangram_database(as = "db::value::FromStr")]
-			principal: tg::grant::Principal,
+		if node.kind != tg::id::Kind::Tag
+			|| !self
+				.node_is_visible_with_transaction(&transaction, &node.id)
+				.await?
+		{
+			return Ok(None);
 		}
-		let statement = formatdoc!(
-			"
-				select created_at, created_by, permission, principal
-				from tag_grants
-				where tag = {p}1
-				order by principal, permission;
-			"
-		);
-		let rows = transaction
-			.query_all_into::<Row>(statement.into(), db::params![node.id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let data = rows
-			.into_iter()
-			.map(|row| tg::TagGrant {
-				created_at: row.created_at,
-				created_by: row.created_by,
-				permission: row.permission,
-				principal: row.principal,
-				resource: node.id.clone(),
-			})
-			.collect();
+		let data = Self::list_direct_grants_with_transaction(&transaction, &node.id).await?;
 		Ok(Some(tg::tag::grants::list::Output { data }))
 	}
 

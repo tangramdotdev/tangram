@@ -58,6 +58,21 @@ pub enum Item {
 	Pointer(tg::graph::data::Pointer),
 }
 
+impl Item {
+	pub fn to_graph_edge(self) -> tg::Result<tg::graph::Edge<tg::Object>> {
+		match self {
+			tg::get::Item::Id(id) => {
+				Ok(tg::graph::Edge::Object(tg::Object::with_id(id.try_into()?)))
+			},
+			tg::get::Item::Pointer(pointer) => Ok(tg::graph::Edge::Pointer(tg::graph::Pointer {
+				graph: pointer.graph.map(tg::Graph::with_id),
+				index: pointer.index,
+				kind: pointer.kind,
+			})),
+		}
+	}
+}
+
 impl tg::Session {
 	pub async fn try_get(
 		&self,

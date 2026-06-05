@@ -43,7 +43,7 @@ pub use {
 		session::Session,
 		specifier::Specifier,
 		symlink::Handle as Symlink,
-		tag::{Grant as TagGrant, Tag},
+		tag::Tag,
 		template::Template,
 		user::User,
 		value::Value,

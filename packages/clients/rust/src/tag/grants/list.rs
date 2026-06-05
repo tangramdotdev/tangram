@@ -15,7 +15,7 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
 pub struct Output {
-	pub data: Vec<tg::TagGrant>,
+	pub data: Vec<tg::Grant>,
 }
 
 impl tg::Session {

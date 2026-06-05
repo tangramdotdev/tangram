@@ -20,7 +20,7 @@ impl Cli {
 				..Default::default()
 			};
 			let referent = self.get_reference_with_arg(reference, arg).await?;
-			let edge = crate::get::get_item_to_graph_edge(referent.item)?;
+			let edge = referent.item.to_graph_edge()?;
 
 			let blob = match &edge {
 				tg::graph::Edge::Object(tg::Object::Blob(blob)) => blob.clone(),

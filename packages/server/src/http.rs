@@ -692,12 +692,6 @@ impl Server {
 			(http::Method::GET, ["tags", "grants"]) => {
 				session.list_tag_grants_request(request).boxed()
 			},
-			(http::Method::PUT, ["tags", "grants"]) => {
-				session.create_tag_grant_request(request).boxed()
-			},
-			(http::Method::DELETE, ["tags", "grants"]) => {
-				session.delete_tag_grant_request(request).boxed()
-			},
 			(http::Method::GET, ["tags", path @ ..]) => {
 				session.try_get_tag_request(request, path).boxed()
 			},

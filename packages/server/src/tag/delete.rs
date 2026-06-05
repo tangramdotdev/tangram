@@ -76,7 +76,6 @@ impl Session {
 		let p = transaction.p();
 		for tag in &tags {
 			for statement in [
-				format!("delete from tag_grants where tag = {p}1;"),
 				format!("delete from grants where resource = {p}1 or principal = {p}1;"),
 				format!("delete from visibility where resource = {p}1 or principal = {p}1;"),
 				format!("delete from tags where id = {p}1;"),

@@ -30,7 +30,8 @@ impl Session {
 					.await?
 			},
 			tg::reference::Item::Pointer(pointer) => {
-				Self::try_get_with_pointer(pointer, reference.options())?
+				self.try_get_with_pointer(pointer, reference.options())
+					.await?
 			},
 			tg::reference::Item::Specifier(specifier) => {
 				self.try_get_with_specifier(specifier, reference.options(), &arg)
@@ -104,7 +105,8 @@ impl Session {
 		Ok(stream.boxed())
 	}
 
-	fn try_get_with_pointer(
+	async fn try_get_with_pointer(
+		&self,
 		pointer: &tg::graph::data::Pointer,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
@@ -113,7 +115,10 @@ impl Session {
 		if options.path.is_some() {
 			return Err(tg::error!("cannot get path in pointer"));
 		}
-		let event = tg::progress::Event::Output(Some(output));
+		let output = self
+			.try_get_apply_get(output, options.get.as_deref())
+			.await?;
+		let event = tg::progress::Event::Output(output);
 		let stream = stream::once(future::ok(event));
 		Ok(stream.boxed())
 	}
@@ -198,7 +203,13 @@ impl Session {
 					let data = get_tag_data_with_transaction(&transaction, &node).await?;
 					let id = tag_data_item_to_id(data.item);
 					let output = tg::get::Output {
-						referent: tg::Referent::with_item(tg::get::Item::Id(id)),
+						referent: tg::Referent::new(
+							tg::get::Item::Id(id),
+							tg::referent::Options {
+								tag: Some(specifier),
+								..tg::referent::Options::default()
+							},
+						),
 					};
 					let output = self
 						.try_get_apply_get(output, options.get.as_deref())
@@ -227,11 +238,17 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %specifier, "failed to list entries"))?;
 		let output = data.into_iter().find_map(|entry| {
-			let tg::list::Entry::Tag { item, .. } = entry else {
+			let tg::list::Entry::Tag { item, tag, .. } = entry else {
 				return None;
 			};
 			Some(tg::get::Output {
-				referent: tg::Referent::with_item(tg::get::Item::Id(list_item_to_id(item))),
+				referent: tg::Referent::new(
+					tg::get::Item::Id(list_item_to_id(item)),
+					tg::referent::Options {
+						tag: Some(tag),
+						..tg::referent::Options::default()
+					},
+				),
 			})
 		});
 		let output = if let Some(output) = output {

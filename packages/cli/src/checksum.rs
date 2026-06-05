@@ -20,7 +20,7 @@ impl Cli {
 	pub async fn command_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let referent = self.get_resolved_reference(&args.reference).await?;
-		let edge = crate::get::get_item_to_graph_edge(referent.item)?;
+		let edge = referent.item.to_graph_edge()?;
 		let object = edge
 			.try_unwrap_object()
 			.map_err(|_| tg::error!("expected an object"))?;

@@ -26,16 +26,6 @@ pub enum Item {
 	Process(tg::Process),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Grant {
-	pub created_at: i64,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub created_by: Option<tg::user::Id>,
-	pub permission: tg::grant::Permission,
-	pub principal: tg::grant::Principal,
-	pub resource: tg::Id,
-}
-
 impl From<tg::Either<tg::object::Id, tg::process::Id>> for tg::tag::Item {
 	fn from(value: tg::Either<tg::object::Id, tg::process::Id>) -> Self {
 		match value {

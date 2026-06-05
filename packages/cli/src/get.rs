@@ -244,7 +244,7 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_resolved_reference(reference).await?;
-		let item = get_item_to_graph_edge(referent.item.clone())?;
+		let item = referent.item.clone().to_graph_edge()?;
 		let mut referent = referent.map(|_| item);
 		let module = match referent.item.clone() {
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
@@ -338,18 +338,5 @@ impl Cli {
 		};
 
 		Ok(module)
-	}
-}
-
-pub(crate) fn get_item_to_graph_edge(
-	item: tg::get::Item,
-) -> tg::Result<tg::graph::Edge<tg::Object>> {
-	match item {
-		tg::get::Item::Id(id) => Ok(tg::graph::Edge::Object(tg::Object::with_id(id.try_into()?))),
-		tg::get::Item::Pointer(pointer) => Ok(tg::graph::Edge::Pointer(tg::graph::Pointer {
-			graph: pointer.graph.map(tg::Graph::with_id),
-			index: pointer.index,
-			kind: pointer.kind,
-		})),
 	}
 }

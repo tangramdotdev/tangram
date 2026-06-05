@@ -104,17 +104,6 @@ create table tags (
 	foreign key (parent) references nodes (id)
 );
 
-create table tag_grants (
-	tag text not null,
-	principal text not null,
-	permission text not null,
-	created_at integer not null,
-	created_by text,
-	unique (tag, principal, permission)
-);
-
-create index tag_grants_principal_lookup_index on tag_grants (principal, tag, permission);
-
 create table list_cache (
 	arg text not null,
 	output text not null,

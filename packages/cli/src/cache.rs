@@ -17,7 +17,7 @@ impl Cli {
 		let artifacts = referents
 			.into_iter()
 			.map(|referent| {
-				let edge = crate::get::get_item_to_graph_edge(referent.item)?;
+				let edge = referent.item.to_graph_edge()?;
 				let object = edge
 					.try_unwrap_object()
 					.map_err(|_| tg::error!("expected an object"))?;
