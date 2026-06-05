@@ -968,22 +968,22 @@ impl Server {
 			})
 		});
 
-		// // Spawn the watchdog task.
-		// let watchdog_task = server.config.watchdog.as_ref().map(|config| {
-		// 	Task::spawn({
-		// 		let server = server.clone();
-		// 		let config = config.clone();
-		// 		|_| async move {
-		// 			server
-		// 				.watchdog_task(&config)
-		// 				.await
-		// 				.inspect_err(
-		// 					|error| tracing::error!(error = %error.trace(), "the watchdog task failed"),
-		// 				)
-		// 				.ok();
-		// 		}
-		// 	})
-		// });
+		// Spawn the watchdog task.
+		let watchdog_task = server.config.watchdog.as_ref().map(|config| {
+			Task::spawn({
+				let server = server.clone();
+				let config = config.clone();
+				|_| async move {
+					server
+						.watchdog_task(&config)
+						.await
+						.inspect_err(
+							|error| tracing::error!(error = %error.trace(), "the watchdog task failed"),
+						)
+						.ok();
+				}
+			})
+		});
 
 		// Spawn the runner task.
 		let runner_task = if server.config.runner.is_some() {
@@ -1075,17 +1075,17 @@ impl Server {
 					tracing::trace!("sandbox finalizer task");
 				}
 
-				// // Abort the watchdog task.
-				// if let Some(task) = watchdog_task {
-				// 	task.abort();
-				// 	let result = task.wait().await;
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "the watchdog task panicked");
-				// 	}
-				// 	tracing::trace!("watchdog task");
-				// }
+				// Abort the watchdog task.
+				if let Some(task) = watchdog_task {
+					task.abort();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the watchdog task panicked");
+					}
+					tracing::trace!("watchdog task");
+				}
 
 				// // Remove the watches.
 				// server.watches.clear();

@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -25,17 +26,17 @@ impl tg::Session {
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let method = http::Method::DELETE;
-		let uri = format!("/tags/{}", arg.pattern.to_string().replace('/', ":"));
+		let uri = Uri::builder()
+			.path("/tags")
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.json(arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.empty()
 			.unwrap();
 		let response = self
 			.send_with_retry(request)

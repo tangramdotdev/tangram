@@ -340,7 +340,8 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap().boxed_body())
+		let response = response.body(body).unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn try_get_user_request(
@@ -383,7 +384,8 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap().boxed_body())
+		let response = response.body(body).unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn login_user_request(
@@ -416,7 +418,8 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap().boxed_body())
+		let response = response.body(body).unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn try_get_user_grants_request(
@@ -459,7 +462,8 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap().boxed_body())
+		let response = response.body(body).unwrap().boxed_body();
+		Ok(response)
 	}
 }
 

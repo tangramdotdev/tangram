@@ -5,6 +5,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -35,7 +36,8 @@ impl Session {
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let session = self.clone();
-		self.server
+		let output = self
+			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
@@ -50,7 +52,20 @@ impl Session {
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+		let tags = output
+			.deleted
+			.iter()
+			.map(|tag| tag.specifier.clone())
+			.collect::<Vec<_>>();
+		if !tags.is_empty() {
+			self.server
+				.index
+				.delete_tags(&tags)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the deleted tags"))?;
+		}
+		Ok(output)
 	}
 
 	async fn delete_tags_with_transaction(
@@ -156,18 +171,16 @@ impl Session {
 	pub(crate) async fn delete_tags_request(
 		&self,
 		request: http::Request<BoxBody>,
-		path: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let pattern = path.join(":").parse()?;
-		let mut arg: tg::tag::delete::Arg = request
-			.json()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		arg.pattern = pattern;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.ok_or_else(|| tg::error!("expected query params"))?;
 		let output = self.delete_tags(arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()
@@ -185,6 +198,7 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap())
+		let response = response.body(body).unwrap();
+		Ok(response)
 	}
 }

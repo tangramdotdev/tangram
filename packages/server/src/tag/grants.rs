@@ -114,6 +114,7 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap())
+		let response = response.body(body).unwrap();
+		Ok(response)
 	}
 }

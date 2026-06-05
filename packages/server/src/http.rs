@@ -696,9 +696,7 @@ impl Server {
 				session.try_get_tag_request(request, path).boxed()
 			},
 			(http::Method::PUT, ["tags"]) => session.put_tag_request(request).boxed(),
-			(http::Method::DELETE, ["tags", path @ ..]) => {
-				session.delete_tags_request(request, path).boxed()
-			},
+			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
 
 			// Users.
 			(http::Method::GET, ["users", user, "grants"]) => {
