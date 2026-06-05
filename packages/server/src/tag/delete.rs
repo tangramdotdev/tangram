@@ -86,9 +86,9 @@ impl Session {
 			.await?;
 		let p = transaction.p();
 		for tag in &tags {
+			self.delete_node_grants_with_transaction(transaction, &tag.id.clone().into())
+				.await?;
 			for statement in [
-				format!("delete from grants where resource = {p}1 or principal = {p}1;"),
-				format!("delete from visibility where resource = {p}1 or principal = {p}1;"),
 				format!("delete from tags where id = {p}1;"),
 				format!("delete from nodes where id = {p}1;"),
 			] {

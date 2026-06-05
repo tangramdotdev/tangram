@@ -142,10 +142,10 @@ impl Session {
 			return Ok(None);
 		}
 		let p = transaction.p();
+		self.delete_node_grants_with_transaction(transaction, &node.id)
+			.await?;
 		for statement in [
 			format!("delete from organization_members where organization = {p}1;"),
-			format!("delete from grants where resource = {p}1 or principal = {p}1;"),
-			format!("delete from visibility where resource = {p}1 or principal = {p}1;"),
 			format!("delete from organizations where id = {p}1;"),
 			format!("delete from nodes where id = {p}1;"),
 		] {

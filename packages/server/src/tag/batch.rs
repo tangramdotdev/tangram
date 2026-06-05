@@ -8,6 +8,7 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -32,12 +33,14 @@ impl Session {
 
 	async fn post_tag_batch_local(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
 		let session = self.clone();
-		self.server
+		let data = self
+			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
+					let mut data = Vec::new();
 					for item in arg.tags {
 						let arg = tg::tag::put::Arg {
 							force: item.force,
@@ -46,13 +49,30 @@ impl Session {
 							all: false,
 							specifier: item.specifier,
 						};
-						session.put_tag_with_transaction(transaction, arg).await?;
+						data.push(session.put_tag_with_transaction(transaction, arg).await?);
 					}
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					Ok::<_, crate::database::Error>(ControlFlow::Break(data))
 				}
 				.boxed()
 			})
 			.await?;
+		let args = data
+			.into_iter()
+			.map(|data| tangram_index::PutTagArg {
+				tag: data.specifier,
+				item: match data.item {
+					tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+					tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+				},
+			})
+			.collect::<Vec<_>>();
+		if !args.is_empty() {
+			self.server
+				.index
+				.put_tags(&args)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the tags"))?;
+		}
 		Ok(())
 	}
 

@@ -171,6 +171,51 @@ impl Session {
 		Ok(Some(()))
 	}
 
+	pub(crate) async fn delete_node_grants_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		id: &tg::Id,
+	) -> tg::Result<()> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			permission: tg::grant::Permission,
+			#[tangram_database(as = "db::value::FromStr")]
+			principal: tg::grant::Principal,
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select permission, principal
+				from grants
+				where resource = {p}1;
+			"
+		);
+		let rows = transaction
+			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		for row in rows {
+			let arg = tg::grant::delete::Arg {
+				permission: row.permission,
+				principal: row.principal,
+				resource: tg::grant::Resource::Id(id.clone()),
+			};
+			self.delete_grant_with_transaction(transaction, arg).await?;
+		}
+		for statement in [
+			format!("delete from grants where principal = {p}1;"),
+			format!("delete from visibility where principal = {p}1;"),
+			format!("delete from visibility where resource = {p}1;"),
+		] {
+			transaction
+				.execute(statement.into(), db::params![id.to_string()])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		}
+		Ok(())
+	}
+
 	pub(crate) async fn list_direct_grants_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		resource: &tg::Id,

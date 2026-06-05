@@ -50,7 +50,10 @@ impl Session {
 			.await?;
 		let arg = tangram_index::PutTagArg {
 			tag: data.specifier,
-			item: tag_data_item_to_index_item(data.item),
+			item: match data.item {
+				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+				tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+			},
 		};
 		self.server
 			.index
@@ -186,15 +189,6 @@ impl Session {
 			.as_ref()
 			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
 			.map(|user| tg::grant::Principal::User(user.id.clone()))
-	}
-}
-
-fn tag_data_item_to_index_item(
-	item: tg::tag::data::Item,
-) -> tg::Either<tg::object::Id, tg::process::Id> {
-	match item {
-		tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-		tg::tag::data::Item::Process(id) => tg::Either::Right(id),
 	}
 }
 
