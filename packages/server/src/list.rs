@@ -357,13 +357,7 @@ fn pattern_matches_specifier_or_ancestor(
 	pattern: &tg::specifier::Pattern,
 	specifier: &tg::Specifier,
 ) -> bool {
-	let components = specifier.components().collect::<Vec<_>>();
-	for length in 1..=components.len() {
-		let ancestor = tg::Specifier::with_components(
-			components[..length]
-				.iter()
-				.map(|component| tg::specifier::Component::new((*component).to_owned())),
-		);
+	for ancestor in specifier.prefixes() {
 		if pattern.matches_specifier(&ancestor) {
 			return true;
 		}

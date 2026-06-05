@@ -13,7 +13,7 @@ use crate::prelude::*;
 	serde_with::SerializeDisplay,
 )]
 pub struct Pattern {
-	pub parent: Vec<String>,
+	pub parent: Option<tg::Specifier>,
 	pub component: Component,
 }
 
@@ -35,18 +35,21 @@ impl Pattern {
 	#[must_use]
 	pub fn with_component(component: Component) -> Self {
 		Self {
-			parent: Vec::new(),
+			parent: None,
 			component,
 		}
 	}
 
 	#[must_use]
-	pub fn with_parent_and_component(parent: Vec<String>, component: Component) -> Self {
-		Self { parent, component }
+	pub fn with_parent_and_component(parent: tg::Specifier, component: Component) -> Self {
+		Self {
+			parent: Some(parent),
+			component,
+		}
 	}
 
 	#[must_use]
-	pub fn any_in_parent(parent: Vec<String>) -> Self {
+	pub fn any_in_parent(parent: Option<tg::Specifier>) -> Self {
 		Self {
 			parent,
 			component: Component::new("*"),
@@ -55,13 +58,13 @@ impl Pattern {
 
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
-		self.parent.is_empty() && self.component.is_empty()
+		self.parent.is_none() && self.component.is_empty()
 	}
 
 	pub fn components(&self) -> impl Iterator<Item = &str> {
 		self.parent
 			.iter()
-			.map(String::as_str)
+			.flat_map(tg::Specifier::components)
 			.chain(std::iter::once(self.component.as_str()))
 	}
 
@@ -86,9 +89,7 @@ impl Pattern {
 		if self.is_empty() || self.contains_operators() {
 			return None;
 		}
-		Some(Self::any_in_parent(
-			self.components().map(ToOwned::to_owned).collect(),
-		))
+		Some(Self::any_in_parent(Some(self.to_specifier())))
 	}
 
 	#[must_use]
@@ -96,7 +97,7 @@ impl Pattern {
 		if self.is_empty() || self.contains_operators() {
 			return self.clone();
 		}
-		Self::any_in_parent(self.components().map(ToOwned::to_owned).collect())
+		Self::any_in_parent(Some(self.to_specifier()))
 	}
 
 	#[must_use]
@@ -122,15 +123,7 @@ impl Pattern {
 		if self.is_empty() {
 			return true;
 		}
-		let mut components = specifier.components().collect::<Vec<_>>();
-		let Some(component) = components.pop() else {
-			return false;
-		};
-		let parent = components
-			.into_iter()
-			.map(ToOwned::to_owned)
-			.collect::<Vec<_>>();
-		self.parent == parent && self.component.matches(component)
+		self.parent == specifier.parent() && self.component.matches(specifier.name())
 	}
 
 	#[must_use]
@@ -150,15 +143,23 @@ impl Pattern {
 			.components()
 			.map(ToOwned::to_owned)
 			.collect::<Vec<_>>();
-		is_parent_prefix(&self.parent, &parent) && self.matches_specifier(specifier)
+		let parent_matches = match self.parent.as_ref() {
+			None => parent.is_empty(),
+			Some(prefix) => {
+				let mut parent = parent.iter().map(String::as_str);
+				prefix
+					.components()
+					.all(|component| parent.next() == Some(component))
+			},
+		};
+		parent_matches && self.matches_specifier(specifier)
 	}
 
 	#[must_use]
 	pub fn to_specifier(&self) -> tg::Specifier {
-		tg::Specifier::with_components(
-			self.components()
-				.map(|component| tg::specifier::Component::new(component.to_owned())),
-		)
+		self.to_string()
+			.parse()
+			.expect("a pattern without operators should be a valid specifier")
 	}
 }
 
@@ -180,7 +181,7 @@ impl Component {
 
 	#[must_use]
 	fn contains_operators(&self) -> bool {
-		contains_operators(&self.0)
+		self.0.contains(['*', '=', '>', '<', '^', ','])
 	}
 
 	#[must_use]
@@ -197,10 +198,9 @@ impl AsRef<str> for Component {
 
 impl std::fmt::Display for Pattern {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		if self.parent.is_empty() {
-			write!(f, "{}", self.component)
-		} else {
-			write!(f, "{}/{}", self.parent.join("/"), self.component)
+		match &self.parent {
+			None => write!(f, "{}", self.component),
+			Some(parent) => write!(f, "{parent}/{}", self.component),
 		}
 	}
 }
@@ -209,26 +209,22 @@ impl std::str::FromStr for Pattern {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let Some((parent, component)) = s.rsplit_once(['/', ':']) else {
+		if s.is_empty() {
+			return Err(tg::error!("invalid specifier pattern"));
+		}
+		let Some((parent, component)) = s.rsplit_once('/') else {
 			let component = s.parse()?;
 			return Ok(Self::with_component(component));
 		};
 		if component.is_empty() {
 			return Err(tg::error!("expected a specifier pattern"));
 		}
-		let parent = parent
-			.split(['/', ':'])
-			.map(ToOwned::to_owned)
-			.collect::<Vec<_>>();
-		if parent
-			.iter()
-			.any(|component| component.is_empty() || contains_operators(component))
-			|| !parent
-				.iter()
-				.all(|component| component.chars().all(is_component_character))
-		{
+		if parent.split('/').any(|component| {
+			component.is_empty() || component.contains(['*', '=', '>', '<', '^', ','])
+		}) {
 			return Err(tg::error!("invalid parent"));
 		}
+		let parent = Some(parent.parse::<tg::Specifier>()?);
 		let component = component.parse()?;
 		Ok(Self { parent, component })
 	}
@@ -244,17 +240,36 @@ impl std::str::FromStr for Component {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if s.contains(['/', ':']) {
+		if s.is_empty() {
 			return Err(tg::error!("invalid specifier pattern"));
 		}
-		if !is_valid_name(s) {
+		if s.contains('/') {
 			return Err(tg::error!("invalid specifier pattern"));
 		}
-		if !contains_operators(s)
-			&& (s.parse::<tg::graph::data::Edge<tg::object::Id>>().is_ok()
-				|| s.parse::<tg::process::Id>().is_ok())
-		{
+		if !s.is_empty()
+			&& !s.split(',').all(|constraint| {
+				if constraint == "*" {
+					return true;
+				}
+				let value = constraint
+					.strip_prefix(">=")
+					.or_else(|| constraint.strip_prefix("<="))
+					.or_else(|| constraint.strip_prefix('>'))
+					.or_else(|| constraint.strip_prefix('<'))
+					.or_else(|| constraint.strip_prefix('='))
+					.or_else(|| constraint.strip_prefix('^'))
+					.unwrap_or(constraint);
+				value.parse::<tg::specifier::Component>().is_ok()
+			}) {
 			return Err(tg::error!("invalid specifier pattern"));
+		}
+		if !s.contains(['*', '=', '>', '<', '^', ',']) {
+			s.parse::<tg::specifier::Component>()?;
+			if s.parse::<tg::graph::data::Edge<tg::object::Id>>().is_ok()
+				|| s.parse::<tg::process::Id>().is_ok()
+			{
+				return Err(tg::error!("invalid specifier pattern"));
+			}
 		}
 		Ok(Self(s.to_owned()))
 	}
@@ -282,51 +297,12 @@ impl From<tg::Tag> for Pattern {
 
 impl From<tg::Specifier> for Pattern {
 	fn from(value: tg::Specifier) -> Self {
-		let mut components = value.components().collect::<Vec<_>>();
-		let component = components.pop().unwrap_or_default();
+		if value.components().next().is_none() {
+			return Self::default();
+		}
 		Self {
-			parent: components.into_iter().map(ToOwned::to_owned).collect(),
-			component: Component(component.to_owned()),
+			parent: value.parent(),
+			component: Component(value.name().to_owned()),
 		}
 	}
-}
-
-pub(crate) fn contains_operators(s: &str) -> bool {
-	s.contains(['*', '=', '>', '<', '^', ','])
-}
-
-fn is_valid_name(s: &str) -> bool {
-	if s.is_empty() {
-		return true;
-	}
-	s.split(',').all(is_valid_constraint)
-}
-
-fn is_valid_constraint(s: &str) -> bool {
-	if s == "*" {
-		return true;
-	}
-	let value = s
-		.strip_prefix(">=")
-		.or_else(|| s.strip_prefix("<="))
-		.or_else(|| s.strip_prefix('>'))
-		.or_else(|| s.strip_prefix('<'))
-		.or_else(|| s.strip_prefix('='))
-		.or_else(|| s.strip_prefix('^'))
-		.unwrap_or(s);
-	!value.is_empty() && value.chars().all(is_component_character)
-}
-
-fn is_component_character(c: char) -> bool {
-	c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
-}
-
-fn is_parent_prefix(prefix: &[String], parent: &[String]) -> bool {
-	let mut parent = parent.iter().map(String::as_str);
-	for component in prefix {
-		if parent.next() != Some(component.as_str()) {
-			return false;
-		}
-	}
-	true
 }

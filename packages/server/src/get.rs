@@ -217,9 +217,7 @@ impl Session {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(output)));
 					return Ok(stream.boxed());
 				}
-				pattern = tg::specifier::Pattern::any_in_parent(
-					specifier.components().map(ToOwned::to_owned).collect(),
-				);
+				pattern = tg::specifier::Pattern::any_in_parent(Some(specifier.clone()));
 			}
 		}
 		let list_arg = tg::list::Arg {

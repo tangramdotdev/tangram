@@ -198,23 +198,17 @@ impl Session {
 		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
 	) -> tg::Result<Option<tg::Id>> {
-		let components = specifier.components().collect::<Vec<_>>();
-		if components.is_empty() {
+		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
 		}
-		if components.len() == 1 {
+		let Some(_) = specifier.parent() else {
 			return Ok(None);
-		}
+		};
 		let mut parent = None;
 		let mut node = None;
-		for index in 0..components.len() - 1 {
-			let specifier = tg::Specifier::with_components(
-				components[..=index]
-					.iter()
-					.map(|component| tg::specifier::Component::new((*component).to_owned())),
-			);
+		for ancestor in specifier.ancestors() {
 			if let Some(existing) =
-				Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
+				Self::try_get_node_by_specifier_with_transaction(transaction, &ancestor).await?
 			{
 				if existing.kind == tg::id::Kind::Tag {
 					return Err(tg::error!("specifier is already in use"));
@@ -224,7 +218,7 @@ impl Session {
 				continue;
 			}
 			let created = self
-				.create_group_node_with_transaction(transaction, &specifier, parent.as_ref())
+				.create_group_node_with_transaction(transaction, &ancestor, parent.as_ref())
 				.await?;
 			parent = Some(created.id.clone());
 			node = Some(created);

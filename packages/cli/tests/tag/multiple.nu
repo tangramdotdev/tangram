@@ -26,9 +26,10 @@ for tag in $tags {
 	tg tag put $tag $id
 }
 
-# List empty pattern.
-let output = tg list --no-groups ""
-snapshot -n "list_empty" $output
+# Empty pattern is not valid.
+let output = tg list --no-groups "" | complete
+failure $output "The command should reject an empty pattern."
+assert ($output.stderr | str contains "invalid specifier pattern") "The error should mention the invalid pattern."
 
 # List test.
 let output = tg list --no-groups "test"

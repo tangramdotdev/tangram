@@ -1355,9 +1355,7 @@ impl Tree {
 			length: None,
 			location: None,
 			groups: true,
-			pattern: tg::specifier::Pattern::any_in_parent(
-				group.components().map(ToOwned::to_owned).collect(),
-			),
+			pattern: tg::specifier::Pattern::any_in_parent(Some(group.clone())),
 			recursive: false,
 			reverse: false,
 			tags: true,

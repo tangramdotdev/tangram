@@ -40,6 +40,5 @@ assert (($output.deleted | length) == 0) "The command should not delete a parent
 
 # Try to delete with empty pattern - should fail.
 let output = tg tag delete "" | complete
-failure $output "The command cannot delete an empty pattern."
-let stderr = $output.stderr
-assert ($stderr | str contains "cannot delete an empty pattern") "The error message should mention empty pattern."
+failure $output "The command should reject an empty pattern."
+assert ($output.stderr | str contains "invalid specifier pattern") "The error should mention the invalid pattern."

@@ -72,11 +72,10 @@ impl Session {
 		specifier: &tg::Specifier,
 		parent: Option<&tg::Id>,
 	) -> tg::Result<Node> {
-		let components = specifier.components().collect::<Vec<_>>();
-		let name = components
-			.last()
-			.ok_or_else(|| tg::error!("invalid specifier"))?
-			.to_string();
+		if specifier.components().next().is_none() {
+			return Err(tg::error!("invalid specifier"));
+		}
+		let name = specifier.name().to_owned();
 		let kind = kind_to_str(kind);
 		let p = transaction.p();
 		let statement = formatdoc!(

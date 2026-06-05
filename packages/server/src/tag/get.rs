@@ -54,7 +54,7 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let tag = path.join(":").parse()?;
+		let tag = path.join("/").replace(':', "/").parse()?;
 		let Some(output) = self.try_get_tag(&tag).await? else {
 			let response = http::Response::builder()
 				.not_found()

@@ -260,21 +260,18 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
 		let output = output
 			.into_iter()
-			.map(|output| {
-				let principal = principal.clone();
-				async move {
-					let object = output.object;
-					let Some(object) = object else {
-						return Ok(None);
-					};
-					if let Some(bytes) = object.bytes {
-						return Ok(Some(bytes.into_owned().into()));
-					}
-					if let Some(cache_pointer) = object.cache_pointer {
-						return self.try_read_cache_pointer(&cache_pointer).await;
-					}
-					Ok(None)
+			.map(|output| async move {
+				let object = output.object;
+				let Some(object) = object else {
+					return Ok(None);
+				};
+				if let Some(bytes) = object.bytes {
+					return Ok(Some(bytes.into_owned().into()));
 				}
+				if let Some(cache_pointer) = object.cache_pointer {
+					return self.try_read_cache_pointer(&cache_pointer).await;
+				}
+				Ok(None)
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect::<Vec<_>>()
