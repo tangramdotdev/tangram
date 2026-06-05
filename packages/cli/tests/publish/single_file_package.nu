@@ -25,11 +25,11 @@ let id = tg checkin $file_path
 tg publish $file_path
 
 # Verify tag on local.
-let local_tag = tg tag get test-single-file/1.0.0 | from json | get item
+let local_tag = tg tag get test-single-file/1.0.0 | from json | get item.id
 assert equal $local_tag $id "Local tag does not match expected ID."
 
 # Verify tag on remote.
-let remote_tag = tg --url $remote.url tag get test-single-file/1.0.0 | from json | get item
+let remote_tag = tg --url $remote.url tag get test-single-file/1.0.0 | from json | get item.id
 assert equal $remote_tag $id "Remote tag does not match expected ID."
 
 # Verify object synced.

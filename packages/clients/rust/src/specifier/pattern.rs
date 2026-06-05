@@ -109,32 +109,19 @@ impl Pattern {
 
 	#[must_use]
 	pub fn matches_for_list(&self, tag: &tg::Tag) -> bool {
-		self.matches(tag) || self.children().is_some_and(|pattern| pattern.matches(tag))
+		self.matches_specifier_for_list(&tag.specifier)
 	}
 
 	#[must_use]
 	pub fn matches_in_parent_subtree(&self, tag: &tg::Tag) -> bool {
+		self.matches_specifier_in_parent_subtree(&tag.specifier)
+	}
+
+	#[must_use]
+	pub fn matches_specifier(&self, specifier: &tg::Specifier) -> bool {
 		if self.is_empty() {
 			return true;
 		}
-		let parent = tag
-			.specifier
-			.components()
-			.map(ToOwned::to_owned)
-			.collect::<Vec<_>>();
-		is_parent_prefix(&self.parent, &parent) && self.matches_specifier(&tag.specifier)
-	}
-
-	#[must_use]
-	pub fn to_specifier(&self) -> tg::Specifier {
-		tg::Specifier::with_components(
-			self.components()
-				.map(|component| tg::specifier::Component::new(component.to_owned())),
-		)
-	}
-
-	#[must_use]
-	fn matches_specifier(&self, specifier: &tg::Specifier) -> bool {
 		let mut components = specifier.components().collect::<Vec<_>>();
 		let Some(component) = components.pop() else {
 			return false;
@@ -144,6 +131,34 @@ impl Pattern {
 			.map(ToOwned::to_owned)
 			.collect::<Vec<_>>();
 		self.parent == parent && self.component.matches(component)
+	}
+
+	#[must_use]
+	pub fn matches_specifier_for_list(&self, specifier: &tg::Specifier) -> bool {
+		self.matches_specifier(specifier)
+			|| self
+				.children()
+				.is_some_and(|pattern| pattern.matches_specifier(specifier))
+	}
+
+	#[must_use]
+	pub fn matches_specifier_in_parent_subtree(&self, specifier: &tg::Specifier) -> bool {
+		if self.is_empty() {
+			return true;
+		}
+		let parent = specifier
+			.components()
+			.map(ToOwned::to_owned)
+			.collect::<Vec<_>>();
+		is_parent_prefix(&self.parent, &parent) && self.matches_specifier(specifier)
+	}
+
+	#[must_use]
+	pub fn to_specifier(&self) -> tg::Specifier {
+		tg::Specifier::with_components(
+			self.components()
+				.map(|component| tg::specifier::Component::new(component.to_owned())),
+		)
 	}
 }
 

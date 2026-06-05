@@ -52,6 +52,7 @@ mod read;
 mod remote;
 #[cfg(feature = "js")]
 mod repl;
+mod resolve;
 mod sandbox;
 mod server;
 mod shell;
@@ -327,6 +328,8 @@ enum Command {
 	Read(self::read::Args),
 
 	Remote(self::remote::Args),
+
+	Resolve(self::resolve::Args),
 
 	Revoke(self::grants::delete::Args),
 
@@ -639,6 +642,7 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed_local(),
 			Command::Read(args) => self.command_read(args).boxed_local(),
 			Command::Remote(args) => self.command_remote(args).boxed_local(),
+			Command::Resolve(args) => self.command_resolve(args).boxed_local(),
 			Command::Revoke(args) => self.command_grants_delete(args).boxed_local(),
 			#[cfg(feature = "js")]
 			Command::Repl(args) => self.command_repl(args).boxed_local(),

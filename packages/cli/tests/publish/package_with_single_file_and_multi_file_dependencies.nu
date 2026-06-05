@@ -80,17 +80,17 @@ assert ($output.stderr | str contains "info tagged test-single-file/1.0.0") "tes
 assert ($output.stderr | str contains "info tagged test-multi-file/1.0.0") "test-multi-file should be published."
 
 # Verify all packages are tagged on local.
-let local_main_tag = tg tag get test-main/1.0.0 | from json | get item
-let local_single_tag = tg tag get test-single-file/1.0.0 | from json | get item
-let local_multi_tag = tg tag get test-multi-file/1.0.0 | from json | get item
+let local_main_tag = tg tag get test-main/1.0.0 | from json | get item.id
+let local_single_tag = tg tag get test-single-file/1.0.0 | from json | get item.id
+let local_multi_tag = tg tag get test-multi-file/1.0.0 | from json | get item.id
 assert equal $local_main_tag $main_id "Local main tag does not match expected ID."
 assert equal $local_single_tag $single_file_id "Local single-file tag does not match expected ID."
 assert equal $local_multi_tag $multi_file_id "Local multi-file tag does not match expected ID."
 
 # Verify all packages are tagged on remote.
-let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item
-let remote_single_tag = tg --url $remote.url tag get test-single-file/1.0.0 | from json | get item
-let remote_multi_tag = tg --url $remote.url tag get test-multi-file/1.0.0 | from json | get item
+let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item.id
+let remote_single_tag = tg --url $remote.url tag get test-single-file/1.0.0 | from json | get item.id
+let remote_multi_tag = tg --url $remote.url tag get test-multi-file/1.0.0 | from json | get item.id
 assert equal $remote_main_tag $main_id "Remote main tag does not match expected ID."
 assert equal $remote_single_tag $single_file_id "Remote single-file tag does not match expected ID."
 assert equal $remote_multi_tag $multi_file_id "Remote multi-file tag does not match expected ID."

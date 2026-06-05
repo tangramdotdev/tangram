@@ -15,7 +15,10 @@ impl Cli {
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
 		for reference in &args.references {
-			let arg = tg::get::Arg::default();
+			let arg = tg::get::Arg {
+				resolve: true,
+				..Default::default()
+			};
 			let referent = self.get_reference_with_arg(reference, arg).await?;
 			let edge = crate::get::get_item_to_graph_edge(referent.item)?;
 

@@ -65,9 +65,9 @@ let dep_id = do $extract_published_id "test-dep/1.0.0"
 let main_id = do $extract_published_id "test-main/1.0.0"
 
 # Verify all three packages are tagged on remote.
-let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item
-let remote_dep_tag = tg --url $remote.url tag get test-dep/1.0.0 | from json | get item
-let remote_transitive_tag = tg --url $remote.url tag get test-transitive/1.0.0 | from json | get item
+let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item.id
+let remote_dep_tag = tg --url $remote.url tag get test-dep/1.0.0 | from json | get item.id
+let remote_transitive_tag = tg --url $remote.url tag get test-transitive/1.0.0 | from json | get item.id
 assert equal $remote_main_tag $main_id "Remote main tag does not match expected ID."
 assert equal $remote_dep_tag $dep_id "Remote dependency tag does not match expected ID."
 assert equal $remote_transitive_tag $transitive_id "Remote transitive tag does not match expected ID."

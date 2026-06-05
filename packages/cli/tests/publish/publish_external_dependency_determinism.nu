@@ -48,11 +48,11 @@ let root = artifact {
 
 # Publish inner directly (like publishing std).
 tg publish ($root | path join "packages/inner")
-let inner_from_inner = tg tag get inner/0 | from json | get item
+let inner_from_inner = tg tag get inner/0 | from json | get item.id
 
 # Publish outer which depends on inner (like publishing jq which depends on std).
 tg publish ($root | path join "packages/outer")
-let inner_from_outer = tg tag get inner/0 | from json | get item
+let inner_from_outer = tg tag get inner/0 | from json | get item.id
 
 # Inner should have the same ID regardless of entry point.
 assert ($inner_from_inner == $inner_from_outer) $"inner has different IDs when published directly vs via outer. Direct: ($inner_from_inner), via outer: ($inner_from_outer)"

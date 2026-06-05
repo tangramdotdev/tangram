@@ -61,8 +61,11 @@ let output = tg list --no-groups --recursive "test"
 snapshot -n "list_test_recursive" $output
 
 # Get test/1.2.0 (exact tag).
-let output = tg tag get "test/1.2.0"
-snapshot -n "get_test_exact" $output
+let tag = tg tag get "test/1.2.0" | from json
+assert equal $tag.item.id $id
+assert equal $tag.item.kind object
+assert equal $tag.name "1.2.0"
+assert equal $tag.specifier "test/1.2.0"
 
 # List test/^1 (latest matching ^1).
 let output = tg list --no-groups --reverse "test/^1"

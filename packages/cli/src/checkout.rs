@@ -100,7 +100,7 @@ impl Cli {
 		};
 
 		// Get the artifact.
-		let referent = self.get_reference(&args.reference).await?;
+		let referent = self.get_resolved_reference(&args.reference).await?;
 		let edge = crate::get::get_item_to_graph_edge(referent.item)?;
 		let object = edge
 			.try_unwrap_object()

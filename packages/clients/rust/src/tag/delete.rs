@@ -8,13 +8,13 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	pub tag: tg::tag::Selector,
+	pub pattern: tg::specifier::Pattern,
 
 	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub replicate: Option<Vec<String>>,
+	pub replicate: Option<Vec<tg::tag::Data>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -28,7 +28,7 @@ impl tg::Session {
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let method = http::Method::DELETE;
-		let uri = format!("/tags/{}", arg.tag.to_string().replace('/', ":"));
+		let uri = format!("/tags/{}", arg.pattern.to_string().replace('/', ":"));
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

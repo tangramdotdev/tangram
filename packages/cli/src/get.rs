@@ -1,4 +1,4 @@
-use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
+use {crate::Cli, futures::FutureExt as _, std::time::Duration, tangram_client::prelude::*};
 
 /// Get a reference.
 #[derive(Clone, Debug, clap::Args)]
@@ -7,6 +7,10 @@ pub struct Args {
 	/// Get the object's raw bytes.
 	#[arg(long)]
 	pub bytes: bool,
+
+	/// Only use cached remote results. Do not fetch from remotes.
+	#[arg(long)]
+	pub cached: bool,
 
 	#[command(flatten)]
 	pub locations: crate::location::Args,
@@ -20,13 +24,41 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	/// Resolve specifiers to the object or process they select.
+	#[arg(long, short = 'R')]
+	pub resolve: bool,
+
+	#[command(flatten)]
+	pub ttl: Ttl,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Ttl {
+	#[arg(long, overrides_with = "no_ttl", value_parser = humantime::parse_duration)]
+	pub ttl: Option<Duration>,
+
+	#[arg(long, overrides_with = "ttl")]
+	pub no_ttl: bool,
+}
+
+impl Ttl {
+	fn get(&self) -> Option<Duration> {
+		if self.no_ttl { None } else { self.ttl }
+	}
 }
 
 impl Cli {
 	pub async fn command_get(&mut self, args: Args) -> tg::Result<()> {
 		let locations = args.locations;
 		let print = args.print;
-		let referent = self.get_reference(&args.reference).await?;
+		let arg = tg::get::Arg {
+			cached: args.cached,
+			resolve: args.resolve,
+			ttl: args.ttl.get(),
+			..Default::default()
+		};
+		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
 		self.print_info_message(&args.reference.to_string());
 		match referent.item {
 			tg::get::Item::Id(id) => match id.kind() {
@@ -112,6 +144,17 @@ impl Cli {
 			.await
 	}
 
+	pub(crate) async fn get_resolved_reference(
+		&mut self,
+		reference: &tg::Reference,
+	) -> tg::Result<tg::Referent<tg::get::Item>> {
+		let arg = tg::get::Arg {
+			resolve: true,
+			..Default::default()
+		};
+		self.get_reference_with_arg(reference, arg).boxed().await
+	}
+
 	pub(crate) async fn get_reference_with_arg(
 		&mut self,
 		reference: &tg::Reference,
@@ -178,7 +221,7 @@ impl Cli {
 	) -> tg::Result<Vec<tg::Referent<tg::get::Item>>> {
 		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
-			let referent = self.get_reference(reference).await?;
+			let referent = self.get_resolved_reference(reference).await?;
 			referents.push(referent);
 		}
 		Ok(referents)
@@ -200,7 +243,7 @@ impl Cli {
 		let client = self.client().await?;
 
 		// Get the reference.
-		let referent = self.get_reference(reference).await?;
+		let referent = self.get_resolved_reference(reference).await?;
 		let item = get_item_to_graph_edge(referent.item.clone())?;
 		let mut referent = referent.map(|_| item);
 		let module = match referent.item.clone() {

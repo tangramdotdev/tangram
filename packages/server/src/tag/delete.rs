@@ -59,29 +59,88 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: &tg::tag::delete::Arg,
 	) -> tg::Result<Vec<tg::tag::Data>> {
-		let Some(node) =
-			Self::try_get_node_by_selector_with_transaction(transaction, &arg.tag).await?
-		else {
-			return Ok(Vec::new());
+		if arg.pattern.is_empty() {
+			return Err(tg::error!("cannot delete an empty pattern"));
+		}
+		if !arg.recursive && arg.pattern.contains_operators() {
+			return Err(tg::error!(
+				"cannot delete multiple tags without --recursive"
+			));
+		}
+		let tags = if let Some(deleted) = &arg.replicate {
+			deleted.clone()
+		} else {
+			self.list_tags_to_delete_with_transaction(transaction, &arg.pattern, arg.recursive)
+				.await?
 		};
-		if node.kind != tg::id::Kind::Tag {
-			return Ok(Vec::new());
-		}
-		let tag = get_tag_data_with_transaction(transaction, &node).await?;
 		let p = transaction.p();
-		for statement in [
-			format!("delete from tag_grants where tag = {p}1;"),
-			format!("delete from grants where resource = {p}1 or principal = {p}1;"),
-			format!("delete from visibility where resource = {p}1 or principal = {p}1;"),
-			format!("delete from tags where id = {p}1;"),
-			format!("delete from nodes where id = {p}1;"),
-		] {
-			transaction
-				.execute(statement.into(), db::params![node.id.to_string()])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		for tag in &tags {
+			for statement in [
+				format!("delete from tag_grants where tag = {p}1;"),
+				format!("delete from grants where resource = {p}1 or principal = {p}1;"),
+				format!("delete from visibility where resource = {p}1 or principal = {p}1;"),
+				format!("delete from tags where id = {p}1;"),
+				format!("delete from nodes where id = {p}1;"),
+			] {
+				transaction
+					.execute(statement.into(), db::params![tag.id.to_string()])
+					.await
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			}
 		}
-		Ok(vec![tag])
+		Ok(tags)
+	}
+
+	async fn list_tags_to_delete_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		pattern: &tg::specifier::Pattern,
+		recursive: bool,
+	) -> tg::Result<Vec<tg::tag::Data>> {
+		if !recursive && !pattern.contains_operators() {
+			let specifier = pattern.clone().try_into()?;
+			let Some(node) =
+				Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
+			else {
+				return Ok(Vec::new());
+			};
+			if node.kind != tg::id::Kind::Tag {
+				return Ok(Vec::new());
+			}
+			return Ok(vec![
+				get_tag_data_with_transaction(transaction, &node).await?,
+			]);
+		}
+		let output = self
+			.list_local(tg::list::Arg {
+				groups: false,
+				pattern: pattern.clone(),
+				recursive,
+				tags: true,
+				..tg::list::Arg::default()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to list the tags"))?;
+		let mut tags = Vec::new();
+		for entry in output.data {
+			let tg::list::Entry::Tag { tag, .. } = entry else {
+				continue;
+			};
+			let Some(node) =
+				Self::try_get_node_by_specifier_with_transaction(transaction, &tag).await?
+			else {
+				continue;
+			};
+			tags.push(get_tag_data_with_transaction(transaction, &node).await?);
+		}
+		tags.sort_by(|a, b| {
+			let a_depth = a.specifier.components().count();
+			let b_depth = b.specifier.components().count();
+			b_depth
+				.cmp(&a_depth)
+				.then_with(|| a.specifier.cmp(&b.specifier))
+		});
+		Ok(tags)
 	}
 
 	async fn delete_tags_remote(
@@ -108,12 +167,12 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let tag = path.join(":").parse()?;
+		let pattern = path.join(":").parse()?;
 		let mut arg: tg::tag::delete::Arg = request
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		arg.tag = tag;
+		arg.pattern = pattern;
 		let output = self.delete_tags(arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()

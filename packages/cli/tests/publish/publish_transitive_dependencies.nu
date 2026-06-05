@@ -33,14 +33,14 @@ let root = artifact {
 
 # 2. Publish A (which should publish C, B, A in topological order).
 tg publish ($root | path join "packages/a") 
-let a_v1 = tg tag get a/0 | from json | get item
+let a_v1 = tg tag get a/0 | from json | get item.id
 
 # 3. Update C by modifying its content.
 "// v2\nexport let metadata = { tag: \"c/0\" };" | save --force ($root | path join "packages/c/tangram.ts")
 
 # 4. Republish A. This should republish C with new content, then B with new C, then A with new B.
 tg publish --force ($root | path join "packages/a")
-let a_v2 = tg tag get a/0 | from json | get item
+let a_v2 = tg tag get a/0 | from json | get item.id
 
 # 5. A should have a new ID because its transitive dependency C changed.
 assert ($a_v1 != $a_v2) $"A should have new ID after C updated. Before: ($a_v1), after: ($a_v2)"

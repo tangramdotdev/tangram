@@ -123,7 +123,7 @@ impl Cli {
 				tg::Referent::with_item(crate::viewer::Item::Group(pattern.to_specifier()))
 			},
 			Kind::Value | Kind::Package => {
-				let referent = self.get_reference(&args.reference).await?;
+				let referent = self.get_resolved_reference(&args.reference).await?;
 				let item = match referent.item() {
 					tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
 						tg::Either::Right(tg::Process::new(

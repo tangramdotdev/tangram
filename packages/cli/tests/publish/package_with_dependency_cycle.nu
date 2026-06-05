@@ -50,14 +50,14 @@ let a_published_id = do $extract_published_id "test-a/1.0.0"
 let b_published_id = do $extract_published_id "test-b/1.0.0"
 
 # Verify both packages are tagged on local.
-let local_a_tag = tg tag get test-a/1.0.0 | from json | get item
-let local_b_tag = tg tag get test-b/1.0.0 | from json | get item
+let local_a_tag = tg tag get test-a/1.0.0 | from json | get item.id
+let local_b_tag = tg tag get test-b/1.0.0 | from json | get item.id
 assert equal $local_a_tag $a_published_id "Local tag for test-a does not match published ID."
 assert equal $local_b_tag $b_published_id "Local tag for test-b does not match published ID."
 
 # Verify both packages are tagged on remote.
-let remote_a_tag = tg --url $remote.url tag get test-a/1.0.0 | from json | get item
-let remote_b_tag = tg --url $remote.url tag get test-b/1.0.0 | from json | get item
+let remote_a_tag = tg --url $remote.url tag get test-a/1.0.0 | from json | get item.id
+let remote_b_tag = tg --url $remote.url tag get test-b/1.0.0 | from json | get item.id
 assert equal $remote_a_tag $a_published_id "Remote tag for test-a does not match published ID."
 assert equal $remote_b_tag $b_published_id "Remote tag for test-b does not match published ID."
 

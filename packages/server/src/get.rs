@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, context::Authentication, tag::delete::get_tag_data_with_transaction},
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,
@@ -33,7 +33,7 @@ impl Session {
 				Self::try_get_with_pointer(pointer, reference.options())?
 			},
 			tg::reference::Item::Specifier(specifier) => {
-				self.try_get_with_specifier(specifier, reference.options())
+				self.try_get_with_specifier(specifier, reference.options(), &arg)
 					.await?
 			},
 		};
@@ -122,55 +122,13 @@ impl Session {
 		&self,
 		specifier: &tg::specifier::Pattern,
 		options: &tg::reference::Options,
+		arg: &tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		if arg.resolve {
+			return self.try_resolve_specifier(specifier, options, arg).await;
+		}
 		if specifier.is_empty() || specifier.contains_operators() {
-			let list_arg = tg::list::Arg {
-				cached: false,
-				length: Some(1),
-				location: options.location.clone(),
-				pattern: specifier.clone(),
-				recursive: false,
-				reverse: true,
-				tags: true,
-				ttl: None,
-				..tg::list::Arg::default()
-			};
-			let tg::list::Output { data } = self
-				.list(list_arg)
-				.await
-				.map_err(|error| tg::error!(!error, %specifier, "failed to list entries"))?;
-			let mut connection = self
-				.server
-				.database
-				.connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-			let transaction = connection
-				.transaction()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let mut output = None;
-			for entry in data {
-				let tg::list::Entry::Tag { tag, .. } = entry else {
-					continue;
-				};
-				let Some(node) =
-					Self::try_get_node_by_specifier_with_transaction(&transaction, &tag).await?
-				else {
-					continue;
-				};
-				if !self
-					.node_is_visible_with_transaction(&transaction, &node.id)
-					.await?
-				{
-					continue;
-				}
-				output = Some(tg::get::Output {
-					referent: tg::Referent::with_item(tg::get::Item::Id(node.id)),
-				});
-				break;
-			}
-			let stream = stream::once(future::ok(tg::progress::Event::Output(output)));
+			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		}
 		let specifier = specifier.to_specifier();
@@ -203,6 +161,85 @@ impl Session {
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())
 			.await?;
+		let stream = stream::once(future::ok(tg::progress::Event::Output(output)));
+		Ok(stream.boxed())
+	}
+
+	async fn try_resolve_specifier(
+		&self,
+		specifier: &tg::specifier::Pattern,
+		options: &tg::reference::Options,
+		arg: &tg::get::Arg,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		let mut pattern = specifier.clone();
+		if !specifier.is_empty() && !specifier.contains_operators() {
+			let specifier = specifier.to_specifier();
+			let mut connection = self
+				.server
+				.database
+				.connection()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+			let transaction = connection
+				.transaction()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+			if let Some(node) =
+				Self::try_get_node_by_specifier_with_transaction(&transaction, &specifier).await?
+			{
+				if !self
+					.node_is_visible_with_transaction(&transaction, &node.id)
+					.await?
+				{
+					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
+					return Ok(stream.boxed());
+				}
+				if node.kind == tg::id::Kind::Tag {
+					let data = get_tag_data_with_transaction(&transaction, &node).await?;
+					let id = tag_data_item_to_id(data.item);
+					let output = tg::get::Output {
+						referent: tg::Referent::with_item(tg::get::Item::Id(id)),
+					};
+					let output = self
+						.try_get_apply_get(output, options.get.as_deref())
+						.await?;
+					let stream = stream::once(future::ok(tg::progress::Event::Output(output)));
+					return Ok(stream.boxed());
+				}
+				pattern = tg::specifier::Pattern::any_in_parent(
+					specifier.components().map(ToOwned::to_owned).collect(),
+				);
+			}
+		}
+		let list_arg = tg::list::Arg {
+			cached: arg.cached,
+			groups: false,
+			length: Some(1),
+			location: options.location.clone(),
+			pattern,
+			recursive: false,
+			reverse: true,
+			tags: true,
+			ttl: arg.ttl,
+		};
+		let tg::list::Output { data } = self
+			.list(list_arg)
+			.await
+			.map_err(|error| tg::error!(!error, %specifier, "failed to list entries"))?;
+		let output = data.into_iter().find_map(|entry| {
+			let tg::list::Entry::Tag { item, .. } = entry else {
+				return None;
+			};
+			Some(tg::get::Output {
+				referent: tg::Referent::with_item(tg::get::Item::Id(list_item_to_id(item))),
+			})
+		});
+		let output = if let Some(output) = output {
+			self.try_get_apply_get(output, options.get.as_deref())
+				.await?
+		} else {
+			None
+		};
 		let stream = stream::once(future::ok(tg::progress::Event::Output(output)));
 		Ok(stream.boxed())
 	}
@@ -323,5 +360,19 @@ impl Session {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+fn list_item_to_id(item: tg::Either<tg::object::Id, tg::process::Id>) -> tg::Id {
+	match item {
+		tg::Either::Left(id) => id.into(),
+		tg::Either::Right(id) => id.into(),
+	}
+}
+
+fn tag_data_item_to_id(item: tg::tag::data::Item) -> tg::Id {
+	match item {
+		tg::tag::data::Item::Object(id) => id.into(),
+		tg::tag::data::Item::Process(id) => id.into(),
 	}
 }

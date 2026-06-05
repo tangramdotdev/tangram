@@ -446,7 +446,7 @@ impl Session {
 						if referent
 							.as_ref()
 							.and_then(|r| r.tag())
-							.is_some_and(|tag| pattern_matches_specifier(&key, tag))
+							.is_some_and(|tag| key.matches_specifier_for_list(tag))
 						{
 							referent.take();
 							continue 'outer;
@@ -478,7 +478,7 @@ impl Session {
 			let Some(referent) = &solution.referent else {
 				return Ok(TagInnerOutput::Unsolved);
 			};
-			if !pattern_matches_specifier(pattern, referent.tag().unwrap()) {
+			if !pattern.matches_specifier_for_list(referent.tag().unwrap()) {
 				return Ok(TagInnerOutput::Conflicted);
 			}
 			return Ok(TagInnerOutput::Solved(referent.clone()));
@@ -583,7 +583,7 @@ impl Session {
 			.arg
 			.updates
 			.iter()
-			.any(|pattern| pattern_matches_specifier(&pattern.for_list(), &candidate.tag))
+			.any(|pattern| pattern_matches_specifier_or_ancestor(pattern, &candidate.tag))
 		{
 			return None;
 		}
@@ -1386,28 +1386,22 @@ impl Session {
 	}
 }
 
-fn pattern_matches_specifier(pattern: &tg::specifier::Pattern, specifier: &tg::Specifier) -> bool {
-	if pattern.is_empty() {
-		return true;
-	}
-	let pattern = pattern.to_string();
-	let specifier = specifier.to_string();
-	if let Some(pattern) = pattern.strip_suffix("/*") {
-		return specifier.starts_with(&format!("{pattern}/"));
-	}
-	if let Some(pattern) = pattern.rsplit_once("/=").map(|(parent, component)| {
-		if parent.is_empty() {
-			component.to_owned()
-		} else {
-			format!("{parent}/{component}")
+fn pattern_matches_specifier_or_ancestor(
+	pattern: &tg::specifier::Pattern,
+	specifier: &tg::Specifier,
+) -> bool {
+	let components = specifier.components().collect::<Vec<_>>();
+	for length in 1..=components.len() {
+		let ancestor = tg::Specifier::with_components(
+			components[..length]
+				.iter()
+				.map(|component| tg::specifier::Component::new((*component).to_owned())),
+		);
+		if pattern.matches_specifier(&ancestor) {
+			return true;
 		}
-	}) {
-		return specifier == pattern;
 	}
-	if let Some(pattern) = pattern.strip_prefix('=') {
-		return specifier == pattern;
-	}
-	specifier == pattern
+	false
 }
 
 impl Solutions {

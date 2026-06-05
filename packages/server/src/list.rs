@@ -164,8 +164,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let mut entries = Vec::new();
 		for row in rows {
-			let specifier = row.specifier.to_string();
-			if !matches_pattern(&specifier, arg) {
+			if !matches_pattern(&row.specifier, arg) {
 				continue;
 			}
 			if !self
@@ -219,8 +218,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let mut entries = Vec::new();
 		for row in rows {
-			let specifier = row.specifier.to_string();
-			if !matches_pattern(&specifier, arg) {
+			if !matches_pattern(&row.specifier, arg) {
 				continue;
 			}
 			if !self
@@ -341,45 +339,36 @@ fn entry_location(entry: &tg::list::Entry) -> Option<&tg::Location> {
 	}
 }
 
-fn matches_pattern(specifier: &str, arg: &tg::list::Arg) -> bool {
+fn matches_pattern(specifier: &tg::Specifier, arg: &tg::list::Arg) -> bool {
 	if arg.pattern.is_empty() {
 		return true;
 	}
-	if !arg.pattern.contains_operators() {
-		let pattern = arg.pattern.to_specifier().to_string();
-		return if arg.recursive {
-			specifier == pattern || specifier.starts_with(&format!("{pattern}/"))
-		} else {
-			let parent = pattern.rsplit_once('/').map(|(parent, _)| parent);
-			match parent {
-				Some(parent) => specifier.starts_with(&format!("{parent}/")),
-				None => !specifier.contains('/'),
-			}
-		};
+	if !arg.recursive {
+		return arg.pattern.matches_specifier_for_list(specifier);
 	}
-	let pattern = arg.pattern.to_string();
-	if arg.recursive {
-		let prefix = pattern.trim_end_matches('*').trim_end_matches('/');
-		specifier == prefix || specifier.starts_with(&format!("{prefix}/"))
-	} else {
-		let Some((parent, component)) = pattern.rsplit_once('/') else {
-			return !specifier.contains('/') && component_matches(specifier, &pattern);
-		};
-		let Some((specifier_parent, specifier_component)) = specifier.rsplit_once('/') else {
-			return false;
-		};
-		specifier_parent == parent && component_matches(specifier_component, component)
-	}
+	pattern_matches_specifier_or_ancestor(&arg.pattern, specifier)
+		|| arg
+			.pattern
+			.children()
+			.is_some_and(|pattern| pattern_matches_specifier_or_ancestor(&pattern, specifier))
 }
 
-fn component_matches(component: &str, pattern: &str) -> bool {
-	if pattern.is_empty() || pattern == "*" {
-		return true;
+fn pattern_matches_specifier_or_ancestor(
+	pattern: &tg::specifier::Pattern,
+	specifier: &tg::Specifier,
+) -> bool {
+	let components = specifier.components().collect::<Vec<_>>();
+	for length in 1..=components.len() {
+		let ancestor = tg::Specifier::with_components(
+			components[..length]
+				.iter()
+				.map(|component| tg::specifier::Component::new((*component).to_owned())),
+		);
+		if pattern.matches_specifier(&ancestor) {
+			return true;
+		}
 	}
-	if let Some(pattern) = pattern.strip_prefix('=') {
-		return component == pattern;
-	}
-	component == pattern
+	false
 }
 
 fn parse_tag_item(item: &str) -> tg::Result<tg::tag::data::Item> {

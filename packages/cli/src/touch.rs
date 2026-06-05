@@ -15,7 +15,7 @@ impl Cli {
 	pub async fn command_touch(&mut self, args: Args) -> tg::Result<()> {
 		let locations = args.locations;
 
-		let referent = self.get_reference(&args.reference).await?;
+		let referent = self.get_resolved_reference(&args.reference).await?;
 		let item = match referent.item {
 			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
 				tg::Either::Right(id.try_into()?)

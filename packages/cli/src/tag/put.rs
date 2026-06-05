@@ -30,6 +30,7 @@ impl Cli {
 		// Get the reference.
 		let arg = tg::get::Arg {
 			checkin: args.checkin.to_options(),
+			resolve: true,
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&args.reference, arg).await?;

@@ -1,21 +1,32 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
-	serde_with::serde_as,
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::is_default,
+	tangram_util::serde::{is_default, is_false},
 };
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: tg::checkin::Options,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[serde(flatten)]
 	pub options: tg::reference::Options,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub resolve: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub ttl: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -26,6 +37,7 @@ pub struct Output {
 #[derive(
 	Clone,
 	Debug,
+	derive_more::Display,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
 	Eq,
@@ -40,7 +52,9 @@ pub struct Output {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {
+	#[display("{_0}")]
 	Id(tg::Id),
+	#[display("{_0}")]
 	Pointer(tg::graph::data::Pointer),
 }
 

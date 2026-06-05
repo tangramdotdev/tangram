@@ -43,7 +43,7 @@ impl Cli {
 		let print = args.print;
 		let timeout = args.timeout;
 
-		let referent = self.get_reference(&args.reference).await?;
+		let referent = self.get_resolved_reference(&args.reference).await?;
 		match referent.item {
 			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
 				let args = crate::process::children::Args {
