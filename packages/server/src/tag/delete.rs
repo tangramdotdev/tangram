@@ -1,7 +1,6 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, context::Authentication, tag::get_tag_data_with_transaction},
 	futures::FutureExt as _,
-	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -67,12 +66,9 @@ impl Session {
 				"cannot delete multiple tags without --recursive"
 			));
 		}
-		let tags = if let Some(deleted) = &arg.replicate {
-			deleted.clone()
-		} else {
-			self.list_tags_to_delete_with_transaction(transaction, &arg.pattern, arg.recursive)
-				.await?
-		};
+		let tags = self
+			.list_tags_to_delete_with_transaction(transaction, &arg.pattern, arg.recursive)
+			.await?;
 		let p = transaction.p();
 		for tag in &tags {
 			for statement in [
@@ -191,35 +187,4 @@ impl Session {
 		}
 		Ok(response.body(body).unwrap())
 	}
-}
-
-pub(crate) async fn get_tag_data_with_transaction(
-	transaction: &crate::database::Transaction<'_>,
-	node: &crate::node::Node,
-) -> tg::Result<tg::tag::Data> {
-	#[derive(db::row::Deserialize)]
-	struct Row {
-		item: String,
-	}
-	let p = transaction.p();
-	let statement = formatdoc!(
-		"
-			select item
-			from tags
-			where id = {p}1;
-		"
-	);
-	let row = transaction
-		.query_one_into::<Row>(statement.into(), db::params![node.id.to_string()])
-		.await
-		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-	let item = serde_json::from_str(&row.item)
-		.map_err(|error| tg::error!(!error, "failed to parse the tag item"))?;
-	Ok(tg::tag::Data {
-		id: node.id.clone().try_into()?,
-		item,
-		name: node.name.clone(),
-		parent: node.parent.clone(),
-		specifier: node.specifier.clone(),
-	})
 }

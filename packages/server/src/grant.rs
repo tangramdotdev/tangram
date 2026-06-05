@@ -273,12 +273,14 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		let Some(()) = self.delete_grant(arg).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 }

@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, tag::delete::get_tag_data_with_transaction},
+	crate::{Session, context::Authentication, tag::get_tag_data_with_transaction},
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,

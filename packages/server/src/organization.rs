@@ -43,10 +43,9 @@ impl Session {
 			return Err(tg::error!("invalid organization specifier"));
 		}
 		let id = tg::organization::Id::new();
-		let id_: tg::Id = id.clone().into();
 		let node = Self::create_node_with_transaction(
 			transaction,
-			&id_,
+			&id.clone().into(),
 			tg::id::Kind::Organization,
 			&arg.specifier,
 			None,
@@ -69,15 +68,12 @@ impl Session {
 		if let Some(crate::context::Authentication::User(user)) =
 			self.context.authentication.as_ref()
 		{
-			self.create_grant_with_transaction(
-				transaction,
-				tg::grant::create::Arg {
-					principal: tg::grant::Principal::User(user.id.clone()),
-					permission: tg::grant::Permission::Admin,
-					resource: tg::grant::Resource::Id(id.clone().into()),
-				},
-			)
-			.await?;
+			let arg = tg::grant::create::Arg {
+				principal: tg::grant::Principal::User(user.id.clone()),
+				permission: tg::grant::Permission::Admin,
+				resource: tg::grant::Resource::Id(id.clone().into()),
+			};
+			self.create_grant_with_transaction(transaction, arg).await?;
 		}
 		organization_from_node(node)
 	}
@@ -273,15 +269,12 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		self.create_grant_with_transaction(
-			transaction,
-			tg::grant::create::Arg {
-				principal: organization_member_to_principal(member),
-				permission: tg::grant::Permission::Read,
-				resource: tg::grant::Resource::Id(organization.id),
-			},
-		)
-		.await?;
+		let arg = tg::grant::create::Arg {
+			principal: organization_member_to_principal(member),
+			permission: tg::grant::Permission::Read,
+			resource: tg::grant::Resource::Id(organization.id),
+		};
+		self.create_grant_with_transaction(transaction, arg).await?;
 		Ok(())
 	}
 
@@ -341,15 +334,12 @@ impl Session {
 		if deleted == 0 {
 			return Ok(None);
 		}
-		self.delete_grant_with_transaction(
-			transaction,
-			tg::grant::delete::Arg {
-				principal: organization_member_to_principal(member),
-				permission: tg::grant::Permission::Read,
-				resource: tg::grant::Resource::Id(organization.id),
-			},
-		)
-		.await?;
+		let arg = tg::grant::delete::Arg {
+			principal: organization_member_to_principal(member),
+			permission: tg::grant::Permission::Read,
+			resource: tg::grant::Resource::Id(organization.id),
+		};
+		self.delete_grant_with_transaction(transaction, arg).await?;
 		Ok(Some(()))
 	}
 
@@ -429,11 +419,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let organization = parse_selector::<tg::organization::Id>(organization)?;
 		let Some(output) = self.try_get_organization(&organization).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()
@@ -463,13 +454,15 @@ impl Session {
 		let _ = request;
 		let organization = parse_selector::<tg::organization::Id>(organization)?;
 		let Some(()) = self.try_delete_organization(&organization).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn list_organization_members_request(
@@ -515,7 +508,8 @@ impl Session {
 		let organization = parse_selector::<tg::organization::Id>(organization)?;
 		self.add_organization_member(&organization, &arg.member)
 			.await?;
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn remove_organization_member_request(
@@ -531,13 +525,15 @@ impl Session {
 			.remove_organization_member(&organization, &member)
 			.await?
 		else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn try_get_organization_grants_request(
@@ -556,11 +552,12 @@ impl Session {
 			.unwrap_or(tg::organization::grants::Arg { location: None });
 		let organization = parse_selector::<tg::organization::Id>(organization)?;
 		let Some(output) = self.try_get_organization_grants(&organization, arg).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()

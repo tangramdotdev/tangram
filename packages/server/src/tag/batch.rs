@@ -39,25 +39,21 @@ impl Session {
 				let session = session.clone();
 				async move {
 					for item in arg.tags {
-						session
-							.put_tag_with_transaction(
-								transaction,
-								tg::tag::put::Arg {
-									force: item.force,
-									item: item.item,
-									location: None,
-									all: false,
-									replicate: arg.replicate,
-									specifier: item.specifier,
-								},
-							)
-							.await?;
+						let arg = tg::tag::put::Arg {
+							force: item.force,
+							item: item.item,
+							location: None,
+							all: false,
+							specifier: item.specifier,
+						};
+						session.put_tag_with_transaction(transaction, arg).await?;
 					}
 					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+		Ok(())
 	}
 
 	async fn post_tag_batch_remote(
@@ -72,7 +68,8 @@ impl Session {
 		client
 			.post_tag_batch(arg)
 			.await
-			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tags"))
+			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tags"))?;
+		Ok(())
 	}
 
 	pub(crate) async fn post_tag_batch_request(
@@ -84,6 +81,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		self.post_tag_batch(arg).await?;
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 }

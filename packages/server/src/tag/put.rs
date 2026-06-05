@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, database::Transaction},
+	crate::{Session, context::Authentication, database::Transaction, tag::tag_item_to_string},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -48,14 +48,16 @@ impl Session {
 				.boxed()
 			})
 			.await?;
+		let arg = tangram_index::PutTagArg {
+			tag: data.specifier,
+			item: tag_data_item_to_index_item(data.item),
+		};
 		self.server
 			.index
-			.put_tags(&[tangram_index::PutTagArg {
-				tag: data.specifier,
-				item: tag_data_item_to_index_item(data.item),
-			}])
+			.put_tags(&[arg])
 			.await
-			.map_err(|error| tg::error!(!error, "failed to index the tag"))
+			.map_err(|error| tg::error!(!error, "failed to index the tag"))?;
+		Ok(())
 	}
 
 	pub(crate) async fn put_tag_with_transaction(
@@ -68,8 +70,7 @@ impl Session {
 			.await?;
 		let existing =
 			Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier).await?;
-		let item_json = serde_json::to_string(&arg.item)
-			.map_err(|error| tg::error!(!error, "failed to serialize the tag item"))?;
+		let item = tag_item_to_string(&arg.item);
 		let node = if let Some(node) = existing {
 			if node.kind != tg::id::Kind::Tag {
 				return Err(tg::error!("specifier is already in use"));
@@ -85,7 +86,7 @@ impl Session {
 			let n = transaction
 				.execute(
 					statement.into(),
-					db::params![item_json.clone(), node.id.to_string(), arg.force],
+					db::params![item.clone(), node.id.to_string(), arg.force],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
@@ -95,10 +96,9 @@ impl Session {
 			node
 		} else {
 			let id = tg::tag::Id::new();
-			let id_: tg::Id = id.clone().into();
 			let node = Self::create_node_with_transaction(
 				transaction,
-				&id_,
+				&id.clone().into(),
 				tg::id::Kind::Tag,
 				&arg.specifier,
 				parent.as_ref(),
@@ -118,33 +118,27 @@ impl Session {
 						id.to_string(),
 						node.name.clone(),
 						node.parent.as_ref().map(ToString::to_string),
-						item_json.clone()
+						item.clone()
 					],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if arg.all {
 				let all = Self::ensure_all_group_with_transaction(transaction).await?;
-				self.create_grant_with_transaction(
-					transaction,
-					tg::grant::create::Arg {
-						principal: tg::grant::Principal::Group(all),
-						permission: tg::grant::Permission::Read,
-						resource: tg::grant::Resource::Id(id_.clone()),
-					},
-				)
-				.await?;
+				let arg = tg::grant::create::Arg {
+					principal: tg::grant::Principal::Group(all),
+					permission: tg::grant::Permission::Read,
+					resource: tg::grant::Resource::Id(id.clone().into()),
+				};
+				self.create_grant_with_transaction(transaction, arg).await?;
 			}
 			if let Some(principal) = self.write_user_grant_principal() {
-				self.create_grant_with_transaction(
-					transaction,
-					tg::grant::create::Arg {
-						principal,
-						permission: tg::grant::Permission::Admin,
-						resource: tg::grant::Resource::Id(id_),
-					},
-				)
-				.await?;
+				let arg = tg::grant::create::Arg {
+					principal,
+					permission: tg::grant::Permission::Admin,
+					resource: tg::grant::Resource::Id(id.clone().into()),
+				};
+				self.create_grant_with_transaction(transaction, arg).await?;
 			}
 			node
 		};
@@ -169,7 +163,8 @@ impl Session {
 		client
 			.put_tag(arg)
 			.await
-			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tag"))
+			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tag"))?;
+		Ok(())
 	}
 
 	pub(crate) async fn put_tag_request(
@@ -181,7 +176,8 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		self.put_tag(arg).await?;
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) fn write_user_grant_principal(&self) -> Option<tg::grant::Principal> {

@@ -105,10 +105,9 @@ impl Session {
 		parent: Option<&tg::Id>,
 	) -> tg::Result<Node> {
 		let id = tg::group::Id::new();
-		let id_: tg::Id = id.clone().into();
 		let node = Self::create_node_with_transaction(
 			transaction,
-			&id_,
+			&id.clone().into(),
 			tg::id::Kind::Group,
 			specifier,
 			parent,
@@ -133,15 +132,12 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if let Some(principal) = self.write_user_principal() {
-			self.create_grant_with_transaction(
-				transaction,
-				tg::grant::create::Arg {
-					principal,
-					permission: tg::grant::Permission::Admin,
-					resource: tg::grant::Resource::Id(id.clone().into()),
-				},
-			)
-			.await?;
+			let arg = tg::grant::create::Arg {
+				principal,
+				permission: tg::grant::Permission::Admin,
+				resource: tg::grant::Resource::Id(id.clone().into()),
+			};
+			self.create_grant_with_transaction(transaction, arg).await?;
 		}
 		Ok(node)
 	}
@@ -392,15 +388,12 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		self.create_grant_with_transaction(
-			transaction,
-			tg::grant::create::Arg {
-				principal: member_to_principal(member),
-				permission: tg::grant::Permission::Read,
-				resource: tg::grant::Resource::Id(group.id),
-			},
-		)
-		.await?;
+		let arg = tg::grant::create::Arg {
+			principal: member_to_principal(member),
+			permission: tg::grant::Permission::Read,
+			resource: tg::grant::Resource::Id(group.id),
+		};
+		self.create_grant_with_transaction(transaction, arg).await?;
 		Ok(())
 	}
 
@@ -456,15 +449,12 @@ impl Session {
 		if deleted == 0 {
 			return Ok(None);
 		}
-		self.delete_grant_with_transaction(
-			transaction,
-			tg::grant::delete::Arg {
-				principal: member_to_principal(member),
-				permission: tg::grant::Permission::Read,
-				resource: tg::grant::Resource::Id(group.id),
-			},
-		)
-		.await?;
+		let arg = tg::grant::delete::Arg {
+			principal: member_to_principal(member),
+			permission: tg::grant::Permission::Read,
+			resource: tg::grant::Resource::Id(group.id),
+		};
+		self.delete_grant_with_transaction(transaction, arg).await?;
 		Ok(Some(()))
 	}
 
@@ -578,11 +568,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let group = parse_selector::<tg::group::Id>(group)?;
 		let Some(output) = self.try_get_group(&group).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()
@@ -612,13 +603,15 @@ impl Session {
 		drop(request);
 		let group = parse_selector::<tg::group::Id>(group)?;
 		let Some(()) = self.try_delete_group(&group).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn list_group_members_request(
@@ -663,7 +656,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		let group = parse_selector::<tg::group::Id>(group)?;
 		self.add_group_member(&group, &arg.member).await?;
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn remove_group_member_request(
@@ -676,13 +670,15 @@ impl Session {
 		let group = parse_selector::<tg::group::Id>(group)?;
 		let member = member.replace(':', "/").parse()?;
 		let Some(()) = self.remove_group_member(&group, &member).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+		Ok(response)
 	}
 
 	pub(crate) async fn try_get_group_grants_request(
@@ -701,11 +697,12 @@ impl Session {
 			.unwrap_or(tg::group::grants::Arg { location: None });
 		let group = parse_selector::<tg::group::Id>(group)?;
 		let Some(output) = self.try_get_group_grants(&group, arg).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()

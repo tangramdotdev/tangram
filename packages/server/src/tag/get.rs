@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, tag::delete::get_tag_data_with_transaction},
+	crate::{Session, context::Authentication, tag::get_tag_data_with_transaction},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -56,11 +56,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 		let tag = path.join(":").parse()?;
 		let Some(output) = self.try_get_tag(&tag).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()

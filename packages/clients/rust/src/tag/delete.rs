@@ -12,9 +12,6 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub recursive: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub replicate: Option<Vec<tg::tag::Data>>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

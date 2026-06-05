@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, context::Authentication, tag::parse_tag_item},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
@@ -369,13 +369,4 @@ fn pattern_matches_specifier_or_ancestor(
 		}
 	}
 	false
-}
-
-fn parse_tag_item(item: &str) -> tg::Result<tg::tag::data::Item> {
-	serde_json::from_str(item)
-		.or_else(|_| {
-			item.parse::<tg::Either<tg::object::Id, tg::process::Id>>()
-				.map(Into::into)
-		})
-		.map_err(|error| tg::error!(!error, "failed to parse the tag item"))
 }

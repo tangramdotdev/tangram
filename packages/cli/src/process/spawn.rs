@@ -433,7 +433,6 @@ impl Cli {
 				item: id.into(),
 				location: location.clone(),
 				all: false,
-				replicate: false,
 				specifier: tag.clone(),
 			};
 			client

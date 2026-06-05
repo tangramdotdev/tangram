@@ -50,7 +50,6 @@ impl Cli {
 			item,
 			location: args.location.get(),
 			all: args.public,
-			replicate: false,
 			specifier: args
 				.specifier
 				.clone()

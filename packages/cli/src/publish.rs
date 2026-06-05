@@ -147,7 +147,6 @@ impl Cli {
 						item: id.into(),
 						location: None,
 						all: false,
-						replicate: false,
 						specifier: tag.clone(),
 					};
 					client.put_tag(arg).await.map_err(
@@ -167,7 +166,6 @@ impl Cli {
 							item: id.into(),
 							location: None,
 							all: false,
-							replicate: false,
 							specifier: item.tag.clone(),
 						};
 						client.put_tag(arg).await.map_err(
@@ -186,7 +184,6 @@ impl Cli {
 							item: id.into(),
 							location: None,
 							all: false,
-							replicate: false,
 							specifier: tag.clone(),
 						};
 						client.put_tag(arg).await.map_err(
@@ -252,7 +249,6 @@ impl Cli {
 			.collect::<Vec<_>>();
 		let arg = tg::tag::batch::Arg {
 			location: Some(location.into()),
-			replicate: false,
 			tags: tags.clone(),
 		};
 		client

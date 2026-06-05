@@ -24,7 +24,6 @@ impl Cli {
 			location: args.location.get(),
 			pattern: args.pattern.clone(),
 			recursive: args.recursive,
-			replicate: None,
 		};
 		let output = client.delete_tags(arg).await.map_err(
 			|error| tg::error!(!error, pattern = %args.pattern, "failed to delete the tag"),

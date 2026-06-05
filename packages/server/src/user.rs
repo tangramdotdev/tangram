@@ -147,10 +147,9 @@ impl Session {
 			Self::user_from_node_with_transaction(transaction, node).await?
 		} else {
 			let id = tg::user::Id::new();
-			let id_: tg::Id = id.clone().into();
 			let node = Self::create_node_with_transaction(
 				transaction,
-				&id_,
+				&id.clone().into(),
 				tg::id::Kind::User,
 				&specifier,
 				None,
@@ -178,15 +177,12 @@ impl Session {
 				&tg::group::Member::User(id.clone()),
 			)
 			.await?;
-			self.create_grant_with_transaction(
-				transaction,
-				tg::grant::create::Arg {
-					principal: tg::grant::Principal::User(id.clone()),
-					permission: tg::grant::Permission::Admin,
-					resource: tg::grant::Resource::Id(id.clone().into()),
-				},
-			)
-			.await?;
+			let arg = tg::grant::create::Arg {
+				principal: tg::grant::Principal::User(id.clone()),
+				permission: tg::grant::Permission::Admin,
+				resource: tg::grant::Resource::Id(id.clone().into()),
+			};
+			self.create_grant_with_transaction(transaction, arg).await?;
 			Self::user_from_node_with_transaction(transaction, node).await?
 		};
 		if let Some(email) = arg.email {
@@ -320,11 +316,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 		let Some(output) = self.get_current_user(arg).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()
@@ -362,11 +359,12 @@ impl Session {
 			.unwrap_or(tg::user::get::Arg { location: None });
 		let user = parse_selector::<tg::user::Id>(user)?;
 		let Some(output) = self.try_get_user(&user, arg).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()
@@ -437,11 +435,12 @@ impl Session {
 			.unwrap_or_default();
 		let user = parse_selector::<tg::user::Id>(user)?;
 		let Some(output) = self.try_get_user_grants(&user, arg).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()

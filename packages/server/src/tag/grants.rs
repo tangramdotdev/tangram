@@ -91,11 +91,12 @@ impl Session {
 			.unwrap_or(tg::tag::grants::Arg { location: None });
 		let tag = parse_selector::<tg::tag::Id>(tag)?;
 		let Some(output) = self.try_get_tag_grants(&tag, arg).await? else {
-			return Ok(http::Response::builder()
+			let response = http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
-				.boxed_body());
+				.boxed_body();
+			return Ok(response);
 		};
 		let (content_type, body) = match accept
 			.as_ref()

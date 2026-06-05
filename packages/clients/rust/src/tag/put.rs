@@ -17,9 +17,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub all: bool,
 
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub replicate: bool,
-
 	pub specifier: tg::Specifier,
 }
 
