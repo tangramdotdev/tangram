@@ -21,9 +21,10 @@ impl tg::handle::Tag for tg::Session {
 
 	fn list_tag_grants(
 		&self,
+		tag: &tg::tag::Selector,
 		arg: tg::tag::grants::list::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::list::Output>>> {
-		self.list_tag_grants(arg)
+		self.list_tag_grants(tag, arg)
 	}
 
 	fn delete_tags(

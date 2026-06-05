@@ -689,8 +689,8 @@ impl Server {
 			(http::Method::POST, ["tags", "batch"]) => {
 				session.post_tag_batch_request(request).boxed()
 			},
-			(http::Method::GET, ["tags", "grants"]) => {
-				session.list_tag_grants_request(request).boxed()
+			(http::Method::GET, ["tags", tag, "grants"]) => {
+				session.list_tag_grants_request(request, tag).boxed()
 			},
 			(http::Method::GET, ["tags", path @ ..]) => {
 				session.try_get_tag_request(request, path).boxed()

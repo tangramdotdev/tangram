@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, context::Authentication, user::parse_selector},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -10,6 +10,7 @@ use {
 impl Session {
 	pub(crate) async fn list_tag_grants(
 		&self,
+		tag: &tg::tag::Selector,
 		arg: tg::tag::grants::list::Arg,
 	) -> tg::Result<Option<tg::tag::grants::list::Output>> {
 		if self
@@ -25,14 +26,14 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) => self.list_tag_grants_local(arg).await,
-			tg::Location::Remote(remote) => self.list_tag_grants_remote(arg, remote).await,
+			tg::Location::Local(_) => self.list_tag_grants_local(tag).await,
+			tg::Location::Remote(remote) => self.list_tag_grants_remote(tag, arg, remote).await,
 		}
 	}
 
 	async fn list_tag_grants_local(
 		&self,
-		arg: tg::tag::grants::list::Arg,
+		tag: &tg::tag::Selector,
 	) -> tg::Result<Option<tg::tag::grants::list::Output>> {
 		let mut connection = self
 			.server
@@ -44,8 +45,7 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(node) =
-			Self::try_get_node_by_selector_with_transaction(&transaction, &arg.tag).await?
+		let Some(node) = Self::try_get_node_by_selector_with_transaction(&transaction, tag).await?
 		else {
 			return Ok(None);
 		};
@@ -62,6 +62,7 @@ impl Session {
 
 	async fn list_tag_grants_remote(
 		&self,
+		tag: &tg::tag::Selector,
 		mut arg: tg::tag::grants::list::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<tg::tag::grants::list::Output>> {
@@ -69,7 +70,7 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client.list_tag_grants(arg).await.map_err(
+		client.list_tag_grants(tag, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to list the tag grants"),
 		)
 	}
@@ -77,6 +78,7 @@ impl Session {
 	pub(crate) async fn list_tag_grants_request(
 		&self,
 		request: http::Request<BoxBody>,
+		tag: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -86,8 +88,9 @@ impl Session {
 			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("expected query params"))?;
-		let Some(output) = self.list_tag_grants(arg).await? else {
+			.unwrap_or(tg::tag::grants::list::Arg { location: None });
+		let tag = parse_selector::<tg::tag::Id>(tag)?;
+		let Some(output) = self.list_tag_grants(&tag, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

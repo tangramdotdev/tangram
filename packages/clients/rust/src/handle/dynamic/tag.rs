@@ -18,9 +18,10 @@ impl tg::handle::Tag for Handle {
 
 	fn list_tag_grants(
 		&self,
+		tag: &tg::tag::Selector,
 		arg: tg::tag::grants::list::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::list::Output>>> {
-		self.0.list_tag_grants(arg)
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_tag_grants(tag, arg)) }
 	}
 
 	fn delete_tags(

@@ -6,8 +6,6 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub tag: tg::tag::Selector,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 }
@@ -21,10 +19,12 @@ pub struct Output {
 impl tg::Session {
 	pub async fn list_tag_grants(
 		&self,
+		tag: &tg::tag::Selector,
 		arg: tg::tag::grants::list::Arg,
 	) -> tg::Result<Option<tg::tag::grants::list::Output>> {
+		let path = format!("/tags/{}/grants", tag.to_string().replace('/', ":"));
 		let uri = Uri::builder()
-			.path("/tags/grants")
+			.path(&path)
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()

@@ -61,17 +61,12 @@ impl Cli {
 				self.command_organization_grants(args).await?;
 			},
 			tg::id::Kind::Tag => {
-				let client = self.client().await?;
-				let arg = tg::tag::grants::list::Arg {
-					location: None,
+				let args = crate::tag::grants::Args {
+					location: crate::location::Args::default(),
+					print,
 					tag: tg::Selector::Id(id.try_into()?),
 				};
-				let grants = client
-					.list_tag_grants(arg)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to list the grants"))?
-					.ok_or_else(|| tg::error!("failed to find the tag"))?;
-				self.print_serde(grants, print).await?;
+				self.command_tag_grants(args).await?;
 			},
 			_ => return Err(tg::error!("unsupported grant resource")),
 		}
