@@ -82,7 +82,6 @@ let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg group get project | complete }
 assert_unauthorized $output "An anonymous user should not be able to get a private claimed group."
 
-tg --token $alice group create public
 tg --token $alice grants create $public_group_id read public
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg group get public | complete }

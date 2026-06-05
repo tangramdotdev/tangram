@@ -7,9 +7,6 @@ pub struct Args {
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
-	#[arg(index = 2)]
-	pub parent: Option<tg::Specifier>,
-
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
@@ -22,7 +19,6 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::user::grants::Arg {
 			location: args.location.get(),
-			parent: args.parent.clone(),
 		};
 		let output = client
 			.try_get_user_grants(&args.user, arg)

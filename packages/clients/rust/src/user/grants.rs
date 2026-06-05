@@ -8,9 +8,6 @@ use {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub parent: Option<tg::Specifier>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

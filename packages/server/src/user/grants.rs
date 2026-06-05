@@ -23,7 +23,6 @@ impl Session {
 				let client = self.get_remote_session(&remote.name).await?;
 				let arg = tg::user::grants::Arg {
 					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-					..arg
 				};
 				client.try_get_user_grants(user, arg).await
 			},

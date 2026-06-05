@@ -38,7 +38,6 @@ impl Cli {
 			tg::id::Kind::User => {
 				let args = crate::user::grants::Args {
 					location: crate::location::Args::default(),
-					parent: None,
 					print,
 					user: tg::Selector::Id(id.try_into()?),
 				};
