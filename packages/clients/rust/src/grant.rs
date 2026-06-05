@@ -127,6 +127,17 @@ impl From<tg::Principal> for Principal {
 	}
 }
 
+impl From<Principal> for tg::Principal {
+	fn from(value: Principal) -> Self {
+		match value {
+			Principal::Group(id) => Self::Group(id),
+			Principal::Organization(id) => Self::Organization(id),
+			Principal::Root => Self::Root,
+			Principal::User(id) => Self::User(id),
+		}
+	}
+}
+
 impl std::str::FromStr for Resource {
 	type Err = tg::Error;
 

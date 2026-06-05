@@ -195,6 +195,26 @@ impl Session {
 		}
 	}
 
+	pub(crate) async fn node_has_children_with_transaction(
+		transaction: &Transaction<'_>,
+		id: &tg::Id,
+	) -> tg::Result<bool> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select 1
+				from nodes
+				where parent = {p}1
+				limit 1;
+			"
+		);
+		let row = transaction
+			.query_optional(statement.into(), db::params![id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(row.is_some())
+	}
+
 	pub(crate) async fn visible_principals_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,

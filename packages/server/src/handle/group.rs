@@ -12,12 +12,22 @@ impl tg::handle::Group for Server {
 		self.session(&self.context).list_groups(arg).await
 	}
 
-	async fn try_get_group(&self, group: &tg::group::Selector) -> tg::Result<Option<tg::Group>> {
-		self.session(&self.context).try_get_group(group).await
+	async fn try_get_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::get::Arg,
+	) -> tg::Result<Option<tg::Group>> {
+		self.session(&self.context).try_get_group(group, arg).await
 	}
 
-	async fn try_delete_group(&self, group: &tg::group::Selector) -> tg::Result<Option<()>> {
-		self.session(&self.context).try_delete_group(group).await
+	async fn try_delete_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_delete_group(group, arg)
+			.await
 	}
 
 	async fn try_get_group_grants(
@@ -33,17 +43,20 @@ impl tg::handle::Group for Server {
 	async fn list_group_members(
 		&self,
 		group: &tg::group::Selector,
+		arg: tg::group::members::list::Arg,
 	) -> tg::Result<tg::group::members::list::Output> {
-		self.session(&self.context).list_group_members(group).await
+		self.session(&self.context)
+			.list_group_members(group, arg)
+			.await
 	}
 
 	async fn add_group_member(
 		&self,
 		group: &tg::group::Selector,
-		member: &tg::group::Member,
+		arg: tg::group::members::add::Arg,
 	) -> tg::Result<()> {
 		self.session(&self.context)
-			.add_group_member(group, member)
+			.add_group_member(group, arg)
 			.await
 	}
 
@@ -51,9 +64,10 @@ impl tg::handle::Group for Server {
 		&self,
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
+		arg: tg::group::members::remove::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.remove_group_member(group, member)
+			.remove_group_member(group, member, arg)
 			.await
 	}
 }

@@ -5,6 +5,9 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+
 	pub member: tg::group::Member,
 }
 
@@ -12,11 +15,8 @@ impl tg::Session {
 	pub async fn add_group_member(
 		&self,
 		group: &tg::group::Selector,
-		member: &tg::group::Member,
+		arg: tg::group::members::add::Arg,
 	) -> tg::Result<()> {
-		let arg = tg::group::members::add::Arg {
-			member: member.to_owned(),
-		};
 		let uri = format!("/groups/{}/members", group.to_string().replace('/', ":"));
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)

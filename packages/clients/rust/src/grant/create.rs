@@ -5,7 +5,7 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub principal: tg::grant::Principal,
+	pub principal: tg::principal::Selector,
 	pub permission: tg::grant::Permission,
 	pub resource: tg::grant::Resource,
 }

@@ -98,12 +98,14 @@ impl Cli {
 				tg::id::Kind::Group => {
 					let args = crate::group::get::Args {
 						group: tg::Selector::Id(id.try_into()?),
+						location: locations,
 						print,
 					};
 					self.command_group_get(args).await?;
 				},
 				tg::id::Kind::Organization => {
 					let args = crate::organization::get::Args {
+						location: locations,
 						organization: tg::Selector::Id(id.try_into()?),
 						print,
 					};

@@ -8,14 +8,20 @@ pub struct Args {
 	pub organization: tg::organization::Selector,
 
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_organization_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let arg = tg::organization::get::Arg {
+			location: args.location.get(),
+		};
 		let organization = client
-			.try_get_organization(&args.organization)
+			.try_get_organization(&args.organization, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, organization = %args.organization, "failed to get the organization"),

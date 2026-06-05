@@ -5,13 +5,18 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub location: crate::location::Args,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_group_list(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let arg = tg::group::list::Arg::default();
+		let arg = tg::group::list::Arg {
+			location: args.location.get(),
+		};
 		let output = client
 			.list_groups(arg)
 			.await

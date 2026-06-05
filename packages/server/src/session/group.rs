@@ -12,12 +12,20 @@ impl tg::handle::Group for Session {
 		self.list_groups(arg).await
 	}
 
-	async fn try_get_group(&self, group: &tg::group::Selector) -> tg::Result<Option<tg::Group>> {
-		self.try_get_group(group).await
+	async fn try_get_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::get::Arg,
+	) -> tg::Result<Option<tg::Group>> {
+		self.try_get_group(group, arg).await
 	}
 
-	async fn try_delete_group(&self, group: &tg::group::Selector) -> tg::Result<Option<()>> {
-		self.try_delete_group(group).await
+	async fn try_delete_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		self.try_delete_group(group, arg).await
 	}
 
 	async fn try_get_group_grants(
@@ -31,23 +39,25 @@ impl tg::handle::Group for Session {
 	async fn list_group_members(
 		&self,
 		group: &tg::group::Selector,
+		arg: tg::group::members::list::Arg,
 	) -> tg::Result<tg::group::members::list::Output> {
-		self.list_group_members(group).await
+		self.list_group_members(group, arg).await
 	}
 
 	async fn add_group_member(
 		&self,
 		group: &tg::group::Selector,
-		member: &tg::group::Member,
+		arg: tg::group::members::add::Arg,
 	) -> tg::Result<()> {
-		self.add_group_member(group, member).await
+		self.add_group_member(group, arg).await
 	}
 
 	async fn remove_group_member(
 		&self,
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
+		arg: tg::group::members::remove::Arg,
 	) -> tg::Result<Option<()>> {
-		self.remove_group_member(group, member).await
+		self.remove_group_member(group, member, arg).await
 	}
 }

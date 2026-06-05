@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, user::parse_selector},
+	crate::{Session, context::Authentication},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -89,7 +89,7 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or(tg::tag::grants::Arg { location: None });
-		let tag = parse_selector::<tg::tag::Id>(tag)?;
+		let tag = tag.replace(':', "/").parse()?;
 		let Some(output) = self.try_get_tag_grants(&tag, arg).await? else {
 			let response = http::Response::builder()
 				.not_found()

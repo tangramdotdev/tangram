@@ -11,15 +11,17 @@ impl tg::handle::Organization for Session {
 	async fn try_get_organization(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::organization::get::Arg,
 	) -> tg::Result<Option<tg::Organization>> {
-		self.try_get_organization(organization).await
+		self.try_get_organization(organization, arg).await
 	}
 
 	async fn try_delete_organization(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::organization::delete::Arg,
 	) -> tg::Result<Option<()>> {
-		self.try_delete_organization(organization).await
+		self.try_delete_organization(organization, arg).await
 	}
 
 	async fn try_get_organization_grants(
@@ -33,23 +35,26 @@ impl tg::handle::Organization for Session {
 	async fn list_organization_members(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::organization::members::list::Arg,
 	) -> tg::Result<tg::organization::members::list::Output> {
-		self.list_organization_members(organization).await
+		self.list_organization_members(organization, arg).await
 	}
 
 	async fn add_organization_member(
 		&self,
 		organization: &tg::organization::Selector,
-		member: &tg::organization::Member,
+		arg: tg::organization::members::add::Arg,
 	) -> tg::Result<()> {
-		self.add_organization_member(organization, member).await
+		self.add_organization_member(organization, arg).await
 	}
 
 	async fn remove_organization_member(
 		&self,
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
+		arg: tg::organization::members::remove::Arg,
 	) -> tg::Result<Option<()>> {
-		self.remove_organization_member(organization, member).await
+		self.remove_organization_member(organization, member, arg)
+			.await
 	}
 }

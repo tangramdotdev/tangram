@@ -69,7 +69,7 @@ impl Session {
 		arg: tg::tag::put::Arg,
 	) -> tg::Result<tg::tag::Data> {
 		let parent = self
-			.ensure_parent_groups_for_specifier(transaction, &arg.specifier)
+			.ensure_parent_for_specifier(transaction, &arg.specifier)
 			.await?;
 		let existing =
 			Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier).await?;
@@ -129,7 +129,7 @@ impl Session {
 			if arg.all {
 				let all = Self::ensure_all_group_with_transaction(transaction).await?;
 				let arg = tg::grant::create::Arg {
-					principal: tg::grant::Principal::Group(all),
+					principal: tg::grant::Principal::Group(all).into(),
 					permission: tg::grant::Permission::Read,
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
@@ -137,7 +137,7 @@ impl Session {
 			}
 			if let Some(principal) = self.write_user_grant_principal() {
 				let arg = tg::grant::create::Arg {
-					principal,
+					principal: principal.into(),
 					permission: tg::grant::Permission::Admin,
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
@@ -193,7 +193,7 @@ impl Session {
 }
 
 impl Session {
-	async fn ensure_parent_groups_for_specifier(
+	async fn ensure_parent_for_specifier(
 		&self,
 		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
@@ -217,9 +217,6 @@ impl Session {
 				Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
 			{
 				if existing.kind == tg::id::Kind::Tag {
-					return Err(tg::error!("specifier is already in use"));
-				}
-				if index > 0 && existing.kind != tg::id::Kind::Group {
 					return Err(tg::error!("specifier is already in use"));
 				}
 				parent = Some(existing.id.clone());

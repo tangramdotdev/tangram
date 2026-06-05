@@ -1,14 +1,28 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 };
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+}
 
 impl tg::Session {
 	pub async fn try_get_group(
 		&self,
 		group: &tg::group::Selector,
+		arg: tg::group::get::Arg,
 	) -> tg::Result<Option<tg::Group>> {
-		let uri = format!("/groups/{}", group.to_string().replace('/', ":"));
+		let path = format!("/groups/{}", group.to_string().replace('/', ":"));
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)

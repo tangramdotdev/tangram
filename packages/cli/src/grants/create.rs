@@ -8,7 +8,7 @@ pub struct Args {
 	pub permission: tg::grant::Permission,
 
 	#[arg(index = 1)]
-	pub principal: tg::grant::Principal,
+	pub principal: tg::principal::Selector,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,

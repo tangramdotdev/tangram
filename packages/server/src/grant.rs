@@ -55,8 +55,9 @@ impl Session {
 		let resource = Self::resolve_resource_with_transaction(transaction, &arg.resource)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
-		self.validate_grant_principal_with_transaction(transaction, &arg.principal)
-			.await?;
+		let principal = Self::resolve_principal_with_transaction(transaction, &arg.principal)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the principal"))?;
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let created_by = match self.context.authentication.as_ref() {
 			Some(Authentication::User(user)) => Some(user.id.clone()),
@@ -75,7 +76,7 @@ impl Session {
 				statement.into(),
 				db::params![
 					resource.to_string(),
-					arg.principal.to_string(),
+					principal.to_string(),
 					arg.permission.to_string(),
 					created_at,
 					created_by.as_ref().map(ToString::to_string)
@@ -102,7 +103,7 @@ impl Session {
 					statement.into(),
 					db::params![
 						resource.to_string(),
-						arg.principal.to_string(),
+						principal.to_string(),
 						arg.permission.to_string()
 					],
 				)
@@ -112,21 +113,17 @@ impl Session {
 				created_at: row.created_at,
 				created_by: row.created_by,
 				permission: arg.permission,
-				principal: arg.principal,
+				principal,
 				resource,
 			});
 		}
-		Self::increment_visibility_with_transaction(
-			transaction,
-			&resource,
-			&arg.principal.to_string(),
-		)
-		.await?;
+		Self::increment_visibility_with_transaction(transaction, &resource, &principal.to_string())
+			.await?;
 		Ok(tg::Grant {
 			created_at,
 			created_by,
 			permission: arg.permission,
-			principal: arg.principal,
+			principal,
 			resource,
 		})
 	}
@@ -138,6 +135,11 @@ impl Session {
 	) -> tg::Result<Option<()>> {
 		let Some(resource) =
 			Self::resolve_resource_with_transaction(transaction, &arg.resource).await?
+		else {
+			return Ok(None);
+		};
+		let Some(principal) =
+			Self::resolve_principal_with_transaction(transaction, &arg.principal).await?
 		else {
 			return Ok(None);
 		};
@@ -153,7 +155,7 @@ impl Session {
 				statement.into(),
 				db::params![
 					resource.to_string(),
-					arg.principal.to_string(),
+					principal.to_string(),
 					arg.permission.to_string()
 				],
 			)
@@ -162,12 +164,8 @@ impl Session {
 		if deleted == 0 {
 			return Ok(None);
 		}
-		Self::decrement_visibility_with_transaction(
-			transaction,
-			&resource,
-			&arg.principal.to_string(),
-		)
-		.await?;
+		Self::decrement_visibility_with_transaction(transaction, &resource, &principal.to_string())
+			.await?;
 		Ok(Some(()))
 	}
 
@@ -198,7 +196,7 @@ impl Session {
 		for row in rows {
 			let arg = tg::grant::delete::Arg {
 				permission: row.permission,
-				principal: row.principal,
+				principal: tg::principal::Selector::Principal(row.principal.into()),
 				resource: tg::grant::Resource::Id(id.clone()),
 			};
 			self.delete_grant_with_transaction(transaction, arg).await?;
@@ -255,25 +253,62 @@ impl Session {
 			.collect())
 	}
 
-	async fn validate_grant_principal_with_transaction(
-		&self,
+	async fn resolve_principal_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
-		principal: &tg::grant::Principal,
-	) -> tg::Result<()> {
-		let id: Option<tg::Id> = match principal {
-			tg::grant::Principal::Group(id) => Some(id.clone().into()),
-			tg::grant::Principal::Organization(id) => Some(id.clone().into()),
-			tg::grant::Principal::Root => None,
-			tg::grant::Principal::User(id) => Some(id.clone().into()),
+		principal: &tg::principal::Selector,
+	) -> tg::Result<Option<tg::grant::Principal>> {
+		let principal = match principal {
+			tg::principal::Selector::Principal(principal) => match principal {
+				tg::Principal::Group(id) => {
+					let id = id.clone();
+					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
+						.await?
+						.is_none()
+					{
+						return Ok(None);
+					}
+					tg::grant::Principal::Group(id)
+				},
+				tg::Principal::Organization(id) => {
+					let id = id.clone();
+					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
+						.await?
+						.is_none()
+					{
+						return Ok(None);
+					}
+					tg::grant::Principal::Organization(id)
+				},
+				tg::Principal::Root => tg::grant::Principal::Root,
+				tg::Principal::User(id) => {
+					let id = id.clone();
+					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
+						.await?
+						.is_none()
+					{
+						return Ok(None);
+					}
+					tg::grant::Principal::User(id)
+				},
+			},
+			tg::principal::Selector::Specifier(specifier) => {
+				let Some(node) =
+					Self::try_get_node_by_specifier_with_transaction(transaction, specifier)
+						.await?
+				else {
+					return Ok(None);
+				};
+				match node.kind {
+					tg::id::Kind::Group => tg::grant::Principal::Group(node.id.try_into()?),
+					tg::id::Kind::Organization => {
+						tg::grant::Principal::Organization(node.id.try_into()?)
+					},
+					tg::id::Kind::User => tg::grant::Principal::User(node.id.try_into()?),
+					_ => return Ok(None),
+				}
+			},
 		};
-		if let Some(id) = id
-			&& Self::try_get_node_by_id_with_transaction(transaction, &id)
-				.await?
-				.is_none()
-		{
-			return Err(tg::error!("failed to find the principal"));
-		}
-		Ok(())
+		Ok(Some(principal))
 	}
 
 	pub(crate) async fn create_grant_request(

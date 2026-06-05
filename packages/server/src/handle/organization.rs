@@ -11,18 +11,20 @@ impl tg::handle::Organization for Server {
 	async fn try_get_organization(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::organization::get::Arg,
 	) -> tg::Result<Option<tg::Organization>> {
 		self.session(&self.context)
-			.try_get_organization(organization)
+			.try_get_organization(organization, arg)
 			.await
 	}
 
 	async fn try_delete_organization(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::organization::delete::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.try_delete_organization(organization)
+			.try_delete_organization(organization, arg)
 			.await
 	}
 
@@ -39,19 +41,20 @@ impl tg::handle::Organization for Server {
 	async fn list_organization_members(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::organization::members::list::Arg,
 	) -> tg::Result<tg::organization::members::list::Output> {
 		self.session(&self.context)
-			.list_organization_members(organization)
+			.list_organization_members(organization, arg)
 			.await
 	}
 
 	async fn add_organization_member(
 		&self,
 		organization: &tg::organization::Selector,
-		member: &tg::organization::Member,
+		arg: tg::organization::members::add::Arg,
 	) -> tg::Result<()> {
 		self.session(&self.context)
-			.add_organization_member(organization, member)
+			.add_organization_member(organization, arg)
 			.await
 	}
 
@@ -59,9 +62,10 @@ impl tg::handle::Organization for Server {
 		&self,
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
+		arg: tg::organization::members::remove::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
-			.remove_organization_member(organization, member)
+			.remove_organization_member(organization, member, arg)
 			.await
 	}
 }
