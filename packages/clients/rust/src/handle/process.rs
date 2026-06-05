@@ -102,6 +102,18 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
+	fn try_get_process_control_stream(
+		&self,
+		id: &tg::process::Id,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+
 	fn signal_process(
 		&self,
 		id: &tg::process::Id,
@@ -345,6 +357,18 @@ impl tg::handle::Process for tg::Client {
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
 			.try_cancel_process(id, arg)
+			.await
+	}
+
+	async fn try_get_process_control_stream(
+		&self,
+		id: &tg::process::Id,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static>,
+	> {
+		self.session(&self.context)
+			.try_get_process_control_stream(id, stream)
 			.await
 	}
 

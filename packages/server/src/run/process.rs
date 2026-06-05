@@ -15,6 +15,7 @@ use {
 	tokio::task::JoinSet,
 };
 
+mod control;
 mod signal;
 mod stdio;
 mod tty;

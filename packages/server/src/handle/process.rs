@@ -59,6 +59,18 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
+	async fn try_get_process_control_stream(
+		&self,
+		id: &tg::process::Id,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static>,
+	> {
+		self.session(&self.context)
+			.try_get_process_control_stream_with_context(id, stream)
+			.await
+	}
+
 	async fn try_signal_process(
 		&self,
 		id: &tg::process::Id,

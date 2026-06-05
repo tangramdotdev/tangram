@@ -373,6 +373,110 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
+	fn try_get_process_control_stream_all(
+		&self,
+		id: &tg::process::Id,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+			>,
+		>,
+	> + Send {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+
+			// Create a channel for buffering events from the input.
+			let (response_sender, response_receiver) = async_channel::bounded(1);
+
+			// Create the input task. This will read events from the input stream and write them to the response channel.
+			let input_task = Task::spawn(move |_| async move {
+				let mut input = pin!(stream);
+				while let Some(event) = input.next().await {
+					if response_sender.send(event).await.is_err() {
+						break;
+					}
+				}
+			});
+
+			// Get the initial output stream.
+			let Some(output) = handle
+				.try_get_process_control_stream(&id, response_receiver.clone().boxed())
+				.await?
+			else {
+				input_task.abort();
+				return Ok(None);
+			};
+
+			// Create the output task. In a retry loop, this will drain the output stream, reconnecting on error.
+			let (request_sender, request_receiver) = async_channel::bounded(1);
+			let output_task = Task::spawn(move |_| async move {
+				let options = tangram_futures::retry::Options::default();
+				let mut output = Some(output.boxed());
+				let result = tangram_futures::retry(&options, || {
+					let handle = handle.clone();
+					let id = id.clone();
+					let response_receiver = response_receiver.clone();
+					let request_sender = request_sender.clone();
+					let stream = output.take();
+					async move {
+						// Get the output stream, reconnecting if necessary.
+						let mut stream = if let Some(stream) = stream {
+							stream
+						} else {
+							match handle
+								.try_get_process_control_stream(&id, response_receiver.boxed())
+								.await
+							{
+								Ok(Some(stream)) => stream.boxed(),
+								Ok(None) => {
+									return Err(tg::error!("failed to find the process"));
+								},
+								// Retry if the request returned an error.
+								Err(error) => {
+									return Ok(ControlFlow::Continue(tg::error!(
+										!error,
+										"failed to get the control stream"
+									)));
+								},
+							}
+						};
+
+						// Drain the output stream.
+						while let Some(event) = stream.next().await {
+							match event {
+								Ok(event) => {
+									if request_sender.send(Ok(event)).await.is_err() {
+										return Ok(ControlFlow::Break(()));
+									}
+								},
+								// Retry if the server returned an error.
+								Err(error) => {
+									return Ok(ControlFlow::Continue(tg::error!(
+										!error,
+										"the control stream returned an error"
+									)));
+								},
+							}
+						}
+
+						Ok(ControlFlow::Break(()))
+					}
+				})
+				.await;
+				if let Err(error) = result {
+					request_sender.send(Err(error)).await.ok();
+				}
+			});
+
+			let stream = request_receiver.attach((input_task, output_task));
+
+			Ok(Some(stream))
+		}
+	}
+
 	fn try_read_process_stdio_all(
 		&self,
 		id: &tg::process::Id,

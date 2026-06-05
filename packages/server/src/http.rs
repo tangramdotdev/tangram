@@ -612,6 +612,9 @@ impl Server {
 			(http::Method::POST, ["processes", process, "cancel"]) => {
 				session.try_cancel_process_request(request, process).boxed()
 			},
+			(http::Method::POST, ["processes", process, "control"]) => session
+				.try_get_process_control_stream_request(request, process)
+				.boxed(),
 			(http::Method::POST, ["processes", process, "signal"]) => {
 				session.try_signal_process_request(request, process).boxed()
 			},

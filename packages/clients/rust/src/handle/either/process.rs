@@ -84,6 +84,29 @@ where
 		}
 	}
 
+	fn try_get_process_control_stream(
+		&self,
+		id: &tg::process::Id,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+			>,
+		>,
+	> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_get_process_control_stream(id, stream)
+				.map_ok(|option| option.map(futures::StreamExt::left_stream))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_get_process_control_stream(id, stream)
+				.map_ok(|option| option.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
 	fn try_signal_process(
 		&self,
 		id: &tg::process::Id,

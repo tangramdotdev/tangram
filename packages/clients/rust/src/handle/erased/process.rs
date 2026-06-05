@@ -43,6 +43,15 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
+	fn try_get_process_control_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>>,
+	>;
+
 	fn try_signal_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
@@ -184,6 +193,19 @@ where
 		arg: tg::process::cancel::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_cancel_process(id, arg).boxed()
+	}
+
+	fn try_get_process_control_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>>,
+	> {
+		self.try_get_process_control_stream(id, stream)
+			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.boxed()
 	}
 
 	fn try_signal_process<'a>(

@@ -59,6 +59,24 @@ impl tg::handle::Process for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_cancel_process(id, arg)) }
 	}
 
+	fn try_get_process_control_stream(
+		&self,
+		id: &tg::process::Id,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+			>,
+		>,
+	> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
+				self.0.try_get_process_control_stream(id, stream),
+			)
+		}
+	}
+
 	fn try_signal_process(
 		&self,
 		id: &tg::process::Id,

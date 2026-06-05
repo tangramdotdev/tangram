@@ -10,6 +10,7 @@ use {
 
 pub mod cancel;
 pub mod children;
+pub mod control;
 pub mod finalize;
 pub mod finish;
 pub mod get;
