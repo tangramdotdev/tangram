@@ -29,14 +29,14 @@ where
 		}
 	}
 
-	fn list_tag_grants(
+	fn try_get_tag_grants(
 		&self,
 		tag: &tg::tag::Selector,
-		arg: tg::tag::grants::list::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::list::Output>>> {
+		arg: tg::tag::grants::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.list_tag_grants(tag, arg).left_future(),
-			tg::Either::Right(s) => s.list_tag_grants(tag, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_tag_grants(tag, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_tag_grants(tag, arg).right_future(),
 		}
 	}
 

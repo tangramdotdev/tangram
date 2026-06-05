@@ -13,11 +13,11 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 		tag: &tg::tag::Selector,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> + Send;
 
-	fn list_tag_grants(
+	fn try_get_tag_grants(
 		&self,
 		tag: &tg::tag::Selector,
-		arg: tg::tag::grants::list::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::list::Output>>> + Send;
+		arg: tg::tag::grants::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::Output>>> + Send;
 
 	fn delete_tags(
 		&self,
@@ -41,12 +41,14 @@ impl tg::handle::Tag for tg::Client {
 		self.session(&self.context).try_get_tag(tag).await
 	}
 
-	async fn list_tag_grants(
+	async fn try_get_tag_grants(
 		&self,
 		tag: &tg::tag::Selector,
-		arg: tg::tag::grants::list::Arg,
-	) -> tg::Result<Option<tg::tag::grants::list::Output>> {
-		self.session(&self.context).list_tag_grants(tag, arg).await
+		arg: tg::tag::grants::Arg,
+	) -> tg::Result<Option<tg::tag::grants::Output>> {
+		self.session(&self.context)
+			.try_get_tag_grants(tag, arg)
+			.await
 	}
 
 	async fn delete_tags(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {

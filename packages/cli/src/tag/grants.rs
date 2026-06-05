@@ -17,11 +17,11 @@ pub struct Args {
 impl Cli {
 	pub async fn command_tag_grants(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let arg = tg::tag::grants::list::Arg {
+		let arg = tg::tag::grants::Arg {
 			location: args.location.get(),
 		};
 		let output = client
-			.list_tag_grants(&args.tag, arg)
+			.try_get_tag_grants(&args.tag, arg)
 			.await
 			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to list the grants"))?
 			.ok_or_else(|| tg::error!(tag = %args.tag, "failed to find the tag"))?;
