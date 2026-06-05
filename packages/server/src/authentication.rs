@@ -1,13 +1,71 @@
 use {
-	crate::{
-		Server,
-		context::{Authentication, Process, Sandbox},
-	},
+	crate::{Server, Session},
 	indoc::formatdoc,
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
+
+#[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap)]
+#[try_unwrap(ref)]
+pub enum Authentication {
+	Process(Arc<Process>),
+	Root,
+	Runner,
+	Sandbox(Sandbox),
+	User(tg::User),
+}
+
+#[derive(Clone, Debug)]
+pub struct Process {
+	pub created_by: Option<tg::user::Id>,
+	pub debug: Option<tg::process::Debug>,
+	pub id: tg::process::Id,
+	pub location: Option<tg::Location>,
+	pub retry: bool,
+	pub sandbox: tg::sandbox::Id,
+	pub token: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Sandbox {
+	pub created_by: Option<tg::user::Id>,
+	pub id: tg::sandbox::Id,
+	pub location: tg::Location,
+	pub token: Option<String>,
+}
+
+impl Session {
+	#[must_use]
+	pub(crate) fn read_principal(&self) -> tg::Principal {
+		match self.context.authentication.as_ref() {
+			None | Some(Authentication::Runner | Authentication::Root) => tg::Principal::Root,
+			Some(Authentication::Process(process)) => process
+				.created_by
+				.clone()
+				.map_or(tg::Principal::Root, tg::Principal::User),
+			Some(Authentication::Sandbox(sandbox)) => sandbox
+				.created_by
+				.clone()
+				.map_or(tg::Principal::Root, tg::Principal::User),
+			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn write_principal(&self) -> Option<tg::Principal> {
+		match self.context.authentication.as_ref() {
+			Some(Authentication::User(user)) => Some(tg::Principal::User(user.id.clone())),
+			Some(Authentication::Process(process)) => {
+				process.created_by.clone().map(tg::Principal::User)
+			},
+			Some(Authentication::Sandbox(sandbox)) => {
+				sandbox.created_by.clone().map(tg::Principal::User)
+			},
+			None | Some(Authentication::Root | Authentication::Runner) => None,
+		}
+	}
+}
 
 impl Server {
 	pub(crate) async fn authenticate(

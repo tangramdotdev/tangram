@@ -34,6 +34,15 @@ impl Index {
 }
 
 impl index::Index for Index {
+	async fn authorize(&self, id: tg::Id, permission: tg::grant::Permission) -> tg::Result<bool> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.authorize(id, permission).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.authorize(id, permission).await,
+		}
+	}
+
 	async fn try_get_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],

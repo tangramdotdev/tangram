@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, tag::get_tag_data_with_transaction},
+	crate::{Session, authentication::Authentication, tag::get_tag_data_with_transaction},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{

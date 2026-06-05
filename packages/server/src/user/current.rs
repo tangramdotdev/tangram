@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, authentication::Authentication},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,

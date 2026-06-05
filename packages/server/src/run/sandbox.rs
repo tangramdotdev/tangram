@@ -1,6 +1,6 @@
 use {
 	super::process::SpawnProcessTaskArg,
-	crate::{Context, Server, Session, context::Authentication, temp::Temp},
+	crate::{Context, Server, Session, authentication::Authentication, temp::Temp},
 	futures::{FutureExt as _, TryStreamExt as _, future},
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
@@ -29,12 +29,14 @@ impl Server {
 				async move {
 					// Create the session.
 					let context = Context {
-						authentication: Some(Authentication::Sandbox(crate::context::Sandbox {
-							created_by: task.created_by.clone(),
-							id: id.clone(),
-							location: task.location.clone(),
-							token: task.token.clone(),
-						})),
+						authentication: Some(Authentication::Sandbox(
+							crate::authentication::Sandbox {
+								created_by: task.created_by.clone(),
+								id: id.clone(),
+								location: task.location.clone(),
+								token: task.token.clone(),
+							},
+						)),
 						..server.context.clone()
 					};
 					let session = server.session(&context);
@@ -479,15 +481,17 @@ impl Session {
 			));
 		}
 		let mut context = self.context.clone();
-		context.authentication = Some(Authentication::Process(Arc::new(crate::context::Process {
-			created_by,
-			debug: state.debug.clone(),
-			id,
-			location: Some(location.clone()),
-			retry: state.retry,
-			sandbox: state.sandbox.clone(),
-			token,
-		})));
+		context.authentication = Some(Authentication::Process(Arc::new(
+			crate::authentication::Process {
+				created_by,
+				debug: state.debug.clone(),
+				id,
+				location: Some(location.clone()),
+				retry: state.retry,
+				sandbox: state.sandbox.clone(),
+				token,
+			},
+		)));
 		let session = Session::new(self.server.clone(), context);
 		Ok((process, session))
 	}

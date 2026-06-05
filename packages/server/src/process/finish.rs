@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Session,
-		context::Authentication,
+		authentication::Authentication,
 		database::{self, Transaction},
 	},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},

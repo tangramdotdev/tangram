@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, authentication::Authentication},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,

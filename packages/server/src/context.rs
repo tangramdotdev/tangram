@@ -1,4 +1,4 @@
-use {std::sync::Arc, tangram_client::prelude::*, tangram_futures::task::Stopper};
+use {crate::authentication::Authentication, tangram_futures::task::Stopper};
 
 #[derive(Clone, Debug)]
 pub struct Context {
@@ -6,35 +6,6 @@ pub struct Context {
 	pub id: Option<String>,
 	pub sandbox: bool,
 	pub stopper: Option<Stopper>,
-}
-
-#[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap)]
-#[try_unwrap(ref)]
-pub enum Authentication {
-	Process(Arc<Process>),
-	Root,
-	Runner,
-	Sandbox(Sandbox),
-	User(tg::User),
-}
-
-#[derive(Clone, Debug)]
-pub struct Process {
-	pub created_by: Option<tg::user::Id>,
-	pub debug: Option<tg::process::Debug>,
-	pub id: tg::process::Id,
-	pub location: Option<tg::Location>,
-	pub retry: bool,
-	pub sandbox: tg::sandbox::Id,
-	pub token: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct Sandbox {
-	pub created_by: Option<tg::user::Id>,
-	pub id: tg::sandbox::Id,
-	pub location: tg::Location,
-	pub token: Option<String>,
 }
 
 impl Context {

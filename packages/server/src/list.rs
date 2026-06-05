@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, tag::parse_tag_item},
+	crate::{Session, authentication::Authentication, tag::parse_tag_item},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	num::ToPrimitive as _,

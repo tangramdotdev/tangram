@@ -22,6 +22,7 @@ use {
 };
 
 mod authentication;
+mod authorization;
 mod cache;
 mod check;
 mod checkin;

@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, database::Database},
+	crate::{Session, authentication::Authentication, database::Database},
 	futures::{StreamExt as _, future, stream},
 	std::time::Duration,
 	tangram_client::prelude::*,

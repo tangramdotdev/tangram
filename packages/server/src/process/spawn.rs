@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, context::Authentication, database, run::SpawnSandboxTaskArg},
+	crate::{Server, Session, authentication::Authentication, database, run::SpawnSandboxTaskArg},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},

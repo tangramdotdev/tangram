@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, database::Database},
+	crate::{Session, authentication::Authentication, database::Database},
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,

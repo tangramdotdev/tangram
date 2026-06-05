@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, context::Authentication, database::Database},
+	crate::{Server, Session, authentication::Authentication, database::Database},
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::time::Duration,

@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, authentication::Authentication},
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{

@@ -91,7 +91,7 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		if let Some(crate::context::Authentication::User(user)) =
+		if let Some(crate::authentication::Authentication::User(user)) =
 			self.context.authentication.as_ref()
 		{
 			let arg = tg::grant::create::Arg {

@@ -1,5 +1,7 @@
 use {
-	crate::{Session, context::Authentication, database::Transaction, tag::tag_item_to_string},
+	crate::{
+		Session, authentication::Authentication, database::Transaction, tag::tag_item_to_string,
+	},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,

@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication, database::Database},
+	crate::{Session, authentication::Authentication, database::Database},
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{

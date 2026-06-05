@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, context::Authentication},
+	crate::{Server, Session, authentication::Authentication},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::{
@@ -60,17 +60,21 @@ impl Session {
 	) -> tg::Result<tg::sandbox::create::Output> {
 		arg = Self::normalize_sandbox_create_arg(arg)?;
 		let id = tg::sandbox::Id::new();
-		let created_by =
-			self.context
-				.authentication
-				.as_ref()
-				.and_then(|authentication| match authentication {
-					crate::context::Authentication::User(user) => Some(user.id.clone()),
-					crate::context::Authentication::Process(process) => process.created_by.clone(),
-					crate::context::Authentication::Sandbox(sandbox) => sandbox.created_by.clone(),
-					crate::context::Authentication::Root
-					| crate::context::Authentication::Runner => None,
-				});
+		let created_by = self
+			.context
+			.authentication
+			.as_ref()
+			.and_then(|authentication| match authentication {
+				crate::authentication::Authentication::User(user) => Some(user.id.clone()),
+				crate::authentication::Authentication::Process(process) => {
+					process.created_by.clone()
+				},
+				crate::authentication::Authentication::Sandbox(sandbox) => {
+					sandbox.created_by.clone()
+				},
+				crate::authentication::Authentication::Root
+				| crate::authentication::Authentication::Runner => None,
+			});
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let isolation = self.server.resolve_sandbox_isolation()?;
 		Server::validate_sandbox_resources(

@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Session,
-		context::{Authentication, Process, Sandbox},
+		authentication::{Authentication, Process, Sandbox},
 	},
 	indoc::formatdoc,
 	std::sync::Arc,

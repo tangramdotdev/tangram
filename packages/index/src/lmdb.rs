@@ -287,6 +287,10 @@ impl Index {
 }
 
 impl crate::Index for Index {
+	async fn authorize(&self, _id: tg::Id, _permission: tg::grant::Permission) -> tg::Result<bool> {
+		Ok(true)
+	}
+
 	async fn try_get_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],

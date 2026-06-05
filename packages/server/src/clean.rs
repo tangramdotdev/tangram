@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, context::Authentication, database::Database, temp::Temp},
+	crate::{Server, Session, authentication::Authentication, database::Database, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	num::ToPrimitive as _,
 	std::{ops::ControlFlow, panic::AssertUnwindSafe, time::Duration},

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, context::Authentication},
+	crate::{Context, Server},
 	futures::{Stream, stream::BoxStream},
 	std::path::{Path, PathBuf},
 	tangram_client::prelude::*,
@@ -28,36 +28,6 @@ impl Session {
 	#[must_use]
 	pub(crate) fn new(server: Server, context: Context) -> Self {
 		Self { server, context }
-	}
-
-	#[must_use]
-	pub(crate) fn read_principal(&self) -> tg::Principal {
-		match self.context.authentication.as_ref() {
-			None | Some(Authentication::Runner | Authentication::Root) => tg::Principal::Root,
-			Some(Authentication::Process(process)) => process
-				.created_by
-				.clone()
-				.map_or(tg::Principal::Root, tg::Principal::User),
-			Some(Authentication::Sandbox(sandbox)) => sandbox
-				.created_by
-				.clone()
-				.map_or(tg::Principal::Root, tg::Principal::User),
-			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
-		}
-	}
-
-	#[must_use]
-	pub(crate) fn write_principal(&self) -> Option<tg::Principal> {
-		match self.context.authentication.as_ref() {
-			Some(Authentication::User(user)) => Some(tg::Principal::User(user.id.clone())),
-			Some(Authentication::Process(process)) => {
-				process.created_by.clone().map(tg::Principal::User)
-			},
-			Some(Authentication::Sandbox(sandbox)) => {
-				sandbox.created_by.clone().map(tg::Principal::User)
-			},
-			None | Some(Authentication::Root | Authentication::Runner) => None,
-		}
 	}
 
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {

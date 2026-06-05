@@ -1,5 +1,5 @@
 use {
-	crate::{Session, context::Authentication},
+	crate::{Session, authentication::Authentication},
 	futures::{TryFutureExt as _, future},
 	std::pin::pin,
 	tangram_client::prelude::*,

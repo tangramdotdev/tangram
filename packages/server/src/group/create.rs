@@ -204,7 +204,7 @@ impl Session {
 
 fn write_user_principal(session: &Session) -> Option<tg::grant::Principal> {
 	match session.context.authentication.as_ref() {
-		Some(crate::context::Authentication::User(user)) => {
+		Some(crate::authentication::Authentication::User(user)) => {
 			Some(tg::grant::Principal::User(user.id.clone()))
 		},
 		_ => None,
