@@ -102,6 +102,10 @@ impl Session {
 			return Ok(ControlFlow::Break(None));
 		};
 
+		if status.is_finished() {
+			return Err(tg::error!("the process is already finished"));
+		}
+
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
@@ -113,7 +117,7 @@ impl Session {
 		let result = transaction.execute(statement.into(), params).await;
 		let deleted = crate::database::retry!(result, "failed to execute the statement");
 
-		if deleted == 0 && !status.is_finished() {
+		if deleted == 0 {
 			return Err(tg::error!("the process lease was not found"));
 		}
 
