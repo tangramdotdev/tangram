@@ -1512,15 +1512,13 @@ impl Tree {
 					.executable_with_handle(client)
 					.await
 					.ok()
-					.and_then(|exe| {
-						exe.try_unwrap_module_ref()
+					.and_then(|executable| {
+						executable
+							.try_unwrap_module_ref()
 							.ok()
 							.map(tg::command::ModuleExecutable::to_data)
 					});
 
-				// Inherit if:
-				// - the child's command is in the same module as the parent's, or
-				// - the child referent has a path, tag, or id of its own.
 				let same_module = match (&referent_module, &command) {
 					(Some(parent), Some(child)) => {
 						parent.module.referent.item == child.module.referent.item
