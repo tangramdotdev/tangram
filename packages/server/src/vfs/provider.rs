@@ -1801,12 +1801,8 @@ impl Provider {
 			path.push(path_);
 		}
 		match std::fs::File::open(&path) {
-			Ok(file) => {
-				Ok(Some(file.into()))
-			},
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				Ok(None)
-			},
+			Ok(file) => Ok(Some(file.into())),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
 			Err(error) => {
 				tracing::error!(%error, path = %path.display(), "failed to open cache file");
 				Err(std::io::Error::from_raw_os_error(libc::EIO))

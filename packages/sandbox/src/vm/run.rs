@@ -1,5 +1,5 @@
 use {
-	crate::{Sandbox, container, vm::virtiofsd},
+	crate::{Sandbox, container, vm::virtiofs},
 	std::{
 		collections::hash_map::DefaultHasher,
 		ffi::{CStr, CString, OsStr},
@@ -51,7 +51,6 @@ pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub create_snapshot: Option<PathBuf>,
 	pub cpu: Option<u64>,
-	/// The size of the artifacts DAX window in bytes, or `None` to disable DAX.
 	pub dax: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
 	pub firewall: crate::Firewall,
@@ -263,10 +262,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 	let mut helpers: Vec<ChildProcess> = Vec::new();
 	{
-		// Spawn the sandbox virtiofsd, serving the host share dir. Spawn it even when creating a
-		// snapshot, with an empty share, so the sandbox share device is attached at boot and
-		// captured in the snapshot rather than hotplugged on resume. On resume the device
-		// reconnects to a fresh sandbox virtiofsd serving the real per-sandbox content.
 		let sandbox_socket_path =
 			host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SANDBOX_SOCKET_NAME);
 		tracing::trace!(
@@ -275,8 +270,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		);
 		let sandbox_shared_dir = host_share_path_from_root(&arg.path);
 
-		// Create the user mount targets in the share dir. The helper binds them in its own
-		// namespace so virtiofsd serves them to the guest.
 		let mut sandbox_binds = Vec::new();
 		for (index, mount) in arg.mounts.iter().enumerate() {
 			let target = host_share_mounts_path_from_root(&arg.path).join(index.to_string());
@@ -289,7 +282,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 					tg::error!(!error, path = %target.display(), "failed to create the user mount share target file")
 				})?;
 			}
-			sandbox_binds.push(virtiofsd::Bind {
+			sandbox_binds.push(virtiofs::Bind {
 				source: mount.source.clone(),
 				target,
 			});
@@ -297,7 +290,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 		let sandbox_log_path = host_vm_path_from_root(&arg.path).join("virtiofsd-sandbox.log");
 		tracing::trace!("spawning sandbox virtiofsd helper");
-		let sandbox_pid = virtiofsd::spawn(
+		let sandbox_pid = virtiofs::spawn(
 			user.uid,
 			user.gid,
 			&sandbox_shared_dir,
@@ -1037,17 +1030,11 @@ fn build_cloud_hypervisor_mount_arg(
 			target: VMM_SNAPSHOT_OUTPUT_DIR.into(),
 		});
 	} else {
-		// Bind the server-provided artifacts vfs socket under the writable VMM root
-		// directory so cloud-hypervisor can reach it post-chroot.
 		binds.push(container::run::Bind {
 			source: arg.path.join(VFS_SOCKET_NAME),
 			target: VMM_VFS_SOCKET.into(),
 		});
 	}
-	// Bind the server-provided artifacts vfs socket under the writable VMM root directory so
-	// cloud-hypervisor can reach it post-chroot. This is required on a cold boot, when creating
-	// a snapshot so the artifacts share is captured in the snapshot, and on resume so the
-	// restored device can reconnect to the backend.
 	binds.push(container::run::Bind {
 		source: arg.path.join(VFS_SOCKET_NAME),
 		target: VMM_VFS_SOCKET.into(),

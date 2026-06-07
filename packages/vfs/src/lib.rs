@@ -4,7 +4,7 @@ use {bytes::Bytes, futures::Future, std::io::Error, std::os::fd::OwnedFd};
 pub mod fuse;
 pub mod nfs;
 #[cfg(target_os = "linux")]
-pub mod virtiofsd;
+pub mod virtiofs;
 
 pub const ROOT_NODE_ID: u64 = 1;
 

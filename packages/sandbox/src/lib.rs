@@ -137,7 +137,6 @@ pub struct SeatbeltIsolation {}
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct VmIsolation {
-	/// The size of the artifacts DAX window in bytes, or `None` to disable DAX.
 	pub dax: Option<u64>,
 	pub kernel_path: PathBuf,
 	pub max_cpu: u64,

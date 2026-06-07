@@ -21,8 +21,6 @@ pub(crate) fn spawn(
 		.arg(arg.id.to_string())
 		.arg("--artifacts-path")
 		.arg(&arg.artifacts_path)
-		.arg("--dax")
-		.arg(vm.dax.unwrap_or(0).to_string())
 		.arg("--kernel-path")
 		.arg(&vm.kernel_path)
 		.arg("--max-cpu")
@@ -45,6 +43,9 @@ pub(crate) fn spawn(
 		.arg(&arg.tangram_path)
 		.arg("--url")
 		.arg(serve_arg.url.to_string());
+	if let Some(dax) = vm.dax {
+		command.arg("--dax").arg(dax.to_string());
+	}
 	if let Some(snapshot) = &vm.snapshot {
 		command.arg("--snapshot").arg(snapshot);
 	}

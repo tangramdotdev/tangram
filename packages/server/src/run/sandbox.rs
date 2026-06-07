@@ -208,7 +208,7 @@ impl Session {
 		let _vfs = if let tangram_sandbox::Isolation::Vm(vm) = &isolation {
 			let socket = temp.path().join("vfs.sock");
 			let options = self.server.config.vfs.unwrap_or_default();
-			let vfs = crate::vfs::Server::start_virtiofsd(&self.server, options, &socket, vm.dax)
+			let vfs = crate::vfs::Server::start_virtiofs(&self.server, options, &socket, vm.dax)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to start the artifacts vfs"))?;
 			Some(vfs)
@@ -570,14 +570,10 @@ impl Server {
 			.map_err(|error| {
 				tg::error!(!error, "failed to create the vm snapshot temp directory")
 			})?;
-		// Start the artifacts virtiofsd so the snapshot process can attach the artifacts share at
-		// boot and capture it in the snapshot, rather than hotplugging it on resume, which does
-		// not support the DAX cache. Kept as a local so the daemon stops and the socket is removed
-		// when the snapshot process completes.
 		let _vfs = {
 			let socket = temp.path().join("vfs.sock");
 			let options = self.config.vfs.unwrap_or_default();
-			crate::vfs::Server::start_virtiofsd(self, options, &socket, vm.dax)
+			crate::vfs::Server::start_virtiofs(self, options, &socket, vm.dax)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to start the artifacts vfs"))?
 		};
@@ -596,7 +592,8 @@ impl Server {
 			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
 			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 		};
-		let status = tokio::process::Command::new(&self.tangram_path)
+		let mut command = tokio::process::Command::new(&self.tangram_path);
+		command
 			.arg("sandbox")
 			.arg("vm")
 			.arg("run")
@@ -606,8 +603,6 @@ impl Server {
 			.arg(snapshot_id.to_string())
 			.arg("--artifacts-path")
 			.arg(self.artifacts_path())
-			.arg("--dax")
-			.arg(vm.dax.unwrap_or(0).to_string())
 			.arg("--firewall")
 			.arg(firewall.to_string())
 			.arg("--kernel-path")
@@ -629,7 +624,11 @@ impl Server {
 			.arg("--path")
 			.arg(temp.path())
 			.arg("--url")
-			.arg("http+vsock://2:6748")
+			.arg("http+vsock://2:6748");
+		if let Some(dax) = vm.dax {
+			command.arg("--dax").arg(dax.to_string());
+		}
+		let status = command
 			.status()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"))?;

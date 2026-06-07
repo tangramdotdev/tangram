@@ -4,7 +4,6 @@ if $nu.os-info.name != 'linux' {
 	return
 }
 
-# This test only applies when the vm isolation feature is enabled.
 if (($env.TANGRAM_TEST_VM? | default "") | str length) == 0 {
 	return
 }

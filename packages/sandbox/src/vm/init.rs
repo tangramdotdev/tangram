@@ -73,15 +73,10 @@ pub fn run() -> tg::Result<ExitCode> {
 	configure_memory_hotplug();
 	online_cpus();
 
-	wait_for_virtiofs().map_err(|source| {
-		tg::error!(!source, "error waiting for virtiofs tags to connect")
-	})?;
+	wait_for_virtiofs()
+		.map_err(|source| tg::error!(!source, "error waiting for virtiofs tags to connect"))?;
 	tracing::trace!("virtiofs tags ready");
 
-	// Both shares are attached at boot and captured in the snapshot. Signal that the guest is ready
-	// to be snapshotted, then block on a byte from the serial console. The snapshot freezes the
-	// guest here, before either share is mounted; on resume the host writes the byte and the shares
-	// mount fresh against their reconnected backends.
 	signal_ready();
 	let mut resume = [0u8; 1];
 	loop {
@@ -99,12 +94,14 @@ pub fn run() -> tg::Result<ExitCode> {
 
 	mount_virtiofs(SANDBOX_FS_TAG, HOST_MOUNT_POINT, None)?;
 	tracing::trace!("mounted {HOST_MOUNT_POINT}");
-	let artifacts_options = if dax_from_cmdline() { Some("dax") } else { None };
+	let artifacts_options = if dax_from_cmdline() {
+		Some("dax")
+	} else {
+		None
+	};
 	mount_virtiofs(ARTIFACTS_FS_TAG, ARTIFACTS_MOUNT_POINT, artifacts_options)?;
 	tracing::trace!("mounted {ARTIFACTS_MOUNT_POINT}");
 
-	// Raise the artifacts BDI readahead window so a single FUSE_READ amortizes the virtio
-	// round-trip over the full virtiofsd buffer. The host caps each reply at 1 MiB.
 	let mut stat: libc::stat = unsafe { std::mem::zeroed() };
 	let path = c"/mnt/host/opt/tangram/artifacts";
 	if unsafe { libc::stat(path.as_ptr(), &mut stat) } == 0 {
@@ -193,7 +190,9 @@ fn dax_from_cmdline() -> bool {
 	let Ok(cmdline) = std::fs::read_to_string("/proc/cmdline") else {
 		return false;
 	};
-	cmdline.split_whitespace().any(|token| token == "tangram.dax=1")
+	cmdline
+		.split_whitespace()
+		.any(|token| token == "tangram.dax=1")
 }
 
 fn mount_virtiofs(tag: &str, target: &str, options: Option<&str>) -> tg::Result<()> {
@@ -210,7 +209,9 @@ fn mount_virtiofs(tag: &str, target: &str, options: Option<&str>) -> tg::Result<
 				.map_err(|error| tg::error!(!error, "failed to encode the virtiofs options"))
 		})
 		.transpose()?;
-	let data_ptr = data.as_ref().map_or(std::ptr::null(), |data| data.as_ptr().cast());
+	let data_ptr = data
+		.as_ref()
+		.map_or(std::ptr::null(), |data| data.as_ptr().cast());
 	let result = unsafe {
 		libc::mount(
 			source.as_ptr(),
@@ -222,9 +223,7 @@ fn mount_virtiofs(tag: &str, target: &str, options: Option<&str>) -> tg::Result<
 	};
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
-		return Err(
-			tg::error!(!error, %tag, %target, "failed to mount virtiofs"),
-		);
+		return Err(tg::error!(!error, %tag, %target, "failed to mount virtiofs"));
 	}
 	Ok(())
 }

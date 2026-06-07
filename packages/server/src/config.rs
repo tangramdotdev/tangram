@@ -677,9 +677,6 @@ pub struct VmSandboxIsolation {
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Dax {
-	/// The size of the DAX window for the artifacts share, in kibibytes. Must be a power of two
-	/// because the window is exposed as a PCI BAR. The guest maps artifact files directly into
-	/// this window, bypassing the FUSE read path.
 	#[serde(rename = "window_size")]
 	pub window_size_kib: usize,
 }
