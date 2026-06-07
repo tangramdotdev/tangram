@@ -70,13 +70,21 @@ impl Session {
 
 			// Start the progress indicator.
 			progress.spinner("copying", "copying");
-			let total = files.len().to_u64().unwrap();
+			let files_total = files.len().to_u64().unwrap();
+			let bytes_total = files.iter().map(|(_, _, _, size)| size).sum();
 			progress.start(
 				"files".to_owned(),
 				"files".to_owned(),
 				tg::progress::IndicatorFormat::Normal,
 				Some(0),
-				Some(total),
+				Some(files_total),
+			);
+			progress.start(
+				"bytes".to_owned(),
+				"bytes".to_owned(),
+				tg::progress::IndicatorFormat::Bytes,
+				Some(0),
+				Some(bytes_total),
 			);
 
 			let batches = files
@@ -84,10 +92,6 @@ impl Session {
 				.batches(self.server.config.checkin.cache.batch_size)
 				.map(|batch| {
 					let session = self.clone();
-					let batch: Vec<_> = batch
-						.into_iter()
-						.map(|(path, metadata, id, _)| (path, metadata, id))
-						.collect();
 					async move {
 						let progress = progress.clone();
 						tokio::task::spawn_blocking(move || {
@@ -108,6 +112,7 @@ impl Session {
 
 			progress.finish("copying");
 			progress.finish("files");
+			progress.finish("bytes");
 		}
 		Ok(())
 	}
@@ -231,10 +236,10 @@ impl Session {
 
 	fn checkin_cache_inner(
 		&self,
-		batch: Vec<(PathBuf, std::fs::Metadata, tg::object::Id)>,
+		batch: Vec<(PathBuf, std::fs::Metadata, tg::object::Id, u64)>,
 		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
-		for (path, metadata, id) in batch {
+		for (path, metadata, id, size) in batch {
 			// If the file is already cached, then continue.
 			let cache_path = self.server.cache_path().join(id.to_string());
 			if cache_path.exists() {
@@ -287,6 +292,7 @@ impl Session {
 			}
 
 			progress.increment("files", 1);
+			progress.increment("bytes", size);
 		}
 
 		Ok(())
