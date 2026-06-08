@@ -171,10 +171,10 @@ impl Struct<'_> {
 				#(let mut #field_idents = None;)*
 
 				// Read the number of serialized fields.
-				let len = deserializer.read_uvarint()?;
+				let field_count = deserializer.read_uvarint()?;
 
-				// Deserialize `len` fields.
-				for _ in 0..len {
+				// Deserialize the fields.
+				for _ in 0..field_count {
 					// Deserialize the field ID.
 					let field_id = deserializer.read_id()?;
 

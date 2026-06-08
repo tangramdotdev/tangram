@@ -118,29 +118,6 @@ where
 		}
 	}
 
-	fn try_get_process_signal_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
-			>,
-		>,
-	> {
-		match self {
-			tg::Either::Left(s) => s
-				.try_get_process_signal_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
-				.left_future(),
-			tg::Either::Right(s) => s
-				.try_get_process_signal_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
-				.right_future(),
-		}
-	}
-
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
@@ -180,29 +157,6 @@ where
 				.left_future(),
 			tg::Either::Right(s) => s
 				.try_get_process_children_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
-				.right_future(),
-		}
-	}
-
-	fn try_get_process_tty_size_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::tty::size::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static,
-			>,
-		>,
-	> {
-		match self {
-			tg::Either::Left(s) => s
-				.try_get_process_tty_size_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
-				.left_future(),
-			tg::Either::Right(s) => s
-				.try_get_process_tty_size_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}

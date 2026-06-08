@@ -8,80 +8,216 @@ use {
 	tangram_util::serde::UuidBase32,
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum RequestEvent {
+	#[tangram_serialize(id = 0)]
 	Request(Request),
+
+	#[tangram_serialize(id = 1)]
 	Stop,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ResponseEvent {
+	#[tangram_serialize(id = 0)]
 	Response(Response),
+
+	#[tangram_serialize(id = 1)]
 	Stop,
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Response {
 	#[serde_as(as = "UuidBase32")]
+	#[tangram_serialize(
+		id = 0,
+		deserialize_with = "deserialize_uuid",
+		serialize_with = "serialize_uuid"
+	)]
 	pub id: uuid::Uuid,
+
+	#[tangram_serialize(id = 1)]
 	pub kind: ResponseKind,
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Request {
 	#[serde_as(as = "UuidBase32")]
+	#[tangram_serialize(
+		id = 0,
+		deserialize_with = "deserialize_uuid",
+		serialize_with = "serialize_uuid"
+	)]
 	pub id: uuid::Uuid,
+
+	#[tangram_serialize(id = 1)]
 	pub kind: RequestKind,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum RequestKind {
+	#[tangram_serialize(id = 0)]
 	Read(ReadRequest),
+
+	#[tangram_serialize(id = 1)]
 	Write(WriteRequest),
+
+	#[tangram_serialize(id = 2)]
 	Signal(SignalRequest),
+
+	#[tangram_serialize(id = 3)]
 	Tty(TtyRequest),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ResponseKind {
+	#[tangram_serialize(id = 0)]
 	Read(ReadResponse),
+
+	#[tangram_serialize(id = 1)]
 	Write,
+
+	#[tangram_serialize(id = 2)]
 	Signal,
+
+	#[tangram_serialize(id = 3)]
 	Tty,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ReadRequest {
+	#[tangram_serialize(id = 0)]
 	pub stream: tg::process::stdio::Stream,
+
+	#[tangram_serialize(id = 1)]
 	pub len: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct WriteRequest {
+	#[tangram_serialize(id = 0)]
 	pub stream: tg::process::stdio::Stream,
+
+	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct SignalRequest {
+	#[tangram_serialize(id = 0, display, from_str)]
 	pub signal: tg::process::signal::Signal,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct TtyRequest {
+	#[tangram_serialize(id = 0)]
 	pub size: tg::process::tty::Size,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ReadResponse {
+	#[tangram_serialize(id = 0)]
 	pub stream: tg::process::stdio::Stream,
+
+	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
+}
+
+fn serialize_uuid(
+	value: &uuid::Uuid,
+	serializer: &mut tangram_serialize::Serializer<'_>,
+) -> std::io::Result<()> {
+	serializer.serialize(value.as_bytes())
+}
+
+fn deserialize_uuid(
+	deserializer: &mut tangram_serialize::Deserializer<'_>,
+) -> std::io::Result<uuid::Uuid> {
+	let bytes: [u8; 16] = deserializer.deserialize()?;
+	Ok(uuid::Uuid::from_bytes(bytes))
 }
 
 impl tg::Session {
@@ -100,12 +236,13 @@ impl tg::Session {
 		let method = http::Method::POST;
 		let path = format!("/processes/{id}/control");
 		let uri = Uri::builder().path(&path).build().unwrap();
-		let stream = stream.map(
-			|result: tg::Result<tg::process::control::ResponseEvent>| match result {
-				Ok(event) => event.try_into(),
-				Err(error) => error.try_into(),
-			},
-		);
+		let stream =
+			stream.map(
+				|result: tg::Result<tg::process::control::ResponseEvent>| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
+				},
+			);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

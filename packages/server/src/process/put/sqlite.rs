@@ -98,11 +98,8 @@ impl Session {
 					started_at,
 					status,
 					stderr,
-					stderr_open,
 					stdin,
-					stdin_open,
 					stdout,
-					stdout_open,
 					stored_at,
 					creator,
 					tty
@@ -133,10 +130,7 @@ impl Session {
 					?22,
 					?23,
 					?24,
-					?25,
-					?26,
-					?27,
-					?28
+					?25
 				)
 				on conflict (id) do update set
 					actual_checksum = ?1,
@@ -158,14 +152,11 @@ impl Session {
 					started_at = ?18,
 					status = ?19,
 					stderr = ?20,
-					stderr_open = ?21,
-					stdin = ?22,
-					stdin_open = ?23,
-					stdout = ?24,
-					stdout_open = ?25,
-					stored_at = ?26,
-					creator = ?27,
-					tty = ?28
+					stdin = ?21,
+					stdout = ?22,
+					stored_at = ?23,
+					creator = ?24,
+					tty = ?25
 			"
 		);
 		let result = cache.get(transaction, process_statement.into());
@@ -242,33 +233,6 @@ impl Session {
 				.tty
 				.as_ref()
 				.map(|tty| serde_json::to_string(tty).unwrap());
-			let stderr_open = match &data.stderr {
-				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-					Some(!data.status.is_finished())
-				},
-				tg::process::Stdio::Blob(_)
-				| tg::process::Stdio::Inherit
-				| tg::process::Stdio::Log
-				| tg::process::Stdio::Null => None,
-			};
-			let stdin_open = match &data.stdin {
-				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-					Some(!data.status.is_finished())
-				},
-				tg::process::Stdio::Blob(_)
-				| tg::process::Stdio::Inherit
-				| tg::process::Stdio::Log
-				| tg::process::Stdio::Null => None,
-			};
-			let stdout_open = match &data.stdout {
-				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-					Some(!data.status.is_finished())
-				},
-				tg::process::Stdio::Blob(_)
-				| tg::process::Stdio::Inherit
-				| tg::process::Stdio::Log
-				| tg::process::Stdio::Null => None,
-			};
 
 			let params = sqlite::params![
 				data.actual_checksum.as_ref().map(ToString::to_string),
@@ -291,11 +255,8 @@ impl Session {
 				data.started_at,
 				data.status.to_string(),
 				(!data.stderr.is_null()).then(|| data.stderr.to_string()),
-				stderr_open,
 				(!data.stdin.is_null()).then(|| data.stdin.to_string()),
-				stdin_open,
 				(!data.stdout.is_null()).then(|| data.stdout.to_string()),
-				stdout_open,
 				stored_at,
 				creator.map(ToString::to_string),
 				tty_json

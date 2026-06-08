@@ -1,11 +1,8 @@
 use {
-	crate::{Session, database::Database},
+	crate::Session,
 	bytes::Bytes,
-	futures::{
-		StreamExt as _, TryStreamExt as _, future,
-		stream::{self, BoxStream},
-	},
-	std::{collections::BTreeSet, pin::pin, time::Duration},
+	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	std::{collections::BTreeSet, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -16,26 +13,13 @@ use {
 	},
 	tangram_log_store::Store as _,
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
+	tokio_stream::wrappers::ReceiverStream,
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-#[cfg(feature = "turso")]
-mod turso;
 
 enum Destination {
 	Log,
 	Pipe,
 	Null,
-}
-
-pub(crate) enum WriteOutput {
-	Written,
-	Full,
-	Closed,
 }
 
 impl Session {
@@ -245,12 +229,6 @@ impl Session {
 					}
 				},
 				tg::process::stdio::read::Event::End => {
-					for stream in &streams {
-						if !matches!(get_destination(&data, *stream)?, Destination::Pipe) {
-							continue;
-						}
-						self.close_process_stdio_local(id, *stream).await?;
-					}
 					return Ok(());
 				},
 			}
@@ -264,122 +242,18 @@ impl Session {
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<()> {
-		let mut wakeups = self
-			.subscribe_process_stdio_write_wakeups_local(id, stream)
+		let request =
+			tg::process::control::RequestKind::Write(tg::process::control::WriteRequest {
+				stream,
+				bytes,
+			});
+		let response = self
+			.try_send_process_control_request(id, request, u64::MAX)
 			.await?;
-		loop {
-			match self
-				.try_write_process_stdio_bytes(id, stream, bytes.clone())
-				.await?
-			{
-				WriteOutput::Written => {
-					self.server
-						.spawn_publish_process_stdio_write_message_task(id, stream);
-					return Ok(());
-				},
-				WriteOutput::Full => {
-					wakeups.next().await;
-				},
-				WriteOutput::Closed => {
-					let error = tg::error!(%id, %stream, "the process stdio is closed");
-					return Err(error);
-				},
-			}
-		}
-	}
-
-	async fn subscribe_process_stdio_write_wakeups_local(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-	) -> tg::Result<BoxStream<'static, ()>> {
-		let subject = format!("processes.{id}.{stream}.read");
-		let read_wakeups = self
-			.server
-			.messenger
-			.subscribe_with_delivery::<()>(subject, Delivery::One)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-			.map(|_| ());
-		let subject = format!("processes.{id}.{stream}.close");
-		let close_wakeups = self
-			.server
-			.messenger
-			.subscribe_with_delivery::<()>(subject, Delivery::One)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-			.map(|_| ());
-		let interval = Duration::from_secs(1);
-		let interval = IntervalStream::new(tokio::time::interval(interval))
-			.skip(1)
-			.map(|_| ());
-		let wakeups = stream::select_all([
-			read_wakeups.boxed(),
-			close_wakeups.boxed(),
-			interval.boxed(),
-		])
-		.boxed();
-		Ok(wakeups)
-	}
-
-	async fn try_write_process_stdio_bytes(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-		bytes: Bytes,
-	) -> tg::Result<WriteOutput> {
-		match &self.server.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => {
-				self.try_write_process_stdio_postgres(process_store, id, stream, bytes)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => {
-				self.try_write_process_stdio_sqlite(process_store, id, stream, bytes)
-					.await
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(process_store) => {
-				self.try_write_process_stdio_turso(process_store, id, stream, bytes)
-					.await
-			},
-		}
-	}
-
-	async fn close_process_stdio_local(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-	) -> tg::Result<()> {
-		self.try_close_process_stdio(id, stream).await?;
-		self.server
-			.spawn_publish_process_stdio_close_message_task(id, stream);
+		let tg::process::control::ResponseKind::Write = response.kind else {
+			return Err(tg::error!("expected a write response"));
+		};
 		Ok(())
-	}
-
-	async fn try_close_process_stdio(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-	) -> tg::Result<()> {
-		match &self.server.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => {
-				self.try_close_process_stdio_postgres(process_store, id, stream)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => {
-				self.try_close_process_stdio_sqlite(process_store, id, stream)
-					.await
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(process_store) => {
-				self.try_close_process_stdio_turso(process_store, id, stream)
-					.await
-			},
-		}
 	}
 
 	async fn try_write_process_stdio_region(

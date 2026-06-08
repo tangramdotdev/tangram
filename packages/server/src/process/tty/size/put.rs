@@ -4,7 +4,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_messenger::Messenger,
 };
 
 impl Session {
@@ -56,14 +55,15 @@ impl Session {
 			return Err(tg::error!(%id, "the process does not have a tty associated with it"));
 		}
 
-		// Publish the message.
-		let event = tg::process::tty::size::get::Event::Size(size);
-		let payload = tangram_messenger::payload::Json(event);
-		self.server
-			.messenger
-			.publish(format!("processes.{id}.tty"), payload)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to update the tty size"))?;
+		// Send the control request.
+		let request =
+			tg::process::control::RequestKind::Tty(tg::process::control::TtyRequest { size });
+		let response = self
+			.try_send_process_control_request(id, request, u64::MAX)
+			.await?;
+		let tg::process::control::ResponseKind::Tty = response.kind else {
+			return Err(tg::error!("expected a tty response"));
+		};
 
 		Ok(Some(()))
 	}

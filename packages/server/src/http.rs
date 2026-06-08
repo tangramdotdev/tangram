@@ -618,17 +618,11 @@ impl Server {
 			(http::Method::POST, ["processes", process, "signal"]) => {
 				session.try_signal_process_request(request, process).boxed()
 			},
-			(http::Method::GET, ["processes", process, "signal"]) => session
-				.try_get_process_signal_stream_request(request, process)
-				.boxed(),
 			(http::Method::GET, ["processes", process, "status"]) => session
 				.try_get_process_status_stream_request(request, process)
 				.boxed(),
 			(http::Method::GET, ["processes", process, "children"]) => session
 				.try_get_process_children_stream_request(request, process)
-				.boxed(),
-			(http::Method::GET, ["processes", process, "tty", "size"]) => session
-				.try_get_process_tty_size_stream_request(request, process)
 				.boxed(),
 			(http::Method::PUT, ["processes", process, "tty", "size"]) => session
 				.try_set_process_tty_size_request(request, process)

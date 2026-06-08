@@ -80,11 +80,6 @@ impl Server {
 					delete from process_signals
 					where process in (select id from deleted_processes)
 					returning 1
-				),
-				deleted_process_stdio as (
-					delete from process_stdio
-					where process in (select id from deleted_processes)
-					returning 1
 				)
 				select id
 				from deleted_processes;

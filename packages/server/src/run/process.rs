@@ -16,9 +16,6 @@ use {
 };
 
 mod control;
-mod signal;
-mod stdio;
-mod tty;
 
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
@@ -345,73 +342,24 @@ impl Session {
 		}
 		let sandbox_process = Arc::new(sandbox_process);
 		let stdin = state.stdin.clone();
-		let stdout = state.stdout.clone();
-		let stderr = state.stderr.clone();
-
-		let _stdin_task = Task::spawn({
+		let control_task = Task::spawn({
 			let session = self.clone();
 			let sandbox = sandbox.clone();
-			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
 			let location = location.clone();
 			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
+			let sandbox_process = sandbox_process.clone();
 			|_| async move {
 				session
-					.run_stdin_task(&sandbox, &sandbox_process, &id, location, stdin, stdin_blob)
+					.run_control_task(
+						&sandbox,
+						&sandbox_process,
+						&id,
+						location.as_ref(),
+						stdin,
+						stdin_blob,
+					)
 					.await
-			}
-		});
-
-		let stdout_stderr_task = if stdout.is_null() && stderr.is_null() {
-			None
-		} else {
-			Some(Task::spawn({
-				let session = self.clone();
-				let sandbox = sandbox.clone();
-				let sandbox_process = sandbox_process.clone();
-				let id = id.clone();
-				let location = location.clone();
-				|_| async move {
-					session
-						.run_stdout_stderr_task(&sandbox, &sandbox_process, &id, location)
-						.await
-				}
-			}))
-		};
-
-		// Spawn the tty task.
-		let tty_task = if state.tty.is_some() {
-			Some(tokio::spawn({
-				let session = self.clone();
-				let sandbox = sandbox.clone();
-				let sandbox_process = sandbox_process.clone();
-				let id = id.clone();
-				let location = location.clone();
-				async move {
-					session
-						.run_tty_task(&sandbox, &sandbox_process, &id, location.as_ref())
-						.await
-						.inspect_err(|error| tracing::error!(?error, "the tty task failed"))
-						.ok();
-				}
-			}))
-		} else {
-			None
-		};
-
-		// Spawn the signal task.
-		let signal_task = tokio::spawn({
-			let session = self.clone();
-			let sandbox = sandbox.clone();
-			let sandbox_process = sandbox_process.clone();
-			let id = id.clone();
-			let location = location.clone();
-			async move {
-				session
-					.run_signal_task(&sandbox, &sandbox_process, &id, location.as_ref())
-					.await
-					.inspect_err(|error| tracing::error!(?error, "the signal task failed"))
-					.ok();
 			}
 		});
 
@@ -463,22 +411,15 @@ impl Session {
 			},
 		};
 
-		// Abort the tty task.
-		if let Some(tty_task) = tty_task {
-			tty_task.abort();
-		}
-
-		// Abort the signal task.
-		signal_task.abort();
-
-		// Await the stdout stderr task.
-		if let Some(stdout_stderr_task) = stdout_stderr_task {
-			stdout_stderr_task
-				.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "the output task panicked"))
-				.and_then(|r| r.map_err(|error| tg::error!(!error, "failed to send output")))?;
-		}
+		// Wait for the control task to finish.
+		control_task.stop();
+		control_task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the control task panicked"))
+			.and_then(|r| {
+				r.map_err(|error| tg::error!(!error, "failed to handle control messages"))
+			})?;
 
 		// Handle the case where the process was stopped.
 		if stopped {

@@ -1,32 +1,67 @@
 use {
-	crate::Server,
+	crate::session::Session,
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	std::{
-		collections::{BTreeMap, BTreeSet, btree_map::Entry},
-		pin::pin,
-	},
+	std::{collections::BTreeSet, pin::pin},
 	tangram_client::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
+	tokio_util::io::ReaderStream,
 };
 
 struct Reader {
 	buffer: Bytes,
+	offset: usize,
+	eof: bool,
 	stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 }
 
-impl Server {
-	pub(crate) async fn process_control_task(
+impl Session {
+	pub(crate) async fn run_control_task(
 		&self,
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
 		process: &tg::process::Id,
+		_location: Option<&tg::Location>,
+		_stdin: tg::process::Stdio,
+		stdin_blob: Option<tg::Blob>,
 	) -> tg::Result<()> {
-		let (sender, responses) = tokio::sync::mpsc::channel(512);
+		// Dump stdin if necessary.
+		if let Some(blob) = stdin_blob {
+			// TODO: handle graceful shutdown here?
+			let reader = blob
+				.read_with_handle(self, tg::read::Options::default())
+				.await
+				.map_err(|error| tg::error!(!error, "failed to read process stdin blob"))?;
+			let stream = ReaderStream::new(reader)
+				.map_ok(|bytes| {
+					tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
+						bytes,
+						position: None,
+						stream: tg::process::stdio::Stream::Stdin,
+					})
+				})
+				.map_err(|error| tg::error!(!error, "failed to read from the blob"))
+				.boxed();
+			let stream = sandbox
+				.write_stdio(
+					sandbox_process,
+					vec![tg::process::stdio::Stream::Stdin],
+					stream,
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+			let mut stream = pin!(stream);
+			let _event = stream
+				.try_next()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+		}
 
+		// Create the request/response channels and streams.
+		let (sender, responses) = tokio::sync::mpsc::channel(512);
 		let responses = ReceiverStream::new(responses).boxed();
 		let mut requests = self
 			.try_get_process_control_stream_all(process, responses)
@@ -35,8 +70,14 @@ impl Server {
 			.ok_or_else(|| tg::error!("expected a control stream"))?
 			.boxed();
 
-		let mut readers = BTreeMap::new();
+		// Cache of open readers.
+		let mut stdout = None;
+		let mut stderr = None;
+
+		// Cache of requests to deduplicate requests.
 		let mut previous = BTreeSet::new();
+
+		// Handle events.
 		while let Some(event) = requests
 			.try_next()
 			.await
@@ -53,8 +94,9 @@ impl Server {
 							let result = Self::handle_process_control_read_request(
 								sandbox,
 								sandbox_process,
-								&mut readers,
 								read,
+								&mut stdout,
+								&mut stderr,
 							)
 							.await
 							.map(|response| {
@@ -122,6 +164,11 @@ impl Server {
 				},
 				tg::process::control::RequestEvent::Stop => break,
 			}
+			let stdout_done = stdout.as_ref().is_none_or(|reader| reader.eof);
+			let stderr_done = stderr.as_ref().is_none_or(|reader| reader.eof);
+			if stdout_done && stderr_done {
+				break;
+			}
 		}
 
 		sender
@@ -134,43 +181,78 @@ impl Server {
 	async fn handle_process_control_read_request(
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
-		readers: &mut BTreeMap<tg::process::stdio::Stream, Reader>,
-		read: tg::process::control::ReadRequest,
+		request: tg::process::control::ReadRequest,
+		stdout: &mut Option<Reader>,
+		stderr: &mut Option<Reader>,
 	) -> tg::Result<tg::process::control::ReadResponse> {
-		// Get or create the reader for the stream.
-		let reader = match readers.entry(read.stream) {
-			Entry::Occupied(entry) => entry.into_mut(),
-			Entry::Vacant(entry) => {
-				let stream = sandbox
-					.read_stdio(sandbox_process, vec![read.stream])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to read the process stdio"))?
-					.boxed();
-				entry.insert(Reader {
-					buffer: Bytes::new(),
-					stream,
-				})
-			},
-		};
+		let options = tangram_futures::retry::Options::default();
+		let mut retries = pin!(
+			tangram_futures::retry::stream(options.clone()).take(options.max_retries as usize + 1)
+		);
 
-		// Fill the buffer if it is empty. An empty buffer after the stream ends indicates end of file.
-		while reader.buffer.is_empty() {
-			match reader.stream.try_next().await? {
-				Some(tg::process::stdio::read::Event::Chunk(chunk)) => {
-					reader.buffer = chunk.bytes;
-				},
-				Some(tg::process::stdio::read::Event::End) | None => break,
+		// Cannot use tangram_futures::retry(...) here due to lifetime requirements of closure captures.
+		'retry: loop {
+			if retries.next().await.is_none() {
+				return Err(tg::error!("lost connection to the sandbox i/o"));
 			}
+
+			let reader = match request.stream {
+				tg::process::stdio::Stream::Stdin => {
+					return Err(tg::error!("cannot read the stdin of a process"));
+				},
+				tg::process::stdio::Stream::Stdout => &mut *stdout,
+				tg::process::stdio::Stream::Stderr => &mut *stderr,
+			};
+
+			// Create the stream if it does not exist.
+			if reader.is_none() {
+				let stream = sandbox
+					.read_stdio(sandbox_process, vec![request.stream])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the stream"))?
+					.boxed();
+				reader.replace(Reader {
+					buffer: Bytes::new(),
+					offset: 0,
+					eof: false,
+					stream,
+				});
+			}
+
+			let r = reader.as_mut().unwrap();
+
+			// If the buffer has been fully read, fetch a single chunk.
+			if r.offset >= r.buffer.len() && !r.eof {
+				let Some(event) = r
+					.stream
+					.try_next()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the next event"))?
+				else {
+					reader.take();
+					continue 'retry;
+				};
+				match event {
+					tg::process::stdio::read::Event::Chunk(chunk) => {
+						r.offset = 0;
+						r.buffer = chunk.bytes;
+					},
+					tg::process::stdio::read::Event::End => {
+						r.eof = true;
+					},
+				}
+			}
+
+			// Take up to the requested length from the buffer.
+			let amount = (r.buffer.len() - r.offset).min(request.len);
+			let bytes = r.buffer.slice(r.offset..r.offset + amount);
+			r.offset += amount;
+
+			return Ok(tg::process::control::ReadResponse {
+				stream: request.stream,
+				bytes,
+			});
 		}
-
-		// Take up to the requested length from the buffer.
-		let len = read.len.min(reader.buffer.len());
-		let bytes = reader.buffer.split_to(len);
-
-		Ok(tg::process::control::ReadResponse {
-			stream: read.stream,
-			bytes,
-		})
 	}
 
 	async fn handle_process_control_write_request(

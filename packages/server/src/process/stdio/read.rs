@@ -1,11 +1,11 @@
 use {
-	crate::{Session, database::Database},
+	crate::Session,
 	futures::{
 		StreamExt as _, future,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, io::SeekFrom, time::Duration},
+	std::{collections::BTreeSet, io::SeekFrom, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -20,12 +20,7 @@ use {
 	tokio_stream::wrappers::IntervalStream,
 };
 
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-#[cfg(feature = "turso")]
-mod turso;
+const READ_CHUNK_SIZE: usize = 1024;
 
 enum Source {
 	Pipe(BTreeSet<tg::process::stdio::Stream>),
@@ -302,110 +297,73 @@ impl Session {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
-		timeout: Option<Duration>,
+		_timeout: Option<Duration>,
 	) -> tg::Result<()> {
-		let mut wakeups = if timeout == Some(Duration::ZERO) {
-			None
-		} else {
-			let mut wakeups = Vec::with_capacity(streams.len() * 2 + 1);
-			for stream in &streams {
-				let subject = format!("processes.{id}.{stream}.write");
-				let wakeup = self
-					.server
-					.messenger
-					.subscribe_with_delivery::<()>(subject, Delivery::One)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-					.map(|_| ())
-					.boxed();
-				wakeups.push(wakeup);
-				let subject = format!("processes.{id}.{stream}.close");
-				let wakeup = self
-					.server
-					.messenger
-					.subscribe_with_delivery::<()>(subject, Delivery::One)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-					.map(|_| ())
-					.boxed();
-				wakeups.push(wakeup);
+		// Read each stream concurrently, issuing chunked control read requests until the stream ends.
+		let read = async {
+			let mut futures = streams
+				.iter()
+				.map(|stream| self.read_process_stdio_pipe_stream(id, *stream, &sender))
+				.collect::<FuturesUnordered<_>>();
+			while let Some(result) = futures.next().await {
+				result?;
 			}
-			let interval = Duration::from_secs(1);
-			let interval = IntervalStream::new(tokio::time::interval(interval))
-				.skip(1)
-				.map(|_| ())
-				.boxed();
-			wakeups.push(interval);
-			let wakeups = stream::select_all(wakeups);
-			let wakeups = match timeout {
-				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
-				None => wakeups.boxed(),
-			};
-			Some(wakeups.with_stopper(stopper))
+			Ok::<_, tg::Error>(())
 		};
-		loop {
-			loop {
-				match self.try_read_process_stdio_pipe_event(id, &streams).await {
-					Ok(Some(event)) => {
-						let end = matches!(event, tg::process::stdio::read::Event::End);
-						if let tg::process::stdio::read::Event::Chunk(chunk) = &event {
-							self.server
-								.spawn_publish_process_stdio_read_message_task(id, chunk.stream);
-						}
-						if sender.try_send(Ok(event)).is_err() {
-							return Ok(());
-						}
-						if end {
-							return Ok(());
-						}
-					},
-					Ok(None) => break,
-					Err(error) => {
-						tracing::error!(
-							error = %error.trace(),
-							%id,
-							"failed to read the process stdio event"
-						);
-						tokio::time::sleep(Duration::from_secs(1)).await;
-						break;
-					},
+
+		// Stop reading if the stopper is triggered.
+		match stopper {
+			Some(stopper) => {
+				let read = pin!(read);
+				let stop = pin!(stopper.wait());
+				if let future::Either::Left((result, _)) = future::select(read, stop).await {
+					result?;
 				}
-			}
-			let Some(wakeups) = &mut wakeups else {
-				sender
-					.send(Ok(tg::process::stdio::read::Event::End))
-					.await
-					.ok();
-				break;
-			};
-			if wakeups.next().await.is_none() {
-				break;
-			}
+			},
+			None => read.await?,
 		}
+
+		sender
+			.send(Ok(tg::process::stdio::read::Event::End))
+			.await
+			.ok();
+
 		Ok(())
 	}
 
-	async fn try_read_process_stdio_pipe_event(
+	async fn read_process_stdio_pipe_stream(
 		&self,
 		id: &tg::process::Id,
-		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
-		match &self.server.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => {
-				self.try_read_process_stdio_pipe_event_postgres(process_store, id, streams)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => {
-				self.try_read_process_stdio_pipe_event_sqlite(process_store, id, streams)
-					.await
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(process_store) => {
-				self.try_read_process_stdio_pipe_event_turso(process_store, id, streams)
-					.await
-			},
+		stream: tg::process::stdio::Stream,
+		sender: &async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
+	) -> tg::Result<()> {
+		loop {
+			let request =
+				tg::process::control::RequestKind::Read(tg::process::control::ReadRequest {
+					stream,
+					len: READ_CHUNK_SIZE,
+				});
+			let response = self
+				.try_send_process_control_request(id, request, u64::MAX)
+				.await?;
+			let tg::process::control::ResponseKind::Read(response) = response.kind else {
+				return Err(tg::error!("expected a read response"));
+			};
+
+			// An empty response indicates that the stream has ended.
+			if response.bytes.is_empty() {
+				return Ok(());
+			}
+
+			let chunk = tg::process::stdio::Chunk {
+				bytes: response.bytes,
+				position: None,
+				stream: response.stream,
+			};
+			let event = tg::process::stdio::read::Event::Chunk(chunk);
+			if sender.send(Ok(event)).await.is_err() {
+				return Ok(());
+			}
 		}
 	}
 

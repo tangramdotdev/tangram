@@ -85,24 +85,6 @@ impl tg::handle::Process for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_signal_process(id, arg)) }
 	}
 
-	fn try_get_process_signal_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
-			>,
-		>,
-	> {
-		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_get_process_signal_stream(id, arg),
-			)
-		}
-	}
-
 	fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
@@ -133,24 +115,6 @@ impl tg::handle::Process for Handle {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
 				self.0.try_get_process_children_stream(id, arg),
-			)
-		}
-	}
-
-	fn try_get_process_tty_size_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::tty::size::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static,
-			>,
-		>,
-	> {
-		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_get_process_tty_size_stream(id, arg),
 			)
 		}
 	}

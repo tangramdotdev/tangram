@@ -52,11 +52,8 @@ create table processes (
 	started_at integer,
 	status text not null,
 	stderr text,
-	stderr_open integer,
 	stdin text,
-	stdin_open integer,
 	stdout text,
-	stdout_open integer,
 	stored_at integer not null,
 	tty text
 );
@@ -137,15 +134,6 @@ create table process_signals (
 );
 
 create index process_signals_process_position_index on process_signals (process, position);
-
-create table process_stdio (
-	process text not null,
-	stream text not null,
-	position integer primary key autoincrement,
-	bytes blob not null
-);
-
-create index process_stdio_process_stream_position_index on process_stdio (process, stream, position);
 
 create table process_finalize_queue (
 	position integer primary key autoincrement,

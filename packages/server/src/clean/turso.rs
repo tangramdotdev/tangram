@@ -128,17 +128,6 @@ impl Server {
 			.await;
 		crate::database::retry!(result, "failed to execute the statement");
 
-		let statement = indoc!(
-			"
-				delete from process_stdio
-				where process = ?1;
-			"
-		);
-		let result = transaction
-			.execute(statement.into(), db::params![process.to_owned()])
-			.await;
-		crate::database::retry!(result, "failed to execute the statement");
-
 		Ok(ControlFlow::Break(()))
 	}
 
