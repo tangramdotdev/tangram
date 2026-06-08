@@ -1,18 +1,27 @@
 use {provider::Provider, std::path::Path, tangram_client::prelude::*, tangram_vfs as vfs};
 
+#[cfg(target_os = "macos")]
+mod fskit;
+
 mod provider;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Kind {
+	Fskit,
 	Fuse,
 	Nfs,
 }
 
 #[derive(Clone)]
 pub enum Server {
+	#[cfg(target_os = "macos")]
+	Fskit(fskit::Server),
+
 	#[cfg(target_os = "linux")]
 	Fuse(vfs::fuse::Server<Provider>),
+
 	Nfs(vfs::nfs::Server<Provider>),
+
 	#[cfg(target_os = "linux")]
 	Virtiofs(vfs::virtiofs::Server),
 }
@@ -36,6 +45,18 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 
 		let vfs = match kind {
+			Kind::Fskit => {
+				#[cfg(target_os = "macos")]
+				{
+					let fskit = fskit::Server::start(server, path).await?;
+					Server::Fskit(fskit)
+				}
+				#[cfg(not(target_os = "macos"))]
+				{
+					let _ = server;
+					return Err(tg::error!("fskit is only supported on macos"));
+				}
+			},
 			Kind::Fuse => {
 				#[cfg(target_os = "linux")]
 				{
@@ -116,6 +137,7 @@ impl Server {
 
 	pub async fn unmount(kind: Kind, path: &Path) -> tg::Result<()> {
 		match kind {
+			Kind::Fskit => {},
 			Kind::Fuse => {
 				#[cfg(target_os = "linux")]
 				{
@@ -138,6 +160,8 @@ impl Server {
 
 	pub fn stop(&self) {
 		match self {
+			#[cfg(target_os = "macos")]
+			Server::Fskit(_) => {},
 			#[cfg(target_os = "linux")]
 			Server::Fuse(server) => server.stop(),
 			Server::Nfs(server) => server.stop(),
@@ -148,6 +172,8 @@ impl Server {
 
 	pub async fn wait(self) {
 		match self {
+			#[cfg(target_os = "macos")]
+			Server::Fskit(_) => {},
 			#[cfg(target_os = "linux")]
 			Server::Fuse(server) => {
 				server.wait().await;
