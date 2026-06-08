@@ -769,7 +769,7 @@ impl Server {
 		});
 
 		// Start the VFS if enabled.
-		let artifacts_path = server.path.join("artifacts");
+		let artifacts_path = server.artifacts_path();
 		let cache_path = server.path.join("cache");
 		let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
 			Ok(exists) => exists,
@@ -807,23 +807,29 @@ impl Server {
 			tokio::fs::create_dir_all(&cache_path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
-			let kind = if cfg!(target_os = "macos") {
-				vfs::Kind::Nfs
-			} else if cfg!(target_os = "linux") {
-				vfs::Kind::Fuse
-			} else {
-				unreachable!()
+			let kind = match options.kind {
+				config::VfsKind::Auto => {
+					if cfg!(target_os = "macos")
+						&& std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some()
+					{
+						vfs::Kind::Fskit
+					} else if cfg!(target_os = "macos") {
+						vfs::Kind::Nfs
+					} else if cfg!(target_os = "linux") {
+						vfs::Kind::Fuse
+					} else {
+						unreachable!()
+					}
+				},
+				config::VfsKind::Fskit => vfs::Kind::Fskit,
+				config::VfsKind::Fuse => vfs::Kind::Fuse,
+				config::VfsKind::Nfs => vfs::Kind::Nfs,
 			};
 			let artifacts_path = server.artifacts_path();
 			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path, options)
 				.await
-				.inspect_err(|error| {
-					tracing::error!(?error, "failed to start the VFS");
-				})
-				.ok();
-			if let Some(vfs) = vfs {
-				server.vfs.lock().unwrap().replace(vfs);
-			}
+				.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
+			server.vfs.lock().unwrap().replace(vfs);
 		} else {
 			if cache_exists {
 				tokio::fs::rename(&cache_path, &artifacts_path)

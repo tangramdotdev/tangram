@@ -59,16 +59,17 @@ impl Store {
 			.map_err(
 				|error| tg::error!(!error, path = %config.path.display(), "failed to open the lmdb file"),
 			)?;
+		let mut flags =
+			lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::WRITE_MAP | lmdb::EnvFlags::MAP_ASYNC;
+		if std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some() {
+			flags |= lmdb::EnvFlags::NO_LOCK;
+		}
 		let env = unsafe {
 			lmdb::EnvOpenOptions::new()
 				.map_size(config.map_size)
 				.max_dbs(3)
 				.max_readers(1_000)
-				.flags(
-					lmdb::EnvFlags::NO_SUB_DIR
-						| lmdb::EnvFlags::WRITE_MAP
-						| lmdb::EnvFlags::MAP_ASYNC,
-				)
+				.flags(flags)
 				.open(&config.path)
 				.map_err(|error| {
 					tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")

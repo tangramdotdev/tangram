@@ -13,17 +13,25 @@ def main [--release] {
 	let result_bundle_path = ($path | path join "build/Tangram.xcresult")
 	let source_path = ($root | path join "target" $profile "tangram")
 	let destination_path = ($app_path | path join "Contents/Helpers/tangram")
+	let app_entitlements_path = ($path | path join "Tangram/Resources/Tangram.entitlements")
+	let helper_entitlements_path = ($path | path join "Tangram/Resources/TangramHelper.entitlements")
+	let signing_identity = "Apple Development: David Yamnitsky (933H7Z8N99)"
 
 	if $release {
-		cargo build --release --all-features -p tangram_cli
+		cargo build --release -p tangram_cli
 	} else {
-		cargo build --all-features -p tangram_cli
+		cargo build -p tangram_cli
 	}
 
 	let arch = (^uname -m | str trim)
 	xcodegen generate --spec ($path | path join "project.yml")
+	rm -rf $result_bundle_path
+	rm -rf $app_path
+	rm -rf ($path | path join "build" $configuration "TangramFSKit.appex")
 	(
-		xcodebuild
+			xcodebuild
+			-allowProvisioningDeviceRegistration
+			-allowProvisioningUpdates
 			-configuration $configuration
 			-derivedDataPath $derived_data_path
 			-destination $"platform=macOS,arch=($arch)"
@@ -39,12 +47,12 @@ def main [--release] {
 	mkdir ($destination_path | path dirname)
 	cp $source_path $destination_path
 	chmod +x $destination_path
-	let result = codesign --force --sign - $destination_path | complete
+	let result = codesign --force --entitlements $helper_entitlements_path --sign $signing_identity $destination_path | complete
 	if $result.exit_code != 0 {
 		print --stderr $result.stderr
 		exit $result.exit_code
 	}
-	let result = codesign --force --deep --sign - $app_path | complete
+	let result = codesign --force --options runtime --entitlements $app_entitlements_path --sign $signing_identity $app_path | complete
 	if $result.exit_code != 0 {
 		print --stderr $result.stderr
 		exit $result.exit_code

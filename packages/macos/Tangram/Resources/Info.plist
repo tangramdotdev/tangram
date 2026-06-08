@@ -24,5 +24,7 @@
 	<string>Copyright © Tangram. All rights reserved.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSSystemExtensionUsageDescriptionKey</key>
+	<string>Tangram uses a file system extension to mount artifacts.</string>
 </dict>
 </plist>
