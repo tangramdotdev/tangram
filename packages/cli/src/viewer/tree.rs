@@ -1506,30 +1506,24 @@ impl Tree {
 			let mut child = tg::Referent::new(child.process, child.options);
 
 			// Inherit from the referent.
-			if let Ok(state) = child.item().load_with_handle(client).await {
-				let command = state
-					.command
-					.executable_with_handle(client)
-					.await
+			let child_module = {
+				let command = child.item.command_with_handle(client).await?;
+				let executable = command.executable_with_handle(client).await?;
+				executable
+					.try_unwrap_module_ref()
 					.ok()
-					.and_then(|executable| {
-						executable
-							.try_unwrap_module_ref()
-							.ok()
-							.map(tg::command::ModuleExecutable::to_data)
-					});
-
-				let same_module = match (&referent_module, &command) {
-					(Some(parent), Some(child)) => {
-						parent.module.referent.item == child.module.referent.item
-					},
-					_ => true,
-				};
-				let has_own_referent =
-					child.path().is_some() || child.tag().is_some() || child.id().is_some();
-				if same_module || has_own_referent {
-					child.inherit(&referent);
-				}
+					.map(tg::command::ModuleExecutable::to_data)
+			};
+			let same_module = match (&referent_module, &child_module) {
+				(Some(parent), Some(child)) => {
+					parent.module.referent.item == child.module.referent.item
+				},
+				_ => true,
+			};
+			let has_own_referent =
+				child.path().is_some() || child.tag().is_some() || child.id().is_some();
+			if same_module || has_own_referent {
+				child.inherit(&referent);
 			}
 
 			// Check the status of the process.
