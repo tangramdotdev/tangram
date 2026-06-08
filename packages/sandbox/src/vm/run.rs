@@ -1,10 +1,11 @@
 use {
-	crate::{Sandbox, container, vm::virtiofsd},
+	crate::{Sandbox, container, vm::virtiofs},
 	std::{
 		collections::hash_map::DefaultHasher,
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
 		hash::{Hash as _, Hasher as _},
+		io::Write as _,
 		net::Ipv4Addr,
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
@@ -12,6 +13,10 @@ use {
 		},
 		path::{Path, PathBuf},
 		process::ExitCode,
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		},
 		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
@@ -22,6 +27,7 @@ pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.soc
 
 const SANDBOX_FS_TAG: &str = "sandbox";
 const ARTIFACTS_FS_TAG: &str = "artifacts";
+
 const HOST_MOUNT_POINT: &str = "/mnt/host";
 const SERIAL_SOCKET_NAME: &str = "serial.sock";
 const VIRTIOFSD_SANDBOX_SOCKET_NAME: &str = "virtiofsd-sandbox.sock";
@@ -47,8 +53,10 @@ const VMM_GUEST_CID: u32 = 3;
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub artifacts_path: PathBuf,
+	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub create_snapshot: Option<PathBuf>,
 	pub cpu: Option<u64>,
+	pub dax: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
 	pub firewall: crate::Firewall,
 	pub guest_ip: Option<Ipv4Addr>,
@@ -258,8 +266,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 
 	let mut helpers: Vec<ChildProcess> = Vec::new();
-	if arg.create_snapshot.is_none() {
-		// Spawn the sandbox virtiofsd, serving the host share dir.
+	{
 		let sandbox_socket_path =
 			host_vm_path_from_root(&arg.path).join(VIRTIOFSD_SANDBOX_SOCKET_NAME);
 		tracing::trace!(
@@ -268,8 +275,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		);
 		let sandbox_shared_dir = host_share_path_from_root(&arg.path);
 
-		// Create the user mount targets in the share dir. The helper binds them in its own
-		// namespace so virtiofsd serves them to the guest.
 		let mut sandbox_binds = Vec::new();
 		for (index, mount) in arg.mounts.iter().enumerate() {
 			let target = host_share_mounts_path_from_root(&arg.path).join(index.to_string());
@@ -282,7 +287,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 					tg::error!(!error, path = %target.display(), "failed to create the user mount share target file")
 				})?;
 			}
-			sandbox_binds.push(virtiofsd::Bind {
+			sandbox_binds.push(virtiofs::Bind {
 				source: mount.source.clone(),
 				target,
 			});
@@ -290,7 +295,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 		let sandbox_log_path = host_vm_path_from_root(&arg.path).join("virtiofsd-sandbox.log");
 		tracing::trace!("spawning sandbox virtiofsd helper");
-		let sandbox_pid = virtiofsd::spawn(
+		let sandbox_pid = virtiofs::spawn(
 			user.uid,
 			user.gid,
 			&sandbox_shared_dir,
@@ -300,12 +305,14 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		)?;
 		tracing::trace!("sandbox virtiofsd helper pid={sandbox_pid}");
 		helpers.push(ChildProcess::new(sandbox_pid));
-	} else {
-		tracing::trace!("snapshot mode: skipping virtiofsd helpers");
 	}
 
-	let cloud_hypervisor_bin = find_in_path("cloud-hypervisor")
-		.map_err(|error| tg::error!(!error, "failed to locate cloud-hypervisor on PATH"))?;
+	let cloud_hypervisor_bin = if let Some(path) = &arg.cloud_hypervisor_path {
+		path.clone()
+	} else {
+		find_in_path("cloud-hypervisor")
+			.map_err(|error| tg::error!(!error, "failed to locate cloud-hypervisor on PATH"))?
+	};
 	tracing::trace!(
 		"cloud-hypervisor binary: {}",
 		cloud_hypervisor_bin.display()
@@ -355,14 +362,18 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		cloud_hypervisor_args.push(
 			format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on,sparse=off,image_type=raw").into(),
 		);
-		if arg.create_snapshot.is_none() {
-			cloud_hypervisor_args.push("--fs".into());
-			cloud_hypervisor_args
-				.push(format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into());
-			cloud_hypervisor_args.push("--fs".into());
-			cloud_hypervisor_args
-				.push(format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}").into());
-		}
+		cloud_hypervisor_args.push("--fs".into());
+		let artifacts_fs = if let Some(window_size) = arg.dax {
+			format!(
+				"tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET},dax=true,shm_size={window_size}"
+			)
+		} else {
+			format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}")
+		};
+		cloud_hypervisor_args.push(artifacts_fs.into());
+		cloud_hypervisor_args.push("--fs".into());
+		cloud_hypervisor_args
+			.push(format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into());
 		cloud_hypervisor_args.push("--vsock".into());
 		cloud_hypervisor_args.push(format!("cid={VMM_GUEST_CID},socket={VMM_VSOCK_SOCKET}").into());
 		cloud_hypervisor_args.push("--console".into());
@@ -388,17 +399,20 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let mut cloud_hypervisor = ChildProcess::new(cloud_hypervisor_pid);
 
 	let serial_socket_path = host_vm_path_from_root(&arg.path).join(SERIAL_SOCKET_NAME);
-	let serial_stream = connect_serial_socket(&serial_socket_path, Duration::from_secs(10))?;
+	let mut serial_stream = connect_serial_socket(&serial_socket_path, Duration::from_secs(10))?;
 	tracing::trace!("connected to guest serial socket; tailing to stderr");
 	let serial_reader = serial_stream
 		.try_clone()
 		.map_err(|error| tg::error!(!error, "failed to clone the serial socket"))?;
 	let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+	let suppress_resume_echo = Arc::new(AtomicBool::new(false));
+	let suppress_resume_echo_ = suppress_resume_echo.clone();
 	std::thread::spawn(move || {
 		let mut stream = serial_reader;
 		let mut buf = [0u8; 4096];
 		let mut signaled = false;
 		let stderr = std::io::stderr();
+		let suppress_resume_echo = suppress_resume_echo_;
 		loop {
 			match std::io::Read::read(&mut stream, &mut buf) {
 				Ok(0) | Err(_) => return,
@@ -409,7 +423,21 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 						let output = chunk
 							.iter()
 							.copied()
-							.filter(|byte| *byte != 0)
+							.filter(|byte| {
+								if *byte == 0 {
+									return false;
+								}
+								if suppress_resume_echo.load(Ordering::Relaxed) {
+									if matches!(*byte, b'\r' | b'\n') {
+										if *byte == b'\n' {
+											suppress_resume_echo.store(false, Ordering::Relaxed);
+										}
+										return false;
+									}
+									suppress_resume_echo.store(false, Ordering::Relaxed);
+								}
+								true
+							})
 							.collect::<Vec<_>>();
 						if !output.is_empty() {
 							let _ = std::io::Write::write_all(&mut handle, &output);
@@ -518,24 +546,13 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				&["add-net", net],
 			)?;
 		}
-		ch_remote_run(
-			&ch_remote_bin,
-			&api_socket,
-			&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
-			&[
-				"add-fs",
-				&format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}"),
-			],
-		)?;
-		ch_remote_run(
-			&ch_remote_bin,
-			&api_socket,
-			&host_vm_path_from_root(&arg.path).join("ch-remote.log"),
-			&[
-				"add-fs",
-				&format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}"),
-			],
-		)?;
+		suppress_resume_echo.store(true, Ordering::Relaxed);
+		serial_stream
+			.write_all(b"\n")
+			.map_err(|error| tg::error!(!error, "failed to write the resume signal"))?;
+		serial_stream
+			.flush()
+			.map_err(|error| tg::error!(!error, "failed to flush the resume signal"))?;
 	}
 
 	wait_for_cloud_hypervisor(&mut cloud_hypervisor, &mut helpers)
@@ -562,6 +579,16 @@ fn connect_serial_socket(
 						"timed out waiting for the cloud-hypervisor serial socket",
 					)
 				})?;
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+				if Instant::now() >= deadline {
+					return Err(tg::error!(
+						!error,
+						path = %path.display(),
+						"timed out connecting to the guest serial socket",
+					));
+				}
+				std::thread::sleep(Duration::from_millis(10));
 			},
 			Err(error) => {
 				return Err(tg::error!(
@@ -736,6 +763,9 @@ fn kernel_cmdline(arg: &Arg) -> String {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
 	let mut cmdline =
 		String::from("console=ttyS0 quiet loglevel=0 root=/dev/vda rootfstype=squashfs ro");
+	if arg.dax.is_some() {
+		cmdline.push_str(" tangram.dax=1");
+	}
 	write!(
 		&mut cmdline,
 		" init={} -- sandbox vm init",
@@ -1027,13 +1057,15 @@ fn build_cloud_hypervisor_mount_arg(
 			target: VMM_SNAPSHOT_OUTPUT_DIR.into(),
 		});
 	} else {
-		// Bind the server-provided artifacts vfs socket under the writable VMM root
-		// directory so cloud-hypervisor can reach it post-chroot.
 		binds.push(container::run::Bind {
 			source: arg.path.join(VFS_SOCKET_NAME),
 			target: VMM_VFS_SOCKET.into(),
 		});
 	}
+	binds.push(container::run::Bind {
+		source: arg.path.join(VFS_SOCKET_NAME),
+		target: VMM_VFS_SOCKET.into(),
+	});
 	let mut ro_binds = vec![
 		container::run::Bind {
 			source: arg.rootfs_path.clone(),

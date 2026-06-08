@@ -33,6 +33,8 @@ impl Server {
 					);
 					Ok(tangram_sandbox::Isolation::Vm(
 						tangram_sandbox::VmIsolation {
+							cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
+							dax: vm.dax.map(|dax| dax.window_size as u64),
 							kernel_path: vm.kernel_path.clone(),
 							max_cpu: vm.max_cpu,
 							max_memory: vm.max_memory,
@@ -96,6 +98,8 @@ impl Server {
 			);
 			return Some(tangram_sandbox::Isolation::Vm(
 				tangram_sandbox::VmIsolation {
+					cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
+					dax: vm.dax.map(|dax| dax.window_size as u64),
 					kernel_path: vm.kernel_path.clone(),
 					max_cpu: vm.max_cpu,
 					max_memory: vm.max_memory,

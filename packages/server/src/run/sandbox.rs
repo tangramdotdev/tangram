@@ -139,6 +139,8 @@ impl Session {
 							.unwrap_or_else(|| self.server.vm_snapshot_path()),
 					);
 					tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
+						cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
+						dax: vm.dax.map(|dax| dax.window_size as u64),
 						kernel_path,
 						max_cpu: vm.max_cpu,
 						max_memory: vm.max_memory,
@@ -206,10 +208,10 @@ impl Session {
 		// Start the per-sandbox virtiofsd serving artifacts. Kept as a local so the daemon
 		// stops and the socket file is removed when the sandbox task ends.
 		#[cfg(target_os = "linux")]
-		let _vfs = if matches!(isolation, tangram_sandbox::Isolation::Vm(_)) {
+		let _vfs = if let tangram_sandbox::Isolation::Vm(vm) = &isolation {
 			let socket = temp.path().join("vfs.sock");
 			let options = self.server.config.vfs.unwrap_or_default();
-			let vfs = crate::vfs::Server::start_virtiofsd(&self.server, options, &socket)
+			let vfs = crate::vfs::Server::start_virtiofs(&self.server, options, &socket, vm.dax)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to start the artifacts vfs"))?;
 			Some(vfs)
@@ -573,6 +575,13 @@ impl Server {
 			.map_err(|error| {
 				tg::error!(!error, "failed to create the vm snapshot temp directory")
 			})?;
+		let _vfs = {
+			let socket = temp.path().join("vfs.sock");
+			let options = self.config.vfs.unwrap_or_default();
+			crate::vfs::Server::start_virtiofs(self, options, &socket, vm.dax)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to start the artifacts vfs"))?
+		};
 		let image_path = self.sandbox_vm_image.as_ref().ok_or_else(|| {
 			tg::error!(
 				"cannot create the vm snapshot without an image; ensure vm isolation is configured"
@@ -588,7 +597,8 @@ impl Server {
 			crate::config::SandboxNetworkFirewall::Iptables => tangram_sandbox::Firewall::Iptables,
 			crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 		};
-		let status = tokio::process::Command::new(&self.tangram_path)
+		let mut command = tokio::process::Command::new(&self.tangram_path);
+		command
 			.arg("sandbox")
 			.arg("vm")
 			.arg("run")
@@ -619,7 +629,14 @@ impl Server {
 			.arg("--path")
 			.arg(temp.path())
 			.arg("--url")
-			.arg("http+vsock://2:6748")
+			.arg("http+vsock://2:6748");
+		if let Some(dax) = vm.dax {
+			command.arg("--dax").arg(dax.to_string());
+		}
+		if let Some(path) = &vm.cloud_hypervisor_path {
+			command.arg("--cloud-hypervisor-path").arg(path);
+		}
+		let status = command
 			.status()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to spawn the snapshot process"))?;

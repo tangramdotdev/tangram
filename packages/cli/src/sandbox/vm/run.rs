@@ -10,11 +10,17 @@ pub struct Args {
 	#[arg(long)]
 	pub artifacts_path: PathBuf,
 
+	#[arg(long)]
+	pub cloud_hypervisor_path: Option<PathBuf>,
+
 	#[arg(long, hide = true, value_name = "DIR")]
 	pub create_snapshot: Option<PathBuf>,
 
 	#[arg(long)]
 	pub cpu: Option<u64>,
+
+	#[arg(long, hide = true)]
+	pub dax: Option<u64>,
 
 	#[arg(action = clap::ArgAction::Append, long = "dns", num_args = 1)]
 	pub dns: Vec<Ipv4Addr>,
@@ -87,8 +93,10 @@ impl Cli {
 	pub fn command_sandbox_vm_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::vm::run::Arg {
 			artifacts_path: args.artifacts_path,
+			cloud_hypervisor_path: args.cloud_hypervisor_path,
 			create_snapshot: args.create_snapshot,
 			cpu: args.cpu,
+			dax: args.dax,
 			dns: args.dns,
 			firewall: args.firewall,
 			guest_ip: args.guest_ip,

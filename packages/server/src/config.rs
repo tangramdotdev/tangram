@@ -645,9 +645,17 @@ pub enum SandboxIsolationDefault {
 #[serde(default, deny_unknown_fields)]
 pub struct SeatbeltSandboxIsolation {}
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VmSandboxIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cloud_hypervisor_path: Option<PathBuf>,
+
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(default = "default_vm_dax")]
+	pub dax: Option<Dax>,
+
 	pub kernel_path: PathBuf,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -667,6 +675,12 @@ pub struct VmSandboxIsolation {
 
 	#[serde(default = "default_vm_snapshot_memory")]
 	pub snapshot_memory: u64,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Dax {
+	pub window_size: usize,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1238,6 +1252,14 @@ impl Default for SandboxIsolation {
 	}
 }
 
+impl Default for Dax {
+	fn default() -> Self {
+		Self {
+			window_size: 8 * 1024 * 1024 * 1024,
+		}
+	}
+}
+
 impl Default for SandboxNetwork {
 	fn default() -> Self {
 		Self {
@@ -1462,6 +1484,11 @@ fn default_ip_ranges() -> Vec<IpRange> {
 
 fn default_dns() -> Vec<Ipv4Addr> {
 	Vec::new()
+}
+
+#[expect(clippy::unnecessary_wraps)]
+fn default_vm_dax() -> Option<Dax> {
+	Some(Dax::default())
 }
 
 fn default_vm_snapshot_cpu() -> u64 {

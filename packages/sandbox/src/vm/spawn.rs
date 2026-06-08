@@ -43,6 +43,12 @@ pub(crate) fn spawn(
 		.arg(&arg.tangram_path)
 		.arg("--url")
 		.arg(serve_arg.url.to_string());
+	if let Some(dax) = vm.dax {
+		command.arg("--dax").arg(dax.to_string());
+	}
+	if let Some(path) = &vm.cloud_hypervisor_path {
+		command.arg("--cloud-hypervisor-path").arg(path);
+	}
 	if let Some(snapshot) = &vm.snapshot {
 		command.arg("--snapshot").arg(snapshot);
 	}

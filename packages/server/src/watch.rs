@@ -227,7 +227,7 @@ impl Watch {
 			lock,
 			solutions,
 			version,
-			next: _next,
+			next,
 		} = arg;
 		let mut state = self.state.lock().unwrap();
 
@@ -249,7 +249,9 @@ impl Watch {
 
 		// On Linux, add the new paths.
 		#[cfg(target_os = "linux")]
-		state.add_paths_linux(_next);
+		state.add_paths_linux(next);
+		#[cfg(not(target_os = "linux"))]
+		let _ = next;
 
 		true
 	}
