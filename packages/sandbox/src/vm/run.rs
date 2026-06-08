@@ -13,6 +13,10 @@ use {
 		},
 		path::{Path, PathBuf},
 		process::ExitCode,
+		sync::{
+			Arc,
+			atomic::{AtomicBool, Ordering},
+		},
 		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
@@ -401,11 +405,14 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.try_clone()
 		.map_err(|error| tg::error!(!error, "failed to clone the serial socket"))?;
 	let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+	let suppress_resume_echo = Arc::new(AtomicBool::new(false));
+	let suppress_resume_echo_ = suppress_resume_echo.clone();
 	std::thread::spawn(move || {
 		let mut stream = serial_reader;
 		let mut buf = [0u8; 4096];
 		let mut signaled = false;
 		let stderr = std::io::stderr();
+		let suppress_resume_echo = suppress_resume_echo_;
 		loop {
 			match std::io::Read::read(&mut stream, &mut buf) {
 				Ok(0) | Err(_) => return,
@@ -416,7 +423,21 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 						let output = chunk
 							.iter()
 							.copied()
-							.filter(|byte| *byte != 0)
+							.filter(|byte| {
+								if *byte == 0 {
+									return false;
+								}
+								if suppress_resume_echo.load(Ordering::Relaxed) {
+									if matches!(*byte, b'\r' | b'\n') {
+										if *byte == b'\n' {
+											suppress_resume_echo.store(false, Ordering::Relaxed);
+										}
+										return false;
+									}
+									suppress_resume_echo.store(false, Ordering::Relaxed);
+								}
+								true
+							})
 							.collect::<Vec<_>>();
 						if !output.is_empty() {
 							let _ = std::io::Write::write_all(&mut handle, &output);
@@ -525,8 +546,9 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				&["add-net", net],
 			)?;
 		}
+		suppress_resume_echo.store(true, Ordering::Relaxed);
 		serial_stream
-			.write_all(&[0])
+			.write_all(b"\n")
 			.map_err(|error| tg::error!(!error, "failed to write the resume signal"))?;
 		serial_stream
 			.flush()
