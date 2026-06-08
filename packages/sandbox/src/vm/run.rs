@@ -526,7 +526,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			)?;
 		}
 		serial_stream
-			.write_all(b"\n")
+			.write_all(&[0])
 			.map_err(|error| tg::error!(!error, "failed to write the resume signal"))?;
 		serial_stream
 			.flush()
