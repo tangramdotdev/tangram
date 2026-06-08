@@ -137,7 +137,8 @@ impl Session {
 							.unwrap_or_else(|| self.server.vm_snapshot_path()),
 					);
 					tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
-						dax: vm.dax.map(|dax| dax.window_size_kib as u64 * 1024),
+						cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
+						dax: vm.dax.map(|dax| dax.window_size as u64),
 						kernel_path,
 						max_cpu: vm.max_cpu,
 						max_memory: vm.max_memory,
@@ -627,6 +628,9 @@ impl Server {
 			.arg("http+vsock://2:6748");
 		if let Some(dax) = vm.dax {
 			command.arg("--dax").arg(dax.to_string());
+		}
+		if let Some(path) = &vm.cloud_hypervisor_path {
+			command.arg("--cloud-hypervisor-path").arg(path);
 		}
 		let status = command
 			.status()

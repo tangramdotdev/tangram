@@ -49,6 +49,7 @@ const VMM_GUEST_CID: u32 = 3;
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub artifacts_path: PathBuf,
+	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub create_snapshot: Option<PathBuf>,
 	pub cpu: Option<u64>,
 	pub dax: Option<u64>,
@@ -302,8 +303,12 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		helpers.push(ChildProcess::new(sandbox_pid));
 	}
 
-	let cloud_hypervisor_bin = find_in_path("cloud-hypervisor")
-		.map_err(|error| tg::error!(!error, "failed to locate cloud-hypervisor on PATH"))?;
+	let cloud_hypervisor_bin = if let Some(path) = &arg.cloud_hypervisor_path {
+		path.clone()
+	} else {
+		find_in_path("cloud-hypervisor")
+			.map_err(|error| tg::error!(!error, "failed to locate cloud-hypervisor on PATH"))?
+	};
 	tracing::trace!(
 		"cloud-hypervisor binary: {}",
 		cloud_hypervisor_bin.display()

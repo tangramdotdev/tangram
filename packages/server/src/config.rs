@@ -649,6 +649,9 @@ pub struct SeatbeltSandboxIsolation {}
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VmSandboxIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cloud_hypervisor_path: Option<PathBuf>,
+
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_vm_dax")]
 	pub dax: Option<Dax>,
@@ -677,8 +680,7 @@ pub struct VmSandboxIsolation {
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Dax {
-	#[serde(rename = "window_size")]
-	pub window_size_kib: usize,
+	pub window_size: usize,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1253,7 +1255,7 @@ impl Default for SandboxIsolation {
 impl Default for Dax {
 	fn default() -> Self {
 		Self {
-			window_size_kib: 8 * 1024 * 1024,
+			window_size: 8 * 1024 * 1024 * 1024,
 		}
 	}
 }
