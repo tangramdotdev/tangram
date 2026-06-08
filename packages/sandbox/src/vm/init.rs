@@ -104,7 +104,7 @@ pub fn run() -> tg::Result<ExitCode> {
 
 	let mut stat: libc::stat = unsafe { std::mem::zeroed() };
 	let path = c"/mnt/host/opt/tangram/artifacts";
-	if unsafe { libc::stat(path.as_ptr(), &mut stat) } == 0 {
+	if unsafe { libc::stat(path.as_ptr(), &raw mut stat) } == 0 {
 		let major = libc::major(stat.st_dev);
 		let minor = libc::minor(stat.st_dev);
 		let bdi = format!("/sys/class/bdi/{major}:{minor}/read_ahead_kb");
