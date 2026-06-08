@@ -121,7 +121,7 @@ num-derive = "0.4"
 num-traits = "0.2"
 nu-ansi-term = "0.50"
 oauth2 = "5.0.0"
-octocrab = "0.51"
+octocrab = "0.53"
 opentelemetry = "0.32"
 opentelemetry-appender-tracing = "0.32"
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
@@ -198,8 +198,8 @@ tower = { version = "0.5", features = ["timeout", "util"] }
 tower-http = { version = "0.6", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = "0.1.44"
 tracing-opentelemetry = "0.33"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
-tracing-tree = "0.4.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-tree = "0.4"
 turso = "0.6.0"
 unicode-segmentation = "1"
 unicode-width = "0.2"
@@ -208,7 +208,7 @@ v8 = { git = "https://github.com/tangramdotdev/rusty_v8" }
 virtiofsd = "1"
 vhost = "0.16"
 vhost-user-backend = "0.22"
-vm-memory = { version = "0.17.1", features = ["backend-atomic", "backend-mmap"] }
+vm-memory = { version = "0.17", features = ["backend-atomic", "backend-mmap"] }
 waitpid-any = "0.3"
 webbrowser = "1"
 winnow = "1"
