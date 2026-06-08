@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication},
+	crate::Session,
 	futures::FutureExt as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -13,12 +13,7 @@ use {
 
 impl Session {
 	pub(crate) async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let location = self

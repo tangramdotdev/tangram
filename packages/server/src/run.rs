@@ -54,7 +54,6 @@ impl Server {
 			};
 
 			self.spawn_sandbox_task(SpawnSandboxTaskArg {
-				created_by: output.created_by,
 				id: output.sandbox,
 				location,
 				permit,

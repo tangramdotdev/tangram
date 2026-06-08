@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication},
+	crate::Session,
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -16,12 +16,7 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 

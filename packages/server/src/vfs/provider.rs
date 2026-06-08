@@ -1359,7 +1359,7 @@ impl Provider {
 		let arg = crate::object::store::TryGetArg {
 			id: id.clone(),
 			now: time::OffsetDateTime::now_utc().unix_timestamp(),
-			principal: tg::Principal::Root,
+			principal: Some(tg::Principal::Root),
 		};
 		let object = self
 			.server
@@ -1822,7 +1822,7 @@ impl Provider {
 			let arg = crate::object::store::TryGetArg {
 				id: id.clone(),
 				now: time::OffsetDateTime::now_utc().unix_timestamp(),
-				principal: tg::Principal::Root,
+				principal: Some(tg::Principal::Root),
 			};
 			return store
 				.try_get_with_transaction(transaction, &arg)
@@ -1836,7 +1836,7 @@ impl Provider {
 		let arg = crate::object::store::TryGetArg {
 			id: id.clone(),
 			now: time::OffsetDateTime::now_utc().unix_timestamp(),
-			principal: tg::Principal::Root,
+			principal: Some(tg::Principal::Root),
 		};
 		self.server
 			.object_store

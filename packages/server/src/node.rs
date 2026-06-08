@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication, database::Transaction},
+	crate::{Session, database::Transaction},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -220,20 +220,15 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 	) -> tg::Result<Vec<String>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_root)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Root)) {
 			return Ok(Vec::new());
 		}
 		let public = Self::ensure_public_group_with_transaction(transaction).await?;
 		let mut principals = vec![public.to_string()];
-		if let Some(Authentication::User(user)) = &self.context.authentication {
-			principals.push(user.id.to_string());
+		if let Some(tg::Principal::User(user)) = &self.context.principal {
+			principals.push(user.to_string());
 			principals.extend(
-				Self::direct_memberships_with_transaction(transaction, &user.id.clone().into())
+				Self::direct_memberships_with_transaction(transaction, &user.clone().into())
 					.await?,
 			);
 		}
@@ -247,12 +242,7 @@ impl Session {
 		transaction: &Transaction<'_>,
 		id: &tg::Id,
 	) -> tg::Result<bool> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_root)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Root)) {
 			return Ok(true);
 		}
 		let principals = self

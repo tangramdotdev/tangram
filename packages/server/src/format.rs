@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication},
+	crate::Session,
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -10,12 +10,7 @@ use {
 
 impl Session {
 	pub(crate) async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 

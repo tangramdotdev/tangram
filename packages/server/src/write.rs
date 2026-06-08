@@ -118,7 +118,7 @@ impl Session {
 		reader: impl AsyncRead,
 		destination: Option<&Destination>,
 	) -> tg::Result<Output> {
-		let principal = self.write_principal();
+		let principal = self.context.principal.clone();
 
 		// Create the reader.
 		let reader = pin!(reader);
@@ -222,7 +222,7 @@ impl Session {
 		destination: Option<&Destination>,
 		progress: &crate::progress::Handle<crate::checkin::TaskOutput>,
 	) -> tg::Result<Output> {
-		let principal = self.write_principal();
+		let principal = self.context.principal.clone();
 
 		// Create the chunker.
 		let config = &self.server.config.write;
@@ -445,7 +445,7 @@ impl Session {
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		stored_at: i64,
 	) -> tg::Result<()> {
-		let principal = self.write_principal();
+		let principal = self.context.principal.clone();
 		let arg =
 			Self::write_store_args(blob, cache_pointer.as_ref(), principal.as_ref(), stored_at);
 		self.server

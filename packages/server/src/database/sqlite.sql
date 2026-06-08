@@ -77,7 +77,7 @@ create table grants (
 	principal text not null,
 	permission text not null,
 	created_at integer not null,
-	created_by text,
+	creator text,
 	unique (resource, principal, permission)
 );
 

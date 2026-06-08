@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, database},
+	crate::{Server, Session, authorization, database},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -141,69 +141,160 @@ impl Server {
 impl Session {
 	pub(crate) async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
 		// Get a database connection.
-		let connection = self
+		let mut connection = self
 			.server
 			.process_store
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Check if the process exists.
-		let p = connection.p();
-		let sandbox = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_sandbox_ref().ok())
-			.map(|sandbox| sandbox.id.clone());
+		let p = transaction.p();
+		let sandbox = match &self.context.principal {
+			Some(tg::Principal::Sandbox(sandbox)) => Some(sandbox.clone()),
+			_ => None,
+		};
 		let principal = if sandbox.is_some() {
-			tg::Principal::Root
+			Some(tg::Principal::Root)
 		} else {
-			self.read_principal()
+			self.context.principal.clone()
 		};
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let join = if principal.is_root() {
-			String::new()
-		} else {
-			formatdoc!(
-				"
-					join process_grants on
-						process_grants.process = processes.id and
-						process_grants.principal = {p}2 and
-						process_grants.expires_at > {p}3
-				"
-			)
-		};
-		let sandbox_condition = if principal.is_root() && sandbox.is_some() {
-			format!("and processes.sandbox = {p}2")
-		} else {
-			String::new()
-		};
+		let sandbox_condition =
+			if matches!(principal, Some(tg::Principal::Root)) && sandbox.is_some() {
+				format!("and processes.sandbox = {p}2")
+			} else {
+				String::new()
+			};
 		let statement = formatdoc!(
 			"
 				select count(*) != 0
 				from processes
-				{join}
 				where processes.id = {p}1
 					{sandbox_condition};
 			"
 		);
 		let params = if let Some(sandbox) = sandbox {
 			db::params![id.to_string(), sandbox.to_string()]
-		} else if principal.is_root() {
-			db::params![id.to_string()]
 		} else {
-			db::params![id.to_string(), principal.to_string(), now]
+			db::params![id.to_string()]
 		};
-		let exists = connection
-			.query_one_value_into(statement.into(), params)
+		let exists_future = async {
+			transaction
+				.query_one_value_into(statement.into(), params)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))
+		};
+		let grants_future = Self::try_get_process_grants_for_authorization(
+			&transaction,
+			id,
+			principal.as_ref(),
+			now,
+		);
+		let (exists, grants) = futures::try_join!(exists_future, grants_future)?;
+		transaction
+			.commit()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
 		// Drop the database connection.
 		drop(connection);
 
-		Ok(exists)
+		Ok(exists && Self::authorize_process(id, principal.as_ref(), &grants))
+	}
+
+	async fn try_get_process_grants_for_authorization(
+		connection: &impl db::Query<Error = database::Error>,
+		id: &tg::process::Id,
+		principal: Option<&tg::Principal>,
+		now: i64,
+	) -> tg::Result<Vec<authorization::ProcessGrant>> {
+		let Some(principal) = principal else {
+			return Ok(Vec::new());
+		};
+		if matches!(principal, tg::Principal::Root) {
+			return Ok(Vec::new());
+		}
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+			expires_at: i64,
+			node: bool,
+			node_command: bool,
+			node_error: bool,
+			node_log: bool,
+			node_output: bool,
+			principal: String,
+			process: String,
+			subtree: bool,
+			subtree_command: bool,
+			subtree_error: bool,
+			subtree_log: bool,
+			subtree_output: bool,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select
+					created_at,
+					expires_at,
+					node,
+					node_command,
+					node_error,
+					node_log,
+					node_output,
+					principal,
+					process,
+					subtree,
+					subtree_command,
+					subtree_error,
+					subtree_log,
+					subtree_output
+				from process_grants
+				where process = {p}1
+					and principal = {p}2
+					and expires_at > {p}3;
+			"
+		);
+		let rows = connection
+			.query_all_into::<Row>(
+				statement.into(),
+				db::params![id.to_string(), principal.to_string(), now],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let grants = rows
+			.into_iter()
+			.map(|row| {
+				Ok(authorization::ProcessGrant {
+					created_at: row.created_at,
+					expires_at: row.expires_at,
+					node: row.node,
+					node_command: row.node_command,
+					node_error: row.node_error,
+					node_log: row.node_log,
+					node_output: row.node_output,
+					principal: row
+						.principal
+						.parse()
+						.map_err(|error| tg::error!(!error, "failed to parse the principal"))?,
+					process: row
+						.process
+						.parse()
+						.map_err(|error| tg::error!(!error, "failed to parse the process"))?,
+					subtree: row.subtree,
+					subtree_command: row.subtree_command,
+					subtree_error: row.subtree_error,
+					subtree_log: row.subtree_log,
+					subtree_output: row.subtree_output,
+				})
+			})
+			.collect::<tg::Result<_>>()?;
+		Ok(grants)
 	}
 }
 

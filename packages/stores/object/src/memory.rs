@@ -135,7 +135,7 @@ mod tests {
 		let output = store.try_get_sync(&crate::TryGetArg {
 			id: id.clone(),
 			now: 11,
-			principal: principal.clone(),
+			principal: Some(principal.clone()),
 		});
 		assert_eq!(
 			output.object.and_then(|object| object.bytes),
@@ -152,7 +152,7 @@ mod tests {
 		let output = store.try_get_sync(&crate::TryGetArg {
 			id,
 			now: 17,
-			principal,
+			principal: Some(principal),
 		});
 		assert!(output.object.is_none());
 		assert!(output.grants.is_empty());

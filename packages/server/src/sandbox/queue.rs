@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication, database::Database},
+	crate::{Session, database::Database},
 	futures::{StreamExt as _, future, stream},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -17,7 +17,7 @@ mod sqlite;
 mod turso;
 
 pub(super) struct LocalOutput {
-	created_by: Option<tg::user::Id>,
+	creator: Option<tg::Principal>,
 	process: Option<tg::process::Id>,
 	process_token: Option<String>,
 	sandbox: tg::sandbox::Id,
@@ -29,8 +29,8 @@ impl Session {
 		&self,
 		arg: tg::sandbox::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		match &self.context.authentication {
-			Some(Authentication::Root | Authentication::Runner) => (),
+		match &self.context.principal {
+			Some(tg::Principal::Root | tg::Principal::Runner) => (),
 			_ => return Err(tg::error!("unauthorized")),
 		}
 
@@ -106,7 +106,7 @@ impl Session {
 			};
 			if let Some(output) = output {
 				let output = tg::sandbox::queue::Output {
-					created_by: output.created_by,
+					creator: output.creator,
 					process: output.process,
 					process_token: output.process_token,
 					sandbox: output.sandbox,

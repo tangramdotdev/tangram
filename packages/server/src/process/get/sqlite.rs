@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, authorization},
 	indoc::{formatdoc, indoc},
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
@@ -11,25 +11,37 @@ impl Session {
 		&self,
 		process_store: &db::sqlite::Database,
 		ids: &[tg::process::Id],
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 		now: i64,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let connection = process_store
+		let mut connection = process_store
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
-		let outputs = connection
+		let outputs = transaction
 			.with({
 				let ids = ids.to_owned();
-				let principal = principal.clone();
+				let principal = principal.cloned();
 				move |connection, cache| {
 					Self::try_get_process_batch_sqlite_sync(
-						connection, cache, &ids, &principal, now,
+						connection,
+						cache,
+						&ids,
+						principal.as_ref(),
+						now,
 					)
 				}
 			})
 			.await?;
+		transaction
+			.commit()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		let outputs = outputs
 			.into_iter()
 			.map(|output| {
@@ -54,7 +66,7 @@ impl Session {
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,
 		ids: &[tg::process::Id],
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 		now: i64,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let mut outputs = Vec::with_capacity(ids.len());
@@ -70,7 +82,7 @@ impl Session {
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,
 		id: &tg::process::Id,
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 		now: i64,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Get the process.
@@ -100,15 +112,6 @@ impl Session {
 			stdout: Option<String>,
 			tty: Option<String>,
 		}
-		let join = if principal.is_root() {
-			""
-		} else {
-			"
-				join process_grants on
-					process_grants.process = processes.id and
-					process_grants.principal = ?2 and
-					process_grants.expires_at > ?3"
-		};
 		let statement = formatdoc!(
 			"
 				select
@@ -133,19 +136,15 @@ impl Session {
 					processes.stdout,
 					processes.tty
 				from processes
-				{join}
 				where processes.id = ?1;
 			"
 		);
 		let mut statement = cache
 			.get(connection, statement.into())
 			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = if principal.is_root() {
-			statement.query(sqlite::params![id.to_string()])
-		} else {
-			statement.query(sqlite::params![id.to_string(), principal.to_string(), now])
-		}
-		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let mut rows = statement
+			.query(sqlite::params![id.to_string()])
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(row) = rows
 			.next()
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
@@ -156,6 +155,8 @@ impl Session {
 		// Deserialize the row.
 		let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
+		let grants =
+			Self::try_get_process_grants_sqlite_sync(connection, cache, id, principal, now)?;
 		let actual_checksum = row
 			.actual_checksum
 			.map(|s| s.parse())
@@ -296,6 +297,102 @@ impl Session {
 			metadata: None,
 		};
 
-		Ok(Some(output))
+		if Self::authorize_process(id, principal, &grants) {
+			Ok(Some(output))
+		} else {
+			Ok(None)
+		}
+	}
+
+	fn try_get_process_grants_sqlite_sync(
+		connection: &sqlite::Connection,
+		cache: &db::sqlite::Cache,
+		id: &tg::process::Id,
+		principal: Option<&tg::Principal>,
+		now: i64,
+	) -> tg::Result<Vec<authorization::ProcessGrant>> {
+		let Some(principal) = principal else {
+			return Ok(Vec::new());
+		};
+		if matches!(principal, tg::Principal::Root) {
+			return Ok(Vec::new());
+		}
+		#[derive(db::sqlite::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+			expires_at: i64,
+			node: bool,
+			node_command: bool,
+			node_error: bool,
+			node_log: bool,
+			node_output: bool,
+			principal: String,
+			process: String,
+			subtree: bool,
+			subtree_command: bool,
+			subtree_error: bool,
+			subtree_log: bool,
+			subtree_output: bool,
+		}
+		let statement = indoc!(
+			"
+				select
+					created_at,
+					expires_at,
+					node,
+					node_command,
+					node_error,
+					node_log,
+					node_output,
+					principal,
+					process,
+					subtree,
+					subtree_command,
+					subtree_error,
+					subtree_log,
+					subtree_output
+				from process_grants
+				where process = ?1
+					and principal = ?2
+					and expires_at > ?3;
+			"
+		);
+		let mut statement = cache
+			.get(connection, statement.into())
+			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
+		let mut rows = statement
+			.query(sqlite::params![id.to_string(), principal.to_string(), now])
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let mut grants = Vec::new();
+		while let Some(row) = rows
+			.next()
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		{
+			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
+			grants.push(authorization::ProcessGrant {
+				created_at: row.created_at,
+				expires_at: row.expires_at,
+				node: row.node,
+				node_command: row.node_command,
+				node_error: row.node_error,
+				node_log: row.node_log,
+				node_output: row.node_output,
+				principal: row
+					.principal
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the principal"))?,
+				process: row
+					.process
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the process"))?,
+				subtree: row.subtree,
+				subtree_command: row.subtree_command,
+				subtree_error: row.subtree_error,
+				subtree_log: row.subtree_log,
+				subtree_output: row.subtree_output,
+			});
+		}
+		Ok(grants)
 	}
 }

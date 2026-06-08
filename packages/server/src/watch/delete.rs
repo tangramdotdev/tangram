@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication},
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -11,12 +11,7 @@ impl Session {
 		&self,
 		mut arg: tg::watch::delete::Arg,
 	) -> tg::Result<Option<()>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 

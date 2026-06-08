@@ -1,6 +1,6 @@
 use {
-	crate::Session,
-	indoc::formatdoc,
+	crate::{Session, authorization},
+	indoc::{formatdoc, indoc},
 	std::collections::HashMap,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -11,14 +11,18 @@ impl Session {
 		&self,
 		process_store: &db::postgres::Database,
 		ids: &[tg::process::Id],
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 		now: i64,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		// Get a process store connection.
-		let connection = process_store
+		let mut connection = process_store
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 
 		// Get the processes.
 		#[derive(db::postgres::row::Deserialize)]
@@ -61,15 +65,6 @@ impl Session {
 			#[tangram_database(as = "Option<db::value::Json<tg::process::Tty>>")]
 			tty: Option<tg::process::Tty>,
 		}
-		let join = if principal.is_root() {
-			""
-		} else {
-			"
-				join process_grants on
-					process_grants.process = processes.id and
-					process_grants.principal = $2 and
-					process_grants.expires_at > $3"
-		};
 		let statement = formatdoc!(
 			"
 				select
@@ -96,21 +91,24 @@ impl Session {
 					processes.stdout,
 					processes.tty
 				from processes
-				{join}
 				where processes.id = any($1::text[]);
 			"
 		);
 		let id_strings = ids.iter().map(ToString::to_string).collect::<Vec<_>>();
-		let principal_string = principal.to_string();
-		let rows = if principal.is_root() {
-			connection.inner().query(&statement, &[&id_strings]).await
-		} else {
-			connection
+		let row_future = async {
+			transaction
 				.inner()
-				.query(&statement, &[&id_strings, &principal_string, &now])
+				.query(&statement, &[&id_strings])
 				.await
-		}
-		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))
+		};
+		let grant_future =
+			Self::try_get_process_grants_batch_postgres(transaction.inner(), ids, principal, now);
+		let (rows, grants) = futures::try_join!(row_future, grant_future)?;
+		transaction
+			.commit()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 		let outputs = rows
 			.iter()
 			.map(|row| {
@@ -168,8 +166,102 @@ impl Session {
 			})
 			.collect::<tg::Result<HashMap<_, _>>>()?;
 
-		let outputs = ids.iter().map(|id| outputs.get(id).cloned()).collect();
+		let outputs = ids
+			.iter()
+			.map(|id| {
+				let output = outputs.get(id).cloned();
+				let grants = grants.get(id).map(Vec::as_slice).unwrap_or_default();
+				output.filter(|_| Self::authorize_process(id, principal, grants))
+			})
+			.collect();
 
 		Ok(outputs)
+	}
+
+	async fn try_get_process_grants_batch_postgres(
+		connection: &(impl tokio_postgres::GenericClient + Sync),
+		ids: &[tg::process::Id],
+		principal: Option<&tg::Principal>,
+		now: i64,
+	) -> tg::Result<HashMap<tg::process::Id, Vec<authorization::ProcessGrant>>> {
+		let Some(principal) = principal else {
+			return Ok(HashMap::default());
+		};
+		if matches!(principal, tg::Principal::Root) {
+			return Ok(HashMap::default());
+		}
+		#[derive(db::postgres::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+			expires_at: i64,
+			node: bool,
+			node_command: bool,
+			node_error: bool,
+			node_log: bool,
+			node_output: bool,
+			#[tangram_database(as = "db::postgres::value::FromStr")]
+			principal: tg::Principal,
+			#[tangram_database(as = "db::postgres::value::FromStr")]
+			process: tg::process::Id,
+			subtree: bool,
+			subtree_command: bool,
+			subtree_error: bool,
+			subtree_log: bool,
+			subtree_output: bool,
+		}
+		let statement = indoc!(
+			"
+			select
+				created_at,
+				expires_at,
+				node,
+				node_command,
+				node_error,
+				node_log,
+				node_output,
+				principal,
+				process,
+				subtree,
+				subtree_command,
+				subtree_error,
+				subtree_log,
+				subtree_output
+			from process_grants
+			where process = any($1::text[])
+				and principal = $2
+				and expires_at > $3;
+		"
+		);
+		let id_strings = ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+		let principal = principal.to_string();
+		let rows = connection
+			.query(statement, &[&id_strings, &principal, &now])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let mut grants = HashMap::default();
+		for row in &rows {
+			let row = <Row as db::postgres::row::Deserialize>::deserialize(row)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the row"))?;
+			grants
+				.entry(row.process.clone())
+				.or_insert_with(Vec::new)
+				.push(authorization::ProcessGrant {
+					created_at: row.created_at,
+					expires_at: row.expires_at,
+					node: row.node,
+					node_command: row.node_command,
+					node_error: row.node_error,
+					node_log: row.node_log,
+					node_output: row.node_output,
+					principal: row.principal,
+					process: row.process,
+					subtree: row.subtree,
+					subtree_command: row.subtree_command,
+					subtree_error: row.subtree_error,
+					subtree_log: row.subtree_log,
+					subtree_output: row.subtree_output,
+				});
+		}
+		Ok(grants)
 	}
 }

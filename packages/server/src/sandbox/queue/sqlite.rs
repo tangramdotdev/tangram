@@ -27,7 +27,7 @@ impl Session {
 	) -> tg::Result<ControlFlow<Option<LocalOutput>, db::sqlite::Error>> {
 		let statement = indoc!(
 			"
-				select id, created_by
+				select id, creator
 				from sandboxes
 				where status = 'created'
 				order by created_at, id
@@ -41,16 +41,16 @@ impl Session {
 			.optional()
 			.map_err(db::sqlite::Error::from);
 		let row = crate::database::retry!(result, "failed to execute the statement");
-		let Some((sandbox, created_by)) = row else {
+		let Some((sandbox, creator)) = row else {
 			return Ok(ControlFlow::Break(None));
 		};
 		let sandbox = sandbox
 			.parse::<tg::sandbox::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
-		let created_by = created_by
-			.map(|user| user.parse::<tg::user::Id>())
+		let creator = creator
+			.map(|principal| principal.parse::<tg::Principal>())
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the user id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the principal"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let statement = indoc!(
 			"
@@ -150,7 +150,7 @@ impl Session {
 		};
 
 		Ok(ControlFlow::Break(Some(LocalOutput {
-			created_by,
+			creator,
 			process,
 			process_token,
 			sandbox,

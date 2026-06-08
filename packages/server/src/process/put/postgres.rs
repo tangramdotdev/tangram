@@ -16,14 +16,14 @@ impl Session {
 		process_store: &db::postgres::Database,
 		stored_at: i64,
 		principal: Option<&tg::Principal>,
-		created_by: Option<&tg::user::Id>,
+		creator: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		self.put_process_batch_postgres(
 			&[(id, &arg.data)],
 			process_store,
 			stored_at,
 			principal,
-			created_by,
+			creator,
 		)
 		.await
 	}
@@ -34,7 +34,7 @@ impl Session {
 		process_store: &db::postgres::Database,
 		stored_at: i64,
 		principal: Option<&tg::Principal>,
-		created_by: Option<&tg::user::Id>,
+		creator: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		if items.is_empty() {
 			return Ok(());
@@ -45,14 +45,14 @@ impl Session {
 			.map(|(id, data)| ((*id).clone(), (*data).clone()))
 			.collect::<Vec<_>>();
 		let principal = principal.cloned();
-		let created_by = created_by.cloned();
+		let creator = creator.cloned();
 		let grant_ttl = self.server.config.process.grant_time_to_live;
 
 		process_store
 			.run(|transaction| {
 				let items = items.clone();
 				let principal = principal.clone();
-				let created_by = created_by.clone();
+				let creator = creator.clone();
 				async move {
 					Self::put_process_batch_postgres_with_transaction(
 						transaction,
@@ -60,7 +60,7 @@ impl Session {
 						stored_at,
 						principal.as_ref(),
 						grant_ttl,
-						created_by.as_ref(),
+						creator.as_ref(),
 					)
 					.await
 				}
@@ -76,7 +76,7 @@ impl Session {
 		stored_at: i64,
 		principal: Option<&tg::Principal>,
 		grant_ttl: std::time::Duration,
-		created_by: Option<&tg::user::Id>,
+		creator: Option<&tg::Principal>,
 	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let mut actual_checksums: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut cacheables: Vec<bool> = Vec::with_capacity(items.len());
@@ -104,7 +104,7 @@ impl Session {
 		let mut stdouts: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut stdout_opens: Vec<Option<bool>> = Vec::with_capacity(items.len());
 		let mut stored_ats = Vec::with_capacity(items.len());
-		let mut created_bys = Vec::with_capacity(items.len());
+		let mut creators = Vec::with_capacity(items.len());
 		let mut ttys: Vec<Option<String>> = Vec::with_capacity(items.len());
 
 		for (id, data) in items {
@@ -181,7 +181,7 @@ impl Session {
 			stdouts.push((!data.stdout.is_null()).then(|| data.stdout.to_string()));
 			stdout_opens.push(stdout_open);
 			stored_ats.push(stored_at);
-			created_bys.push(created_by.map(ToString::to_string));
+			creators.push(creator.map(ToString::to_string));
 			ttys.push(
 				data.tty
 					.as_ref()
@@ -219,7 +219,7 @@ impl Session {
 					stdout,
 					stdout_open,
 					stored_at,
-					created_by,
+					creator,
 					tty
 				)
 				select
@@ -278,7 +278,7 @@ impl Session {
 					stdout = excluded.stdout,
 					stdout_open = excluded.stdout_open,
 					stored_at = excluded.stored_at,
-					created_by = excluded.created_by,
+					creator = excluded.creator,
 					tty = excluded.tty;
 			"
 		);
@@ -313,7 +313,7 @@ impl Session {
 					&stdouts,
 					&stdout_opens,
 					&stored_ats,
-					&created_bys,
+					&creators,
 					&ttys,
 				],
 			)

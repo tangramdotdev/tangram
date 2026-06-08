@@ -10,8 +10,12 @@ impl Session {
 	pub(crate) async fn list_processes_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
+		if principal.is_none() {
+			return Ok(Vec::new());
+		}
+
 		let connection = process_store
 			.connection()
 			.await
@@ -19,9 +23,9 @@ impl Session {
 
 		let outputs = connection
 			.with({
-				let principal = principal.clone();
+				let principal = principal.cloned();
 				move |connection, cache| {
-					Self::list_processes_sqlite_sync(connection, cache, &principal)
+					Self::list_processes_sqlite_sync(connection, cache, principal.as_ref())
 				}
 			})
 			.await?;
@@ -32,7 +36,7 @@ impl Session {
 	pub(crate) fn list_processes_sqlite_sync(
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
 		#[derive(db::sqlite::row::Deserialize)]
 		struct Row {
@@ -71,10 +75,10 @@ impl Session {
 			#[tangram_database(as = "Option<db::value::Json<tg::process::Tty>>")]
 			tty: Option<tg::process::Tty>,
 		}
-		let created_by_condition = if principal.is_root() {
-			"created_by is null"
+		let creator_condition = if matches!(principal, Some(tg::Principal::Root)) {
+			"creator is null"
 		} else {
-			"created_by = ?1"
+			"creator = ?1"
 		};
 		let statement = formatdoc!(
 			"
@@ -101,16 +105,16 @@ impl Session {
 					stdout,
 					tty
 				from processes
-				where status != 'finished' and {created_by_condition};
+				where status != 'finished' and {creator_condition};
 			"
 		);
 		let mut statement = cache
 			.get(connection, statement.into())
 			.map_err(|error| tg::error!(!error, "failed to prepare the statement"))?;
-		let mut rows = if principal.is_root() {
+		let mut rows = if matches!(principal, Some(tg::Principal::Root)) {
 			statement.query([])
 		} else {
-			statement.query([principal.to_string()])
+			statement.query([principal.unwrap().to_string()])
 		}
 		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 

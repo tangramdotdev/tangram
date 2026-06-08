@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication, database::Transaction},
+	crate::{Session, database::Transaction},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -38,12 +38,7 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 

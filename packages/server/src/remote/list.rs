@@ -1,10 +1,6 @@
 use {
-	crate::{
-		Session,
-		authentication::{Authentication, Process, Sandbox},
-	},
+	crate::Session,
 	indoc::formatdoc,
-	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -23,63 +19,19 @@ impl Session {
 		&self,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		let Some(authentication) = self.context.authentication.as_ref() else {
+		let Some(authentication) = self.context.principal.as_ref() else {
 			return self.list_remotes_root().await;
 		};
 		match authentication {
-			Authentication::Process(process) => self.list_remotes_process(process).await,
-			Authentication::Root => self.list_remotes_root().await,
-			Authentication::Runner => self.list_remotes_runner().await,
-			Authentication::Sandbox(sandbox) => self.list_remotes_sandbox(sandbox).await,
-			Authentication::User(user) => self.list_remotes_user(user).await,
+			tg::Principal::Process(_) | tg::Principal::Root | tg::Principal::Sandbox(_) => {
+				self.list_remotes_root().await
+			},
+			tg::Principal::Runner => self.list_remotes_runner().await,
+			tg::Principal::User(user) => self.list_remotes_user(user).await,
+			tg::Principal::Group(_) | tg::Principal::Organization(_) => {
+				Err(tg::error!("unauthorized"))
+			},
 		}
-	}
-
-	async fn list_remotes_process(
-		&self,
-		process: &Arc<Process>,
-	) -> tg::Result<tg::remote::list::Output> {
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let remote = process.location.as_ref().and_then(|location| {
-			let tg::Location::Remote(remote) = location else {
-				return None;
-			};
-			Some(remote.name.clone())
-		});
-		let user = process.created_by.as_ref().map(ToString::to_string);
-		let statement = formatdoc!(
-			r#"
-				select name, url
-				from remotes
-				where
-					({p}1 is null or name = {p}1) and (
-						("user" is null and {p}2 is null) or
-						"user" = {p}2
-					)
-				order by name;
-			"#,
-		);
-		let params = db::params![remote, user];
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let data = rows
-			.into_iter()
-			.map(|row| tg::remote::get::Output {
-				name: row.name,
-				token: None,
-				url: row.url,
-			})
-			.collect();
-		let output = tg::remote::list::Output { data };
-		Ok(output)
 	}
 
 	async fn list_remotes_root(&self) -> tg::Result<tg::remote::list::Output> {
@@ -153,119 +105,7 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn list_remotes_sandbox(
-		&self,
-		sandbox: &Sandbox,
-	) -> tg::Result<tg::remote::list::Output> {
-		match &sandbox.location {
-			tg::Location::Local(_) => self.list_remotes_sandbox_local(sandbox).await,
-			tg::Location::Remote(remote) => self.list_remotes_sandbox_remote(&remote.name).await,
-		}
-	}
-
-	async fn list_remotes_sandbox_local(
-		&self,
-		sandbox: &Sandbox,
-	) -> tg::Result<tg::remote::list::Output> {
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		#[derive(db::row::Deserialize)]
-		struct SandboxRow {
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			created_by: Option<tg::user::Id>,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select created_by
-				from sandboxes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![sandbox.id.to_string()];
-		let created_by = connection
-			.query_optional_into::<SandboxRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.map_or_else(|| sandbox.created_by.clone(), |row| row.created_by);
-		drop(connection);
-
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select name, url
-				from remotes
-				where
-					("user" is null and {p}1 is null) or
-					"user" = {p}1
-				order by name;
-			"#,
-		);
-		let user = created_by.as_ref().map(ToString::to_string);
-		let params = db::params![user];
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let data = rows
-			.into_iter()
-			.map(|row| tg::remote::get::Output {
-				name: row.name,
-				token: None,
-				url: row.url,
-			})
-			.collect();
-		let output = tg::remote::list::Output { data };
-		Ok(output)
-	}
-
-	async fn list_remotes_sandbox_remote(
-		&self,
-		remote: &str,
-	) -> tg::Result<tg::remote::list::Output> {
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select name, url
-				from remotes
-				where name = {p}1 and "user" is null
-				order by name;
-			"#,
-		);
-		let params = db::params![remote];
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let data = rows
-			.into_iter()
-			.map(|row| tg::remote::get::Output {
-				name: row.name,
-				token: None,
-				url: row.url,
-			})
-			.collect();
-		let output = tg::remote::list::Output { data };
-		Ok(output)
-	}
-
-	async fn list_remotes_user(&self, user: &tg::User) -> tg::Result<tg::remote::list::Output> {
+	async fn list_remotes_user(&self, user: &tg::user::Id) -> tg::Result<tg::remote::list::Output> {
 		let connection = self
 			.server
 			.database
@@ -281,7 +121,7 @@ impl Session {
 				order by name;
 			"#,
 		);
-		let params = db::params![user.id.to_string()];
+		let params = db::params![user.to_string()];
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await

@@ -17,7 +17,7 @@ impl Store {
 			)
 			.await?;
 		if output.object.is_some()
-			&& (matches!(arg.principal, tg::Principal::Root) || !output.grants.is_empty())
+			&& (matches!(arg.principal, Some(tg::Principal::Root)) || !output.grants.is_empty())
 		{
 			return Ok(output);
 		}
@@ -37,7 +37,7 @@ impl Store {
 		grant_statement: &scylla::statement::prepared::PreparedStatement,
 	) -> tg::Result<TryGetOutput> {
 		let object_future = self.try_get_object(&arg.id, object_statement);
-		let grant_future = self.try_get_grant(&arg.id, &arg.principal, grant_statement);
+		let grant_future = self.try_get_grant(&arg.id, arg.principal.as_ref(), grant_statement);
 		let (object, grants) = futures::try_join!(object_future, grant_future)?;
 		Ok(TryGetOutput { grants, object })
 	}
@@ -88,9 +88,12 @@ impl Store {
 	async fn try_get_grant(
 		&self,
 		id: &tg::object::Id,
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 		statement: &scylla::statement::prepared::PreparedStatement,
 	) -> tg::Result<Vec<crate::Grant>> {
+		let Some(principal) = principal else {
+			return Ok(Vec::new());
+		};
 		if matches!(principal, tg::Principal::Root) {
 			return Ok(Vec::new());
 		}
@@ -127,7 +130,7 @@ impl Store {
 		let object_future = self.try_get_object_batch(&arg.ids, &self.statements.get_object_batch);
 		let grant_future = self.try_get_grant_batch(
 			&arg.ids,
-			&arg.principal,
+			arg.principal.as_ref(),
 			&self.statements.get_object_grant_batch,
 		);
 		let (mut objects, mut grants) = futures::try_join!(object_future, grant_future)?;
@@ -137,7 +140,7 @@ impl Store {
 			.iter()
 			.filter(|id| {
 				!objects.contains_key(*id)
-					|| (!matches!(arg.principal, tg::Principal::Root)
+					|| (!matches!(arg.principal, Some(tg::Principal::Root))
 						&& grants.get(*id).is_none_or(std::vec::Vec::is_empty))
 			})
 			.cloned()
@@ -148,7 +151,8 @@ impl Store {
 			let mut grant_statement = self.statements.get_object_grant_batch.clone();
 			grant_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 			let object_future = self.try_get_object_batch(&missing, &object_statement);
-			let grant_future = self.try_get_grant_batch(&missing, &arg.principal, &grant_statement);
+			let grant_future =
+				self.try_get_grant_batch(&missing, arg.principal.as_ref(), &grant_statement);
 			let (missing_objects, missing_grants) =
 				futures::try_join!(object_future, grant_future)?;
 			objects.extend(missing_objects);
@@ -219,9 +223,12 @@ impl Store {
 	async fn try_get_grant_batch(
 		&self,
 		ids: &[tg::object::Id],
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 		statement: &scylla::statement::prepared::PreparedStatement,
 	) -> tg::Result<HashMap<tg::object::Id, Vec<crate::Grant>, tg::id::BuildHasher>> {
+		let Some(principal) = principal else {
+			return Ok(HashMap::default());
+		};
 		if matches!(principal, tg::Principal::Root) {
 			return Ok(HashMap::default());
 		}

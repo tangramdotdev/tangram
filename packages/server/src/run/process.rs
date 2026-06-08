@@ -22,6 +22,7 @@ mod tty;
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
 	pub process: tg::Process,
+	pub process_token: String,
 	pub process_stopper: &'a Stopper,
 	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
 	pub sandbox: &'a tangram_sandbox::Sandbox,
@@ -31,12 +32,13 @@ impl Session {
 	pub(super) fn spawn_process_task(&self, arg: SpawnProcessTaskArg<'_>) {
 		let session = self.clone();
 		let process = arg.process;
+		let process_token = arg.process_token;
 		let sandbox = arg.sandbox.clone();
 		let guest_url = arg.guest_url.clone();
 		let stopper = arg.process_stopper.clone();
 		arg.process_tasks.spawn(async move {
 			session
-				.process_task(&process, sandbox, guest_url, stopper)
+				.process_task(&process, process_token, sandbox, guest_url, stopper)
 				.await
 		});
 	}
@@ -44,12 +46,13 @@ impl Session {
 	pub(crate) async fn process_task(
 		&self,
 		process: &tg::Process,
+		process_token: String,
 		sandbox: tangram_sandbox::Sandbox,
 		guest_url: tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let result = self
-			.run_process(process, sandbox, &guest_url, stopper)
+			.run_process(process, process_token, sandbox, &guest_url, stopper)
 			.await;
 		let output = match result {
 			Ok(output) => output,
@@ -147,6 +150,7 @@ impl Session {
 	async fn run_process(
 		&self,
 		process: &tg::Process,
+		token: String,
 		sandbox: tangram_sandbox::Sandbox,
 		guest_url: &tangram_uri::Uri,
 		stopper: Stopper,
@@ -155,14 +159,6 @@ impl Session {
 		let location = process
 			.location()
 			.and_then(|location| location.to_location());
-		let token = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
-			.ok_or_else(|| tg::error!("expected process authentication"))?
-			.token
-			.clone();
 		let state = &process
 			.load_with_handle(self)
 			.await
@@ -329,7 +325,7 @@ impl Session {
 		let sandbox_process = sandbox
 			.spawn(tangram_sandbox::SpawnArg {
 				command: sandbox_command,
-				created_by: sandbox.created_by().cloned(),
+				creator: sandbox.creator().cloned(),
 				debug: state.debug.clone(),
 				id: id.clone(),
 				location: location.clone(),

@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, authentication::Authentication, database::Database},
+	crate::{Server, Session, database::Database},
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -20,11 +20,7 @@ impl Session {
 			}
 		}
 
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
+		if matches!(self.context.principal, Some(tg::Principal::Process(_)))
 			&& fields.is_none_or(|fields| {
 				fields
 					.iter()

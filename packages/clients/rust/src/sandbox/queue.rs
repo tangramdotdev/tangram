@@ -21,7 +21,7 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub created_by: Option<tg::user::Id>,
+	pub creator: Option<tg::Principal>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<tg::process::Id>,

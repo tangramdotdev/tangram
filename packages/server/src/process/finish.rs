@@ -1,7 +1,6 @@
 use {
 	crate::{
 		Session,
-		authentication::Authentication,
 		database::{self, Transaction},
 	},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
@@ -88,10 +87,10 @@ impl Session {
 	) -> tg::Result<Option<bool>> {
 		// Authorize.
 		if !matches!(
-			self.context.authentication.as_ref(),
-			Some(authentication) if match authentication {
-				Authentication::Process(process) => process.id == *id,
-				Authentication::Root => true,
+			self.context.principal.as_ref(),
+			Some(principal) if match principal {
+				tg::Principal::Process(process) => process == id,
+				tg::Principal::Root => true,
 				_ => false,
 			}
 		) {

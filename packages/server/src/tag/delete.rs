@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication, tag::get_tag_data_with_transaction},
+	crate::{Session, tag::get_tag_data_with_transaction},
 	futures::FutureExt as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -13,12 +13,7 @@ impl Session {
 		&self,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let location = self

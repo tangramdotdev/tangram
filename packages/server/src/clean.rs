@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, authentication::Authentication, database::Database, temp::Temp},
+	crate::{Server, Session, database::Database, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	num::ToPrimitive as _,
 	std::{ops::ControlFlow, panic::AssertUnwindSafe, time::Duration},
@@ -24,12 +24,7 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + use<>,
 	> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 

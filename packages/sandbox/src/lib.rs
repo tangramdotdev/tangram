@@ -52,7 +52,7 @@ pub struct State {
 
 #[derive(Clone, Debug)]
 pub struct Process {
-	created_by: Option<tg::user::Id>,
+	creator: Option<tg::Principal>,
 	debug: Option<tg::process::Debug>,
 	id: tg::process::Id,
 	location: Option<tg::Location>,
@@ -64,7 +64,7 @@ pub struct Process {
 #[derive(Clone, Debug)]
 pub struct SpawnArg {
 	pub command: Command,
-	pub created_by: Option<tg::user::Id>,
+	pub creator: Option<tg::Principal>,
 	pub debug: Option<tg::process::Debug>,
 	pub id: tg::process::Id,
 	pub location: Option<tg::Location>,
@@ -78,7 +78,7 @@ pub struct SpawnArg {
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
-	pub created_by: Option<tg::user::Id>,
+	pub creator: Option<tg::Principal>,
 	pub dns: Vec<Ipv4Addr>,
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
@@ -511,7 +511,7 @@ impl Sandbox {
 		};
 		self.0.client.spawn(spawn_arg).await?;
 		let process = Process {
-			created_by: arg.created_by.clone(),
+			creator: arg.creator.clone(),
 			debug: arg.debug.clone(),
 			id: id.clone(),
 			location: arg.location.clone(),
@@ -526,8 +526,8 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn created_by(&self) -> Option<&tg::user::Id> {
-		self.0.arg.created_by.as_ref()
+	pub fn creator(&self) -> Option<&tg::Principal> {
+		self.0.arg.creator.as_ref()
 	}
 
 	pub fn remove_process(&self, token: &str) {
@@ -626,8 +626,8 @@ impl Sandbox {
 
 impl Process {
 	#[must_use]
-	pub fn created_by(&self) -> Option<&tg::user::Id> {
-		self.created_by.as_ref()
+	pub fn creator(&self) -> Option<&tg::Principal> {
+		self.creator.as_ref()
 	}
 
 	#[must_use]

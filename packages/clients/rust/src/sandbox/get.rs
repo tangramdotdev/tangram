@@ -19,7 +19,7 @@ pub struct Output {
 	pub cpu: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub created_by: Option<tg::user::Id>,
+	pub creator: Option<tg::Principal>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,

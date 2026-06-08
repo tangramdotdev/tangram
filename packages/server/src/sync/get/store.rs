@@ -104,7 +104,7 @@ impl Session {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the objects.
-		let principal = self.write_principal();
+		let principal = self.context.principal.clone();
 		let args = items
 			.iter()
 			.map(|item| {
@@ -233,7 +233,7 @@ impl Session {
 
 		// Write the processes to the database.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.write_principal();
+		let principal = self.context.principal.clone();
 		let batch_refs: Vec<_> = batch.iter().map(|(id, data, _)| (id, data)).collect();
 		match &self.server.process_store {
 			#[cfg(feature = "postgres")]

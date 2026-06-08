@@ -79,9 +79,7 @@ impl Session {
 		});
 
 		let Some(arg) = arg else {
-			if self.context.authentication.is_none()
-				&& self.server.config().authentication.is_some()
-			{
+			if self.context.principal.is_none() && self.server.config().authentication.is_some() {
 				return Ok(Output {
 					local: Some(Local {
 						current: true,

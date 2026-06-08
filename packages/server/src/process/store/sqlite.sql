@@ -1,7 +1,7 @@
 create table sandboxes (
 	cpu integer,
 	created_at integer not null,
-	created_by text,
+	creator text,
 	finished_at integer,
 	heartbeat_at integer,
 	hostname text,
@@ -34,7 +34,7 @@ create table processes (
 	cacheable integer not null,
 	command text not null,
 	created_at integer not null,
-	created_by text,
+	creator text,
 	debug text,
 	depth integer,
 	error text,
@@ -73,7 +73,7 @@ create index processes_queue_index on processes (sandbox, created_at, id) where 
 
 create index processes_status_index on processes (status);
 
-create index processes_created_by_status_index on processes (created_by, status);
+create index processes_creator_status_index on processes (creator, status);
 
 create table process_grants (
 	process text not null,

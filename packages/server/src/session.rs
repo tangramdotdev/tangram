@@ -33,17 +33,28 @@ impl Session {
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let Some(sandbox) = self
 			.context
-			.authentication
+			.principal
 			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
-			.map(|process| &process.sandbox)
+			.and_then(|principal| match principal {
+				tg::Principal::Process(process) => {
+					self.server.sandboxes.iter().find_map(|sandbox| {
+						sandbox
+							.value()
+							.processes()
+							.into_iter()
+							.any(|process_| process_.id() == process)
+							.then(|| sandbox.key().clone())
+					})
+				},
+				_ => None,
+			})
 		else {
 			return Ok(path.to_owned());
 		};
 		let sandbox = self
 			.server
 			.sandboxes
-			.get(sandbox)
+			.get(&sandbox)
 			.map(|sandbox| sandbox.value().clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
 		sandbox
@@ -54,17 +65,28 @@ impl Session {
 	pub(crate) fn guest_path_for_host_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let Some(sandbox) = self
 			.context
-			.authentication
+			.principal
 			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
-			.map(|process| &process.sandbox)
+			.and_then(|principal| match principal {
+				tg::Principal::Process(process) => {
+					self.server.sandboxes.iter().find_map(|sandbox| {
+						sandbox
+							.value()
+							.processes()
+							.into_iter()
+							.any(|process_| process_.id() == process)
+							.then(|| sandbox.key().clone())
+					})
+				},
+				_ => None,
+			})
 		else {
 			return Ok(path.to_owned());
 		};
 		let sandbox = self
 			.server
 			.sandboxes
-			.get(sandbox)
+			.get(&sandbox)
 			.map(|sandbox| sandbox.value().clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
 		sandbox

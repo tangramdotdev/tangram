@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication},
+	crate::Session,
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -59,14 +59,11 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the principal"))?;
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let created_by = match self.context.authentication.as_ref() {
-			Some(Authentication::User(user)) => Some(user.id.clone()),
-			_ => None,
-		};
+		let creator = self.context.principal.clone();
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				insert into grants (resource, principal, permission, created_at, created_by)
+				insert into grants (resource, principal, permission, created_at, creator)
 				values ({p}1, {p}2, {p}3, {p}4, {p}5)
 				on conflict (resource, principal, permission) do nothing;
 			"
@@ -79,7 +76,7 @@ impl Session {
 					principal.to_string(),
 					arg.permission.to_string(),
 					created_at,
-					created_by.as_ref().map(ToString::to_string)
+					creator.as_ref().map(ToString::to_string)
 				],
 			)
 			.await
@@ -89,11 +86,11 @@ impl Session {
 			struct Row {
 				created_at: i64,
 				#[tangram_database(as = "Option<db::value::FromStr>")]
-				created_by: Option<tg::user::Id>,
+				creator: Option<tg::Principal>,
 			}
 			let statement = formatdoc!(
 				"
-					select created_at, created_by
+					select created_at, creator
 					from grants
 					where resource = {p}1 and principal = {p}2 and permission = {p}3;
 				"
@@ -111,7 +108,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			return Ok(tg::Grant {
 				created_at: row.created_at,
-				created_by: row.created_by,
+				creator: row.creator,
 				permission: arg.permission,
 				principal,
 				resource,
@@ -121,7 +118,7 @@ impl Session {
 			.await?;
 		Ok(tg::Grant {
 			created_at,
-			created_by,
+			creator,
 			permission: arg.permission,
 			principal,
 			resource,
@@ -222,7 +219,7 @@ impl Session {
 		struct Row {
 			created_at: i64,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
-			created_by: Option<tg::user::Id>,
+			creator: Option<tg::Principal>,
 			#[tangram_database(as = "db::value::FromStr")]
 			permission: tg::grant::Permission,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -231,7 +228,7 @@ impl Session {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select created_at, created_by, permission, principal
+				select created_at, creator, permission, principal
 				from grants
 				where resource = {p}1
 				order by principal, permission;
@@ -245,7 +242,7 @@ impl Session {
 			.into_iter()
 			.map(|row| tg::Grant {
 				created_at: row.created_at,
-				created_by: row.created_by,
+				creator: row.creator,
 				permission: row.permission,
 				principal: row.principal,
 				resource: resource.clone(),
@@ -279,7 +276,10 @@ impl Session {
 					}
 					tg::grant::Principal::Organization(id)
 				},
+				tg::Principal::Process(id) => tg::grant::Principal::Process(id.clone()),
 				tg::Principal::Root => tg::grant::Principal::Root,
+				tg::Principal::Runner => tg::grant::Principal::Runner,
+				tg::Principal::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
 				tg::Principal::User(id) => {
 					let id = id.clone();
 					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())

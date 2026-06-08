@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication, database::Database},
+	crate::{Session, database::Database},
 	futures::{StreamExt as _, future, stream},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -22,8 +22,8 @@ impl Session {
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::process::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		match &self.context.authentication {
-			Some(Authentication::Sandbox(authentication)) if authentication.id == *sandbox => (),
+		match &self.context.principal {
+			Some(tg::Principal::Sandbox(authentication)) if authentication == sandbox => (),
 			_ => return Err(tg::error!("unauthorized")),
 		}
 

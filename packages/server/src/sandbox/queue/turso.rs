@@ -30,7 +30,7 @@ impl Session {
 	) -> tg::Result<ControlFlow<Option<LocalOutput>, db::turso::Error>> {
 		let statement = indoc!(
 			"
-				select id, created_by
+				select id, creator
 				from sandboxes
 				where status = 'created'
 				order by created_at, id
@@ -42,14 +42,14 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::sandbox::Id,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
-			created_by: Option<tg::user::Id>,
+			creator: Option<tg::Principal>,
 		}
 		let result = transaction
 			.query_optional_into::<SandboxRow>(statement.into(), db::params![])
 			.await;
 		let Some(SandboxRow {
 			id: sandbox,
-			created_by,
+			creator,
 		}) = crate::database::retry!(result, "failed to execute the statement")
 		else {
 			return Ok(ControlFlow::Break(None));
@@ -159,7 +159,7 @@ impl Session {
 		};
 
 		Ok(ControlFlow::Break(Some(LocalOutput {
-			created_by,
+			creator,
 			process,
 			process_token,
 			sandbox,

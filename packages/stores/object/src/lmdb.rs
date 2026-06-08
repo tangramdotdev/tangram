@@ -254,7 +254,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id: id.clone(),
 			now: 12345,
-			principal: tg::Principal::Root,
+			principal: Some(tg::Principal::Root),
 		};
 		let result = store.try_get(arg).await.unwrap().object;
 		assert_eq!(
@@ -298,7 +298,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id: id.clone(),
 			now: 12345,
-			principal: tg::Principal::Root,
+			principal: Some(tg::Principal::Root),
 		};
 		let result = store.try_get(arg).await.unwrap().object;
 		assert!(
@@ -325,7 +325,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id: id.clone(),
 			now: 12346,
-			principal: tg::Principal::Root,
+			principal: Some(tg::Principal::Root),
 		};
 		let result = store.try_get(arg).await.unwrap().object;
 		assert_eq!(
@@ -369,7 +369,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id: id.clone(),
 			now: 12345,
-			principal: tg::Principal::Root,
+			principal: Some(tg::Principal::Root),
 		};
 		let result = store.try_get_sync(&arg).unwrap().object;
 		assert_eq!(
@@ -410,7 +410,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id: id.clone(),
 			now: 12345,
-			principal: tg::Principal::Root,
+			principal: Some(tg::Principal::Root),
 		};
 		let result = store.try_get(arg).await.unwrap().object;
 		assert_eq!(
@@ -452,7 +452,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id: id.clone(),
 			now: 12346,
-			principal,
+			principal: Some(principal),
 		};
 		let output = store.try_get(arg).await.unwrap();
 		assert!(!output.grants.is_empty());
@@ -495,7 +495,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id: id.clone(),
 			now: 12346,
-			principal: principal.clone(),
+			principal: Some(principal.clone()),
 		};
 		let output = store.try_get(arg).await.unwrap();
 		assert!(output.grants.iter().all(|grant| !grant.subtree));
@@ -513,7 +513,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id,
 			now: 12348,
-			principal,
+			principal: Some(principal),
 		};
 		let output = store.try_get(arg).await.unwrap();
 		assert!(output.grants.iter().any(|grant| grant.subtree));
@@ -551,7 +551,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id,
 			now: 12346,
-			principal: tg::Principal::User(tg::user::Id::new()),
+			principal: Some(tg::Principal::User(tg::user::Id::new())),
 		};
 		let output = store.try_get(arg).await.unwrap();
 		assert!(output.grants.is_empty());
@@ -591,7 +591,7 @@ mod tests {
 		let arg = crate::TryGetArg {
 			id,
 			now: 12346,
-			principal,
+			principal: Some(principal),
 		};
 		let output = store.try_get(arg).await.unwrap();
 		assert!(output.grants.is_empty());
@@ -632,7 +632,7 @@ mod tests {
 			.try_get(crate::TryGetArg {
 				id: id.clone(),
 				now: 11,
-				principal: principal.clone(),
+				principal: Some(principal.clone()),
 			})
 			.await
 			.unwrap();
@@ -655,7 +655,7 @@ mod tests {
 			.try_get(crate::TryGetArg {
 				id,
 				now: 17,
-				principal,
+				principal: Some(principal),
 			})
 			.await
 			.unwrap();

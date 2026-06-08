@@ -1,6 +1,6 @@
 use {
 	super::process::SpawnProcessTaskArg,
-	crate::{Context, Server, Session, authentication::Authentication, temp::Temp},
+	crate::{Context, Server, Session, temp::Temp},
 	futures::{FutureExt as _, TryStreamExt as _, future},
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
@@ -11,13 +11,18 @@ use {
 mod listener;
 
 pub(crate) struct SpawnSandboxTaskArg {
-	pub created_by: Option<tg::user::Id>,
 	pub id: tg::sandbox::Id,
 	pub location: tg::Location,
 	pub permit: crate::sandbox::Permit,
 	pub process: Option<tg::process::Id>,
 	pub process_token: Option<String>,
 	pub token: Option<String>,
+}
+
+struct CreateProcessSessionOutput {
+	process: tg::Process,
+	process_token: String,
+	session: Session,
 }
 
 impl Server {
@@ -29,15 +34,11 @@ impl Server {
 				async move {
 					// Create the session.
 					let context = Context {
-						authentication: Some(Authentication::Sandbox(
-							crate::authentication::Sandbox {
-								created_by: task.created_by.clone(),
-								id: id.clone(),
-								location: task.location.clone(),
-								token: task.token.clone(),
-							},
-						)),
 						..server.context.clone()
+					};
+					let context = Context {
+						principal: Some(tg::Principal::Sandbox(id.clone())),
+						..context
 					};
 					let session = server.session(&context);
 
@@ -248,7 +249,7 @@ impl Session {
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
-			created_by: state.created_by.clone(),
+			creator: state.creator.clone(),
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
 			firewall: match self.server.config.sandbox.network.firewall {
@@ -328,18 +329,19 @@ impl Session {
 
 		// If the sandbox was created with a process, then start it. Otherwise, start the timer.
 		if let Some(process) = process {
-			let (process, process_session) = self
+			let output = self
 				.create_process_session(
 					process,
 					&location,
 					id,
-					state.created_by.clone(),
+					state.creator.clone(),
 					process_token,
 				)
 				.await?;
-			process_session.spawn_process_task(SpawnProcessTaskArg {
+			output.session.spawn_process_task(SpawnProcessTaskArg {
 				guest_url: &guest_url,
-				process,
+				process: output.process,
+				process_token: output.process_token,
 				process_stopper: &process_stopper,
 				process_tasks: &mut process_tasks,
 				sandbox: &sandbox,
@@ -362,18 +364,19 @@ impl Session {
 				output = &mut dequeue => {
 					let output = output.map_err(|error| tg::error!(!error, "failed to dequeue a process"))?;
 					timer.take();
-					let (process, process_session) = self
+					let output = self
 						.create_process_session(
 							output.process.clone(),
 							&location,
 							id,
-							state.created_by.clone(),
+							state.creator.clone(),
 							Some(output.token),
 						)
 						.await?;
-					process_session.spawn_process_task(SpawnProcessTaskArg {
+					output.session.spawn_process_task(SpawnProcessTaskArg {
 						guest_url: &guest_url,
-						process,
+						process: output.process,
+						process_token: output.process_token,
 						process_stopper: &process_stopper,
 						process_tasks: &mut process_tasks,
 						sandbox: &sandbox,
@@ -454,9 +457,9 @@ impl Session {
 		id: tg::process::Id,
 		location: &tg::Location,
 		sandbox: &tg::sandbox::Id,
-		created_by: Option<tg::user::Id>,
+		_creator: Option<tg::Principal>,
 		token: Option<String>,
-	) -> tg::Result<(tg::Process, Session)> {
+	) -> tg::Result<CreateProcessSessionOutput> {
 		let process = tg::Process::new(
 			id.clone(),
 			Some(location.clone().into()),
@@ -483,19 +486,13 @@ impl Session {
 			));
 		}
 		let mut context = self.context.clone();
-		context.authentication = Some(Authentication::Process(Arc::new(
-			crate::authentication::Process {
-				created_by,
-				debug: state.debug.clone(),
-				id,
-				location: Some(location.clone()),
-				retry: state.retry,
-				sandbox: state.sandbox.clone(),
-				token,
-			},
-		)));
+		context.principal = Some(tg::Principal::Process(id));
 		let session = Session::new(self.server.clone(), context);
-		Ok((process, session))
+		Ok(CreateProcessSessionOutput {
+			process,
+			process_token: token,
+			session,
+		})
 	}
 
 	async fn dequeue_sandbox_process(

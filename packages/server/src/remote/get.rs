@@ -1,10 +1,6 @@
 use {
-	crate::{
-		Session,
-		authentication::{Authentication, Process, Sandbox},
-	},
+	crate::Session,
 	indoc::formatdoc,
-	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -28,58 +24,19 @@ impl Session {
 	) -> tg::Result<Option<tg::remote::get::Output>> {
 		let authentication = self
 			.context
-			.authentication
+			.principal
 			.as_ref()
 			.ok_or_else(|| tg::error!("unauthenticated"))?;
 		match authentication {
-			Authentication::Process(process) => self.try_get_remote_process(name, process).await,
-			Authentication::Root => self.try_get_remote_root(name).await,
-			Authentication::Runner => self.try_get_remote_runner(name).await,
-			Authentication::Sandbox(sandbox) => self.try_get_remote_sandbox(name, sandbox).await,
-			Authentication::User(user) => self.try_get_remote_user(name, user).await,
+			tg::Principal::Process(_) | tg::Principal::Root | tg::Principal::Sandbox(_) => {
+				self.try_get_remote_root(name).await
+			},
+			tg::Principal::Runner => self.try_get_remote_runner(name).await,
+			tg::Principal::User(user) => self.try_get_remote_user(name, user).await,
+			tg::Principal::Group(_) | tg::Principal::Organization(_) => {
+				Err(tg::error!("unauthorized"))
+			},
 		}
-	}
-
-	async fn try_get_remote_process(
-		&self,
-		name: &str,
-		process: &Arc<Process>,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let remote = process.location.as_ref().and_then(|location| {
-			let tg::Location::Remote(remote) = location else {
-				return None;
-			};
-			Some(remote.name.clone())
-		});
-		let user = process.created_by.as_ref().map(ToString::to_string);
-		let statement = formatdoc!(
-			r#"
-				select name, token, url
-				from remotes
-				where name = {p}1 and ({p}2 is null or name = {p}2) and (
-					("user" is null and {p}3 is null) or
-					"user" = {p}3
-				);
-			"#,
-		);
-		let params = db::params![name, remote, user];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let output = row.map(|row| tg::remote::get::Output {
-			name: row.name,
-			token: row.token,
-			url: row.url,
-		});
-		Ok(output)
 	}
 
 	async fn try_get_remote_root(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
@@ -150,118 +107,10 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn try_get_remote_sandbox(
-		&self,
-		name: &str,
-		sandbox: &Sandbox,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
-		match &sandbox.location {
-			tg::Location::Local(_) => self.try_get_remote_sandbox_local(name, sandbox).await,
-			tg::Location::Remote(remote) => {
-				self.try_get_remote_sandbox_remote(name, &remote.name).await
-			},
-		}
-	}
-
-	async fn try_get_remote_sandbox_local(
-		&self,
-		name: &str,
-		sandbox: &Sandbox,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		#[derive(db::row::Deserialize)]
-		struct SandboxRow {
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			created_by: Option<tg::user::Id>,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select created_by
-				from sandboxes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![sandbox.id.to_string()];
-		let created_by = connection
-			.query_optional_into::<SandboxRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.map_or_else(|| sandbox.created_by.clone(), |row| row.created_by);
-		drop(connection);
-
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select name, token, url
-				from remotes
-				where name = {p}1 and (
-					("user" is null and {p}2 is null) or
-					"user" = {p}2
-				);
-			"#,
-		);
-		let user = created_by.as_ref().map(ToString::to_string);
-		let params = db::params![name, user];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let output = row.map(|row| tg::remote::get::Output {
-			name: row.name,
-			token: row.token,
-			url: row.url,
-		});
-		Ok(output)
-	}
-
-	async fn try_get_remote_sandbox_remote(
-		&self,
-		name: &str,
-		remote: &str,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select name, token, url
-				from remotes
-				where name = {p}1 and name = {p}2 and "user" is null;
-			"#,
-		);
-		let params = db::params![name, remote];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let output = row.map(|row| tg::remote::get::Output {
-			name: row.name,
-			token: row.token,
-			url: row.url,
-		});
-		Ok(output)
-	}
-
 	async fn try_get_remote_user(
 		&self,
 		name: &str,
-		user: &tg::User,
+		user: &tg::user::Id,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
 		let connection = self
 			.server
@@ -277,7 +126,7 @@ impl Session {
 				where name = {p}1 and "user" = {p}2;
 			"#,
 		);
-		let params = db::params![name, user.id.to_string()];
+		let params = db::params![name, user.to_string()];
 		let row = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await

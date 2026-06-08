@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, authentication::Authentication},
+	crate::{Server, Session},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::{
@@ -15,7 +15,7 @@ use {
 struct CreateSandboxArg {
 	arg: tg::sandbox::create::Arg,
 	cpu: Option<i64>,
-	created_by: Option<tg::user::Id>,
+	creator: Option<tg::Principal>,
 	id: tg::sandbox::Id,
 	memory: Option<i64>,
 	now: i64,
@@ -27,12 +27,7 @@ impl Session {
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 
@@ -60,21 +55,7 @@ impl Session {
 	) -> tg::Result<tg::sandbox::create::Output> {
 		arg = Self::normalize_sandbox_create_arg(arg)?;
 		let id = tg::sandbox::Id::new();
-		let created_by = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| match authentication {
-				crate::authentication::Authentication::User(user) => Some(user.id.clone()),
-				crate::authentication::Authentication::Process(process) => {
-					process.created_by.clone()
-				},
-				crate::authentication::Authentication::Sandbox(sandbox) => {
-					sandbox.created_by.clone()
-				},
-				crate::authentication::Authentication::Root
-				| crate::authentication::Authentication::Runner => None,
-			});
+		let creator = self.context.principal.clone();
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let isolation = self.server.resolve_sandbox_isolation()?;
 		Server::validate_sandbox_resources(
@@ -99,7 +80,7 @@ impl Session {
 		let arg = CreateSandboxArg {
 			arg: arg.clone(),
 			cpu,
-			created_by,
+			creator,
 			id: id.clone(),
 			memory,
 			now,
@@ -133,7 +114,7 @@ impl Session {
 					id,
 					cpu,
 					created_at,
-					created_by,
+					creator,
 					hostname,
 					isolation,
 					memory,
@@ -163,7 +144,7 @@ impl Session {
 			arg.id.to_string(),
 			arg.cpu,
 			arg.now,
-			arg.created_by.as_ref().map(ToString::to_string),
+			arg.creator.as_ref().map(ToString::to_string),
 			arg.arg.hostname.clone(),
 			arg.arg.isolation.map(db::value::Json),
 			arg.memory,

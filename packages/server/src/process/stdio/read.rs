@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication, database::Database},
+	crate::{Session, database::Database},
 	futures::{
 		StreamExt as _, future,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -122,8 +122,8 @@ impl Session {
 		match (stdin, output) {
 			(true, false) => {
 				if !matches!(
-					self.context.authentication.as_ref(),
-					Some(Authentication::Process(process)) if process.id == *id
+					self.context.principal.as_ref(),
+					Some(tg::Principal::Process(process)) if process == id
 				) {
 					return Err(tg::error!("unauthorized"));
 				}

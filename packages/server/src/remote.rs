@@ -30,26 +30,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let mut context = client.context().clone();
 		context.token = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| match authentication {
-				crate::authentication::Authentication::Process(process) => {
-					let tg::Location::Remote(location) = process.location.as_ref()? else {
-						return None;
-					};
-					(location.name == remote).then(|| process.token.clone())
-				},
-				crate::authentication::Authentication::Sandbox(sandbox) => {
-					let tg::Location::Remote(location) = &sandbox.location else {
-						return None;
-					};
-					(location.name == remote)
-						.then(|| sandbox.token.clone())
-						.flatten()
-				},
-				_ => None,
-			})
+			.try_get_authenticated_principal_remote_token(remote)
+			.await?
 			.or(output.token);
 		let session = client.session(&context);
 		Ok(Some(session))

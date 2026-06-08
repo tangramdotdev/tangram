@@ -318,8 +318,8 @@ impl Server {
 				let stopper = stopper.clone();
 				async move {
 					let context = Context {
-						authentication: None,
 						id: None,
+						principal: None,
 						sandbox,
 						stopper: Some(stopper),
 					};
@@ -488,7 +488,7 @@ impl Server {
 		// Authenticate.
 		let token = request.token(None).map(str::to_owned);
 		let result = self.authenticate(context.sandbox, token.as_deref()).await;
-		context.authentication = match result {
+		context.principal = match result {
 			Ok(authentication) => authentication,
 			Err(error) => {
 				let bytes = match error.to_data_or_id() {

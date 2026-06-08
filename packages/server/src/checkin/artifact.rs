@@ -916,7 +916,7 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
-			principal: self.write_principal(),
+			principal: self.context.principal.clone(),
 			stored_at: touched_at,
 		};
 		self.server

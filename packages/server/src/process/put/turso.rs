@@ -16,14 +16,14 @@ impl Session {
 		process_store: &db::turso::Database,
 		stored_at: i64,
 		principal: Option<&tg::Principal>,
-		created_by: Option<&tg::user::Id>,
+		creator: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		self.put_process_batch_turso(
 			&[(id, &arg.data)],
 			process_store,
 			stored_at,
 			principal,
-			created_by,
+			creator,
 		)
 		.await
 	}
@@ -34,7 +34,7 @@ impl Session {
 		process_store: &db::turso::Database,
 		stored_at: i64,
 		principal: Option<&tg::Principal>,
-		created_by: Option<&tg::user::Id>,
+		creator: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		if items.is_empty() {
 			return Ok(());
@@ -45,14 +45,14 @@ impl Session {
 			.map(|(id, data)| ((*id).clone(), (*data).clone()))
 			.collect();
 		let principal = principal.cloned();
-		let created_by = created_by.cloned();
+		let creator = creator.cloned();
 		let grant_ttl = self.server.config.process.grant_time_to_live;
 
 		process_store
 			.run(|transaction| {
 				let items = items.clone();
 				let principal = principal.clone();
-				let created_by = created_by.clone();
+				let creator = creator.clone();
 				async move {
 					Self::put_process_batch_turso_with_transaction(
 						transaction,
@@ -60,7 +60,7 @@ impl Session {
 						stored_at,
 						principal.as_ref(),
 						grant_ttl,
-						created_by.as_ref(),
+						creator.as_ref(),
 					)
 					.await
 				}
@@ -76,7 +76,7 @@ impl Session {
 		stored_at: i64,
 		principal: Option<&tg::Principal>,
 		grant_ttl: std::time::Duration,
-		created_by: Option<&tg::user::Id>,
+		creator: Option<&tg::Principal>,
 	) -> tg::Result<ControlFlow<(), db::turso::Error>> {
 		let process_statement = indoc!(
 			"
@@ -108,7 +108,7 @@ impl Session {
 					stdout,
 					stdout_open,
 					stored_at,
-					created_by,
+					creator,
 					tty
 				)
 				values (
@@ -168,7 +168,7 @@ impl Session {
 					stdout = ?24,
 					stdout_open = ?25,
 					stored_at = ?26,
-					created_by = ?27,
+					creator = ?27,
 					tty = ?28
 			"
 		);
@@ -293,7 +293,7 @@ impl Session {
 						(!data.stdout.is_null()).then(|| data.stdout.to_string()),
 						stdout_open,
 						stored_at,
-						created_by.map(ToString::to_string),
+						creator.map(ToString::to_string),
 						tty_json
 					],
 				)

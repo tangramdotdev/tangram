@@ -35,14 +35,14 @@ pub struct GrantArg {
 pub struct TryGetArg {
 	pub id: tg::object::Id,
 	pub now: i64,
-	pub principal: tg::Principal,
+	pub principal: Option<tg::Principal>,
 }
 
 #[derive(Clone, Debug)]
 pub struct TryGetBatchArg {
 	pub ids: Vec<tg::object::Id>,
 	pub now: i64,
-	pub principal: tg::Principal,
+	pub principal: Option<tg::Principal>,
 }
 
 #[derive(Clone, Debug)]

@@ -10,7 +10,9 @@ impl Store {
 	pub fn try_get_sync(&self, arg: &TryGetArg) -> TryGetOutput {
 		let state = self.state();
 		let object = Self::try_get_object(&state, &arg.id);
-		let grants = Self::try_get_grant(&state, &arg.id, &arg.principal, arg.now, self.grant_ttl);
+		let grants = arg.principal.as_ref().map_or_else(Vec::new, |principal| {
+			Self::try_get_grant(&state, &arg.id, principal, arg.now, self.grant_ttl)
+		});
 		TryGetOutput { grants, object }
 	}
 
@@ -20,7 +22,9 @@ impl Store {
 		arg.ids
 			.iter()
 			.map(|id| TryGetOutput {
-				grants: Self::try_get_grant(&state, id, &arg.principal, arg.now, self.grant_ttl),
+				grants: arg.principal.as_ref().map_or_else(Vec::new, |principal| {
+					Self::try_get_grant(&state, id, principal, arg.now, self.grant_ttl)
+				}),
 				object: Self::try_get_object(&state, id),
 			})
 			.collect()

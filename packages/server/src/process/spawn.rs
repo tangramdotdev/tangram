@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session, authentication::Authentication, database, run::SpawnSandboxTaskArg},
+	crate::{Server, Session, database, run::SpawnSandboxTaskArg},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},
@@ -25,7 +25,6 @@ mod turso;
 #[derive(derive_more::Debug)]
 struct LocalOutput {
 	cached: bool,
-	created_by: Option<tg::user::Id>,
 	id: tg::process::Id,
 	lease: Option<String>,
 	#[debug(ignore)]
@@ -44,24 +43,24 @@ impl Session {
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
 		// If the authentication is from a process, then update the parent, location, and retry.
-		if let Some(process) = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
+		let authenticated_process = match self.context.principal.as_ref() {
+			Some(tg::Principal::Process(process)) => {
+				self.try_get_authenticated_process(process).await?
+			},
+			_ => None,
+		};
+		if let Some(process) = &authenticated_process
+			&& let Some(tg::Principal::Process(id)) = self.context.principal.as_ref()
 		{
 			arg.debug = process.debug.clone();
-			arg.parent = Some(process.id.clone());
+			arg.parent = Some(id.clone());
 			arg.location = process.location.clone().map(Into::into);
 			arg.retry = process.retry;
 		}
 
 		// Get the parent sandbox if there is one.
-		let parent_sandbox = self
-			.context
-			.authentication
+		let parent_sandbox = authenticated_process
 			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_process_ref().ok())
 			.map(|process| process.sandbox.clone());
 
 		if arg.sandbox.is_none() {
@@ -203,7 +202,6 @@ impl Session {
 			let sandbox = &output.sandbox;
 			if let Some(permit) = output.permit.take() {
 				self.server.spawn_sandbox_task(SpawnSandboxTaskArg {
-					created_by: output.created_by.clone(),
 					id: sandbox.clone(),
 					location: tg::Location::Local(tg::location::Local::default()),
 					permit,
@@ -219,7 +217,6 @@ impl Session {
 						parent_sandbox.as_ref(),
 						sandbox,
 						&output.id,
-						output.created_by.clone(),
 					);
 				}
 			} else {
@@ -665,7 +662,7 @@ impl Session {
 			None
 		};
 
-		if let (Some(output), Some(principal)) = (&output, self.write_principal()) {
+		if let (Some(output), Some(principal)) = (&output, self.context.principal.clone()) {
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			let result = self
 				.server
@@ -899,7 +896,6 @@ impl Session {
 
 		Ok(ControlFlow::Break(Some(LocalOutput {
 			cached: true,
-			created_by: None,
 			id: id.clone(),
 			lease,
 			permit: None,
@@ -1107,7 +1103,7 @@ impl Session {
 					stdin_open,
 					stdout_open,
 					stored_at,
-					created_by,
+					creator,
 					tty
 				)
 				values (
@@ -1161,17 +1157,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))?,
 			),
 		};
-		let created_by = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| match authentication {
-				Authentication::User(user) => Some(user.id.clone()),
-				Authentication::Process(process) => process.created_by.clone(),
-				Authentication::Sandbox(sandbox) => sandbox.created_by.clone(),
-				Authentication::Root | Authentication::Runner => None,
-			})
-			.map(|user| user.to_string());
+		let creator = self.context.principal.as_ref().map(ToString::to_string);
 		let params = db::params![
 			actual_checksum.to_string(),
 			true,
@@ -1195,7 +1181,7 @@ impl Session {
 			stdin_open,
 			stdout_open,
 			now,
-			created_by,
+			creator,
 			tty.map(db::value::Json),
 		];
 		let result = transaction.execute(statement.into(), params).await;
@@ -1230,7 +1216,6 @@ impl Session {
 
 		Ok(ControlFlow::Break(Some(LocalOutput {
 			cached: true,
-			created_by: None,
 			id,
 			lease: None,
 			permit: None,
@@ -1354,7 +1339,7 @@ impl Session {
 					stdout,
 					stdout_open,
 					stored_at,
-					created_by,
+					creator,
 					tty
 				)
 				values (
@@ -1394,22 +1379,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))?,
 			),
 		};
-		let created_by = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| match authentication {
-				Authentication::User(user) => Some(user.id.clone()),
-				Authentication::Process(process) => process.created_by.clone(),
-				Authentication::Sandbox(sandbox) => sandbox.created_by.clone(),
-				Authentication::Root | Authentication::Runner => None,
-			})
-			.map(|user| user.to_string());
-		let created_by_id = created_by
-			.as_ref()
-			.map(|user| user.parse::<tg::user::Id>())
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the user id"))?;
+		let creator = self.context.principal.as_ref().map(ToString::to_string);
 		let params = db::params![
 			cacheable,
 			arg.command.item.to_string(),
@@ -1431,7 +1401,7 @@ impl Session {
 			(!arg.stdout.is_null()).then(|| arg.stdout.to_string()),
 			stdout_open,
 			now,
-			created_by,
+			creator,
 			tty.map(db::value::Json),
 		];
 		let result = transaction.execute(statement.into(), params).await;
@@ -1461,7 +1431,6 @@ impl Session {
 
 		Ok(ControlFlow::Break(LocalOutput {
 			cached: false,
-			created_by: created_by_id,
 			id,
 			lease: Some(lease),
 			permit,
@@ -1480,23 +1449,14 @@ impl Session {
 	) -> tg::Result<ControlFlow<tg::sandbox::Id, database::Error>> {
 		let p = transaction.p();
 		let id = tg::sandbox::Id::new();
-		let created_by = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| match authentication {
-				Authentication::User(user) => Some(user.id.clone()),
-				Authentication::Process(process) => process.created_by.clone(),
-				Authentication::Sandbox(sandbox) => sandbox.created_by.clone(),
-				Authentication::Root | Authentication::Runner => None,
-			});
+		let creator = self.context.principal.as_ref().map(ToString::to_string);
 		let statement = formatdoc!(
 			r#"
 				insert into sandboxes (
 					id,
 					cpu,
 					created_at,
-					created_by,
+					creator,
 					heartbeat_at,
 					hostname,
 					isolation,
@@ -1553,7 +1513,7 @@ impl Session {
 			id.to_string(),
 			cpu,
 			now,
-			created_by.map(|user| user.to_string()),
+			creator,
 			heartbeat_at,
 			arg.hostname.clone(),
 			arg.isolation.map(db::value::Json),
@@ -1965,7 +1925,6 @@ impl Session {
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		id: &tg::sandbox::Id,
 		process: &tg::process::Id,
-		created_by: Option<tg::user::Id>,
 	) {
 		tokio::spawn({
 			let session = self.clone();
@@ -2019,7 +1978,6 @@ impl Session {
 				}
 
 				session.server.spawn_sandbox_task(SpawnSandboxTaskArg {
-					created_by,
 					id: sandbox,
 					location: tg::Location::Local(tg::location::Local::default()),
 					permit,

@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication},
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -16,10 +16,19 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) => Ok(match &self.context.authentication {
-				Some(Authentication::User(user)) => Some(user.clone()),
-				_ => None,
-			}),
+			tg::Location::Local(_) => {
+				let Some(tg::Principal::User(user)) = &self.context.principal else {
+					return Ok(None);
+				};
+				let selector = tg::user::Selector::Id(user.clone());
+				self.try_get_user(
+					&selector,
+					tg::user::get::Arg {
+						location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+					},
+				)
+				.await
+			},
 			tg::Location::Remote(remote) => {
 				let client = self.get_remote_session(&remote.name).await?;
 				let arg = tg::user::current::Arg {

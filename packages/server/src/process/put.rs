@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication, database::Database},
+	crate::{Session, database::Database},
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -21,12 +21,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 
@@ -58,13 +53,8 @@ impl Session {
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.write_principal();
-		let created_by = self
-			.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.map(|user| user.id.clone());
+		let principal = self.context.principal.clone();
+		let creator = self.context.principal.clone();
 
 		// Insert the process into the process store.
 		match &self.server.process_store {
@@ -76,7 +66,7 @@ impl Session {
 					process_store,
 					now,
 					principal.as_ref(),
-					created_by.as_ref(),
+					creator.as_ref(),
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
@@ -89,7 +79,7 @@ impl Session {
 					process_store,
 					now,
 					principal.as_ref(),
-					created_by.as_ref(),
+					creator.as_ref(),
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
@@ -102,7 +92,7 @@ impl Session {
 					process_store,
 					now,
 					principal.as_ref(),
-					created_by.as_ref(),
+					creator.as_ref(),
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the process"))?;

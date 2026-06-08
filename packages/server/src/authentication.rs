@@ -1,68 +1,179 @@
 use {
 	crate::{Server, Session},
 	indoc::formatdoc,
-	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-#[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap)]
-#[try_unwrap(ref)]
-pub enum Authentication {
-	Process(Arc<Process>),
-	Root,
-	Runner,
-	Sandbox(Sandbox),
-	User(tg::User),
-}
-
-#[derive(Clone, Debug)]
-pub struct Process {
-	pub created_by: Option<tg::user::Id>,
+#[derive(Clone)]
+pub(crate) struct Process {
 	pub debug: Option<tg::process::Debug>,
-	pub id: tg::process::Id,
 	pub location: Option<tg::Location>,
 	pub retry: bool,
 	pub sandbox: tg::sandbox::Id,
-	pub token: String,
+	pub token: Option<String>,
 }
 
-#[derive(Clone, Debug)]
-pub struct Sandbox {
-	pub created_by: Option<tg::user::Id>,
-	pub id: tg::sandbox::Id,
+#[derive(Clone)]
+pub(crate) struct Sandbox {
 	pub location: tg::Location,
 	pub token: Option<String>,
 }
 
 impl Session {
-	#[must_use]
-	pub(crate) fn read_principal(&self) -> tg::Principal {
-		match self.context.authentication.as_ref() {
-			None | Some(Authentication::Runner | Authentication::Root) => tg::Principal::Root,
-			Some(Authentication::Process(process)) => process
-				.created_by
-				.clone()
-				.map_or(tg::Principal::Root, tg::Principal::User),
-			Some(Authentication::Sandbox(sandbox)) => sandbox
-				.created_by
-				.clone()
-				.map_or(tg::Principal::Root, tg::Principal::User),
-			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
+	pub(crate) async fn try_get_authenticated_process(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<Process>> {
+		if let Some(process) = self.server.sandboxes.iter().find_map(|sandbox| {
+			sandbox
+				.value()
+				.processes()
+				.into_iter()
+				.find(|process| process.id() == id)
+		}) {
+			return Ok(Some(Process {
+				debug: process.debug().cloned(),
+				location: process.location().cloned(),
+				retry: process.retry(),
+				sandbox: process.sandbox().clone(),
+				token: Some(process.token().to_owned()),
+			}));
 		}
+
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "Option<db::value::Json<tg::process::Debug>>")]
+			debug: Option<tg::process::Debug>,
+			retry: bool,
+			#[tangram_database(as = "db::value::FromStr")]
+			sandbox: tg::sandbox::Id,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select
+					processes.debug,
+					processes.retry,
+					processes.sandbox
+				from processes
+				where processes.id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		let Some(row) = connection
+			.query_optional_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
+		let location = self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.and_then(|runner| runner.remote.clone())
+			.map(|name| tg::Location::Remote(tg::location::Remote { name, region: None }));
+		Ok(Some(Process {
+			debug: row.debug,
+			location,
+			retry: row.retry,
+			sandbox: row.sandbox,
+			token: None,
+		}))
 	}
 
-	#[must_use]
-	pub(crate) fn write_principal(&self) -> Option<tg::Principal> {
-		match self.context.authentication.as_ref() {
-			Some(Authentication::User(user)) => Some(tg::Principal::User(user.id.clone())),
-			Some(Authentication::Process(process)) => {
-				process.created_by.clone().map(tg::Principal::User)
+	pub(crate) async fn try_get_authenticated_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<Option<Sandbox>> {
+		if let Some(sandbox) = self.server.sandboxes.get(id) {
+			return Ok(Some(Sandbox {
+				location: sandbox.location().clone(),
+				token: sandbox.token().map(ToOwned::to_owned),
+			}));
+		}
+
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select 1
+				from sandboxes
+				where sandboxes.id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		if connection
+			.query_optional(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let location = self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.and_then(|runner| runner.remote.clone())
+			.map_or_else(
+				|| tg::Location::Local(tg::location::Local::default()),
+				|name| tg::Location::Remote(tg::location::Remote { name, region: None }),
+			);
+		Ok(Some(Sandbox {
+			location,
+			token: None,
+		}))
+	}
+
+	pub(crate) async fn try_get_authenticated_principal_remote_token(
+		&self,
+		remote: &str,
+	) -> tg::Result<Option<String>> {
+		let Some(principal) = &self.context.principal else {
+			return Ok(None);
+		};
+		match principal {
+			tg::Principal::Process(process) => {
+				let Some(process) = self.try_get_authenticated_process(process).await? else {
+					return Ok(None);
+				};
+				let Some(location) = process.location.as_ref() else {
+					return Ok(None);
+				};
+				let tg::Location::Remote(location) = location else {
+					return Ok(None);
+				};
+				Ok((location.name == remote).then_some(process.token).flatten())
 			},
-			Some(Authentication::Sandbox(sandbox)) => {
-				sandbox.created_by.clone().map(tg::Principal::User)
+			tg::Principal::Sandbox(sandbox) => {
+				let Some(sandbox) = self.try_get_authenticated_sandbox(sandbox).await? else {
+					return Ok(None);
+				};
+				let tg::Location::Remote(location) = &sandbox.location else {
+					return Ok(None);
+				};
+				Ok((location.name == remote).then_some(sandbox.token).flatten())
 			},
-			None | Some(Authentication::Root | Authentication::Runner) => None,
+			tg::Principal::Group(_)
+			| tg::Principal::Organization(_)
+			| tg::Principal::Root
+			| tg::Principal::Runner
+			| tg::Principal::User(_) => Ok(None),
 		}
 	}
 }
@@ -72,7 +183,7 @@ impl Server {
 		&self,
 		sandbox: bool,
 		token: Option<&str>,
-	) -> tg::Result<Option<Authentication>> {
+	) -> tg::Result<Option<tg::Principal>> {
 		if sandbox {
 			let Some(token) = token else {
 				return Ok(None);
@@ -80,13 +191,13 @@ impl Server {
 			return self
 				.authenticate_process(token)
 				.await
-				.map(|process| process.map(|process| Authentication::Process(Arc::new(process))));
+				.map(|process| process.map(tg::Principal::Process));
 		}
 
 		if let Some(token) = token {
 			match self.authenticate_process(token).await {
 				Ok(Some(process)) => {
-					return Ok(Some(Authentication::Process(Arc::new(process))));
+					return Ok(Some(tg::Principal::Process(process)));
 				},
 				Ok(None) => (),
 				Err(error) => {
@@ -96,7 +207,7 @@ impl Server {
 
 			match self.authenticate_runner(token).await {
 				Ok(true) => {
-					return Ok(Some(Authentication::Runner));
+					return Ok(Some(tg::Principal::Runner));
 				},
 				Ok(false) => (),
 				Err(error) => {
@@ -106,7 +217,7 @@ impl Server {
 
 			match self.authenticate_sandbox(token).await {
 				Ok(Some(sandbox)) => {
-					return Ok(Some(Authentication::Sandbox(sandbox)));
+					return Ok(Some(tg::Principal::Sandbox(sandbox)));
 				},
 				Ok(None) => (),
 				Err(error) => {
@@ -116,7 +227,7 @@ impl Server {
 
 			match self.authenticate_user(token).await {
 				Ok(Some(user)) => {
-					return Ok(Some(Authentication::User(user)));
+					return Ok(Some(tg::Principal::User(user.id)));
 				},
 				Ok(None) => (),
 				Err(error) => {
@@ -126,23 +237,20 @@ impl Server {
 		}
 
 		if self.config().authentication.is_none() {
-			return Ok(Some(Authentication::Root));
+			return Ok(Some(tg::Principal::Root));
 		}
 
 		Ok(None)
 	}
 
-	pub(crate) async fn authenticate_process(&self, token: &str) -> tg::Result<Option<Process>> {
+	pub(crate) async fn authenticate_process(
+		&self,
+		token: &str,
+	) -> tg::Result<Option<tg::process::Id>> {
 		if let Some(process) = self.sandboxes.iter().find_map(|sandbox| {
-			sandbox.get_process(token).map(|process| Process {
-				created_by: process.created_by().cloned(),
-				debug: process.debug().cloned(),
-				id: process.id().clone(),
-				location: process.location().cloned(),
-				retry: process.retry(),
-				sandbox: process.sandbox().clone(),
-				token: process.token().to_owned(),
-			})
+			sandbox
+				.get_process(token)
+				.map(|process| process.id().clone())
 		}) {
 			return Ok(Some(process));
 		}
@@ -155,30 +263,15 @@ impl Server {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			created_by: Option<tg::user::Id>,
-			#[tangram_database(as = "Option<db::value::Json<tg::process::Debug>>")]
-			debug: Option<tg::process::Debug>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::process::Id,
-			retry: bool,
-			#[tangram_database(as = "db::value::FromStr")]
-			sandbox: tg::sandbox::Id,
-			token: String,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			r"
-				select
-					sandboxes.created_by,
-					processes.debug,
-					processes.id,
-					processes.retry,
-					processes.sandbox,
-					process_tokens.token
+				select processes.id
 				from process_tokens
 				join processes on processes.id = process_tokens.process
-				join sandboxes on sandboxes.id = processes.sandbox
 				where process_tokens.token = {p}1;
 			"
 		);
@@ -192,22 +285,7 @@ impl Server {
 			return Ok(None);
 		};
 
-		let process = Process {
-			created_by: row.created_by,
-			debug: row.debug,
-			id: row.id,
-			location: self
-				.config
-				.runner
-				.as_ref()
-				.and_then(|runner| runner.remote.clone())
-				.map(|name| tg::Location::Remote(tg::location::Remote { name, region: None })),
-			retry: row.retry,
-			sandbox: row.sandbox,
-			token: row.token,
-		};
-
-		Ok(Some(process))
+		Ok(Some(row.id))
 	}
 
 	pub(crate) async fn authenticate_runner(&self, token: &str) -> tg::Result<bool> {
@@ -240,15 +318,13 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn authenticate_sandbox(&self, token: &str) -> tg::Result<Option<Sandbox>> {
+	pub(crate) async fn authenticate_sandbox(
+		&self,
+		token: &str,
+	) -> tg::Result<Option<tg::sandbox::Id>> {
 		if let Some(sandbox) = self.sandboxes.iter().find_map(|sandbox| {
 			let sandbox = sandbox.value();
-			(sandbox.token() == Some(token)).then(|| Sandbox {
-				created_by: sandbox.created_by().cloned(),
-				id: sandbox.id().clone(),
-				location: sandbox.location().clone(),
-				token: Some(token.to_owned()),
-			})
+			(sandbox.token() == Some(token)).then(|| sandbox.id().clone())
 		}) {
 			return Ok(Some(sandbox));
 		}
@@ -262,15 +338,13 @@ impl Server {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			created_by: Option<tg::user::Id>,
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::sandbox::Id,
 		}
 
 		let statement = formatdoc!(
 			"
-				select sandboxes.created_by, sandboxes.id
+				select sandboxes.id
 				from sandbox_tokens
 				join sandboxes on sandboxes.id = sandbox_tokens.sandbox
 				where token = {p}1;
@@ -284,14 +358,8 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let sandbox = Sandbox {
-			created_by: row.created_by,
-			id: row.id,
-			location: tg::Location::Local(tg::location::Local::default()),
-			token: Some(token.to_owned()),
-		};
 
-		Ok(Some(sandbox))
+		Ok(Some(row.id))
 	}
 
 	pub(crate) async fn authenticate_user(

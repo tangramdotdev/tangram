@@ -1,7 +1,5 @@
 use {
-	crate::{
-		Session, authentication::Authentication, database::Transaction, tag::tag_item_to_string,
-	},
+	crate::{Session, database::Transaction, tag::tag_item_to_string},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -17,12 +15,7 @@ use {
 
 impl Session {
 	pub(crate) async fn put_tag(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let location = self
@@ -186,11 +179,10 @@ impl Session {
 	}
 
 	pub(crate) fn write_user_grant_principal(&self) -> Option<tg::grant::Principal> {
-		self.context
-			.authentication
-			.as_ref()
-			.and_then(|authentication| authentication.try_unwrap_user_ref().ok())
-			.map(|user| tg::grant::Principal::User(user.id.clone()))
+		match self.context.principal.as_ref() {
+			Some(tg::Principal::User(user)) => Some(tg::grant::Principal::User(user.clone())),
+			_ => None,
+		}
 	}
 }
 

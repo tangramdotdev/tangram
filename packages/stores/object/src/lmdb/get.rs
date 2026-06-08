@@ -22,7 +22,7 @@ impl Store {
 					&db,
 					&transaction,
 					&arg.id,
-					&arg.principal,
+					arg.principal.as_ref(),
 					arg.now,
 					grant_ttl,
 				)?;
@@ -52,7 +52,7 @@ impl Store {
 						&db,
 						&transaction,
 						id,
-						&arg.principal,
+						arg.principal.as_ref(),
 						arg.now,
 						grant_ttl,
 					)?;
@@ -85,7 +85,7 @@ impl Store {
 				&self.db,
 				&transaction,
 				id,
-				&arg.principal,
+				arg.principal.as_ref(),
 				arg.now,
 				self.grant_ttl,
 			)?;
@@ -115,7 +115,7 @@ impl Store {
 			&self.db,
 			transaction,
 			&arg.id,
-			&arg.principal,
+			arg.principal.as_ref(),
 			arg.now,
 			self.grant_ttl,
 		)?;
@@ -144,10 +144,13 @@ impl Store {
 		db: &Db,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 		now: i64,
 		grant_ttl: u64,
 	) -> tg::Result<Vec<Grant>> {
+		let Some(principal) = principal else {
+			return Ok(Vec::new());
+		};
 		if matches!(principal, tg::Principal::Root) {
 			return Ok(Vec::new());
 		}

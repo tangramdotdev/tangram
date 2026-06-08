@@ -1,8 +1,7 @@
 use {
-	crate::{Session, authentication::Authentication, database::Database},
+	crate::{Session, database::Database},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -18,26 +17,13 @@ impl Session {
 		&self,
 		arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
-		let principal = match self.context.authentication.as_ref() {
-			None | Some(Authentication::Root) => tg::Principal::Root,
-			Some(Authentication::Runner) => {
-				let mut connection =
-					self.server.database.connection().await.map_err(|error| {
-						tg::error!(!error, "failed to get a database connection")
-					})?;
-				let transaction = connection
-					.transaction()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				tg::Principal::Group(
-					Self::ensure_public_group_with_transaction(&transaction).await?,
-				)
-			},
-			Some(Authentication::User(user)) => tg::Principal::User(user.id.clone()),
-			Some(Authentication::Process(_) | Authentication::Sandbox(_)) => {
-				return Err(tg::error!("unauthorized"));
-			},
-		};
+		if matches!(
+			self.context.principal,
+			Some(tg::Principal::Process(_) | tg::Principal::Sandbox(_))
+		) {
+			return Err(tg::error!("unauthorized"));
+		}
+		let principal = self.context.principal.clone();
 
 		let mut output = tg::process::list::Output { data: Vec::new() };
 
@@ -49,7 +35,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current {
 				let local_outputs = self
-					.list_processes_local(&principal)
+					.list_processes_local(principal.as_ref())
 					.await
 					.map_err(|error| tg::error!(!error, "failed to list local processes"))?;
 				output.data.extend(local_outputs);
@@ -79,7 +65,7 @@ impl Session {
 
 	pub(crate) async fn list_processes_local(
 		&self,
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
 		let mut output = match &self.server.process_store {
 			#[cfg(feature = "postgres")]

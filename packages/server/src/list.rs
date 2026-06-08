@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authentication::Authentication, tag::parse_tag_item},
+	crate::{Session, tag::parse_tag_item},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
@@ -13,12 +13,7 @@ pub mod remote;
 impl Session {
 	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
-		if self
-			.context
-			.authentication
-			.as_ref()
-			.is_some_and(Authentication::is_process)
-		{
+		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 

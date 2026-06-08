@@ -9,8 +9,12 @@ impl Session {
 	pub(crate) async fn list_processes_turso(
 		&self,
 		process_store: &db::turso::Database,
-		principal: &tg::Principal,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
+		if principal.is_none() {
+			return Ok(Vec::new());
+		}
+
 		let connection = process_store
 			.connection()
 			.await
@@ -53,10 +57,10 @@ impl Session {
 			#[tangram_database(as = "Option<db::value::Json<tg::process::Tty>>")]
 			tty: Option<tg::process::Tty>,
 		}
-		let created_by_condition = if principal.is_root() {
-			"created_by is null"
+		let creator_condition = if matches!(principal, Some(tg::Principal::Root)) {
+			"creator is null"
 		} else {
-			"created_by = ?1"
+			"creator = ?1"
 		};
 		let statement = formatdoc!(
 			"
@@ -83,17 +87,20 @@ impl Session {
 					stdout,
 					tty
 				from processes
-				where status != 'finished' and {created_by_condition};
+				where status != 'finished' and {creator_condition};
 			"
 		);
-		let rows = if principal.is_root() {
+		let rows = if matches!(principal, Some(tg::Principal::Root)) {
 			connection
 				.query_all_into::<Row>(statement.into(), db::params![])
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		} else {
 			connection
-				.query_all_into::<Row>(statement.into(), db::params![principal.to_string()])
+				.query_all_into::<Row>(
+					statement.into(),
+					db::params![principal.unwrap().to_string()],
+				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 		};

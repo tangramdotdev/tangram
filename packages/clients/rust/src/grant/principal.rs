@@ -20,8 +20,17 @@ pub enum Principal {
 	#[display("{_0}")]
 	Organization(tg::organization::Id),
 
+	#[display("{_0}")]
+	Process(tg::process::Id),
+
 	#[display("root")]
 	Root,
+
+	#[display("runner")]
+	Runner,
+
+	#[display("{_0}")]
+	Sandbox(tg::sandbox::Id),
 
 	#[display("{_0}")]
 	User(tg::user::Id),
@@ -37,8 +46,17 @@ impl std::str::FromStr for Principal {
 		if let Ok(id) = s.parse::<tg::organization::Id>() {
 			return Ok(Self::Organization(id));
 		}
+		if let Ok(id) = s.parse::<tg::process::Id>() {
+			return Ok(Self::Process(id));
+		}
 		if s == "root" {
 			return Ok(Self::Root);
+		}
+		if s == "runner" {
+			return Ok(Self::Runner);
+		}
+		if let Ok(id) = s.parse::<tg::sandbox::Id>() {
+			return Ok(Self::Sandbox(id));
 		}
 		if let Ok(id) = s.parse::<tg::user::Id>() {
 			return Ok(Self::User(id));
@@ -52,7 +70,10 @@ impl From<tg::Principal> for Principal {
 		match value {
 			tg::Principal::Group(id) => Self::Group(id),
 			tg::Principal::Organization(id) => Self::Organization(id),
+			tg::Principal::Process(id) => Self::Process(id),
 			tg::Principal::Root => Self::Root,
+			tg::Principal::Runner => Self::Runner,
+			tg::Principal::Sandbox(id) => Self::Sandbox(id),
 			tg::Principal::User(id) => Self::User(id),
 		}
 	}
@@ -63,7 +84,10 @@ impl From<Principal> for tg::Principal {
 		match value {
 			Principal::Group(id) => Self::Group(id),
 			Principal::Organization(id) => Self::Organization(id),
+			Principal::Process(id) => Self::Process(id),
 			Principal::Root => Self::Root,
+			Principal::Runner => Self::Runner,
+			Principal::Sandbox(id) => Self::Sandbox(id),
 			Principal::User(id) => Self::User(id),
 		}
 	}
