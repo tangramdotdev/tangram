@@ -1139,6 +1139,39 @@ export def xattr_write [name: string, value: string, path: string] {
 	}
 }
 
+export def normalize_ids [value?: string, --prefixes: list<string> = [blb cmd dir fil gph pcs sbx sym]] {
+	let input = $in
+	let value = ($value | default $input)
+	let prefixes_pattern = ($prefixes | str join '|')
+	let pattern = '(?<id>(' + $prefixes_pattern + ')_[a-z0-9]+)'
+
+	mut output = $value
+	mut counters = {}
+
+	for id in ($value | parse --regex $pattern | get id | uniq) {
+		let prefix = ($id | split row '_' | first)
+		let suffix = ($id | split row '_' | last)
+		let index = ($counters | get --optional $prefix | default 0)
+		if $index > 9 {
+			error make { msg: 'too many IDs to normalize for the prefix' }
+		}
+		let header_length = if ($suffix | str length) < 2 { $suffix | str length } else { 2 }
+		let header = ($suffix | str substring 0..<$header_length)
+		let digit = ($index | into string)
+		let replacement_length = ($suffix | str length) - $header_length
+		let replacement_suffix = if $replacement_length <= 0 {
+			''
+		} else {
+			0..<$replacement_length | each { $digit } | str join
+		}
+		let replacement = $'($prefix)_($header)($replacement_suffix)'
+		$counters = ($counters | upsert $prefix ($index + 1))
+		$output = ($output | str replace --all $id $replacement)
+	}
+
+	$output
+}
+
 def server_exit_path [temp_path: string, job_id: int] {
 	$temp_path | path join $server_exit_directory_name | path join $'($job_id).exit'
 }
