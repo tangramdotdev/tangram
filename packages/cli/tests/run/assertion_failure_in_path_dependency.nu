@@ -22,5 +22,5 @@ let output = do { cd $path; tg run ./foo }| complete
 print $output
 failure $output
 let stderr = $output.stderr
-let stderr = $stderr | redact
+let stderr = $stderr | redact | normalize_ids
 snapshot $stderr

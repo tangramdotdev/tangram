@@ -63,7 +63,7 @@ $outer_ts | save ($outer | path join "tangram.ts")
 let fresh = spawn --name fresh
 tg remote put default $remote.url
 
-let fresh_result = do { tg build $outer } | complete
+let fresh_result = tg build $outer | complete
 
 # The build should succeed — any cancellation error reaching a caller is the bug.
 success $fresh_result

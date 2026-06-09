@@ -14,7 +14,7 @@ cd $path
 let output = tg build | complete
 assert equal $output.exit_code 1
 let first_output = $output.stderr 
-	| redact
+	| redact | normalize_ids
 snapshot $first_output '
 	error an error occurred
 	-> the process failed
@@ -31,5 +31,5 @@ snapshot $first_output '
 let output = tg build | complete
 assert equal $output.exit_code 1
 let second_output = $output.stderr 
-	| redact
+	| redact | normalize_ids
 assert equal $first_output $second_output

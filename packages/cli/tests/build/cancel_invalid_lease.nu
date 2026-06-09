@@ -16,7 +16,7 @@ let path = artifact {
 
 let process = tg build --detach --verbose $path | from json
 
-let output = do { tg cancel $process.process invalidtoken } | complete
+let output = tg cancel $process.process invalidtoken | complete
 failure $output
 assert ($output.stderr | str contains 'the process lease was not found') "the error should mention the missing lease"
 

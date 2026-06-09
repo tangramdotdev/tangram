@@ -25,6 +25,6 @@ let path = artifact {
 let output = tg checkin $path | complete
 failure $output "the command should fail when the dependency in the tag is missing"
 
-let stderr = $output.stderr | redact $path
+let stderr = $output.stderr | redact $path | normalize_ids
 
 snapshot --name stderr $stderr

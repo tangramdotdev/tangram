@@ -31,7 +31,7 @@ for line in $lines {
 if ($cycle_lines | is-empty) {
 	error make { msg: 'expected a cycle error message' }
 }
-let cycle_message = ($cycle_lines | str join "\n") | redact
+let cycle_message = ($cycle_lines | str join "\n") | redact | normalize_ids
 
 snapshot $cycle_message '
 	-> adding this child process creates a cycle

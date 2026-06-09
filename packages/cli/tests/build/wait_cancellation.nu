@@ -20,7 +20,7 @@ let process = tg build --detach --verbose $path | from json
 tg cancel $process.process $process.lease
 let output = tg output $process.process | complete
 failure $output
-let stderr = $output.stderr | ansi strip | str trim | redact
+let stderr = $output.stderr | ansi strip | str trim | redact | normalize_ids
 snapshot $stderr '
 	error an error occurred
 	-> failed to get the process output
@@ -35,7 +35,7 @@ job kill $id
 
 let output = tg output $process.process | complete
 failure $output
-let stderr = $output.stderr | ansi strip | str trim | redact
+let stderr = $output.stderr | ansi strip | str trim | redact | normalize_ids
 snapshot $stderr '
 	error an error occurred
 	-> failed to get the process output

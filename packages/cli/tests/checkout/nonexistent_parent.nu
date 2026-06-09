@@ -1,0 +1,17 @@
+use ../../test.nu *
+
+# Checking out to a path under a nonexistent parent directory fails.
+
+let server = spawn
+
+let artifact = artifact {
+	tangram.ts: 'export default () => tg.file("Hello, World!");',
+}
+let id = tg build $artifact | str trim
+
+let dir = mktemp --directory
+let path = $dir | path join "nope" "child"
+
+let output = tg checkout $id $path | complete
+failure $output
+assert ($output.stderr | str contains "failed to canonicalize the path") "the error should mention the failed canonicalization"
