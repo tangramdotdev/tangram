@@ -73,9 +73,13 @@ impl Session {
 			tg::process::control::RequestKind::Signal(tg::process::control::SignalRequest {
 				signal,
 			});
-		let response = self
-			.try_send_process_control_request(id, request, u64::MAX)
-			.await?;
+		let max_retries = tangram_futures::retry::Options::default().max_retries;
+		let Some(response) = self
+			.try_send_process_control_request(id, request, max_retries)
+			.await?
+		else {
+			return Ok(Some(()));
+		};
 		let tg::process::control::ResponseKind::Signal = response.kind else {
 			return Err(tg::error!("expected a signal response"));
 		};

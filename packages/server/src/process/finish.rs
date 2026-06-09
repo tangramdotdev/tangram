@@ -296,6 +296,30 @@ impl Session {
 
 		// Spawn a task to cancel the children.
 		self.spawn_cancel_process_children_task(id);
+
+		// Spawn a task to end the control stream.
+		self.spawn_send_process_control_end_task(id);
+	}
+
+	fn spawn_send_process_control_end_task(&self, id: &tg::process::Id) {
+		let timeout = self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.map_or(std::time::Duration::from_secs(1), |runner| {
+				runner.control_timeout
+			});
+		tokio::spawn({
+			let session = self.clone();
+			let id = id.clone();
+			async move {
+				tokio::time::sleep(timeout).await;
+				if let Err(error) = session.try_send_process_control_end(&id).await {
+					tracing::error!(error = %error.trace(), "failed to send the control end event");
+				}
+			}
+		});
 	}
 
 	fn spawn_cancel_process_children_task(&self, id: &tg::process::Id) {

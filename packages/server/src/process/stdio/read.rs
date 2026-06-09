@@ -343,9 +343,12 @@ impl Session {
 					stream,
 					len: READ_CHUNK_SIZE,
 				});
-			let response = self
+			let Some(response) = self
 				.try_send_process_control_request(id, request, u64::MAX)
-				.await?;
+				.await?
+			else {
+				return Ok(());
+			};
 			let tg::process::control::ResponseKind::Read(response) = response.kind else {
 				return Err(tg::error!("expected a read response"));
 			};

@@ -12,7 +12,7 @@ use {
 	tangram_messenger::Messenger,
 };
 
-const CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
+pub(crate) const CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(
 	Debug,
@@ -34,13 +34,31 @@ impl Session {
 		id: &tg::process::Id,
 		request: tg::process::control::RequestKind,
 		max_retries: u64,
-	) -> tg::Result<tg::process::control::Response> {
+	) -> tg::Result<Option<tg::process::control::Response>> {
+		// Get the process status stream. Also checks for existence.
+		let Some(stream) = self
+			.try_get_process_status_stream_local(id, self.context.stopper.clone(), None)
+			.await?
+		else {
+			return Ok(None);
+		};
+
+		// Wait until the process is ready for control, which implies the status is not created.
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			if matches!(
+				event,
+				tg::process::status::Event::Status(tg::process::Status::Created)
+			) {
+				continue;
+			}
+		}
+
+		// Create the request.
 		let request = tg::process::control::Request {
 			id: uuid::Uuid::now_v7(),
 			kind: request,
 		};
-
-		// Subscribe to the response before publishing so that the response is not missed.
 		let subject = format!("processes.{id}.control.{}", request.id);
 		let stream = self
 			.server
@@ -50,15 +68,9 @@ impl Session {
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the response"))?;
 		let mut stream = pin!(stream);
 
-		// Publish the request.
+		// Send the request in a retry loop.
 		let subject = format!("processes.{id}.control");
 		let payload = Message::Request(tg::process::control::RequestEvent::Request(request));
-		self.server
-			.messenger
-			.publish(subject, payload)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
-
 		let options = tangram_futures::retry::Options {
 			max_retries,
 			..Default::default()
@@ -68,6 +80,12 @@ impl Session {
 			if retries.next().await.is_none() {
 				return Err(tg::error!("timed out waiting for the response"));
 			}
+			self.server
+				.messenger
+				.publish(subject.clone(), payload.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
+
 			match tokio::time::timeout(CONTROL_REQUEST_TIMEOUT, stream.next()).await {
 				Ok(Some(Ok(message))) => {
 					let Message::Response(tg::process::control::ResponseEvent::Response(response)) =
@@ -75,7 +93,7 @@ impl Session {
 					else {
 						return Err(tg::error!("expected a response"));
 					};
-					return Ok(response);
+					return Ok(Some(response));
 				},
 				Ok(Some(Err(source))) => {
 					return Err(tg::error!(!source, "failed to receive the response"));
@@ -84,19 +102,23 @@ impl Session {
 					return Err(tg::error!("the response stream ended"));
 				},
 				Err(_) => {
-					continue;
+					// If we timed out, only attempt a retry if the process hasn't finished. 
+					// TODO: this should check for cancellation?
+					let status = self
+						.get_process_status_local(id)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to get the process status"))?;
+					if status.is_finished() {
+						return Ok(None);
+					}
 				},
 			}
 		}
 	}
 
-	pub(crate) async fn try_send_process_control_stop(
-		&self,
-		id: &tg::process::Id,
-		request: tg::process::control::Request,
-	) -> tg::Result<()> {
+	pub(crate) async fn try_send_process_control_end(&self, id: &tg::process::Id) -> tg::Result<()> {
 		let subject = format!("processes.{id}.control");
-		let payload = Message::Request(tg::process::control::RequestEvent::Stop);
+		let payload = Message::Request(tg::process::control::RequestEvent::End);
 		self.server
 			.messenger
 			.publish(subject, payload)
@@ -113,13 +135,21 @@ impl Session {
 			let session = self.clone();
 			let id = id.clone();
 			move |_| async move {
-				while let Some(event) = stream.try_next().await? {
+				while let Some(result) = stream.next().await {
+					let event = match result {
+						Ok(event) => event,
+						Err(error) => {
+							tracing::error!(%error, "failed to read the control response");
+							continue;
+						},
+					};
+					let end = matches!(event, tg::process::control::ResponseEvent::End);
 					let subject = match &event {
 						tg::process::control::ResponseEvent::Response(response) => {
 							format!("processes.{id}.control.{}", response.id)
 						},
-						tg::process::control::ResponseEvent::Stop => {
-							format!("processes.{id}.control.stop")
+						tg::process::control::ResponseEvent::End => {
+							format!("processes.{id}.control")
 						},
 					};
 					let payload = Message::Response(event);
@@ -132,6 +162,9 @@ impl Session {
 							|error| tracing::error!(%error, "failed to publish the response"),
 						)
 						.ok();
+					if end {
+						break;
+					}
 				}
 				Ok::<_, tg::Error>(())
 			}

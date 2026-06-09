@@ -22,7 +22,7 @@ pub enum RequestEvent {
 	Request(Request),
 
 	#[tangram_serialize(id = 1)]
-	Stop,
+	End,
 }
 
 #[derive(
@@ -39,7 +39,7 @@ pub enum ResponseEvent {
 	Response(Response),
 
 	#[tangram_serialize(id = 1)]
-	Stop,
+	End,
 }
 
 #[serde_as]
@@ -312,8 +312,8 @@ impl TryFrom<RequestEvent> for tangram_http::sse::Event {
 					..Default::default()
 				}
 			},
-			RequestEvent::Stop => tangram_http::sse::Event {
-				event: Some("stop".to_owned()),
+			RequestEvent::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
 				..Default::default()
 			},
 		};
@@ -331,7 +331,7 @@ impl TryFrom<tangram_http::sse::Event> for RequestEvent {
 					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
 				Ok(Self::Request(request))
 			},
-			Some("stop") => Ok(Self::Stop),
+			Some("end") => Ok(Self::End),
 			Some("error") => {
 				let error = serde_json::from_str(&value.data)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
@@ -356,8 +356,8 @@ impl TryFrom<ResponseEvent> for tangram_http::sse::Event {
 					..Default::default()
 				}
 			},
-			ResponseEvent::Stop => tangram_http::sse::Event {
-				event: Some("stop".to_owned()),
+			ResponseEvent::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
 				..Default::default()
 			},
 		};
@@ -375,7 +375,7 @@ impl TryFrom<tangram_http::sse::Event> for ResponseEvent {
 					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
 				Ok(Self::Response(response))
 			},
-			Some("stop") => Ok(Self::Stop),
+			Some("end") => Ok(Self::End),
 			Some("error") => {
 				let error = serde_json::from_str(&value.data)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;

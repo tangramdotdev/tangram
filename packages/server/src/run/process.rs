@@ -1,7 +1,7 @@
 use {
 	super::Output,
 	crate::Session,
-	futures::TryStreamExt as _,
+	futures::{StreamExt as _, TryStreamExt as _},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::Path,
@@ -342,7 +342,9 @@ impl Session {
 		}
 		let sandbox_process = Arc::new(sandbox_process);
 		let stdin = state.stdin.clone();
-		let control_task = Task::spawn({
+		let stdout_mode = state.stdout.clone();
+		let stderr_mode = state.stderr.clone();
+		let mut control_task = Task::spawn({
 			let session = self.clone();
 			let sandbox = sandbox.clone();
 			let id = id.clone();
@@ -352,16 +354,60 @@ impl Session {
 			|_| async move {
 				session
 					.run_control_task(
-						&sandbox,
-						&sandbox_process,
+						sandbox,
+						sandbox_process,
 						&id,
 						location.as_ref(),
 						stdin,
+						stdout_mode,
+						stderr_mode,
 						stdin_blob,
 					)
 					.await
+					.inspect_err(|error| {
+						tracing::error!(error = %error.trace(), "the control task failed");
+					})
 			}
 		});
+		control_task.detach();
+
+		// Spawn a task to drain the logged stdout and stderr into the log store. The
+		// control task only reads stdio in response to a consumer's read request, but
+		// logged streams have no such consumer, so the runner must drain them itself.
+		let mut log_streams = Vec::new();
+		if matches!(state.stdout, tg::process::Stdio::Log) {
+			log_streams.push(tg::process::stdio::Stream::Stdout);
+		}
+		if matches!(state.stderr, tg::process::Stdio::Log) {
+			log_streams.push(tg::process::stdio::Stream::Stderr);
+		}
+		let log_task = if log_streams.is_empty() {
+			None
+		} else {
+			Some(Task::spawn({
+				let session = self.clone();
+				let sandbox = sandbox.clone();
+				let id = id.clone();
+				let location = location.clone();
+				let sandbox_process = sandbox_process.clone();
+				|_| async move {
+					let input = sandbox
+						.read_stdio(&sandbox_process, log_streams.clone())
+						.await
+						.map_err(|error| tg::error!(!error, "failed to read process stdio"))?
+						.boxed();
+					let arg = tg::process::stdio::write::Arg {
+						location: location.map(Into::into),
+						streams: log_streams,
+					};
+					if let Some(output) = session.try_write_process_stdio(&id, arg, input).await? {
+						let mut output = std::pin::pin!(output);
+						while output.try_next().await?.is_some() {}
+					}
+					Ok::<_, tg::Error>(())
+				}
+			}))
+		};
 
 		let wait = sandbox
 			.wait(&sandbox_process)
@@ -410,16 +456,14 @@ impl Session {
 				(exit, true)
 			},
 		};
-
-		// Wait for the control task to finish.
-		control_task.stop();
-		control_task
-			.wait()
-			.await
-			.map_err(|error| tg::error!(!error, "the control task panicked"))
-			.and_then(|r| {
-				r.map_err(|error| tg::error!(!error, "failed to handle control messages"))
-			})?;
+		// Wait for the log task to finish draining the stdio into the log store.
+		if let Some(log_task) = log_task {
+			log_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the log task panicked"))?
+				.map_err(|error| tg::error!(!error, "failed to drain the process logs"))?;
+		}
 
 		// Handle the case where the process was stopped.
 		if stopped {
@@ -510,7 +554,6 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to compute the checksum"))?;
 			output.checksum = Some(checksum);
 		}
-
 		Ok(output)
 	}
 
