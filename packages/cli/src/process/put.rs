@@ -34,7 +34,7 @@ impl Cli {
 			bytes
 		};
 		let data = serde_json::from_str(&bytes)
-			.map_err(|error| tg::error!(!error, "failed to deseralize the data"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 		let arg = tg::process::put::Arg {
 			data,
 			location: args.location.get(),
