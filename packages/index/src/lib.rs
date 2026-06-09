@@ -17,8 +17,9 @@ pub mod prelude {
 pub trait Index {
 	fn authorize(
 		&self,
-		id: tg::Id,
+		resource: tg::Id,
 		permission: tg::grant::Permission,
+		principal: Option<&tg::Principal>,
 	) -> impl Future<Output = tg::Result<bool>> + Send;
 
 	fn try_get_cache_entries(

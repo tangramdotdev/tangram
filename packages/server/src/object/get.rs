@@ -121,7 +121,7 @@ impl Session {
 			.try_get(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		if !Self::authorize_object(id, principal.as_ref(), &output.grants) {
+		if !self.authorize_object(id, &output.grants) {
 			return Ok(None);
 		}
 		let object = output.object;
@@ -150,7 +150,7 @@ impl Session {
 			principal: principal.clone(),
 		};
 		let output = self.server.object_store.try_get_sync(&arg)?;
-		if !Self::authorize_object(id, principal.as_ref(), &output.grants) {
+		if !self.authorize_object(id, &output.grants) {
 			return Ok(None);
 		}
 		let object = output.object;
@@ -264,12 +264,11 @@ impl Session {
 			.try_get_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
-		let principal = principal.as_ref();
 		let output = ids
 			.iter()
 			.zip(output)
 			.map(|(id, output)| async move {
-				if !Self::authorize_object(id, principal, &output.grants) {
+				if !self.authorize_object(id, &output.grants) {
 					return Ok(None);
 				}
 				let object = output.object;

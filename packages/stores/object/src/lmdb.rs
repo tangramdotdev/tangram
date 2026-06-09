@@ -124,39 +124,39 @@ impl Store {
 
 impl crate::Store for Store {
 	async fn try_get(&self, arg: TryGetArg) -> tg::Result<TryGetOutput> {
-		Store::try_get(self, arg).await
+		self.try_get(arg).await
 	}
 
 	async fn try_get_batch(&self, arg: TryGetBatchArg) -> tg::Result<Vec<TryGetOutput>> {
-		Store::try_get_batch(self, arg).await
+		self.try_get_batch(arg).await
 	}
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {
-		Store::put(self, arg).await
+		self.put(arg).await
 	}
 
 	async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
-		Store::put_batch(self, args).await
+		self.put_batch(args).await
 	}
 
 	async fn grant(&self, arg: GrantArg) -> tg::Result<()> {
-		Store::grant(self, arg).await
+		self.grant(arg).await
 	}
 
 	async fn grant_batch(&self, args: Vec<GrantArg>) -> tg::Result<()> {
-		Store::grant_batch(self, args).await
+		self.grant_batch(args).await
 	}
 
 	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
-		Store::delete(self, arg).await
+		self.delete(arg).await
 	}
 
 	async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
-		Store::delete_batch(self, args).await
+		self.delete_batch(args).await
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
-		Store::flush(self).await
+		self.flush().await
 	}
 }
 

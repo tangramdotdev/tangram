@@ -27,8 +27,9 @@ impl Session {
 			.with({
 				let ids = ids.to_owned();
 				let principal = principal.cloned();
+				let session = self.clone();
 				move |connection, cache| {
-					Self::try_get_process_batch_sqlite_sync(
+					session.try_get_process_batch_sqlite_sync(
 						connection,
 						cache,
 						&ids,
@@ -63,6 +64,7 @@ impl Session {
 	}
 
 	pub(crate) fn try_get_process_batch_sqlite_sync(
+		&self,
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,
 		ids: &[tg::process::Id],
@@ -71,14 +73,13 @@ impl Session {
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			outputs.push(Self::try_get_process_sqlite_sync(
-				connection, cache, id, principal, now,
-			)?);
+			outputs.push(self.try_get_process_sqlite_sync(connection, cache, id, principal, now)?);
 		}
 		Ok(outputs)
 	}
 
 	pub(crate) fn try_get_process_sqlite_sync(
+		&self,
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,
 		id: &tg::process::Id,
@@ -297,11 +298,11 @@ impl Session {
 			metadata: None,
 		};
 
-		if Self::authorize_process(id, principal, &grants) {
-			Ok(Some(output))
-		} else {
-			Ok(None)
+		if !self.authorize_process(id, &grants) {
+			return Ok(None);
 		}
+
+		Ok(Some(output))
 	}
 
 	fn try_get_process_grants_sqlite_sync(

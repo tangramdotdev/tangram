@@ -1,1 +1,1 @@
-pub(crate) mod size;
+pub mod size;

@@ -1,9 +1,9 @@
 use {crate::Server, tangram_client::prelude::*, tangram_messenger::prelude::*};
 
-pub(crate) mod read;
-pub(crate) mod write;
+pub mod read;
+pub mod write;
 
-pub(crate) const MAX_UNREAD_PROCESS_STDIO_BYTES: u64 = 1024 * 1024;
+pub const MAX_UNREAD_PROCESS_STDIO_BYTES: u64 = 1024 * 1024;
 
 impl Server {
 	pub(crate) fn spawn_publish_process_stdio_close_message_task(

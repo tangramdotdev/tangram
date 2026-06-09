@@ -1,4 +1,4 @@
-use {crate::Session, tangram_client::prelude::*};
+use {crate::Session, tangram_client::prelude::*, tangram_index::prelude::*};
 
 #[derive(Clone, Debug)]
 #[expect(
@@ -24,18 +24,20 @@ pub(crate) struct ProcessGrant {
 
 impl Session {
 	pub(crate) fn authorize_object(
+		&self,
 		_id: &tg::object::Id,
-		_principal: Option<&tg::Principal>,
 		_grants: &[tangram_object_store::Grant],
 	) -> bool {
+		let _principal = self.context.principal.as_ref();
 		true
 	}
 
 	pub(crate) fn authorize_process(
+		&self,
 		_id: &tg::process::Id,
-		_principal: Option<&tg::Principal>,
 		_grants: &[ProcessGrant],
 	) -> bool {
+		let _principal = self.context.principal.as_ref();
 		true
 	}
 
@@ -45,9 +47,12 @@ impl Session {
 	)]
 	pub(crate) async fn authorize(
 		&self,
-		_id: tg::Id,
-		_permission: tg::grant::Permission,
+		resource: tg::Id,
+		permission: tg::grant::Permission,
 	) -> tg::Result<bool> {
-		Ok(true)
+		self.server
+			.index
+			.authorize(resource, permission, self.context.principal.as_ref())
+			.await
 	}
 }

@@ -23,7 +23,10 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			outputs.push(Self::try_get_process_turso(&transaction, id, principal, now).await?);
+			outputs.push(
+				self.try_get_process_turso(&transaction, id, principal, now)
+					.await?,
+			);
 		}
 		transaction
 			.commit()
@@ -33,6 +36,7 @@ impl Session {
 	}
 
 	async fn try_get_process_turso(
+		&self,
 		connection: &impl db::Query<Error = db::turso::Error>,
 		id: &tg::process::Id,
 		principal: Option<&tg::Principal>,
@@ -233,11 +237,11 @@ impl Session {
 			metadata: None,
 		};
 
-		if Self::authorize_process(id, principal, &grants) {
-			Ok(Some(output))
-		} else {
-			Ok(None)
+		if !self.authorize_process(id, &grants) {
+			return Ok(None);
 		}
+
+		Ok(Some(output))
 	}
 
 	async fn try_get_process_grants_turso(

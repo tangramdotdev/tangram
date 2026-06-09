@@ -171,7 +171,7 @@ impl Session {
 			.map(|id| {
 				let output = outputs.get(id).cloned();
 				let grants = grants.get(id).map(Vec::as_slice).unwrap_or_default();
-				output.filter(|_| Self::authorize_process(id, principal, grants))
+				output.filter(|_| self.authorize_process(id, grants))
 			})
 			.collect();
 

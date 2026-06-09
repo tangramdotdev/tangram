@@ -8,23 +8,23 @@ use {
 	tangram_messenger::prelude::*,
 };
 
-pub(crate) mod cancel;
-pub(crate) mod children;
-pub(crate) mod finalize;
-pub(crate) mod finish;
-pub(crate) mod get;
-pub(crate) mod grants;
-pub(crate) mod list;
-pub(crate) mod metadata;
-pub(crate) mod put;
-pub(crate) mod signal;
-pub(crate) mod spawn;
-pub(crate) mod status;
-pub(crate) mod stdio;
-pub(crate) mod store;
-pub(crate) mod touch;
-pub(crate) mod tty;
-pub(crate) mod wait;
+pub mod cancel;
+pub mod children;
+pub mod finalize;
+pub mod finish;
+pub mod get;
+pub mod grants;
+pub mod list;
+pub mod metadata;
+pub mod put;
+pub mod signal;
+pub mod spawn;
+pub mod status;
+pub mod stdio;
+pub mod store;
+pub mod touch;
+pub mod tty;
+pub mod wait;
 
 impl Server {
 	pub(crate) async fn create_process_token(
@@ -174,7 +174,8 @@ impl Session {
 			"
 				select count(*) != 0
 				from processes
-				where processes.id = {p}1
+				where
+					processes.id = {p}1
 					{sandbox_condition};
 			"
 		);
@@ -204,7 +205,7 @@ impl Session {
 		// Drop the database connection.
 		drop(connection);
 
-		Ok(exists && Self::authorize_process(id, principal.as_ref(), &grants))
+		Ok(exists && self.authorize_process(id, &grants))
 	}
 
 	async fn try_get_process_grants_for_authorization(

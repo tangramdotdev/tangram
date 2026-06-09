@@ -1,1 +1,1 @@
-pub(crate) mod queue;
+pub mod queue;

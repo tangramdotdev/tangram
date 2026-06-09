@@ -287,7 +287,12 @@ impl Index {
 }
 
 impl crate::Index for Index {
-	async fn authorize(&self, _id: tg::Id, _permission: tg::grant::Permission) -> tg::Result<bool> {
+	async fn authorize(
+		&self,
+		_resource: tg::Id,
+		_permission: tg::grant::Permission,
+		_principal: Option<&tg::Principal>,
+	) -> tg::Result<bool> {
 		Ok(true)
 	}
 

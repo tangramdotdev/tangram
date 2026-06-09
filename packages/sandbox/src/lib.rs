@@ -17,6 +17,7 @@ mod client;
 mod libraries;
 #[cfg(target_os = "linux")]
 mod netlink;
+mod paths;
 mod pty;
 mod server;
 mod util;
@@ -25,7 +26,6 @@ mod util;
 pub mod container;
 #[cfg(target_os = "linux")]
 pub mod network;
-mod paths;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
