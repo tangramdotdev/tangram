@@ -31,7 +31,7 @@ let child_id = $process.children | first | get process
 let child = tg get $child_id | from json
 let child_error = $child.error
 
-let output = tg get $parent_error --pretty | redact
+let output = tg get $parent_error --pretty | redact | normalize_ids
 snapshot $output '
 	tg.error({
 	  "message": "the child process failed",
@@ -43,7 +43,7 @@ snapshot $output '
 	        "value": {
 	          "kind": "ts",
 	          "referent": {
-	            "item": <file>,
+	            "item": fil_010000000000000000000000000000000000000000000000000000,
 	          },
 	        },
 	      },
@@ -66,7 +66,7 @@ snapshot $output '
 	})
 '
 
-snapshot (tg get $child_error --pretty | redact) '
+snapshot (tg get $child_error --pretty | redact | normalize_ids) '
 	tg.error({
 	  "message": "oops",
 	  "stack": [
@@ -76,7 +76,7 @@ snapshot (tg get $child_error --pretty | redact) '
 	        "value": {
 	          "kind": "ts",
 	          "referent": {
-	            "item": <file>,
+	            "item": fil_010000000000000000000000000000000000000000000000000000,
 	          },
 	        },
 	      },
