@@ -1,7 +1,5 @@
 use ../../test.nu *
 
-# A user can access only their own processes, cacheable processes cannot be signaled, and another user without a grant cannot get, list, or inspect those processes.
-
 let server = spawn --config { authentication: true }
 
 def current_token [] {

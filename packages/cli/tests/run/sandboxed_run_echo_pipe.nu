@@ -16,6 +16,7 @@ let path = artifact {
 
 let output = tg run $path | complete
 success $output
+$output.stdout | hexyl
 snapshot $output.stdout '
 	hello
 
