@@ -319,12 +319,12 @@ mod tests {
 	// Reference query parameters are parsed into the corresponding options fields.
 	#[test]
 	fn options() {
-		let reference = "dir_010000000000000000000000000000000000000000000000000000?id=dir_020000000000000000000000000000000000000000000000000000&name=main&path=lib/main.tg.ts&tag=foo&get=src/util.tg.ts"
+		let reference = "dir_010000000000000000000000000000000000000000000000000000?id=dir_010200000000000000000000000000000000000000000000000000&name=main&path=lib/main.tg.ts&tag=foo&get=src/util.tg.ts"
 			.parse::<tg::Reference>()
 			.unwrap();
 		assert_eq!(
 			reference.options().id.as_ref().unwrap().to_string(),
-			"dir_020000000000000000000000000000000000000000000000000000"
+			"dir_010200000000000000000000000000000000000000000000000000"
 		);
 		assert_eq!(reference.options().name.as_deref(), Some("main"));
 		assert_eq!(
