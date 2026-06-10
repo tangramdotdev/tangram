@@ -1,5 +1,7 @@
 use ../test.nu *
 
+# Updating a package against an existing lockfile reports added, updated, and removed dependencies, including transitive changes, matching the snapshot.
+
 let server = spawn
 
 # Create the transitive dependency (version 1).

@@ -1,7 +1,9 @@
 use ../../test.nu *
 
+# The watchdog fails a long-running build whose heartbeat expires under a short time-to-live and reports a heartbeat expired error.
+
 # Configure watchdog with short TTL and fast interval.
-let server = spawn -c {
+let server = spawn --config {
 	watchdog: {
 		ttl: 0.1
 		interval: 0.1

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package with an invalid sibling lockfile ignores the lockfile, produces the expected object, and removes the lockfile.
+
 let server = spawn
 
 let path = artifact {
@@ -21,10 +23,10 @@ let id = tg checkin ($path | path join 'a')
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 let lockfile_path = $path | path join 'a' 'tangram.lock'
 assert (not ($lockfile_path | path exists))

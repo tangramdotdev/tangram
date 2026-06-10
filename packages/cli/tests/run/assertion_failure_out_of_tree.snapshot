@@ -1,8 +1,8 @@
 error an error occurred
 -> the process failed
-   id = PROCESS
+   id = <process>
 -> the child process failed
-   id = PROCESS
+   id = <process>
 -> failed assertion
    ╭─[./bar/tangram.ts:1:25]
  1 │ export default () => tg.assert(false);

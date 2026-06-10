@@ -1,6 +1,8 @@
 use ../../test.nu *
 
 # Reproduces an async deadlock between an in-flight dequeue_sandbox_process and destroy_sandbox.
+#
+# Regression test for 529b306e (#873).
 
 let server = spawn --config {
 	runner: {

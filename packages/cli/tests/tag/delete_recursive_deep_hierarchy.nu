@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# tg tag delete --recursive on a deep tag hierarchy processes tags in order from the deepest to the shallowest path.
+
 let server = spawn
 
 # Create and tag an artifact.
@@ -16,4 +18,4 @@ for tag in $tags {
 let output = tg tag delete --recursive "test/*" | from json | get deleted.specifier | to json -r
 
 # Verify the order: longest paths first (children before parents).
-snapshot -n deleted $output
+snapshot --name deleted $output

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The check command succeeds when a mutation produced by tg.Mutation.setIfUnset is assigned to a field typed as tg.MaybeMutation.
+
 let server = spawn
 
 let path = artifact {

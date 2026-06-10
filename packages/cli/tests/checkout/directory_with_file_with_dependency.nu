@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a directory containing a file with a tagged dependency materializes the directory and writes the corresponding sibling lockfile.
+
+let tmp = mktemp --directory
 
 let server = spawn
 
@@ -32,4 +34,4 @@ tg checkout $id $path
 snapshot --path $path
 
 let lockfile = open ($path | path join 'tangram.lock')
-snapshot -n lockfile $lockfile
+snapshot --name lockfile $lockfile

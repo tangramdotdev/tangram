@@ -1,5 +1,6 @@
 use ../../test.nu *
 
+# Checking in with --update for a single tag updates only that dependency in the lockfile and leaves the others pinned.
 
 let server = spawn
 

@@ -1,5 +1,7 @@
 use ../test.nu *
 
+# Outdated reports a dependency pinned below its latest compatible and latest available versions, in both text and JSON output, matching the snapshots.
+
 let server = spawn
 
 # Write the artifact to a temp.

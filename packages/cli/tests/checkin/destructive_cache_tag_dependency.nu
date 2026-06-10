@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A destructive checkin of a package that imports a tagged dependency resolves the dependency from the cache.
+
 let server = spawn
 
 # Check that using a tag dependency in the cache works.

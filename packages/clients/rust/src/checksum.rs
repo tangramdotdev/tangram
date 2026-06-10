@@ -267,6 +267,7 @@ impl tokio::io::AsyncWrite for Writer {
 mod tests {
 	use super::*;
 
+	// Hashing data with the BLAKE3 writer produces a checksum that round-trips through its hex string representation.
 	#[test]
 	fn blake3() {
 		let data = "Hello, world!";
@@ -290,6 +291,7 @@ mod tests {
 		assert_eq!(checksum, expected_string.parse().unwrap());
 	}
 
+	// A BLAKE3 checksum in base64 SRI form parses into the expected checksum.
 	#[test]
 	fn blake3_sri() {
 		let expected_checksum = Checksum {
@@ -307,6 +309,7 @@ mod tests {
 		assert_eq!(checksum, expected_checksum);
 	}
 
+	// Hashing data with the SHA-256 writer produces a checksum that round-trips through its hex string representation.
 	#[test]
 	fn sha256() {
 		let data = "Hello, world!";
@@ -330,6 +333,7 @@ mod tests {
 		assert_eq!(checksum, expected_string.parse().unwrap());
 	}
 
+	// A SHA-256 checksum in base64 SRI form parses into the expected checksum.
 	#[test]
 	fn sha256_sri() {
 		let expected_checksum = Checksum {
@@ -347,6 +351,7 @@ mod tests {
 		assert_eq!(checksum, expected_checksum);
 	}
 
+	// Hashing data with the SHA-512 writer produces a checksum that round-trips through its hex string representation.
 	#[test]
 	fn sha512() {
 		let data = "Hello, world!";
@@ -371,6 +376,7 @@ mod tests {
 		assert_eq!(checksum, expected_string.parse().unwrap());
 	}
 
+	// A SHA-512 checksum in base64 SRI form parses into the expected checksum.
 	#[test]
 	fn sha512_sri() {
 		let expected_checksum = Checksum {

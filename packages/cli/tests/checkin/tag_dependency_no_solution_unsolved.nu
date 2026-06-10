@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package with conflicting tag version constraints succeeds under --unsolved-dependencies, leaving the conflict unresolved in the lockfile.
+
 let server = spawn
 
 let c1 = artifact {
@@ -36,11 +38,11 @@ let id = tg checkin --unsolved-dependencies $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 let lockfile_path = $path | path join 'tangram.lock'
 let lock = open $lockfile_path | from json
-snapshot -n lock ($lock | to json -i 2)
+snapshot --name lock ($lock | to json --indent 2)

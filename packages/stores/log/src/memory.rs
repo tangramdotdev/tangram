@@ -260,6 +260,7 @@ mod tests {
 			.into()
 	}
 
+	// A single put chunk can be read back in full and as a partial subset by position.
 	#[test]
 	fn test_put_and_read_log_single_chunk() {
 		let store = Store::new();
@@ -292,6 +293,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("world"));
 	}
 
+	// Multiple sequential put chunks on one stream read back as a single concatenated result.
 	#[test]
 	fn test_put_and_read_log_multiple_chunks() {
 		let store = Store::new();
@@ -327,6 +329,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 	}
 
+	// A read starting and ending mid-chunk returns the correct bytes spanning chunk boundaries.
 	#[test]
 	fn test_read_log_across_chunk_boundaries() {
 		let store = Store::new();
@@ -380,6 +383,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("AABBBBCC"));
 	}
 
+	// Reading both streams returns the interleaved combined order while reading a single stream returns only that stream's chunks.
 	#[test]
 	fn test_read_log_combined_stream() {
 		let store = Store::new();
@@ -436,6 +440,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("err1"));
 	}
 
+	// Deleting a process's log removes all of its chunks across streams so a subsequent read is empty.
 	#[test]
 	fn test_delete_log_removes_all_chunks() {
 		let store = Store::new();
@@ -485,6 +490,7 @@ mod tests {
 		assert!(result.is_empty());
 	}
 
+	// The log length is reported correctly for the combined streams and for each individual stream.
 	#[test]
 	fn test_try_get_log_length() {
 		let store = Store::new();
@@ -537,6 +543,7 @@ mod tests {
 		);
 	}
 
+	// A read starting at the end position of the log returns no bytes.
 	#[test]
 	fn test_read_log_at_end_returns_empty() {
 		let store = Store::new();
@@ -560,6 +567,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::new());
 	}
 
+	// Reading the log of a process that does not exist returns an empty result.
 	#[test]
 	fn test_read_log_nonexistent_process() {
 		let store = Store::new();

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that the default lock mode reuses an existing lockattr for a file dependency lock.
+# The default lock mode reuses an existing lockattr for a file dependency lock.
 
 let server = spawn
 

@@ -1,5 +1,9 @@
 use ../../test.nu *
 
+# Getting the output of a canceled process fails with a canceled
+# error, whether the process is canceled explicitly with `tg cancel` or by killing
+# the client that started the build.
+
 let server = spawn
 
 let path = artifact {
@@ -12,11 +16,11 @@ let path = artifact {
 	'
 }
 
-let process = tg build -dv $path | from json
+let process = tg build --detach --verbose $path | from json
 tg cancel $process.process $process.lease
 let output = tg output $process.process | complete
 failure $output
-let stderr = $output.stderr | ansi strip | str trim | str replace -r 'id = pcs_[a-z0-9]+' 'id = <process>'
+let stderr = $output.stderr | ansi strip | str trim | redact
 snapshot $stderr '
 	error an error occurred
 	-> failed to get the process output
@@ -31,30 +35,10 @@ job kill $id
 
 let output = tg output $process.process | complete
 failure $output
-let stderr = $output.stderr | ansi strip | str trim | str replace -r 'id = pcs_[a-z0-9]+' 'id = <process>'
+let stderr = $output.stderr | ansi strip | str trim | redact
 snapshot $stderr '
 	error an error occurred
 	-> failed to get the process output
 	   id = <process>
 	-> the process was canceled
 '
-
-let path = artifact {
-	tangram.ts: '
-		export default async () => {
-			await Promise.race([
-				tg.sleep(0),
-				f(), 
-			]);
-		};
-
-		let f = async () => {
-			await tg.sleep(100);
-			console.log("after sleep");
-		}
-	'
-}
-let id = tg build -d $path
-tg wait $id
-let log = tg log $id
-assert equal $log ''

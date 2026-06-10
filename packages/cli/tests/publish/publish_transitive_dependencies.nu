@@ -3,8 +3,8 @@ use ../../test.nu *
 # Bug: When a transitive dependency is updated, publishing a top-level package
 # should automatically republish intermediate dependencies in topological order.
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

@@ -1,7 +1,9 @@
 use ../../test.nu *
 
+# The watchdog fails a build whose process tree exceeds the configured maximum depth and reports a maximum depth exceeded error.
+
 # Configure watchdog with low max_depth and fast interval.
-let server = spawn -c {
+let server = spawn --config {
 	watchdog: {
 		max_depth: 2
 	}

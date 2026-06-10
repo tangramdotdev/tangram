@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Building an artifact that uses a tagged dependency, checking it out with dependencies, deleting the tag and cleaning, and checking it back in yields the same artifact ID.
+
 let server = spawn
 
 # Create and tag the foo dependency.
@@ -17,7 +19,7 @@ let artifact = artifact {
 }
 let id = tg build $artifact
 
-let tmp = mktemp -d
+let tmp = mktemp --directory
 let path = $tmp | path join "checkout"
 tg checkout --dependencies=true $id $path
 

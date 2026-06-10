@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A failing tg.assert in a path dependency causes the run to fail and produces the expected diagnostic on stderr.
+
 let server = spawn
 
 let path = artifact {
@@ -20,5 +22,5 @@ let output = do { cd $path; tg run ./foo }| complete
 print $output
 failure $output
 let stderr = $output.stderr
-let stderr = $stderr | str replace -ar 'id = (pcs_00[0-9a-z]{26}|[0-9]+)' 'id = PROCESS'
+let stderr = $stderr | redact
 snapshot $stderr

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a directory object with a single file entry writes the directory into the artifacts cache.
+
 let server = spawn
 
 let artifact = '

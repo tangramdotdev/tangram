@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Building a file, checking it out with dependencies, cleaning, and checking it back in yields the same artifact ID.
+
 let server = spawn
 
 let artifact = artifact {
@@ -9,7 +11,7 @@ let artifact = artifact {
 }
 let id = tg build $artifact
 
-let tmp = mktemp -d
+let tmp = mktemp --directory
 let path = $tmp | path join "checkout"
 tg checkout --dependencies=true $id $path
 

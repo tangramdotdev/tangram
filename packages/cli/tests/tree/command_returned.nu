@@ -1,4 +1,7 @@
 use ../../test.nu *
+
+# The view command renders the expected process tree for a process that builds a command which itself builds another command.
+
 let server = spawn
 let path = artifact {
 	a.tg.ts: 'export default () => 42;',
@@ -17,7 +20,7 @@ let path = artifact {
 	}
 }
 
-let id = tg build --host js -d ($path | path join 'c')
+let id = tg build --host js --detach ($path | path join 'c')
 let output = tg wait $id
 snapshot $output '{"exit":0,"output":42}'
 

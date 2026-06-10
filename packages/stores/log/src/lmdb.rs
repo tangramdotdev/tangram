@@ -621,6 +621,7 @@ mod tests {
 			.into()
 	}
 
+	// A single put chunk can be read back in full and as a partial subset by position.
 	#[tokio::test]
 	async fn test_put_and_read_log_single_chunk() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -668,6 +669,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("world"));
 	}
 
+	// Multiple sequential put chunks on one stream read back as a single concatenated result.
 	#[tokio::test]
 	async fn test_put_and_read_log_multiple_chunks() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -721,6 +723,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 	}
 
+	// A read starting and ending mid-chunk returns the correct bytes spanning chunk boundaries.
 	#[tokio::test]
 	async fn test_read_log_across_chunk_boundaries() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -798,6 +801,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("AABBBBCC"));
 	}
 
+	// Reading both streams returns the interleaved combined order while reading a single stream returns only that stream's chunks.
 	#[tokio::test]
 	async fn test_read_log_combined_stream() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -878,6 +882,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("err1"));
 	}
 
+	// Deleting a process's log removes all of its chunks across streams so a subsequent read is empty.
 	#[tokio::test]
 	async fn test_delete_log_removes_all_chunks() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -948,6 +953,7 @@ mod tests {
 		assert!(result.is_empty());
 	}
 
+	// The log length is reported correctly for the combined streams and for each individual stream.
 	#[tokio::test]
 	async fn test_try_get_log_length() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -1024,6 +1030,7 @@ mod tests {
 		);
 	}
 
+	// A read starting at the end position of the log returns no bytes.
 	#[tokio::test]
 	async fn test_read_log_at_end_returns_empty() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -1059,6 +1066,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::new());
 	}
 
+	// Reading the log of a process that does not exist returns an empty result.
 	#[tokio::test]
 	async fn test_read_log_nonexistent_process() {
 		let temp = tangram_util::fs::Temp::new().unwrap();

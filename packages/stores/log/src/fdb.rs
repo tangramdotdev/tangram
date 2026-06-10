@@ -603,6 +603,7 @@ mod tests {
 	use super::*;
 	use foundationdb_tuple::TuplePack as _;
 
+	// Packed entry and stream-position keys use the same tuple layout as the lmdb backend for cross-backend parity.
 	#[test]
 	fn test_key_pack_matches_lmdb_layout() {
 		let subspace = fdbt::Subspace::all();
@@ -629,6 +630,7 @@ mod tests {
 		);
 	}
 
+	// A configured subspace prefix is prepended to packed keys.
 	#[test]
 	fn test_prefix_is_applied_to_keys() {
 		let subspace = fdbt::Subspace::from_bytes(b"logs_".to_vec());

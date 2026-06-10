@@ -162,6 +162,7 @@ fn expression_to_json(expr: &Expression) -> tg::Result<serde_json::Value> {
 mod tests {
 	use {super::*, indoc::indoc};
 
+	// A metadata export consisting of string fields is parsed into the corresponding map entries.
 	#[test]
 	fn test_simple_metadata() {
 		let text = indoc!(
@@ -177,6 +178,7 @@ mod tests {
 		assert_eq!(result.get("version").unwrap(), "1.0.0");
 	}
 
+	// Positive and negated numeric literals in metadata are parsed into JSON numbers.
 	#[test]
 	#[allow(clippy::float_cmp)]
 	fn test_metadata_with_numbers() {
@@ -195,6 +197,7 @@ mod tests {
 		assert_eq!(result.get("negative").unwrap().as_f64().unwrap(), -10.0);
 	}
 
+	// An array literal in metadata is parsed into a JSON array with the correct elements.
 	#[test]
 	fn test_metadata_with_array() {
 		let text = indoc!(
@@ -211,6 +214,7 @@ mod tests {
 		assert_eq!(items[0], "a");
 	}
 
+	// A nested object literal in metadata is parsed into a nested JSON object.
 	#[test]
 	fn test_metadata_with_nested_object() {
 		let text = indoc!(
@@ -228,6 +232,7 @@ mod tests {
 		assert_eq!(nested.get("foo").unwrap(), "bar");
 	}
 
+	// Boolean and null literals in metadata are parsed into the corresponding JSON values.
 	#[test]
 	fn test_metadata_with_booleans_and_null() {
 		let text = indoc!(
@@ -246,6 +251,7 @@ mod tests {
 		assert!(result.get("nothing").unwrap().is_null());
 	}
 
+	// A module without a metadata export yields None.
 	#[test]
 	fn test_no_metadata() {
 		let text = indoc!(
@@ -257,6 +263,7 @@ mod tests {
 		assert!(result.is_none());
 	}
 
+	// A metadata object wrapped in a TypeScript "as const" assertion is parsed by unwrapping the assertion.
 	#[test]
 	fn test_metadata_with_type_assertion() {
 		let text = indoc!(
@@ -270,6 +277,7 @@ mod tests {
 		assert_eq!(result.get("tag").unwrap(), "test");
 	}
 
+	// A metadata export declared with const, rather than let, is parsed.
 	#[test]
 	fn test_metadata_const_declaration() {
 		let text = indoc!(
@@ -283,6 +291,7 @@ mod tests {
 		assert_eq!(result.get("tag").unwrap(), "test/package");
 	}
 
+	// A metadata export initialized with a function call is rejected with an error.
 	#[test]
 	fn test_metadata_function_call_error() {
 		let text = indoc!(
@@ -294,6 +303,7 @@ mod tests {
 		assert!(result.is_err());
 	}
 
+	// A metadata object using shorthand property syntax, whose value is an identifier rather than a literal, is rejected with an error.
 	#[test]
 	fn test_metadata_identifier_error() {
 		let text = indoc!(
@@ -306,6 +316,7 @@ mod tests {
 		assert!(result.is_err());
 	}
 
+	// A metadata export whose value is not an object is rejected with an error.
 	#[test]
 	fn test_metadata_not_object_error() {
 		let text = indoc!(
@@ -317,6 +328,7 @@ mod tests {
 		assert!(result.is_err());
 	}
 
+	// A metadata field whose value is a template literal without expressions is parsed into the literal string.
 	#[test]
 	fn test_template_literal() {
 		let text = indoc!(

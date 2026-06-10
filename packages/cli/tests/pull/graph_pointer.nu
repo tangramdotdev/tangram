@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local
+# Eagerly pulling a graph directory pointer from a remote fails with an error indicating that a pointer was found instead of an object.
+
+let remote = spawn --cloud --name remote
+let local = spawn --name local
 let output = tg remote put default $remote.url | complete
 success $output
 

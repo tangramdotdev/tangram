@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+# Publishing a single-file root module that imports both a directory dependency and a file dependency by source succeeds.
+
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

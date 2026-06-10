@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Bug: Publishing from different entry points in a cycle produces different IDs.
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

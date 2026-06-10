@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A deterministic checkin of a package with an unresolved tag dependency fails unless --unsolved-dependencies is also passed.
+
 let server = spawn
 let path = artifact {
 	tangram.ts: '

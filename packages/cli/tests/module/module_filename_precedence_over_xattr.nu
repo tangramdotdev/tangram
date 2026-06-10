@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that filename pattern takes precedence over xattr.
+# Filename pattern takes precedence over xattr.
 # A file named foo.tg.ts with xattr "js" should be detected as "ts".
 
 let server = spawn

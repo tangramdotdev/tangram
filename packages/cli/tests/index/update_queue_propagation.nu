@@ -1,8 +1,8 @@
 use ../../test.nu *
 
-# Test that metadata propagates from child to parent through the update queue.
+# Metadata propagates from child to parent through the update queue.
 
-let local = spawn -n local
+let local = spawn --name local
 
 # Create and check in a child file first.
 let child_path = artifact {
@@ -10,12 +10,12 @@ let child_path = artifact {
 		export default () => "child";
 	'
 }
-let child_id = tg -u $local.url checkin $child_path
+let child_id = tg --url $local.url checkin $child_path
 
 # Index and verify the child metadata.
-tg -u $local.url index
-let child_metadata = tg -u $local.url object metadata --pretty $child_id
-snapshot -n child_metadata $child_metadata '
+tg --url $local.url index
+let child_metadata = tg --url $local.url object metadata --pretty $child_id
+snapshot --name child_metadata $child_metadata '
 	{
 	  "node": {
 	    "size": 60,
@@ -44,12 +44,12 @@ let parent_path = artifact {
 		export default () => child();
 	'
 }
-let parent_id = tg -u $local.url checkin $parent_path
+let parent_id = tg --url $local.url checkin $parent_path
 
 # Index and verify the parent metadata includes the child's metadata.
-tg -u $local.url index
-let parent_metadata = tg -u $local.url object metadata --pretty $parent_id
-snapshot -n parent_metadata $parent_metadata '
+tg --url $local.url index
+let parent_metadata = tg --url $local.url object metadata --pretty $parent_id
+snapshot --name parent_metadata $parent_metadata '
 	{
 	  "node": {
 	    "size": 105,
@@ -67,5 +67,5 @@ snapshot -n parent_metadata $parent_metadata '
 '
 
 # Verify that child metadata is still correct after parent indexing.
-let child_metadata_after = tg -u $local.url object metadata --pretty $child_id
+let child_metadata_after = tg --url $local.url object metadata --pretty $child_id
 assert equal $child_metadata_after $child_metadata

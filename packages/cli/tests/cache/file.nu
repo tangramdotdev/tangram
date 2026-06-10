@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a simple file writes the file into the artifacts cache.
+
 let server = spawn
 
 # Create the artifact.

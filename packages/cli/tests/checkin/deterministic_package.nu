@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A deterministic checkin resolves tag dependencies strictly from the provided lockfile without consulting the tag store.
+
 let server = spawn
 
 # Tag the a dependency.

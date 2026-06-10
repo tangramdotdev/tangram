@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a symlink defined through a graph node materializes the symlink on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

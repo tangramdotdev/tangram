@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Bundling a checked-in directory with no dependencies produces a bundled object that matches the snapshot.
+
 let server = spawn
 
 let path = artifact {

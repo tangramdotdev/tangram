@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-# This test verifies that many concurrent checkins of the same root all succeed.
+# Many concurrent checkins of the same root all succeed.
+#
+# Regression test for 4819305a (#734).
 
 let server = spawn
 

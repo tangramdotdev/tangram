@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The tree command with the tag kind renders the expected hierarchy of tag components and the objects to which the leaf tags resolve.
+
 let server = spawn
 
 # Create and tag dependencies.

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A build invoking a checksummed sandboxed tg.run command fails when its caller throws but succeeds when the caller returns normally.
+
 let server = spawn
 
 let path = artifact {

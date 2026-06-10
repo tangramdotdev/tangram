@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Directory.get follows a symlink in the final path component and returns the file it points to.
+
 let server = spawn
 
 let path = artifact {

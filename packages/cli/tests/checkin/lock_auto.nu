@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that the default lock mode writes a lockattr for a file with a tag dependency.
+# The default lock mode writes a lockattr for a file with a tag dependency.
 
 let server = spawn
 

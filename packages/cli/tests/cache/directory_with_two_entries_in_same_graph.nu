@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a directory whose two entries reference each other within the same graph writes the directory into the artifacts cache.
+
 let server = spawn --config { write: { cache_pointers: false } }
 
 let path = artifact {
@@ -30,7 +32,7 @@ let path = artifact {
 	'#
 }
 let id = tg build --no-cache-pointers $path
-rm -rf ($server.directory | path join "artifacts")
+rm --recursive --force ($server.directory | path join "artifacts")
 mkdir ($server.directory | path join "artifacts")
 
 tg cache $id | complete

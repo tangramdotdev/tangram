@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a directory with more entries than the configured max leaf entries produces a branched directory object.
+
 # Spawn a server with a small max_leaf_entries to trigger branch directories with few files.
 let server = spawn --config {
 	checkin: {
@@ -24,7 +26,7 @@ let id = tg checkin $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata

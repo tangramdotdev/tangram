@@ -1,4 +1,4 @@
-# This test verifies that checking in different files from a cyclic module graph produces the same graph ID regardless of which file is checked in first.
+# Checking in different files from a cyclic module graph produces the same graph ID regardless of which file is checked in first.
 
 use ../../test.nu *
 

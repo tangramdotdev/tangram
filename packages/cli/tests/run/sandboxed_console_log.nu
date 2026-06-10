@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Console.log output from a sandboxed run is captured on stdout.
+
 let server = spawn
 
 let path = artifact {

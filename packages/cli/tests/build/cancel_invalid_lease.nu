@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Cancelling a process with an invalid lease token fails with a missing-lease error, while cancelling with the valid lease succeeds.
+
 let server = spawn
 
 let path = artifact {
@@ -12,7 +14,7 @@ let path = artifact {
 	'
 }
 
-let process = tg build -dv $path | from json
+let process = tg build --detach --verbose $path | from json
 
 let output = do { tg cancel $process.process invalidtoken } | complete
 failure $output

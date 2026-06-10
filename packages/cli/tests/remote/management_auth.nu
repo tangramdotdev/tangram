@@ -1,12 +1,14 @@
 use ../../test.nu *
 
-let root_remote = spawn -n root-remote
-let alice_server = spawn -n alice-remote
-let bob_server = spawn -n bob-remote
+# Remote management requires authentication and each authenticated user manages their own isolated set of remotes.
+
+let root_remote = spawn --name root-remote
+let alice_server = spawn --name alice-remote
+let bob_server = spawn --name bob-remote
 let auth_enabled = spawn --config {
 	authentication: true,
 	remotes: { default: { url: $root_remote.url } },
-} -n auth-enabled
+} --name auth-enabled
 
 def current_token [] {
 	open $env.TANGRAM_CONFIG | get token
@@ -40,7 +42,7 @@ assert equal $alice_remotes []
 let bob_remote = tg --token $bob remote get default | from json
 assert equal $bob_remote.url $bob_server.url
 
-let auth_disabled = spawn -n auth-disabled
+let auth_disabled = spawn --name auth-disabled
 
 tg remote put default $root_remote.url
 tg remote delete default

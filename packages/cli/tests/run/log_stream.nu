@@ -1,4 +1,7 @@
 use ../../test.nu *
+
+# tg log can read a process's log output by position and length, both forwards and backwards.
+
 let server = spawn
 let path = artifact {
 	tangram.ts: r#'
@@ -17,9 +20,10 @@ let path = artifact {
 		};
 	'#
 }
-let process = tg build -dv $path | from json
+let process = tg build --detach --verbose $path | from json
 
-sleep 1sec
+# Wait for the first two log lines to be written.
+wait_until { (tg log $process.process --position 21 --length 20) == 'bbbbbbbbbbbbbbbbbbbb' } "the first two log lines should be written"
 
 # Check that we can read just one chunk forwards
 let output = tg log $process.process --position 0 --length 20

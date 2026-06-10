@@ -1,5 +1,9 @@
 use ../../test.nu *
 
+# tg.download succeeds when given the wildcard "sha256:any" checksum, which accepts any downloaded contents.
+
+skip_if_offline
+
 let server = spawn
 
 let path = artifact {

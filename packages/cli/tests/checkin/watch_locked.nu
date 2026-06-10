@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that --watch with --locked prevents updating a stale lock.
+# --watch with --locked prevents updating a stale lock.
 
 let server = spawn
 

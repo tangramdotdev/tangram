@@ -1,8 +1,11 @@
 use ../../test.nu *
+
+# Restarting the remote server mid-build does not lose log output, and the full stdout and stderr streams are still readable afterward.
+
 let config = {
 	runner: false,
 }
-let remote = spawn -n remote  -c $config
+let remote = spawn --name remote  --config $config
 let config = {
 	remotes: {
 		default: {
@@ -14,7 +17,7 @@ let config = {
 		remote: "default",
 	}
 }
-let runner = spawn -n runner --config $config
+let runner = spawn --name runner --config $config
 
 let config = {
 	remotes: {
@@ -23,7 +26,7 @@ let config = {
 		}
 	},
 }
-let local = spawn -n local --config $config
+let local = spawn --name local --config $config
 
 let path = artifact {
 	tangram.ts: r#'
@@ -42,7 +45,7 @@ let path = artifact {
 	'#
 }
 
-let id = tg --url $local.url build --remote -d $path
+let id = tg --url $local.url build --remote --detach $path
 tg --url $remote.url server restart
 let output = tg --url $local.url wait $id
 let stdout = tg --url $local.url log $id --stream=stdout

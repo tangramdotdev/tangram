@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching an executable file writes the file into the artifacts cache with its executable bit preserved.
+
 let server = spawn
 
 # Create the artifact.

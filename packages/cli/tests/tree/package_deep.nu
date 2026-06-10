@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The tree command with the package kind renders the expected dependency tree for a chain of three tagged packages resolved through version constraints.
+
 let server = spawn
 
 let leaf_path = artifact {

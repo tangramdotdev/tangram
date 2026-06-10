@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a directory whose graph forms a cycle fails with an error reporting a detected directory cycle.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

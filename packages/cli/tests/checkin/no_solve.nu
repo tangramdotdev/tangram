@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package with --no-solve leaves the tag dependency unresolved rather than solving it.
+
 let server = spawn
 
 # Tag the a dependency.

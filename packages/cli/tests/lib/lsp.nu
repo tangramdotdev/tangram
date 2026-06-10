@@ -97,7 +97,7 @@ export def run [messages: list<string>] {
 }
 
 export def start [] {
-	let directory = mktemp -d
+	let directory = mktemp --directory
 	let input = $directory | path join "input"
 	let output = $directory | path join "output"
 	let stderr = $directory | path join "stderr"
@@ -107,10 +107,10 @@ export def start [] {
 	mkfifo $input
 	"" | save $output
 	"" | save $stderr
-	let job = job spawn -d lsp {
+	let job = job spawn --description lsp {
 		let lsp_job_id = job id
 		let exit_path = $exit_directory | path join $'($lsp_job_id).exit'
-		do -i {
+		do --ignore-errors {
 			bash -c $"
 				PARENT_PID=$PPID
 				SELF_PID=$$
@@ -127,7 +127,7 @@ export def start [] {
 				cat <&3 | tg lsp > \"($output)\" 2> \"($stderr)\"
 			"
 		}
-		'' | save -f $exit_path
+		'' | save --force $exit_path
 	}
 	{
 		directory: $directory,
@@ -249,7 +249,7 @@ export def stop [session: record] {
 		}
 		try { job kill $session.job }
 	}
-	try { rm -rf $session.directory }
+	try { rm --recursive --force $session.directory }
 }
 
 export def response [messages: list<any>, id: int] {

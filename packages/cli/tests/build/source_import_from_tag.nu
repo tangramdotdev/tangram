@@ -1,10 +1,10 @@
 use ../../test.nu *
 
-# Test that imports with source attributes resolve correctly when building from a published tag.
+# Imports with source attributes resolve correctly when building from a published tag.
 # Building from a local path works, but building from a tag fails to resolve the sibling dependency.
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

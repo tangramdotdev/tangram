@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that staggered callers do not receive TOCTOU cancellation errors
+# Staggered callers do not receive TOCTOU cancellation errors
 # when the watchdog cancels a shared dependency resolved via remote.
 #
 # Only the shared build process is pushed to the remote. Wrapper builds
@@ -9,9 +9,11 @@ use ../../test.nu *
 # process. Staggered arrival (from process semaphore batching) creates
 # the conditions for the TOCTOU: the watchdog cancels the shared process
 # while a later caller has already found it as Started.
+#
+# Regression test for f347184b (#838).
 
-let remote = spawn -n remote
-let primary = spawn -n primary
+let remote = spawn --name remote
+let primary = spawn --name primary
 tg remote put default $remote.url
 
 # Shared build that takes time.
@@ -25,13 +27,13 @@ let shared = artifact {
 }
 
 # Build the shared module on the primary and push only that process.
-let shared_process = tg build -d $shared | str trim
+let shared_process = tg build --detach $shared | str trim
 tg wait $shared_process
 tg index
 tg push --eager --outputs --recursive $shared_process
 
 # Wrapper: builds the shared dependency.
-let wrapper = mktemp -d
+let wrapper = mktemp --directory
 let wrapper_ts = [
 	$'import shared from "shared" with { source: "($shared)" };'
 	'export default async (name) => {'
@@ -46,7 +48,7 @@ let count = 100
 let builds = 0..<$count | each { |i|
 	'tg.build(wrap, "item' + ($i | into string) + '").then(tg.Directory.expect)'
 } | str join ", "
-let outer = mktemp -d
+let outer = mktemp --directory
 let outer_ts = [
 	$'import wrap from "wrap" with { source: "($wrapper)" };'
 	''
@@ -58,7 +60,7 @@ let outer_ts = [
 $outer_ts | save ($outer | path join "tangram.ts")
 
 # Fresh server with concurrency enabled.
-let fresh = spawn -n fresh
+let fresh = spawn --name fresh
 tg remote put default $remote.url
 
 let fresh_result = do { tg build $outer } | complete

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Logging in associates emails with a user, is idempotent across repeated logins, and rejects an email that is already in use by another user.
+
 let server = spawn --config { authentication: true }
 
 let alice = tg login alice | from json

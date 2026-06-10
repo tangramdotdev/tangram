@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package that imports a sibling directory as a directory artifact produces the expected object and writes no lockfile.
+
 let server = spawn
 
 let path = artifact {
@@ -11,10 +13,10 @@ let id = tg checkin $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 let lockfile_path = $path | path join 'tangram.lock'
 assert (not ($lockfile_path | path exists))

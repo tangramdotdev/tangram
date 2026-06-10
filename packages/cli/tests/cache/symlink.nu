@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a symlink with an absolute target path writes the symlink into the artifacts cache.
+
 let server = spawn
 
 # Create the artifact.

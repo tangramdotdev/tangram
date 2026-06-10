@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Building a module that bundles a file with no dependencies produces a checkout that matches the snapshot.
+
 let server = spawn
 
 let path = artifact {
@@ -15,7 +17,7 @@ let path = artifact {
 let id = tg build $path
 
 # Checkout the artifact.
-let temp_dir = mktemp -d
+let temp_dir = mktemp --directory
 let checkout_path = $temp_dir | path join "checkout"
 let output = tg checkout $id $checkout_path | complete
 

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Re-tagging the same item is idempotent, overwriting a tag with a different item fails without --force, and --force performs the overwrite.
+
 let server = spawn
 
 # Create two different artifacts.

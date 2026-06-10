@@ -349,6 +349,7 @@ mod tests {
 		std::time::Duration,
 	};
 
+	// A subscriber receives only the messages whose subject matches its subscription and ignores other subjects.
 	#[tokio::test]
 	async fn subscribes_only_to_matching_subject() {
 		let path = temp_path();
@@ -372,6 +373,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// A subscriber using a typed JSON payload deserializes a published message into the expected value.
 	#[tokio::test]
 	async fn subscribes_with_typed_payloads() {
 		let path = temp_path();
@@ -401,6 +403,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// A message published by one messenger is delivered to a separate messenger subscribed on the same path.
 	#[tokio::test]
 	async fn sends_between_messengers() {
 		let path = temp_path();
@@ -418,6 +421,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// Messengers bound to a path too long for a unix socket address use an indirect symlink and still deliver messages between processes.
 	#[tokio::test]
 	async fn sends_between_messengers_with_long_paths() {
 		let path = long_temp_path();
@@ -447,6 +451,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// Dropping a messenger that used an indirect socket removes both the symlink entry and the target socket file.
 	#[tokio::test]
 	async fn drops_indirect_socket_and_symlink() {
 		let path = long_temp_path();
@@ -465,6 +470,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// A messenger that publishes to itself receives the message exactly once and not a duplicate from the socket loopback.
 	#[tokio::test]
 	async fn does_not_receive_duplicate_self_delivery() {
 		let path = temp_path();
@@ -489,6 +495,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// A single published message is delivered to every local subscriber of the same subject.
 	#[tokio::test]
 	async fn broadcasts_to_multiple_local_subscribers() {
 		let path = temp_path();
@@ -518,6 +525,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// Subscribing with the one delivery mode still broadcasts a published message to every matching subscriber.
 	#[tokio::test]
 	async fn delivery_one_broadcasts() {
 		let path = temp_path();
@@ -547,6 +555,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// Publishing removes a stale socket file left behind by a dead peer.
 	#[tokio::test]
 	async fn removes_stale_socket_files() {
 		let path = temp_path();
@@ -573,6 +582,7 @@ mod tests {
 		cleanup(path);
 	}
 
+	// Publishing removes a stale symlink entry along with its orphaned target socket file.
 	#[tokio::test]
 	async fn removes_stale_symlinks_and_target_sockets() {
 		let path = temp_path();

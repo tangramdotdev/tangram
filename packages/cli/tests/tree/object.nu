@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The tree command renders the expected object tree for a tagged single-file package.
+
 let server = spawn
 
 let path = artifact {

@@ -1,6 +1,6 @@
 error an error occurred
 -> the process failed
-   id = PROCESS
+   id = <process>
 -> error
    ╭─[./foo/tangram.ts:2:22]
  1 │ import foo from "../bar";

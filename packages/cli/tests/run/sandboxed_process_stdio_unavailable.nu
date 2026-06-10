@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Accessing the stdin, stdout, or stderr of a sandboxed process whose stdio is set to null fails with an unavailable error.
+
 let server = spawn
 
 def run [source: string] {

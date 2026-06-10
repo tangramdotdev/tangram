@@ -3396,6 +3396,7 @@ pub const ALL_ATTRS: [u32; 77] = [
 mod test {
 	use super::{xdr::Encode as _, *};
 
+	// A COMPOUND result containing a SETCLIENTID response encodes to XDR without error.
 	#[test]
 	fn setclientid() {
 		let res = SETCLIENTID4res::NFS4_OK(super::SETCLIENTID4resok {

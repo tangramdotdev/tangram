@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The update command bumps a tagged dependency in an existing lockfile to a newly tagged version.
+
 let server = spawn
 
 # Tag the old version of a.
@@ -24,7 +26,7 @@ tg checkin $local_path
 # Verify the lockfile has a/1.0.0.
 let lockfile_path = $local_path | path join 'tangram.lock'
 let lock = open $lockfile_path | from json
-snapshot -n lock_before_update ($lock | to json -i 2)
+snapshot --name lock_before_update ($lock | to json --indent 2)
 
 # Tag a new version of a.
 let new_path = artifact {
@@ -39,4 +41,4 @@ tg update $local_path
 
 # Verify the lockfile has been updated to a/1.1.0.
 let lock = open $lockfile_path | from json
-snapshot -n lock_after_update ($lock | to json -i 2)
+snapshot --name lock_after_update ($lock | to json --indent 2)

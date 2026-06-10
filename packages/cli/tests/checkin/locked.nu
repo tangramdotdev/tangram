@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package whose lockfile is missing a newly added import fails under --locked, even when combined with --unsolved-dependencies.
+
 let server = spawn
 
 # Tag the a dependency.

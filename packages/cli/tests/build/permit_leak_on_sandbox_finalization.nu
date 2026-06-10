@@ -5,8 +5,10 @@ use ../../test.nu *
 # task waiting forever: the sandbox task sees `process_tasks.is_empty()`
 # return false, skips starting the ttl=0 timer, and never finalizes the
 # sandbox. The race requires multi-threaded tokio.
+#
+# Regression test for 23a72a86.
 
-let server = spawn -c {
+let server = spawn --config {
 	tokio_single_threaded: false,
 	runner: { concurrency: 8 }
 }
@@ -20,7 +22,7 @@ for round in 1..20 {
 	} | ignore
 }
 
-sleep 2sec
-
-let stuck = (tg sandbox list | from json | where status == started | length)
-assert ($stuck == 0) $"($stuck) sandboxes are stuck in 'started' after their only process finished"
+# Wait for every sandbox to be finalized.
+wait_until {
+	tg sandbox list | from json | where status == started | is-empty
+} "sandboxes are stuck in 'started' after their only process finished"

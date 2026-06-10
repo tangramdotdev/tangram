@@ -1,10 +1,12 @@
 use ../../test.nu *
 
+# Re-pushing an object the remote already has transfers nothing, while pushing with --force re-transfers the objects.
+
 # Create a remote server.
-let remote = spawn --cloud -n remote
+let remote = spawn --cloud --name remote
 
 # Create a local server.
-let local = spawn -n local
+let local = spawn --name local
 
 # Add the remote to the local server.
 let output = tg remote put default $remote.url | complete

@@ -1,4 +1,7 @@
 use ../../test.nu *
+
+# A destructive checkin of a package that imports a dependency by object ID resolves the dependency from the cache.
+
 let remote = spawn --name 'remote'
 let server = spawn --name 'local' --config {
 	remotes: {

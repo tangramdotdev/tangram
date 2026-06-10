@@ -1,13 +1,15 @@
 use ../../test.nu *
 
+# The --executable flag selects the executable to invoke across the run, exec, process exec, build, and spawn commands, including overriding the executable of a directory or builder artifact.
+
 let server = spawn
 
 let path = artifact {
-	hello: (file -x '
+	hello: (file --executable '
 		#!/bin/sh
 		echo "hello $1"
 	')
-	goodbye: (file -x '
+	goodbye: (file --executable '
 		#!/bin/sh
 		echo "goodbye $1"
 	')
@@ -48,11 +50,11 @@ let builder = artifact {
 	'
 }
 
-let output = tg run -b $builder --executable hello --arg-string joined | complete
+let output = tg run --build $builder --executable hello --arg-string joined | complete
 success $output
 assert (($output.stdout | str trim) == "built joined")
 
-let output = tg run -b $builder --executable $replacement --arg-string replaced-build | complete
+let output = tg run --build $builder --executable $replacement --arg-string replaced-build | complete
 success $output
 assert (($output.stdout | str trim) == "goodbye replaced-build")
 

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package that depends on a tag whose own dependency is missing fails with the expected error.
+
 let server = spawn
 
 # Tag foo which depends on bar (but bar does not exist).
@@ -23,6 +25,6 @@ let path = artifact {
 let output = tg checkin $path | complete
 failure $output "the command should fail when the dependency in the tag is missing"
 
-let stderr = $output.stderr | str replace -a $path ''
+let stderr = $output.stderr | redact $path
 
-snapshot -n stderr $stderr
+snapshot --name stderr $stderr

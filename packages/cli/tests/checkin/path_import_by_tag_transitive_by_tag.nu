@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package that imports by tag a dependency which itself imports by tag with a get path option resolves the full transitive graph.
+
 let server = spawn
 
 # Create a directory with nested structure and tag it for inner dependency.

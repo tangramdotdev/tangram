@@ -1,15 +1,17 @@
 use ../../test.nu *
 use ../lib/lsp.nu
 
+# With the artifacts directory mounted as a VFS on Linux, a go-to-definition request against a tagged dependency resolves to the materialized tag path and opening the materialized definition reports no diagnostics.
+
 if $nu.os-info.name != 'linux' {
-	return
+	skip_test 'this test requires linux'
 }
 
-let server_path = mktemp -d
+let server_path = mktemp --directory
 let server = spawn --directory $server_path --config { vfs: {} }
 
 if $nu.os-info.name == 'linux' {
-	let mount_exit_code = do -i {
+	let mount_exit_code = do --ignore-errors {
 		^mountpoint -q ($server_path | path join "artifacts")
 		$env.LAST_EXIT_CODE
 	}

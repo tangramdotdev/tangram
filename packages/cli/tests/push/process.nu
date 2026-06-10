@@ -1,17 +1,19 @@
 use ../../test.nu *
 
+# Provides the shared helper that builds a module, pushes the resulting process to a remote, and verifies that the process and any selected commands, children, and outputs are present and identical on the remote. The behavior is exercised by the importing tests under various flag combinations.
+
 export def test [path: string, ...args] {
 	# Create a remote server.
-	let remote = spawn --cloud -n remote
+	let remote = spawn --cloud --name remote
 
 	# Create a local server.
-	let local = spawn -n local
+	let local = spawn --name local
 
 	# Add the remote.
 	tg remote put default $remote.url | complete
 
 	# Build the module.
-	let process_id = tg build -d $path | str trim
+	let process_id = tg build --detach $path | str trim
 
 	# Wait for the process to finish.
 	tg wait $process_id
@@ -32,27 +34,27 @@ export def test [path: string, ...args] {
 	# Confirm output is present.
 	if $output.output? != null and (($output.output | describe) | str starts-with 'record') {
 		if $output.output.kind == "object" {
-			tg -u $remote.url get $output.output.value --pretty
+			tg --url $remote.url get $output.output.value --pretty
 		}
 	}
 
 	# Confirm commands are present if --commmands.
 	if "--commands" in $args {
-		tg -u $remote.url get $output.command --pretty
+		tg --url $remote.url get $output.command --pretty
 	}
 
 	# Confirm children are present if --recursive.
 	if "--recursive" in $args {
 		for child in $children {
-			tg -u $remote.url get $child.process
+			tg --url $remote.url get $child.process
 		}
 	}
 
 	# Confirm children commands are present if --recursive and --commands.
 	if "--commands" in $args and "--recursive" in $args {
 		for child in $children {
-			let output = tg -u $remote.url get $child.process | from json
-			tg -u $remote.url get $output.command --pretty
+			let output = tg --url $remote.url get $child.process | from json
+			tg --url $remote.url get $output.command --pretty
 		}
 	}
 
@@ -62,7 +64,7 @@ export def test [path: string, ...args] {
 			let output = tg get $child.process | from json
 			if (($output.output | describe) | str starts-with 'record') {
 				if $output.output.kind == "object" {
-					tg -u $remote.url get $output.output.value --pretty
+					tg --url $remote.url get $output.output.value --pretty
 				}
 			}
 		}

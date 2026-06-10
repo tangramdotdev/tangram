@@ -1,12 +1,17 @@
 use ../../test.nu *
 
+# Rapidly canceling many long-running builds under a single-concurrency runner
+# does not prevent a subsequent build from completing.
+#
+# Regression test added in cd5bbb68.
+
 let server = spawn --config {
 	runner: {
 		concurrency: 1,
 	},
 }
 
-# Spawn long-running builds and immediately cancel each. Eventually fresh builds begin to hang.
+# Spawn long-running builds and immediately cancel each.
 
 let long = artifact {
 	tangram.ts: '
@@ -18,7 +23,7 @@ let long = artifact {
 }
 
 for i in 0..20 {
-	let process = tg build -dv $"($long)#default" -a $"iter-($i)" | from json
+	let process = tg build --detach --verbose $"($long)#default" --arg-string $"iter-($i)" | from json
 	tg cancel $process.process $process.lease
 }
 

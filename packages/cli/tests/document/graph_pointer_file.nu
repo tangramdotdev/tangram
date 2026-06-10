@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Documenting a graph file pointer treated as a tangram.ts module produces documentation JSON that matches the snapshot.
+
 let server = spawn
 let artifact = '
 	tg.graph({
@@ -16,7 +18,7 @@ let output = tg document $"graph=($graph_id)&index=0&kind=file?get=tangram.ts" |
 success $output
 
 let json = $output.stdout | from json
-snapshot ($json | to json -i 2) '
+snapshot ($json | to json --indent 2) '
 	{
 	  "exports": {
 	    "default": {

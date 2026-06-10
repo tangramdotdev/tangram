@@ -1,8 +1,8 @@
 use ../../test.nu *
 
-# Test that the default lock mode reuses an existing lockfile for a file dependency lock.
+# The default lock mode reuses an existing lockfile for a file dependency lock.
 
-let tmp = mktemp -d
+let tmp = mktemp --directory
 
 let server = spawn
 

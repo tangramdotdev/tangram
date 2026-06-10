@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package whose existing lockfile is out of date discards the stale lockfile and removes it.
+
 let server = spawn
 
 let path = artifact {
@@ -34,10 +36,10 @@ let id = tg checkin $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 # The old lockfile should be removed since it was out of date.
 let lockfile_path = $path | path join 'tangram.lock'

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a directory whose graph forms a cycle fails with an error reporting a detected directory cycle.
+
 let server = spawn --config { write: { cache_pointers: false } }
 
 let path = artifact {

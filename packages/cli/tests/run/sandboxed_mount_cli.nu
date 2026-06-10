@@ -1,7 +1,9 @@
 use ../../test.nu *
 
+# The --mount flag mounts an artifact into a sandboxed process at the given target path so its contents are accessible.
+
 if $nu.os-info.name != 'linux' {
-	return
+	skip_test 'this test requires linux'
 }
 
 let server = spawn
@@ -16,9 +18,9 @@ let path = artifact {
 	',
 }
 
-let output = tg run --sandbox -m $"($mount):/target" $path | from json
+let output = tg run --sandbox --mount $"($mount):/target" $path | from json
 assert equal $output true
 
-let output = tg run --sandbox -m $"($mount):/target" --executable sh -- -c "test -f /target/file && echo ok" | complete
+let output = tg run --sandbox --mount $"($mount):/target" --executable sh -- -c "test -f /target/file && echo ok" | complete
 success $output
 assert (($output.stdout | str trim) == "ok")

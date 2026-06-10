@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The tree command with the package kind renders the expected dependency tree for a package that depends on two tagged packages, one of which also depends on the other.
+
 let server = spawn
 
 let foo_path = artifact {

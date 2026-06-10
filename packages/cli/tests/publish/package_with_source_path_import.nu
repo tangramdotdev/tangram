@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+# Publishing a package that imports a sibling dependency by source path discovers and publishes the dependency, tags both packages on the local and remote servers, syncs objects and metadata, and rewrites the dependency reference to use a tag rather than a path.
+
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

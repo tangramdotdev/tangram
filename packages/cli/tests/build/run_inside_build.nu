@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A build can invoke tg.run on a command from within a nested build and complete successfully.
+
 let server = spawn
 
 let path = artifact {

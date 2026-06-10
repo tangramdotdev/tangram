@@ -1,14 +1,16 @@
 use ../../test.nu *
 
+# Pushing a directory of many files with a mix of intermediate files and leaf blobs split between the local and remote servers completes and yields matching metadata, under both eager and lazy push.
+
 def test [...args] {
 	# Create a remote server.
-	let remote = spawn --cloud -n remote
+	let remote = spawn --cloud --name remote
 
 	# Create a local server.
-	let local = spawn -n local
+	let local = spawn --name local
 
 	# Create a source server.
-	let source = spawn -n source
+	let source = spawn --name source
 
 	# Create a directory with many files to increase object count.
 	let path = artifact {
@@ -24,19 +26,19 @@ def test [...args] {
 	}
 
 	# Build the module.
-	let id = tg -u $source.url build $path
+	let id = tg --url $source.url build $path
 	let dir_id = $id
 
 	# Get immediate children (files) from the directory.
-	let files = tg -u $source.url children $id | from json
+	let files = tg --url $source.url children $id | from json
 
 	# Get the blob children from each file.
 	let blobs = $files | each { |fil_id|
-		tg -u $source.url children $fil_id | from json
+		tg --url $source.url children $fil_id | from json
 	} | flatten | uniq
 
 	# Put the directory to the local server.
-	tg -u $source.url get --bytes $dir_id | tg -u $local.url put --bytes -k dir
+	tg --url $source.url get --bytes $dir_id | tg --url $local.url put --bytes --kind dir
 
 	# Put half of the files to the local server, half to the remote server (intermediate missing).
 	let file_count = $files | length
@@ -45,10 +47,10 @@ def test [...args] {
 		let fil_id = $files | get $i
 		if $i < $half_files {
 			# Put to local server.
-			tg -u $source.url get --bytes $fil_id | tg -u $local.url put --bytes -k fil
+			tg --url $source.url get --bytes $fil_id | tg --url $local.url put --bytes --kind fil
 		} else {
 			# Put to remote server (intermediate missing locally).
-			tg -u $source.url get --bytes $fil_id | tg -u $remote.url put --bytes -k fil
+			tg --url $source.url get --bytes $fil_id | tg --url $remote.url put --bytes --kind fil
 		}
 	}
 
@@ -59,30 +61,30 @@ def test [...args] {
 		let blb_id = $blobs | get $i
 		if $i < $half_blobs {
 			# Put to local server.
-			tg -u $source.url get --bytes $blb_id | tg -u $local.url put --bytes -k blob
+			tg --url $source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
 		} else {
 			# Put to remote server (leaf missing locally).
-			tg -u $source.url get --bytes $blb_id | tg -u $remote.url put --bytes -k blob
+			tg --url $source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
 		}
 	}
 
 	# Index.
-	tg -u $local.url index
-	tg -u $remote.url index
+	tg --url $local.url index
+	tg --url $remote.url index
 
 	# Add the remote to the local server.
-	tg -u $local.url remote put default $remote.url
+	tg --url $local.url remote put default $remote.url
 
 	# Push the directory.
-	tg -u $local.url push $dir_id ...$args
+	tg --url $local.url push $dir_id ...$args
 
 	# Index on both servers.
-	tg -u $source.url index
-	tg -u $remote.url index
+	tg --url $source.url index
+	tg --url $remote.url index
 
 	# Confirm the metadata matches.
-	let source_metadata = tg -u $source.url object metadata $id --pretty
-	let remote_metadata = tg -u $remote.url object metadata $id --pretty
+	let source_metadata = tg --url $source.url object metadata $id --pretty
+	let remote_metadata = tg --url $remote.url object metadata $id --pretty
 	assert equal $source_metadata $remote_metadata
 }
 

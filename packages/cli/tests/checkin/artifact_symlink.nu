@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package whose import path traverses a symlinked directory resolves to the target artifact and writes no lockfile.
+
 let server = spawn
 
 let path = artifact {
@@ -18,10 +20,10 @@ let id = tg checkin ($path | path join 'a')
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 let lockfile_path = $path | path join 'a' 'tangram.lock'
 assert (not ($lockfile_path | path exists))

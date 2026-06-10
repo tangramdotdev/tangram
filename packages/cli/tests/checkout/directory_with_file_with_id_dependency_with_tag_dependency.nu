@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a directory containing a file with an id-keyed dependency that itself carries a tagged dependency, with dependencies enabled, materializes the directory and its nested dependencies on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

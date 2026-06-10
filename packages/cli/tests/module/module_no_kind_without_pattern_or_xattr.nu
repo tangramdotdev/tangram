@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that a plain .ts file without xattr has no module kind.
+# A plain .ts file without xattr has no module kind.
 
 let server = spawn
 

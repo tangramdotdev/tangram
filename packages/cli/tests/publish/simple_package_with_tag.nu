@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+# Publishing a package that was already tagged locally keeps the tag on both the local and remote servers, syncs the object, and produces matching metadata.
+
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

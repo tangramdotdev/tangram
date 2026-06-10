@@ -298,6 +298,7 @@ impl From<tg::Symlink> for Component {
 mod tests {
 	use super::*;
 
+	// Unrendering an artifacts path back into a template splits it into the surrounding string and artifact components.
 	#[test]
 	fn unrender() {
 		let id = "dir_010000000000000000000000000000000000000000000000000000"

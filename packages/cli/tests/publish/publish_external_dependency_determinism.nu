@@ -1,13 +1,13 @@
 use ../../test.nu *
 
-# Test that graph IDs are deterministic when a package with cycles is entered via an external dependency.
+# Graph IDs are deterministic when a package with cycles is entered via an external dependency.
 #
 # This reproduces the bug where publishing std directly vs via jq produced different IDs.
 # The root cause was external pointers (references to nodes outside the SCC) using ephemeral
 # checkin graph indices instead of resolved object IDs.
 
-let remote = spawn --cloud -n remote
-let local = spawn -n local -c {
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

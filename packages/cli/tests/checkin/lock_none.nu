@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that --no-lock does not write any lock for a file with a tag dependency.
+# --no-lock does not write any lock for a file with a tag dependency.
 
 let server = spawn
 

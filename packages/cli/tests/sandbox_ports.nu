@@ -1,12 +1,14 @@
 use ../test.nu *
 
+# Sandbox port mappings are created and reported correctly, and ports are rejected when networking is disabled, when host networking is used, or when targeting an existing sandbox.
+
 if $nu.os-info.name != 'linux' {
-	return
+	skip_test 'this test requires linux'
 }
 
 let server = spawn
 
-let sandbox = (tg sandbox create -p 80 -p 127.0.0.1::53/udp | str trim)
+let sandbox = (tg sandbox create --port 80 --port 127.0.0.1::53/udp | str trim)
 assert ($sandbox | str starts-with "sbx_")
 
 let get = tg sandbox get $sandbox | from json
@@ -18,23 +20,23 @@ let list = tg sandbox list | from json
 let listed = ($list | where id == $sandbox | first)
 assert equal $listed.network.ports $get.network.ports
 
-let output = tg sandbox create --no-network -p 8080:80 | complete
+let output = tg sandbox create --no-network --port 8080:80 | complete
 failure $output
 assert ($output.stderr | str contains 'ports require networking') "the error should mention networking"
 
-let output = tg sandbox create --network=host -p 8080:80 | complete
+let output = tg sandbox create --network=host --port 8080:80 | complete
 failure $output
 assert ($output.stderr | str contains 'ports are not supported with host networking') "the error should mention host networking"
 
 let path = artifact {
-	script: (file -x '
+	script: (file --executable '
 		#!/bin/sh
 		exit 0
 	')
 }
 let executable = tg checkin ($path | path join "script") | str trim
 
-let output = tg spawn $"--sandbox=($sandbox)" -p 8080:80 --executable $executable | complete
+let output = tg spawn $"--sandbox=($sandbox)" --port 8080:80 --executable $executable | complete
 failure $output
 assert ($output.stderr | str contains 'sandbox options are not supported for existing sandboxes') "the error should mention the existing sandbox"
 

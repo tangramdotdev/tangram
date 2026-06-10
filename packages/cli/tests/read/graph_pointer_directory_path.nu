@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Reading a graph directory pointer with a get path option returns the contents of the referenced file.
+
 let server = spawn
 
 # Create a graph with a directory node that points to a file node.

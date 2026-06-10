@@ -1,5 +1,8 @@
 
 use ../test.nu *
+
+# The children of a build process report their named options and cached status, and named child processes can be built individually.
+
 let server = spawn
 let path = artifact {
 	tangram.ts: r#'
@@ -20,7 +23,7 @@ snapshot $output.stdout '
 
 '
 
-let process = tg build -dv $path | from json
+let process = tg build --detach --verbose $path | from json
 let output = tg wait $process.process
 snapshot $output '{"exit":0,"output":["foo","bar"]}'
 

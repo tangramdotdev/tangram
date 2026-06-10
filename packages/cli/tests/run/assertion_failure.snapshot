@@ -1,6 +1,6 @@
 error an error occurred
 -> the process failed
-   id = PROCESS
+   id = <process>
 -> failed assertion
    ╭─[./tangram.ts:2:22]
  1 │ import foo from "./foo.tg.ts";

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A watch registered during checkin is automatically removed after the configured watch TTL elapses.
+
 let server = spawn --config {
 	watch: {
 		ttl: { secs: 1, nanos: 0 }
@@ -24,7 +26,4 @@ snapshot $object '
 let watches = tg watch list | from json
 assert equal ($watches | length) 1
 
-sleep 2sec
-
-let watches = tg watch list | from json
-assert equal ($watches | length) 0
+wait_until { tg watch list | from json | is-empty } "the watch should be removed after its ttl expires"

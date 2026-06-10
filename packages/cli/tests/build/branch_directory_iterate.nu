@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Iterating a directory large enough to be split into branch nodes yields all of its entry names.
+
 # Spawn a server with small max_leaf_entries to trigger branch directories.
 let server = spawn --config {
 	checkin: {

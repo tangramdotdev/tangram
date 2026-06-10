@@ -1,7 +1,9 @@
 use ../../test.nu *
 
-let remote = spawn --config { authentication: true } -n remote
-let local = spawn --config { remotes: { default: { url: $remote.url } } } -n local
+# Logging in with the remote flag against a local server with a default remote authenticates on the remote without writing a local token.
+
+let remote = spawn --config { authentication: true } --name remote
+let local = spawn --config { remotes: { default: { url: $remote.url } } } --name local
 
 let login = tg login alice --remote | from json
 assert equal $login.specifier alice

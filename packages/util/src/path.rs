@@ -43,6 +43,7 @@ pub fn normalize(src: impl AsRef<Path>) -> PathBuf {
 mod test {
 	use std::path::PathBuf;
 
+	// normalize collapses parent-directory components against preceding normal components while preserving leading parent references.
 	#[test]
 	fn normalize() {
 		let path = "../foo/bar";

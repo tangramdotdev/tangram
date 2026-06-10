@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package that depends on a nonexistent tag succeeds under --unsolved-dependencies, leaving the dependency unresolved.
+
 let server = spawn
 
 let path = artifact {
@@ -12,7 +14,7 @@ let id = tg checkin --unsolved-dependencies $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata

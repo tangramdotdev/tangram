@@ -1,8 +1,8 @@
 use ../../test.nu *
 
-# Test that --lock=file writes a sibling lockfile for a file with a tag dependency.
+# --lock=file writes a sibling lockfile for a file with a tag dependency.
 
-let tmp = mktemp -d
+let tmp = mktemp --directory
 
 let server = spawn
 

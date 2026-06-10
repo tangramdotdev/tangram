@@ -5,6 +5,7 @@ use {
 	tangram_util::{self as util, artifact::Artifact},
 };
 
+// The ignorer applies the global pattern and per-directory gitignore files to classify each path as ignored or not.
 #[tokio::test]
 async fn test() {
 	let temp = tangram_util::fs::Temp::new().unwrap();

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that --update with --lock=file writes a sibling lockfile.
+# --update with --lock=file writes a sibling lockfile.
 
 let server = spawn
 

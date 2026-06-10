@@ -1745,6 +1745,7 @@ fn whitespace(input: &mut Input) -> ModalResult<()> {
 mod tests {
 	use indoc::indoc;
 
+	// The id parser parses a generated sandbox id and preserves its kind.
 	#[test]
 	fn parse_sandbox_id() {
 		let id = crate::sandbox::Id::new();
@@ -1754,6 +1755,7 @@ mod tests {
 		assert_eq!(value.kind(), crate::id::Kind::Sandbox);
 	}
 
+	// The value parser parses a large, realistic tgon document with nested mutations, templates, and placeholders.
 	#[test]
 	fn big_test() {
 		let tgon = indoc!(

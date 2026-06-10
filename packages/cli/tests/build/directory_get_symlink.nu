@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Directory.get returns the symlink artifact itself when the requested entry is a symlink.
+
 let server = spawn
 
 let path = artifact {

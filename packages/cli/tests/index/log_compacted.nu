@@ -1,13 +1,15 @@
 use ../../test.nu *
 
-let local = spawn -n local
+# After indexing a finished process, the process log blob is compacted to the expected encoded contents.
+
+let local = spawn --name local
 
 let path = artifact {
 	tangram.ts: r#'
 		export default () => {};
 	'#
 }
-let id = tg build -d $path | str trim
+let id = tg build --detach $path | str trim
 tg wait $id
 
 tg index
@@ -15,4 +17,4 @@ tg index
 let process = tg get $id | from json
 let log_id = $process.log
 let log = tg get $log_id --blobs
-snapshot -n log $log 'tg.blob("\u0000\u000b\n\u0003\u0000\b\u0000\u0001\b\u0000\u0002\b\u0000")'
+snapshot --name log $log 'tg.blob("\u0000\u000b\n\u0003\u0000\b\u0000\u0001\b\u0000\u0002\b\u0000")'

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# tg.host.parallelism reports a positive value to an unsandboxed process.
+
 let server = spawn
 
 let path = artifact {

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package that imports by object ID a dependency which itself imports by object ID with a get path option resolves the full transitive graph.
+
 let server = spawn
 
 # Create a directory with nested structure and checkin to get an ID for inner dependency.

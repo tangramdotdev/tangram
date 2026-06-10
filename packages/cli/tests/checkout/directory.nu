@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a directory with a single file entry materializes the directory with its file on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

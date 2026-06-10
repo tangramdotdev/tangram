@@ -97,6 +97,7 @@ mod tests {
 		futures::{StreamExt as _, future, stream},
 	};
 
+	// The stream yields items while the predicate holds and also includes the first item for which the predicate fails.
 	#[tokio::test]
 	async fn take_while_inclusive() {
 		let values = stream::iter([1, 2, 3, 4, 5])

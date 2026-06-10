@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Building an artifact whose tagged dependencies form a transitive chain with version constraints, checking it out with dependencies, deleting the tags and cleaning, and checking it back in yields the same artifact ID.
+
 let server = spawn
 
 # Create and tag dependencies.
@@ -31,7 +33,7 @@ let artifact = artifact {
 }
 let id = tg build $artifact
 
-let tmp = mktemp -d
+let tmp = mktemp --directory
 let path = $tmp | path join "checkout"
 tg checkout --dependencies=true $id $path
 

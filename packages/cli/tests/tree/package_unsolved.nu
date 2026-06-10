@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# The tree command with the package kind renders an unresolved dependency as null when a package imports both an existing tagged dependency and a missing one.
+
 let server = spawn
 
 let existing_path = artifact {

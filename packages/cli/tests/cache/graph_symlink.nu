@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Caching a symlink defined through a graph node writes the symlink into the artifacts cache.
+
 let server = spawn
 
 # Create the artifact.

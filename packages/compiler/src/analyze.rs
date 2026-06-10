@@ -237,6 +237,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 mod tests {
 	use {super::*, indoc::indoc};
 
+	// Analysis collects the specifiers of every static import, dynamic import, and re-export, including nested ones.
 	#[test]
 	fn test() {
 		let text = indoc!(

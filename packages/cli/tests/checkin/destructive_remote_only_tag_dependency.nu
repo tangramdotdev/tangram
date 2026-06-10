@@ -1,4 +1,7 @@
 use ../../test.nu *
+
+# A destructive checkin resolves a tag dependency that exists only on the remote by fetching it into the local cache.
+
 let remote = spawn --name 'remote'
 let server = spawn --name 'local' --config {
 	remotes: {
@@ -14,7 +17,7 @@ let remote_dep_path = artifact {
 		export default () => "remote_only";
 	'
 }
-tg -u $remote.url tag remote_dep $remote_dep_path
+tg --url $remote.url tag remote_dep $remote_dep_path
 
 let path = artifact {
 	tangram.ts: '

@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a reference to a directory that points into a cycle materializes the directory on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 

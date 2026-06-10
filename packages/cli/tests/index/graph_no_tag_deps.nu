@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Test metadata for a graph with cyclic local imports but no tag dependencies.
 
-let local = spawn -n local
-let remote = spawn --cloud -n remote
+let local = spawn --name local
+let remote = spawn --cloud --name remote
 
 let path = artifact {
 	a.tg.ts: '
@@ -13,10 +13,10 @@ let path = artifact {
 		import a from "./a.tg.ts";
 	'
 }
-let id = tg -u $local.url checkin $path
-tg -u $local.url index
-let metadata = tg -u $local.url object metadata --pretty $id
-snapshot -n metadata $metadata '
+let id = tg --url $local.url checkin $path
+tg --url $local.url index
+let metadata = tg --url $local.url object metadata --pretty $id
+snapshot --name metadata $metadata '
 	{
 	  "node": {
 	    "size": 124,
@@ -34,8 +34,8 @@ snapshot -n metadata $metadata '
 '
 
 # Push to push and verify metadata matches.
-tg -u $local.url remote put push $remote.url
-tg -u $local.url push --remote=push $id
-tg -u $remote.url index
-let remote_metadata = tg -u $remote.url object metadata --pretty $id
+tg --url $local.url remote put push $remote.url
+tg --url $local.url push --remote=push $id
+tg --url $remote.url index
+let remote_metadata = tg --url $remote.url object metadata --pretty $id
 assert equal $remote_metadata $metadata

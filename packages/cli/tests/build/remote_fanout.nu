@@ -1,10 +1,15 @@
 use ../../test.nu *
 
+# A build fanning out eight children across four concurrent remote
+# runners completes and returns every child's result.
+#
+# Regression test for 802b850c (#765).
+
 # Start the remote server.
 let config = {
 	runner: false,
 }
-let remote = spawn -n remote --cloud --config $config
+let remote = spawn --name remote --cloud --config $config
 
 # Spawn four concurrent runners
 let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
@@ -20,7 +25,7 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 			remote: "default",
 		}
 	}
-	spawn -n $name --config $config
+	spawn --name $name --config $config
 }
 
 # Start the local server.
@@ -31,7 +36,7 @@ let config = {
 		}
 	}
 }
-let local = spawn -n local --config $config
+let local = spawn --name local --config $config
 
 let path = artifact {
 	tangram.ts: '
@@ -51,6 +56,6 @@ let path = artifact {
 };
 
 # Run a remote build
-let id = tg build --remote -d $path
+let id = tg build --remote --detach $path
 let output = tg wait $id
 snapshot $output '{"exit":0,"output":[0,1,2,3,4,5,6,7]}'

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A package importing a tagged dependency can resolve exports re-exported from nested modules, both on the initial build and after the importing package is mutated to call a different export.
+
 let server = spawn
 
 # Create and tag package a.
@@ -40,7 +42,7 @@ let new_tangram = '
 		return a.baz();
 	};
 '
-$new_tangram | save -f ($b_path | path join 'tangram.ts')
+$new_tangram | save --force ($b_path | path join 'tangram.ts')
 
 # Rebuild.
 tg build $b_path

@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# A tg template literal containing single quotes around an interpolated artifact placeholder is rendered correctly and matches the snapshot.
+
 let server = spawn
 
 let path = artifact {

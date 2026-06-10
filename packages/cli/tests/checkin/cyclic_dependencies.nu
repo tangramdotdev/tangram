@@ -1,5 +1,7 @@
 use ../../test.nu *
 
+# Checking in a package with a cyclic path dependency between two sibling packages succeeds and writes no lockfile.
+
 let server = spawn
 
 let path = artifact {
@@ -17,10 +19,10 @@ let id = tg checkin ($path | path join 'directory' 'foo')
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
-snapshot -n object $object
+snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id
-snapshot -n metadata $metadata
+snapshot --name metadata $metadata
 
 let lockfile_path = $path | path join 'directory' 'foo' 'tangram.lock'
 assert (not ($lockfile_path | path exists))

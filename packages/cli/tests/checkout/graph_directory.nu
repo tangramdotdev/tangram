@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let tmp = mktemp -d
+# Checking out a directory defined through a graph node materializes the directory on disk.
+
+let tmp = mktemp --directory
 
 let server = spawn
 
