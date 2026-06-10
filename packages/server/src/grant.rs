@@ -13,6 +13,16 @@ use {
 
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
+		let resource = self
+			.resolve_resource(&arg.resource)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the resource"))?;
+		if !self
+			.authorize(resource, tg::grant::Permission::Admin)
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
 		let session = self.clone();
 		let (grant, batch) = self
 			.server
@@ -41,6 +51,15 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
+		let Some(resource) = self.resolve_resource(&arg.resource).await? else {
+			return Ok(None);
+		};
+		if !self
+			.authorize(resource, tg::grant::Permission::Admin)
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
 		let session = self.clone();
 		let (output, batch) = self
 			.server

@@ -28,6 +28,18 @@ impl Session {
 		&self,
 		arg: tg::group::create::Arg,
 	) -> tg::Result<tg::group::create::Output> {
+		if self.context.principal.is_none() {
+			return Err(tg::error!("unauthorized"));
+		}
+		if let Some(ancestor) = self
+			.try_get_nearest_existing_ancestor(&arg.specifier)
+			.await? && ancestor.kind == tg::id::Kind::Group
+			&& !self
+				.authorize(ancestor.id, tg::grant::Permission::Write)
+				.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
 		let session = self.clone();
 		let (output, batch) = self
 			.server
@@ -175,9 +187,14 @@ impl Session {
 			name: node.name.clone(),
 			parent: node.parent.clone(),
 		});
-		if let Some(principal) = write_user_principal(self) {
+		if let Some(principal) = self
+			.context
+			.principal
+			.as_ref()
+			.filter(|principal| !principal.is_root())
+		{
 			let arg = tg::grant::create::Arg {
-				principal: principal.into(),
+				principal: tg::grant::Principal::from(principal.clone()).into(),
 				permission: tg::grant::Permission::Admin,
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			};
@@ -219,12 +236,5 @@ impl Session {
 		}
 		let response = response.body(body).unwrap().boxed_body();
 		Ok(response)
-	}
-}
-
-fn write_user_principal(session: &Session) -> Option<tg::grant::Principal> {
-	match session.context.principal.as_ref() {
-		Some(tg::Principal::User(user)) => Some(tg::grant::Principal::User(user.clone())),
-		_ => None,
 	}
 }

@@ -28,6 +28,19 @@ impl Session {
 		&self,
 		group: &tg::group::Selector,
 	) -> tg::Result<tg::group::members::list::Output> {
+		let group = self
+			.try_get_node_by_selector(group)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the group"))?;
+		if group.kind != tg::id::Kind::Group {
+			return Err(tg::error!("failed to find the group"));
+		}
+		if !self
+			.authorize(group.id.clone(), tg::grant::Permission::Read)
+			.await?
+		{
+			return Err(tg::error!("failed to find the group"));
+		}
 		let mut connection = self
 			.server
 			.database
@@ -38,16 +51,6 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let group = Self::try_get_node_by_selector_with_transaction(&transaction, group)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if group.kind != tg::id::Kind::Group
-			|| !self
-				.node_is_visible_with_transaction(&transaction, &group.id)
-				.await?
-		{
-			return Err(tg::error!("failed to find the group"));
-		}
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]

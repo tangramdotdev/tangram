@@ -38,6 +38,19 @@ impl Session {
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
 	) -> tg::Result<()> {
+		let node = self
+			.try_get_node_by_selector(organization)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the organization"))?;
+		if node.kind != tg::id::Kind::Organization {
+			return Err(tg::error!("failed to find the organization"));
+		}
+		if !self
+			.authorize(node.id, tg::grant::Permission::Admin)
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
 		let session = self.clone();
 		let batch = self
 			.server

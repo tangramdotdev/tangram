@@ -32,6 +32,19 @@ impl Session {
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
 	) -> tg::Result<()> {
+		let node = self
+			.try_get_node_by_selector(group)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the group"))?;
+		if node.kind != tg::id::Kind::Group {
+			return Err(tg::error!("failed to find the group"));
+		}
+		if !self
+			.authorize(node.id, tg::grant::Permission::Admin)
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
 		let session = self.clone();
 		let batch = self
 			.server

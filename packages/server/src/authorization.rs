@@ -41,10 +41,6 @@ impl Session {
 		true
 	}
 
-	#[expect(
-		dead_code,
-		reason = "Authorization enforcement will call this method once it is wired into the server."
-	)]
 	pub(crate) async fn authorize(
 		&self,
 		resource: tg::Id,

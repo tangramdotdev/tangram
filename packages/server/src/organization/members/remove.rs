@@ -39,6 +39,18 @@ impl Session {
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
 	) -> tg::Result<Option<()>> {
+		let Some(node) = self.try_get_node_by_selector(organization).await? else {
+			return Ok(None);
+		};
+		if node.kind != tg::id::Kind::Organization {
+			return Ok(None);
+		}
+		if !self
+			.authorize(node.id, tg::grant::Permission::Admin)
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
 		let session = self.clone();
 		let (output, batch) = self
 			.server

@@ -28,6 +28,9 @@ impl Session {
 		&self,
 		arg: tg::organization::create::Arg,
 	) -> tg::Result<tg::organization::create::Output> {
+		if self.context.principal.is_none() {
+			return Err(tg::error!("unauthorized"));
+		}
 		let session = self.clone();
 		let (output, batch) = self
 			.server
@@ -110,9 +113,14 @@ impl Session {
 				id: id.clone(),
 				name: node.name.clone(),
 			});
-		if let Some(tg::Principal::User(user)) = self.context.principal.as_ref() {
+		if let Some(principal) = self
+			.context
+			.principal
+			.as_ref()
+			.filter(|principal| !principal.is_root())
+		{
 			let arg = tg::grant::create::Arg {
-				principal: tg::grant::Principal::User(user.clone()).into(),
+				principal: tg::grant::Principal::from(principal.clone()).into(),
 				permission: tg::grant::Permission::Admin,
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			};

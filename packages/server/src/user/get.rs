@@ -31,6 +31,18 @@ impl Session {
 	}
 
 	async fn try_get_user_local(&self, user: &tg::user::Selector) -> tg::Result<Option<tg::User>> {
+		let Some(node) = self.try_get_node_by_selector(user).await? else {
+			return Ok(None);
+		};
+		if node.kind != tg::id::Kind::User {
+			return Ok(None);
+		}
+		if !self
+			.authorize(node.id.clone(), tg::grant::Permission::Read)
+			.await?
+		{
+			return Ok(None);
+		}
 		let mut connection = self
 			.server
 			.database
@@ -41,18 +53,6 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(node) =
-			Self::try_get_node_by_selector_with_transaction(&transaction, user).await?
-		else {
-			return Ok(None);
-		};
-		if node.kind != tg::id::Kind::User
-			|| !self
-				.node_is_visible_with_transaction(&transaction, &node.id)
-				.await?
-		{
-			return Ok(None);
-		}
 		Self::user_from_node_with_transaction(&transaction, node)
 			.await
 			.map(Some)
