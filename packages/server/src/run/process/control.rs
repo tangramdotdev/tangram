@@ -7,7 +7,6 @@ use {
 	},
 	std::{collections::BTreeSet, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
-	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::ReaderStream,
 };
 
@@ -23,8 +22,8 @@ impl Session {
 		&self,
 		sandbox: tangram_sandbox::Sandbox,
 		sandbox_process: Arc<tangram_sandbox::Process>,
-		process: &tg::process::Id,
-		_location: Option<&tg::Location>,
+		mut requests: BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>,
+		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::control::ResponseEvent>>,
 		stdin: tg::process::Stdio,
 		stdout: tg::process::Stdio,
 		stderr: tg::process::Stdio,
@@ -33,16 +32,6 @@ impl Session {
 		let stdin_pipe = matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 		let stdout_pipe = matches!(stdout, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 		let stderr_pipe = matches!(stderr, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
-
-		// Create the request/response channels and streams.
-		let (sender, responses) = tokio::sync::mpsc::channel(512);
-		let responses = ReceiverStream::new(responses).boxed();
-		let mut requests = self
-			.try_get_process_control_stream_all(process, responses)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
-			.ok_or_else(|| tg::error!("expected a control stream"))?
-			.boxed();
 
 		let (stdout_sender, mut stdout_receiver) = tokio::sync::mpsc::channel::<(
 			uuid::Uuid,
@@ -143,10 +132,15 @@ impl Session {
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
 					let mut stream = pin!(stream);
-					let _event = stream
+					while let Some(event) = stream
 						.try_next()
 						.await
-						.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+						.map_err(|source| tg::error!(!source, "failed to write stdin"))?
+					{
+						if matches!(event, tg::process::stdio::write::Event::End) {
+							break;
+						}
+					}
 				}
 
 				// Service write requests.
@@ -157,11 +151,11 @@ impl Session {
 						request,
 					)
 					.await
-					.map(|()| {
+					.map(|response| {
 						tg::process::control::ResponseEvent::Response(
 							tg::process::control::Response {
 								id,
-								kind: tg::process::control::ResponseKind::Write,
+								kind: tg::process::control::ResponseKind::Write(response),
 							},
 						)
 					});
@@ -387,7 +381,7 @@ impl Session {
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
 		write: tg::process::control::WriteRequest,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::control::WriteResponse> {
 		let chunk = tg::process::stdio::Chunk {
 			bytes: write.bytes,
 			position: None,
@@ -398,16 +392,23 @@ impl Session {
 			.write_stdio(sandbox_process, vec![write.stream], input)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to write the process stdio"))?;
+
+		// Accumulate the lengths of the writes. A total length of zero indicates that
+		// the stream has reached EOF.
+		let mut len = 0;
 		let mut output = pin!(output);
 		while let Some(event) = output.try_next().await? {
 			match event {
+				tg::process::stdio::write::Event::Write(n) => {
+					len += n;
+				},
 				tg::process::stdio::write::Event::End => {
 					break;
 				},
 				tg::process::stdio::write::Event::Stop => (),
 			}
 		}
-		Ok(())
+		Ok(tg::process::control::WriteResponse { len })
 	}
 
 	async fn handle_process_control_signal_request(

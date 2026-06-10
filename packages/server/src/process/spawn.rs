@@ -1259,7 +1259,7 @@ impl Session {
 		};
 
 		let status = if permit.is_some() {
-			tg::process::Status::Started
+			tg::process::Status::Dequeued
 		} else {
 			tg::process::Status::Created
 		};
@@ -1311,7 +1311,7 @@ impl Session {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let started_at = (status == tg::process::Status::Started).then_some(now);
+		let started_at = (status == tg::process::Status::Dequeued).then_some(now);
 		let tty = match arg.tty.as_ref() {
 			None => None,
 			Some(tty) => Some(
@@ -1902,17 +1902,17 @@ impl Session {
 					return;
 				}
 
-				let Ok(started) = session
+				let Ok(dequeued) = session
 					.server
-					.try_start_process_local(&process)
+					.try_dequeue_process_local(&process)
 					.await
 					.inspect_err(
-						|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
+						|error| tracing::trace!(error = %error.trace(), "failed to dequeue the process"),
 					)
 				else {
 					return;
 				};
-				if !started {
+				if !dequeued {
 					return;
 				}
 

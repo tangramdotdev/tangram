@@ -280,8 +280,15 @@ impl Session {
 							});
 						},
 						Destination::Pipe => {
-							self.write_process_stdio_chunk_local(id, chunk.stream, chunk.bytes)
+							let len = self
+								.write_process_stdio_chunk_local(id, chunk.stream, chunk.bytes)
 								.await?;
+
+							// A write length of zero indicates that the process closed the
+							// stream, so treat it as EOF and end the stream.
+							if len == 0 {
+								return Ok(());
+							}
 						},
 						Destination::Null => (),
 					}
@@ -299,7 +306,7 @@ impl Session {
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
-	) -> tg::Result<()> {
+	) -> tg::Result<usize> {
 		let request =
 			tg::process::control::RequestKind::Write(tg::process::control::WriteRequest {
 				stream,
@@ -309,12 +316,12 @@ impl Session {
 			.try_send_process_control_request(id, request, u64::MAX)
 			.await?
 		else {
-			return Ok(());
+			return Ok(0);
 		};
-		let tg::process::control::ResponseKind::Write = response.kind else {
+		let tg::process::control::ResponseKind::Write(response) = response.kind else {
 			return Err(tg::error!("expected a write response"));
 		};
-		Ok(())
+		Ok(response.len)
 	}
 
 	async fn try_write_process_stdio_region(

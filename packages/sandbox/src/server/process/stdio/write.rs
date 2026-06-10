@@ -5,7 +5,7 @@ use {
 		stream::{self},
 	},
 	std::{
-		pin::{Pin, pin},
+		pin::Pin,
 		sync::Arc,
 		task::{Context, Poll},
 	},
@@ -41,7 +41,7 @@ impl Server {
 		let pty = process.pty.clone();
 		drop(process);
 
-		let mut writer = match stdin_mode {
+		let writer = match stdin_mode {
 			Stdio::Null => {
 				let writer = tokio::io::sink();
 				Writer::Null(writer)
@@ -60,31 +60,60 @@ impl Server {
 			},
 		};
 
-		let output = stream::once(async move {
-			let mut stream = pin!(stream);
-			while let Some(event) = stream
-				.try_next()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read a stdio event"))?
-			{
-				match event {
-					tg::process::stdio::read::Event::Chunk(chunk) => {
-						writer
-							.write_all(&chunk.bytes)
-							.await
-							.map_err(|error| tg::error!(!error, "failed to write stdin"))?;
-					},
-					tg::process::stdio::read::Event::End => {
-						writer
-							.shutdown()
-							.await
-							.map_err(|error| tg::error!(!error, "failed to close stdin"))?;
-						break;
-					},
+		// For each chunk written, emit a write event with the length of the chunk. A
+		// broken pipe indicates that the process closed its stdin, so it is treated as
+		// EOF rather than an error.
+		let stream = stream.boxed();
+		let output = stream::try_unfold(
+			(stream, writer, false),
+			|(mut stream, mut writer, done)| async move {
+				if done {
+					return Ok(None);
 				}
-			}
-			Ok(tg::process::stdio::write::Event::End)
-		});
+				loop {
+					let Some(event) = stream
+						.try_next()
+						.await
+						.map_err(|error| tg::error!(!error, "failed to read a stdio event"))?
+					else {
+						let event = tg::process::stdio::write::Event::End;
+						return Ok(Some((event, (stream, writer, true))));
+					};
+					match event {
+						tg::process::stdio::read::Event::Chunk(chunk) => {
+							if chunk.bytes.is_empty() {
+								continue;
+							}
+							match writer.write_all(&chunk.bytes).await {
+								Ok(()) => {
+									let event = tg::process::stdio::write::Event::Write(
+										chunk.bytes.len(),
+									);
+									return Ok(Some((event, (stream, writer, false))));
+								},
+								Err(error)
+									if error.kind() == std::io::ErrorKind::BrokenPipe =>
+								{
+									let event = tg::process::stdio::write::Event::End;
+									return Ok(Some((event, (stream, writer, true))));
+								},
+								Err(error) => {
+									return Err(tg::error!(!error, "failed to write stdin"));
+								},
+							}
+						},
+						tg::process::stdio::read::Event::End => {
+							writer
+								.shutdown()
+								.await
+								.map_err(|error| tg::error!(!error, "failed to close stdin"))?;
+							let event = tg::process::stdio::write::Event::End;
+							return Ok(Some((event, (stream, writer, true))));
+						},
+					}
+				}
+			},
+		);
 
 		Ok(output)
 	}

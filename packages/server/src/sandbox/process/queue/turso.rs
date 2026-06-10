@@ -61,7 +61,7 @@ impl Session {
 				update processes
 				set
 					started_at = ?1,
-					status = 'started'
+					status = 'dequeued'
 				where id = ?2 and sandbox = ?3 and status = 'created';
 			"
 		);

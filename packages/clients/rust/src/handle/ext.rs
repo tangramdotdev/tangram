@@ -680,6 +680,8 @@ pub trait Ext: tg::Handle {
 										break;
 									},
 
+									Ok(tg::process::stdio::write::Event::Write(_)) => (),
+
 									Err(error) => {
 										// Retry if the server returned an error.
 										return Ok(ControlFlow::Continue(tg::error!(

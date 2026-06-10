@@ -123,7 +123,7 @@ pub enum ResponseKind {
 	Read(ReadResponse),
 
 	#[tangram_serialize(id = 1)]
-	Write,
+	Write(WriteResponse),
 
 	#[tangram_serialize(id = 2)]
 	Signal,
@@ -204,6 +204,19 @@ pub struct ReadResponse {
 
 	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct WriteResponse {
+	#[tangram_serialize(id = 0)]
+	pub len: usize,
 }
 
 fn serialize_uuid(

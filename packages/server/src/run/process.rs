@@ -13,6 +13,7 @@ use {
 		task::{Stopper, Task},
 	},
 	tokio::task::JoinSet,
+	tokio_stream::wrappers::ReceiverStream,
 };
 
 mod control;
@@ -344,11 +345,19 @@ impl Session {
 		let stdin = state.stdin.clone();
 		let stdout_mode = state.stdout.clone();
 		let stderr_mode = state.stderr.clone();
+
+		// Create the control stream.
+		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
+		let control_responses = ReceiverStream::new(control_responses).boxed();
+		let requests = self
+			.try_get_process_control_stream_all(id, control_responses)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
+			.ok_or_else(|| tg::error!("expected a control stream"))?
+			.boxed();
 		let mut control_task = Task::spawn({
 			let session = self.clone();
 			let sandbox = sandbox.clone();
-			let id = id.clone();
-			let location = location.clone();
 			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
 			let sandbox_process = sandbox_process.clone();
 			|_| async move {
@@ -356,8 +365,8 @@ impl Session {
 					.run_control_task(
 						sandbox,
 						sandbox_process,
-						&id,
-						location.as_ref(),
+						requests,
+						control_sender,
 						stdin,
 						stdout_mode,
 						stderr_mode,
@@ -371,9 +380,7 @@ impl Session {
 		});
 		control_task.detach();
 
-		// Spawn a task to drain the logged stdout and stderr into the log store. The
-		// control task only reads stdio in response to a consumer's read request, but
-		// logged streams have no such consumer, so the runner must drain them itself.
+		// Spawn a task to drain the logged stdout and stderr if necessary.
 		let mut log_streams = Vec::new();
 		if matches!(state.stdout, tg::process::Stdio::Log) {
 			log_streams.push(tg::process::stdio::Stream::Stdout);
@@ -409,6 +416,7 @@ impl Session {
 			}))
 		};
 
+		// Wait the sandbox process.
 		let wait = sandbox
 			.wait(&sandbox_process)
 			.await

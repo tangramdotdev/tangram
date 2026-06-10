@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
-	std::{pin::pin, time::Duration},
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext, task::Task},
 	tangram_http::{
@@ -11,8 +11,6 @@ use {
 	},
 	tangram_messenger::Messenger,
 };
-
-pub(crate) const CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(
 	Debug,
@@ -43,14 +41,17 @@ impl Session {
 			return Ok(None);
 		};
 
-		// Wait until the process is ready for control, which implies the status is not created.
+		// Wait until the process is started, which implies the control stream has been
+		// created, or finished.
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
 			if matches!(
 				event,
-				tg::process::status::Event::Status(tg::process::Status::Created)
+				tg::process::status::Event::Status(
+					tg::process::Status::Started | tg::process::Status::Finished
+				) | tg::process::status::Event::End
 			) {
-				continue;
+				break;
 			}
 		}
 
@@ -68,7 +69,7 @@ impl Session {
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the response"))?;
 		let mut stream = pin!(stream);
 
-		// Send the request in a retry loop.
+		// Send the request and wait for the response.
 		let subject = format!("processes.{id}.control");
 		let payload = Message::Request(tg::process::control::RequestEvent::Request(request));
 		let options = tangram_futures::retry::Options {
@@ -76,41 +77,46 @@ impl Session {
 			..Default::default()
 		};
 		let mut retries = pin!(tangram_futures::retry::stream(options));
+		let mut finished = false;
 		loop {
-			if retries.next().await.is_none() {
-				return Err(tg::error!("timed out waiting for the response"));
-			}
-			self.server
-				.messenger
-				.publish(subject.clone(), payload.clone())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
+			match future::select(stream.next(), retries.next()).await {
+				future::Either::Left((message, _)) => match message {
+					Some(Ok(message)) => {
+						let Message::Response(tg::process::control::ResponseEvent::Response(response)) =
+							message.payload
+						else {
+							return Err(tg::error!("expected a response"));
+						};
+						return Ok(Some(response));
+					},
+					Some(Err(source)) => {
+						return Err(tg::error!(!source, "failed to receive the response"));
+					},
+					None => {
+						return Err(tg::error!("the response stream ended"));
+					},
+				},
+				future::Either::Right((tick, _)) => {
+					if tick.is_none() {
+						return Err(tg::error!("timed out waiting for the response"));
+					}
 
-			match tokio::time::timeout(CONTROL_REQUEST_TIMEOUT, stream.next()).await {
-				Ok(Some(Ok(message))) => {
-					let Message::Response(tg::process::control::ResponseEvent::Response(response)) =
-						message.payload
-					else {
-						return Err(tg::error!("expected a response"));
-					};
-					return Ok(Some(response));
-				},
-				Ok(Some(Err(source))) => {
-					return Err(tg::error!(!source, "failed to receive the response"));
-				},
-				Ok(None) => {
-					return Err(tg::error!("the response stream ended"));
-				},
-				Err(_) => {
-					// If we timed out, only attempt a retry if the process hasn't finished. 
-					// TODO: this should check for cancellation?
-					let status = self
-						.get_process_status_local(id)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to get the process status"))?;
-					if status.is_finished() {
+					// If the process was finished on the previous tick and the response
+					// has still not arrived, then the runner is gone, so give up.
+					if finished {
 						return Ok(None);
 					}
+					finished = self
+						.get_process_status_local(id)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to get the process status"))?
+						.is_finished();
+
+					self.server
+						.messenger
+						.publish(subject.clone(), payload.clone())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
 				},
 			}
 		}
@@ -186,6 +192,14 @@ impl Session {
 			})
 			.attach(response_task)
 			.boxed();
+
+		// Mark the process started now that the subscription exists. This is a no-op if
+		// the process was already started, which is allowed due to reconnection.
+		self.server
+			.try_start_process_local(id)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to start the process"))?;
+
 		Ok(Some(requests))
 	}
 
