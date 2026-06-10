@@ -13,7 +13,7 @@ pub struct Args {
 	#[arg(long)]
 	pub collapse_process_children: bool,
 
-	/// The maximum depth.
+	/// The maximum depth to render, in levels below the root. Zero renders only the root.
 	#[arg(long)]
 	pub depth: Option<u32>,
 

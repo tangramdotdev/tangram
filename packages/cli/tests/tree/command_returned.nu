@@ -24,7 +24,7 @@ let id = tg build --host js --detach ($path | path join 'c')
 let output = tg wait $id
 snapshot $output '{"exit":0,"output":42}'
 
-let output = tg view $id --mode inline --expand-processes --depth 2
+let output = tg view $id --mode inline --expand-processes --depth 1
 
 snapshot $output '
 	✓ fil_01g1t9dmfw9v9arvs2k8e3x6zt69gpx993gbw8tw5jgpzqzptxt8fg#default

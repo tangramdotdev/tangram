@@ -1979,7 +1979,7 @@ impl Tree {
 		let root = Rc::new(RefCell::new(Node {
 			counter: counter.clone(),
 			children: Vec::new(),
-			depth: 1,
+			depth: 0,
 			expanded: Some(expand),
 			expanded_nodes,
 			expand_task,

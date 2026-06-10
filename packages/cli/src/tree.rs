@@ -7,7 +7,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub alternate_screen: crate::view::AlternateScreen,
 
-	/// The maximum depth to render.
+	/// The maximum depth to render, in levels below the root. Zero renders only the root.
 	#[arg(long)]
 	pub depth: Option<u32>,
 
