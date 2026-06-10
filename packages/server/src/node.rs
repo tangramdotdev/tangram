@@ -1,6 +1,5 @@
 use {
 	crate::{Session, database::Transaction},
-	futures::FutureExt as _,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -16,55 +15,6 @@ pub(crate) struct Node {
 }
 
 impl Session {
-	pub(crate) async fn bootstrap_nodes(&self) -> tg::Result<()> {
-		self.server
-			.database
-			.run(|transaction| {
-				async move {
-					Self::ensure_public_group_with_transaction(transaction).await?;
-					Ok::<_, crate::database::Error>(std::ops::ControlFlow::Break(()))
-				}
-				.boxed()
-			})
-			.await
-	}
-
-	pub(crate) async fn ensure_public_group_with_transaction(
-		transaction: &Transaction<'_>,
-	) -> tg::Result<tg::group::Id> {
-		if let Some(node) = Self::try_get_node_by_specifier_with_transaction(
-			transaction,
-			&"public".parse().unwrap(),
-		)
-		.await?
-		{
-			return node.id.try_into();
-		}
-		let id = tg::group::Id::new();
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				insert into nodes (id, kind, parent, name, specifier)
-				values ({p}1, 'group', null, 'public', 'public');
-			"
-		);
-		let result = transaction
-			.execute(statement.into(), db::params![id.to_string()])
-			.await;
-		result.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let statement = formatdoc!(
-			"
-				insert into groups (id, name, parent)
-				values ({p}1, 'public', null);
-			"
-		);
-		let result = transaction
-			.execute(statement.into(), db::params![id.to_string()])
-			.await;
-		result.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(id)
-	}
-
 	pub(crate) async fn create_node_with_transaction(
 		transaction: &Transaction<'_>,
 		id: &tg::Id,
@@ -286,8 +236,7 @@ impl Session {
 		if matches!(self.context.principal, Some(tg::Principal::Root)) {
 			return Ok(Vec::new());
 		}
-		let public = Self::ensure_public_group_with_transaction(transaction).await?;
-		let mut principals = vec![public.to_string()];
+		let mut principals = vec![tg::grant::Principal::Public.to_string()];
 		if let Some(tg::Principal::User(user)) = &self.context.principal {
 			principals.push(user.to_string());
 			principals.extend(

@@ -23,6 +23,9 @@ pub enum Principal {
 	#[display("{_0}")]
 	Process(tg::process::Id),
 
+	#[display("public")]
+	Public,
+
 	#[display("root")]
 	Root,
 
@@ -48,6 +51,9 @@ impl std::str::FromStr for Principal {
 		}
 		if let Ok(id) = s.parse::<tg::process::Id>() {
 			return Ok(Self::Process(id));
+		}
+		if s == "public" {
+			return Ok(Self::Public);
 		}
 		if s == "root" {
 			return Ok(Self::Root);
@@ -79,16 +85,3 @@ impl From<tg::Principal> for Principal {
 	}
 }
 
-impl From<Principal> for tg::Principal {
-	fn from(value: Principal) -> Self {
-		match value {
-			Principal::Group(id) => Self::Group(id),
-			Principal::Organization(id) => Self::Organization(id),
-			Principal::Process(id) => Self::Process(id),
-			Principal::Root => Self::Root,
-			Principal::Runner => Self::Runner,
-			Principal::Sandbox(id) => Self::Sandbox(id),
-			Principal::User(id) => Self::User(id),
-		}
-	}
-}

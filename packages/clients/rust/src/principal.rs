@@ -51,7 +51,7 @@ pub enum Principal {
 )]
 pub enum Selector {
 	#[display("{_0}")]
-	Principal(tg::Principal),
+	Principal(tg::grant::Principal),
 
 	#[display("{_0}")]
 	Specifier(tg::Specifier),
@@ -100,12 +100,12 @@ impl std::str::FromStr for Selector {
 
 impl From<tg::Principal> for Selector {
 	fn from(value: tg::Principal) -> Self {
-		Self::Principal(value)
+		Self::Principal(value.into())
 	}
 }
 
 impl From<tg::grant::Principal> for Selector {
 	fn from(value: tg::grant::Principal) -> Self {
-		Self::Principal(value.into())
+		Self::Principal(value)
 	}
 }

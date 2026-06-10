@@ -706,12 +706,6 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
 		}
 
-		server
-			.session(&server.context)
-			.bootstrap_nodes()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to bootstrap the node data"))?;
-
 		// Migrate the process store if necessary.
 		#[cfg(feature = "sqlite")]
 		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {

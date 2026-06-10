@@ -250,7 +250,7 @@ impl Session {
 		for row in rows {
 			let arg = tg::grant::delete::Arg {
 				permission: row.permission,
-				principal: tg::principal::Selector::Principal(row.principal.into()),
+				principal: tg::principal::Selector::Principal(row.principal),
 				resource: tg::grant::Resource::Id(id.clone()),
 			};
 			self.delete_grant_with_transaction(transaction, arg, batch)
@@ -332,7 +332,7 @@ impl Session {
 	) -> tg::Result<Option<tg::grant::Principal>> {
 		let principal = match principal {
 			tg::principal::Selector::Principal(principal) => match principal {
-				tg::Principal::Group(id) => {
+				tg::grant::Principal::Group(id) => {
 					let id = id.clone();
 					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
 						.await?
@@ -342,7 +342,7 @@ impl Session {
 					}
 					tg::grant::Principal::Group(id)
 				},
-				tg::Principal::Organization(id) => {
+				tg::grant::Principal::Organization(id) => {
 					let id = id.clone();
 					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
 						.await?
@@ -352,11 +352,12 @@ impl Session {
 					}
 					tg::grant::Principal::Organization(id)
 				},
-				tg::Principal::Process(id) => tg::grant::Principal::Process(id.clone()),
-				tg::Principal::Root => tg::grant::Principal::Root,
-				tg::Principal::Runner => tg::grant::Principal::Runner,
-				tg::Principal::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
-				tg::Principal::User(id) => {
+				tg::grant::Principal::Process(id) => tg::grant::Principal::Process(id.clone()),
+				tg::grant::Principal::Public => tg::grant::Principal::Public,
+				tg::grant::Principal::Root => tg::grant::Principal::Root,
+				tg::grant::Principal::Runner => tg::grant::Principal::Runner,
+				tg::grant::Principal::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
+				tg::grant::Principal::User(id) => {
 					let id = id.clone();
 					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
 						.await?

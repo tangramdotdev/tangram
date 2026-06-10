@@ -110,15 +110,6 @@ impl Session {
 			batch
 				.put_users
 				.push(tangram_index::user::put::Arg { id: id.clone() });
-			let public = Self::ensure_public_group_with_transaction(transaction).await?;
-			Self::add_group_member_with_transaction(
-				self,
-				transaction,
-				&tg::Selector::Id(public),
-				&tg::group::Member::User(id.clone()),
-				batch,
-			)
-			.await?;
 			let arg = tg::grant::create::Arg {
 				principal: tg::grant::Principal::User(id.clone()).into(),
 				permission: tg::grant::Permission::Admin,

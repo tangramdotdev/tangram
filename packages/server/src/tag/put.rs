@@ -131,9 +131,8 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if arg.public {
-				let public = Self::ensure_public_group_with_transaction(transaction).await?;
 				let arg = tg::grant::create::Arg {
-					principal: tg::grant::Principal::Group(public).into(),
+					principal: tg::grant::Principal::Public.into(),
 					permission: tg::grant::Permission::Read,
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
