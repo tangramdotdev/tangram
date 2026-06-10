@@ -6,6 +6,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -39,26 +40,37 @@ impl Session {
 		arg: tg::user::login::Arg,
 	) -> tg::Result<tg::user::login::Output> {
 		let session = self.clone();
-		self.server
+		let (output, batch) = self
+			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
+					let mut batch = tangram_index::batch::Arg::default();
 					let output = session
-						.login_user_with_transaction(transaction, arg)
+						.login_user_with_transaction(transaction, arg, &mut batch)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+		if !batch.is_empty() {
+			self.server
+				.index
+				.batch(batch)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the user"))?;
+		}
+		Ok(output)
 	}
 
 	async fn login_user_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::user::login::Arg,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::user::login::Output> {
 		let specifier = arg.parent;
 		if specifier.components().count() != 1 {
@@ -95,12 +107,16 @@ impl Session {
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			batch
+				.put_users
+				.push(tangram_index::user::put::Arg { id: id.clone() });
 			let public = Self::ensure_public_group_with_transaction(transaction).await?;
 			Self::add_group_member_with_transaction(
 				self,
 				transaction,
 				&tg::Selector::Id(public),
 				&tg::group::Member::User(id.clone()),
+				batch,
 			)
 			.await?;
 			let arg = tg::grant::create::Arg {
@@ -108,7 +124,8 @@ impl Session {
 				permission: tg::grant::Permission::Admin,
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			};
-			self.create_grant_with_transaction(transaction, arg).await?;
+			self.create_grant_with_transaction(transaction, arg, batch)
+				.await?;
 			Self::user_from_node_with_transaction(transaction, node).await?
 		};
 		if let Some(email) = arg.email {

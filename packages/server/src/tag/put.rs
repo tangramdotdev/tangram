@@ -37,13 +37,17 @@ impl Session {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
-					let data = session.put_tag_with_transaction(transaction, arg).await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(data))
+					let mut batch = tangram_index::batch::Arg::default();
+					let data = session
+						.put_tag_with_transaction(transaction, arg, &mut batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break((data, batch)))
 				}
 				.boxed()
 			})
 			.await?;
-		let arg = tangram_index::tag::put::Arg {
+		let (data, mut batch) = data;
+		batch.put_tags.push(tangram_index::tag::put::Arg {
 			id: data.id,
 			item: match data.item {
 				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
@@ -51,12 +55,14 @@ impl Session {
 			},
 			name: data.name,
 			parent: data.parent,
-		};
-		self.server
-			.index
-			.put_tags(&[arg])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the tag"))?;
+		});
+		if !batch.is_empty() {
+			self.server
+				.index
+				.batch(batch)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the tag"))?;
+		}
 		Ok(())
 	}
 
@@ -64,9 +70,10 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		arg: tg::tag::put::Arg,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::tag::Data> {
 		let parent = self
-			.ensure_parent_for_specifier(transaction, &arg.specifier)
+			.ensure_parent_for_specifier(transaction, &arg.specifier, batch)
 			.await?;
 		let existing =
 			Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier).await?;
@@ -130,7 +137,8 @@ impl Session {
 					permission: tg::grant::Permission::Read,
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
-				self.create_grant_with_transaction(transaction, arg).await?;
+				self.create_grant_with_transaction(transaction, arg, batch)
+					.await?;
 			}
 			if let Some(principal) = self.write_user_grant_principal() {
 				let arg = tg::grant::create::Arg {
@@ -138,7 +146,8 @@ impl Session {
 					permission: tg::grant::Permission::Admin,
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
-				self.create_grant_with_transaction(transaction, arg).await?;
+				self.create_grant_with_transaction(transaction, arg, batch)
+					.await?;
 			}
 			node
 		};
@@ -193,6 +202,7 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Option<tg::Id>> {
 		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
@@ -214,7 +224,7 @@ impl Session {
 				continue;
 			}
 			let created = self
-				.create_group_node_with_transaction(transaction, &ancestor, parent.as_ref())
+				.create_group_node_with_transaction(transaction, &ancestor, parent.as_ref(), batch)
 				.await?;
 			parent = Some(created.id.clone());
 			node = Some(created);

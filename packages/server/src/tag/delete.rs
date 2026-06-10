@@ -38,25 +38,29 @@ impl Session {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
+					let mut batch = tangram_index::batch::Arg::default();
 					let deleted = session
-						.delete_tags_with_transaction(transaction, &arg)
+						.delete_tags_with_transaction(transaction, &arg, &mut batch)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(tg::tag::delete::Output {
-						deleted,
-					}))
+					let output = tg::tag::delete::Output { deleted };
+					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
 				}
 				.boxed()
 			})
 			.await?;
+		let (output, mut batch) = output;
 		let tags = output
 			.deleted
 			.iter()
 			.map(|tag| tag.id.clone())
 			.collect::<Vec<_>>();
 		if !tags.is_empty() {
+			batch.delete_tags.extend(tags);
+		}
+		if !batch.is_empty() {
 			self.server
 				.index
-				.delete_tags(&tags)
+				.batch(batch)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the deleted tags"))?;
 		}
@@ -67,6 +71,7 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: &tg::tag::delete::Arg,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Vec<tg::tag::Data>> {
 		if arg.pattern.is_empty() {
 			return Err(tg::error!("cannot delete an empty pattern"));
@@ -81,7 +86,7 @@ impl Session {
 			.await?;
 		let p = transaction.p();
 		for tag in &tags {
-			self.delete_node_grants_with_transaction(transaction, &tag.id.clone().into())
+			self.delete_node_grants_with_transaction(transaction, &tag.id.clone().into(), batch)
 				.await?;
 			for statement in [
 				format!("delete from tags where id = {p}1;"),

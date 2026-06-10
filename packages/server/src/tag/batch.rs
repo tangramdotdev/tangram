@@ -36,6 +36,7 @@ impl Session {
 				let session = session.clone();
 				async move {
 					let mut data = Vec::new();
+					let mut batch = tangram_index::batch::Arg::default();
 					for item in arg.tags {
 						let arg = tg::tag::put::Arg {
 							force: item.force,
@@ -44,13 +45,18 @@ impl Session {
 							public: false,
 							specifier: item.specifier,
 						};
-						data.push(session.put_tag_with_transaction(transaction, arg).await?);
+						data.push(
+							session
+								.put_tag_with_transaction(transaction, arg, &mut batch)
+								.await?,
+						);
 					}
-					Ok::<_, crate::database::Error>(ControlFlow::Break(data))
+					Ok::<_, crate::database::Error>(ControlFlow::Break((data, batch)))
 				}
 				.boxed()
 			})
 			.await?;
+		let (data, mut batch) = data;
 		let args = data
 			.into_iter()
 			.map(|data| tangram_index::tag::put::Arg {
@@ -64,9 +70,12 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 		if !args.is_empty() {
+			batch.put_tags.extend(args);
+		}
+		if !batch.is_empty() {
 			self.server
 				.index
-				.put_tags(&args)
+				.batch(batch)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the tags"))?;
 		}

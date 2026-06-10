@@ -8,6 +8,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -32,21 +33,31 @@ impl Session {
 		member: &tg::group::Member,
 	) -> tg::Result<()> {
 		let session = self.clone();
-		self.server
+		let batch = self
+			.server
 			.database
 			.run(|transaction| {
 				let group = group.clone();
 				let member = member.clone();
 				let session = session.clone();
 				async move {
+					let mut batch = tangram_index::batch::Arg::default();
 					session
-						.add_group_member_with_transaction(transaction, &group, &member)
+						.add_group_member_with_transaction(transaction, &group, &member, &mut batch)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					Ok::<_, crate::database::Error>(ControlFlow::Break(batch))
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+		if !batch.is_empty() {
+			self.server
+				.index
+				.batch(batch)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the group member"))?;
+		}
+		Ok(())
 	}
 
 	async fn add_group_member_remote(
@@ -69,6 +80,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<()> {
 		let group = Self::try_get_node_by_selector_with_transaction(transaction, group)
 			.await?
@@ -97,13 +109,22 @@ impl Session {
 				on conflict ("group", member) do nothing;
 			"#
 		);
-		transaction
+		let inserted = transaction
 			.execute(
 				statement.into(),
 				db::params![group.id.to_string(), member_id.to_string()],
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		if inserted == 0 {
+			return Ok(());
+		}
+		batch
+			.put_group_members
+			.push(tangram_index::group::member::put::Arg {
+				group: group.id.clone().try_into()?,
+				member: member.clone(),
+			});
 		let principal = match member {
 			tg::group::Member::Group(id) => tg::grant::Principal::Group(id.clone()),
 			tg::group::Member::User(id) => tg::grant::Principal::User(id.clone()),
@@ -111,9 +132,10 @@ impl Session {
 		let arg = tg::grant::create::Arg {
 			principal: principal.into(),
 			permission: tg::grant::Permission::Read,
-			resource: tg::grant::Resource::Id(group.id),
+			resource: tg::grant::Resource::Id(group.id.clone()),
 		};
-		self.create_grant_with_transaction(transaction, arg).await?;
+		self.create_grant_with_transaction(transaction, arg, batch)
+			.await?;
 		Ok(())
 	}
 

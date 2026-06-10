@@ -8,6 +8,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -38,25 +39,36 @@ impl Session {
 		member: &tg::organization::Member,
 	) -> tg::Result<()> {
 		let session = self.clone();
-		self.server
+		let batch = self
+			.server
 			.database
 			.run(|transaction| {
 				let organization = organization.clone();
 				let member = member.clone();
 				let session = session.clone();
 				async move {
+					let mut batch = tangram_index::batch::Arg::default();
 					session
 						.add_organization_member_with_transaction(
 							transaction,
 							&organization,
 							&member,
+							&mut batch,
 						)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					Ok::<_, crate::database::Error>(ControlFlow::Break(batch))
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+		if !batch.is_empty() {
+			self.server
+				.index
+				.batch(batch)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the organization member"))?;
+		}
+		Ok(())
 	}
 
 	async fn add_organization_member_remote(
@@ -82,6 +94,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<()> {
 		let organization =
 			Self::try_get_node_by_selector_with_transaction(transaction, organization)
@@ -105,13 +118,22 @@ impl Session {
 				on conflict (organization, member) do nothing;
 			"
 		);
-		transaction
+		let inserted = transaction
 			.execute(
 				statement.into(),
 				db::params![organization.id.to_string(), member_id.to_string()],
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		if inserted == 0 {
+			return Ok(());
+		}
+		batch
+			.put_organization_members
+			.push(tangram_index::organization::member::put::Arg {
+				member: member.clone(),
+				organization: organization.id.clone().try_into()?,
+			});
 		let principal = match member {
 			tg::organization::Member::Group(id) => tg::grant::Principal::Group(id.clone()),
 			tg::organization::Member::User(id) => tg::grant::Principal::User(id.clone()),
@@ -119,9 +141,10 @@ impl Session {
 		let arg = tg::grant::create::Arg {
 			principal: principal.into(),
 			permission: tg::grant::Permission::Read,
-			resource: tg::grant::Resource::Id(organization.id),
+			resource: tg::grant::Resource::Id(organization.id.clone()),
 		};
-		self.create_grant_with_transaction(transaction, arg).await?;
+		self.create_grant_with_transaction(transaction, arg, batch)
+			.await?;
 		Ok(())
 	}
 

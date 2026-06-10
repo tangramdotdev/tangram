@@ -6,6 +6,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -28,22 +29,33 @@ impl Session {
 		arg: tg::organization::create::Arg,
 	) -> tg::Result<tg::organization::create::Output> {
 		let session = self.clone();
-		self.server
+		let (output, batch) = self
+			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
+					let mut batch = tangram_index::batch::Arg::default();
 					let organization = session
-						.create_organization_with_transaction(transaction, arg)
+						.create_organization_with_transaction(transaction, arg, &mut batch)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(
+					Ok::<_, crate::database::Error>(ControlFlow::Break((
 						tg::organization::create::Output { organization },
-					))
+						batch,
+					)))
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+		if !batch.is_empty() {
+			self.server
+				.index
+				.batch(batch)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the organization"))?;
+		}
+		Ok(output)
 	}
 
 	async fn create_organization_remote(
@@ -64,6 +76,7 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::organization::create::Arg,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::Organization> {
 		if arg.specifier.components().count() != 1 {
 			return Err(tg::error!("invalid organization specifier"));
@@ -91,13 +104,20 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		batch
+			.put_organizations
+			.push(tangram_index::organization::put::Arg {
+				id: id.clone(),
+				name: node.name.clone(),
+			});
 		if let Some(tg::Principal::User(user)) = self.context.principal.as_ref() {
 			let arg = tg::grant::create::Arg {
 				principal: tg::grant::Principal::User(user.clone()).into(),
 				permission: tg::grant::Permission::Admin,
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			};
-			self.create_grant_with_transaction(transaction, arg).await?;
+			self.create_grant_with_transaction(transaction, arg, batch)
+				.await?;
 		}
 		Ok(tg::Organization {
 			id: node.id.try_into()?,

@@ -6,6 +6,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -28,22 +29,31 @@ impl Session {
 		arg: tg::group::create::Arg,
 	) -> tg::Result<tg::group::create::Output> {
 		let session = self.clone();
-		self.server
+		let (output, batch) = self
+			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
+					let mut batch = tangram_index::batch::Arg::default();
 					let group = session
-						.create_group_with_transaction(transaction, arg)
+						.create_group_with_transaction(transaction, arg, &mut batch)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(tg::group::create::Output {
-						group,
-					}))
+					let output = tg::group::create::Output { group };
+					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+		if !batch.is_empty() {
+			self.server
+				.index
+				.batch(batch)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the group"))?;
+		}
+		Ok(output)
 	}
 
 	async fn create_group_remote(
@@ -64,9 +74,10 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::group::create::Arg,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::Group> {
 		let node = self
-			.create_group_with_ancestors_with_transaction(transaction, &arg.specifier)
+			.create_group_with_ancestors_with_transaction(transaction, &arg.specifier, batch)
 			.await?;
 		Ok(tg::Group {
 			id: node.id.try_into()?,
@@ -80,6 +91,7 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		specifier: &tg::Specifier,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Node> {
 		if Self::try_get_node_by_specifier_with_transaction(transaction, specifier)
 			.await?
@@ -88,7 +100,7 @@ impl Session {
 			return Err(tg::error!("specifier is already in use"));
 		}
 		let node = self
-			.ensure_group_with_ancestors_with_transaction(transaction, specifier)
+			.ensure_group_with_ancestors_with_transaction(transaction, specifier, batch)
 			.await?;
 		Ok(node)
 	}
@@ -97,6 +109,7 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		specifier: &tg::Specifier,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Node> {
 		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
@@ -115,7 +128,7 @@ impl Session {
 				continue;
 			}
 			let created = self
-				.create_group_node_with_transaction(transaction, &ancestor, parent.as_ref())
+				.create_group_node_with_transaction(transaction, &ancestor, parent.as_ref(), batch)
 				.await?;
 			parent = Some(created.id.clone());
 			node = Some(created);
@@ -128,6 +141,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		specifier: &tg::Specifier,
 		parent: Option<&tg::Id>,
+		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Node> {
 		let id = tg::group::Id::new();
 		let node = Self::create_node_with_transaction(
@@ -156,13 +170,19 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		batch.put_groups.push(tangram_index::group::put::Arg {
+			id: id.clone(),
+			name: node.name.clone(),
+			parent: node.parent.clone(),
+		});
 		if let Some(principal) = write_user_principal(self) {
 			let arg = tg::grant::create::Arg {
 				principal: principal.into(),
 				permission: tg::grant::Permission::Admin,
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			};
-			self.create_grant_with_transaction(transaction, arg).await?;
+			self.create_grant_with_transaction(transaction, arg, batch)
+				.await?;
 		}
 		Ok(node)
 	}
