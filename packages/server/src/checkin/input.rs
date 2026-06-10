@@ -270,7 +270,7 @@ impl Session {
 			referrers: SmallVec::new(),
 			solvable: false,
 			solved: true,
-			stored: tangram_index::ObjectStored::default(),
+			stored: tangram_index::object::Stored::default(),
 			variant,
 		};
 		state.graph.nodes.insert(index, Box::new(node));

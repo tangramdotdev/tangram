@@ -1,6 +1,9 @@
+mod key;
+
+pub(super) use key::{ItemKind, Key};
+
 use {
-	super::{Index, ItemKind, Key, KeyKind, Request, Response},
-	crate::{CacheEntry, CleanOutput, Object, Process},
+	super::{Index, Kind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::StreamExt as _,
@@ -40,15 +43,15 @@ impl Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,
-	) -> tg::Result<CleanOutput> {
+	) -> tg::Result<crate::clean::Output> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Clean {
+		let request = Request::Clean(crate::fdb::Clean {
 			batch_size,
 			max_object_touched_at,
 			max_process_touched_at,
 			partition_count,
 			partition_start,
-		};
+		});
 		self.sender_low
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
@@ -61,7 +64,7 @@ impl Index {
 		Ok(output)
 	}
 
-	pub(super) async fn task_clean(arg: TaskCleanArg<'_>) -> tg::Result<CleanOutput> {
+	pub(super) async fn task_clean(arg: TaskCleanArg<'_>) -> tg::Result<crate::clean::Output> {
 		let TaskCleanArg {
 			txn,
 			subspace,
@@ -72,10 +75,10 @@ impl Index {
 			partition_count,
 			partition_total,
 		} = arg;
-		let mut output = CleanOutput::default();
+		let mut output = crate::clean::Output::default();
 		let mut candidates = Vec::new();
 
-		let key_kind = KeyKind::Clean.to_i32().unwrap();
+		let key_kind = Kind::Clean.to_i32().unwrap();
 		let max_touched_at = max_object_touched_at.max(max_process_touched_at);
 		let partition_end = partition_start.saturating_add(partition_count);
 		for partition in partition_start..partition_end {
@@ -102,12 +105,12 @@ impl Index {
 				};
 				let key = Self::unpack(subspace, entry.key())
 					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
-				let Key::Clean {
+				let crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 					partition,
 					touched_at,
 					kind,
 					id,
-				} = key
+				}) = key
 				else {
 					return Err(tg::error!("expected clean key"));
 				};
@@ -220,24 +223,24 @@ impl Index {
 
 	fn delete_clean_key(txn: &fdb::Transaction, subspace: &Subspace, candidate: &Candidate) {
 		let key = match &candidate.item {
-			Item::CacheEntry(id) => Key::Clean {
+			Item::CacheEntry(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
 				kind: ItemKind::CacheEntry,
 				id: tg::Either::Left(id.clone().into()),
-			},
-			Item::Object(id) => Key::Clean {
+			}),
+			Item::Object(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
 				kind: ItemKind::Object,
 				id: tg::Either::Left(id.clone()),
-			},
-			Item::Process(id) => Key::Clean {
+			}),
+			Item::Process(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
 				kind: ItemKind::Process,
 				id: tg::Either::Right(id.clone()),
-			},
+			}),
 		};
 		let key = Self::pack(subspace, &key);
 		txn.clear(&key);
@@ -251,10 +254,7 @@ impl Index {
 		let id_bytes = id.to_bytes();
 
 		let cache_entry_object_future = async {
-			let prefix = (
-				KeyKind::CacheEntryObject.to_i32().unwrap(),
-				id_bytes.as_ref(),
-			);
+			let prefix = (Kind::CacheEntryObject.to_i32().unwrap(), id_bytes.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -273,7 +273,7 @@ impl Index {
 
 		let dependency_cache_entry_future = async {
 			let prefix = (
-				KeyKind::DependencyCacheEntry.to_i32().unwrap(),
+				Kind::DependencyCacheEntry.to_i32().unwrap(),
 				id_bytes.as_ref(),
 			);
 			let prefix = Self::pack(subspace, &prefix);
@@ -306,7 +306,7 @@ impl Index {
 	) -> tg::Result<u64> {
 		let child_object_future = async {
 			let id = id.to_bytes();
-			let prefix = (KeyKind::ChildObject.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::ChildObject.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -324,7 +324,7 @@ impl Index {
 		};
 		let object_process_future = async {
 			let id = id.to_bytes();
-			let prefix = (KeyKind::ObjectProcess.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::ObjectProcess.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -342,7 +342,7 @@ impl Index {
 		};
 		let item_tag_future = async {
 			let id = id.to_bytes();
-			let prefix = (KeyKind::ItemTag.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -372,7 +372,7 @@ impl Index {
 	) -> tg::Result<u64> {
 		let child_process_future = async {
 			let id = id.to_bytes();
-			let prefix = (KeyKind::ChildProcess.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -390,7 +390,7 @@ impl Index {
 		};
 		let item_tag_future = async {
 			let id = id.to_bytes();
-			let prefix = (KeyKind::ItemTag.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -420,42 +420,42 @@ impl Index {
 	) -> tg::Result<()> {
 		match item {
 			Item::CacheEntry(id) => {
-				let key = Key::CacheEntry(id.clone());
+				let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = txn
 					.get(&key, false)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
 				{
-					let mut entry = CacheEntry::deserialize(&bytes)?;
+					let mut entry = crate::cache::Entry::deserialize(&bytes)?;
 					entry.reference_count = reference_count;
 					let bytes = entry.serialize()?;
 					txn.set(&key, &bytes);
 				}
 			},
 			Item::Object(id) => {
-				let key = Key::Object(id.clone());
+				let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = txn
 					.get(&key, false)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get object"))?
 				{
-					let mut object = Object::deserialize(&bytes)?;
+					let mut object = crate::object::Object::deserialize(&bytes)?;
 					object.reference_count = reference_count;
 					let bytes = object.serialize()?;
 					txn.set(&key, &bytes);
 				}
 			},
 			Item::Process(id) => {
-				let key = Key::Process(id.clone());
+				let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = txn
 					.get(&key, false)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get process"))?
 				{
-					let mut process = Process::deserialize(&bytes)?;
+					let mut process = crate::process::Process::deserialize(&bytes)?;
 					process.reference_count = reference_count;
 					let bytes = process.serialize()?;
 					txn.set(&key, &bytes);
@@ -486,13 +486,13 @@ impl Index {
 		id: &tg::artifact::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::CacheEntry(id.clone());
+		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
 		txn.clear(&key);
 
 		let id_bytes = id.to_bytes();
 		let prefix = (
-			KeyKind::CacheEntryDependency.to_i32().unwrap(),
+			Kind::CacheEntryDependency.to_i32().unwrap(),
 			id_bytes.as_ref(),
 		);
 		let prefix = Self::pack(subspace, &prefix);
@@ -510,7 +510,11 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())
 					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
-				let Key::CacheEntryDependency { dependency, .. } = key else {
+				let crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntryDependency {
+					dependency,
+					..
+				}) = key
+				else {
 					return Err(tg::error!("expected cache entry dependency key"));
 				};
 				Ok(dependency)
@@ -521,10 +525,10 @@ impl Index {
 		txn.clear_range(&begin, &end);
 
 		for dependency in dependencies {
-			let key = Key::DependencyCacheEntry {
+			let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::DependencyCacheEntry {
 				dependency: dependency.clone(),
 				cache_entry: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
@@ -546,20 +550,20 @@ impl Index {
 		id: &tg::object::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Object(id.clone());
+		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let cache_entry = txn
 			.get(&key, false)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get object"))?
-			.and_then(|bytes| Object::deserialize(&bytes).ok())
+			.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
 			.and_then(|obj| obj.cache_entry);
 
 		txn.clear(&key);
 
 		let id_bytes = id.to_bytes();
 
-		let prefix = (KeyKind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -575,7 +579,9 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())
 					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
-				let Key::ObjectChild { child, .. } = key else {
+				let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild { child, .. }) =
+					key
+				else {
 					return Err(tg::error!("expected object child key"));
 				};
 				Ok(child)
@@ -584,10 +590,10 @@ impl Index {
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
-			let key = Key::ChildObject {
+			let key = crate::fdb::Key::Object(crate::fdb::object::Key::ChildObject {
 				child: child.clone(),
 				object: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
@@ -596,17 +602,17 @@ impl Index {
 		}
 
 		if let Some(cache_entry) = &cache_entry {
-			let key = Key::ObjectCacheEntry {
+			let key = crate::fdb::Key::Object(crate::fdb::object::Key::ObjectCacheEntry {
 				object: id.clone(),
 				cache_entry: cache_entry.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
-			let key = Key::CacheEntryObject {
+			let key = crate::fdb::Key::Object(crate::fdb::object::Key::CacheEntryObject {
 				cache_entry: cache_entry.clone(),
 				object: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
@@ -628,13 +634,13 @@ impl Index {
 		id: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Process(id.clone());
+		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		txn.clear(&key);
 
 		let id_bytes = id.to_bytes();
 
-		let prefix = (KeyKind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -650,7 +656,10 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())
 					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
-				let Key::ProcessChild { child, .. } = key else {
+				let crate::fdb::Key::Process(crate::fdb::process::Key::ProcessChild {
+					child, ..
+				}) = key
+				else {
 					return Err(tg::error!("expected process child key"));
 				};
 				Ok(child)
@@ -659,10 +668,10 @@ impl Index {
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
-			let key = Key::ChildProcess {
+			let key = crate::fdb::Key::Process(crate::fdb::process::Key::ChildProcess {
 				child: child.clone(),
 				parent: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
@@ -670,7 +679,7 @@ impl Index {
 			Self::decrement_process_reference_count(txn, subspace, &child, partition_total).await?;
 		}
 
-		let prefix = (KeyKind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (Kind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -686,7 +695,12 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())
 					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
-				let Key::ProcessObject { kind, object, .. } = key else {
+				let crate::fdb::Key::Process(crate::fdb::process::Key::ProcessObject {
+					kind,
+					object,
+					..
+				}) = key
+				else {
 					return Err(tg::error!("expected process object key"));
 				};
 				Ok((object, kind))
@@ -695,11 +709,11 @@ impl Index {
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for (object, kind) in &object_processes {
-			let key = Key::ObjectProcess {
+			let key = crate::fdb::Key::Object(crate::fdb::object::Key::ObjectProcess {
 				object: object.clone(),
 				kind: *kind,
 				process: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
@@ -716,7 +730,7 @@ impl Index {
 		id: &tg::artifact::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::CacheEntry(id.clone());
+		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let Some(bytes) = txn
 			.get(&key, false)
@@ -725,7 +739,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let mut entry = CacheEntry::deserialize(&bytes)?;
+		let mut entry = crate::cache::Entry::deserialize(&bytes)?;
 		let reference_count = entry.reference_count;
 		if reference_count > 1 {
 			entry.reference_count = reference_count - 1;
@@ -738,12 +752,12 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 				partition,
 				touched_at: entry.touched_at,
 				kind: ItemKind::CacheEntry,
 				id: tg::Either::Left(id.clone().into()),
-			};
+			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
@@ -756,7 +770,7 @@ impl Index {
 		id: &tg::object::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Object(id.clone());
+		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let Some(bytes) = txn
 			.get(&key, false)
@@ -765,7 +779,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let mut object = Object::deserialize(&bytes)?;
+		let mut object = crate::object::Object::deserialize(&bytes)?;
 		let reference_count = object.reference_count;
 		if reference_count > 1 {
 			object.reference_count = reference_count - 1;
@@ -778,12 +792,12 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 				partition,
 				touched_at: object.touched_at,
 				kind: ItemKind::Object,
 				id: tg::Either::Left(id.clone()),
-			};
+			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
@@ -796,7 +810,7 @@ impl Index {
 		id: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Process(id.clone());
+		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let Some(bytes) = txn
 			.get(&key, false)
@@ -805,7 +819,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let mut process = Process::deserialize(&bytes)?;
+		let mut process = crate::process::Process::deserialize(&bytes)?;
 		let reference_count = process.reference_count;
 		if reference_count > 1 {
 			process.reference_count = reference_count - 1;
@@ -818,12 +832,12 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 				partition,
 				touched_at: process.touched_at,
 				kind: ItemKind::Process,
 				id: tg::Either::Right(id.clone()),
-			};
+			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}

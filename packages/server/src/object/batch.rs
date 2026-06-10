@@ -81,12 +81,12 @@ impl Session {
 			};
 
 			// Create the arg.
-			let arg = tangram_index::PutObjectArg {
+			let arg = tangram_index::object::put::Arg {
 				cache_entry: None,
 				children,
 				id: object.id.clone(),
 				metadata,
-				stored: tangram_index::ObjectStored::default(),
+				stored: tangram_index::object::Stored::default(),
 				touched_at: now,
 			};
 
@@ -102,8 +102,8 @@ impl Session {
 					if let Err(error) = session
 						.server
 						.index
-						.put(tangram_index::PutArg {
-							objects: put_object_args,
+						.batch(tangram_index::batch::Arg {
+							put_objects: put_object_args,
 							..Default::default()
 						})
 						.await

@@ -105,7 +105,7 @@ impl Session {
 				&item.id,
 				None,
 				item.kind,
-				Some(&tangram_index::ObjectStored { subtree: true }),
+				Some(&tangram_index::object::Stored { subtree: true }),
 			);
 
 			// Enqueue the children.
@@ -186,7 +186,7 @@ impl Session {
 				.send(Ok(message))
 				.await
 				.map_err(|error| tg::error!(!error, "failed to send the put message"))?;
-			let stored = tangram_index::ProcessStored::default();
+			let stored = tangram_index::process::Stored::default();
 			state
 				.graph
 				.lock()

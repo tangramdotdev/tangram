@@ -95,12 +95,12 @@ impl Session {
 				..Default::default()
 			}
 		};
-		let arg = tangram_index::PutObjectArg {
+		let arg = tangram_index::object::put::Arg {
 			cache_entry: None,
 			children,
 			id: id.clone(),
 			metadata,
-			stored: tangram_index::ObjectStored::default(),
+			stored: tangram_index::object::Stored::default(),
 			touched_at: now,
 		};
 		self.server
@@ -111,8 +111,8 @@ impl Session {
 					if let Err(error) = session
 						.server
 						.index
-						.put(tangram_index::PutArg {
-							objects: vec![arg],
+						.batch(tangram_index::batch::Arg {
+							put_objects: vec![arg],
 							..Default::default()
 						})
 						.await

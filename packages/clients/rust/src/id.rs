@@ -198,6 +198,21 @@ impl Id {
 	}
 }
 
+impl Kind {
+	#[must_use]
+	pub fn is_object(&self) -> bool {
+		matches!(
+			self,
+			Self::Blob
+				| Self::Directory
+				| Self::File | Self::Symlink
+				| Self::Graph
+				| Self::Command
+				| Self::Error
+		)
+	}
+}
+
 impl Body {
 	#[must_use]
 	pub fn as_slice(&self) -> &[u8] {

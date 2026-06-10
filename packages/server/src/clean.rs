@@ -229,7 +229,7 @@ impl Server {
 		n: usize,
 		partition_start: u64,
 		partition_count: u64,
-	) -> tg::Result<tangram_index::CleanOutput> {
+	) -> tg::Result<tangram_index::clean::Output> {
 		let max_object_touched_at = now - object_time_to_live.as_secs().to_i64().unwrap();
 		let max_process_touched_at = now - process_time_to_live.as_secs().to_i64().unwrap();
 

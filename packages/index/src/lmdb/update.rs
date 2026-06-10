@@ -1,10 +1,20 @@
+mod key;
+
+pub(super) use key::Key;
+
 use {
-	super::{Db, Index, Key, KeyKind, Request, Response, Update},
-	crate::{Object, Process, ProcessObjectKind},
+	super::{Db, Index, Kind, Request, Response},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	tangram_client::prelude::*,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+#[repr(u8)]
+pub(super) enum Update {
+	Put = 0,
+	Propagate = 1,
+}
 
 impl Index {
 	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
@@ -15,7 +25,7 @@ impl Index {
 			let transaction = env
 				.read_txn()
 				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
+			let prefix = &(Kind::UpdateVersion.to_i32().unwrap(),);
 			let prefix = Self::pack(&subspace, prefix);
 			for entry in db
 				.prefix_iter(&transaction, &prefix)
@@ -24,7 +34,11 @@ impl Index {
 				let (key, _) = entry
 					.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
 				let key = Self::unpack(&subspace, key)?;
-				let Key::UpdateVersion { version, .. } = key else {
+				let crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
+					version,
+					..
+				}) = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				if version <= transaction_id {
@@ -44,7 +58,7 @@ impl Index {
 		_partition_count: u64,
 	) -> tg::Result<usize> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Update { batch_size };
+		let request = Request::Update(crate::lmdb::Update { batch_size });
 		self.sender_low
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
@@ -63,7 +77,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
+		let prefix = &(Kind::UpdateVersion.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
 		let entries = db
 			.prefix_iter(transaction, &prefix)
@@ -73,7 +87,11 @@ impl Index {
 				let (key, _) = entry
 					.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
 				let key = Self::unpack(subspace, key)?;
-				let Key::UpdateVersion { version, id } = key else {
+				let crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
+					version,
+					id,
+				}) = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok((version, id))
@@ -82,7 +100,7 @@ impl Index {
 
 		let mut count = 0;
 		for (version, id) in entries {
-			let key = Key::Update { id: id.clone() };
+			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update { id: id.clone() });
 			let key = Self::pack(subspace, &key);
 			let value = db
 				.get(transaction, &key)
@@ -106,14 +124,14 @@ impl Index {
 				Self::enqueue_parents(db, subspace, transaction, &id, version)?;
 			}
 
-			let key = Key::Update { id: id.clone() };
+			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update { id: id.clone() });
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete update key"))?;
-			let key = Key::UpdateVersion {
+			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
 				version,
 				id: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete update version key"))?;
@@ -130,17 +148,17 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<bool> {
-		let key = Key::Object(id.clone());
+		let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			.ok_or_else(|| tg::error!(%id, "object not found"))?;
-		let mut object = Object::deserialize(bytes)?;
+		let mut object = crate::object::Object::deserialize(bytes)?;
 
 		let children = Self::get_object_children_with_transaction(db, subspace, transaction, id)?;
 
-		let child_objects: Vec<Option<Object>> = children
+		let child_objects: Vec<Option<crate::object::Object>> = children
 			.iter()
 			.map(|child| Self::try_get_object_with_transaction(db, subspace, transaction, child))
 			.collect::<tg::Result<_>>()?;
@@ -254,13 +272,13 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<bool> {
-		let key = Key::Process(id.clone());
+		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
-		let mut process = Process::deserialize(bytes)?;
+		let mut process = crate::process::Process::deserialize(bytes)?;
 
 		let children = Self::get_process_children_with_transaction(db, subspace, transaction, id)?;
 		let children = children
@@ -269,23 +287,23 @@ impl Index {
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
-		let mut command_object: Option<Object> = None;
-		let mut error_objects: Vec<Option<Object>> = Vec::new();
-		let mut log_object: Option<Option<Object>> = None;
-		let mut output_objects: Vec<Option<Object>> = Vec::new();
+		let mut command_object: Option<crate::object::Object> = None;
+		let mut error_objects: Vec<Option<crate::object::Object>> = Vec::new();
+		let mut log_object: Option<Option<crate::object::Object>> = None;
+		let mut output_objects: Vec<Option<crate::object::Object>> = Vec::new();
 		for (id, kind) in &objects {
 			let object = Self::try_get_object_with_transaction(db, subspace, transaction, id)?;
 			match kind {
-				ProcessObjectKind::Command => {
+				crate::process::object::Kind::Command => {
 					command_object = object;
 				},
-				ProcessObjectKind::Error => {
+				crate::process::object::Kind::Error => {
 					error_objects.push(object);
 				},
-				ProcessObjectKind::Log => {
+				crate::process::object::Kind::Log => {
 					log_object = Some(object);
 				},
-				ProcessObjectKind::Output => {
+				crate::process::object::Kind::Output => {
 					output_objects.push(object);
 				},
 			}
@@ -1049,7 +1067,7 @@ impl Index {
 		update: Update,
 		version: Option<u64>,
 	) -> tg::Result<()> {
-		let key = Key::Update { id: id.clone() };
+		let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update { id: id.clone() });
 		let key = Self::pack(subspace, &key);
 		if let Some(existing) = db
 			.get(transaction, &key)
@@ -1072,7 +1090,7 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to put update key"))?;
 
 		let version = version.unwrap_or_else(|| transaction.id() as u64);
-		let key = Key::UpdateVersion { version, id };
+		let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion { version, id });
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|error| tg::error!(!error, "failed to put update version key"))?;

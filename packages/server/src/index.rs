@@ -48,10 +48,19 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn batch(&self, arg: index::batch::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.batch(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.batch(arg).await,
+		}
+	}
+
 	async fn try_get_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],
-	) -> tg::Result<Vec<Option<index::CacheEntry>>> {
+	) -> tg::Result<Vec<Option<index::cache::Entry>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.try_get_cache_entries(ids).await,
@@ -60,36 +69,12 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn try_get_objects(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<index::Object>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_objects(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_objects(ids).await,
-		}
-	}
-
-	async fn try_get_processes(
-		&self,
-		ids: &[tg::process::Id],
-	) -> tg::Result<Vec<Option<index::Process>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_processes(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_processes(ids).await,
-		}
-	}
-
 	async fn touch_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::CacheEntry>>> {
+	) -> tg::Result<Vec<Option<index::cache::Entry>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
@@ -106,12 +91,24 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn try_get_objects(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<index::object::Object>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_objects(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_objects(ids).await,
+		}
+	}
+
 	async fn touch_objects(
 		&self,
 		ids: &[tg::object::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::Object>>> {
+	) -> tg::Result<Vec<Option<index::object::Object>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.touch_objects(ids, touched_at, time_to_touch).await,
@@ -120,12 +117,24 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn try_get_processes(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<index::process::Process>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_processes(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_processes(ids).await,
+		}
+	}
+
 	async fn touch_processes(
 		&self,
 		ids: &[tg::process::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::Process>>> {
+	) -> tg::Result<Vec<Option<index::process::Process>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
@@ -134,16 +143,106 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn put(&self, arg: index::PutArg) -> tg::Result<()> {
+	async fn put_grants(&self, args: &[index::grant::put::Arg]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put(arg).await,
+			Self::Fdb(index) => index.put_grants(args).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put(arg).await,
+			Self::Lmdb(index) => index.put_grants(args).await,
 		}
 	}
 
-	async fn put_tags(&self, args: &[index::PutTagArg]) -> tg::Result<()> {
+	async fn delete_grants(&self, args: &[index::grant::delete::Arg]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.delete_grants(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.delete_grants(args).await,
+		}
+	}
+
+	async fn put_groups(&self, args: &[index::group::put::Arg]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.put_groups(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.put_groups(args).await,
+		}
+	}
+
+	async fn delete_groups(&self, ids: &[tg::group::Id]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.delete_groups(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.delete_groups(ids).await,
+		}
+	}
+
+	async fn put_group_members(&self, args: &[index::group::member::put::Arg]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.put_group_members(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.put_group_members(args).await,
+		}
+	}
+
+	async fn delete_group_members(
+		&self,
+		args: &[index::group::member::delete::Arg],
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.delete_group_members(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.delete_group_members(args).await,
+		}
+	}
+
+	async fn put_organizations(&self, args: &[index::organization::put::Arg]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.put_organizations(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.put_organizations(args).await,
+		}
+	}
+
+	async fn delete_organizations(&self, ids: &[tg::organization::Id]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.delete_organizations(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.delete_organizations(ids).await,
+		}
+	}
+
+	async fn put_organization_members(
+		&self,
+		args: &[index::organization::member::put::Arg],
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.put_organization_members(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.put_organization_members(args).await,
+		}
+	}
+
+	async fn delete_organization_members(
+		&self,
+		args: &[index::organization::member::delete::Arg],
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.delete_organization_members(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.delete_organization_members(args).await,
+		}
+	}
+
+	async fn put_tags(&self, args: &[index::tag::put::Arg]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.put_tags(args).await,
@@ -152,12 +251,30 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn delete_tags(&self, tags: &[tg::Specifier]) -> tg::Result<()> {
+	async fn delete_tags(&self, ids: &[tg::tag::Id]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_tags(tags).await,
+			Self::Fdb(index) => index.delete_tags(ids).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_tags(tags).await,
+			Self::Lmdb(index) => index.delete_tags(ids).await,
+		}
+	}
+
+	async fn put_users(&self, args: &[index::user::put::Arg]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.put_users(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.put_users(args).await,
+		}
+	}
+
+	async fn delete_users(&self, ids: &[tg::user::Id]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.delete_users(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.delete_users(ids).await,
 		}
 	}
 
@@ -199,7 +316,7 @@ impl index::Index for Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,
-	) -> tg::Result<index::CleanOutput> {
+	) -> tg::Result<index::clean::Output> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {

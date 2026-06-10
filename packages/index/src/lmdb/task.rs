@@ -1,46 +1,12 @@
 use {
-	super::{Db, Index, Request, RequestReceiver, Response, ResponseSender},
-	crate::{CleanOutput, PutArg, PutTagArg},
+	super::{
+		Db, Index, Request, RequestReceiver, Response, ResponseSender,
+		request::{Item, Kind},
+	},
 	crossbeam_channel as crossbeam, heed as lmdb,
 	std::collections::VecDeque,
 	tangram_client::prelude::*,
 };
-
-enum RequestItem {
-	Clean,
-	DeleteTag(tg::Specifier),
-	PutCacheEntry(crate::PutCacheEntryArg),
-	PutObject(crate::PutObjectArg),
-	PutProcess(crate::PutProcessArg),
-	PutTag(PutTagArg),
-	TouchCacheEntry(tg::artifact::Id),
-	TouchObject(tg::object::Id),
-	TouchProcess(tg::process::Id),
-	Update,
-}
-
-enum RequestKind {
-	Clean {
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-	},
-	DeleteTags,
-	Put,
-	PutTags,
-	TouchCacheEntries {
-		time_to_touch: std::time::Duration,
-		touched_at: i64,
-	},
-	TouchObjects {
-		time_to_touch: std::time::Duration,
-		touched_at: i64,
-	},
-	TouchProcesses {
-		time_to_touch: std::time::Duration,
-		touched_at: i64,
-	},
-	Update,
-}
 
 struct RequestTracker {
 	remaining: usize,
@@ -171,11 +137,11 @@ impl Index {
 			let mut results: Vec<tg::Result<Response>> = Vec::new();
 			for request in batch.requests {
 				let result = match request {
-					Request::Clean {
+					Request::Clean(crate::lmdb::Clean {
 						batch_size,
 						max_object_touched_at,
 						max_process_touched_at,
-					} => Self::task_clean(
+					}) => Self::task_clean(
 						db,
 						subspace,
 						&mut transaction,
@@ -184,22 +150,65 @@ impl Index {
 						batch_size,
 					)
 					.map(Response::CleanOutput),
+					Request::DeleteGrants(args) => {
+						Self::task_delete_grants(&args).map(|()| Response::Unit)
+					},
+					Request::DeleteGroupMembers(args) => {
+						Self::task_delete_group_members(&args).map(|()| Response::Unit)
+					},
+					Request::DeleteGroups(ids) => {
+						Self::task_delete_groups(&ids).map(|()| Response::Unit)
+					},
+					Request::DeleteOrganizationMembers(args) => {
+						Self::task_delete_organization_members(&args).map(|()| Response::Unit)
+					},
+					Request::DeleteOrganizations(ids) => {
+						Self::task_delete_organizations(&ids).map(|()| Response::Unit)
+					},
+					Request::DeleteUsers(ids) => {
+						Self::task_delete_users(&ids).map(|()| Response::Unit)
+					},
 					Request::DeleteTags(tags) => {
 						Self::task_delete_tags(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
 					},
-					Request::Put(arg) => {
-						Self::task_put(db, subspace, &mut transaction, arg).map(|()| Response::Unit)
+					Request::PutCacheEntries(args) => {
+						Self::task_put_cache_entries(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
+					},
+					Request::PutGrants(args) => {
+						Self::task_put_grants(&args).map(|()| Response::Unit)
+					},
+					Request::PutGroupMembers(args) => {
+						Self::task_put_group_members(&args).map(|()| Response::Unit)
+					},
+					Request::PutGroups(args) => {
+						Self::task_put_groups(&args).map(|()| Response::Unit)
+					},
+					Request::PutObjects(args) => {
+						Self::task_put_objects(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
+					},
+					Request::PutOrganizationMembers(args) => {
+						Self::task_put_organization_members(&args).map(|()| Response::Unit)
+					},
+					Request::PutOrganizations(args) => {
+						Self::task_put_organizations(&args).map(|()| Response::Unit)
+					},
+					Request::PutProcesses(args) => {
+						Self::task_put_processes(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
 					},
 					Request::PutTags(tags) => {
 						Self::task_put_tags(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
 					},
-					Request::TouchCacheEntries {
+					Request::PutUsers(args) => Self::task_put_users(&args).map(|()| Response::Unit),
+					Request::TouchCacheEntries(crate::lmdb::TouchCacheEntries {
 						ids,
 						time_to_touch,
 						touched_at,
-					} => Self::task_touch_cache_entries(
+					}) => Self::task_touch_cache_entries(
 						db,
 						subspace,
 						&mut transaction,
@@ -208,11 +217,11 @@ impl Index {
 						time_to_touch,
 					)
 					.map(Response::CacheEntries),
-					Request::TouchObjects {
+					Request::TouchObjects(crate::lmdb::TouchObjects {
 						ids,
 						time_to_touch,
 						touched_at,
-					} => Self::task_touch_objects(
+					}) => Self::task_touch_objects(
 						db,
 						subspace,
 						&mut transaction,
@@ -221,11 +230,11 @@ impl Index {
 						time_to_touch,
 					)
 					.map(Response::Objects),
-					Request::TouchProcesses {
+					Request::TouchProcesses(crate::lmdb::TouchProcesses {
 						ids,
 						time_to_touch,
 						touched_at,
-					} => Self::task_touch_processes(
+					}) => Self::task_touch_processes(
 						db,
 						subspace,
 						&mut transaction,
@@ -234,7 +243,7 @@ impl Index {
 						time_to_touch,
 					)
 					.map(Response::Processes),
-					Request::Update { batch_size } => {
+					Request::Update(crate::lmdb::Update { batch_size }) => {
 						Self::task_update_batch(db, subspace, &mut transaction, batch_size)
 							.map(Response::UpdateCount)
 					},
@@ -346,197 +355,401 @@ impl Index {
 
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
-			Request::Clean { .. } => Response::CleanOutput(CleanOutput::default()),
-			Request::DeleteTags(_) | Request::Put(_) | Request::PutTags(_) => Response::Unit,
-			Request::TouchCacheEntries { .. } => Response::CacheEntries(Vec::new()),
-			Request::TouchObjects { .. } => Response::Objects(Vec::new()),
-			Request::TouchProcesses { .. } => Response::Processes(Vec::new()),
-			Request::Update { .. } => Response::UpdateCount(0),
+			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
+			Request::DeleteGrants(_)
+			| Request::DeleteGroupMembers(_)
+			| Request::DeleteGroups(_)
+			| Request::DeleteOrganizationMembers(_)
+			| Request::DeleteOrganizations(_)
+			| Request::DeleteTags(_)
+			| Request::DeleteUsers(_)
+			| Request::PutCacheEntries(_)
+			| Request::PutGrants(_)
+			| Request::PutGroupMembers(_)
+			| Request::PutGroups(_)
+			| Request::PutObjects(_)
+			| Request::PutOrganizationMembers(_)
+			| Request::PutOrganizations(_)
+			| Request::PutProcesses(_)
+			| Request::PutTags(_)
+			| Request::PutUsers(_) => Response::Unit,
+			Request::TouchCacheEntries(_) => Response::CacheEntries(Vec::new()),
+			Request::TouchObjects(_) => Response::Objects(Vec::new()),
+			Request::TouchProcesses(_) => Response::Processes(Vec::new()),
+			Request::Update(_) => Response::UpdateCount(0),
 		}
 	}
 
-	fn request_into_items(request: Request) -> (Vec<RequestItem>, RequestKind) {
+	fn request_into_items(request: Request) -> (Vec<Item>, Kind) {
 		match request {
-			Request::Clean {
+			Request::Clean(crate::lmdb::Clean {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
-			} => {
-				let items = (0..batch_size).map(|_| RequestItem::Clean).collect();
+			}) => {
+				let items = (0..batch_size).map(|_| Item::Clean).collect();
 				(
 					items,
-					RequestKind::Clean {
+					Kind::Clean {
 						max_object_touched_at,
 						max_process_touched_at,
 					},
 				)
 			},
-			Request::DeleteTags(tags) => {
-				let items = tags.into_iter().map(RequestItem::DeleteTag).collect();
-				(items, RequestKind::DeleteTags)
+			Request::DeleteGrants(args) => {
+				let items = args.into_iter().map(Item::DeleteGrant).collect();
+				(items, Kind::DeleteGrants)
 			},
-			Request::Put(arg) => {
-				let mut items = Vec::with_capacity(
-					arg.cache_entries.len() + arg.objects.len() + arg.processes.len(),
-				);
-				items.extend(
-					arg.cache_entries
-						.into_iter()
-						.map(RequestItem::PutCacheEntry),
-				);
-				items.extend(arg.objects.into_iter().map(RequestItem::PutObject));
-				items.extend(arg.processes.into_iter().map(RequestItem::PutProcess));
-				(items, RequestKind::Put)
+			Request::DeleteGroupMembers(args) => {
+				let items = args.into_iter().map(Item::DeleteGroupMember).collect();
+				(items, Kind::DeleteGroupMembers)
+			},
+			Request::DeleteGroups(ids) => {
+				let items = ids.into_iter().map(Item::DeleteGroup).collect();
+				(items, Kind::DeleteGroups)
+			},
+			Request::DeleteOrganizationMembers(args) => {
+				let items = args
+					.into_iter()
+					.map(Item::DeleteOrganizationMember)
+					.collect();
+				(items, Kind::DeleteOrganizationMembers)
+			},
+			Request::DeleteOrganizations(ids) => {
+				let items = ids.into_iter().map(Item::DeleteOrganization).collect();
+				(items, Kind::DeleteOrganizations)
+			},
+			Request::DeleteTags(tags) => {
+				let items = tags.into_iter().map(Item::DeleteTag).collect();
+				(items, Kind::DeleteTags)
+			},
+			Request::DeleteUsers(ids) => {
+				let items = ids.into_iter().map(Item::DeleteUser).collect();
+				(items, Kind::DeleteUsers)
+			},
+			Request::PutCacheEntries(args) => {
+				let items = args.into_iter().map(Item::PutCacheEntry).collect();
+				(items, Kind::PutCacheEntries)
+			},
+			Request::PutGrants(args) => {
+				let items = args.into_iter().map(Item::PutGrant).collect();
+				(items, Kind::PutGrants)
+			},
+			Request::PutGroupMembers(args) => {
+				let items = args.into_iter().map(Item::PutGroupMember).collect();
+				(items, Kind::PutGroupMembers)
+			},
+			Request::PutGroups(args) => {
+				let items = args.into_iter().map(Item::PutGroup).collect();
+				(items, Kind::PutGroups)
+			},
+			Request::PutObjects(args) => {
+				let items = args.into_iter().map(Item::PutObject).collect();
+				(items, Kind::PutObjects)
+			},
+			Request::PutOrganizationMembers(args) => {
+				let items = args.into_iter().map(Item::PutOrganizationMember).collect();
+				(items, Kind::PutOrganizationMembers)
+			},
+			Request::PutOrganizations(args) => {
+				let items = args.into_iter().map(Item::PutOrganization).collect();
+				(items, Kind::PutOrganizations)
+			},
+			Request::PutProcesses(args) => {
+				let items = args.into_iter().map(Item::PutProcess).collect();
+				(items, Kind::PutProcesses)
 			},
 			Request::PutTags(tags) => {
-				let items = tags.into_iter().map(RequestItem::PutTag).collect();
-				(items, RequestKind::PutTags)
+				let items = tags.into_iter().map(Item::PutTag).collect();
+				(items, Kind::PutTags)
 			},
-			Request::TouchCacheEntries {
+			Request::PutUsers(args) => {
+				let items = args.into_iter().map(Item::PutUser).collect();
+				(items, Kind::PutUsers)
+			},
+			Request::TouchCacheEntries(crate::lmdb::TouchCacheEntries {
 				ids,
 				time_to_touch,
 				touched_at,
-			} => {
-				let items = ids.into_iter().map(RequestItem::TouchCacheEntry).collect();
+			}) => {
+				let items = ids.into_iter().map(Item::TouchCacheEntry).collect();
 				(
 					items,
-					RequestKind::TouchCacheEntries {
+					Kind::TouchCacheEntries {
 						time_to_touch,
 						touched_at,
 					},
 				)
 			},
-			Request::TouchObjects {
+			Request::TouchObjects(crate::lmdb::TouchObjects {
 				ids,
 				time_to_touch,
 				touched_at,
-			} => {
-				let items = ids.into_iter().map(RequestItem::TouchObject).collect();
+			}) => {
+				let items = ids.into_iter().map(Item::TouchObject).collect();
 				(
 					items,
-					RequestKind::TouchObjects {
+					Kind::TouchObjects {
 						time_to_touch,
 						touched_at,
 					},
 				)
 			},
-			Request::TouchProcesses {
+			Request::TouchProcesses(crate::lmdb::TouchProcesses {
 				ids,
 				time_to_touch,
 				touched_at,
-			} => {
-				let items = ids.into_iter().map(RequestItem::TouchProcess).collect();
+			}) => {
+				let items = ids.into_iter().map(Item::TouchProcess).collect();
 				(
 					items,
-					RequestKind::TouchProcesses {
+					Kind::TouchProcesses {
 						time_to_touch,
 						touched_at,
 					},
 				)
 			},
-			Request::Update { batch_size } => {
-				let items = (0..batch_size).map(|_| RequestItem::Update).collect();
-				(items, RequestKind::Update)
+			Request::Update(crate::lmdb::Update { batch_size }) => {
+				let items = (0..batch_size).map(|_| Item::Update).collect();
+				(items, Kind::Update)
 			},
 		}
 	}
 
-	fn request_from_items(items: Vec<RequestItem>, kind: &RequestKind) -> Request {
+	fn request_from_items(items: Vec<Item>, kind: &Kind) -> Request {
 		match kind {
-			RequestKind::Clean {
+			Kind::Clean {
 				max_object_touched_at,
 				max_process_touched_at,
-			} => Request::Clean {
+			} => Request::Clean(crate::lmdb::Clean {
 				batch_size: items.len(),
 				max_object_touched_at: *max_object_touched_at,
 				max_process_touched_at: *max_process_touched_at,
+			}),
+			Kind::DeleteGrants => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteGrant(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteGrants(args)
 			},
-			RequestKind::DeleteTags => {
+			Kind::DeleteGroupMembers => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteGroupMember(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteGroupMembers(args)
+			},
+			Kind::DeleteGroups => {
+				let ids = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteGroup(id) => id,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteGroups(ids)
+			},
+			Kind::DeleteOrganizationMembers => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteOrganizationMember(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteOrganizationMembers(args)
+			},
+			Kind::DeleteOrganizations => {
+				let ids = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteOrganization(id) => id,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteOrganizations(ids)
+			},
+			Kind::DeleteTags => {
 				let tags = items
 					.into_iter()
 					.map(|item| match item {
-						RequestItem::DeleteTag(tag) => tag,
+						Item::DeleteTag(tag) => tag,
 						_ => unreachable!(),
 					})
 					.collect();
 				Request::DeleteTags(tags)
 			},
-			RequestKind::Put => {
-				let mut arg = PutArg::default();
-				for item in items {
-					match item {
-						RequestItem::PutCacheEntry(entry) => arg.cache_entries.push(entry),
-						RequestItem::PutObject(object) => arg.objects.push(object),
-						RequestItem::PutProcess(process) => arg.processes.push(process),
+			Kind::DeleteUsers => {
+				let ids = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteUser(id) => id,
 						_ => unreachable!(),
-					}
-				}
-				Request::Put(arg)
+					})
+					.collect();
+				Request::DeleteUsers(ids)
 			},
-			RequestKind::PutTags => {
+			Kind::PutCacheEntries => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutCacheEntry(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutCacheEntries(args)
+			},
+			Kind::PutGrants => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutGrant(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutGrants(args)
+			},
+			Kind::PutGroupMembers => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutGroupMember(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutGroupMembers(args)
+			},
+			Kind::PutGroups => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutGroup(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutGroups(args)
+			},
+			Kind::PutObjects => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutObject(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutObjects(args)
+			},
+			Kind::PutOrganizationMembers => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutOrganizationMember(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutOrganizationMembers(args)
+			},
+			Kind::PutOrganizations => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutOrganization(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutOrganizations(args)
+			},
+			Kind::PutProcesses => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutProcess(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutProcesses(args)
+			},
+			Kind::PutTags => {
 				let tags = items
 					.into_iter()
 					.map(|item| match item {
-						RequestItem::PutTag(tag) => tag,
+						Item::PutTag(tag) => tag,
 						_ => unreachable!(),
 					})
 					.collect();
 				Request::PutTags(tags)
 			},
-			RequestKind::TouchCacheEntries {
+			Kind::PutUsers => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutUser(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutUsers(args)
+			},
+			Kind::TouchCacheEntries {
 				time_to_touch,
 				touched_at,
 			} => {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
-						RequestItem::TouchCacheEntry(id) => id,
+						Item::TouchCacheEntry(id) => id,
 						_ => unreachable!(),
 					})
 					.collect();
-				Request::TouchCacheEntries {
+				Request::TouchCacheEntries(crate::lmdb::TouchCacheEntries {
 					ids,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
-				}
+				})
 			},
-			RequestKind::TouchObjects {
+			Kind::TouchObjects {
 				time_to_touch,
 				touched_at,
 			} => {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
-						RequestItem::TouchObject(id) => id,
+						Item::TouchObject(id) => id,
 						_ => unreachable!(),
 					})
 					.collect();
-				Request::TouchObjects {
+				Request::TouchObjects(crate::lmdb::TouchObjects {
 					ids,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
-				}
+				})
 			},
-			RequestKind::TouchProcesses {
+			Kind::TouchProcesses {
 				time_to_touch,
 				touched_at,
 			} => {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
-						RequestItem::TouchProcess(id) => id,
+						Item::TouchProcess(id) => id,
 						_ => unreachable!(),
 					})
 					.collect();
-				Request::TouchProcesses {
+				Request::TouchProcesses(crate::lmdb::TouchProcesses {
 					ids,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
-				}
+				})
 			},
-			RequestKind::Update => Request::Update {
+			Kind::Update => Request::Update(crate::lmdb::Update {
 				batch_size: items.len(),
-			},
+			}),
 		}
 	}
 

@@ -930,7 +930,7 @@ impl Session {
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
 			solved: false,
-			stored: tangram_index::ObjectStored::default(),
+			stored: tangram_index::object::Stored::default(),
 			variant,
 		};
 
@@ -1109,7 +1109,7 @@ impl Session {
 			referrers: SmallVec::new(),
 			solvable: true,
 			solved: false,
-			stored: tangram_index::ObjectStored::default(),
+			stored: tangram_index::object::Stored::default(),
 			variant,
 		};
 

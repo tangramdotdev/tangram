@@ -51,7 +51,7 @@ impl Session {
 		let tags = output
 			.deleted
 			.iter()
-			.map(|tag| tag.specifier.clone())
+			.map(|tag| tag.id.clone())
 			.collect::<Vec<_>>();
 		if !tags.is_empty() {
 			self.server

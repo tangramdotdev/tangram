@@ -340,7 +340,7 @@ impl Session {
 		state: &State,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
-		stored: Option<&tangram_index::ProcessStored>,
+		stored: Option<&tangram_index::process::Stored>,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.recursive

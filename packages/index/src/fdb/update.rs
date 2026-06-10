@@ -1,6 +1,9 @@
+mod key;
+
+pub(super) use key::Key;
+
 use {
-	super::{Index, Key, KeyKind, Request, Response, Update},
-	crate::{Object, Process, ProcessObjectKind},
+	super::{Index, Kind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::{self as fdbt, Subspace},
 	futures::future,
@@ -8,7 +11,48 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+#[repr(u8)]
+pub(super) enum Update {
+	Put = 0,
+	Propagate = 1,
+}
+
 impl Index {
+	pub(super) fn enqueue_update(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		partition_total: u64,
+	) {
+		let key = Self::pack(
+			subspace,
+			&crate::fdb::Key::Update(crate::fdb::update::Key::Update { id: id.clone() }),
+		);
+		let value = [Update::Put.to_u8().unwrap()];
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.set(&key, &value);
+
+		let id_bytes = match &id {
+			tg::Either::Left(id) => id.to_bytes(),
+			tg::Either::Right(id) => id.to_bytes(),
+		};
+		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+		let key = Self::pack_with_versionstamp(
+			subspace,
+			&(
+				Kind::UpdateVersion.to_i32().unwrap(),
+				partition,
+				fdbt::Versionstamp::incomplete(0),
+				id_bytes.as_ref(),
+			),
+		);
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
+	}
+
 	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
 		let txn = self
 			.database
@@ -20,7 +64,7 @@ impl Index {
 		bytes[8..].copy_from_slice(&0xFFFFu16.to_be_bytes());
 		let versionstamp = fdbt::Versionstamp::complete(bytes, 0);
 
-		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
+		let key_kind = Kind::UpdateVersion.to_i32().unwrap();
 		let futures = (0..self.partition_total).map(|partition| {
 			let begin = Self::pack(&self.subspace, &(key_kind, partition));
 			let end = Self::pack(&self.subspace, &(key_kind, partition, versionstamp.clone()));
@@ -48,11 +92,11 @@ impl Index {
 		partition_count: u64,
 	) -> tg::Result<usize> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Update {
+		let request = Request::Update(crate::fdb::Update {
 			batch_size,
-			partition_start,
 			partition_count,
-		};
+			partition_start,
+		});
 		self.sender_low
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
@@ -75,7 +119,7 @@ impl Index {
 	) -> tg::Result<usize> {
 		let mut entries = Vec::new();
 
-		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
+		let key_kind = Kind::UpdateVersion.to_i32().unwrap();
 		let partition_end = partition_start.saturating_add(partition_count);
 		for partition in partition_start..partition_end {
 			let remaining = batch_size.saturating_sub(entries.len());
@@ -97,11 +141,11 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to get update version range"))?;
 			for entry in partition_entries {
 				let key = Self::unpack(subspace, entry.key())?;
-				let Key::UpdateVersion {
+				let crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
 					partition,
 					version,
 					id,
-				} = key
+				}) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -111,7 +155,10 @@ impl Index {
 
 		let mut count = 0;
 		for (partition, version, id) in entries {
-			let key = Self::pack(subspace, &Key::Update { id: id.clone() });
+			let key = Self::pack(
+				subspace,
+				&crate::fdb::Key::Update(crate::fdb::update::Key::Update { id: id.clone() }),
+			);
 			let value = txn
 				.get(&key, false)
 				.await
@@ -120,11 +167,11 @@ impl Index {
 			let Some(value) = value else {
 				let key = Self::pack(
 					subspace,
-					&Key::UpdateVersion {
+					&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
 						partition,
 						version: version.clone(),
 						id: id.clone(),
-					},
+					}),
 				);
 				txn.clear(&key);
 				count += 1;
@@ -148,15 +195,18 @@ impl Index {
 				Self::enqueue_parents(txn, subspace, &id, &version, partition_total).await?;
 			}
 
-			let key = Self::pack(subspace, &Key::Update { id: id.clone() });
+			let key = Self::pack(
+				subspace,
+				&crate::fdb::Key::Update(crate::fdb::update::Key::Update { id: id.clone() }),
+			);
 			txn.clear(&key);
 			let key = Self::pack(
 				subspace,
-				&Key::UpdateVersion {
+				&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
 					partition,
 					version: version.clone(),
 					id: id.clone(),
-				},
+				}),
 			);
 			txn.clear(&key);
 
@@ -171,18 +221,18 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<bool> {
-		let key = Key::Object(id.clone());
+		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let bytes = txn
 			.get(&key, false)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			.ok_or_else(|| tg::error!(%id, "object not found"))?;
-		let mut object = Object::deserialize(&bytes)?;
+		let mut object = crate::object::Object::deserialize(&bytes)?;
 
 		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
 
-		let child_objects: Vec<Option<Object>> = future::try_join_all(
+		let child_objects: Vec<Option<crate::object::Object>> = future::try_join_all(
 			children
 				.iter()
 				.map(|child| Self::try_get_object_with_transaction(txn, subspace, child)),
@@ -298,14 +348,14 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<bool> {
-		let key = Key::Process(id.clone());
+		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let bytes = txn
 			.get(&key, false)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
-		let mut process = Process::deserialize(&bytes)?;
+		let mut process = crate::process::Process::deserialize(&bytes)?;
 
 		let children = Self::get_process_children_with_transaction(txn, subspace, id).await?;
 		let children = future::try_join_all(
@@ -316,23 +366,23 @@ impl Index {
 		.await?;
 
 		let objects = Self::get_process_objects_with_transaction(txn, subspace, id).await?;
-		let mut command_object: Option<Object> = None;
-		let mut error_objects: Vec<Option<Object>> = Vec::new();
-		let mut log_object: Option<Option<Object>> = None;
-		let mut output_objects: Vec<Option<Object>> = Vec::new();
+		let mut command_object: Option<crate::object::Object> = None;
+		let mut error_objects: Vec<Option<crate::object::Object>> = Vec::new();
+		let mut log_object: Option<Option<crate::object::Object>> = None;
+		let mut output_objects: Vec<Option<crate::object::Object>> = Vec::new();
 		for (object_id, kind) in &objects {
 			let object = Self::try_get_object_with_transaction(txn, subspace, object_id).await?;
 			match kind {
-				ProcessObjectKind::Command => {
+				crate::process::object::Kind::Command => {
 					command_object = object;
 				},
-				ProcessObjectKind::Error => {
+				crate::process::object::Kind::Error => {
 					error_objects.push(object);
 				},
-				ProcessObjectKind::Log => {
+				crate::process::object::Kind::Log => {
 					log_object = Some(object);
 				},
-				ProcessObjectKind::Output => {
+				crate::process::object::Kind::Output => {
 					output_objects.push(object);
 				},
 			}
@@ -1091,7 +1141,10 @@ impl Index {
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
 	) {
-		let key = Self::pack(subspace, &Key::Update { id: id.clone() });
+		let key = Self::pack(
+			subspace,
+			&crate::fdb::Key::Update(crate::fdb::update::Key::Update { id: id.clone() }),
+		);
 		let value = [Update::Propagate.to_u8().unwrap()];
 		txn.atomic_op(&key, &value, fdb::options::MutationType::Min);
 
@@ -1103,7 +1156,7 @@ impl Index {
 		let key = Self::pack(
 			subspace,
 			&(
-				KeyKind::UpdateVersion.to_i32().unwrap(),
+				Kind::UpdateVersion.to_i32().unwrap(),
 				partition,
 				version.clone(),
 				id_bytes.as_ref(),

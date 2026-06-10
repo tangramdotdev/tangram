@@ -247,7 +247,7 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let command = (
 			data.command.clone().into(),
-			tangram_index::ProcessObjectKind::Command,
+			tangram_index::process::object::Kind::Command,
 		);
 		let errors = data
 			.error
@@ -260,20 +260,20 @@ impl Server {
 					children
 						.into_iter()
 						.map(|object| {
-							let kind = tangram_index::ProcessObjectKind::Error;
+							let kind = tangram_index::process::object::Kind::Error;
 							(object, kind)
 						})
 						.collect::<Vec<_>>()
 				},
 				tg::Either::Right(id) => {
 					let id = id.clone().into();
-					let kind = tangram_index::ProcessObjectKind::Error;
+					let kind = tangram_index::process::object::Kind::Error;
 					vec![(id, kind)]
 				},
 			});
 		let log = data.log.as_ref().map(|id| {
 			let id = id.clone().into();
-			let kind = tangram_index::ProcessObjectKind::Log;
+			let kind = tangram_index::process::object::Kind::Log;
 			(id, kind)
 		});
 		let mut outputs = BTreeSet::new();
@@ -281,7 +281,7 @@ impl Server {
 			output.children(&mut outputs);
 		}
 		let outputs = outputs.into_iter().map(|object| {
-			let kind = tangram_index::ProcessObjectKind::Output;
+			let kind = tangram_index::process::object::Kind::Output;
 			(object, kind)
 		});
 		let objects = std::iter::once(command)
@@ -296,9 +296,9 @@ impl Server {
 			.iter()
 			.map(|child| child.process.clone())
 			.collect();
-		let put_process_arg = tangram_index::PutProcessArg {
+		let put_process_arg = tangram_index::process::put::Arg {
 			children,
-			stored: tangram_index::ProcessStored::default(),
+			stored: tangram_index::process::Stored::default(),
 			id: id.clone(),
 			metadata: tg::process::Metadata::default(),
 			objects,
@@ -310,8 +310,8 @@ impl Server {
 				async move {
 					if let Err(error) = server
 						.index
-						.put(tangram_index::PutArg {
-							processes: vec![put_process_arg],
+						.batch(tangram_index::batch::Arg {
+							put_processes: vec![put_process_arg],
 							..Default::default()
 						})
 						.await

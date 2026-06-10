@@ -1,18 +1,31 @@
 use {
-	crate::{CleanOutput, Object, Process, ProcessObjectKind, PutArg, PutTagArg},
+	self::{
+		clean::ItemKind,
+		request::{Clean, Request, TouchCacheEntries, TouchObjects, TouchProcesses, Update},
+		response::Response,
+	},
 	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
-	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	std::path::PathBuf,
 	tangram_client::prelude::*,
 };
 
+mod batch;
+mod cache;
 mod clean;
-mod get;
-mod put;
+mod grant;
+mod group;
+mod key;
+mod object;
+mod organization;
+mod process;
+mod request;
+mod response;
 mod tag;
 mod task;
-mod touch;
 mod update;
+mod user;
+
+pub(super) use key::{Key, Kind};
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -35,150 +48,6 @@ type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
 type RequestSender = crossbeam::Sender<(Request, ResponseSender)>;
 type RequestReceiver = crossbeam::Receiver<(Request, ResponseSender)>;
 type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
-
-#[derive(Clone)]
-enum Request {
-	Clean {
-		batch_size: usize,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-	},
-	DeleteTags(Vec<tg::Specifier>),
-	Put(PutArg),
-	PutTags(Vec<PutTagArg>),
-	TouchCacheEntries {
-		ids: Vec<tg::artifact::Id>,
-		time_to_touch: std::time::Duration,
-		touched_at: i64,
-	},
-	TouchObjects {
-		ids: Vec<tg::object::Id>,
-		time_to_touch: std::time::Duration,
-		touched_at: i64,
-	},
-	TouchProcesses {
-		ids: Vec<tg::process::Id>,
-		time_to_touch: std::time::Duration,
-		touched_at: i64,
-	},
-	Update {
-		batch_size: usize,
-	},
-}
-
-#[derive(Clone)]
-enum Response {
-	Unit,
-	CacheEntries(Vec<Option<crate::CacheEntry>>),
-	Objects(Vec<Option<Object>>),
-	Processes(Vec<Option<Process>>),
-	CleanOutput(CleanOutput),
-	UpdateCount(usize),
-}
-
-#[derive(Debug)]
-enum Key {
-	CacheEntry(tg::artifact::Id),
-	Object(tg::object::Id),
-	Process(tg::process::Id),
-	Tag(tg::Specifier),
-	CacheEntryDependency {
-		cache_entry: tg::artifact::Id,
-		dependency: tg::artifact::Id,
-	},
-	DependencyCacheEntry {
-		dependency: tg::artifact::Id,
-		cache_entry: tg::artifact::Id,
-	},
-	ObjectChild {
-		object: tg::object::Id,
-		child: tg::object::Id,
-	},
-	ChildObject {
-		child: tg::object::Id,
-		object: tg::object::Id,
-	},
-	ObjectCacheEntry {
-		object: tg::object::Id,
-		cache_entry: tg::artifact::Id,
-	},
-	CacheEntryObject {
-		cache_entry: tg::artifact::Id,
-		object: tg::object::Id,
-	},
-	ProcessChild {
-		process: tg::process::Id,
-		child: tg::process::Id,
-	},
-	ChildProcess {
-		child: tg::process::Id,
-		parent: tg::process::Id,
-	},
-	ProcessObject {
-		process: tg::process::Id,
-		kind: ProcessObjectKind,
-		object: tg::object::Id,
-	},
-	ObjectProcess {
-		object: tg::object::Id,
-		kind: ProcessObjectKind,
-		process: tg::process::Id,
-	},
-	ItemTag {
-		item: Vec<u8>,
-		tag: tg::Specifier,
-	},
-	Clean {
-		touched_at: i64,
-		kind: ItemKind,
-		id: tg::Either<tg::object::Id, tg::process::Id>,
-	},
-	Update {
-		id: tg::Either<tg::object::Id, tg::process::Id>,
-	},
-	UpdateVersion {
-		version: u64,
-		id: tg::Either<tg::object::Id, tg::process::Id>,
-	},
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
-#[repr(u8)]
-enum KeyKind {
-	CacheEntry = 0,
-	Object = 1,
-	Process = 2,
-	Tag = 3,
-	CacheEntryDependency = 4,
-	DependencyCacheEntry = 5,
-	ObjectChild = 6,
-	ChildObject = 7,
-	ObjectCacheEntry = 8,
-	CacheEntryObject = 9,
-	ProcessChild = 10,
-	ChildProcess = 11,
-	ProcessObject = 12,
-	ObjectProcess = 13,
-	ItemTag = 14,
-	Clean = 15,
-	Update = 16,
-	UpdateVersion = 17,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
-#[repr(u8)]
-enum ItemKind {
-	CacheEntry = 0,
-	Object = 1,
-	Process = 2,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
-#[repr(u8)]
-enum Update {
-	Put = 0,
-	Propagate = 1,
-}
 
 impl Index {
 	pub fn new(config: &Config) -> tg::Result<Self> {
@@ -296,19 +165,15 @@ impl crate::Index for Index {
 		Ok(true)
 	}
 
+	async fn batch(&self, arg: crate::batch::Arg) -> tg::Result<()> {
+		self.batch(arg).await
+	}
+
 	async fn try_get_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],
-	) -> tg::Result<Vec<Option<crate::CacheEntry>>> {
+	) -> tg::Result<Vec<Option<crate::cache::Entry>>> {
 		self.try_get_cache_entries(ids).await
-	}
-
-	async fn try_get_objects(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Object>>> {
-		self.try_get_objects(ids).await
-	}
-
-	async fn try_get_processes(&self, ids: &[tg::process::Id]) -> tg::Result<Vec<Option<Process>>> {
-		self.try_get_processes(ids).await
 	}
 
 	async fn touch_cache_entries(
@@ -316,9 +181,16 @@ impl crate::Index for Index {
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<crate::CacheEntry>>> {
+	) -> tg::Result<Vec<Option<crate::cache::Entry>>> {
 		self.touch_cache_entries(ids, touched_at, time_to_touch)
 			.await
+	}
+
+	async fn try_get_objects(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<crate::object::Object>>> {
+		self.try_get_objects(ids).await
 	}
 
 	async fn touch_objects(
@@ -326,8 +198,15 @@ impl crate::Index for Index {
 		ids: &[tg::object::Id],
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<Object>>> {
+	) -> tg::Result<Vec<Option<crate::object::Object>>> {
 		self.touch_objects(ids, touched_at, time_to_touch).await
+	}
+
+	async fn try_get_processes(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.try_get_processes(ids).await
 	}
 
 	async fn touch_processes(
@@ -335,20 +214,73 @@ impl crate::Index for Index {
 		ids: &[tg::process::Id],
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<Process>>> {
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		self.touch_processes(ids, touched_at, time_to_touch).await
 	}
 
-	async fn put(&self, arg: PutArg) -> tg::Result<()> {
-		self.put(arg).await
+	async fn put_grants(&self, args: &[crate::grant::put::Arg]) -> tg::Result<()> {
+		self.put_grants(args).await
 	}
 
-	async fn put_tags(&self, args: &[PutTagArg]) -> tg::Result<()> {
+	async fn delete_grants(&self, args: &[crate::grant::delete::Arg]) -> tg::Result<()> {
+		self.delete_grants(args).await
+	}
+
+	async fn put_groups(&self, args: &[crate::group::put::Arg]) -> tg::Result<()> {
+		self.put_groups(args).await
+	}
+
+	async fn delete_groups(&self, ids: &[tg::group::Id]) -> tg::Result<()> {
+		self.delete_groups(ids).await
+	}
+
+	async fn put_group_members(&self, args: &[crate::group::member::put::Arg]) -> tg::Result<()> {
+		self.put_group_members(args).await
+	}
+
+	async fn delete_group_members(
+		&self,
+		args: &[crate::group::member::delete::Arg],
+	) -> tg::Result<()> {
+		self.delete_group_members(args).await
+	}
+
+	async fn put_organizations(&self, args: &[crate::organization::put::Arg]) -> tg::Result<()> {
+		self.put_organizations(args).await
+	}
+
+	async fn delete_organizations(&self, ids: &[tg::organization::Id]) -> tg::Result<()> {
+		self.delete_organizations(ids).await
+	}
+
+	async fn put_organization_members(
+		&self,
+		args: &[crate::organization::member::put::Arg],
+	) -> tg::Result<()> {
+		self.put_organization_members(args).await
+	}
+
+	async fn delete_organization_members(
+		&self,
+		args: &[crate::organization::member::delete::Arg],
+	) -> tg::Result<()> {
+		self.delete_organization_members(args).await
+	}
+
+	async fn put_tags(&self, args: &[crate::tag::put::Arg]) -> tg::Result<()> {
 		self.put_tags(args).await
 	}
 
-	async fn delete_tags(&self, tags: &[tg::Specifier]) -> tg::Result<()> {
-		self.delete_tags(tags).await
+	async fn delete_tags(&self, ids: &[tg::tag::Id]) -> tg::Result<()> {
+		self.delete_tags(ids).await
+	}
+
+	async fn put_users(&self, args: &[crate::user::put::Arg]) -> tg::Result<()> {
+		self.put_users(args).await
+	}
+
+	async fn delete_users(&self, ids: &[tg::user::Id]) -> tg::Result<()> {
+		self.delete_users(ids).await
 	}
 
 	async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
@@ -364,10 +296,6 @@ impl crate::Index for Index {
 		Index::update_batch(self, batch_size, partition_start, partition_count).await
 	}
 
-	async fn get_transaction_id(&self) -> tg::Result<u64> {
-		self.get_transaction_id().await
-	}
-
 	async fn clean(
 		&self,
 		max_object_touched_at: i64,
@@ -375,7 +303,7 @@ impl crate::Index for Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,
-	) -> tg::Result<CleanOutput> {
+	) -> tg::Result<crate::clean::Output> {
 		Index::clean(
 			self,
 			max_object_touched_at,
@@ -387,436 +315,15 @@ impl crate::Index for Index {
 		.await
 	}
 
+	async fn get_transaction_id(&self) -> tg::Result<u64> {
+		self.get_transaction_id().await
+	}
+
 	async fn sync(&self) -> tg::Result<()> {
 		self.sync().await
 	}
 
 	fn partition_total(&self) -> u64 {
 		1
-	}
-}
-
-impl fdbt::TuplePack for Key {
-	fn pack<W: std::io::Write>(
-		&self,
-		w: &mut W,
-		tuple_depth: fdbt::TupleDepth,
-	) -> std::io::Result<fdbt::VersionstampOffset> {
-		match self {
-			Key::CacheEntry(id) => (
-				KeyKind::CacheEntry.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Object(id) => {
-				(KeyKind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
-			},
-
-			Key::Process(id) => {
-				(KeyKind::Process.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
-			},
-
-			Key::Tag(tag) => (KeyKind::Tag.to_i32().unwrap(), tag.to_string()).pack(w, tuple_depth),
-
-			Key::CacheEntryDependency {
-				cache_entry,
-				dependency,
-			} => (
-				KeyKind::CacheEntryDependency.to_i32().unwrap(),
-				cache_entry.to_bytes().as_ref(),
-				dependency.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::DependencyCacheEntry {
-				dependency,
-				cache_entry,
-			} => (
-				KeyKind::DependencyCacheEntry.to_i32().unwrap(),
-				dependency.to_bytes().as_ref(),
-				cache_entry.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::ObjectChild { object, child } => (
-				KeyKind::ObjectChild.to_i32().unwrap(),
-				object.to_bytes().as_ref(),
-				child.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::ChildObject { child, object } => (
-				KeyKind::ChildObject.to_i32().unwrap(),
-				child.to_bytes().as_ref(),
-				object.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::ObjectCacheEntry {
-				object,
-				cache_entry,
-			} => (
-				KeyKind::ObjectCacheEntry.to_i32().unwrap(),
-				object.to_bytes().as_ref(),
-				cache_entry.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::CacheEntryObject {
-				cache_entry,
-				object,
-			} => (
-				KeyKind::CacheEntryObject.to_i32().unwrap(),
-				cache_entry.to_bytes().as_ref(),
-				object.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::ProcessChild { process, child } => (
-				KeyKind::ProcessChild.to_i32().unwrap(),
-				process.to_bytes().as_ref(),
-				child.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::ChildProcess { child, parent } => (
-				KeyKind::ChildProcess.to_i32().unwrap(),
-				child.to_bytes().as_ref(),
-				parent.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::ProcessObject {
-				process,
-				kind,
-				object,
-			} => (
-				KeyKind::ProcessObject.to_i32().unwrap(),
-				process.to_bytes().as_ref(),
-				kind.to_i32().unwrap(),
-				object.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::ObjectProcess {
-				object,
-				kind,
-				process,
-			} => (
-				KeyKind::ObjectProcess.to_i32().unwrap(),
-				object.to_bytes().as_ref(),
-				kind.to_i32().unwrap(),
-				process.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::ItemTag { item, tag } => (
-				KeyKind::ItemTag.to_i32().unwrap(),
-				item.as_slice(),
-				tag.to_string(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Clean {
-				touched_at,
-				kind,
-				id,
-			} => {
-				KeyKind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
-				touched_at.pack(w, tuple_depth)?;
-				kind.to_i32().unwrap().pack(w, tuple_depth)?;
-				let id = match &id {
-					tg::Either::Left(id) => id.to_bytes(),
-					tg::Either::Right(id) => id.to_bytes(),
-				};
-				id.as_ref().pack(w, tuple_depth)
-			},
-
-			Key::Update { id } => {
-				KeyKind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
-				let id = match &id {
-					tg::Either::Left(id) => id.to_bytes(),
-					tg::Either::Right(id) => id.to_bytes(),
-				};
-				id.as_ref().pack(w, tuple_depth)
-			},
-
-			Key::UpdateVersion { version, id } => {
-				KeyKind::UpdateVersion
-					.to_i32()
-					.unwrap()
-					.pack(w, tuple_depth)?;
-				version.pack(w, tuple_depth)?;
-				let id = match &id {
-					tg::Either::Left(id) => id.to_bytes(),
-					tg::Either::Right(id) => id.to_bytes(),
-				};
-				id.as_ref().pack(w, tuple_depth)
-			},
-		}
-	}
-}
-
-impl fdbt::TupleUnpack<'_> for Key {
-	fn unpack(input: &[u8], tuple_depth: fdbt::TupleDepth) -> fdbt::PackResult<(&[u8], Self)> {
-		let (input, kind_value) = i32::unpack(input, tuple_depth)?;
-		let kind =
-			KeyKind::from_i32(kind_value).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
-
-		match kind {
-			KeyKind::CacheEntry => {
-				let (input, id_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::artifact::Id::from_slice(&id_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				Ok((input, Key::CacheEntry(id)))
-			},
-
-			KeyKind::Object => {
-				let (input, id_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::object::Id::from_slice(&id_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				Ok((input, Key::Object(id)))
-			},
-
-			KeyKind::Process => {
-				let (input, id_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::process::Id::from_slice(&id_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				Ok((input, Key::Process(id)))
-			},
-
-			KeyKind::Tag => {
-				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let tag = tag
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid tag".into()))?;
-				Ok((input, Key::Tag(tag)))
-			},
-
-			KeyKind::CacheEntryDependency => {
-				let (input, cache_entry_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, dependency_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let dependency = tg::artifact::Id::from_slice(&dependency_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let key = Key::CacheEntryDependency {
-					cache_entry,
-					dependency,
-				};
-				Ok((input, key))
-			},
-
-			KeyKind::DependencyCacheEntry => {
-				let (input, dependency_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, cache_entry_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let dependency = tg::artifact::Id::from_slice(&dependency_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let key = Key::DependencyCacheEntry {
-					dependency,
-					cache_entry,
-				};
-				Ok((input, key))
-			},
-
-			KeyKind::ObjectChild => {
-				let (input, object_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, child_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let object = tg::object::Id::from_slice(&object_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let child = tg::object::Id::from_slice(&child_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				Ok((input, Key::ObjectChild { object, child }))
-			},
-
-			KeyKind::ChildObject => {
-				let (input, child_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, object_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let child = tg::object::Id::from_slice(&child_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let object = tg::object::Id::from_slice(&object_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				Ok((input, Key::ChildObject { child, object }))
-			},
-
-			KeyKind::ObjectCacheEntry => {
-				let (input, object_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, cache_entry_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let object = tg::object::Id::from_slice(&object_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let key = Key::ObjectCacheEntry {
-					object,
-					cache_entry,
-				};
-				Ok((input, key))
-			},
-
-			KeyKind::CacheEntryObject => {
-				let (input, cache_entry_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, object_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let object = tg::object::Id::from_slice(&object_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let key = Key::CacheEntryObject {
-					cache_entry,
-					object,
-				};
-				Ok((input, key))
-			},
-
-			KeyKind::ProcessChild => {
-				let (input, process_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, child_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let process = tg::process::Id::from_slice(&process_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let child = tg::process::Id::from_slice(&child_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				Ok((input, Key::ProcessChild { process, child }))
-			},
-
-			KeyKind::ChildProcess => {
-				let (input, child_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, parent_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let child = tg::process::Id::from_slice(&child_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let parent = tg::process::Id::from_slice(&parent_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				Ok((input, Key::ChildProcess { child, parent }))
-			},
-
-			KeyKind::ProcessObject => {
-				let (input, process_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
-				let (input, object_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let process = tg::process::Id::from_slice(&process_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let kind = ProcessObjectKind::from_i32(kind_value).ok_or(
-					fdbt::PackError::Message("invalid process object kind".into()),
-				)?;
-				let object = tg::object::Id::from_slice(&object_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let key = Key::ProcessObject {
-					process,
-					kind,
-					object,
-				};
-				Ok((input, key))
-			},
-
-			KeyKind::ObjectProcess => {
-				let (input, object_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
-				let (input, process_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let object = tg::object::Id::from_slice(&object_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let kind = ProcessObjectKind::from_i32(kind_value).ok_or(
-					fdbt::PackError::Message("invalid process object kind".into()),
-				)?;
-				let process = tg::process::Id::from_slice(&process_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let key = Key::ObjectProcess {
-					object,
-					kind,
-					process,
-				};
-				Ok((input, key))
-			},
-
-			KeyKind::ItemTag => {
-				let (input, item): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let tag = tag
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid tag".into()))?;
-				Ok((input, Key::ItemTag { item, tag }))
-			},
-
-			KeyKind::Clean => {
-				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, kind_value): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let kind = ItemKind::from_i32(kind_value)
-					.ok_or(fdbt::PackError::Message("invalid item kind".into()))?;
-				let (input, id_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::Id::from_slice(&id_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let id = match kind {
-					ItemKind::CacheEntry | ItemKind::Object => {
-						let id = tg::object::Id::try_from(id)
-							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-						tg::Either::Left(id)
-					},
-					ItemKind::Process => {
-						let id = tg::process::Id::try_from(id)
-							.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-						tg::Either::Right(id)
-					},
-				};
-				let key = Key::Clean {
-					touched_at,
-					kind,
-					id,
-				};
-				Ok((input, key))
-			},
-
-			KeyKind::Update => {
-				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::Id::from_slice(&id)
-					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
-					tg::Either::Right(id)
-				} else if let Ok(id) = tg::object::Id::try_from(id) {
-					tg::Either::Left(id)
-				} else {
-					return Err(fdbt::PackError::Message("invalid id".into()));
-				};
-				Ok((input, Key::Update { id }))
-			},
-
-			KeyKind::UpdateVersion => {
-				let (input, version): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::Id::from_slice(&id)
-					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
-					tg::Either::Right(id)
-				} else if let Ok(id) = tg::object::Id::try_from(id) {
-					tg::Either::Left(id)
-				} else {
-					return Err(fdbt::PackError::Message("invalid id".into()));
-				};
-				Ok((input, Key::UpdateVersion { version, id }))
-			},
-		}
 	}
 }

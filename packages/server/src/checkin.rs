@@ -50,9 +50,10 @@ pub struct TaskOutput {
 	pub path: PathBuf,
 }
 
-type IndexObjectArgs = IndexMap<tg::object::Id, tangram_index::PutObjectArg, tg::id::BuildHasher>;
+type IndexObjectArgs =
+	IndexMap<tg::object::Id, tangram_index::object::put::Arg, tg::id::BuildHasher>;
 
-type IndexCacheEntryArgs = Vec<tangram_index::PutCacheEntryArg>;
+type IndexCacheEntryArgs = Vec<tangram_index::cache::put::Arg>;
 
 type StoreArgs = IndexMap<tg::object::Id, crate::object::store::PutArg, tg::id::BuildHasher>;
 

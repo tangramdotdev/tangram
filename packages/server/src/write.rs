@@ -506,9 +506,9 @@ impl Session {
 					if let Err(error) = session
 						.server
 						.index
-						.put(tangram_index::PutArg {
-							cache_entries: put_cache_entry_args,
-							objects: put_object_args,
+						.batch(tangram_index::batch::Arg {
+							put_cache_entries: put_cache_entry_args,
+							put_objects: put_object_args,
 							..Default::default()
 						})
 						.await
@@ -526,8 +526,8 @@ impl Session {
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> (
-		Vec<tangram_index::PutCacheEntryArg>,
-		Vec<tangram_index::PutObjectArg>,
+		Vec<tangram_index::cache::put::Arg>,
+		Vec<tangram_index::object::put::Arg>,
 	) {
 		// Collect the blobs in topological order.
 		let mut blobs = Vec::new();
@@ -546,12 +546,12 @@ impl Session {
 				data.children(&mut children);
 			}
 			let id = blob.id.clone().into();
-			let arg = tangram_index::PutObjectArg {
+			let arg = tangram_index::object::put::Arg {
 				cache_entry,
 				children,
 				id,
 				metadata: blob.metadata.clone(),
-				stored: tangram_index::ObjectStored { subtree: true },
+				stored: tangram_index::object::Stored { subtree: true },
 				touched_at,
 			};
 			put_object_args.push(arg);
@@ -559,7 +559,7 @@ impl Session {
 
 		// Create a cache entry arg if necessary.
 		let put_cache_entry_args = if let Some((artifact, _)) = cache_pointer {
-			vec![tangram_index::PutCacheEntryArg {
+			vec![tangram_index::cache::put::Arg {
 				id: artifact,
 				touched_at,
 				dependencies: Vec::new(),

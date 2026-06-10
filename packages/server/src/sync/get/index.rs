@@ -263,9 +263,9 @@ impl Session {
 		// Index the objects and processes.
 		self.server
 			.index
-			.put(tangram_index::PutArg {
-				objects: put_object_args,
-				processes: put_process_args,
+			.batch(tangram_index::batch::Arg {
+				put_objects: put_object_args,
+				put_processes: put_process_args,
 				..Default::default()
 			})
 			.await
@@ -277,8 +277,8 @@ impl Session {
 	fn sync_get_index_create_args(
 		graph: &mut Graph,
 	) -> tg::Result<(
-		Vec<tangram_index::PutObjectArg>,
-		Vec<tangram_index::PutProcessArg>,
+		Vec<tangram_index::object::put::Arg>,
+		Vec<tangram_index::process::put::Arg>,
 	)> {
 		// Get a reverse topological ordering using Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&*graph);
@@ -617,7 +617,7 @@ impl Session {
 							.ok()
 							.ok_or_else(|| tg::error!("expected an object"))?;
 						match object_kind {
-							tangram_index::ProcessObjectKind::Command => {
+							tangram_index::process::object::Kind::Command => {
 								metadata.node.command.count = object_node
 									.metadata
 									.as_ref()
@@ -666,7 +666,7 @@ impl Session {
 									.map(|(a, b)| a + b);
 							},
 
-							tangram_index::ProcessObjectKind::Error => {
+							tangram_index::process::object::Kind::Error => {
 								metadata.node.error.count = metadata
 									.node
 									.error
@@ -736,7 +736,7 @@ impl Session {
 									.map(|(a, b)| a + b);
 							},
 
-							tangram_index::ProcessObjectKind::Log => {
+							tangram_index::process::object::Kind::Log => {
 								metadata.node.log.count = object_node
 									.metadata
 									.as_ref()
@@ -785,7 +785,7 @@ impl Session {
 									.map(|(a, b)| a + b);
 							},
 
-							tangram_index::ProcessObjectKind::Output => {
+							tangram_index::process::object::Kind::Output => {
 								metadata.node.output.count = metadata
 									.node
 									.output
@@ -908,7 +908,7 @@ impl Session {
 							.collect();
 						let metadata = node.metadata.clone().unwrap();
 						let stored = node.local_stored.clone().unwrap();
-						let arg = tangram_index::PutObjectArg {
+						let arg = tangram_index::object::put::Arg {
 							cache_entry: None,
 							children,
 							id,
@@ -959,7 +959,7 @@ impl Session {
 								(id, kind)
 							})
 							.collect();
-						let arg = tangram_index::PutProcessArg {
+						let arg = tangram_index::process::put::Arg {
 							children,
 							id,
 							metadata,

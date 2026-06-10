@@ -912,7 +912,7 @@ impl Session {
 
 		// Index the cache entry.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let put_cache_entry_arg = tangram_index::PutCacheEntryArg {
+		let put_cache_entry_arg = tangram_index::cache::put::Arg {
 			id: item.id,
 			touched_at,
 			dependencies: dependencies.to_vec(),
@@ -925,8 +925,8 @@ impl Session {
 					if let Err(error) = session
 						.server
 						.index
-						.put(tangram_index::PutArg {
-							cache_entries: vec![put_cache_entry_arg],
+						.batch(tangram_index::batch::Arg {
+							put_cache_entries: vec![put_cache_entry_arg],
 							..Default::default()
 						})
 						.await

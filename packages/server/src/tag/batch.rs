@@ -53,12 +53,14 @@ impl Session {
 			.await?;
 		let args = data
 			.into_iter()
-			.map(|data| tangram_index::PutTagArg {
-				tag: data.specifier,
+			.map(|data| tangram_index::tag::put::Arg {
+				id: data.id,
 				item: match data.item {
 					tg::tag::data::Item::Object(id) => tg::Either::Left(id),
 					tg::tag::data::Item::Process(id) => tg::Either::Right(id),
 				},
+				name: data.name,
+				parent: data.parent,
 			})
 			.collect::<Vec<_>>();
 		if !args.is_empty() {

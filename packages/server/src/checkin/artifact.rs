@@ -328,7 +328,7 @@ impl Session {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&index).unwrap();
-		node.stored = tangram_index::ObjectStored { subtree: stored };
+		node.stored = tangram_index::object::Stored { subtree: stored };
 		node.metadata = Some(metadata);
 		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
 		node.id.replace(id.clone());
@@ -658,7 +658,7 @@ impl Session {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&global).unwrap();
-		node.stored = tangram_index::ObjectStored { subtree: stored };
+		node.stored = tangram_index::object::Stored { subtree: stored };
 		node.metadata = Some(metadata);
 
 		Ok(())
@@ -789,12 +789,12 @@ impl Session {
 		};
 
 		// Create the index message.
-		let index_message = tangram_index::PutObjectArg {
+		let index_message = tangram_index::object::put::Arg {
 			cache_entry: None,
 			children: children_ids,
 			id: id.clone(),
 			metadata: metadata.clone(),
-			stored: tangram_index::ObjectStored { subtree: stored },
+			stored: tangram_index::object::Stored { subtree: stored },
 			touched_at,
 		};
 
@@ -863,7 +863,7 @@ impl Session {
 				// Create a cache entry message for this artifact.
 				if !arg.options.destructive {
 					let dependencies = Self::checkin_get_cache_entry_dependencies(graph, *index);
-					index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
+					index_cache_entry_args.push(tangram_index::cache::put::Arg {
 						id: artifact.clone(),
 						touched_at,
 						dependencies,
@@ -928,7 +928,7 @@ impl Session {
 		// Index the object.
 		let mut children = std::collections::BTreeSet::new();
 		data.children(&mut children);
-		let put_object_arg = tangram_index::PutObjectArg {
+		let put_object_arg = tangram_index::object::put::Arg {
 			cache_entry: None,
 			children,
 			id: id.clone(),
@@ -938,8 +938,8 @@ impl Session {
 		};
 		self.server
 			.index
-			.put(tangram_index::PutArg {
-				objects: vec![put_object_arg],
+			.batch(tangram_index::batch::Arg {
+				put_objects: vec![put_object_arg],
 				..Default::default()
 			})
 			.await
@@ -1351,12 +1351,12 @@ impl Session {
 		};
 
 		// Create the index message.
-		let index_message = tangram_index::PutObjectArg {
+		let index_message = tangram_index::object::put::Arg {
 			cache_entry: None,
 			children: children_ids,
 			id: id.clone(),
 			metadata,
-			stored: tangram_index::ObjectStored { subtree: true },
+			stored: tangram_index::object::Stored { subtree: true },
 			touched_at,
 		};
 

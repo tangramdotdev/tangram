@@ -110,7 +110,7 @@ impl Session {
 			.collect();
 		let command = std::iter::once((
 			arg.data.command.clone().into(),
-			tangram_index::ProcessObjectKind::Command,
+			tangram_index::process::object::Kind::Command,
 		));
 		let error = arg
 			.data
@@ -124,20 +124,20 @@ impl Session {
 					children
 						.into_iter()
 						.map(|object| {
-							let kind = tangram_index::ProcessObjectKind::Error;
+							let kind = tangram_index::process::object::Kind::Error;
 							(object, kind)
 						})
 						.collect::<Vec<_>>()
 				},
 				tg::Either::Right(id) => {
 					let id = id.clone().into();
-					let kind = tangram_index::ProcessObjectKind::Error;
+					let kind = tangram_index::process::object::Kind::Error;
 					vec![(id, kind)]
 				},
 			});
 		let log = arg.data.log.as_ref().map(|id| {
 			let id = id.clone().into();
-			let kind = tangram_index::ProcessObjectKind::Log;
+			let kind = tangram_index::process::object::Kind::Log;
 			(id, kind)
 		});
 		let mut output = BTreeSet::new();
@@ -146,16 +146,16 @@ impl Session {
 		}
 		let output = output
 			.into_iter()
-			.map(|output| (output, tangram_index::ProcessObjectKind::Output));
+			.map(|output| (output, tangram_index::process::object::Kind::Output));
 		let objects = std::iter::empty()
 			.chain(command)
 			.chain(error)
 			.chain(log)
 			.chain(output)
 			.collect();
-		let put_process_arg = tangram_index::PutProcessArg {
+		let put_process_arg = tangram_index::process::put::Arg {
 			children,
-			stored: tangram_index::ProcessStored::default(),
+			stored: tangram_index::process::Stored::default(),
 			id: id.clone(),
 			metadata: tg::process::Metadata::default(),
 			objects,
@@ -169,8 +169,8 @@ impl Session {
 					if let Err(error) = session
 						.server
 						.index
-						.put(tangram_index::PutArg {
-							processes: vec![put_process_arg],
+						.batch(tangram_index::batch::Arg {
+							put_processes: vec![put_process_arg],
 							..Default::default()
 						})
 						.await

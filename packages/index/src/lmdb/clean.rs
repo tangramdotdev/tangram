@@ -1,6 +1,9 @@
+mod key;
+
+pub(super) use key::{ItemKind, Key};
+
 use {
-	super::{Db, Index, ItemKind, Key, KeyKind, Request, Response},
-	crate::{CacheEntry, CleanOutput, Object, Process, ProcessObjectKind},
+	super::{Db, Index, Kind, Request, Response},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
@@ -26,13 +29,13 @@ impl Index {
 		batch_size: usize,
 		_partition_start: u64,
 		_partition_count: u64,
-	) -> tg::Result<CleanOutput> {
+	) -> tg::Result<crate::clean::Output> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Clean {
+		let request = Request::Clean(crate::lmdb::Clean {
 			batch_size,
 			max_object_touched_at,
 			max_process_touched_at,
-		};
+		});
 		self.sender_low
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
@@ -52,10 +55,10 @@ impl Index {
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
 		batch_size: usize,
-	) -> tg::Result<CleanOutput> {
-		let mut output = CleanOutput::default();
+	) -> tg::Result<crate::clean::Output> {
+		let mut output = crate::clean::Output::default();
 
-		let prefix = &(KeyKind::Clean.to_i32().unwrap(),);
+		let prefix = &(Kind::Clean.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
 		let mut candidates: Vec<Candidate> = Vec::new();
 		let iter = db
@@ -68,11 +71,11 @@ impl Index {
 			let (key, _) =
 				result.map_err(|error| tg::error!(!error, "failed to read clean key"))?;
 			let key = Self::unpack(subspace, key)?;
-			let Key::Clean {
+			let crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 				touched_at,
 				kind,
 				id,
-			} = key
+			}) = key
 			else {
 				return Err(tg::error!("expected clean key"));
 			};
@@ -195,21 +198,21 @@ impl Index {
 		candidate: &Candidate,
 	) -> tg::Result<()> {
 		let key = match &candidate.item {
-			Item::CacheEntry(id) => Key::Clean {
+			Item::CacheEntry(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 				touched_at: candidate.touched_at,
 				kind: ItemKind::CacheEntry,
 				id: tg::Either::Left(id.clone().into()),
-			},
-			Item::Object(id) => Key::Clean {
+			}),
+			Item::Object(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 				touched_at: candidate.touched_at,
 				kind: ItemKind::Object,
 				id: tg::Either::Left(id.clone()),
-			},
-			Item::Process(id) => Key::Clean {
+			}),
+			Item::Process(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 				touched_at: candidate.touched_at,
 				kind: ItemKind::Process,
 				id: tg::Either::Right(id.clone()),
-			},
+			}),
 		};
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
@@ -226,7 +229,7 @@ impl Index {
 		let cache_entry_object_prefix = Self::pack(
 			subspace,
 			&(
-				KeyKind::CacheEntryObject.to_i32().unwrap(),
+				Kind::CacheEntryObject.to_i32().unwrap(),
 				id.to_bytes().as_ref(),
 			),
 		);
@@ -236,7 +239,7 @@ impl Index {
 		let dependency_cache_entry_prefix = Self::pack(
 			subspace,
 			&(
-				KeyKind::DependencyCacheEntry.to_i32().unwrap(),
+				Kind::DependencyCacheEntry.to_i32().unwrap(),
 				id.to_bytes().as_ref(),
 			),
 		);
@@ -254,10 +257,7 @@ impl Index {
 	) -> tg::Result<u64> {
 		let child_object_prefix = Self::pack(
 			subspace,
-			&(
-				KeyKind::ChildObject.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
-			),
+			&(Kind::ChildObject.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
 		let child_object_count =
 			Self::count_keys_with_prefix(db, transaction, &child_object_prefix)?;
@@ -265,7 +265,7 @@ impl Index {
 		let object_process_prefix = Self::pack(
 			subspace,
 			&(
-				KeyKind::ObjectProcess.to_i32().unwrap(),
+				Kind::ObjectProcess.to_i32().unwrap(),
 				id.to_bytes().as_ref(),
 			),
 		);
@@ -275,7 +275,7 @@ impl Index {
 		// Count tags referencing this object.
 		let item_tag_prefix = Self::pack(
 			subspace,
-			&(KeyKind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()),
+			&(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
 		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
 
@@ -290,10 +290,7 @@ impl Index {
 	) -> tg::Result<u64> {
 		let child_process_prefix = Self::pack(
 			subspace,
-			&(
-				KeyKind::ChildProcess.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
-			),
+			&(Kind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
 		let child_process_count =
 			Self::count_keys_with_prefix(db, transaction, &child_process_prefix)?;
@@ -301,7 +298,7 @@ impl Index {
 		// Count tags referencing this process.
 		let item_tag_prefix = Self::pack(
 			subspace,
-			&(KeyKind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()),
+			&(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
 		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
 
@@ -333,13 +330,13 @@ impl Index {
 	) -> tg::Result<()> {
 		match item {
 			Item::CacheEntry(id) => {
-				let key = Key::CacheEntry(id.clone());
+				let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntry(id.clone()));
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = db
 					.get(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
 				{
-					let mut entry = CacheEntry::deserialize(bytes)?;
+					let mut entry = crate::cache::Entry::deserialize(bytes)?;
 					entry.reference_count = reference_count;
 					let bytes = entry.serialize()?;
 					db.put(transaction, &key, &bytes)
@@ -347,13 +344,13 @@ impl Index {
 				}
 			},
 			Item::Object(id) => {
-				let key = Key::Object(id.clone());
+				let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = db
 					.get(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to get object"))?
 				{
-					let mut object = Object::deserialize(bytes)?;
+					let mut object = crate::object::Object::deserialize(bytes)?;
 					object.reference_count = reference_count;
 					let bytes = object.serialize()?;
 					db.put(transaction, &key, &bytes)
@@ -361,13 +358,13 @@ impl Index {
 				}
 			},
 			Item::Process(id) => {
-				let key = Key::Process(id.clone());
+				let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = db
 					.get(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to get process"))?
 				{
-					let mut process = Process::deserialize(bytes)?;
+					let mut process = crate::process::Process::deserialize(bytes)?;
 					process.reference_count = reference_count;
 					let bytes = process.serialize()?;
 					db.put(transaction, &key, &bytes)
@@ -397,14 +394,14 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::artifact::Id,
 	) -> tg::Result<()> {
-		let key = Key::CacheEntry(id.clone());
+		let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete cache entry"))?;
 
 		let id_bytes = id.to_bytes();
 		let prefix = &(
-			KeyKind::CacheEntryDependency.to_i32().unwrap(),
+			Kind::CacheEntryDependency.to_i32().unwrap(),
 			id_bytes.as_ref(),
 		);
 		let prefix = Self::pack(subspace, prefix);
@@ -416,7 +413,11 @@ impl Index {
 			let (key, _) = result
 				.map_err(|error| tg::error!(!error, "failed to read cache entry dependency key"))?;
 			let key = Self::unpack(subspace, key)?;
-			let Key::CacheEntryDependency { dependency, .. } = &key else {
+			let crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntryDependency {
+				dependency,
+				..
+			}) = &key
+			else {
 				return Err(tg::error!("expected cache entry dependency key"));
 			};
 			let packed = Self::pack(subspace, &key);
@@ -430,10 +431,10 @@ impl Index {
 		}
 
 		for (_, dependency) in entries {
-			let key = Key::DependencyCacheEntry {
+			let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::DependencyCacheEntry {
 				dependency: dependency.clone(),
 				cache_entry: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key).map_err(|error| {
 				tg::error!(!error, "failed to delete dependency cache entry key")
@@ -451,19 +452,19 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<()> {
-		let key = Key::Object(id.clone());
+		let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let cache_entry = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get object"))?
-			.and_then(|bytes| Object::deserialize(bytes).ok())
+			.and_then(|bytes| crate::object::Object::deserialize(bytes).ok())
 			.and_then(|obj| obj.cache_entry);
 
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete object"))?;
 
 		let id_bytes = id.to_bytes();
-		let prefix = &(KeyKind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = &(Kind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -473,7 +474,9 @@ impl Index {
 			let (key, _) =
 				result.map_err(|error| tg::error!(!error, "failed to read object child key"))?;
 			let key = Self::unpack(subspace, key)?;
-			let Key::ObjectChild { child, .. } = &key else {
+			let crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectChild { child, .. }) =
+				&key
+			else {
 				return Err(tg::error!("expected object child key"));
 			};
 			let packed = Self::pack(subspace, &key);
@@ -485,10 +488,10 @@ impl Index {
 		}
 
 		for (_, child) in &entries {
-			let key = Key::ChildObject {
+			let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::ChildObject {
 				child: child.clone(),
 				object: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete child object key"))?;
@@ -498,18 +501,18 @@ impl Index {
 		}
 
 		if let Some(cache_entry) = &cache_entry {
-			let key = Key::ObjectCacheEntry {
+			let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectCacheEntry {
 				object: id.clone(),
 				cache_entry: cache_entry.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete object cache entry"))?;
 
-			let key = Key::CacheEntryObject {
+			let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::CacheEntryObject {
 				cache_entry: cache_entry.clone(),
 				object: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete cache entry object"))?;
@@ -526,13 +529,13 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
-		let key = Key::Process(id.clone());
+		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
 
 		let id_bytes = id.to_bytes();
-		let prefix = &(KeyKind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -542,7 +545,10 @@ impl Index {
 			let (key, _) =
 				result.map_err(|error| tg::error!(!error, "failed to read process child key"))?;
 			let key = Self::unpack(subspace, key)?;
-			let Key::ProcessChild { child, .. } = &key else {
+			let crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessChild {
+				child, ..
+			}) = &key
+			else {
 				return Err(tg::error!("expected process child key"));
 			};
 			let packed = Self::pack(subspace, &key);
@@ -554,10 +560,10 @@ impl Index {
 		}
 
 		for (_, child) in &entries {
-			let key = Key::ChildProcess {
+			let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::ChildProcess {
 				child: child.clone(),
 				parent: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete child process key"))?;
@@ -567,17 +573,23 @@ impl Index {
 		}
 
 		let id_bytes = id.to_bytes();
-		let prefix = &(KeyKind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = &(Kind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
 			.prefix_iter(transaction, &prefix)
 			.map_err(|error| tg::error!(!error, "failed to iterate process object keys"))?;
-		let mut object_entries: Vec<(Vec<u8>, tg::object::Id, ProcessObjectKind)> = Vec::new();
+		let mut object_entries: Vec<(Vec<u8>, tg::object::Id, crate::process::object::Kind)> =
+			Vec::new();
 		for result in iter {
 			let (key, _) =
 				result.map_err(|error| tg::error!(!error, "failed to read process object key"))?;
 			let key = Self::unpack(subspace, key)?;
-			let Key::ProcessObject { kind, object, .. } = &key else {
+			let crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessObject {
+				kind,
+				object,
+				..
+			}) = &key
+			else {
 				return Err(tg::error!("expected process object key"));
 			};
 			let packed = Self::pack(subspace, &key);
@@ -589,11 +601,11 @@ impl Index {
 		}
 
 		for (_, object, kind) in &object_entries {
-			let key = Key::ObjectProcess {
+			let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectProcess {
 				object: object.clone(),
 				kind: *kind,
 				process: id.clone(),
-			};
+			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete object process key"))?;
@@ -611,13 +623,13 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::artifact::Id,
 	) -> tg::Result<()> {
-		let key = Key::CacheEntry(id.clone());
+		let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
 		if let Some(bytes) = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
 		{
-			let mut entry = CacheEntry::deserialize(bytes)?;
+			let mut entry = crate::cache::Entry::deserialize(bytes)?;
 			let reference_count = entry.reference_count;
 			if reference_count > 1 {
 				entry.reference_count = reference_count - 1;
@@ -630,11 +642,11 @@ impl Index {
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put cache entry"))?;
 
-				let key = Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 					touched_at: entry.touched_at,
 					kind: ItemKind::CacheEntry,
 					id: tg::Either::Left(id.clone().into()),
-				};
+				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
 					.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
@@ -649,13 +661,13 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<()> {
-		let key = Key::Object(id.clone());
+		let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		if let Some(bytes) = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get object"))?
 		{
-			let mut object = Object::deserialize(bytes)?;
+			let mut object = crate::object::Object::deserialize(bytes)?;
 			let reference_count = object.reference_count;
 			if reference_count > 1 {
 				object.reference_count = reference_count - 1;
@@ -668,11 +680,11 @@ impl Index {
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put object"))?;
 
-				let key = Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 					touched_at: object.touched_at,
 					kind: ItemKind::Object,
 					id: tg::Either::Left(id.clone()),
-				};
+				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
 					.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
@@ -687,13 +699,13 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
-		let key = Key::Process(id.clone());
+		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		if let Some(bytes) = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get process"))?
 		{
-			let mut process = Process::deserialize(bytes)?;
+			let mut process = crate::process::Process::deserialize(bytes)?;
 			let reference_count = process.reference_count;
 			if reference_count > 1 {
 				process.reference_count = reference_count - 1;
@@ -706,11 +718,11 @@ impl Index {
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put process"))?;
 
-				let key = Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 					touched_at: process.touched_at,
 					kind: ItemKind::Process,
 					id: tg::Either::Right(id.clone()),
-				};
+				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
 					.map_err(|error| tg::error!(!error, "failed to put clean key"))?;

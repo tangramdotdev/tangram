@@ -43,12 +43,14 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		let arg = tangram_index::PutTagArg {
-			tag: data.specifier,
+		let arg = tangram_index::tag::put::Arg {
+			id: data.id,
 			item: match data.item {
 				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
 				tg::tag::data::Item::Process(id) => tg::Either::Right(id),
 			},
+			name: data.name,
+			parent: data.parent,
 		};
 		self.server
 			.index

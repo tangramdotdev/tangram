@@ -34,7 +34,7 @@ impl Session {
 					.clone()
 					.try_into()
 					.unwrap();
-				put_index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
+				put_index_cache_entry_args.push(tangram_index::cache::put::Arg {
 					id,
 					touched_at,
 					dependencies,
@@ -42,7 +42,7 @@ impl Session {
 			} else {
 				// Add cache entry args.
 				for arg in index_cache_entry_args {
-					put_index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
+					put_index_cache_entry_args.push(tangram_index::cache::put::Arg {
 						id: arg.id,
 						touched_at: arg.touched_at,
 						dependencies: arg.dependencies,
@@ -57,9 +57,9 @@ impl Session {
 		// Index.
 		self.server
 			.index
-			.put(tangram_index::PutArg {
-				cache_entries: put_index_cache_entry_args,
-				objects: put_index_object_args,
+			.batch(tangram_index::batch::Arg {
+				put_cache_entries: put_index_cache_entry_args,
+				put_objects: put_index_object_args,
 				..Default::default()
 			})
 			.await

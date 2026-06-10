@@ -127,12 +127,12 @@ impl Session {
 				};
 
 				// Create the index message.
-				let index_message = tangram_index::PutObjectArg {
+				let index_message = tangram_index::object::put::Arg {
 					cache_entry: None,
 					children,
 					id: id.clone(),
 					metadata,
-					stored: tangram_index::ObjectStored { subtree: true },
+					stored: tangram_index::object::Stored { subtree: true },
 					touched_at,
 				};
 
