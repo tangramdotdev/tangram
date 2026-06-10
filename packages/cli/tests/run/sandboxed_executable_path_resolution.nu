@@ -11,13 +11,11 @@ with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {
 	let sh_path = artifact {
 		tangram.ts: '
 			export default async () => {
-				const process = await tg.spawn({
-					args: ["-c", "echo hello"],
-					env: tg.Mutation.unset(),
-					executable: "sh",
-					stdout: "pipe",
-				}).sandbox();
-				const output = await process.stdout.text();
+				const process = await tg.spawn`echo hello`
+					.env(tg.Mutation.unset())
+					.stdout("pipe")
+					.sandbox();
+				const output = await process.stdout.readAllToString();
 				await process.wait();
 				return output;
 			};
