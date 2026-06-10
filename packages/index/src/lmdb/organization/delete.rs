@@ -1,7 +1,6 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use {
-	crate::lmdb::{Index, Request},
+	crate::lmdb::{Db, Index, Key, Request},
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -39,13 +38,44 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_delete_organizations(_ids: &[tg::organization::Id]) -> tg::Result<()> {
+	pub(crate) fn task_delete_organizations(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<()> {
+		for id in ids {
+			let key = Key::Organization(crate::lmdb::organization::Key::Organization(id.clone()));
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the organization"))?;
+		}
 		Ok(())
 	}
 
 	pub(crate) fn task_delete_organization_members(
-		_args: &[crate::organization::member::delete::Arg],
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[crate::organization::member::delete::Arg],
 	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Organization(crate::lmdb::organization::Key::OrganizationMember {
+				organization: arg.organization.clone(),
+				member: arg.member.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the organization member"))?;
+
+			let key = Key::Organization(crate::lmdb::organization::Key::MemberOrganization {
+				member: arg.member.clone(),
+				organization: arg.organization.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the member organization"))?;
+		}
 		Ok(())
 	}
 }

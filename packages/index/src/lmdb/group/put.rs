@@ -1,7 +1,6 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use {
-	crate::lmdb::{Index, Request},
+	crate::lmdb::{Db, Index, Key, Request},
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -39,13 +38,48 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_put_groups(_args: &[crate::group::put::Arg]) -> tg::Result<()> {
+	pub(crate) fn task_put_groups(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[crate::group::put::Arg],
+	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Group(crate::lmdb::group::Key::Group(arg.id.clone()));
+			let key = Self::pack(subspace, &key);
+			let value = crate::group::Group {
+				parent: arg.parent.clone(),
+			}
+			.serialize()?;
+			db.put(transaction, &key, &value)
+				.map_err(|error| tg::error!(!error, "failed to put the group"))?;
+		}
 		Ok(())
 	}
 
 	pub(crate) fn task_put_group_members(
-		_args: &[crate::group::member::put::Arg],
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[crate::group::member::put::Arg],
 	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Group(crate::lmdb::group::Key::GroupMember {
+				group: arg.group.clone(),
+				member: arg.member.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the group member"))?;
+
+			let key = Key::Group(crate::lmdb::group::Key::MemberGroup {
+				member: arg.member.clone(),
+				group: arg.group.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the member group"))?;
+		}
 		Ok(())
 	}
 }

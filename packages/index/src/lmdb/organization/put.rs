@@ -1,7 +1,6 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use {
-	crate::lmdb::{Index, Request},
+	crate::lmdb::{Db, Index, Key, Request},
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -43,14 +42,44 @@ impl Index {
 	}
 
 	pub(crate) fn task_put_organizations(
-		_args: &[crate::organization::put::Arg],
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[crate::organization::put::Arg],
 	) -> tg::Result<()> {
+		for arg in args {
+			let key =
+				Key::Organization(crate::lmdb::organization::Key::Organization(arg.id.clone()));
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the organization"))?;
+		}
 		Ok(())
 	}
 
 	pub(crate) fn task_put_organization_members(
-		_args: &[crate::organization::member::put::Arg],
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[crate::organization::member::put::Arg],
 	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Organization(crate::lmdb::organization::Key::OrganizationMember {
+				organization: arg.organization.clone(),
+				member: arg.member.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the organization member"))?;
+
+			let key = Key::Organization(crate::lmdb::organization::Key::MemberOrganization {
+				member: arg.member.clone(),
+				organization: arg.organization.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the member organization"))?;
+		}
 		Ok(())
 	}
 }

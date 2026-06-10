@@ -1,5 +1,8 @@
+#![allow(clippy::unnecessary_wraps)]
+
 use {
-	crate::fdb::{Index, Request, Response},
+	crate::fdb::{Index, Key, Request, Response},
+	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
 };
 
@@ -46,15 +49,40 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) async fn task_put_organizations(
-		_args: &[crate::organization::put::Arg],
+	pub(crate) fn task_put_organizations(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		args: &[crate::organization::put::Arg],
 	) -> tg::Result<()> {
+		for arg in args {
+			let key =
+				Key::Organization(crate::fdb::organization::Key::Organization(arg.id.clone()));
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+		}
 		Ok(())
 	}
 
-	pub(crate) async fn task_put_organization_members(
-		_args: &[crate::organization::member::put::Arg],
+	pub(crate) fn task_put_organization_members(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		args: &[crate::organization::member::put::Arg],
 	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Organization(crate::fdb::organization::Key::OrganizationMember {
+				organization: arg.organization.clone(),
+				member: arg.member.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+
+			let key = Key::Organization(crate::fdb::organization::Key::MemberOrganization {
+				member: arg.member.clone(),
+				organization: arg.organization.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+		}
 		Ok(())
 	}
 }

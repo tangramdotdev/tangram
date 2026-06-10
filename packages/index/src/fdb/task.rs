@@ -787,25 +787,29 @@ impl Index {
 				};
 				Self::task_clean(arg).await.map(Response::CleanOutput)
 			},
-			Request::DeleteGrants(args) => Self::task_delete_grants(args)
-				.await
-				.map(|()| Response::Unit),
-			Request::DeleteGroupMembers(args) => Self::task_delete_group_members(args)
-				.await
-				.map(|()| Response::Unit),
+			Request::DeleteGrants(args) => {
+				Self::task_delete_grants(txn, subspace, args)?;
+				Ok(Response::Unit)
+			},
+			Request::DeleteGroupMembers(args) => {
+				Self::task_delete_group_members(txn, subspace, args)?;
+				Ok(Response::Unit)
+			},
 			Request::DeleteGroups(ids) => {
-				Self::task_delete_groups(ids).await.map(|()| Response::Unit)
+				Self::task_delete_groups(txn, subspace, ids)?;
+				Ok(Response::Unit)
 			},
 			Request::DeleteOrganizationMembers(args) => {
-				Self::task_delete_organization_members(args)
-					.await
-					.map(|()| Response::Unit)
+				Self::task_delete_organization_members(txn, subspace, args)?;
+				Ok(Response::Unit)
 			},
-			Request::DeleteOrganizations(ids) => Self::task_delete_organizations(ids)
-				.await
-				.map(|()| Response::Unit),
+			Request::DeleteOrganizations(ids) => {
+				Self::task_delete_organizations(txn, subspace, ids)?;
+				Ok(Response::Unit)
+			},
 			Request::DeleteUsers(ids) => {
-				Self::task_delete_users(ids).await.map(|()| Response::Unit)
+				Self::task_delete_users(txn, subspace, ids)?;
+				Ok(Response::Unit)
 			},
 			Request::DeleteTags(tags) => {
 				Self::task_delete_tags(txn, subspace, tags, partition_total)
@@ -816,21 +820,30 @@ impl Index {
 				Self::task_put_cache_entries(txn, subspace, args, partition_total)?;
 				Ok(Response::Unit)
 			},
-			Request::PutGrants(args) => Self::task_put_grants(args).await.map(|()| Response::Unit),
-			Request::PutGroupMembers(args) => Self::task_put_group_members(args)
-				.await
-				.map(|()| Response::Unit),
-			Request::PutGroups(args) => Self::task_put_groups(args).await.map(|()| Response::Unit),
+			Request::PutGrants(args) => {
+				Self::task_put_grants(txn, subspace, args)?;
+				Ok(Response::Unit)
+			},
+			Request::PutGroupMembers(args) => {
+				Self::task_put_group_members(txn, subspace, args)?;
+				Ok(Response::Unit)
+			},
+			Request::PutGroups(args) => {
+				Self::task_put_groups(txn, subspace, args)?;
+				Ok(Response::Unit)
+			},
 			Request::PutObjects(args) => {
 				Self::task_put_objects(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
-			Request::PutOrganizationMembers(args) => Self::task_put_organization_members(args)
-				.await
-				.map(|()| Response::Unit),
-			Request::PutOrganizations(args) => Self::task_put_organizations(args)
-				.await
-				.map(|()| Response::Unit),
+			Request::PutOrganizationMembers(args) => {
+				Self::task_put_organization_members(txn, subspace, args)?;
+				Ok(Response::Unit)
+			},
+			Request::PutOrganizations(args) => {
+				Self::task_put_organizations(txn, subspace, args)?;
+				Ok(Response::Unit)
+			},
 			Request::PutProcesses(args) => {
 				Self::task_put_processes(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
@@ -838,7 +851,10 @@ impl Index {
 			Request::PutTags(args) => Self::task_put_tags(txn, subspace, args, partition_total)
 				.await
 				.map(|()| Response::Unit),
-			Request::PutUsers(args) => Self::task_put_users(args).await.map(|()| Response::Unit),
+			Request::PutUsers(args) => {
+				Self::task_put_users(txn, subspace, args)?;
+				Ok(Response::Unit)
+			},
 			Request::TouchCacheEntries(crate::fdb::TouchCacheEntries {
 				ids,
 				time_to_touch,

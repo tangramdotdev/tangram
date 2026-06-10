@@ -1,5 +1,8 @@
+#![allow(clippy::unnecessary_wraps)]
+
 use {
-	crate::fdb::{Index, Request, Response},
+	crate::fdb::{Index, Key, Request, Response},
+	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
 };
 
@@ -43,13 +46,39 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) async fn task_delete_groups(_ids: &[tg::group::Id]) -> tg::Result<()> {
+	pub(crate) fn task_delete_groups(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		ids: &[tg::group::Id],
+	) -> tg::Result<()> {
+		for id in ids {
+			let key = Key::Group(crate::fdb::group::Key::Group(id.clone()));
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+		}
 		Ok(())
 	}
 
-	pub(crate) async fn task_delete_group_members(
-		_args: &[crate::group::member::delete::Arg],
+	pub(crate) fn task_delete_group_members(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		args: &[crate::group::member::delete::Arg],
 	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Group(crate::fdb::group::Key::GroupMember {
+				group: arg.group.clone(),
+				member: arg.member.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+
+			let key = Key::Group(crate::fdb::group::Key::MemberGroup {
+				member: arg.member.clone(),
+				group: arg.group.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+		}
 		Ok(())
 	}
 }

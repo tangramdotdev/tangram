@@ -1,7 +1,6 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use {
-	crate::lmdb::{Index, Request},
+	crate::lmdb::{Db, Index, Key, Request},
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -21,7 +20,18 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_put_users(_args: &[crate::user::put::Arg]) -> tg::Result<()> {
+	pub(crate) fn task_put_users(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[crate::user::put::Arg],
+	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::User(crate::lmdb::user::Key::User(arg.id.clone()));
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the user"))?;
+		}
 		Ok(())
 	}
 }

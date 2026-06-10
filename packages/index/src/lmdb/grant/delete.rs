@@ -1,7 +1,6 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use {
-	crate::lmdb::{Index, Request},
+	crate::lmdb::{Db, Index, Key, Request},
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -21,7 +20,31 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_delete_grants(_args: &[crate::grant::delete::Arg]) -> tg::Result<()> {
+	pub(crate) fn task_delete_grants(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[crate::grant::delete::Arg],
+	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+				resource: arg.resource.clone(),
+				principal: arg.principal.clone(),
+				permission: arg.permission,
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the resource grant"))?;
+
+			let key = Key::Grant(crate::lmdb::grant::Key::PrincipalGrant {
+				principal: arg.principal.clone(),
+				resource: arg.resource.clone(),
+				permission: arg.permission,
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the principal grant"))?;
+		}
 		Ok(())
 	}
 }

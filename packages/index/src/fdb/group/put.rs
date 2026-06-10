@@ -1,5 +1,8 @@
+#![allow(clippy::unnecessary_wraps)]
+
 use {
-	crate::fdb::{Index, Request, Response},
+	crate::fdb::{Index, Key, Request, Response},
+	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
 };
 
@@ -43,13 +46,43 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) async fn task_put_groups(_args: &[crate::group::put::Arg]) -> tg::Result<()> {
+	pub(crate) fn task_put_groups(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		args: &[crate::group::put::Arg],
+	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Group(crate::fdb::group::Key::Group(arg.id.clone()));
+			let key = Self::pack(subspace, &key);
+			let value = crate::group::Group {
+				parent: arg.parent.clone(),
+			}
+			.serialize()?;
+			txn.set(&key, &value);
+		}
 		Ok(())
 	}
 
-	pub(crate) async fn task_put_group_members(
-		_args: &[crate::group::member::put::Arg],
+	pub(crate) fn task_put_group_members(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		args: &[crate::group::member::put::Arg],
 	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Group(crate::fdb::group::Key::GroupMember {
+				group: arg.group.clone(),
+				member: arg.member.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+
+			let key = Key::Group(crate::fdb::group::Key::MemberGroup {
+				member: arg.member.clone(),
+				group: arg.group.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+		}
 		Ok(())
 	}
 }

@@ -1,7 +1,6 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use {
-	crate::lmdb::{Index, Request},
+	crate::lmdb::{Db, Index, Key, Request},
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -21,7 +20,18 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_delete_users(_ids: &[tg::user::Id]) -> tg::Result<()> {
+	pub(crate) fn task_delete_users(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		ids: &[tg::user::Id],
+	) -> tg::Result<()> {
+		for id in ids {
+			let key = Key::User(crate::lmdb::user::Key::User(id.clone()));
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the user"))?;
+		}
 		Ok(())
 	}
 }

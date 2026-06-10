@@ -8,10 +8,14 @@ use {
 pub enum Key {
 	Cache(crate::fdb::cache::Key),
 	Clean(crate::fdb::clean::Key),
+	Grant(crate::fdb::grant::Key),
+	Group(crate::fdb::group::Key),
 	Object(crate::fdb::object::Key),
+	Organization(crate::fdb::organization::Key),
 	Process(crate::fdb::process::Key),
 	Tag(crate::fdb::tag::Key),
 	Update(crate::fdb::update::Key),
+	User(crate::fdb::user::Key),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -37,6 +41,15 @@ pub enum Kind {
 	UpdateVersion = 17,
 	ParentTag = 18,
 	TagParent = 19,
+	User = 20,
+	Group = 21,
+	Organization = 22,
+	GroupMember = 23,
+	MemberGroup = 24,
+	OrganizationMember = 25,
+	MemberOrganization = 26,
+	ResourceGrant = 27,
+	PrincipalGrant = 28,
 }
 
 impl fdbt::TuplePack for Key {
@@ -177,6 +190,82 @@ impl fdbt::TuplePack for Key {
 				tag.to_string(),
 				parent.as_ref().map(ToString::to_string),
 				name,
+			)
+				.pack(w, tuple_depth),
+
+			Key::User(crate::fdb::user::Key::User(user)) => (
+				Kind::User.to_i32().unwrap(),
+				tg::Id::from(user.clone()).to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Group(crate::fdb::group::Key::Group(group)) => (
+				Kind::Group.to_i32().unwrap(),
+				tg::Id::from(group.clone()).to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Organization(crate::fdb::organization::Key::Organization(organization)) => (
+				Kind::Organization.to_i32().unwrap(),
+				tg::Id::from(organization.clone()).to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Group(crate::fdb::group::Key::GroupMember { group, member }) => (
+				Kind::GroupMember.to_i32().unwrap(),
+				tg::Id::from(group.clone()).to_bytes().as_ref(),
+				tg::Id::from(member.clone()).to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Group(crate::fdb::group::Key::MemberGroup { member, group }) => (
+				Kind::MemberGroup.to_i32().unwrap(),
+				tg::Id::from(member.clone()).to_bytes().as_ref(),
+				tg::Id::from(group.clone()).to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Organization(crate::fdb::organization::Key::OrganizationMember {
+				organization,
+				member,
+			}) => (
+				Kind::OrganizationMember.to_i32().unwrap(),
+				tg::Id::from(organization.clone()).to_bytes().as_ref(),
+				tg::Id::from(member.clone()).to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Organization(crate::fdb::organization::Key::MemberOrganization {
+				member,
+				organization,
+			}) => (
+				Kind::MemberOrganization.to_i32().unwrap(),
+				tg::Id::from(member.clone()).to_bytes().as_ref(),
+				tg::Id::from(organization.clone()).to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+				resource,
+				principal,
+				permission,
+			}) => (
+				Kind::ResourceGrant.to_i32().unwrap(),
+				resource.to_bytes().as_ref(),
+				principal.to_string(),
+				permission.to_string(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
+				principal,
+				resource,
+				permission,
+			}) => (
+				Kind::PrincipalGrant.to_i32().unwrap(),
+				principal.to_string(),
+				resource.to_bytes().as_ref(),
+				permission.to_string(),
 			)
 				.pack(w, tuple_depth),
 
@@ -472,6 +561,157 @@ impl fdbt::TupleUnpack<'_> for Key {
 					input,
 					Key::Tag(crate::fdb::tag::Key::TagParent { tag, parent, name }),
 				))
+			},
+
+			Kind::User => {
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid user id".into()))?;
+				let id = tg::user::Id::try_from(id)
+					.map_err(|_| fdbt::PackError::Message("invalid user id".into()))?;
+				Ok((input, Key::User(crate::fdb::user::Key::User(id))))
+			},
+
+			Kind::Group => {
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid group id".into()))?;
+				let id = tg::group::Id::try_from(id)
+					.map_err(|_| fdbt::PackError::Message("invalid group id".into()))?;
+				Ok((input, Key::Group(crate::fdb::group::Key::Group(id))))
+			},
+
+			Kind::Organization => {
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid organization id".into()))?;
+				let id = tg::organization::Id::try_from(id)
+					.map_err(|_| fdbt::PackError::Message("invalid organization id".into()))?;
+				let key = Key::Organization(crate::fdb::organization::Key::Organization(id));
+				Ok((input, key))
+			},
+
+			Kind::GroupMember => {
+				let (input, group_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, member_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let group = tg::Id::from_slice(&group_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid group id".into()))?;
+				let group = tg::group::Id::try_from(group)
+					.map_err(|_| fdbt::PackError::Message("invalid group id".into()))?;
+				let member = tg::Id::from_slice(&member_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid group member".into()))?;
+				let member = tg::group::Member::try_from(member)
+					.map_err(|_| fdbt::PackError::Message("invalid group member".into()))?;
+				let key = Key::Group(crate::fdb::group::Key::GroupMember { group, member });
+				Ok((input, key))
+			},
+
+			Kind::MemberGroup => {
+				let (input, member_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, group_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let member = tg::Id::from_slice(&member_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid group member".into()))?;
+				let member = tg::group::Member::try_from(member)
+					.map_err(|_| fdbt::PackError::Message("invalid group member".into()))?;
+				let group = tg::Id::from_slice(&group_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid group id".into()))?;
+				let group = tg::group::Id::try_from(group)
+					.map_err(|_| fdbt::PackError::Message("invalid group id".into()))?;
+				let key = Key::Group(crate::fdb::group::Key::MemberGroup { member, group });
+				Ok((input, key))
+			},
+
+			Kind::OrganizationMember => {
+				let (input, organization_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, member_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let organization = tg::Id::from_slice(&organization_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid organization id".into()))?;
+				let organization = tg::organization::Id::try_from(organization)
+					.map_err(|_| fdbt::PackError::Message("invalid organization id".into()))?;
+				let member = tg::Id::from_slice(&member_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid organization member".into()))?;
+				let member = tg::organization::Member::try_from(member)
+					.map_err(|_| fdbt::PackError::Message("invalid organization member".into()))?;
+				let key = Key::Organization(crate::fdb::organization::Key::OrganizationMember {
+					organization,
+					member,
+				});
+				Ok((input, key))
+			},
+
+			Kind::MemberOrganization => {
+				let (input, member_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, organization_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let member = tg::Id::from_slice(&member_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid organization member".into()))?;
+				let member = tg::organization::Member::try_from(member)
+					.map_err(|_| fdbt::PackError::Message("invalid organization member".into()))?;
+				let organization = tg::Id::from_slice(&organization_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid organization id".into()))?;
+				let organization = tg::organization::Id::try_from(organization)
+					.map_err(|_| fdbt::PackError::Message("invalid organization id".into()))?;
+				let key = Key::Organization(crate::fdb::organization::Key::MemberOrganization {
+					member,
+					organization,
+				});
+				Ok((input, key))
+			},
+
+			Kind::ResourceGrant => {
+				let (input, resource_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, principal): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, permission): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
+				let principal = principal
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let permission = permission
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+					resource,
+					principal,
+					permission,
+				});
+				Ok((input, key))
+			},
+
+			Kind::PrincipalGrant => {
+				let (input, principal): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, resource_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, permission): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let principal = principal
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let resource = tg::Id::from_slice(&resource_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
+				let permission = permission
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let key = Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
+					principal,
+					resource,
+					permission,
+				});
+				Ok((input, key))
 			},
 
 			Kind::Clean => {

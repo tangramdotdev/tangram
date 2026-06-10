@@ -151,22 +151,33 @@ impl Index {
 					)
 					.map(Response::CleanOutput),
 					Request::DeleteGrants(args) => {
-						Self::task_delete_grants(&args).map(|()| Response::Unit)
+						Self::task_delete_grants(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
 					},
 					Request::DeleteGroupMembers(args) => {
-						Self::task_delete_group_members(&args).map(|()| Response::Unit)
+						Self::task_delete_group_members(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
 					},
 					Request::DeleteGroups(ids) => {
-						Self::task_delete_groups(&ids).map(|()| Response::Unit)
+						Self::task_delete_groups(db, subspace, &mut transaction, &ids)
+							.map(|()| Response::Unit)
 					},
 					Request::DeleteOrganizationMembers(args) => {
-						Self::task_delete_organization_members(&args).map(|()| Response::Unit)
+						Self::task_delete_organization_members(
+							db,
+							subspace,
+							&mut transaction,
+							&args,
+						)
+						.map(|()| Response::Unit)
 					},
 					Request::DeleteOrganizations(ids) => {
-						Self::task_delete_organizations(&ids).map(|()| Response::Unit)
+						Self::task_delete_organizations(db, subspace, &mut transaction, &ids)
+							.map(|()| Response::Unit)
 					},
 					Request::DeleteUsers(ids) => {
-						Self::task_delete_users(&ids).map(|()| Response::Unit)
+						Self::task_delete_users(db, subspace, &mut transaction, &ids)
+							.map(|()| Response::Unit)
 					},
 					Request::DeleteTags(tags) => {
 						Self::task_delete_tags(db, subspace, &mut transaction, &tags)
@@ -177,23 +188,28 @@ impl Index {
 							.map(|()| Response::Unit)
 					},
 					Request::PutGrants(args) => {
-						Self::task_put_grants(&args).map(|()| Response::Unit)
+						Self::task_put_grants(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
 					},
 					Request::PutGroupMembers(args) => {
-						Self::task_put_group_members(&args).map(|()| Response::Unit)
+						Self::task_put_group_members(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
 					},
 					Request::PutGroups(args) => {
-						Self::task_put_groups(&args).map(|()| Response::Unit)
+						Self::task_put_groups(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
 					},
 					Request::PutObjects(args) => {
 						Self::task_put_objects(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::PutOrganizationMembers(args) => {
-						Self::task_put_organization_members(&args).map(|()| Response::Unit)
+						Self::task_put_organization_members(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
 					},
 					Request::PutOrganizations(args) => {
-						Self::task_put_organizations(&args).map(|()| Response::Unit)
+						Self::task_put_organizations(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
 					},
 					Request::PutProcesses(args) => {
 						Self::task_put_processes(db, subspace, &mut transaction, &args)
@@ -203,7 +219,10 @@ impl Index {
 						Self::task_put_tags(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
 					},
-					Request::PutUsers(args) => Self::task_put_users(&args).map(|()| Response::Unit),
+					Request::PutUsers(args) => {
+						Self::task_put_users(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
+					},
 					Request::TouchCacheEntries(crate::lmdb::TouchCacheEntries {
 						ids,
 						time_to_touch,

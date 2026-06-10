@@ -1,5 +1,8 @@
+#![allow(clippy::unnecessary_wraps)]
+
 use {
-	crate::fdb::{Index, Request, Response},
+	crate::fdb::{Index, Key, Request, Response},
+	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
 };
 
@@ -22,7 +25,28 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) async fn task_put_grants(_args: &[crate::grant::put::Arg]) -> tg::Result<()> {
+	pub(crate) fn task_put_grants(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		args: &[crate::grant::put::Arg],
+	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+				resource: arg.resource.clone(),
+				principal: arg.principal.clone(),
+				permission: arg.permission,
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+
+			let key = Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
+				principal: arg.principal.clone(),
+				resource: arg.resource.clone(),
+				permission: arg.permission,
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+		}
 		Ok(())
 	}
 }
