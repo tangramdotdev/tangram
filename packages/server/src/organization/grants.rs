@@ -30,16 +30,10 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 	) -> tg::Result<Option<tg::organization::grants::Output>> {
-		let Some(node) = self.try_get_node_by_selector(organization).await? else {
-			return Ok(None);
-		};
-		if node.kind != tg::id::Kind::Organization {
-			return Ok(None);
-		}
-		if !self
-			.authorize(node.id.clone(), tg::grant::Permission::Admin)
-			.await?
-		{
+		let authorized = self
+			.authorize(organization.clone().into(), tg::grant::Permission::Admin)
+			.await?;
+		if authorized != Some(true) {
 			return Ok(None);
 		}
 		let mut connection = self
@@ -52,6 +46,14 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(&transaction, organization).await?
+		else {
+			return Ok(None);
+		};
+		if node.kind != tg::id::Kind::Organization {
+			return Ok(None);
+		}
 		let data = Self::list_direct_grants_with_transaction(&transaction, &node.id).await?;
 		Ok(Some(tg::organization::grants::Output { data }))
 	}

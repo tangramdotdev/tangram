@@ -51,8 +51,18 @@ impl Index {
 			let key =
 				Key::Organization(crate::lmdb::organization::Key::Organization(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
+			let value = crate::organization::Organization {
+				specifier: arg.specifier.clone(),
+			}
+			.serialize()?;
+			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the organization"))?;
+
+			let key = Key::Node(crate::lmdb::node::Key::Node(arg.specifier.clone()));
+			let key = Self::pack(subspace, &key);
+			let value = tg::Id::from(arg.id.clone()).to_bytes();
+			db.put(transaction, &key, value.as_ref())
+				.map_err(|error| tg::error!(!error, "failed to put the node"))?;
 		}
 		Ok(())
 	}

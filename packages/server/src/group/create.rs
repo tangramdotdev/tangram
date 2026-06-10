@@ -31,13 +31,13 @@ impl Session {
 		if self.context.principal.is_none() {
 			return Err(tg::error!("unauthorized"));
 		}
-		if let Some(ancestor) = self
-			.try_get_nearest_existing_ancestor(&arg.specifier)
-			.await? && ancestor.kind == tg::id::Kind::Group
-			&& !self
-				.authorize(ancestor.id, tg::grant::Permission::Write)
-				.await?
-		{
+		let authorized = self
+			.authorize(
+				tg::grant::Resource::Specifier(arg.specifier.clone()),
+				tg::grant::Permission::Write,
+			)
+			.await?;
+		if authorized == Some(false) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let session = self.clone();
@@ -184,8 +184,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		batch.put_groups.push(tangram_index::group::put::Arg {
 			id: id.clone(),
-			name: node.name.clone(),
 			parent: node.parent.clone(),
+			specifier: node.specifier.clone(),
 		});
 		if let Some(principal) = self
 			.context

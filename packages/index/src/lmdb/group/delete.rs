@@ -47,6 +47,17 @@ impl Index {
 		for id in ids {
 			let key = Key::Group(crate::lmdb::group::Key::Group(id.clone()));
 			let key = Self::pack(subspace, &key);
+			let group = db
+				.get(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to get the group"))?
+				.map(crate::group::Group::deserialize)
+				.transpose()?;
+			if let Some(group) = group {
+				let key = Key::Node(crate::lmdb::node::Key::Node(group.specifier));
+				let key = Self::pack(subspace, &key);
+				db.delete(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
+			}
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the group"))?;
 		}

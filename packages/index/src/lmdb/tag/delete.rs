@@ -63,6 +63,10 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the tag parent"))?;
+			let key = Key::Node(crate::lmdb::node::Key::Node(data.specifier.clone()));
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
 			match &data.item {
 				tg::Either::Left(id) => {
 					Self::decrement_object_reference_count(db, subspace, transaction, id)?;

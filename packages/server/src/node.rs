@@ -57,52 +57,6 @@ impl Session {
 		Ok(node)
 	}
 
-	pub(crate) async fn try_get_node_by_selector<I>(
-		&self,
-		selector: &tg::Selector<I>,
-	) -> tg::Result<Option<Node>>
-	where
-		I: Clone + Into<tg::Id>,
-	{
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		Self::try_get_node_by_selector_with_transaction(&transaction, selector).await
-	}
-
-	pub(crate) async fn try_get_nearest_existing_ancestor(
-		&self,
-		specifier: &tg::Specifier,
-	) -> tg::Result<Option<Node>> {
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let mut node = None;
-		for ancestor in specifier.ancestors() {
-			let Some(existing) =
-				Self::try_get_node_by_specifier_with_transaction(&transaction, &ancestor).await?
-			else {
-				break;
-			};
-			node = Some(existing);
-		}
-		Ok(node)
-	}
-
 	pub(crate) async fn try_get_node_by_selector_with_transaction<I>(
 		transaction: &Transaction<'_>,
 		selector: &tg::Selector<I>,
@@ -172,23 +126,6 @@ impl Session {
 			})
 		})
 		.transpose()
-	}
-
-	pub(crate) async fn resolve_resource(
-		&self,
-		resource: &tg::grant::Resource,
-	) -> tg::Result<Option<tg::Id>> {
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		Self::resolve_resource_with_transaction(&transaction, resource).await
 	}
 
 	pub(crate) async fn resolve_resource_with_transaction(

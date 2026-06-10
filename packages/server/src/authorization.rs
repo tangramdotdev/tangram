@@ -43,9 +43,9 @@ impl Session {
 
 	pub(crate) async fn authorize(
 		&self,
-		resource: tg::Id,
+		resource: tg::grant::Resource,
 		permission: tg::grant::Permission,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Option<bool>> {
 		self.server
 			.index
 			.authorize(resource, permission, self.context.principal.as_ref())

@@ -67,6 +67,7 @@ impl Session {
 				},
 				name: data.name,
 				parent: data.parent,
+				specifier: data.specifier,
 			})
 			.collect::<Vec<_>>();
 		if !args.is_empty() {

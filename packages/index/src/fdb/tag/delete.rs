@@ -78,6 +78,10 @@ impl Index {
 		let tag_parent_key = Self::pack(subspace, &tag_parent_key);
 		txn.clear(&tag_parent_key);
 
+		let node_key = Key::Node(crate::fdb::node::Key::Node(data.specifier.clone()));
+		let node_key = Self::pack(subspace, &node_key);
+		txn.clear(&node_key);
+
 		match &data.item {
 			tg::Either::Left(id) => {
 				Self::decrement_object_reference_count(txn, subspace, id, partition_total).await?;

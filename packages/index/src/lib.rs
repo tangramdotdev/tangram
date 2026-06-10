@@ -23,10 +23,10 @@ pub mod prelude {
 pub trait Index {
 	fn authorize(
 		&self,
-		resource: tg::Id,
+		resource: tg::grant::Resource,
 		permission: tg::grant::Permission,
 		principal: Option<&tg::Principal>,
-	) -> impl Future<Output = tg::Result<bool>> + Send;
+	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
 	fn batch(&self, arg: crate::batch::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 

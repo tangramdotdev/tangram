@@ -58,7 +58,16 @@ impl Index {
 			let key =
 				Key::Organization(crate::fdb::organization::Key::Organization(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
+			let value = crate::organization::Organization {
+				specifier: arg.specifier.clone(),
+			}
+			.serialize()?;
+			txn.set(&key, &value);
+
+			let key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));
+			let key = Self::pack(subspace, &key);
+			let value = tg::Id::from(arg.id.clone()).to_bytes();
+			txn.set(&key, value.as_ref());
 		}
 		Ok(())
 	}

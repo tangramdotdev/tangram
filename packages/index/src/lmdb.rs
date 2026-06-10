@@ -15,6 +15,7 @@ mod clean;
 mod grant;
 mod group;
 mod key;
+mod node;
 mod object;
 mod organization;
 mod process;
@@ -158,11 +159,11 @@ impl Index {
 impl crate::Index for Index {
 	async fn authorize(
 		&self,
-		_resource: tg::Id,
-		_permission: tg::grant::Permission,
-		_principal: Option<&tg::Principal>,
-	) -> tg::Result<bool> {
-		Ok(true)
+		resource: tg::grant::Resource,
+		permission: tg::grant::Permission,
+		principal: Option<&tg::Principal>,
+	) -> tg::Result<Option<bool>> {
+		self.authorize(resource, permission, principal).await
 	}
 
 	async fn batch(&self, arg: crate::batch::Arg) -> tg::Result<()> {

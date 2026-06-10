@@ -90,6 +90,14 @@ impl Index {
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the old tag parent"))?;
 		}
+		if let Some(tag) = tag.as_ref()
+			&& tag.specifier != arg.specifier
+		{
+			let key = Key::Node(crate::lmdb::node::Key::Node(tag.specifier.clone()));
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the old node"))?;
+		}
 
 		let key = Key::Tag(crate::lmdb::tag::Key::Tag(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -97,10 +105,17 @@ impl Index {
 			item: arg.item.clone(),
 			name: arg.name.clone(),
 			parent: arg.parent.clone(),
+			specifier: arg.specifier.clone(),
 		}
 		.serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
+
+		let key = Key::Node(crate::lmdb::node::Key::Node(arg.specifier.clone()));
+		let key = Self::pack(subspace, &key);
+		let value = tg::Id::from(arg.id.clone()).to_bytes();
+		db.put(transaction, &key, value.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to put the node"))?;
 
 		let item = match &arg.item {
 			tg::Either::Left(id) => id.to_bytes().to_vec(),

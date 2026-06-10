@@ -36,10 +36,10 @@ impl Index {
 impl index::Index for Index {
 	async fn authorize(
 		&self,
-		resource: tg::Id,
+		resource: tg::grant::Resource,
 		permission: tg::grant::Permission,
 		principal: Option<&tg::Principal>,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Option<bool>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.authorize(resource, permission, principal).await,

@@ -29,17 +29,10 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 	) -> tg::Result<tg::organization::members::list::Output> {
-		let organization = self
-			.try_get_node_by_selector(organization)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the organization"))?;
-		if organization.kind != tg::id::Kind::Organization {
-			return Err(tg::error!("failed to find the organization"));
-		}
-		if !self
-			.authorize(organization.id.clone(), tg::grant::Permission::Read)
-			.await?
-		{
+		let authorized = self
+			.authorize(organization.clone().into(), tg::grant::Permission::Read)
+			.await?;
+		if authorized != Some(true) {
 			return Err(tg::error!("failed to find the organization"));
 		}
 		let mut connection = self
@@ -52,6 +45,13 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let organization =
+			Self::try_get_node_by_selector_with_transaction(&transaction, organization)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the organization"))?;
+		if organization.kind != tg::id::Kind::Organization {
+			return Err(tg::error!("failed to find the organization"));
+		}
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]

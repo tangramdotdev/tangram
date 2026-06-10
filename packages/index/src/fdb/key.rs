@@ -10,6 +10,7 @@ pub enum Key {
 	Clean(crate::fdb::clean::Key),
 	Grant(crate::fdb::grant::Key),
 	Group(crate::fdb::group::Key),
+	Node(crate::fdb::node::Key),
 	Object(crate::fdb::object::Key),
 	Organization(crate::fdb::organization::Key),
 	Process(crate::fdb::process::Key),
@@ -50,6 +51,7 @@ pub enum Kind {
 	MemberOrganization = 26,
 	ResourceGrant = 27,
 	PrincipalGrant = 28,
+	Node = 29,
 }
 
 impl fdbt::TuplePack for Key {
@@ -268,6 +270,10 @@ impl fdbt::TuplePack for Key {
 				permission.to_string(),
 			)
 				.pack(w, tuple_depth),
+
+			Key::Node(crate::fdb::node::Key::Node(specifier)) => {
+				(Kind::Node.to_i32().unwrap(), specifier.to_string()).pack(w, tuple_depth)
+			},
 
 			Key::Clean(crate::fdb::clean::Key::Clean {
 				partition,
@@ -712,6 +718,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 					permission,
 				});
 				Ok((input, key))
+			},
+
+			Kind::Node => {
+				let (input, specifier): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let specifier = specifier
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid specifier".into()))?;
+				Ok((input, Key::Node(crate::fdb::node::Key::Node(specifier))))
 			},
 
 			Kind::Clean => {

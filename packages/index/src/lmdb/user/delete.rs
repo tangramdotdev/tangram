@@ -29,6 +29,17 @@ impl Index {
 		for id in ids {
 			let key = Key::User(crate::lmdb::user::Key::User(id.clone()));
 			let key = Self::pack(subspace, &key);
+			let user = db
+				.get(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to get the user"))?
+				.map(crate::user::User::deserialize)
+				.transpose()?;
+			if let Some(user) = user {
+				let key = Key::Node(crate::lmdb::node::Key::Node(user.specifier));
+				let key = Self::pack(subspace, &key);
+				db.delete(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
+			}
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the user"))?;
 		}

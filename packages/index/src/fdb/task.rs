@@ -796,7 +796,7 @@ impl Index {
 				Ok(Response::Unit)
 			},
 			Request::DeleteGroups(ids) => {
-				Self::task_delete_groups(txn, subspace, ids)?;
+				Self::task_delete_groups(txn, subspace, ids).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteOrganizationMembers(args) => {
@@ -804,11 +804,11 @@ impl Index {
 				Ok(Response::Unit)
 			},
 			Request::DeleteOrganizations(ids) => {
-				Self::task_delete_organizations(txn, subspace, ids)?;
+				Self::task_delete_organizations(txn, subspace, ids).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteUsers(ids) => {
-				Self::task_delete_users(txn, subspace, ids)?;
+				Self::task_delete_users(txn, subspace, ids).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteTags(tags) => {

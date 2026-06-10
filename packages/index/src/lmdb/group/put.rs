@@ -49,10 +49,17 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let value = crate::group::Group {
 				parent: arg.parent.clone(),
+				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;
 			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the group"))?;
+
+			let key = Key::Node(crate::lmdb::node::Key::Node(arg.specifier.clone()));
+			let key = Self::pack(subspace, &key);
+			let value = tg::Id::from(arg.id.clone()).to_bytes();
+			db.put(transaction, &key, value.as_ref())
+				.map_err(|error| tg::error!(!error, "failed to put the node"))?;
 		}
 		Ok(())
 	}

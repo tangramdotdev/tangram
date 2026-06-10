@@ -9,6 +9,9 @@ pub mod put;
 pub struct Group {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::Id>,
+
+	#[tangram_serialize(id = 1)]
+	pub specifier: tg::Specifier,
 }
 
 impl Group {

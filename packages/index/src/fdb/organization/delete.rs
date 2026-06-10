@@ -46,7 +46,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_delete_organizations(
+	pub(crate) async fn task_delete_organizations(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::organization::Id],
@@ -54,6 +54,17 @@ impl Index {
 		for id in ids {
 			let key = Key::Organization(crate::fdb::organization::Key::Organization(id.clone()));
 			let key = Self::pack(subspace, &key);
+			let organization = txn
+				.get(&key, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the organization"))?
+				.map(|bytes| crate::organization::Organization::deserialize(&bytes))
+				.transpose()?;
+			if let Some(organization) = organization {
+				let node_key = Key::Node(crate::fdb::node::Key::Node(organization.specifier));
+				let node_key = Self::pack(subspace, &node_key);
+				txn.clear(&node_key);
+			}
 			txn.clear(&key);
 		}
 		Ok(())

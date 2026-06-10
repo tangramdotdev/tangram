@@ -13,15 +13,13 @@ use {
 
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
-		let resource = self
-			.resolve_resource(&arg.resource)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the resource"))?;
-		if !self
-			.authorize(resource, tg::grant::Permission::Admin)
+		match self
+			.authorize(arg.resource.clone(), tg::grant::Permission::Admin)
 			.await?
 		{
-			return Err(tg::error!("unauthorized"));
+			None => return Err(tg::error!("failed to find the resource")),
+			Some(false) => return Err(tg::error!("unauthorized")),
+			Some(true) => (),
 		}
 		let session = self.clone();
 		let (grant, batch) = self
@@ -51,14 +49,13 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
-		let Some(resource) = self.resolve_resource(&arg.resource).await? else {
-			return Ok(None);
-		};
-		if !self
-			.authorize(resource, tg::grant::Permission::Admin)
+		match self
+			.authorize(arg.resource.clone(), tg::grant::Permission::Admin)
 			.await?
 		{
-			return Err(tg::error!("unauthorized"));
+			None => return Ok(None),
+			Some(false) => return Err(tg::error!("unauthorized")),
+			Some(true) => (),
 		}
 		let session = self.clone();
 		let (output, batch) = self

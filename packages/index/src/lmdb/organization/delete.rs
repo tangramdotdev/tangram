@@ -47,6 +47,17 @@ impl Index {
 		for id in ids {
 			let key = Key::Organization(crate::lmdb::organization::Key::Organization(id.clone()));
 			let key = Self::pack(subspace, &key);
+			let organization = db
+				.get(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to get the organization"))?
+				.map(crate::organization::Organization::deserialize)
+				.transpose()?;
+			if let Some(organization) = organization {
+				let key = Key::Node(crate::lmdb::node::Key::Node(organization.specifier));
+				let key = Self::pack(subspace, &key);
+				db.delete(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
+			}
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the organization"))?;
 		}

@@ -55,6 +55,7 @@ impl Session {
 			},
 			name: data.name,
 			parent: data.parent,
+			specifier: data.specifier,
 		});
 		if !batch.is_empty() {
 			self.server

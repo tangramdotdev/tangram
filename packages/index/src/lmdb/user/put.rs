@@ -29,8 +29,18 @@ impl Index {
 		for arg in args {
 			let key = Key::User(crate::lmdb::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
+			let value = crate::user::User {
+				specifier: arg.specifier.clone(),
+			}
+			.serialize()?;
+			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the user"))?;
+
+			let key = Key::Node(crate::lmdb::node::Key::Node(arg.specifier.clone()));
+			let key = Self::pack(subspace, &key);
+			let value = tg::Id::from(arg.id.clone()).to_bytes();
+			db.put(transaction, &key, value.as_ref())
+				.map_err(|error| tg::error!(!error, "failed to put the node"))?;
 		}
 		Ok(())
 	}

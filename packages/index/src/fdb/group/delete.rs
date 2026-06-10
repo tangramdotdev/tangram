@@ -46,7 +46,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_delete_groups(
+	pub(crate) async fn task_delete_groups(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::group::Id],
@@ -54,6 +54,17 @@ impl Index {
 		for id in ids {
 			let key = Key::Group(crate::fdb::group::Key::Group(id.clone()));
 			let key = Self::pack(subspace, &key);
+			let group = txn
+				.get(&key, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the group"))?
+				.map(|bytes| crate::group::Group::deserialize(&bytes))
+				.transpose()?;
+			if let Some(group) = group {
+				let node_key = Key::Node(crate::fdb::node::Key::Node(group.specifier));
+				let node_key = Self::pack(subspace, &node_key);
+				txn.clear(&node_key);
+			}
 			txn.clear(&key);
 		}
 		Ok(())

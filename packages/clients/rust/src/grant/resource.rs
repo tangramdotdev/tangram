@@ -21,6 +21,18 @@ pub enum Resource {
 	Specifier(tg::Specifier),
 }
 
+impl<I> From<tg::Selector<I>> for Resource
+where
+	I: Into<tg::Id>,
+{
+	fn from(value: tg::Selector<I>) -> Self {
+		match value {
+			tg::Selector::Id(id) => Self::Id(id.into()),
+			tg::Selector::Specifier(specifier) => Self::Specifier(specifier),
+		}
+	}
+}
+
 impl std::str::FromStr for Resource {
 	type Err = tg::Error;
 

@@ -10,6 +10,7 @@ pub enum Key {
 	Clean(crate::lmdb::clean::Key),
 	Grant(crate::lmdb::grant::Key),
 	Group(crate::lmdb::group::Key),
+	Node(crate::lmdb::node::Key),
 	Object(crate::lmdb::object::Key),
 	Organization(crate::lmdb::organization::Key),
 	Process(crate::lmdb::process::Key),
@@ -50,6 +51,7 @@ pub enum Kind {
 	MemberOrganization = 26,
 	ResourceGrant = 27,
 	PrincipalGrant = 28,
+	Node = 29,
 }
 
 impl fdbt::TuplePack for Key {
@@ -265,6 +267,10 @@ impl fdbt::TuplePack for Key {
 				permission.to_string(),
 			)
 				.pack(w, tuple_depth),
+
+			Key::Node(crate::lmdb::node::Key::Node(specifier)) => {
+				(Kind::Node.to_i32().unwrap(), specifier.to_string()).pack(w, tuple_depth)
+			},
 
 			Key::Clean(crate::lmdb::clean::Key::Clean {
 				touched_at,
@@ -711,6 +717,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 					permission,
 				});
 				Ok((input, key))
+			},
+
+			Kind::Node => {
+				let (input, specifier): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let specifier = specifier
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid specifier".into()))?;
+				Ok((input, Key::Node(crate::lmdb::node::Key::Node(specifier))))
 			},
 
 			Kind::Clean => {

@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	tangram_client::prelude::*,
+	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -29,16 +30,28 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 	) -> tg::Result<Option<tg::Organization>> {
-		let Some(node) = self.try_get_node_by_selector(organization).await? else {
+		let authorized = self
+			.authorize(organization.clone().into(), tg::grant::Permission::Read)
+			.await?;
+		if authorized != Some(true) {
+			return Ok(None);
+		}
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let Some(node) =
+			Self::try_get_node_by_selector_with_transaction(&transaction, organization).await?
+		else {
 			return Ok(None);
 		};
 		if node.kind != tg::id::Kind::Organization {
-			return Ok(None);
-		}
-		if !self
-			.authorize(node.id.clone(), tg::grant::Permission::Read)
-			.await?
-		{
 			return Ok(None);
 		}
 		Ok(Some(tg::Organization {

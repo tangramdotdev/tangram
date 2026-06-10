@@ -36,17 +36,13 @@ impl Session {
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
 	) -> tg::Result<Option<()>> {
-		let Some(node) = self.try_get_node_by_selector(group).await? else {
-			return Ok(None);
-		};
-		if node.kind != tg::id::Kind::Group {
-			return Ok(None);
-		}
-		if !self
-			.authorize(node.id, tg::grant::Permission::Admin)
+		match self
+			.authorize(group.clone().into(), tg::grant::Permission::Admin)
 			.await?
 		{
-			return Err(tg::error!("unauthorized"));
+			None => return Ok(None),
+			Some(false) => return Err(tg::error!("unauthorized")),
+			Some(true) => (),
 		}
 		let session = self.clone();
 		let (output, batch) = self

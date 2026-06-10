@@ -93,6 +93,13 @@ impl Index {
 			let tag_parent_key = Self::pack(subspace, &tag_parent_key);
 			txn.clear(&tag_parent_key);
 		}
+		if let Some(tag) = tag.as_ref()
+			&& tag.specifier != arg.specifier
+		{
+			let node_key = Key::Node(crate::fdb::node::Key::Node(tag.specifier.clone()));
+			let node_key = Self::pack(subspace, &node_key);
+			txn.clear(&node_key);
+		}
 
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -100,9 +107,15 @@ impl Index {
 			item: arg.item.clone(),
 			name: arg.name.clone(),
 			parent: arg.parent.clone(),
+			specifier: arg.specifier.clone(),
 		}
 		.serialize()?;
 		txn.set(&key, &value);
+
+		let node_key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));
+		let node_key = Self::pack(subspace, &node_key);
+		let node_value = tg::Id::from(arg.id.clone()).to_bytes();
+		txn.set(&node_key, node_value.as_ref());
 
 		let item = match &arg.item {
 			tg::Either::Left(id) => id.to_bytes().to_vec(),

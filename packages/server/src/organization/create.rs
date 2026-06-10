@@ -111,7 +111,7 @@ impl Session {
 			.put_organizations
 			.push(tangram_index::organization::put::Arg {
 				id: id.clone(),
-				name: node.name.clone(),
+				specifier: node.specifier.clone(),
 			});
 		if let Some(principal) = self
 			.context

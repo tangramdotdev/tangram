@@ -107,9 +107,10 @@ impl Session {
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			batch
-				.put_users
-				.push(tangram_index::user::put::Arg { id: id.clone() });
+			batch.put_users.push(tangram_index::user::put::Arg {
+				id: id.clone(),
+				specifier: node.specifier.clone(),
+			});
 			let arg = tg::grant::create::Arg {
 				principal: tg::grant::Principal::User(id.clone()).into(),
 				permission: tg::grant::Permission::Admin,
