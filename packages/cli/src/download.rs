@@ -10,7 +10,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
 
-	#[arg(long)]
+	#[arg(long = "mode", id = "download_mode")]
 	pub mode: Option<tg::DownloadMode>,
 
 	#[arg(index = 1)]
