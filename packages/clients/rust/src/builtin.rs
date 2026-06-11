@@ -240,9 +240,12 @@ where
 }
 
 #[must_use]
-pub fn compress_command(input: &tg::Blob, format: tg::CompressionFormat) -> tg::Command {
+pub fn compress_command(
+	input: tg::Either<tg::Blob, tg::File>,
+	format: tg::CompressionFormat,
+) -> tg::Command {
 	let host = "builtin";
-	let args = vec![input.clone().into(), format.to_string().into()];
+	let args = vec![input.into(), format.to_string().into()];
 	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
 		path: "compress".into(),
 	});
@@ -277,9 +280,9 @@ where
 }
 
 #[must_use]
-pub fn decompress_command(input: &tg::Blob) -> tg::Command {
+pub fn decompress_command(input: tg::Either<tg::Blob, tg::File>) -> tg::Command {
 	let host = "builtin";
-	let args = vec![input.clone().into()];
+	let args = vec![input.into()];
 	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
 		path: "decompress".into(),
 	});

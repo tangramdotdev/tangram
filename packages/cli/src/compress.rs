@@ -5,7 +5,7 @@ use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub blob: tg::blob::Id,
+	pub input: tg::Either<tg::blob::Id, tg::file::Id>,
 
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
@@ -17,9 +17,12 @@ pub struct Args {
 impl Cli {
 	pub async fn command_compress(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let blob = tg::Blob::with_id(args.blob);
+		let input = match args.input {
+			tg::Either::Left(id) => tg::Either::Left(tg::Blob::with_id(id)),
+			tg::Either::Right(id) => tg::Either::Right(tg::File::with_id(id)),
+		};
 		let format = args.format;
-		let command = tg::builtin::compress_command(&blob, format);
+		let command = tg::builtin::compress_command(input, format);
 		let command = command
 			.store_with_handle(&client)
 			.await
