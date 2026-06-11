@@ -14,14 +14,7 @@ let path = artifact {
 		import busybox from "busybox";
 
 		export default async function (mount) {
-			const host = tg.host.current;
-			tg.assert(typeof host === "string");
-			return await tg.run({
-				args: ["-c", "cat /target/file"],
-				env: tg.build(busybox),
-				executable: "sh",
-				host,
-			}).sandbox().mount({ source: mount, target: "/target" });
+			return await tg.run`cat /target/file`.env(tg.build(busybox)).sandbox().mount({ source: mount, target: "/target" });
 		}
 	',
 }

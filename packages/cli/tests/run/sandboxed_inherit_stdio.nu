@@ -7,24 +7,11 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			await tg.run(
-				{
-					args: [
-						"-c",
-						`
-							read line
-							echo "stdout:$line"
-							echo "stderr:$line" 1>&2
-						`,
-					],
-					executable: "sh",
-					host: tg.host.current,
-					sandbox: true,
-					stdin: "inherit",
-					stdout: "inherit",
-					stderr: "inherit",
-				},
-			);
+			await tg.run`
+				read line
+				echo "stdout:$line"
+				echo "stderr:$line" 1>&2
+			`.sandbox().stdio("inherit");
 		}
 	',
 }

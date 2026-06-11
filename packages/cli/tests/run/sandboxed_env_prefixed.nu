@@ -9,14 +9,7 @@ let path = artifact {
 		import busybox from "busybox";
 
 		export default async function () {
-			const host = tg.host.current;
-			tg.assert(typeof host === "string");
-			return await tg.run({
-				args: ["-c", "printf \"%s\\n%s\\n\" \"$TEST_ENV_INHERIT\" \"$TANGRAM_ENV_TEST_ENV_INHERIT\""],
-				env: tg.build(busybox),
-				executable: "sh",
-				host,
-			}).env({
+			return await tg.run`printf "%s\\n%s\\n" "$TEST_ENV_INHERIT" "$TANGRAM_ENV_TEST_ENV_INHERIT"`.env(tg.build(busybox)).env({
 				TEST_ENV_INHERIT: 42,
 			}).sandbox();
 		}

@@ -22,51 +22,31 @@ assert_cacheable_error '
 
 assert_cacheable_error '
 	export default async () => {
-		return await tg.build({
-			executable: "sh",
-			args: ["-c", "true"],
-			mounts: [{ source: "/tmp", target: "/work" }],
-		});
+		return await tg.build`true`.mount({ source: "/tmp", target: "/work" });
 	};
 '
 
 assert_cacheable_error '
 	export default async () => {
-		return await tg.build({
-			executable: "sh",
-			args: ["-c", "true"],
-			stdin: "pipe",
-		});
+		return await tg.build`true`.stdin("pipe");
 	};
 '
 
 assert_cacheable_error '
 	export default async () => {
-		return await tg.build({
-			executable: "sh",
-			args: ["-c", "true"],
-			stdout: "inherit",
-		});
+		return await tg.build`true`.stdout("inherit");
 	};
 '
 
 assert_cacheable_error '
 	export default async () => {
-		return await tg.build({
-			executable: "sh",
-			args: ["-c", "true"],
-			stderr: "inherit",
-		});
+		return await tg.build`true`.stderr("inherit");
 	};
 '
 
 assert_cacheable_error '
 	export default async () => {
-		return await tg.build({
-			executable: "sh",
-			args: ["-c", "true"],
-			tty: true,
-		});
+		return await tg.build`true`.tty(true);
 	};
 '
 

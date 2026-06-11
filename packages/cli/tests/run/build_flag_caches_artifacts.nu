@@ -14,11 +14,7 @@ let path = artifact {
 			const dir = tg.directory({
 				bin: tg.directory({ run: script }),
 			});
-			return tg.command({
-				args: ["-c", tg`${dir}/bin/run`],
-				executable: { path: "/bin/sh" },
-				host: tg.host.current,
-			});
+			return tg.command`${dir}/bin/run`;
 		};
 	'
 }

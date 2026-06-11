@@ -9,14 +9,7 @@ let path = artifact {
 		import busybox from "busybox";
 
 		export default async function () {
-			const host = tg.host.current;
-			tg.assert(typeof host === "string");
-			return await tg.run({
-				args: ["-c", tg`mkdir -p ${tg.output} && printf "Hello, World!\n" > ${tg.output}/message.txt`],
-				executable: "sh",
-				host,
-				env: tg.build(busybox),
-			});
+			return await tg.run`mkdir -p ${tg.output} && printf "Hello, World!\n" > ${tg.output}/message.txt`.env(tg.build(busybox));
 		}
 	',
 }
