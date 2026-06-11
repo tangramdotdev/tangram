@@ -177,16 +177,12 @@ where
 	// Create the blob future.
 	let blob_future = tg::Blob::with_reader_with_handle(handle, reader);
 
-	// Join the futures.
-	let blob = match future::join(archive_future, blob_future).await {
-		(_, Ok(blob)) => blob,
-		(Err(error), _) | (_, Err(error)) => {
-			return Err(tg::error!(
-				!error,
-				"failed to join the archive and blob futures"
-			));
-		},
-	};
+	// Join the futures. The archive future's error takes precedence, because a
+	// failure to write the archive can still leave the blob future producing a
+	// truncated blob from the bytes written before the error.
+	let (archive_result, blob_result) = future::join(archive_future, blob_future).await;
+	archive_result?;
+	let blob = blob_result.map_err(|error| tg::error!(!error, "failed to create the blob"))?;
 
 	Ok(blob)
 }
@@ -307,16 +303,12 @@ where
 	// Create the blob future.
 	let blob_future = tg::Blob::with_reader_with_handle(handle, reader);
 
-	// Join the futures.
-	let blob = match future::join(archive_future, blob_future).await {
-		(_, Ok(blob)) => blob,
-		(Err(error), _) | (_, Err(error)) => {
-			return Err(tg::error!(
-				!error,
-				"failed to join the archive and blob futures"
-			));
-		},
-	};
+	// Join the futures. The archive future's error takes precedence, because a
+	// failure to write the archive can still leave the blob future producing a
+	// truncated blob from the bytes written before the error.
+	let (archive_result, blob_result) = future::join(archive_future, blob_future).await;
+	archive_result?;
+	let blob = blob_result.map_err(|error| tg::error!(!error, "failed to create the blob"))?;
 
 	Ok(blob)
 }

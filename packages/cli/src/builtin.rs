@@ -103,13 +103,30 @@ impl Cli {
 		// Create the client.
 		let client = tg::Client::with_env(tg::Arg::default())?;
 
-		// Run.
+		// Run. Convert an error into an error-bearing output so that it is written
+		// to the process output and surfaced to the caller, rather than exiting
+		// silently.
 		let tangram_builtin::Output {
 			error,
 			exit,
 			output,
 			checksum,
-		} = tangram_builtin::run(&client, args_, cwd, env, executable, logger, None).await?;
+		} = match tangram_builtin::run(&client, args_, cwd, env, executable, logger, None).await {
+			Ok(output) => output,
+			Err(error) => {
+				// Write the error to stderr so that it appears in the process log,
+				// in addition to recording it in the process output below.
+				let mut stderr = tokio::io::stderr();
+				stderr.write_all(format!("{error}\n").as_bytes()).await.ok();
+				stderr.flush().await.ok();
+				tangram_builtin::Output {
+					checksum: None,
+					error: Some(error),
+					exit: 1,
+					output: None,
+				}
+			},
+		};
 
 		// Write the output.
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
