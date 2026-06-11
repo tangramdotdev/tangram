@@ -30,16 +30,6 @@ impl tg::handle::Group for Server {
 			.await
 	}
 
-	async fn try_get_group_grants(
-		&self,
-		group: &tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> tg::Result<Option<tg::group::grants::Output>> {
-		self.session(&self.context)
-			.try_get_group_grants(group, arg)
-			.await
-	}
-
 	async fn list_group_members(
 		&self,
 		group: &tg::group::Selector,

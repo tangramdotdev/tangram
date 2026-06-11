@@ -21,12 +21,6 @@ pub trait Organization: Send + Sync + 'static {
 		arg: tg::organization::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
-	fn try_get_organization_grants<'a>(
-		&'a self,
-		organization: &'a tg::organization::Selector,
-		arg: tg::organization::grants::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::organization::grants::Output>>>;
-
 	fn list_organization_members<'a>(
 		&'a self,
 		organization: &'a tg::organization::Selector,
@@ -72,14 +66,6 @@ where
 		arg: tg::organization::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_delete_organization(organization, arg).boxed()
-	}
-
-	fn try_get_organization_grants<'a>(
-		&'a self,
-		organization: &'a tg::organization::Selector,
-		arg: tg::organization::grants::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::organization::grants::Output>>> {
-		self.try_get_organization_grants(organization, arg).boxed()
 	}
 
 	fn list_organization_members<'a>(

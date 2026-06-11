@@ -12,4 +12,10 @@ pub enum Key {
 		resource: tg::Id,
 		permission: tg::grant::Permission,
 	},
+	Visibility {
+		resource: tg::Id,
+		principal: tg::grant::Principal,
+		grant_resource: tg::Id,
+		permission: tg::grant::Permission,
+	},
 }

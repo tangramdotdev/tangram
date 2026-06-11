@@ -29,17 +29,31 @@ impl Session {
 	}
 
 	async fn put_tag_local(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		if self.context.principal.is_none() {
+			return Err(tg::error!("unauthorized"));
+		}
+		let authorized = self
+			.authorize(
+				tg::grant::Resource::Specifier(arg.specifier.clone()),
+				tg::grant::Permission::Write,
+			)
+			.await?;
+		if authorized == Some(false) {
+			return Err(tg::error!("unauthorized"));
+		}
+		let permissions = self.recorded_tag_permissions(&arg.item).await?;
 		let session = self.clone();
 		let data = self
 			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
+				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
 					let mut batch = tangram_index::batch::Arg::default();
 					let data = session
-						.put_tag_with_transaction(transaction, arg, &mut batch)
+						.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 						.await?;
 					Ok::<_, crate::database::Error>(ControlFlow::Break((data, batch)))
 				}
@@ -55,6 +69,7 @@ impl Session {
 			},
 			name: data.name,
 			parent: data.parent,
+			permissions: data.permissions,
 			specifier: data.specifier,
 		});
 		if !batch.is_empty() {
@@ -71,6 +86,7 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		arg: tg::tag::put::Arg,
+		permissions: Vec<tg::grant::Permission>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::tag::Data> {
 		let parent = self
@@ -79,29 +95,55 @@ impl Session {
 		let existing =
 			Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier).await?;
 		let item = tag_item_to_string(&arg.item);
-		let node = if let Some(node) = existing {
+		let permissions_json = serde_json::to_string(&permissions)
+			.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
+		let (node, permissions) = if let Some(node) = existing {
 			if node.kind != tg::id::Kind::Tag {
 				return Err(tg::error!("specifier is already in use"));
 			}
 			let p = transaction.p();
+			// Keep the recorded permissions when the item is unchanged, and record the new permissions when the item is replaced.
 			let statement = formatdoc!(
 				"
 					update tags
-					set item = {p}1
+					set permissions = case when item = {p}1 then permissions else {p}4 end,
+						item = {p}1
 					where id = {p}2 and ({p}3 or item = {p}1);
 				"
 			);
 			let n = transaction
 				.execute(
 					statement.into(),
-					db::params![item.clone(), node.id.to_string(), arg.force],
+					db::params![
+						item.clone(),
+						node.id.to_string(),
+						arg.force,
+						permissions_json
+					],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if n == 0 {
 				return Err(tg::error!("the tag already exists with a different item"));
 			}
-			node
+			#[derive(db::row::Deserialize)]
+			struct Row {
+				permissions: String,
+			}
+			let statement = formatdoc!(
+				"
+					select permissions
+					from tags
+					where id = {p}1;
+				"
+			);
+			let row = transaction
+				.query_one_into::<Row>(statement.into(), db::params![node.id.to_string()])
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let permissions = serde_json::from_str(&row.permissions)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
+			(node, permissions)
 		} else {
 			let id = tg::tag::Id::new();
 			let node = Self::create_node_with_transaction(
@@ -115,8 +157,8 @@ impl Session {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					insert into tags (id, name, parent, item)
-					values ({p}1, {p}2, {p}3, {p}4);
+					insert into tags (id, name, parent, item, permissions)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5);
 				"
 			);
 			transaction
@@ -126,7 +168,8 @@ impl Session {
 						id.to_string(),
 						node.name.clone(),
 						node.parent.as_ref().map(ToString::to_string),
-						item.clone()
+						item.clone(),
+						permissions_json
 					],
 				)
 				.await
@@ -149,13 +192,14 @@ impl Session {
 				self.create_grant_with_transaction(transaction, arg, batch)
 					.await?;
 			}
-			node
+			(node, permissions)
 		};
 		Ok(tg::tag::Data {
 			id: node.id.try_into()?,
 			item: arg.item,
 			name: node.name,
 			parent: node.parent,
+			permissions,
 			specifier: node.specifier,
 		})
 	}

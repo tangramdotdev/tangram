@@ -8,4 +8,11 @@ impl tg::handle::Grant for Server {
 	async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
 		self.session(&self.context).delete_grant(arg).await
 	}
+
+	async fn list_grants(
+		&self,
+		arg: tg::grant::list::Arg,
+	) -> tg::Result<Option<tg::grant::list::Output>> {
+		self.session(&self.context).list_grants(arg).await
+	}
 }

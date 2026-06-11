@@ -3,6 +3,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -54,20 +55,25 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let mut data = Vec::new();
-		for row in rows {
-			if self
-				.node_is_visible_with_transaction(&transaction, &row.id)
-				.await?
-			{
-				data.push(tg::Group {
+		let ids = rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>();
+		let visible = self
+			.server
+			.index
+			.visible(&ids, self.context.principal.as_ref())
+			.await?;
+		let data = rows
+			.into_iter()
+			.zip(visible)
+			.filter(|(_, visible)| *visible)
+			.map(|(row, _)| {
+				Ok(tg::Group {
 					id: row.id.try_into()?,
 					name: row.name,
 					parent: row.parent,
 					specifier: row.specifier,
-				});
-			}
-		}
+				})
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 		Ok(tg::group::list::Output { data })
 	}
 

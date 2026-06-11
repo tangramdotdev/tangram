@@ -4,7 +4,6 @@ pub mod create;
 pub mod data;
 pub mod delete;
 pub mod get;
-pub mod grants;
 pub mod id;
 pub mod list;
 pub mod member;

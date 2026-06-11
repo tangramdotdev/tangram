@@ -14,4 +14,11 @@ impl tg::handle::Grant for tg::Session {
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		self.delete_grant(arg)
 	}
+
+	fn list_grants(
+		&self,
+		arg: tg::grant::list::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::grant::list::Output>>> {
+		self.list_grants(arg)
+	}
 }

@@ -4,6 +4,7 @@ pub use {permission::Permission, principal::Principal, resource::Resource};
 
 pub mod create;
 pub mod delete;
+pub mod list;
 pub mod permission;
 pub mod principal;
 pub mod resource;

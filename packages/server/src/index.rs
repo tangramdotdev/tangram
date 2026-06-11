@@ -48,6 +48,19 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn visible(
+		&self,
+		ids: &[tg::Id],
+		principal: Option<&tg::Principal>,
+	) -> tg::Result<Vec<bool>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.visible(ids, principal).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.visible(ids, principal).await,
+		}
+	}
+
 	async fn batch(&self, arg: index::batch::Arg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]

@@ -29,17 +29,6 @@ where
 		}
 	}
 
-	fn try_get_tag_grants(
-		&self,
-		tag: &tg::tag::Selector,
-		arg: tg::tag::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_get_tag_grants(tag, arg).left_future(),
-			tg::Either::Right(s) => s.try_get_tag_grants(tag, arg).right_future(),
-		}
-	}
-
 	fn delete_tags(
 		&self,
 		arg: tg::tag::delete::Arg,

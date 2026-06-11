@@ -35,12 +35,6 @@ pub trait Group: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::group::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
-	fn try_get_group_grants(
-		&self,
-		group: &tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> + Send;
-
 	fn list_group_members(
 		&self,
 		group: &tg::group::Selector,
@@ -88,16 +82,6 @@ impl tg::handle::Group for tg::Client {
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
 			.try_delete_group(group, arg)
-			.await
-	}
-
-	async fn try_get_group_grants(
-		&self,
-		group: &tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> tg::Result<Option<tg::group::grants::Output>> {
-		self.session(&self.context)
-			.try_get_group_grants(group, arg)
 			.await
 	}
 

@@ -5,6 +5,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -148,10 +149,22 @@ impl Session {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		};
-		if !self
-			.node_is_visible_with_transaction(&transaction, &node.id)
+		let visible = self
+			.server
+			.index
+			.visible(
+				std::slice::from_ref(&node.id),
+				self.context.principal.as_ref(),
+			)
 			.await?
-		{
+			.pop()
+			.unwrap() || self
+			.authorize(
+				tg::grant::Resource::Id(node.id.clone()),
+				tg::grant::Permission::Read,
+			)
+			.await? == Some(true);
+		if !visible {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		}
@@ -187,10 +200,22 @@ impl Session {
 			if let Some(node) =
 				Self::try_get_node_by_specifier_with_transaction(&transaction, &specifier).await?
 			{
-				if !self
-					.node_is_visible_with_transaction(&transaction, &node.id)
+				let visible = self
+					.server
+					.index
+					.visible(
+						std::slice::from_ref(&node.id),
+						self.context.principal.as_ref(),
+					)
 					.await?
-				{
+					.pop()
+					.unwrap() || self
+					.authorize(
+						tg::grant::Resource::Id(node.id.clone()),
+						tg::grant::Permission::Read,
+					)
+					.await? == Some(true);
+				if !visible {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok(stream.boxed());
 				}

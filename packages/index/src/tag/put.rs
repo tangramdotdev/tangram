@@ -6,5 +6,6 @@ pub struct Arg {
 	pub item: tg::Either<tg::object::Id, tg::process::Id>,
 	pub name: String,
 	pub parent: Option<tg::Id>,
+	pub permissions: Vec<tg::grant::Permission>,
 	pub specifier: tg::Specifier,
 }

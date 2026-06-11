@@ -24,14 +24,6 @@ impl tg::handle::Organization for tg::Session {
 		self.try_delete_organization(organization, arg)
 	}
 
-	fn try_get_organization_grants(
-		&self,
-		organization: &tg::organization::Selector,
-		arg: tg::organization::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::organization::grants::Output>>> {
-		self.try_get_organization_grants(organization, arg)
-	}
-
 	fn list_organization_members(
 		&self,
 		organization: &tg::organization::Selector,

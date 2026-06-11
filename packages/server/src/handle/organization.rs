@@ -28,16 +28,6 @@ impl tg::handle::Organization for Server {
 			.await
 	}
 
-	async fn try_get_organization_grants(
-		&self,
-		organization: &tg::organization::Selector,
-		arg: tg::organization::grants::Arg,
-	) -> tg::Result<Option<tg::organization::grants::Output>> {
-		self.session(&self.context)
-			.try_get_organization_grants(organization, arg)
-			.await
-	}
-
 	async fn list_organization_members(
 		&self,
 		organization: &tg::organization::Selector,

@@ -52,6 +52,7 @@ pub enum Kind {
 	ResourceGrant = 27,
 	PrincipalGrant = 28,
 	Node = 29,
+	Visibility = 30,
 }
 
 impl fdbt::TuplePack for Key {
@@ -274,6 +275,20 @@ impl fdbt::TuplePack for Key {
 			Key::Node(crate::fdb::node::Key::Node(specifier)) => {
 				(Kind::Node.to_i32().unwrap(), specifier.to_string()).pack(w, tuple_depth)
 			},
+
+			Key::Grant(crate::fdb::grant::Key::Visibility {
+				resource,
+				principal,
+				grant_resource,
+				permission,
+			}) => (
+				Kind::Visibility.to_i32().unwrap(),
+				resource.to_bytes().as_ref(),
+				principal.to_string(),
+				grant_resource.to_bytes().as_ref(),
+				permission.to_string(),
+			)
+				.pack(w, tuple_depth),
 
 			Key::Clean(crate::fdb::clean::Key::Clean {
 				partition,
@@ -727,6 +742,34 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid specifier".into()))?;
 				Ok((input, Key::Node(crate::fdb::node::Key::Node(specifier))))
+			},
+
+			Kind::Visibility => {
+				let (input, resource_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, principal): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, grant_resource_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, permission): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
+				let principal = principal
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let grant_resource = tg::Id::from_slice(&grant_resource_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
+				let permission = permission
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let key = Key::Grant(crate::fdb::grant::Key::Visibility {
+					resource,
+					principal,
+					grant_resource,
+					permission,
+				});
+				Ok((input, key))
 			},
 
 			Kind::Clean => {

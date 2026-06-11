@@ -51,4 +51,51 @@ impl Session {
 			.authorize(resource, permission, self.context.principal.as_ref())
 			.await
 	}
+
+	/// Compute the permissions the current principal has on a tag item, to be recorded on the tag.
+	pub(crate) async fn recorded_tag_permissions(
+		&self,
+		item: &tg::tag::data::Item,
+	) -> tg::Result<Vec<tg::grant::Permission>> {
+		let (resource, aspects): (tg::Id, Vec<tg::grant::Permission>) = match item {
+			tg::tag::data::Item::Object(id) => (
+				id.clone().into(),
+				vec![tg::grant::Permission::Object(
+					tg::grant::permission::object::Permission::Node,
+				)],
+			),
+			tg::tag::data::Item::Process(id) => (
+				id.clone().into(),
+				[
+					tg::grant::permission::process::Permission::Node,
+					tg::grant::permission::process::Permission::NodeCommand,
+					tg::grant::permission::process::Permission::NodeError,
+					tg::grant::permission::process::Permission::NodeLog,
+					tg::grant::permission::process::Permission::NodeOutput,
+				]
+				.into_iter()
+				.map(tg::grant::Permission::Process)
+				.collect(),
+			),
+		};
+		// Root is always authorized, so it records the subtree variant of every aspect without consulting the index.
+		if matches!(self.context.principal, Some(tg::Principal::Root)) {
+			return Ok(aspects
+				.into_iter()
+				.map(tg::grant::Permission::subtree)
+				.collect());
+		}
+		// For each aspect, record the strongest permission the principal has, trying the subtree variant before the node variant.
+		let mut permissions = Vec::new();
+		for aspect in aspects {
+			for permission in [aspect.subtree(), aspect] {
+				let resource = tg::grant::Resource::Id(resource.clone());
+				if self.authorize(resource, permission).await? == Some(true) {
+					permissions.push(permission);
+					break;
+				}
+			}
+		}
+		Ok(permissions)
+	}
 }

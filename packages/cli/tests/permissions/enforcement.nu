@@ -35,15 +35,15 @@ let carol_user_id = $carol_user.id
 
 tg --token $alice group create project
 tg --token $alice group get project
-tg --token $alice grants list project
+tg --token $alice grants list --resource project
 tg --token $alice group create project/pkg
 
 tg --token $alice group create location-flags
 tg --token $alice grant $bob_user_id read location-flags
 tg --token $alice grant $carol_user_id write location-flags
-tg --token $alice grants list location-flags
-tg --token $alice user grants bob
-tg --token $alice user grants carol
+tg --token $alice grants list --resource location-flags
+tg --token $bob grants list --principal $bob_user_id
+tg --token $carol grants list --principal $carol_user_id
 tg --token $alice grants delete $bob_user_id read location-flags
 tg --token $alice revoke $carol_user_id write location-flags
 
@@ -72,13 +72,14 @@ tg --token $alice group create tag-location-flags
 tg --token $alice tag tag-location-flags/pkg $id
 tg --token $alice grant $bob_user_id read tag-location-flags/pkg
 tg --token $alice grant $carol_user_id write tag-location-flags/pkg
-tg --token $alice grants list tag-location-flags/pkg
+tg --token $alice grants list --resource tag-location-flags/pkg
 tg --token $alice grants delete $bob_user_id read tag-location-flags/pkg
 tg --token $alice revoke $carol_user_id write tag-location-flags/pkg
 
 let config = anonymous_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg group get project | complete }
-assert_unauthorized $output "An anonymous user should not be able to get a private claimed group."
+failure $output "An anonymous user should not be able to get a private claimed group."
+assert ($output.stderr | str contains "failed to find the group") "The private group should not be visible without a public read grant."
 
 tg --token $alice group create public
 tg --token $alice grant public read public
@@ -99,15 +100,15 @@ success $output "An anonymous user should be able to get a top-level public tag.
 
 let output = tg --token $alice group create top-level | complete
 failure $output "A group should not be created with the same specifier as a tag."
-assert ($output.stderr | str contains "already exists") "The error should mention that a node already exists with the specifier."
+assert ($output.stderr | str contains "already in use") "The error should mention that the specifier is already in use."
 
 let output = tg --token $alice tag project $id | complete
 failure $output "A tag should not be created with the same specifier as a group."
-assert ($output.stderr | str contains "already exists") "The error should mention that a node already exists with the specifier."
+assert ($output.stderr | str contains "already in use") "The error should mention that the specifier is already in use."
 
 tg --token $alice tag auto-created/pkg $id
 tg --token $alice group get auto-created
-tg --token $alice grants list auto-created
+tg --token $alice grants list --resource auto-created
 
 let output = tg --token $bob tag auto-created/sibling $id | complete
 assert_unauthorized $output "Bob should not be able to put a tag in Alice's auto-created group."
@@ -131,7 +132,7 @@ tg --token $bob tag tag-private/pkg $id
 let output = tg --token $bob tag tag-private/sibling $id | complete
 assert_unauthorized $output "A tag grant should not grant write access to sibling tags."
 
-let output = tg --token $bob grants list tag-private/pkg | complete
+let output = tg --token $bob grants list --resource tag-private/pkg | complete
 assert_unauthorized $output "A write tag grant should not allow Bob to inspect tag grants."
 
 tg --token $alice grant $bob_user_id admin tag-private/pkg
@@ -193,17 +194,19 @@ tg --token $bob group get alice/project
 let bob_artifact_id = tg --token $bob checkin $path
 tg --token $bob tag put alice/project/pkg $bob_artifact_id
 
-let output = tg --token $bob grants list alice/project | complete
+let output = tg --token $bob grants list --resource alice/project | complete
 assert_unauthorized $output "Write permission should not allow Bob to inspect group grants."
 
-let bob_grants = tg --token $bob user grants bob | from json
+let bob_grants = tg --token $bob grants list --principal $bob_user_id | from json
 assert (($bob_grants | length) > 0) "Bob should be able to inspect his own grants."
 
-let output = tg --token $bob user grants carol | complete
-assert_unauthorized $output "Write permission should not allow Bob to inspect Carol's grants."
+let output = tg --token $bob grants list --principal $carol_user_id | complete
+failure $output "Write permission should not allow Bob to inspect Carol's grants."
+assert ($output.stderr | str contains "failed to find the principal") "Carol's grants should not be visible without read permission on her."
 
 let output = tg --token $carol group get alice/project | complete
-assert_unauthorized $output "Carol should not be able to get a group without read permission."
+failure $output "Carol should not be able to get a group without read permission."
+assert ($output.stderr | str contains "failed to find the group") "The group should not be visible without read permission."
 
 let output = tg --token $carol tag get alice/project/pkg | complete
 failure $output "Carol should not be able to get a tag without read permission."
@@ -213,8 +216,9 @@ let output = tg --token invalid list --no-groups --recursive alice/project | com
 success $output "An invalid token should be treated as anonymous for readable entries."
 assert (not ($output.stdout | str contains "alice/project/pkg")) "The private tag should not be visible with an invalid token."
 
-let output = tg --token invalid grants list alice/project | complete
-assert_unauthorized $output "An invalid token should not be able to inspect group grants."
+let output = tg --token invalid grants list --resource alice/project | complete
+failure $output "An invalid token should not be able to inspect group grants."
+assert ($output.stderr | str contains "failed to find the resource") "The group grants should not be visible with an invalid token."
 
 let config = invalid_token_config
 let output = with-env { TANGRAM_CONFIG: $config } { tg health | complete }
@@ -244,14 +248,15 @@ tg --token $alice grant $carol_user_id read alice/project
 tg --token $carol group get alice/project
 tg --token $carol tag get alice/project/pkg
 
-let output = tg --token $carol grants list alice/project | complete
+let output = tg --token $carol grants list --resource alice/project | complete
 assert_unauthorized $output "Read permission should not allow Carol to inspect group grants."
 
-let carol_grants = tg --token $carol user grants carol | from json
+let carol_grants = tg --token $carol grants list --principal $carol_user_id | from json
 assert (($carol_grants | length) > 0) "Carol should be able to inspect her own grants."
 
-let bob_grants = tg --token $carol user grants bob | from json
-assert equal ($bob_grants | length) 0 "Carol should not see Bob's grants without admin permission."
+let output = tg --token $carol grants list --principal $bob_user_id | complete
+failure $output "Carol should not be able to inspect Bob's grants without admin permission on him."
+assert ($output.stderr | str contains "failed to find the principal") "Bob's grants should not be visible without read permission on him."
 
 let output = tg --token $carol tag put alice/project/carol $id | complete
 assert_unauthorized $output "Read permission should not allow Carol to put a tag."
@@ -260,8 +265,10 @@ let output = tg --token $carol tag delete alice/project/pkg | complete
 assert_unauthorized $output "Read permission should not allow Carol to delete a tag."
 
 tg --token $alice grant $bob_user_id admin alice/project
-tg --token $bob grants list alice/project
-tg --token $bob user grants carol
+tg --token $bob grants list --resource alice/project
+let output = tg --token $bob grants list --principal $carol_user_id | complete
+failure $output "Admin on the group should not allow Bob to inspect Carol's grants."
+assert ($output.stderr | str contains "failed to find the principal") "Carol's grants should not be visible without read permission on her."
 tg --token $bob grant $carol_user_id write alice/project
 let carol_id = tg --token $carol checkin $path
 tg --token $carol tag put alice/project/carol $carol_id

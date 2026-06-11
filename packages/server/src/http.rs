@@ -527,6 +527,7 @@ impl Server {
 			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
 
 			// Grants.
+			(http::Method::GET, ["grants"]) => session.list_grants_request(request).boxed(),
 			(http::Method::POST, ["grants"]) => session.create_grant_request(request).boxed(),
 			(http::Method::DELETE, ["grants"]) => session.delete_grant_request(request).boxed(),
 
@@ -538,9 +539,6 @@ impl Server {
 			},
 			(http::Method::DELETE, ["groups", group]) => {
 				session.try_delete_group_request(request, group).boxed()
-			},
-			(http::Method::GET, ["groups", group, "grants"]) => {
-				session.try_get_group_grants_request(request, group).boxed()
 			},
 			(http::Method::GET, ["groups", group, "members"]) => {
 				session.list_group_members_request(request, group).boxed()
@@ -586,9 +584,6 @@ impl Server {
 				.boxed(),
 			(http::Method::DELETE, ["organizations", organization]) => session
 				.try_delete_organization_request(request, organization)
-				.boxed(),
-			(http::Method::GET, ["organizations", organization, "grants"]) => session
-				.try_get_organization_grants_request(request, organization)
 				.boxed(),
 			(http::Method::GET, ["organizations", organization, "members"]) => session
 				.list_organization_members_request(request, organization)
@@ -689,9 +684,6 @@ impl Server {
 			(http::Method::POST, ["tags", "batch"]) => {
 				session.post_tag_batch_request(request).boxed()
 			},
-			(http::Method::GET, ["tags", tag, "grants"]) => {
-				session.try_get_tag_grants_request(request, tag).boxed()
-			},
 			(http::Method::GET, ["tags", path @ ..]) => {
 				session.try_get_tag_request(request, path).boxed()
 			},
@@ -699,9 +691,6 @@ impl Server {
 			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
 
 			// Users.
-			(http::Method::GET, ["users", user, "grants"]) => {
-				session.try_get_user_grants_request(request, user).boxed()
-			},
 			(http::Method::GET, ["users", user]) => {
 				session.try_get_user_request(request, user).boxed()
 			},

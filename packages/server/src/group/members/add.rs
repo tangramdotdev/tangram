@@ -33,7 +33,7 @@ impl Session {
 		member: &tg::group::Member,
 	) -> tg::Result<()> {
 		match self
-			.authorize(group.clone().into(), tg::grant::Permission::Admin)
+			.authorize(group.clone().into(), tg::grant::Permission::Write)
 			.await?
 		{
 			None => return Err(tg::error!("failed to find the group")),
@@ -139,7 +139,7 @@ impl Session {
 		};
 		let arg = tg::grant::create::Arg {
 			principal: principal.into(),
-			permission: tg::grant::Permission::Read,
+			permission: tg::grant::Permission::Write,
 			resource: tg::grant::Resource::Id(group.id.clone()),
 		};
 		self.create_grant_with_transaction(transaction, arg, batch)

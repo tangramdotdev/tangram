@@ -80,7 +80,7 @@ impl Index {
 	pub(crate) fn get_process_parents_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
+		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
 		let id_bytes = id.to_bytes();

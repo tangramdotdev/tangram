@@ -16,12 +16,4 @@ impl tg::handle::User for Session {
 	async fn login_user(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {
 		self.login_user(arg).await
 	}
-
-	async fn try_get_user_grants(
-		&self,
-		user: &tg::user::Selector,
-		arg: tg::user::grants::Arg,
-	) -> tg::Result<Option<tg::user::grants::Output>> {
-		self.try_get_user_grants(user, arg).await
-	}
 }

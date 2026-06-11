@@ -93,6 +93,7 @@ impl Session {
 		let resource = Self::resolve_resource_with_transaction(transaction, &arg.resource)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
+		tangram_index::authorize::validate(&resource, arg.permission)?;
 		let principal = Self::resolve_principal_with_transaction(transaction, &arg.principal)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the principal"))?;
@@ -152,8 +153,6 @@ impl Session {
 				resource,
 			});
 		}
-		Self::increment_visibility_with_transaction(transaction, &resource, &principal.to_string())
-			.await?;
 		batch.put_grants.push(tangram_index::grant::put::Arg {
 			created_at,
 			creator: creator.clone(),
@@ -207,8 +206,6 @@ impl Session {
 		if deleted == 0 {
 			return Ok(None);
 		}
-		Self::decrement_visibility_with_transaction(transaction, &resource, &principal.to_string())
-			.await?;
 		batch.delete_grants.push(tangram_index::grant::delete::Arg {
 			permission: arg.permission,
 			principal,
@@ -271,20 +268,220 @@ impl Session {
 				resource: row.resource,
 			});
 		}
-		for statement in [
-			format!("delete from grants where principal = {p}1;"),
-			format!("delete from visibility where principal = {p}1;"),
-			format!("delete from visibility where resource = {p}1;"),
-		] {
-			transaction
-				.execute(statement.into(), db::params![id.to_string()])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		}
+		let statement = formatdoc!(
+			"
+				delete from grants
+				where principal = {p}1;
+			"
+		);
+		transaction
+			.execute(statement.into(), db::params![id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())
 	}
 
-	pub(crate) async fn list_direct_grants_with_transaction(
+	pub(crate) async fn list_grants(
+		&self,
+		arg: tg::grant::list::Arg,
+	) -> tg::Result<Option<tg::grant::list::Output>> {
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(_) => self.list_grants_local(arg).await,
+			tg::Location::Remote(remote) => self.list_grants_remote(arg, remote).await,
+		}
+	}
+
+	async fn list_grants_local(
+		&self,
+		arg: tg::grant::list::Arg,
+	) -> tg::Result<Option<tg::grant::list::Output>> {
+		match (arg.resource, arg.principal) {
+			(Some(resource), None) => self.list_resource_grants_local(resource).await,
+			(None, Some(principal)) => self.list_principal_grants_local(principal).await,
+			_ => Err(tg::error!(
+				"expected exactly one of a resource or a principal"
+			)),
+		}
+	}
+
+	async fn list_resource_grants_local(
+		&self,
+		resource: tg::grant::Resource,
+	) -> tg::Result<Option<tg::grant::list::Output>> {
+		// Listing the grants on an object or a process requires the root principal.
+		if let tg::grant::Resource::Id(id) = &resource
+			&& (id.kind() == tg::id::Kind::Process || tg::object::Id::try_from(id.clone()).is_ok())
+		{
+			if !matches!(self.context.principal, Some(tg::Principal::Root)) {
+				return Err(tg::error!("unauthorized"));
+			}
+			let mut connection = self
+				.server
+				.database
+				.connection()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+			let transaction = connection
+				.transaction()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+			let data = Self::list_resource_grants_with_transaction(&transaction, id).await?;
+			return Ok(Some(tg::grant::list::Output { data }));
+		}
+		// Listing the grants on a node requires admin permission, and the node is not found without read permission.
+		if self
+			.authorize(resource.clone(), tg::grant::Permission::Read)
+			.await? != Some(true)
+		{
+			return Ok(None);
+		}
+		if self
+			.authorize(resource.clone(), tg::grant::Permission::Admin)
+			.await? != Some(true)
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let Some(id) = Self::resolve_resource_with_transaction(&transaction, &resource).await?
+		else {
+			return Ok(None);
+		};
+		let data = Self::list_resource_grants_with_transaction(&transaction, &id).await?;
+		Ok(Some(tg::grant::list::Output { data }))
+	}
+
+	async fn list_principal_grants_local(
+		&self,
+		principal: tg::principal::Selector,
+	) -> tg::Result<Option<tg::grant::list::Output>> {
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let Some(principal) =
+			Self::resolve_principal_with_transaction(&transaction, &principal).await?
+		else {
+			return Ok(None);
+		};
+		match &principal {
+			// Listing the grants held by a user, group, or organization requires admin permission on it, and it is not found without read permission.
+			tg::grant::Principal::Group(_)
+			| tg::grant::Principal::Organization(_)
+			| tg::grant::Principal::User(_) => {
+				let id: tg::Id = match &principal {
+					tg::grant::Principal::Group(id) => id.clone().into(),
+					tg::grant::Principal::Organization(id) => id.clone().into(),
+					tg::grant::Principal::User(id) => id.clone().into(),
+					_ => unreachable!(),
+				};
+				if self
+					.authorize(
+						tg::grant::Resource::Id(id.clone()),
+						tg::grant::Permission::Read,
+					)
+					.await? != Some(true)
+				{
+					return Ok(None);
+				}
+				if self
+					.authorize(tg::grant::Resource::Id(id), tg::grant::Permission::Admin)
+					.await? != Some(true)
+				{
+					return Err(tg::error!("unauthorized"));
+				}
+			},
+			// Listing the grants held by any other principal requires the root principal.
+			tg::grant::Principal::Process(_)
+			| tg::grant::Principal::Public
+			| tg::grant::Principal::Root
+			| tg::grant::Principal::Runner
+			| tg::grant::Principal::Sandbox(_) => {
+				if !matches!(self.context.principal, Some(tg::Principal::Root)) {
+					return Err(tg::error!("unauthorized"));
+				}
+			},
+		}
+		let data = Self::list_principal_grants_with_transaction(&transaction, &principal).await?;
+		Ok(Some(tg::grant::list::Output { data }))
+	}
+
+	async fn list_grants_remote(
+		&self,
+		mut arg: tg::grant::list::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::grant::list::Output>> {
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		client
+			.list_grants(arg)
+			.await
+			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to list the grants"))
+	}
+
+	pub(crate) async fn list_grants_request(
+		&self,
+		request: http::Request<BoxBody>,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.unwrap_or_default();
+		let Some(output) = self.list_grants(arg).await? else {
+			let response = http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body();
+			return Ok(response);
+		};
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = serde_json::to_vec(&output).unwrap();
+				(Some(content_type), BoxBody::with_bytes(body))
+			},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+			},
+		};
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap().boxed_body();
+		Ok(response)
+	}
+
+	pub(crate) async fn list_resource_grants_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		resource: &tg::Id,
 	) -> tg::Result<Vec<tg::Grant>> {
@@ -319,6 +516,45 @@ impl Session {
 				permission: row.permission,
 				principal: row.principal,
 				resource: resource.clone(),
+			})
+			.collect())
+	}
+
+	async fn list_principal_grants_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		principal: &tg::grant::Principal,
+	) -> tg::Result<Vec<tg::Grant>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			creator: Option<tg::Principal>,
+			#[tangram_database(as = "db::value::FromStr")]
+			permission: tg::grant::Permission,
+			#[tangram_database(as = "db::value::FromStr")]
+			resource: tg::Id,
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select created_at, creator, permission, resource
+				from grants
+				where principal = {p}1
+				order by resource, permission;
+			"
+		);
+		let rows = transaction
+			.query_all_into::<Row>(statement.into(), db::params![principal.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(rows
+			.into_iter()
+			.map(|row| tg::Grant {
+				created_at: row.created_at,
+				creator: row.creator,
+				permission: row.permission,
+				principal: principal.clone(),
+				resource: row.resource,
 			})
 			.collect())
 	}

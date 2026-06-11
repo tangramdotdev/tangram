@@ -138,7 +138,7 @@ impl Session {
 		};
 		let arg = tg::grant::delete::Arg {
 			principal: principal.into(),
-			permission: tg::grant::Permission::Read,
+			permission: tg::grant::Permission::Write,
 			resource: tg::grant::Resource::Id(group.id.clone()),
 		};
 		self.delete_grant_with_transaction(transaction, arg, batch)

@@ -106,6 +106,7 @@ impl Index {
 			name: arg.name.clone(),
 			parent: arg.parent.clone(),
 			specifier: arg.specifier.clone(),
+			permissions: arg.permissions.clone(),
 		}
 		.serialize()?;
 		db.put(transaction, &key, &value)

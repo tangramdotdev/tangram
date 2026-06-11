@@ -1,7 +1,6 @@
 pub mod batch;
 pub mod delete;
 pub mod get;
-pub mod grants;
 pub mod pull;
 pub mod put;
 
@@ -18,11 +17,12 @@ pub(crate) async fn get_tag_data_with_transaction(
 	#[derive(db::row::Deserialize)]
 	struct Row {
 		item: String,
+		permissions: String,
 	}
 	let p = transaction.p();
 	let statement = formatdoc!(
 		"
-			select item
+			select item, permissions
 			from tags
 			where id = {p}1;
 		"
@@ -32,11 +32,14 @@ pub(crate) async fn get_tag_data_with_transaction(
 		.await
 		.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 	let item = parse_tag_item(&row.item)?;
+	let permissions = serde_json::from_str(&row.permissions)
+		.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
 	Ok(tg::tag::Data {
 		id: node.id.clone().try_into()?,
 		item,
 		name: node.name.clone(),
 		parent: node.parent.clone(),
+		permissions,
 		specifier: node.specifier.clone(),
 	})
 }

@@ -47,17 +47,6 @@ where
 		}
 	}
 
-	fn try_get_group_grants(
-		&self,
-		group: &tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_get_group_grants(group, arg).left_future(),
-			tg::Either::Right(s) => s.try_get_group_grants(group, arg).right_future(),
-		}
-	}
-
 	fn list_group_members(
 		&self,
 		group: &tg::group::Selector,

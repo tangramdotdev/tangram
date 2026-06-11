@@ -16,14 +16,6 @@ impl tg::handle::Tag for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(tag)) }
 	}
 
-	fn try_get_tag_grants(
-		&self,
-		tag: &tg::tag::Selector,
-		arg: tg::tag::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::grants::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag_grants(tag, arg)) }
-	}
-
 	fn delete_tags(
 		&self,
 		arg: tg::tag::delete::Arg,

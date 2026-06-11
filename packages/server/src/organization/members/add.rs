@@ -39,7 +39,7 @@ impl Session {
 		member: &tg::organization::Member,
 	) -> tg::Result<()> {
 		match self
-			.authorize(organization.clone().into(), tg::grant::Permission::Admin)
+			.authorize(organization.clone().into(), tg::grant::Permission::Write)
 			.await?
 		{
 			None => return Err(tg::error!("failed to find the organization")),
@@ -148,7 +148,7 @@ impl Session {
 		};
 		let arg = tg::grant::create::Arg {
 			principal: principal.into(),
-			permission: tg::grant::Permission::Read,
+			permission: tg::grant::Permission::Write,
 			resource: tg::grant::Resource::Id(organization.id.clone()),
 		};
 		self.create_grant_with_transaction(transaction, arg, batch)

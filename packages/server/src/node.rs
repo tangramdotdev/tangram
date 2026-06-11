@@ -134,6 +134,12 @@ impl Session {
 	) -> tg::Result<Option<tg::Id>> {
 		match resource {
 			tg::grant::Resource::Id(id) => {
+				// Objects and processes are not nodes, so their ids resolve directly.
+				if id.kind() == tg::id::Kind::Process
+					|| tg::object::Id::try_from(id.clone()).is_ok()
+				{
+					return Ok(Some(id.clone()));
+				}
 				Ok(Self::try_get_node_by_id_with_transaction(transaction, id)
 					.await?
 					.map(|node| node.id))
@@ -164,161 +170,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(row.is_some())
-	}
-
-	pub(crate) async fn visible_principals_with_transaction(
-		&self,
-		transaction: &Transaction<'_>,
-	) -> tg::Result<Vec<String>> {
-		if matches!(self.context.principal, Some(tg::Principal::Root)) {
-			return Ok(Vec::new());
-		}
-		let mut principals = vec![tg::grant::Principal::Public.to_string()];
-		if let Some(tg::Principal::User(user)) = &self.context.principal {
-			principals.push(user.to_string());
-			principals.extend(
-				Self::direct_memberships_with_transaction(transaction, &user.clone().into())
-					.await?,
-			);
-		}
-		principals.sort();
-		principals.dedup();
-		Ok(principals)
-	}
-
-	pub(crate) async fn node_is_visible_with_transaction(
-		&self,
-		transaction: &Transaction<'_>,
-		id: &tg::Id,
-	) -> tg::Result<bool> {
-		if matches!(self.context.principal, Some(tg::Principal::Root)) {
-			return Ok(true);
-		}
-		let principals = self
-			.visible_principals_with_transaction(transaction)
-			.await?;
-		if principals.is_empty() {
-			return Ok(false);
-		}
-		for resource in Self::ancestor_ids_with_transaction(transaction, id).await? {
-			for principal in &principals {
-				let p = transaction.p();
-				let statement = formatdoc!(
-					"
-						select 1
-						from visibility
-						where resource = {p}1 and principal = {p}2
-						limit 1;
-					"
-				);
-				let row = transaction
-					.query_optional(statement.into(), db::params![resource.clone(), principal])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-				if row.is_some() {
-					return Ok(true);
-				}
-			}
-		}
-		Ok(false)
-	}
-
-	pub(crate) async fn increment_visibility_with_transaction(
-		transaction: &Transaction<'_>,
-		resource: &tg::Id,
-		principal: &str,
-	) -> tg::Result<()> {
-		for resource in Self::ancestor_ids_with_transaction(transaction, resource).await? {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					insert into visibility (resource, principal, count)
-					values ({p}1, {p}2, 1)
-					on conflict (resource, principal)
-					do update set count = visibility.count + 1;
-				"
-			);
-			let result = transaction
-				.execute(statement.into(), db::params![resource, principal])
-				.await;
-			result.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		}
-		Ok(())
-	}
-
-	pub(crate) async fn decrement_visibility_with_transaction(
-		transaction: &Transaction<'_>,
-		resource: &tg::Id,
-		principal: &str,
-	) -> tg::Result<()> {
-		for resource in Self::ancestor_ids_with_transaction(transaction, resource).await? {
-			let p = transaction.p();
-			let statement = formatdoc!(
-				"
-					delete from visibility
-					where resource = {p}1 and principal = {p}2 and count = 1;
-				"
-			);
-			let result = transaction
-				.execute(statement.into(), db::params![resource.clone(), principal])
-				.await;
-			let deleted =
-				result.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			if deleted == 0 {
-				let statement = formatdoc!(
-					"
-						update visibility
-						set count = count - 1
-						where resource = {p}1 and principal = {p}2 and count > 1;
-					"
-				);
-				let result = transaction
-					.execute(statement.into(), db::params![resource, principal])
-					.await;
-				result.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			}
-		}
-		Ok(())
-	}
-
-	async fn ancestor_ids_with_transaction(
-		transaction: &Transaction<'_>,
-		resource: &tg::Id,
-	) -> tg::Result<Vec<String>> {
-		let mut ids = Vec::new();
-		let mut current = Some(resource.clone());
-		while let Some(id) = current {
-			let Some(node) = Self::try_get_node_by_id_with_transaction(transaction, &id).await?
-			else {
-				break;
-			};
-			ids.push(node.id.to_string());
-			current = node.parent;
-		}
-		Ok(ids)
-	}
-
-	async fn direct_memberships_with_transaction(
-		transaction: &Transaction<'_>,
-		member: &tg::Id,
-	) -> tg::Result<Vec<String>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			id: String,
-		}
-		let p = transaction.p();
-		let statement = formatdoc!(
-			r#"
-				select "group" as id from group_members where member = {p}1
-				union
-				select organization as id from organization_members where member = {p}1;
-			"#
-		);
-		let rows = transaction
-			.query_all_into::<Row>(statement.into(), db::params![member.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(rows.into_iter().map(|row| row.id).collect())
 	}
 }
 

@@ -9,6 +9,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod authorize;
 mod batch;
 mod cache;
 mod clean;
@@ -25,6 +26,7 @@ mod tag;
 mod task;
 mod update;
 mod user;
+mod visible;
 
 pub(super) use {
 	key::{Key, Kind},
@@ -168,6 +170,14 @@ impl crate::Index for Index {
 		principal: Option<&tg::Principal>,
 	) -> tg::Result<Option<bool>> {
 		self.authorize(resource, permission, principal).await
+	}
+
+	async fn visible(
+		&self,
+		ids: &[tg::Id],
+		principal: Option<&tg::Principal>,
+	) -> tg::Result<Vec<bool>> {
+		self.visible(ids, principal).await
 	}
 
 	async fn batch(&self, arg: crate::batch::Arg) -> tg::Result<()> {

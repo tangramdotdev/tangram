@@ -44,6 +44,20 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the principal grant"))?;
+
+			let ids =
+				Self::ancestor_ids_with_transaction(db, subspace, transaction, &arg.resource)?;
+			for id in ids {
+				let key = Key::Grant(crate::lmdb::grant::Key::Visibility {
+					resource: id,
+					principal: arg.principal.clone(),
+					grant_resource: arg.resource.clone(),
+					permission: arg.permission,
+				});
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|error| tg::error!(!error, "failed to put the visibility entry"))?;
+			}
 		}
 		Ok(())
 	}

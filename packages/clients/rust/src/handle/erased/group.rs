@@ -26,12 +26,6 @@ pub trait Group: Send + Sync + 'static {
 		arg: tg::group::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
-	fn try_get_group_grants<'a>(
-		&'a self,
-		group: &'a tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::group::grants::Output>>>;
-
 	fn list_group_members<'a>(
 		&'a self,
 		group: &'a tg::group::Selector,
@@ -84,14 +78,6 @@ where
 		arg: tg::group::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_delete_group(group, arg).boxed()
-	}
-
-	fn try_get_group_grants<'a>(
-		&'a self,
-		group: &'a tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::group::grants::Output>>> {
-		self.try_get_group_grants(group, arg).boxed()
 	}
 
 	fn list_group_members<'a>(

@@ -5,56 +5,30 @@ use {
 };
 
 impl Index {
-	pub async fn authorize(
-		&self,
-		resource: tg::grant::Resource,
-		_permission: tg::grant::Permission,
-		_principal: Option<&tg::Principal>,
-	) -> tg::Result<Option<bool>> {
-		let id = self.try_resolve_resource(&resource).await?;
-		// The permission traversal is not implemented yet, so any resolved resource is authorized.
-		Ok(id.map(|_| true))
-	}
-
-	async fn try_resolve_resource(
-		&self,
+	pub(crate) fn try_resolve_resource_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::grant::Resource,
 	) -> tg::Result<Option<tg::Id>> {
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let subspace = self.subspace.clone();
-			let resource = resource.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				match &resource {
-					tg::grant::Resource::Id(id) => {
-						Self::try_resolve_id_with_transaction(&db, &subspace, &transaction, id)
-					},
-					tg::grant::Resource::Specifier(specifier) => {
-						// Resolve the deepest existing prefix of the specifier.
-						let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
-						prefixes.reverse();
-						for prefix in &prefixes {
-							let id = Self::try_get_node_with_transaction(
-								&db,
-								&subspace,
-								&transaction,
-								prefix,
-							)?;
-							if let Some(id) = id {
-								return Ok(Some(id));
-							}
-						}
-						Ok(None)
-					},
+		match resource {
+			tg::grant::Resource::Id(id) => {
+				Self::try_resolve_id_with_transaction(db, subspace, transaction, id)
+			},
+			tg::grant::Resource::Specifier(specifier) => {
+				// Resolve the deepest existing prefix of the specifier.
+				let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
+				prefixes.reverse();
+				for prefix in &prefixes {
+					let id =
+						Self::try_get_node_with_transaction(db, subspace, transaction, prefix)?;
+					if let Some(id) = id {
+						return Ok(Some(id));
+					}
 				}
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+				Ok(None)
+			},
+		}
 	}
 
 	fn try_resolve_id_with_transaction(
@@ -72,13 +46,67 @@ impl Index {
 				crate::lmdb::organization::Key::Organization(id.clone().try_into()?),
 			),
 			tg::id::Kind::Tag => Key::Tag(crate::lmdb::tag::Key::Tag(id.clone().try_into()?)),
-			_ => return Ok(None),
+			tg::id::Kind::Process => {
+				Key::Process(crate::lmdb::process::Key::Process(id.clone().try_into()?))
+			},
+			_ => {
+				let Ok(object) = tg::object::Id::try_from(id.clone()) else {
+					return Ok(None);
+				};
+				Key::Object(crate::lmdb::object::Key::Object(object))
+			},
 		};
 		let key = Self::pack(subspace, &key);
 		let value = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the node"))?;
 		Ok(value.map(|_| id.clone()))
+	}
+
+	pub(crate) fn ancestor_ids_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::Id,
+	) -> tg::Result<Vec<tg::Id>> {
+		let mut ids = Vec::new();
+		let mut current = Some(id.clone());
+		while let Some(id) = current {
+			match id.kind {
+				tg::id::Kind::Tag => {
+					let Some(tag) = Self::try_get_tag_with_transaction(
+						db,
+						subspace,
+						transaction,
+						&id.clone().try_into()?,
+					)?
+					else {
+						break;
+					};
+					ids.push(id);
+					current = tag.parent;
+				},
+				tg::id::Kind::Group => {
+					let Some(group) = Self::try_get_group_with_transaction(
+						db,
+						subspace,
+						transaction,
+						&id.clone().try_into()?,
+					)?
+					else {
+						break;
+					};
+					ids.push(id);
+					current = group.parent;
+				},
+				tg::id::Kind::User | tg::id::Kind::Organization => {
+					ids.push(id);
+					current = None;
+				},
+				_ => break,
+			}
+		}
+		Ok(ids)
 	}
 
 	pub(crate) fn try_get_node_with_transaction(

@@ -22,12 +22,4 @@ impl tg::handle::User for Handle {
 	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.login_user(arg)) }
 	}
-
-	fn try_get_user_grants(
-		&self,
-		user: &tg::user::Selector,
-		arg: tg::user::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::user::grants::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_user_grants(user, arg)) }
-	}
 }

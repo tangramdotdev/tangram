@@ -28,14 +28,6 @@ impl tg::handle::Group for Session {
 		self.try_delete_group(group, arg).await
 	}
 
-	async fn try_get_group_grants(
-		&self,
-		group: &tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> tg::Result<Option<tg::group::grants::Output>> {
-		self.try_get_group_grants(group, arg).await
-	}
-
 	async fn list_group_members(
 		&self,
 		group: &tg::group::Selector,

@@ -35,15 +35,4 @@ where
 			tg::Either::Right(s) => s.login_user(arg).right_future(),
 		}
 	}
-
-	fn try_get_user_grants(
-		&self,
-		user: &tg::user::Selector,
-		arg: tg::user::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::user::grants::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_get_user_grants(user, arg).left_future(),
-			tg::Either::Right(s) => s.try_get_user_grants(user, arg).right_future(),
-		}
-	}
 }

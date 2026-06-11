@@ -84,6 +84,17 @@ impl Session {
 		let tags = self
 			.list_tags_to_delete_with_transaction(transaction, &arg.pattern, arg.recursive)
 			.await?;
+		for tag in &tags {
+			let authorized = self
+				.authorize(
+					tg::grant::Resource::Id(tag.id.clone().into()),
+					tg::grant::Permission::Write,
+				)
+				.await?;
+			if authorized != Some(true) {
+				return Err(tg::error!("unauthorized"));
+			}
+		}
 		let p = transaction.p();
 		for tag in &tags {
 			self.delete_node_grants_with_transaction(transaction, &tag.id.clone().into(), batch)

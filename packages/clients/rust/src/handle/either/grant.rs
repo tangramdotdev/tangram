@@ -24,4 +24,14 @@ where
 			tg::Either::Right(s) => s.delete_grant(arg).right_future(),
 		}
 	}
+
+	fn list_grants(
+		&self,
+		arg: tg::grant::list::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::grant::list::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.list_grants(arg).left_future(),
+			tg::Either::Right(s) => s.list_grants(arg).right_future(),
+		}
+	}
 }

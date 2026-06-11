@@ -788,7 +788,7 @@ impl Index {
 				Self::task_clean(arg).await.map(Response::CleanOutput)
 			},
 			Request::DeleteGrants(args) => {
-				Self::task_delete_grants(txn, subspace, args)?;
+				Self::task_delete_grants(txn, subspace, args).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteGroupMembers(args) => {
@@ -821,7 +821,7 @@ impl Index {
 				Ok(Response::Unit)
 			},
 			Request::PutGrants(args) => {
-				Self::task_put_grants(txn, subspace, args)?;
+				Self::task_put_grants(txn, subspace, args).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutGroupMembers(args) => {

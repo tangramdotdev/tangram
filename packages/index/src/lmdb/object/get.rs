@@ -80,7 +80,7 @@ impl Index {
 	pub(crate) fn get_object_parents_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
+		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
 		let id_bytes = id.to_bytes();
@@ -105,7 +105,7 @@ impl Index {
 	pub(crate) fn get_object_processes_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
+		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<(tg::process::Id, crate::process::object::Kind)>> {
 		let id_bytes = id.to_bytes();

@@ -22,12 +22,4 @@ impl tg::handle::User for tg::Session {
 	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
 		self.login_user(arg)
 	}
-
-	fn try_get_user_grants(
-		&self,
-		user: &tg::user::Selector,
-		arg: tg::user::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::user::grants::Output>>> {
-		self.try_get_user_grants(user, arg)
-	}
 }

@@ -4,10 +4,16 @@ use {
 	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub principal: Option<tg::principal::Selector>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub resource: Option<tg::grant::Resource>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -17,14 +23,12 @@ pub struct Output {
 }
 
 impl tg::Session {
-	pub async fn try_get_group_grants(
+	pub async fn list_grants(
 		&self,
-		group: &tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> tg::Result<Option<tg::group::grants::Output>> {
-		let path = format!("/groups/{}/grants", group.to_string().replace('/', ":"));
+		arg: tg::grant::list::Arg,
+	) -> tg::Result<Option<tg::grant::list::Output>> {
 		let uri = Uri::builder()
-			.path(&path)
+			.path("/grants")
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()

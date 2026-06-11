@@ -137,15 +137,6 @@ impl Cli {
 		Ok(())
 	}
 
-	pub(crate) async fn get_reference(
-		&mut self,
-		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<tg::get::Item>> {
-		self.get_reference_with_arg(reference, tg::get::Arg::default())
-			.boxed()
-			.await
-	}
-
 	pub(crate) async fn get_resolved_reference(
 		&mut self,
 		reference: &tg::Reference,

@@ -4,7 +4,6 @@ pub mod batch;
 pub mod data;
 pub mod delete;
 pub mod get;
-pub mod grants;
 pub mod id;
 pub mod put;
 pub mod selector;
@@ -17,6 +16,7 @@ pub struct Tag {
 	pub item: tg::tag::Item,
 	pub name: String,
 	pub parent: Option<tg::Id>,
+	pub permissions: Vec<tg::grant::Permission>,
 	pub specifier: tg::Specifier,
 }
 

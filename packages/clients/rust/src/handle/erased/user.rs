@@ -19,12 +19,6 @@ pub trait User: Send + Sync + 'static {
 		&self,
 		arg: tg::user::login::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::user::login::Output>>;
-
-	fn try_get_user_grants<'a>(
-		&'a self,
-		user: &'a tg::user::Selector,
-		arg: tg::user::grants::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::user::grants::Output>>>;
 }
 
 impl<T> User for T
@@ -51,13 +45,5 @@ where
 		arg: tg::user::login::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::user::login::Output>> {
 		self.login_user(arg).boxed()
-	}
-
-	fn try_get_user_grants<'a>(
-		&'a self,
-		user: &'a tg::user::Selector,
-		arg: tg::user::grants::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::user::grants::Output>>> {
-		self.try_get_user_grants(user, arg).boxed()
 	}
 }

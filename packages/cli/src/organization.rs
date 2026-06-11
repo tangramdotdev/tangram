@@ -3,7 +3,6 @@ use {crate::Cli, tangram_client::prelude::*};
 pub mod create;
 pub mod delete;
 pub mod get;
-pub mod grants;
 pub mod members;
 
 /// Manage organizations.
@@ -24,8 +23,6 @@ pub enum Command {
 
 	Get(self::get::Args),
 
-	Grants(self::grants::Args),
-
 	Members(self::members::Args),
 }
 
@@ -35,7 +32,6 @@ impl Cli {
 			Command::Create(args) => self.command_organization_create(args).await?,
 			Command::Delete(args) => self.command_organization_delete(args).await?,
 			Command::Get(args) => self.command_organization_get(args).await?,
-			Command::Grants(args) => self.command_organization_grants(args).await?,
 			Command::Members(args) => self.command_organization_members(args).await?,
 		}
 		Ok(())

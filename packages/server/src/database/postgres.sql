@@ -85,21 +85,12 @@ create index grants_resource_index on grants (resource);
 
 create index grants_principal_index on grants (principal);
 
-create table visibility (
-	resource text not null,
-	principal text not null,
-	count int8 not null,
-	check (count > 0),
-	unique (resource, principal)
-);
-
-create index visibility_principal_resource_index on visibility (principal, resource);
-
 create table tags (
 	id text primary key,
 	name text not null,
 	parent text,
 	item text not null,
+	permissions text not null,
 	foreign key (id) references nodes (id),
 	foreign key (parent) references nodes (id)
 );

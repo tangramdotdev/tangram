@@ -13,12 +13,6 @@ pub trait Tag: Send + Sync + 'static {
 		tag: &'a tg::tag::Selector,
 	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>>;
 
-	fn try_get_tag_grants<'a>(
-		&'a self,
-		tag: &'a tg::tag::Selector,
-		arg: tg::tag::grants::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::tag::grants::Output>>>;
-
 	fn delete_tags(
 		&self,
 		arg: tg::tag::delete::Arg,
@@ -42,14 +36,6 @@ where
 		tag: &'a tg::tag::Selector,
 	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>> {
 		self.try_get_tag(tag).boxed()
-	}
-
-	fn try_get_tag_grants<'a>(
-		&'a self,
-		tag: &'a tg::tag::Selector,
-		arg: tg::tag::grants::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::tag::grants::Output>>> {
-		self.try_get_tag_grants(tag, arg).boxed()
 	}
 
 	fn delete_tags(

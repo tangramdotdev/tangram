@@ -5,6 +5,7 @@ pub mod fdb;
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
 
+pub mod authorize;
 pub mod batch;
 pub mod cache;
 pub mod clean;
@@ -27,6 +28,12 @@ pub trait Index {
 		permission: tg::grant::Permission,
 		principal: Option<&tg::Principal>,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
+
+	fn visible(
+		&self,
+		ids: &[tg::Id],
+		principal: Option<&tg::Principal>,
+	) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
 
 	fn batch(&self, arg: crate::batch::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 

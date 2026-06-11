@@ -1,7 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
 pub mod get;
-pub mod grants;
 pub mod login;
 pub mod logout;
 pub mod whoami;
@@ -17,7 +16,6 @@ pub struct Args {
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
 	Get(self::get::Args),
-	Grants(self::grants::Args),
 	Login(self::login::Args),
 	Logout(self::logout::Args),
 	Whoami(self::whoami::Args),
@@ -28,9 +26,6 @@ impl Cli {
 		match args.command {
 			Command::Get(args) => {
 				self.command_user_get(args).await?;
-			},
-			Command::Grants(args) => {
-				self.command_user_grants(args).await?;
 			},
 			Command::Login(args) => {
 				self.command_user_login(args).await?;

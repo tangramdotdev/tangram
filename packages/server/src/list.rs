@@ -6,6 +6,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 };
 
 pub mod remote;
@@ -121,22 +122,53 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let mut data = Vec::new();
+		let mut entries = Vec::new();
 		if arg.groups {
-			data.extend(self.list_local_groups(&transaction, &arg).await?);
+			entries.extend(Self::list_local_groups(&transaction, &arg).await?);
 		}
 		if arg.tags {
-			data.extend(self.list_local_tags(&transaction, &arg).await?);
+			entries.extend(Self::list_local_tags(&transaction, &arg).await?);
 		}
+		let mut data = self.filter_visible_entries(&arg, entries).await?;
 		data.sort_by(|a, b| compare_entries(a, b, arg.reverse));
 		Ok(truncate(tg::list::Output { data }, arg.length))
 	}
 
-	async fn list_local_groups(
+	async fn filter_visible_entries(
 		&self,
+		arg: &tg::list::Arg,
+		entries: Vec<(tg::Id, tg::list::Entry)>,
+	) -> tg::Result<Vec<tg::list::Entry>> {
+		if entries.is_empty() {
+			return Ok(Vec::new());
+		}
+		if !arg.pattern.is_empty() && !arg.pattern.contains_operators() {
+			let resource = tg::grant::Resource::Specifier(arg.pattern.to_specifier());
+			let authorized = self
+				.authorize(resource, tg::grant::Permission::Read)
+				.await?;
+			if authorized == Some(true) {
+				return Ok(entries.into_iter().map(|(_, entry)| entry).collect());
+			}
+		}
+		let ids = entries.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+		let visible = self
+			.server
+			.index
+			.visible(&ids, self.context.principal.as_ref())
+			.await?;
+		let entries = entries
+			.into_iter()
+			.zip(visible)
+			.filter_map(|((_, entry), visible)| visible.then_some(entry))
+			.collect();
+		Ok(entries)
+	}
+
+	async fn list_local_groups(
 		transaction: &crate::database::Transaction<'_>,
 		arg: &tg::list::Arg,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -162,25 +194,19 @@ impl Session {
 			if !matches_pattern(&row.specifier, arg) {
 				continue;
 			}
-			if !self
-				.node_is_visible_with_transaction(transaction, &row.id)
-				.await?
-			{
-				continue;
-			}
-			entries.push(tg::list::Entry::Group {
+			let entry = tg::list::Entry::Group {
 				location: None,
 				group: row.specifier,
-			});
+			};
+			entries.push((row.id, entry));
 		}
 		Ok(entries)
 	}
 
 	async fn list_local_tags(
-		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: &tg::list::Arg,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -216,22 +242,17 @@ impl Session {
 			if !matches_pattern(&row.specifier, arg) {
 				continue;
 			}
-			if !self
-				.node_is_visible_with_transaction(transaction, &row.id)
-				.await?
-			{
-				continue;
-			}
 			let item = parse_tag_item(&row.item)?;
 			let item = match item {
 				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
 				tg::tag::data::Item::Process(id) => tg::Either::Right(id),
 			};
-			entries.push(tg::list::Entry::Tag {
+			let entry = tg::list::Entry::Tag {
 				item,
 				location: None,
 				tag: row.specifier,
-			});
+			};
+			entries.push((row.id, entry));
 		}
 		Ok(entries)
 	}

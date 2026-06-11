@@ -1,5 +1,3 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
@@ -25,7 +23,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_put_grants(
+	pub(crate) async fn task_put_grants(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::grant::put::Arg],
@@ -46,6 +44,17 @@ impl Index {
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
+
+			for id in Self::ancestor_ids_with_transaction(txn, subspace, &arg.resource).await? {
+				let key = Key::Grant(crate::fdb::grant::Key::Visibility {
+					resource: id,
+					principal: arg.principal.clone(),
+					grant_resource: arg.resource.clone(),
+					permission: arg.permission,
+				});
+				let key = Self::pack(subspace, &key);
+				txn.set(&key, &[]);
+			}
 		}
 		Ok(())
 	}

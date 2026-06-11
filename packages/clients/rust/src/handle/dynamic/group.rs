@@ -31,16 +31,6 @@ impl tg::handle::Group for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_delete_group(group, arg)) }
 	}
 
-	fn try_get_group_grants(
-		&self,
-		group: &tg::group::Selector,
-		arg: tg::group::grants::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::group::grants::Output>>> {
-		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_group_grants(group, arg))
-		}
-	}
-
 	fn list_group_members(
 		&self,
 		group: &tg::group::Selector,

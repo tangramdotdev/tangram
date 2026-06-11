@@ -27,17 +27,36 @@ impl Session {
 	}
 
 	async fn post_tag_batch_local(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
+		if self.context.principal.is_none() {
+			return Err(tg::error!("unauthorized"));
+		}
+		for item in &arg.tags {
+			let authorized = self
+				.authorize(
+					tg::grant::Resource::Specifier(item.specifier.clone()),
+					tg::grant::Permission::Write,
+				)
+				.await?;
+			if authorized == Some(false) {
+				return Err(tg::error!("unauthorized"));
+			}
+		}
+		let mut permissions = Vec::with_capacity(arg.tags.len());
+		for item in &arg.tags {
+			permissions.push(self.recorded_tag_permissions(&item.item).await?);
+		}
 		let session = self.clone();
 		let data = self
 			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
+				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
 					let mut data = Vec::new();
 					let mut batch = tangram_index::batch::Arg::default();
-					for item in arg.tags {
+					for (item, permissions) in std::iter::zip(arg.tags, permissions) {
 						let arg = tg::tag::put::Arg {
 							force: item.force,
 							item: item.item,
@@ -47,7 +66,7 @@ impl Session {
 						};
 						data.push(
 							session
-								.put_tag_with_transaction(transaction, arg, &mut batch)
+								.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 								.await?,
 						);
 					}
@@ -67,6 +86,7 @@ impl Session {
 				},
 				name: data.name,
 				parent: data.parent,
+				permissions: data.permissions,
 				specifier: data.specifier,
 			})
 			.collect::<Vec<_>>();

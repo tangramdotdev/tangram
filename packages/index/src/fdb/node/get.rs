@@ -6,36 +6,21 @@ use {
 };
 
 impl Index {
-	pub async fn authorize(
-		&self,
-		resource: tg::grant::Resource,
-		_permission: tg::grant::Permission,
-		_principal: Option<&tg::Principal>,
-	) -> tg::Result<Option<bool>> {
-		let id = self.try_resolve_resource(&resource).await?;
-		// The permission traversal is not implemented yet, so any resolved resource is authorized.
-		Ok(id.map(|_| true))
-	}
-
-	async fn try_resolve_resource(
-		&self,
+	pub(crate) async fn try_resolve_resource_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		resource: &tg::grant::Resource,
 	) -> tg::Result<Option<tg::Id>> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 		match resource {
 			tg::grant::Resource::Id(id) => {
-				Self::try_resolve_id_with_transaction(&txn, &self.subspace, id).await
+				Self::try_resolve_id_with_transaction(txn, subspace, id).await
 			},
 			tg::grant::Resource::Specifier(specifier) => {
 				// Resolve the deepest existing prefix of the specifier.
 				let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
 				prefixes.reverse();
 				for prefix in &prefixes {
-					let id =
-						Self::try_get_node_with_transaction(&txn, &self.subspace, prefix).await?;
+					let id = Self::try_get_node_with_transaction(txn, subspace, prefix).await?;
 					if let Some(id) = id {
 						return Ok(Some(id));
 					}
@@ -59,7 +44,15 @@ impl Index {
 				crate::fdb::organization::Key::Organization(id.clone().try_into()?),
 			),
 			tg::id::Kind::Tag => Key::Tag(crate::fdb::tag::Key::Tag(id.clone().try_into()?)),
-			_ => return Ok(None),
+			tg::id::Kind::Process => {
+				Key::Process(crate::fdb::process::Key::Process(id.clone().try_into()?))
+			},
+			_ => {
+				let Ok(object) = tg::object::Id::try_from(id.clone()) else {
+					return Ok(None);
+				};
+				Key::Object(crate::fdb::object::Key::Object(object))
+			},
 		};
 		let key = Self::pack(subspace, &key);
 		let value = txn
@@ -67,6 +60,48 @@ impl Index {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the node"))?;
 		Ok(value.map(|_| id.clone()))
+	}
+
+	pub(crate) async fn ancestor_ids_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Id,
+	) -> tg::Result<Vec<tg::Id>> {
+		let mut ids = Vec::new();
+		let mut current = Some(id.clone());
+		while let Some(id) = current {
+			match id.kind {
+				tg::id::Kind::Tag => {
+					let Some(tag) =
+						Self::try_get_tag_with_transaction(txn, subspace, &id.clone().try_into()?)
+							.await?
+					else {
+						break;
+					};
+					ids.push(id);
+					current = tag.parent;
+				},
+				tg::id::Kind::Group => {
+					let Some(group) = Self::try_get_group_with_transaction(
+						txn,
+						subspace,
+						&id.clone().try_into()?,
+					)
+					.await?
+					else {
+						break;
+					};
+					ids.push(id);
+					current = group.parent;
+				},
+				tg::id::Kind::User | tg::id::Kind::Organization => {
+					ids.push(id);
+					current = None;
+				},
+				_ => break,
+			}
+		}
+		Ok(ids)
 	}
 
 	pub(crate) async fn try_get_node_with_transaction(

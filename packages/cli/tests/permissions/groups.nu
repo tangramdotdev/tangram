@@ -26,11 +26,13 @@ assert_unauthorized $output "Bob should not inherit the team's permissions befor
 let output = tg --token $bob group members add team $bob_user.id | complete
 assert_unauthorized $output "Bob should not be able to add himself to the team."
 
-let output = tg --token $bob group grants team | complete
-assert_unauthorized $output "Bob should not be able to inspect the team's grants before becoming a member."
+let output = tg --token $bob grants list --resource team | complete
+failure $output "Bob should not be able to inspect the team's grants before becoming a member."
+assert ($output.stderr | str contains "failed to find the resource") "The team's grants should not be visible without read permission."
 
 tg --token $alice group members add team $bob_user.id
-tg --token $bob group grants team
+let output = tg --token $bob grants list --resource team | complete
+assert_unauthorized $output "Membership should not allow Bob to inspect the team's grants."
 tg --token $bob group create team/project
 tg --token $bob group members add team $carol_user.id
 tg --token $carol group create team/carol

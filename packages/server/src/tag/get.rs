@@ -5,6 +5,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -29,11 +30,25 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		if node.kind != tg::id::Kind::Tag
-			|| !self
-				.node_is_visible_with_transaction(&transaction, &node.id)
-				.await?
-		{
+		if node.kind != tg::id::Kind::Tag {
+			return Ok(None);
+		}
+		let visible = self
+			.server
+			.index
+			.visible(
+				std::slice::from_ref(&node.id),
+				self.context.principal.as_ref(),
+			)
+			.await?
+			.pop()
+			.unwrap() || self
+			.authorize(
+				tg::grant::Resource::Id(node.id.clone()),
+				tg::grant::Permission::Read,
+			)
+			.await? == Some(true);
+		if !visible {
 			return Ok(None);
 		}
 		let data = get_tag_data_with_transaction(&transaction, &node).await?;
