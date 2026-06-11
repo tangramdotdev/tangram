@@ -391,7 +391,7 @@ impl Session {
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
 		if !self.server.config.advanced.single_process {
-			return Err(tg::error!("cannot index in multi process mode"));
+			return Err(tg::error!("cannot index in multi-process mode"));
 		}
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({

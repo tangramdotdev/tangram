@@ -63,7 +63,7 @@ impl Session {
 		// Touch the watch.
 		self.touch_watch(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the watch"))?;
+			.map_err(|error| tg::error!(!error, "failed to touch the watch"))?;
 
 		// Create the response.
 		match accept
