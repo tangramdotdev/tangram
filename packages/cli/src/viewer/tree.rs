@@ -1467,7 +1467,10 @@ impl Tree {
 			let client = client.clone();
 			let process = process.clone();
 			let update_sender = update_sender.clone();
+			// Hold a guard so the tree is not considered finished until the output node has been added.
+			let guard = counter.guard();
 			async move {
+				let _guard = guard;
 				let Ok(wait) = process
 					.wait_with_handle(&client, tg::process::wait::Arg::default())
 					.await
