@@ -211,7 +211,7 @@ export class Directory {
 	/** Get the child at the specified path. This method throws an error if the path does not exist. */
 	async get(arg: string): Promise<tg.Artifact> {
 		let artifact = await this.tryGet(arg);
-		tg.assert(artifact, `Failed to get the directory entry "${arg}".`);
+		tg.assert(artifact, `failed to get the directory entry "${arg}"`);
 		return artifact;
 	}
 
