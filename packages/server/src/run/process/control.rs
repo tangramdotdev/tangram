@@ -5,10 +5,22 @@ use {
 		StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
+	num::ToPrimitive as _,
 	std::{collections::BTreeSet, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tokio_util::io::ReaderStream,
 };
+
+pub(crate) struct RunControlTaskArg {
+	pub sandbox: tangram_sandbox::Sandbox,
+	pub sandbox_process: Arc<tangram_sandbox::Process>,
+	pub requests: BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>,
+	pub sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::control::ResponseEvent>>,
+	pub stdin: tg::process::Stdio,
+	pub stdout: tg::process::Stdio,
+	pub stderr: tg::process::Stdio,
+	pub stdin_blob: Option<tg::Blob>,
+}
 
 struct Reader {
 	buffer: Bytes,
@@ -18,25 +30,23 @@ struct Reader {
 }
 
 impl Session {
-	pub(crate) async fn run_control_task(
-		&self,
-		sandbox: tangram_sandbox::Sandbox,
-		sandbox_process: Arc<tangram_sandbox::Process>,
-		mut requests: BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>,
-		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::control::ResponseEvent>>,
-		stdin: tg::process::Stdio,
-		stdout: tg::process::Stdio,
-		stderr: tg::process::Stdio,
-		stdin_blob: Option<tg::Blob>,
-	) -> tg::Result<()> {
+	pub(crate) async fn run_control_task(&self, arg: RunControlTaskArg) -> tg::Result<()> {
+		let RunControlTaskArg {
+			sandbox,
+			sandbox_process,
+			mut requests,
+			sender,
+			stdin,
+			stdout,
+			stderr,
+			stdin_blob,
+		} = arg;
 		let stdin_pipe = matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 		let stdout_pipe = matches!(stdout, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 		let stderr_pipe = matches!(stderr, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 
-		let (stdout_sender, mut stdout_receiver) = tokio::sync::mpsc::channel::<(
-			uuid::Uuid,
-			tg::process::control::ReadRequest,
-		)>(256);
+		let (stdout_sender, mut stdout_receiver) =
+			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::ReadRequest)>(256);
 		let stdout_task = tokio::spawn({
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
@@ -65,10 +75,8 @@ impl Session {
 			}
 		});
 
-		let (stderr_sender, mut stderr_receiver) = tokio::sync::mpsc::channel::<(
-			uuid::Uuid,
-			tg::process::control::ReadRequest,
-		)>(256);
+		let (stderr_sender, mut stderr_receiver) =
+			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::ReadRequest)>(256);
 		let stderr_task = tokio::spawn({
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
@@ -97,10 +105,8 @@ impl Session {
 			}
 		});
 
-		let (stdin_sender, mut stdin_receiver) = tokio::sync::mpsc::channel::<(
-			uuid::Uuid,
-			tg::process::control::WriteRequest,
-		)>(256);
+		let (stdin_sender, mut stdin_receiver) =
+			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::WriteRequest)>(256);
 		let stdin_task = tokio::spawn({
 			let session = self.clone();
 			let sandbox = sandbox.clone();
@@ -165,10 +171,8 @@ impl Session {
 			}
 		});
 
-		let (signal_sender, mut signal_receiver) = tokio::sync::mpsc::channel::<(
-			uuid::Uuid,
-			tg::process::control::SignalRequest,
-		)>(256);
+		let (signal_sender, mut signal_receiver) =
+			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::SignalRequest)>(256);
 		let signal_task = tokio::spawn({
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
@@ -195,27 +199,28 @@ impl Session {
 			}
 		});
 
-		let (tty_sender, mut tty_receiver) = tokio::sync::mpsc::channel::<(
-			uuid::Uuid,
-			tg::process::control::TtyRequest,
-		)>(256);
+		let (tty_sender, mut tty_receiver) =
+			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::TtyRequest)>(256);
 		let tty_task = tokio::spawn({
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
 			let sender = sender.clone();
 			async move {
 				while let Some((id, request)) = tty_receiver.recv().await {
-					let result =
-						Self::handle_process_control_tty_request(&sandbox, &sandbox_process, request)
-							.await
-							.map(|()| {
-								tg::process::control::ResponseEvent::Response(
-									tg::process::control::Response {
-										id,
-										kind: tg::process::control::ResponseKind::Tty,
-									},
-								)
-							});
+					let result = Self::handle_process_control_tty_request(
+						&sandbox,
+						&sandbox_process,
+						request,
+					)
+					.await
+					.map(|()| {
+						tg::process::control::ResponseEvent::Response(
+							tg::process::control::Response {
+								id,
+								kind: tg::process::control::ResponseKind::Tty,
+							},
+						)
+					});
 					sender.send(result).await.ok();
 				}
 				Ok::<_, tg::Error>(())
@@ -251,7 +256,8 @@ impl Session {
 									.await
 									.ok();
 							},
-							tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr => {
+							tg::process::stdio::Stream::Stdout
+							| tg::process::stdio::Stream::Stderr => {
 								sender
 									.send(Err(tg::error!("the stream is not a pipe")))
 									.await
@@ -286,14 +292,8 @@ impl Session {
 		drop(stdin_sender);
 		drop(signal_sender);
 		drop(tty_sender);
-		for result in future::join_all([
-			stdout_task,
-			stderr_task,
-			stdin_task,
-			signal_task,
-			tty_task,
-		])
-		.await
+		for result in
+			future::join_all([stdout_task, stderr_task, stdin_task, signal_task, tty_task]).await
 		{
 			result.map_err(|source| tg::error!(!source, "a control task panicked"))??;
 		}
@@ -316,9 +316,9 @@ impl Session {
 		}
 
 		let options = tangram_futures::retry::Options::default();
-		let mut retries = pin!(
-			tangram_futures::retry::stream(options.clone()).take(options.max_retries as usize + 1)
-		);
+		let max_retries = options.max_retries.to_usize().unwrap();
+		let mut retries =
+			pin!(tangram_futures::retry::stream(options.clone()).take(max_retries + 1));
 
 		// Cannot use tangram_futures::retry(...) here due to lifetime requirements of closure captures.
 		'retry: loop {

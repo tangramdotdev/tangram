@@ -86,14 +86,11 @@ impl Server {
 							}
 							match writer.write_all(&chunk.bytes).await {
 								Ok(()) => {
-									let event = tg::process::stdio::write::Event::Write(
-										chunk.bytes.len(),
-									);
+									let event =
+										tg::process::stdio::write::Event::Write(chunk.bytes.len());
 									return Ok(Some((event, (stream, writer, false))));
 								},
-								Err(error)
-									if error.kind() == std::io::ErrorKind::BrokenPipe =>
-								{
+								Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {
 									let event = tg::process::stdio::write::Event::End;
 									return Ok(Some((event, (stream, writer, true))));
 								},

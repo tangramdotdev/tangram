@@ -18,6 +18,8 @@ use {
 
 mod control;
 
+use control::RunControlTaskArg;
+
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
 	pub process: tg::Process,
@@ -362,16 +364,16 @@ impl Session {
 			let sandbox_process = sandbox_process.clone();
 			|_| async move {
 				session
-					.run_control_task(
+					.run_control_task(RunControlTaskArg {
 						sandbox,
 						sandbox_process,
 						requests,
-						control_sender,
+						sender: control_sender,
 						stdin,
-						stdout_mode,
-						stderr_mode,
+						stdout: stdout_mode,
+						stderr: stderr_mode,
 						stdin_blob,
-					)
+					})
 					.await
 					.inspect_err(|error| {
 						tracing::error!(error = %error.trace(), "the control task failed");

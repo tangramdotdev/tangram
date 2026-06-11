@@ -108,17 +108,6 @@ impl Server {
 			.map_err(db::sqlite::Error::from);
 		crate::database::retry!(result, "failed to execute the statement");
 
-		let statement = indoc!(
-			"
-				delete from process_signals
-				where process = ?1;
-			"
-		);
-		let result = transaction
-			.execute(statement, sqlite::params![process])
-			.map_err(db::sqlite::Error::from);
-		crate::database::retry!(result, "failed to execute the statement");
-
 		Ok(ControlFlow::Break(()))
 	}
 

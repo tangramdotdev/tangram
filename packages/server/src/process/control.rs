@@ -82,8 +82,9 @@ impl Session {
 			match future::select(stream.next(), retries.next()).await {
 				future::Either::Left((message, _)) => match message {
 					Some(Ok(message)) => {
-						let Message::Response(tg::process::control::ResponseEvent::Response(response)) =
-							message.payload
+						let Message::Response(tg::process::control::ResponseEvent::Response(
+							response,
+						)) = message.payload
 						else {
 							return Err(tg::error!("expected a response"));
 						};
@@ -122,7 +123,10 @@ impl Session {
 		}
 	}
 
-	pub(crate) async fn try_send_process_control_end(&self, id: &tg::process::Id) -> tg::Result<()> {
+	pub(crate) async fn try_send_process_control_end(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<()> {
 		let subject = format!("processes.{id}.control");
 		let payload = Message::Request(tg::process::control::RequestEvent::End);
 		self.server
