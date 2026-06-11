@@ -316,8 +316,13 @@ impl Session {
 			Some(stopper) => {
 				let read = pin!(read);
 				let stop = pin!(stopper.wait());
-				if let future::Either::Left((result, _)) = future::select(read, stop).await {
-					result?;
+				match future::select(read, stop).await {
+					future::Either::Left((result, _)) => {
+						result?;
+					},
+					future::Either::Right(_) => {
+						return Ok(());
+					},
 				}
 			},
 			None => read.await?,

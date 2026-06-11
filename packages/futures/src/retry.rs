@@ -49,7 +49,7 @@ pub fn stream(options: Options) -> impl Stream<Item = ()> {
 			Some(((), (options, attempt, false)))
 		},
 	)
-	.take(max_retries)
+	.take(max_retries.saturating_add(1))
 }
 
 #[must_use]

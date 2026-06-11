@@ -411,69 +411,33 @@ pub trait Ext: tg::Handle {
 				return Ok(None);
 			};
 
-			// Create the output task. In a retry loop, this will drain the output stream, reconnecting on error.
-			let (request_sender, request_receiver) = async_channel::bounded(1);
-			let output_task = Task::spawn(move |_| async move {
-				let options = tangram_futures::retry::Options::default();
-				let mut output = Some(output.boxed());
-				let result = tangram_futures::retry(&options, || {
-					let handle = handle.clone();
-					let id = id.clone();
-					let arg = arg.clone();
-					let response_receiver = response_receiver.clone();
-					let request_sender = request_sender.clone();
-					let stream = output.take();
-					async move {
-						// Get the output stream, reconnecting if necessary.
-						let mut stream = if let Some(stream) = stream {
-							stream
-						} else {
-							match handle
-								.try_get_process_control_stream(&id, arg, response_receiver.boxed())
-								.await
-							{
-								Ok(Some(stream)) => stream.boxed(),
-								Ok(None) => {
-									return Err(tg::error!("failed to find the process"));
-								},
-								// Retry if the request returned an error.
-								Err(error) => {
-									return Ok(ControlFlow::Continue(tg::error!(
-										!error,
-										"failed to get the control stream"
-									)));
-								},
-							}
-						};
-
-						// Drain the output stream.
-						while let Some(event) = stream.next().await {
-							match event {
-								Ok(event) => {
-									if request_sender.send(Ok(event)).await.is_err() {
-										return Ok(ControlFlow::Break(()));
-									}
-								},
-								// Retry if the server returned an error.
-								Err(error) => {
-									return Ok(ControlFlow::Continue(tg::error!(
-										!error,
-										"the control stream returned an error"
-									)));
-								},
-							}
-						}
-
-						Ok(ControlFlow::Break(()))
-					}
-				})
-				.await;
-				if let Err(error) = result {
-					request_sender.send(Err(error)).await.ok();
+			let state = Some(output.boxed());
+			let stream = stream::try_unfold(state, move |mut state| {
+				let handle = handle.clone();
+				let id = id.clone();
+				let arg = arg.clone();
+				let response_receiver = response_receiver.clone();
+				async move {
+					let stream = if let Some(stream) = state.take() {
+						stream
+					} else {
+						handle
+							.try_get_process_control_stream(&id, arg, response_receiver.boxed())
+							.await?
+							.ok_or_else(|| tg::error!("failed to find the process"))?
+							.boxed()
+					};
+					Ok::<_, tg::Error>(Some((stream, state)))
 				}
-			});
-
-			let stream = request_receiver.attach((input_task, output_task));
+			})
+			.try_flatten()
+			.take_while(|event| {
+				future::ready(!matches!(
+					event,
+					Ok(tg::process::control::RequestEvent::End)
+				))
+			})
+			.attach(input_task);
 
 			Ok(Some(stream))
 		}

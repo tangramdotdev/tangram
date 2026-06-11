@@ -5,15 +5,14 @@ use {
 		StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	num::ToPrimitive as _,
-	std::{collections::BTreeSet, pin::pin, sync::Arc},
+	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tokio_util::io::ReaderStream,
 };
 
 pub(crate) struct RunControlTaskArg {
 	pub sandbox: tangram_sandbox::Sandbox,
-	pub sandbox_process: Arc<tangram_sandbox::Process>,
+	pub sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
 	pub requests: BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>,
 	pub sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::control::ResponseEvent>>,
 	pub stdin: tg::process::Stdio,
@@ -41,27 +40,42 @@ impl Session {
 			stderr,
 			stdin_blob,
 		} = arg;
-		let stdin_pipe = matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
-		let stdout_pipe = matches!(stdout, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
-		let stderr_pipe = matches!(stderr, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
-
 		let (stdout_sender, mut stdout_receiver) =
 			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::ReadRequest)>(256);
 		let stdout_task = tokio::spawn({
 			let sandbox = sandbox.clone();
-			let sandbox_process = sandbox_process.clone();
+			let mut sandbox_process = sandbox_process.clone();
 			let sender = sender.clone();
+			let piped = matches!(stdout, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 			async move {
+				if !piped {
+					return Ok(());
+				}
+
+				// Wait until the sandbox process has spawned or it is known that it never will.
+				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+
 				let mut reader = None;
 				while let Some((id, request)) = stdout_receiver.recv().await {
-					let result = Self::handle_process_control_read_request(
-						&sandbox,
-						&sandbox_process,
-						request,
-						&mut reader,
-					)
-					.await
-					.map(|response| {
+					let response = if let Some(sandbox_process) = &sandbox_process {
+						Self::handle_process_control_read_request(
+							&sandbox,
+							sandbox_process,
+							request,
+							&mut reader,
+						)
+						.await
+					} else {
+						// If the sandbox process was never spawned, then respond with EOF.
+						Ok(tg::process::control::ReadResponse {
+							stream: request.stream,
+							bytes: Bytes::new(),
+						})
+					};
+					let eof = response
+						.as_ref()
+						.is_ok_and(|response| response.bytes.is_empty());
+					let result = response.map(|response| {
 						tg::process::control::ResponseEvent::Response(
 							tg::process::control::Response {
 								id,
@@ -70,6 +84,9 @@ impl Session {
 						)
 					});
 					sender.send(result).await.ok();
+					if eof {
+						break;
+					}
 				}
 				Ok::<_, tg::Error>(())
 			}
@@ -79,19 +96,38 @@ impl Session {
 			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::ReadRequest)>(256);
 		let stderr_task = tokio::spawn({
 			let sandbox = sandbox.clone();
-			let sandbox_process = sandbox_process.clone();
+			let mut sandbox_process = sandbox_process.clone();
 			let sender = sender.clone();
+			let piped = matches!(stderr, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 			async move {
+				if !piped {
+					return Ok(());
+				}
+
+				// Wait until the sandbox process has spawned or it is known that it never will.
+				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+
 				let mut reader = None;
 				while let Some((id, request)) = stderr_receiver.recv().await {
-					let result = Self::handle_process_control_read_request(
-						&sandbox,
-						&sandbox_process,
-						request,
-						&mut reader,
-					)
-					.await
-					.map(|response| {
+					let response = if let Some(sandbox_process) = &sandbox_process {
+						Self::handle_process_control_read_request(
+							&sandbox,
+							sandbox_process,
+							request,
+							&mut reader,
+						)
+						.await
+					} else {
+						// If the sandbox process was never spawned, then respond with EOF.
+						Ok(tg::process::control::ReadResponse {
+							stream: request.stream,
+							bytes: Bytes::new(),
+						})
+					};
+					let eof = response
+						.as_ref()
+						.is_ok_and(|response| response.bytes.is_empty());
+					let result = response.map(|response| {
 						tg::process::control::ResponseEvent::Response(
 							tg::process::control::Response {
 								id,
@@ -100,6 +136,9 @@ impl Session {
 						)
 					});
 					sender.send(result).await.ok();
+					if eof {
+						break;
+					}
 				}
 				Ok::<_, tg::Error>(())
 			}
@@ -110,11 +149,17 @@ impl Session {
 		let stdin_task = tokio::spawn({
 			let session = self.clone();
 			let sandbox = sandbox.clone();
-			let sandbox_process = sandbox_process.clone();
+			let mut sandbox_process = sandbox_process.clone();
 			let sender = sender.clone();
+			let piped = matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 			async move {
+				// Wait until the sandbox process has spawned or it is known that it never will.
+				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+
 				// Dump stdin if necessary.
-				if let Some(blob) = stdin_blob {
+				if let Some(blob) = stdin_blob
+					&& let Some(sandbox_process) = &sandbox_process
+				{
 					let reader = blob
 						.read_with_handle(&session, tg::read::Options::default())
 						.await
@@ -131,7 +176,7 @@ impl Session {
 						.boxed();
 					let stream = sandbox
 						.write_stdio(
-							&sandbox_process,
+							sandbox_process,
 							vec![tg::process::stdio::Stream::Stdin],
 							stream,
 						)
@@ -148,16 +193,24 @@ impl Session {
 						}
 					}
 				}
-
+				if !piped {
+					return Ok(());
+				}
 				// Service write requests.
 				while let Some((id, request)) = stdin_receiver.recv().await {
-					let result = Self::handle_process_control_write_request(
-						&sandbox,
-						&sandbox_process,
-						request,
-					)
-					.await
-					.map(|response| {
+					let response = if let Some(sandbox_process) = &sandbox_process {
+						Self::handle_process_control_write_request(
+							&sandbox,
+							sandbox_process,
+							request,
+						)
+						.await
+					} else {
+						// If the sandbox process was never spawned, then respond with EOF.
+						Ok(tg::process::control::WriteResponse { len: 0 })
+					};
+					let eof = response.as_ref().is_ok_and(|response| response.len == 0);
+					let result = response.map(|response| {
 						tg::process::control::ResponseEvent::Response(
 							tg::process::control::Response {
 								id,
@@ -166,6 +219,9 @@ impl Session {
 						)
 					});
 					sender.send(result).await.ok();
+					if eof {
+						break;
+					}
 				}
 				Ok::<_, tg::Error>(())
 			}
@@ -175,16 +231,23 @@ impl Session {
 			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::SignalRequest)>(256);
 		let signal_task = tokio::spawn({
 			let sandbox = sandbox.clone();
-			let sandbox_process = sandbox_process.clone();
+			let mut sandbox_process = sandbox_process.clone();
 			let sender = sender.clone();
 			async move {
+				// Wait until the sandbox process has spawned or it is known that it never will.
+				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+
 				while let Some((id, request)) = signal_receiver.recv().await {
-					let result = Self::handle_process_control_signal_request(
-						&sandbox,
-						&sandbox_process,
-						request,
-					)
-					.await
+					let result = if let Some(sandbox_process) = &sandbox_process {
+						Self::handle_process_control_signal_request(
+							&sandbox,
+							sandbox_process,
+							request,
+						)
+						.await
+					} else {
+						Err(tg::error!("the process was not spawned"))
+					}
 					.map(|()| {
 						tg::process::control::ResponseEvent::Response(
 							tg::process::control::Response {
@@ -203,16 +266,19 @@ impl Session {
 			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::TtyRequest)>(256);
 		let tty_task = tokio::spawn({
 			let sandbox = sandbox.clone();
-			let sandbox_process = sandbox_process.clone();
+			let mut sandbox_process = sandbox_process.clone();
 			let sender = sender.clone();
 			async move {
+				// Wait until the sandbox process has spawned or it is known that it never will.
+				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+
 				while let Some((id, request)) = tty_receiver.recv().await {
-					let result = Self::handle_process_control_tty_request(
-						&sandbox,
-						&sandbox_process,
-						request,
-					)
-					.await
+					let result = if let Some(sandbox_process) = &sandbox_process {
+						Self::handle_process_control_tty_request(&sandbox, sandbox_process, request)
+							.await
+					} else {
+						Err(tg::error!("the process was not spawned"))
+					}
 					.map(|()| {
 						tg::process::control::ResponseEvent::Response(
 							tg::process::control::Response {
@@ -227,76 +293,62 @@ impl Session {
 			}
 		});
 
-		// Cache of requests to deduplicate requests.
-		let mut previous = BTreeSet::new();
-
-		// Handle events
-		while let Some(event) = requests
-			.try_next()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the next control request"))?
-		{
-			match event {
-				tg::process::control::RequestEvent::Request(request) => {
-					if !previous.insert(request.id) {
-						continue;
-					}
-					let id = request.id;
-					match request.kind {
-						tg::process::control::RequestKind::Read(read) => match read.stream {
-							tg::process::stdio::Stream::Stdout if stdout_pipe => {
-								stdout_sender.send((id, read)).await.ok();
-							},
-							tg::process::stdio::Stream::Stderr if stderr_pipe => {
-								stderr_sender.send((id, read)).await.ok();
-							},
-							tg::process::stdio::Stream::Stdin => {
-								sender
-									.send(Err(tg::error!("cannot read the stdin of a process")))
-									.await
-									.ok();
-							},
-							tg::process::stdio::Stream::Stdout
-							| tg::process::stdio::Stream::Stderr => {
-								sender
-									.send(Err(tg::error!("the stream is not a pipe")))
-									.await
-									.ok();
-							},
-						},
-						tg::process::control::RequestKind::Write(write) => {
-							if stdin_pipe {
-								stdin_sender.send((id, write)).await.ok();
-							} else {
-								sender
-									.send(Err(tg::error!("stdin is not a pipe")))
-									.await
-									.ok();
+		// Spawn a task to handle events.
+		let handler_task = tokio::spawn({
+			let sender = sender.clone();
+			async move {
+				while let Some(event) = requests.try_next().await.map_err(|source| {
+					tg::error!(!source, "failed to get the next control request")
+				})? {
+					match event {
+						tg::process::control::RequestEvent::Request(request) => {
+							let id = request.id;
+							match request.kind {
+								tg::process::control::RequestKind::Read(read) => {
+									match read.stream {
+										tg::process::stdio::Stream::Stdout => {
+											stdout_sender.send((id, read)).await.ok();
+										},
+										tg::process::stdio::Stream::Stderr => {
+											stderr_sender.send((id, read)).await.ok();
+										},
+										tg::process::stdio::Stream::Stdin => {
+											sender
+												.send(Err(tg::error!(
+													"cannot read the stdin of a process"
+												)))
+												.await
+												.ok();
+										},
+									}
+								},
+								tg::process::control::RequestKind::Write(write) => {
+									stdin_sender.send((id, write)).await.ok();
+								},
+								tg::process::control::RequestKind::Signal(signal) => {
+									signal_sender.send((id, signal)).await.ok();
+								},
+								tg::process::control::RequestKind::Tty(tty) => {
+									tty_sender.send((id, tty)).await.ok();
+								},
 							}
 						},
-						tg::process::control::RequestKind::Signal(signal) => {
-							signal_sender.send((id, signal)).await.ok();
-						},
-						tg::process::control::RequestKind::Tty(tty) => {
-							tty_sender.send((id, tty)).await.ok();
-						},
+						tg::process::control::RequestEvent::End => break,
 					}
-				},
-				tg::process::control::RequestEvent::End => break,
+				}
+				Ok::<_, tg::Error>(())
 			}
+		});
+
+		// Join the i/o tasks.
+		for result in future::join_all([stdout_task, stderr_task, stdin_task]).await {
+			result.map_err(|source| tg::error!(!source, "an i/o task panicked"))??;
 		}
 
-		// Close the task channels and wait for the tasks to finish.
-		drop(stdout_sender);
-		drop(stderr_sender);
-		drop(stdin_sender);
-		drop(signal_sender);
-		drop(tty_sender);
-		for result in
-			future::join_all([stdout_task, stderr_task, stdin_task, signal_task, tty_task]).await
-		{
-			result.map_err(|source| tg::error!(!source, "a control task panicked"))??;
-		}
+		// Abort the other tasks.
+		signal_task.abort();
+		tty_task.abort();
+		handler_task.abort();
 
 		sender
 			.send(Ok(tg::process::control::ResponseEvent::End))
@@ -316,9 +368,7 @@ impl Session {
 		}
 
 		let options = tangram_futures::retry::Options::default();
-		let max_retries = options.max_retries.to_usize().unwrap();
-		let mut retries =
-			pin!(tangram_futures::retry::stream(options.clone()).take(max_retries + 1));
+		let mut retries = pin!(tangram_futures::retry::stream(options.clone()));
 
 		// Cannot use tangram_futures::retry(...) here due to lifetime requirements of closure captures.
 		'retry: loop {
@@ -434,4 +484,14 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to set the tty size"))?;
 		Ok(())
 	}
+}
+
+async fn wait_for_sandbox_process(
+	receiver: &mut tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
+) -> Option<Arc<tangram_sandbox::Process>> {
+	receiver
+		.wait_for(Option::is_some)
+		.await
+		.ok()
+		.and_then(|sandbox_process| sandbox_process.as_ref().cloned())
 }

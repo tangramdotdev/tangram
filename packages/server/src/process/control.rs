@@ -86,6 +86,11 @@ impl Session {
 						else {
 							return Err(tg::error!("expected a response"));
 						};
+
+						// Send the ack.
+						let subject = format!("processes.{id}.control.{}.ack", response.id);
+						self.server.messenger.publish(subject, ()).await.ok();
+
 						return Ok(Some(response));
 					},
 					Some(Err(source)) => {
@@ -109,17 +114,55 @@ impl Session {
 		}
 	}
 
-	pub(crate) async fn try_send_process_control_end(
+	pub(crate) async fn try_send_process_control_response(
 		&self,
 		id: &tg::process::Id,
+		response: tg::process::control::Response,
+		max_retries: u64,
 	) -> tg::Result<()> {
-		let subject = format!("processes.{id}.control");
-		let payload = Message::Request(tg::process::control::RequestEvent::End);
-		self.server
+		// Subscribe to the ack.
+		let subject = format!("processes.{id}.control.{}.ack", response.id);
+		let stream = self
+			.server
 			.messenger
-			.publish(subject, payload)
+			.subscribe::<()>(subject)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the control message"))
+			.map_err(|source| tg::error!(!source, "failed to subscribe to the ack"))?;
+		let mut stream = pin!(stream);
+
+		// Send the response and wait for the ack.
+		let subject = format!("processes.{id}.control.{}", response.id);
+		let payload = Message::Response(tg::process::control::ResponseEvent::Response(response));
+		let options = tangram_futures::retry::Options {
+			max_retries,
+			..Default::default()
+		};
+		let mut retries = pin!(tangram_futures::retry::stream(options));
+		loop {
+			match future::select(stream.next(), retries.next()).await {
+				future::Either::Left((message, _)) => match message {
+					Some(Ok(_)) => {
+						return Ok(());
+					},
+					Some(Err(source)) => {
+						return Err(tg::error!(!source, "failed to receive the ack"));
+					},
+					None => {
+						return Err(tg::error!("the ack stream ended"));
+					},
+				},
+				future::Either::Right((tick, _)) => {
+					if tick.is_none() {
+						return Err(tg::error!("timed out waiting for the ack"));
+					}
+					self.server
+						.messenger
+						.publish(subject.clone(), payload.clone())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to publish the response"))?;
+				},
+			}
+		}
 	}
 
 	pub(crate) async fn try_get_process_control_stream_with_context(
@@ -179,27 +222,44 @@ impl Session {
 							continue;
 						},
 					};
-					let end = matches!(event, tg::process::control::ResponseEvent::End);
-					let subject = match &event {
+					match event {
 						tg::process::control::ResponseEvent::Response(response) => {
-							format!("processes.{id}.control.{}", response.id)
+							// Spawn a task to send the response until it is acked.
+							tokio::spawn({
+								let session = session.clone();
+								let id = id.clone();
+								async move {
+									let max_retries =
+										tangram_futures::retry::Options::default().max_retries;
+									session
+										.try_send_process_control_response(
+											&id,
+											response,
+											max_retries,
+										)
+										.await
+										.inspect_err(|error| {
+											tracing::error!(%error, "failed to send the response");
+										})
+										.ok();
+								}
+							});
 						},
 						tg::process::control::ResponseEvent::End => {
-							format!("processes.{id}.control")
+							let subject = format!("processes.{id}.control");
+							let payload =
+								Message::Response(tg::process::control::ResponseEvent::End);
+							session
+								.server
+								.messenger
+								.publish(subject, payload)
+								.await
+								.inspect_err(|error| {
+									tracing::error!(%error, "failed to publish the response");
+								})
+								.ok();
+							break;
 						},
-					};
-					let payload = Message::Response(event);
-					session
-						.server
-						.messenger
-						.publish(subject, payload)
-						.await
-						.inspect_err(
-							|error| tracing::error!(%error, "failed to publish the response"),
-						)
-						.ok();
-					if end {
-						break;
 					}
 				}
 				Ok::<_, tg::Error>(())
