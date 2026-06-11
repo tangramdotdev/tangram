@@ -141,7 +141,7 @@ pub struct Debug {
 	#[arg(long = "debug-addr")]
 	addr: Option<std::net::SocketAddr>,
 
-	#[arg(long = "debug-mode")]
+	#[arg(long = "debug-mode", id = "spawn.debug.mode")]
 	mode: Option<tg::process::debug::Mode>,
 
 	#[arg(
