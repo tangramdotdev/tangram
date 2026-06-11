@@ -35,6 +35,7 @@ pub struct Options {
 	/// Set arguments as strings.
 	#[arg(
 		action = clap::ArgAction::Append,
+		id = "spawn.arg_strings",
 		long = "arg-string",
 		num_args = 1,
 		short = 'a',
@@ -44,6 +45,7 @@ pub struct Options {
 	/// Set arguments as values.
 	#[arg(
 		action = clap::ArgAction::Append,
+		id = "spawn.arg_values",
 		long = "arg-value",
 		num_args = 1,
 		short = 'A',
@@ -51,13 +53,14 @@ pub struct Options {
 	pub arg_values: Vec<String>,
 
 	/// If this flag is set, then build the specified target and run its output.
-	#[arg(long, short)]
+	#[arg(id = "spawn.build", long = "build", short = 'b')]
 	pub build: bool,
 
 	/// Set this flag to true to require a cached process. Set this flag to false to require a new process to be created. Omit this flag to use a cached process if possible, and create a new process if not.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "spawn.cached",
+		long = "cached",
 		num_args = 0..=1,
 		require_equals = true,
 	)]
@@ -67,11 +70,11 @@ pub struct Options {
 	pub checkin: crate::checkin::Options,
 
 	/// The output's expected checksum.
-	#[arg(long)]
+	#[arg(id = "spawn.checksum", long = "checksum")]
 	pub checksum: Option<tg::Checksum>,
 
 	/// Set the working directory for the process.
-	#[arg(long, short = 'C')]
+	#[arg(id = "spawn.cwd", long = "cwd", short = 'C')]
 	pub cwd: Option<PathBuf>,
 
 	#[command(flatten)]
@@ -80,6 +83,7 @@ pub struct Options {
 	/// Set environment variables as strings.
 	#[arg(
 		action = clap::ArgAction::Append,
+		id = "spawn.env_strings",
 		long = "env-string",
 		num_args = 1,
 		short = 'e',
@@ -89,6 +93,7 @@ pub struct Options {
 	/// Set environment variables as values.
 	#[arg(
 		action = clap::ArgAction::Append,
+		id = "spawn.env_values",
 		long = "env-value",
 		num_args = 1,
 		short = 'E',
@@ -96,37 +101,37 @@ pub struct Options {
 	pub env_values: Vec<String>,
 
 	/// The executable to run.
-	#[arg(long, short = 'x')]
+	#[arg(id = "spawn.executable", long = "executable", short = 'x')]
 	pub executable: Option<tg::command::data::Executable>,
 
 	/// Set the host.
-	#[arg(long)]
+	#[arg(id = "spawn.host", long = "host")]
 	pub host: Option<String>,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
 	/// Whether to retry failed processes.
-	#[arg(long)]
+	#[arg(id = "spawn.retry", long = "retry")]
 	pub retry: bool,
 
 	#[command(flatten)]
 	pub sandbox: Sandbox,
 
 	/// Set the stderr mode.
-	#[arg(long)]
+	#[arg(id = "spawn.stderr", long = "stderr")]
 	pub stderr: Option<tg::process::Stdio>,
 
 	/// Set the stdin mode.
-	#[arg(long)]
+	#[arg(id = "spawn.stdin", long = "stdin")]
 	pub stdin: Option<tg::process::Stdio>,
 
 	/// Set the stdout mode.
-	#[arg(long)]
+	#[arg(id = "spawn.stdout", long = "stdout")]
 	pub stdout: Option<tg::process::Stdio>,
 
 	/// Tag the process.
-	#[arg(long)]
+	#[arg(id = "spawn.tag", long = "tag")]
 	pub tag: Option<tg::Specifier>,
 
 	#[command(flatten)]
@@ -135,17 +140,18 @@ pub struct Options {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Debug {
-	#[arg(long = "debug")]
+	#[arg(id = "spawn.debug.enabled", long = "debug")]
 	enabled: bool,
 
-	#[arg(long = "debug-addr")]
+	#[arg(id = "spawn.debug.addr", long = "debug-addr")]
 	addr: Option<std::net::SocketAddr>,
 
 	#[arg(long = "debug-mode", id = "spawn.debug.mode")]
 	mode: Option<tg::process::debug::Mode>,
 
 	#[arg(
-		long,
+		id = "spawn.debug.inspect",
+		long = "inspect",
 		default_missing_value = "127.0.0.1:9229",
 		num_args = 0..=1,
 		require_equals = true,
@@ -154,7 +160,8 @@ pub struct Debug {
 	inspect: Option<std::net::SocketAddr>,
 
 	#[arg(
-		long,
+		id = "spawn.debug.inspect_brk",
+		long = "inspect-brk",
 		default_missing_value = "127.0.0.1:9229",
 		num_args = 0..=1,
 		require_equals = true,
@@ -163,7 +170,8 @@ pub struct Debug {
 	inspect_brk: Option<std::net::SocketAddr>,
 
 	#[arg(
-		long,
+		id = "spawn.debug.inspect_wait",
+		long = "inspect-wait",
 		default_missing_value = "127.0.0.1:9229",
 		num_args = 0..=1,
 		require_equals = true,
@@ -221,20 +229,20 @@ pub struct Sandbox {
 	/// Whether to sandbox the process, or an existing sandbox to use.
 	#[arg(
 		default_missing_value = "true",
-		id = "sandbox",
+		id = "spawn.sandbox.value",
 		long = "sandbox",
 		num_args = 0..=1,
-		overrides_with = "no_sandbox",
+		overrides_with = "spawn.sandbox.disabled",
 		require_equals = true,
 	)]
 	value: Option<tg::Either<bool, tg::sandbox::Id>>,
 
 	#[arg(
 		default_missing_value = "true",
-		id = "no_sandbox",
+		id = "spawn.sandbox.disabled",
 		long = "no-sandbox",
 		num_args = 0..=1,
-		overrides_with = "sandbox",
+		overrides_with = "spawn.sandbox.value",
 		require_equals = true,
 	)]
 	disabled: Option<bool>,
@@ -270,10 +278,14 @@ impl Sandbox {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Ttl {
-	#[arg(long, overrides_with = "no_ttl", value_parser = humantime::parse_duration)]
+	#[arg(id = "spawn.sandbox.ttl.ttl", long = "ttl", overrides_with = "spawn.sandbox.ttl.no_ttl", value_parser = humantime::parse_duration)]
 	pub ttl: Option<Duration>,
 
-	#[arg(long, overrides_with = "ttl")]
+	#[arg(
+		id = "spawn.sandbox.ttl.no_ttl",
+		long = "no-ttl",
+		overrides_with = "spawn.sandbox.ttl.ttl"
+	)]
 	pub no_ttl: bool,
 }
 
@@ -292,9 +304,10 @@ pub struct Tty {
 	/// Whether to allocate a tty for the process. Optionally set the size as rows,cols.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "spawn.tty.tty",
+		long = "tty",
 		num_args = 0..=1,
-		overrides_with = "no_tty",
+		overrides_with = "spawn.tty.no_tty",
 		require_equals = true,
 		value_name = "ROWS,COLS",
 	)]
@@ -302,9 +315,10 @@ pub struct Tty {
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "spawn.tty.no_tty",
+		long = "no-tty",
 		num_args = 0..=1,
-		overrides_with = "tty",
+		overrides_with = "spawn.tty.tty",
 		require_equals = true,
 	)]
 	pub(crate) no_tty: Option<bool>,

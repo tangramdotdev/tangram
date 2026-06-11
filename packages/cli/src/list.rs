@@ -34,35 +34,49 @@ pub struct Args {
 pub struct Entries {
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "list.entries.groups",
+		long = "groups",
 		num_args = 0..=1,
-		overrides_with = "no_groups",
+		overrides_with = "list.entries.no_groups",
 		require_equals = true,
 	)]
 	groups: Option<bool>,
 
-	#[arg(long, overrides_with = "groups")]
+	#[arg(
+		id = "list.entries.no_groups",
+		long = "no-groups",
+		overrides_with = "list.entries.groups"
+	)]
 	no_groups: bool,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "list.entries.tags",
+		long = "tags",
 		num_args = 0..=1,
-		overrides_with = "no_tags",
+		overrides_with = "list.entries.no_tags",
 		require_equals = true,
 	)]
 	tags: Option<bool>,
 
-	#[arg(long, overrides_with = "tags")]
+	#[arg(
+		id = "list.entries.no_tags",
+		long = "no-tags",
+		overrides_with = "list.entries.tags"
+	)]
 	no_tags: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Ttl {
-	#[arg(long, overrides_with = "no_ttl", value_parser = humantime::parse_duration)]
+	#[arg(id = "list.ttl.ttl", long = "ttl", overrides_with = "list.ttl.no_ttl", value_parser = humantime::parse_duration)]
 	pub ttl: Option<Duration>,
 
-	#[arg(long, overrides_with = "ttl")]
+	#[arg(
+		id = "list.ttl.no_ttl",
+		long = "no-ttl",
+		overrides_with = "list.ttl.ttl"
+	)]
 	pub no_ttl: bool,
 }
 

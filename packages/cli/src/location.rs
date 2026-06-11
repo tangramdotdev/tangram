@@ -4,21 +4,23 @@ use tangram_client::prelude::*;
 pub struct Args {
 	/// Use the local server.
 	#[arg(
-		conflicts_with_all = ["location"],
+		conflicts_with_all = ["location.location"],
 		default_missing_value = "true",
-		long,
+		id = "location.local",
+		long = "local",
 		num_args = 0..=1,
 		require_equals = true,
 	)]
 	local: Option<bool>,
 
-	#[arg(long)]
+	#[arg(id = "location.location", long = "location")]
 	location: Option<tg::location::Arg>,
 
 	/// Use the specified remotes. Pass --remote for the default remote, --remote=false for no remotes, or --remote=<name>[,<name>...] for specific remotes. Can be specified multiple times or comma-separated.
 	#[arg(
-		conflicts_with_all = ["location"],
+		conflicts_with_all = ["location.location"],
 		default_missing_value = "true",
+		id = "location.remotes",
 		long = "remotes",
 		num_args = 0..=1,
 		require_equals = true,

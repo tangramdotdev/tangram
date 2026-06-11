@@ -14,15 +14,15 @@ const INDENTATION: &str = "  ";
 #[group(skip)]
 pub struct Options {
 	/// Whether to print blobs in the value.
-	#[arg(long)]
+	#[arg(id = "print.blobs", long = "blobs")]
 	pub blobs: bool,
 
 	/// The depth with which to print the value.
-	#[arg(long)]
+	#[arg(id = "print.depth", long = "depth")]
 	pub depth: Option<Depth>,
 
 	/// Whether to pretty print the value.
-	#[arg(long)]
+	#[arg(id = "print.pretty", long = "pretty")]
 	pub pretty: bool,
 }
 

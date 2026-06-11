@@ -24,18 +24,20 @@ pub struct Args {
 pub struct Listen {
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "serve.listen.connect",
+		long = "connect",
 		num_args = 0..=1,
-		overrides_with = "listen",
+		overrides_with = "serve.listen.listen",
 		require_equals = true,
 	)]
 	connect: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "serve.listen.listen",
+		long = "listen",
 		num_args = 0..=1,
-		overrides_with = "connect",
+		overrides_with = "serve.listen.connect",
 		require_equals = true,
 	)]
 	listen: Option<bool>,

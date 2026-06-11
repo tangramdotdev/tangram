@@ -19,10 +19,14 @@ pub struct Args {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Timeout {
-	#[arg(long, overrides_with = "no_timeout", value_parser = humantime::parse_duration)]
+	#[arg(id = "status.timeout.timeout", long = "timeout", overrides_with = "status.timeout.no_timeout", value_parser = humantime::parse_duration)]
 	pub timeout: Option<Duration>,
 
-	#[arg(long, overrides_with = "timeout")]
+	#[arg(
+		id = "status.timeout.no_timeout",
+		long = "no-timeout",
+		overrides_with = "status.timeout.timeout"
+	)]
 	pub no_timeout: bool,
 }
 

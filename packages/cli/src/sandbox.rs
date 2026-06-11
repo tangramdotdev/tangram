@@ -43,28 +43,28 @@ pub enum Command {
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
-	#[arg(long)]
+	#[arg(id = "sandbox.cpu", long = "cpu")]
 	pub cpu: Option<u64>,
 
-	#[arg(long)]
+	#[arg(id = "sandbox.hostname", long = "hostname")]
 	pub hostname: Option<String>,
 
-	#[arg(long)]
+	#[arg(id = "sandbox.isolation", long = "isolation")]
 	pub isolation: Option<tg::sandbox::Isolation>,
 
-	#[arg(long)]
+	#[arg(id = "sandbox.memory", long = "memory")]
 	pub memory: Option<u64>,
 
-	#[arg(action = clap::ArgAction::Append, long = "mount", num_args = 1, short)]
+	#[arg(action = clap::ArgAction::Append, id = "sandbox.mounts", long = "mount", num_args = 1, short = 'm')]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
 	#[clap(flatten)]
 	pub network: Network,
 
-	#[arg(action = clap::ArgAction::Append, long = "port", num_args = 1, short = 'p')]
+	#[arg(action = clap::ArgAction::Append, id = "sandbox.ports", long = "port", num_args = 1, short = 'p')]
 	pub ports: Vec<tg::sandbox::Port>,
 
-	#[arg(long)]
+	#[arg(id = "sandbox.user", long = "user")]
 	pub user: Option<String>,
 }
 
@@ -73,9 +73,10 @@ pub struct Network {
 	/// Enable networking.
 	#[arg(
 		default_missing_value = "",
-		long,
+		id = "sandbox.network.network",
+		long = "network",
 		num_args = 0..=1,
-		overrides_with = "no_network",
+		overrides_with = "sandbox.network.no_network",
 		require_equals = true,
 		value_parser = parse_network,
 	)]
@@ -83,9 +84,10 @@ pub struct Network {
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "sandbox.network.no_network",
+		long = "no-network",
 		num_args = 0..=1,
-		overrides_with = "network",
+		overrides_with = "sandbox.network.network",
 		require_equals = true,
 	)]
 	no_network: bool,
