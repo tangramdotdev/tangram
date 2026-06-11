@@ -62,6 +62,7 @@ impl tg::handle::Process for Handle {
 	fn try_get_process_control_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -72,7 +73,7 @@ impl tg::handle::Process for Handle {
 	> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_get_process_control_stream(id, stream),
+				self.0.try_get_process_control_stream(id, arg, stream),
 			)
 		}
 	}

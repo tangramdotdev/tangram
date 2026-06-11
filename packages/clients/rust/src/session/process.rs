@@ -59,6 +59,7 @@ impl tg::handle::Process for tg::Session {
 	fn try_get_process_control_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -67,7 +68,7 @@ impl tg::handle::Process for tg::Session {
 			>,
 		>,
 	> {
-		self.try_get_process_control_stream(id, stream)
+		self.try_get_process_control_stream(id, arg, stream)
 	}
 
 	fn try_signal_process(

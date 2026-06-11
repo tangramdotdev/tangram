@@ -46,6 +46,7 @@ pub trait Process: Send + Sync + 'static {
 	fn try_get_process_control_stream<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
+		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> BoxFuture<
 		'a,
@@ -180,12 +181,13 @@ where
 	fn try_get_process_control_stream<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
+		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> BoxFuture<
 		'a,
 		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>>,
 	> {
-		self.try_get_process_control_stream(id, stream)
+		self.try_get_process_control_stream(id, arg, stream)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
 	}

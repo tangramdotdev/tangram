@@ -87,6 +87,7 @@ where
 	fn try_get_process_control_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -97,11 +98,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_get_process_control_stream(id, stream)
+				.try_get_process_control_stream(id, arg, stream)
 				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_get_process_control_stream(id, stream)
+				.try_get_process_control_stream(id, arg, stream)
 				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}

@@ -8,6 +8,11 @@ use {
 	tangram_util::serde::UuidBase32,
 };
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	pub location: tg::Location,
+}
+
 #[derive(
 	Clone,
 	Debug,
@@ -237,6 +242,7 @@ impl tg::Session {
 	pub async fn try_get_process_control_stream(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> tg::Result<
 		Option<
@@ -248,7 +254,12 @@ impl tg::Session {
 	> {
 		let method = http::Method::POST;
 		let path = format!("/processes/{id}/control");
-		let uri = Uri::builder().path(&path).build().unwrap();
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let stream =
 			stream.map(
 				|result: tg::Result<tg::process::control::ResponseEvent>| match result {

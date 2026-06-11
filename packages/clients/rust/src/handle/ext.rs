@@ -376,6 +376,7 @@ pub trait Ext: tg::Handle {
 	fn try_get_process_control_stream_all(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -403,7 +404,7 @@ pub trait Ext: tg::Handle {
 
 			// Get the initial output stream.
 			let Some(output) = handle
-				.try_get_process_control_stream(&id, response_receiver.clone().boxed())
+				.try_get_process_control_stream(&id, arg.clone(), response_receiver.clone().boxed())
 				.await?
 			else {
 				input_task.abort();
@@ -418,6 +419,7 @@ pub trait Ext: tg::Handle {
 				let result = tangram_futures::retry(&options, || {
 					let handle = handle.clone();
 					let id = id.clone();
+					let arg = arg.clone();
 					let response_receiver = response_receiver.clone();
 					let request_sender = request_sender.clone();
 					let stream = output.take();
@@ -427,7 +429,7 @@ pub trait Ext: tg::Handle {
 							stream
 						} else {
 							match handle
-								.try_get_process_control_stream(&id, response_receiver.boxed())
+								.try_get_process_control_stream(&id, arg, response_receiver.boxed())
 								.await
 							{
 								Ok(Some(stream)) => stream.boxed(),

@@ -351,8 +351,13 @@ impl Session {
 		// Create the control stream.
 		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
 		let control_responses = ReceiverStream::new(control_responses).boxed();
+		let arg = tg::process::control::Arg {
+			location: location
+				.clone()
+				.unwrap_or(tg::Location::Local(tg::location::Local::default())),
+		};
 		let requests = self
-			.try_get_process_control_stream_all(id, control_responses)
+			.try_get_process_control_stream_all(id, arg, control_responses)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
 			.ok_or_else(|| tg::error!("expected a control stream"))?

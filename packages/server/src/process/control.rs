@@ -41,8 +41,7 @@ impl Session {
 			return Ok(None);
 		};
 
-		// Wait until the process is started, which implies the control stream has been
-		// created, or finished.
+		// Wait until the process is started.
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
 			if matches!(
@@ -77,7 +76,6 @@ impl Session {
 			..Default::default()
 		};
 		let mut retries = pin!(tangram_futures::retry::stream(options));
-		let mut finished = false;
 		loop {
 			match future::select(stream.next(), retries.next()).await {
 				future::Either::Left((message, _)) => match message {
@@ -101,18 +99,6 @@ impl Session {
 					if tick.is_none() {
 						return Err(tg::error!("timed out waiting for the response"));
 					}
-
-					// If the process was finished on the previous tick and the response
-					// has still not arrived, then the runner is gone, so give up.
-					if finished {
-						return Ok(None);
-					}
-					finished = self
-						.get_process_status_local(id)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to get the process status"))?
-						.is_finished();
-
 					self.server
 						.messenger
 						.publish(subject.clone(), payload.clone())
@@ -139,8 +125,45 @@ impl Session {
 	pub(crate) async fn try_get_process_control_stream_with_context(
 		&self,
 		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
 		mut stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>> {
+		let location = self.server.location(Some(&arg.location.clone().into()))?;
+		match location {
+			tg::Location::Local(tg::location::Local { region: None }) => (),
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) => {
+				let client = self.get_region_session(&region).await.map_err(
+					|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
+				)?;
+				let location = tg::Location::Local(tg::location::Local {
+					region: Some(region.clone()),
+				});
+				let arg = tg::process::control::Arg { location };
+				let stream = client
+					.try_get_process_control_stream(id, arg, stream)
+					.await
+					.map_err(
+						|error| tg::error!(!error, region = %region, "failed to get the control stream"),
+					)?;
+				return Ok(stream.map(futures::StreamExt::boxed));
+			},
+			tg::Location::Remote(tg::location::Remote { name, region }) => {
+				let client = self.get_remote_session(&name).await.map_err(
+					|error| tg::error!(!error, remote = %name, %id, "failed to get the remote client"),
+				)?;
+				let location = tg::Location::Local(tg::location::Local { region });
+				let arg = tg::process::control::Arg { location };
+				let stream = client
+					.try_get_process_control_stream(id, arg, stream)
+					.await
+					.map_err(
+						|error| tg::error!(!error, remote = %name, "failed to get the control stream"),
+					)?;
+				return Ok(stream.map(futures::StreamExt::boxed));
+			},
+		}
 		let response_task = Task::spawn({
 			let session = self.clone();
 			let id = id.clone();
@@ -232,6 +255,13 @@ impl Session {
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
+		// Parse the arg.
+		let arg = request
+			.query_params::<tg::process::control::Arg>()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.ok_or_else(|| tg::error!("expected the query params"))?;
+
 		// Create the response stream.
 		let stream = request
 			.sse()
@@ -251,7 +281,7 @@ impl Session {
 
 		// Get the request stream.
 		let Some(stream) = self
-			.try_get_process_control_stream_with_context(&id, stream)
+			.try_get_process_control_stream_with_context(&id, arg, stream)
 			.await?
 		else {
 			return Ok(http::Response::builder()
