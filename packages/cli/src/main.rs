@@ -129,11 +129,21 @@ struct Args {
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Remotes {
 	/// Override the `remotes` key in the config.
-	#[arg(conflicts_with = "no_remotes", long, short, value_delimiter = ',')]
+	#[arg(
+		conflicts_with = "main.remotes.no_remotes",
+		id = "main.remotes.remotes",
+		long = "remotes",
+		short = 'r',
+		value_delimiter = ','
+	)]
 	remotes: Option<Vec<String>>,
 
 	/// Override the `remotes` key in the config.
-	#[arg(conflicts_with = "remotes", long)]
+	#[arg(
+		conflicts_with = "main.remotes.remotes",
+		id = "main.remotes.no_remotes",
+		long = "no-remotes"
+	)]
 	no_remotes: bool,
 }
 
@@ -153,19 +163,21 @@ struct Quiet {
 	/// Whether to show progress and other helpful information.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "main.quiet.quiet",
+		long = "quiet",
 		num_args = 0..=1,
-		overrides_with = "no_quiet",
+		overrides_with = "main.quiet.no_quiet",
 		require_equals = true,
-		short,
+		short = 'q',
 	)]
 	quiet: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "main.quiet.no_quiet",
+		long = "no-quiet",
 		num_args = 0..=1,
-		overrides_with = "quiet",
+		overrides_with = "main.quiet.quiet",
 		require_equals = true,
 	)]
 	no_quiet: Option<bool>,

@@ -7,13 +7,13 @@ pub struct Args {
 	#[command(flatten)]
 	pub checkin: crate::checkin::Options,
 
-	#[arg(long, short)]
+	#[arg(id = "put.force", long = "force", short = 'f')]
 	pub force: bool,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
-	#[arg(long)]
+	#[arg(id = "put.public", long = "public")]
 	pub public: bool,
 
 	#[arg(default_value = ".", index = 2)]

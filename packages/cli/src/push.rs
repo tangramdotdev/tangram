@@ -39,18 +39,20 @@ pub struct Args {
 pub struct Eager {
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "push.eager.eager",
+		long = "eager",
 		num_args = 0..=1,
-		overrides_with = "lazy",
+		overrides_with = "push.eager.lazy",
 		require_equals = true,
 	)]
 	eager: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "push.eager.lazy",
+		long = "lazy",
 		num_args = 0..=1,
-		overrides_with = "eager",
+		overrides_with = "push.eager.eager",
 		require_equals = true,
 	)]
 	lazy: Option<bool>,
@@ -67,9 +69,10 @@ pub struct Outputs {
 	#[arg(
 		alias = "output",
 		default_missing_value = "true",
-		long,
+		id = "push.outputs.outputs",
+		long = "outputs",
 		num_args = 0..=1,
-		overrides_with = "no_outputs",
+		overrides_with = "push.outputs.no_outputs",
 		require_equals = true,
 	)]
 	outputs: Option<bool>,
@@ -77,9 +80,10 @@ pub struct Outputs {
 	#[arg(
 		alias = "no-output",
 		default_missing_value = "true",
-		long,
+		id = "push.outputs.no_outputs",
+		long = "no-outputs",
 		num_args = 0..=1,
-		overrides_with = "outputs",
+		overrides_with = "push.outputs.outputs",
 		require_equals = true,
 	)]
 	no_outputs: Option<bool>,

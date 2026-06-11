@@ -33,11 +33,11 @@ pub struct Options {
 	pub cache_pointers: CachePointers,
 
 	/// Check in the artifact more quickly by allowing it to be destroyed.
-	#[arg(long)]
+	#[arg(id = "checkin.destructive", long = "destructive")]
 	pub destructive: bool,
 
 	/// Check in the artifact determnistically.
-	#[arg(long)]
+	#[arg(id = "checkin.deterministic", long = "deterministic")]
 	pub deterministic: bool,
 
 	#[command(flatten)]
@@ -47,11 +47,11 @@ pub struct Options {
 	pub lock: Lock,
 
 	/// If this flag is set, the lock will not be updated.
-	#[arg(long)]
+	#[arg(id = "checkin.locked", long = "locked")]
 	pub locked: bool,
 
 	/// Treat the provided path as the root path.
-	#[arg(long)]
+	#[arg(id = "checkin.root", long = "root")]
 	pub root: bool,
 
 	#[command(flatten)]
@@ -66,16 +66,20 @@ pub struct Options {
 	#[command(flatten)]
 	pub unsolved_dependencies: UnsolvedDependencies,
 
-	#[arg(long)]
+	#[arg(id = "checkin.watch", long = "watch")]
 	pub watch: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct TagTtl {
-	#[arg(long = "tag-ttl", overrides_with = "no_tag_ttl", value_parser = humantime::parse_duration)]
+	#[arg(id = "checkin.tag_ttl.tag_ttl", long = "tag-ttl", overrides_with = "checkin.tag_ttl.no_tag_ttl", value_parser = humantime::parse_duration)]
 	pub tag_ttl: Option<Duration>,
 
-	#[arg(long = "no-tag-ttl", overrides_with = "tag_ttl")]
+	#[arg(
+		id = "checkin.tag_ttl.no_tag_ttl",
+		long = "no-tag-ttl",
+		overrides_with = "checkin.tag_ttl.tag_ttl"
+	)]
 	pub no_tag_ttl: bool,
 }
 
@@ -90,18 +94,20 @@ pub struct Solve {
 	/// Whether to solve dependencies
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.solve.solve",
+		long = "solve",
 		num_args = 0..=1,
-		overrides_with = "no_solve",
+		overrides_with = "checkin.solve.no_solve",
 		require_equals = true,
 	)]
 	solve: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.solve.no_solve",
+		long = "no-solve",
 		num_args = 0..=1,
-		overrides_with = "solve",
+		overrides_with = "checkin.solve.solve",
 		require_equals = true,
 	)]
 	no_solve: Option<bool>,
@@ -118,18 +124,20 @@ pub struct Ignore {
 	/// Whether to use ignore files.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.ignore.ignore",
+		long = "ignore",
 		num_args = 0..=1,
-		overrides_with = "no_ignore",
+		overrides_with = "checkin.ignore.no_ignore",
 		require_equals = true,
 	)]
 	ignore: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.ignore.no_ignore",
+		long = "no-ignore",
 		num_args = 0..=1,
-		overrides_with = "ignore",
+		overrides_with = "checkin.ignore.ignore",
 		require_equals = true,
 	)]
 	no_ignore: Option<bool>,
@@ -146,18 +154,20 @@ pub struct SourceDependencies {
 	/// Whether to use source dependencies.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.source_dependencies.source_dependencies",
+		long = "source-dependencies",
 		num_args = 0..=1,
-		overrides_with = "no_source_dependencies",
+		overrides_with = "checkin.source_dependencies.no_source_dependencies",
 		require_equals = true,
 	)]
 	source_dependencies: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.source_dependencies.no_source_dependencies",
+		long = "no-source-dependencies",
 		num_args = 0..=1,
-		overrides_with = "source_dependencies",
+		overrides_with = "checkin.source_dependencies.source_dependencies",
 		require_equals = true,
 	)]
 	no_source_dependencies: Option<bool>,
@@ -176,15 +186,20 @@ pub struct Lock {
 	/// Whether to write the lock. Use `--lock=auto` to reuse an existing lock kind or prefer a lockattr for files. Use `--lock=file` to write a lockfile, and `--lock=attr` to write a lockattr. `auto` is the default if not specified.
 	#[arg(
 		default_missing_value = "auto",
-		long,
+		id = "checkin.lock.lock",
+		long = "lock",
 		num_args = 0..=1,
-		overrides_with = "no_lock",
+		overrides_with = "checkin.lock.no_lock",
 		require_equals = true,
 	)]
 	lock: Option<tg::checkin::Lock>,
 
 	/// Disable writing the lock.
-	#[arg(long, overrides_with = "lock")]
+	#[arg(
+		id = "checkin.lock.no_lock",
+		long = "no-lock",
+		overrides_with = "checkin.lock.lock"
+	)]
 	no_lock: bool,
 }
 
@@ -203,18 +218,20 @@ pub struct UnsolvedDependencies {
 	/// Whether to allow unsolved dependencies.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.unsolved_dependencies.unsolved_dependencies",
+		long = "unsolved-dependencies",
 		num_args = 0..=1,
-		overrides_with = "no_unsolved_dependencies",
+		overrides_with = "checkin.unsolved_dependencies.no_unsolved_dependencies",
 		require_equals = true,
 	)]
 	unsolved_dependencies: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.unsolved_dependencies.no_unsolved_dependencies",
+		long = "no-unsolved-dependencies",
 		num_args = 0..=1,
-		overrides_with = "unsolved_dependencies",
+		overrides_with = "checkin.unsolved_dependencies.unsolved_dependencies",
 		require_equals = true,
 	)]
 	no_unsolved_dependencies: Option<bool>,
@@ -233,18 +250,20 @@ pub struct CachePointers {
 	/// Whether to create cache pointers.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.cache_pointers.cache_pointers",
+		long = "cache-pointers",
 		num_args = 0..=1,
-		overrides_with = "no_cache_pointers",
+		overrides_with = "checkin.cache_pointers.no_cache_pointers",
 		require_equals = true,
 	)]
 	cache_pointers: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkin.cache_pointers.no_cache_pointers",
+		long = "no-cache-pointers",
 		num_args = 0..=1,
-		overrides_with = "cache_pointers",
+		overrides_with = "checkin.cache_pointers.cache_pointers",
 		require_equals = true,
 	)]
 	no_cache_pointers: Option<bool>,

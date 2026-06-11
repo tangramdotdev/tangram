@@ -33,18 +33,20 @@ pub struct Dependencies {
 	/// Whether to check out the artifact's dependencies.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkout.dependencies.dependencies",
+		long = "dependencies",
 		num_args = 0..=1,
-		overrides_with = "no_dependencies",
+		overrides_with = "checkout.dependencies.no_dependencies",
 		require_equals = true,
 	)]
 	dependencies: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "checkout.dependencies.no_dependencies",
+		long = "no-dependencies",
 		num_args = 0..=1,
-		overrides_with = "dependencies",
+		overrides_with = "checkout.dependencies.dependencies",
 		require_equals = true,
 	)]
 	no_dependencies: Option<bool>,
@@ -63,15 +65,20 @@ pub struct Lock {
 	/// Whether to write the lock. Use `--lock=auto` to reuse an existing lock kind or prefer a lockattr for files. Use `--lock=file` to write a lockfile, and `--lock=attr` to write a lockattr. `auto` is the default if not specified.
 	#[arg(
 		default_missing_value = "auto",
-		long,
+		id = "checkout.lock.lock",
+		long = "lock",
 		num_args = 0..=1,
-		overrides_with = "no_lock",
+		overrides_with = "checkout.lock.no_lock",
 		require_equals = true,
 	)]
 	lock: Option<tg::checkout::Lock>,
 
 	/// Disable writing the lock.
-	#[arg(long, overrides_with = "lock")]
+	#[arg(
+		id = "checkout.lock.no_lock",
+		long = "no-lock",
+		overrides_with = "checkout.lock.lock"
+	)]
 	no_lock: bool,
 }
 

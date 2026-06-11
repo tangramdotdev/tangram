@@ -16,10 +16,14 @@ pub struct Args {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Ttl {
-	#[arg(long, overrides_with = "no_ttl", value_parser = humantime::parse_duration)]
+	#[arg(id = "create.ttl.ttl", long = "ttl", overrides_with = "create.ttl.no_ttl", value_parser = humantime::parse_duration)]
 	pub ttl: Option<Duration>,
 
-	#[arg(long, overrides_with = "ttl")]
+	#[arg(
+		id = "create.ttl.no_ttl",
+		long = "no-ttl",
+		overrides_with = "create.ttl.ttl"
+	)]
 	pub no_ttl: bool,
 }
 

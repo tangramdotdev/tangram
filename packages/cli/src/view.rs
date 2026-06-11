@@ -73,9 +73,10 @@ pub struct AlternateScreen {
 	#[arg(
 		default_missing_value = "true",
 		hide = true,
-		long,
+		id = "view.alternate_screen.alternate_screen",
+		long = "alternate-screen",
 		num_args = 0..=1,
-		overrides_with = "no_alternate_screen",
+		overrides_with = "view.alternate_screen.no_alternate_screen",
 		require_equals = true,
 	)]
 	alternate_screen: Option<bool>,
@@ -83,9 +84,10 @@ pub struct AlternateScreen {
 	#[arg(
 		default_missing_value = "true",
 		hide = true,
-		long,
+		id = "view.alternate_screen.no_alternate_screen",
+		long = "no-alternate-screen",
 		num_args = 0..=1,
-		overrides_with = "alternate_screen",
+		overrides_with = "view.alternate_screen.alternate_screen",
 		require_equals = true,
 	)]
 	no_alternate_screen: Option<bool>,

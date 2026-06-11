@@ -21,15 +21,24 @@ pub struct Args {
 pub struct Options {
 	/// Whether to check out the output.
 	#[expect(clippy::option_option)]
-	#[arg(long, require_equals = true, short)]
+	#[arg(
+		id = "run.checkout",
+		long = "checkout",
+		require_equals = true,
+		short = 'c'
+	)]
 	pub checkout: Option<Option<PathBuf>>,
 
 	/// Whether to overwrite an existing file system object at the path.
-	#[arg(long, requires = "checkout")]
+	#[arg(
+		id = "run.checkout_force",
+		long = "checkout-force",
+		requires = "run.checkout"
+	)]
 	pub checkout_force: bool,
 
 	/// If this flag is set, then exit immediately instead of waiting for the process to finish.
-	#[arg(long, short)]
+	#[arg(id = "run.detach", long = "detach", short = 'd')]
 	pub detach: bool,
 
 	#[command(flatten)]
@@ -39,11 +48,11 @@ pub struct Options {
 	pub spawn: crate::process::spawn::Options,
 
 	/// Print the full spawn output instead of just the process ID.
-	#[arg(long, short)]
+	#[arg(id = "run.verbose", long = "verbose", short = 'v')]
 	pub verbose: bool,
 
 	/// The view to display if the process's stdio is not attached.
-	#[arg(long)]
+	#[arg(id = "run.view", long = "view")]
 	pub view: Option<View>,
 }
 
