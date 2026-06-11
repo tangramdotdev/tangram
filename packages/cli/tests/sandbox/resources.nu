@@ -2,6 +2,11 @@ use ../../test.nu *
 
 # The cpu and memory options are reflected when getting the sandbox.
 
+# The cpu and memory options require container or vm isolation, which is unavailable under the seatbelt isolation used on macOS.
+if $nu.os-info.name != 'linux' {
+	skip_test 'this test requires linux'
+}
+
 let server = spawn
 
 let id = tg sandbox create --cpu 1 --memory 268435456 | str trim
