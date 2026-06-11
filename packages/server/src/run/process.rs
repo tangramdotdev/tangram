@@ -352,9 +352,7 @@ impl Session {
 		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
 		let control_responses = ReceiverStream::new(control_responses).boxed();
 		let arg = tg::process::control::Arg {
-			location: location
-				.clone()
-				.unwrap_or(tg::Location::Local(tg::location::Local::default())),
+			location: location.as_ref().map(|location| location.clone().into()),
 		};
 		let requests = self
 			.try_get_process_control_stream_all(id, arg, control_responses)

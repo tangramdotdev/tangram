@@ -128,7 +128,7 @@ impl Session {
 		arg: tg::process::control::Arg,
 		mut stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>> {
-		let location = self.server.location(Some(&arg.location.clone().into()))?;
+		let location = self.server.location(arg.location.as_ref())?;
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => (),
 			tg::Location::Local(tg::location::Local {
@@ -140,7 +140,9 @@ impl Session {
 				let location = tg::Location::Local(tg::location::Local {
 					region: Some(region.clone()),
 				});
-				let arg = tg::process::control::Arg { location };
+				let arg = tg::process::control::Arg {
+					location: Some(location.into()),
+				};
 				let stream = client
 					.try_get_process_control_stream(id, arg, stream)
 					.await
@@ -153,8 +155,9 @@ impl Session {
 				let client = self.get_remote_session(&name).await.map_err(
 					|error| tg::error!(!error, remote = %name, %id, "failed to get the remote client"),
 				)?;
-				let location = tg::Location::Local(tg::location::Local { region });
-				let arg = tg::process::control::Arg { location };
+				let arg = tg::process::control::Arg {
+					location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+				};
 				let stream = client
 					.try_get_process_control_stream(id, arg, stream)
 					.await
@@ -257,10 +260,10 @@ impl Session {
 
 		// Parse the arg.
 		let arg = request
-			.query_params::<tg::process::control::Arg>()
+			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("expected the query params"))?;
+			.unwrap_or_default();
 
 		// Create the response stream.
 		let stream = request
