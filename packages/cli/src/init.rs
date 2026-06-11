@@ -10,15 +10,15 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_init(&mut self, args: Args) -> tg::Result<()> {
-		// Canonicalize the path's parent.
-		let path = tangram_util::fs::canonicalize_parent(&args.path)
+		// Create the directory.
+		tokio::fs::create_dir_all(&args.path).await.map_err(
+			|error| tg::error!(!error, path = ?args.path, "failed to create the directory"),
+		)?;
+
+		// Canonicalize the path.
+		let path = tokio::fs::canonicalize(&args.path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-
-		// Create the directory.
-		tokio::fs::create_dir_all(&path)
-			.await
-			.map_err(|error| tg::error!(!error, ?path, "failed to create the directory"))?;
 
 		// Check if there is already a root module for the path.
 		for name in tg::module::ROOT_MODULE_FILE_NAMES {
