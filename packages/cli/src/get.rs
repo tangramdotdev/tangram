@@ -59,7 +59,7 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
-		self.print_info_message(&args.reference.to_string());
+		self.print_info_message(&referent.to_string());
 		match referent.item {
 			tg::get::Item::Id(id) => match id.kind() {
 				tg::id::Kind::Blob
