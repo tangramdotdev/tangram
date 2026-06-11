@@ -1,7 +1,8 @@
 use {
 	crate::Session,
+	dashmap::DashMap,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
-	std::pin::pin,
+	std::{pin::pin, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext, task::Task},
 	tangram_http::{
@@ -11,6 +12,8 @@ use {
 	},
 	tangram_messenger::Messenger,
 };
+
+const ACK_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(
 	Debug,
@@ -89,7 +92,12 @@ impl Session {
 
 						// Send the ack.
 						let subject = format!("processes.{id}.control.{}.ack", response.id);
-						self.server.messenger.publish(subject, ()).await.ok();
+						self.server
+							.messenger
+							.publish(subject, ())
+							.await
+							.inspect_err(|error| tracing::error!(%error, "failed to ack the response"))
+							.ok();
 
 						return Ok(Some(response));
 					},
@@ -109,57 +117,6 @@ impl Session {
 						.publish(subject.clone(), payload.clone())
 						.await
 						.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
-				},
-			}
-		}
-	}
-
-	pub(crate) async fn try_send_process_control_response(
-		&self,
-		id: &tg::process::Id,
-		response: tg::process::control::Response,
-		max_retries: u64,
-	) -> tg::Result<()> {
-		// Subscribe to the ack.
-		let subject = format!("processes.{id}.control.{}.ack", response.id);
-		let stream = self
-			.server
-			.messenger
-			.subscribe::<()>(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe to the ack"))?;
-		let mut stream = pin!(stream);
-
-		// Send the response and wait for the ack.
-		let subject = format!("processes.{id}.control.{}", response.id);
-		let payload = Message::Response(tg::process::control::ResponseEvent::Response(response));
-		let options = tangram_futures::retry::Options {
-			max_retries,
-			..Default::default()
-		};
-		let mut retries = pin!(tangram_futures::retry::stream(options));
-		loop {
-			match future::select(stream.next(), retries.next()).await {
-				future::Either::Left((message, _)) => match message {
-					Some(Ok(_)) => {
-						return Ok(());
-					},
-					Some(Err(source)) => {
-						return Err(tg::error!(!source, "failed to receive the ack"));
-					},
-					None => {
-						return Err(tg::error!("the ack stream ended"));
-					},
-				},
-				future::Either::Right((tick, _)) => {
-					if tick.is_none() {
-						return Err(tg::error!("timed out waiting for the ack"));
-					}
-					self.server
-						.messenger
-						.publish(subject.clone(), payload.clone())
-						.await
-						.map_err(|source| tg::error!(!source, "failed to publish the response"))?;
 				},
 			}
 		}
@@ -210,9 +167,12 @@ impl Session {
 				return Ok(stream.map(futures::StreamExt::boxed));
 			},
 		}
+		// Create the cache of responses that have been sent but not yet acked.
+		let responses = Arc::new(DashMap::new());
 		let response_task = Task::spawn({
 			let session = self.clone();
 			let id = id.clone();
+			let responses = responses.clone();
 			move |_| async move {
 				while let Some(result) = stream.next().await {
 					let event = match result {
@@ -224,24 +184,45 @@ impl Session {
 					};
 					match event {
 						tg::process::control::ResponseEvent::Response(response) => {
-							// Spawn a task to send the response until it is acked.
+							// Cache the response, publish it, and spawn a task to remove it from the cache when it is acked or the timeout elapses.
 							tokio::spawn({
 								let session = session.clone();
 								let id = id.clone();
+								let responses = responses.clone();
 								async move {
-									let max_retries =
-										tangram_futures::retry::Options::default().max_retries;
-									session
-										.try_send_process_control_response(
-											&id,
-											response,
-											max_retries,
-										)
+									responses.insert(response.id, response.clone());
+									let subject =
+										format!("processes.{id}.control.{}.ack", response.id);
+									let ack = session
+										.server
+										.messenger
+										.subscribe::<()>(subject)
 										.await
 										.inspect_err(|error| {
-											tracing::error!(%error, "failed to send the response");
+											tracing::error!(%error, "failed to subscribe to the ack");
 										})
 										.ok();
+									let subject =
+										format!("processes.{id}.control.{}", response.id);
+									let payload = Message::Response(
+										tg::process::control::ResponseEvent::Response(
+											response.clone(),
+										),
+									);
+									session
+										.server
+										.messenger
+										.publish(subject, payload)
+										.await
+										.inspect_err(|error| {
+											tracing::error!(%error, "failed to publish the response");
+										})
+										.ok();
+									if let Some(ack) = ack {
+										let mut ack = pin!(ack);
+										tokio::time::timeout(ACK_TIMEOUT, ack.next()).await.ok();
+									}
+									responses.remove(&response.id);
 								}
 							});
 						},
@@ -279,6 +260,40 @@ impl Session {
 					.try_unwrap_request()
 					.map_err(|source| tg::error!(!source, "expected a request"));
 				future::ready(payload)
+			})
+			.try_filter_map({
+				let session = self.clone();
+				let id = id.clone();
+				move |event| {
+					let session = session.clone();
+					let id = id.clone();
+					let responses = responses.clone();
+					async move {
+						// If the request was already responded to, then republish the cached response instead of forwarding the request.
+						if let tg::process::control::RequestEvent::Request(request) = &event {
+							let response = responses
+								.get(&request.id)
+								.map(|response| response.value().clone());
+							if let Some(response) = response {
+								let subject = format!("processes.{id}.control.{}", response.id);
+								let payload = Message::Response(
+									tg::process::control::ResponseEvent::Response(response),
+								);
+								session
+									.server
+									.messenger
+									.publish(subject, payload)
+									.await
+									.inspect_err(|error| {
+										tracing::error!(%error, "failed to publish the response");
+									})
+									.ok();
+								return Ok(None);
+							}
+						}
+						Ok(Some(event))
+					}
+				}
 			})
 			.attach(response_task)
 			.boxed();
