@@ -82,6 +82,6 @@ export namespace path {
 		if (components.length === 0) {
 			return undefined;
 		}
-		return components.slice(0, -1).join("/");
+		return fromComponents(components.slice(0, -1));
 	};
 }
