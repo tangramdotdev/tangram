@@ -5,7 +5,7 @@ use {
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::UuidBase32,
+	tangram_util::serde::{BytesBase64, UuidBase32},
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -136,6 +136,9 @@ pub enum ResponseKind {
 
 	#[tangram_serialize(id = 3)]
 	Tty,
+
+	#[tangram_serialize(id = 4)]
+	Error(tg::Either<tg::error::Data, tg::error::Id>),
 }
 
 #[derive(
@@ -154,6 +157,7 @@ pub struct ReadRequest {
 	pub len: usize,
 }
 
+#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -166,6 +170,7 @@ pub struct WriteRequest {
 	#[tangram_serialize(id = 0)]
 	pub stream: tg::process::stdio::Stream,
 
+	#[serde_as(as = "BytesBase64")]
 	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
 }
@@ -196,6 +201,7 @@ pub struct TtyRequest {
 	pub size: tg::process::tty::Size,
 }
 
+#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -208,6 +214,7 @@ pub struct ReadResponse {
 	#[tangram_serialize(id = 0)]
 	pub stream: tg::process::stdio::Stream,
 
+	#[serde_as(as = "BytesBase64")]
 	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
 }

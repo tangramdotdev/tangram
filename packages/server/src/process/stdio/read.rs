@@ -20,7 +20,7 @@ use {
 	tokio_stream::wrappers::IntervalStream,
 };
 
-const READ_CHUNK_SIZE: usize = 1024;
+const READ_CHUNK_SIZE: usize = 16384;
 
 enum Source {
 	Pipe(BTreeSet<tg::process::stdio::Stream>),
@@ -89,10 +89,7 @@ impl Session {
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
 		self.authorize_process_stdio_read(id, &source).await?;
 		let stream = match source {
-			Source::Pipe(streams) => {
-				self.try_read_process_stdio_pipe_local(id, &streams, arg.timeout)
-					.await?
-			},
+			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &streams).await?,
 			Source::Log(streams) => {
 				self.try_read_process_stdio_log_local(id, arg, streams)
 					.await?
@@ -266,7 +263,6 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-		timeout: Option<Duration>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let (sender, receiver) =
 			async_channel::unbounded::<tg::Result<tg::process::stdio::read::Event>>();
@@ -276,13 +272,7 @@ impl Session {
 		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
 			let result = session
-				.try_read_process_stdio_pipe_local_task(
-					&id,
-					streams,
-					sender.clone(),
-					stopper,
-					timeout,
-				)
+				.try_read_process_stdio_pipe_local_task(&id, streams, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
@@ -297,8 +287,16 @@ impl Session {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
-		_timeout: Option<Duration>,
 	) -> tg::Result<()> {
+		// Return if the process is finished, because a read of its piped stdio will never be answered.
+		let status = self
+			.get_process_status_local(id)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the process status"))?;
+		if status.is_finished() {
+			return Ok(());
+		}
+
 		// Read each stream concurrently, issuing chunked control read requests until the stream ends.
 		let read = async {
 			let mut futures = streams
@@ -531,6 +529,16 @@ impl Session {
 					"position, length, and size are only valid for logged stdio"
 				));
 			}
+
+			// When stdout and stderr are both attached to the tty, they share one stream, so read only stdout.
+			if pipe_streams.contains(&tg::process::stdio::Stream::Stdout)
+				&& pipe_streams.contains(&tg::process::stdio::Stream::Stderr)
+				&& matches!(data.stdout, tg::process::Stdio::Tty)
+				&& matches!(data.stderr, tg::process::Stdio::Tty)
+			{
+				pipe_streams.remove(&tg::process::stdio::Stream::Stderr);
+			}
+
 			return Ok(Source::Pipe(pipe_streams));
 		}
 		if log_streams.is_empty() {

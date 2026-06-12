@@ -215,6 +215,11 @@ impl Session {
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> tg::Result<()> {
+		// Return if the process is finished, because a write to its piped stdio will never be acknowledged.
+		if data.status.is_finished() {
+			return Ok(());
+		}
+
 		let started_at = data.started_at;
 		let streams = streams.iter().copied().collect::<BTreeSet<_>>();
 		let mut input = pin!(input);
@@ -227,7 +232,10 @@ impl Session {
 			};
 			match event {
 				tg::process::stdio::read::Event::Chunk(mut chunk) => {
-					if chunk.bytes.is_empty() {
+					// Skip empty chunks, except for stdin, where an empty chunk signals EOF.
+					if chunk.bytes.is_empty()
+						&& !matches!(chunk.stream, tg::process::stdio::Stream::Stdin)
+					{
 						continue;
 					}
 					if !streams.contains(&chunk.stream) {
@@ -284,8 +292,9 @@ impl Session {
 								.write_process_stdio_chunk_local(id, chunk.stream, chunk.bytes)
 								.await?;
 
-							// A write length of zero indicates that the process closed the
-							// stream, so treat it as EOF and end the stream.
+							// A write length of zero indicates that the stream reached EOF,
+							// either because the process closed the stream or because the
+							// client sent an empty chunk to signal EOF, so end the stream.
 							if len == 0 {
 								return Ok(());
 							}
@@ -294,6 +303,19 @@ impl Session {
 					}
 				},
 				tg::process::stdio::read::Event::End => {
+					// Send an empty write to signal EOF if stdin is piped.
+					if streams.contains(&tg::process::stdio::Stream::Stdin)
+						&& matches!(
+							get_destination(&data, tg::process::stdio::Stream::Stdin),
+							Ok(Destination::Pipe)
+						) {
+						self.write_process_stdio_chunk_local(
+							id,
+							tg::process::stdio::Stream::Stdin,
+							Bytes::new(),
+						)
+						.await?;
+					}
 					return Ok(());
 				},
 			}

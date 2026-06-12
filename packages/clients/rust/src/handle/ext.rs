@@ -392,8 +392,8 @@ pub trait Ext: tg::Handle {
 			// Create a channel for buffering events from the input.
 			let (response_sender, response_receiver) = async_channel::bounded(1);
 
-			// Create the input task. This will read events from the input stream and write them to the response channel.
-			let input_task = Task::spawn(move |_| async move {
+			// Create the input task. This will read events from the input stream and write them to the response channel. It is detached so that it forwards the remaining events when the request stream is dropped. It completes when the input stream ends or all of the receivers are dropped.
+			let mut input_task = Task::spawn(move |_| async move {
 				let mut input = pin!(stream);
 				while let Some(event) = input.next().await {
 					if response_sender.send(event).await.is_err() {
@@ -401,6 +401,7 @@ pub trait Ext: tg::Handle {
 					}
 				}
 			});
+			input_task.detach();
 
 			// Get the initial output stream.
 			let Some(output) = handle
@@ -436,8 +437,7 @@ pub trait Ext: tg::Handle {
 					event,
 					Ok(tg::process::control::RequestEvent::End)
 				))
-			})
-			.attach(input_task);
+			});
 
 			Ok(Some(stream))
 		}

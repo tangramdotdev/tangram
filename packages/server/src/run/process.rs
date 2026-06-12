@@ -1,7 +1,8 @@
 use {
 	super::Output,
 	crate::Session,
-	futures::{StreamExt as _, TryStreamExt as _},
+	bytes::Bytes,
+	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::Path,
@@ -13,7 +14,7 @@ use {
 		task::{Stopper, Task},
 	},
 	tokio::task::JoinSet,
-	tokio_stream::wrappers::ReceiverStream,
+	tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream},
 };
 
 mod control;
@@ -52,9 +53,98 @@ impl Session {
 		guest_url: tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<()> {
+		let id = process.id().unwrap_right();
+		let location = process
+			.location()
+			.and_then(|location| location.to_location());
+		let state = process
+			.load_with_handle(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to load the process"))?;
+		let command = process
+			.command_with_handle(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
+		let command = command
+			.data_with_handle(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
+
+		// Create the control stream.
+		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
+		let control_responses = ReceiverStream::new(control_responses).boxed();
+		let arg = tg::process::control::Arg {
+			location: location.as_ref().map(|location| location.clone().into()),
+		};
+		let requests = self
+			.try_get_process_control_stream_all(id, arg, control_responses)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
+			.ok_or_else(|| tg::error!("expected a control stream"))?
+			.boxed();
+
+		// Create the progress stream. It is the buffer between progress reporting and the readers of the process's stderr. It is served to the readers by the control task if the stderr is a pipe, drained to the log by the log task if the stderr is logged, or dropped if the stderr is null.
+		let (progress_sender, progress_receiver) =
+			tokio::sync::mpsc::unbounded_channel::<Bytes>();
+		let progress = UnboundedReceiverStream::new(progress_receiver)
+			.filter(|bytes| future::ready(!bytes.is_empty()))
+			.map(Ok::<_, tg::Error>)
+			.boxed();
+		let mut progress = Some(progress);
+		let stderr_progress =
+			if matches!(state.stderr, tg::process::Stdio::Pipe | tg::process::Stdio::Tty) {
+				progress.take()
+			} else {
+				None
+			};
+
+		// Spawn the control task. The sandbox process is provided to it once it has been spawned. If the sender is dropped before the sandbox process is spawned, then the i/o tasks respond to all requests with EOF.
+		let (sandbox_process_sender, sandbox_process_receiver) = tokio::sync::watch::channel(None);
+		let (exited_sender, exited_receiver) = tokio::sync::oneshot::channel();
+		let control_task = Task::spawn({
+			let session = self.clone();
+			let sandbox = sandbox.clone();
+			let stdin = state.stdin.clone();
+			let stdout = state.stdout.clone();
+			let stderr = state.stderr.clone();
+			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
+			|_| async move {
+				session
+					.run_control_task(RunControlTaskArg {
+						sandbox,
+						sandbox_process: sandbox_process_receiver,
+						exited: exited_receiver,
+						requests,
+						sender: control_sender,
+						stdin,
+						stdout,
+						stderr,
+						stdin_blob,
+						stderr_progress,
+					})
+					.await
+					.inspect_err(|error| {
+						tracing::error!(error = %error.trace(), "the control task failed");
+					})
+			}
+		});
+
 		let result = self
-			.run_process(process, process_token, sandbox, &guest_url, stopper)
+			.run_process(
+				process,
+				process_token,
+				sandbox,
+				&guest_url,
+				stopper,
+				sandbox_process_sender,
+				progress_sender.clone(),
+				progress,
+			)
 			.await;
+
+		// Notify the control task that the sandbox process has exited.
+		exited_sender.send(()).ok();
+
 		let output = match result {
 			Ok(output) => output,
 			Err(error) => {
@@ -119,7 +209,7 @@ impl Session {
 					.push(arg)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to push the output"))?;
-				self.write_progress_stream(process, stream)
+				self.write_progress_stream(process, progress_sender.clone(), stream)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 			}
@@ -140,10 +230,23 @@ impl Session {
 			.await
 			.map_err(
 				|error| tg::error!(!error, process = %process.id(), "failed to finish the process"),
-			)?;
+		)?;
 		if finished.is_none() {
 			return Err(tg::error!(process = %process.id(), "failed to find the process"));
 		}
+
+		// Join the control task, which completes when the i/o tasks have read and written to EOF. The control task is aborted if it does not complete within the grace period, after which piped stdio is lost.
+		let timeout = self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.map_or(std::time::Duration::from_secs(10), |runner| {
+				runner.control_timeout
+			});
+		tokio::time::timeout(timeout, control_task.wait())
+			.await
+			.ok();
 
 		Ok::<_, tg::Error>(())
 	}
@@ -155,6 +258,9 @@ impl Session {
 		sandbox: tangram_sandbox::Sandbox,
 		guest_url: &tangram_uri::Uri,
 		stopper: Stopper,
+		sandbox_process_sender: tokio::sync::watch::Sender<Option<Arc<tangram_sandbox::Process>>>,
+		progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+		mut progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
 	) -> tg::Result<Output> {
 		let id = process.id().unwrap_right();
 		let location = process
@@ -174,48 +280,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
 
-		// Create the control stream.
-		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
-		let control_responses = ReceiverStream::new(control_responses).boxed();
-		let arg = tg::process::control::Arg {
-			location: location.as_ref().map(|location| location.clone().into()),
-		};
-		let requests = self
-			.try_get_process_control_stream_all(id, arg, control_responses)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
-			.ok_or_else(|| tg::error!("expected a control stream"))?
-			.boxed();
-
-		// Spawn the control task. The sandbox process is provided to it once it has been spawned. If the sender is dropped before the sandbox process is spawned, then the i/o tasks respond to all requests with EOF.
-		let (sandbox_process_sender, sandbox_process_receiver) = tokio::sync::watch::channel(None);
-		let control_task = Task::spawn({
-			let session = self.clone();
-			let sandbox = sandbox.clone();
-			let stdin = state.stdin.clone();
-			let stdout = state.stdout.clone();
-			let stderr = state.stderr.clone();
-			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
-			|_| async move {
-				session
-					.run_control_task(RunControlTaskArg {
-						sandbox,
-						sandbox_process: sandbox_process_receiver,
-						requests,
-						sender: control_sender,
-						stdin,
-						stdout,
-						stderr,
-						stdin_blob,
-					})
-					.await
-					.inspect_err(|error| {
-						tracing::error!(error = %error.trace(), "the control task failed");
-					})
-			}
-		});
-
-		// Run the process. The result is not propagated until the control task has been awaited.
+		// Run the process.
 		let result = async {
 			// Validate the host.
 			let host = command.host.as_str();
@@ -250,7 +315,7 @@ impl Session {
 			}
 
 			// Cache the process's children.
-			self.checkout_process_artifacts(process)
+			self.checkout_process_artifacts(process, progress_sender.clone())
 				.await
 				.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
 
@@ -399,6 +464,11 @@ impl Session {
 			if matches!(state.stderr, tg::process::Stdio::Log) {
 				log_streams.push(tg::process::stdio::Stream::Stderr);
 			}
+			let log_progress = if matches!(state.stderr, tg::process::Stdio::Log) {
+				progress.take()
+			} else {
+				None
+			};
 			let log_task = if log_streams.is_empty() {
 				None
 			} else {
@@ -414,6 +484,25 @@ impl Session {
 							.await
 							.map_err(|error| tg::error!(!error, "failed to read process stdio"))?
 							.boxed();
+
+						// Drain the progress stream to the log along with the output of the sandbox process.
+						let input = match log_progress {
+							Some(progress) => {
+								let progress = progress
+									.map_ok(|bytes| {
+										tg::process::stdio::read::Event::Chunk(
+											tg::process::stdio::Chunk {
+												bytes,
+												position: None,
+												stream: tg::process::stdio::Stream::Stderr,
+											},
+										)
+									})
+									.boxed();
+								futures::stream::select(input, progress).boxed()
+							},
+							None => input,
+						};
 						let arg = tg::process::stdio::write::Arg {
 							location: location.map(Into::into),
 							streams: log_streams,
@@ -580,19 +669,6 @@ impl Session {
 		// Drop the sender so that the i/o tasks observe that the sandbox process will never be spawned if it has not been.
 		drop(sandbox_process_sender);
 
-		// Wait for the control task, which completes when the i/o tasks have read and written to EOF. The control task is aborted if it does not complete within the timeout.
-		let timeout = self
-			.server
-			.config
-			.runner
-			.as_ref()
-			.map_or(std::time::Duration::from_secs(1), |runner| {
-				runner.control_timeout
-			});
-		tokio::time::timeout(timeout, control_task.wait())
-			.await
-			.ok();
-
 		result
 	}
 
@@ -612,7 +688,11 @@ impl Session {
 		}
 	}
 
-	async fn checkout_process_artifacts(&self, process: &tg::Process) -> tg::Result<()> {
+	async fn checkout_process_artifacts(
+		&self,
+		process: &tg::Process,
+		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
+	) -> tg::Result<()> {
 		// Do nothing if the VFS is enabled.
 		if self.server.vfs.lock().unwrap().is_some() {
 			return Ok(());
@@ -638,7 +718,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to cache the artifacts"))?;
 
 		// Write progress.
-		self.write_progress_stream(process, stream)
+		self.write_progress_stream(process, progress, stream)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 

@@ -4,7 +4,7 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	std::{pin::pin, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext, task::Task},
+	tangram_futures::task::Task,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -36,6 +36,7 @@ impl Session {
 		request: tg::process::control::RequestKind,
 		max_retries: u64,
 	) -> tg::Result<Option<tg::process::control::Response>> {
+		eprintln!("control request {id} {request:?}");
 		// Get the process status stream. Also checks for existence.
 		let Some(stream) = self
 			.try_get_process_status_stream_local(id, self.context.stopper.clone(), None)
@@ -47,13 +48,9 @@ impl Session {
 		// Wait until the process is started.
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			if matches!(
-				event,
-				tg::process::status::Event::Status(
-					tg::process::Status::Started | tg::process::Status::Finished
-				) | tg::process::status::Event::End
-			) {
-				break;
+			match event {
+				tg::process::status::Event::Status(tg::process::Status::Created) => continue,
+				_ => break,
 			}
 		}
 
@@ -96,8 +93,17 @@ impl Session {
 							.messenger
 							.publish(subject, ())
 							.await
-							.inspect_err(|error| tracing::error!(%error, "failed to ack the response"))
+							.inspect_err(
+								|error| tracing::error!(%error, "failed to ack the response"),
+							)
 							.ok();
+
+						eprintln!("control response {}", response.id);
+
+						// If the response is an error, then return it.
+						if let tg::process::control::ResponseKind::Error(error) = &response.kind {
+							return Err(error.clone().try_into()?);
+						}
 
 						return Ok(Some(response));
 					},
@@ -169,7 +175,9 @@ impl Session {
 		}
 		// Create the cache of responses that have been sent but not yet acked.
 		let responses = Arc::new(DashMap::new());
-		let response_task = Task::spawn({
+
+		// Spawn the response task. It is detached so that it drains and publishes the remaining responses when the request stream is dropped. It completes when the response stream ends.
+		let mut response_task = Task::spawn({
 			let session = self.clone();
 			let id = id.clone();
 			let responses = responses.clone();
@@ -190,7 +198,7 @@ impl Session {
 								let id = id.clone();
 								let responses = responses.clone();
 								async move {
-									responses.insert(response.id, response.clone());
+									responses.insert(response.id, Some(response.clone()));
 									let subject =
 										format!("processes.{id}.control.{}.ack", response.id);
 									let ack = session
@@ -202,8 +210,7 @@ impl Session {
 											tracing::error!(%error, "failed to subscribe to the ack");
 										})
 										.ok();
-									let subject =
-										format!("processes.{id}.control.{}", response.id);
+									let subject = format!("processes.{id}.control.{}", response.id);
 									let payload = Message::Response(
 										tg::process::control::ResponseEvent::Response(
 											response.clone(),
@@ -246,6 +253,8 @@ impl Session {
 				Ok::<_, tg::Error>(())
 			}
 		});
+		response_task.detach();
+
 		let subject = format!("processes.{id}.control");
 		let requests = self
 			.server
@@ -269,11 +278,17 @@ impl Session {
 					let id = id.clone();
 					let responses = responses.clone();
 					async move {
-						// If the request was already responded to, then republish the cached response instead of forwarding the request.
 						if let tg::process::control::RequestEvent::Request(request) = &event {
-							let response = responses
-								.get(&request.id)
-								.map(|response| response.value().clone());
+							// Check for an existing entry for the request id before forwarding the request, so that a retried request is not executed more than once.
+							let response = match responses.entry(request.id) {
+								dashmap::Entry::Vacant(entry) => {
+									entry.insert(None);
+									return Ok(Some(event));
+								},
+								dashmap::Entry::Occupied(entry) => entry.get().clone(),
+							};
+
+							// If the request was already responded to, then republish the cached response. Otherwise, drop the duplicate, and the response will be published when it is ready.
 							if let Some(response) = response {
 								let subject = format!("processes.{id}.control.{}", response.id);
 								let payload = Message::Response(
@@ -288,14 +303,13 @@ impl Session {
 										tracing::error!(%error, "failed to publish the response");
 									})
 									.ok();
-								return Ok(None);
 							}
+							return Ok(None);
 						}
 						Ok(Some(event))
 					}
 				}
 			})
-			.attach(response_task)
 			.boxed();
 
 		// Mark the process started now that the subscription exists. This is a no-op if
