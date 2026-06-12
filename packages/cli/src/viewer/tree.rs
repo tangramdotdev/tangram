@@ -1414,23 +1414,31 @@ impl Tree {
 	) -> tg::Result<()> {
 		let process = referent.item.clone();
 
-		// Create the log task.
-		let log_task = Task::spawn_local({
-			let process = process.clone();
-			let client = client.clone();
-			let guard = counter.guard();
-			let update_sender = update_sender.clone();
-			|_| async move {
-				Self::process_log_task(&client, process, update_sender)
-					.await
-					.ok();
-				drop(guard);
-			}
-		});
-		let update = move |node: Rc<RefCell<Node>>| {
-			node.borrow_mut().log_task.replace(log_task);
+		// Create the log task, but only if the process's stdio is logged. Reading
+		// a piped or tty stream here would destructively consume it, stealing the
+		// data from the process that spawned it and is reading it through a pipe.
+		let logged = match process.load_with_handle(client).await {
+			Ok(state) => state.log.is_some() || state.stdout.is_log() || state.stderr.is_log(),
+			Err(_) => false,
 		};
-		update_sender.send(Box::new(update)).ok();
+		if logged {
+			let log_task = Task::spawn_local({
+				let process = process.clone();
+				let client = client.clone();
+				let guard = counter.guard();
+				let update_sender = update_sender.clone();
+				|_| async move {
+					Self::process_log_task(&client, process, update_sender)
+						.await
+						.ok();
+					drop(guard);
+				}
+			});
+			let update = move |node: Rc<RefCell<Node>>| {
+				node.borrow_mut().log_task.replace(log_task);
+			};
+			update_sender.send(Box::new(update)).ok();
+		}
 
 		let command = process.command_with_handle(client).await?;
 		let value = tg::Value::Object(command.clone().into());
