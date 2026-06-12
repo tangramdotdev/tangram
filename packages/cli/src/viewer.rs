@@ -55,6 +55,7 @@ pub struct Package(pub tg::Object);
 
 #[derive(Clone, Debug)]
 pub struct Options {
+	pub attached: bool,
 	pub collapse_process_children: bool,
 	pub depth: Option<u32>,
 	pub expand_groups: bool,

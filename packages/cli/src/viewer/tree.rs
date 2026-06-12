@@ -227,7 +227,8 @@ impl Tree {
 				let update_sender = update_sender.clone();
 				let guard = counter.guard();
 				let task = Task::spawn_local(|_| async move {
-					Self::expand_task(&client, counter.clone(), referent, update_sender).await;
+					Self::expand_task(&client, counter.clone(), referent, update_sender, false)
+						.await;
 					drop(guard);
 				});
 				Some(task)
@@ -392,6 +393,7 @@ impl Tree {
 		if matches!(node.expanded, Some(true) | None) {
 			return;
 		}
+		let force_log = node.depth == 0 && node.options.attached;
 		let children_task = Task::spawn_local({
 			let counter = self.counter.clone();
 			let guard = counter.guard();
@@ -399,7 +401,7 @@ impl Tree {
 			let update_sender = node.update_sender.clone();
 			let referent = referent.clone();
 			move |_| async move {
-				Self::expand_task(&client, counter, referent, update_sender).await;
+				Self::expand_task(&client, counter, referent, update_sender, force_log).await;
 				drop(guard);
 			}
 		});
@@ -1411,26 +1413,37 @@ impl Tree {
 		counter: UpdateCounter,
 		referent: tg::Referent<tg::Process>,
 		update_sender: NodeUpdateSender,
+		force_log: bool,
 	) -> tg::Result<()> {
 		let process = referent.item.clone();
 
-		// Create the log task.
-		let log_task = Task::spawn_local({
-			let process = process.clone();
-			let client = client.clone();
-			let guard = counter.guard();
-			let update_sender = update_sender.clone();
-			|_| async move {
-				Self::process_log_task(&client, process, update_sender)
-					.await
-					.ok();
-				drop(guard);
-			}
-		});
-		let update = move |node: Rc<RefCell<Node>>| {
-			node.borrow_mut().log_task.replace(log_task);
-		};
-		update_sender.send(Box::new(update)).ok();
+		// Create the log task, but only if the process's stdio is logged or this is
+		// the attached root process. Reading a piped or tty stream of a descendant
+		// process would destructively consume it, stealing the data from the
+		// process that spawned it and is reading it through a pipe.
+		let logged = force_log
+			|| match process.load_with_handle(client).await {
+				Ok(state) => state.log.is_some() || state.stdout.is_log() || state.stderr.is_log(),
+				Err(_) => false,
+			};
+		if logged {
+			let log_task = Task::spawn_local({
+				let process = process.clone();
+				let client = client.clone();
+				let guard = counter.guard();
+				let update_sender = update_sender.clone();
+				|_| async move {
+					Self::process_log_task(&client, process, update_sender)
+						.await
+						.ok();
+					drop(guard);
+				}
+			});
+			let update = move |node: Rc<RefCell<Node>>| {
+				node.borrow_mut().log_task.replace(log_task);
+			};
+			update_sender.send(Box::new(update)).ok();
+		}
 
 		let command = process.command_with_handle(client).await?;
 		let value = tg::Value::Object(command.clone().into());
@@ -1671,11 +1684,19 @@ impl Tree {
 		counter: UpdateCounter,
 		referent: tg::Referent<Item>,
 		update_sender: NodeUpdateSender,
+		force_log: bool,
 	) {
 		let result = match referent.item() {
 			Item::Process(process) => {
 				let referent = referent.clone().map(|_| process.clone());
-				Self::expand_process(client, counter.clone(), referent, update_sender.clone()).await
+				Self::expand_process(
+					client,
+					counter.clone(),
+					referent,
+					update_sender.clone(),
+					force_log,
+				)
+				.await
 			},
 			Item::Value(value) => {
 				Self::expand_value(
@@ -1942,8 +1963,9 @@ impl Tree {
 			let client = client.clone();
 			let referent = referent.clone();
 			let update_sender = update_sender.clone();
-			let task: Task<()> = Task::spawn_local(|_| async move {
-				Self::expand_task(&client, counter, referent, update_sender).await;
+			let force_log = options.attached;
+			let task: Task<()> = Task::spawn_local(move |_| async move {
+				Self::expand_task(&client, counter, referent, update_sender, force_log).await;
 				drop(guard);
 			});
 			Some(task)
