@@ -42,6 +42,9 @@ impl Session {
 		id: &tg::Id,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		if id.kind() == tg::id::Kind::Process && options.path.is_some() {
+			return Err(tg::error!("cannot get path in process"));
+		}
 		let referent = tg::Referent::with_item(tg::get::Item::Id(id.clone()));
 		let output = tg::get::Output { referent };
 		let output = self
@@ -335,6 +338,9 @@ impl Session {
 				output.referent.item = tg::get::Item::Pointer(pointer.clone());
 				output.referent.options.path = Some(get.to_owned());
 				Ok(Some(output))
+			},
+			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
+				Err(tg::error!("cannot get path in process"))
 			},
 			tg::get::Item::Id(_) => Err(tg::error!("unexpected reference get option")),
 		}
