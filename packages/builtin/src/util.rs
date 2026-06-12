@@ -28,6 +28,13 @@ pub(crate) fn detect_archive_format(
 		return Ok(Some((tg::ArchiveFormat::Tar, None)));
 	}
 
+	// A tar archive with no entries consists of zero-filled end-of-archive blocks. If the first record is entirely zero, then treat the buffer as an empty tar archive.
+	if let Some(block) = bytes.get(0..512)
+		&& block.iter().all(|&byte| byte == 0)
+	{
+		return Ok(Some((tg::ArchiveFormat::Tar, None)));
+	}
+
 	// Otherwise, check for a valid tar checksum by parsing the header record. This is an 8-byte field at offset 148. See <https://en.wikipedia.org/wiki/Tar_(computing)#File_format>: "The checksum is calculated by taking the sum of the unsigned byte values of the header record with the eight checksum bytes taken to be ASCII spaces (decimal value 32). It is stored as a six digit octal number with leading zeroes followed by a NUL and then a space".
 	let position = 148;
 	let length = 8;

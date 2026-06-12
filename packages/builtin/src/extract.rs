@@ -371,10 +371,11 @@ pub(crate) async fn extract_zip(
 		.await
 		.map_err(|error| tg::error!(!error, "failed to read zip central directory"))?;
 
-	// Get symlinks.
+	// Get the symlinks and executable permissions from the central directory, because the local file headers do not carry the unix permissions.
 	let central_directory: &[u8] = &central_directory;
 	let entry_count = entries.len();
 	let mut symlinks = Vec::new();
+	let mut executables = Vec::new();
 	let mut position = 0;
 	while position + 4 <= central_directory.len() {
 		let signature = u32::from_le_bytes(
@@ -410,6 +411,7 @@ pub(crate) async fn extract_zip(
 		);
 		let permissions = (external_file_attribute >> 16) as u16;
 		symlinks.push(permissions & 0o120_000 == 0o120_000);
+		executables.push(permissions & 0o000_111 != 0);
 		position = position
 			.checked_add(46)
 			.and_then(|position| position.checked_add(filename_length))
@@ -417,26 +419,37 @@ pub(crate) async fn extract_zip(
 			.and_then(|position| position.checked_add(comment_length))
 			.ok_or_else(|| tg::error!("invalid zip central directory"))?;
 	}
-	if symlinks.len() != entry_count {
+	if symlinks.len() != entry_count || executables.len() != entry_count {
 		return Err(tg::error!("invalid zip central directory"));
 	}
 
-	// Apply symlinks.
-	for (path, is_symlink) in entries.iter().zip(symlinks) {
-		if !is_symlink {
+	// Apply the symlinks and executable permissions.
+	for ((path, is_symlink), is_executable) in entries.iter().zip(symlinks).zip(executables) {
+		if is_symlink {
+			let buffer = tokio::fs::read(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to read symlink target"))?;
+			let target = std::str::from_utf8(&buffer)
+				.map_err(|error| tg::error!(!error, "symlink target not valid UTF-8"))?;
+			tokio::fs::remove_file(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove the symlink placeholder"))?;
+			tokio::fs::symlink(target, path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 			continue;
 		}
-		let buffer = tokio::fs::read(path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read symlink target"))?;
-		let target = std::str::from_utf8(&buffer)
-			.map_err(|error| tg::error!(!error, "symlink target not valid UTF-8"))?;
-		tokio::fs::remove_file(path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to remove the symlink placeholder"))?;
-		tokio::fs::symlink(target, path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
+		if is_executable {
+			let metadata = tokio::fs::symlink_metadata(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to read the entry metadata"))?;
+			if metadata.is_file() {
+				let permissions = std::fs::Permissions::from_mode(0o755);
+				tokio::fs::set_permissions(path, permissions)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
+			}
+		}
 	}
 
 	Ok(())
