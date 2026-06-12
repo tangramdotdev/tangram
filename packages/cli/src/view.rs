@@ -198,6 +198,7 @@ impl Cli {
 			local_set
 				.block_on(&runtime, async move {
 					let options = crate::viewer::Options {
+						attached: false,
 						collapse_process_children: args.collapse_process_children,
 						depth: args.depth,
 						expand_groups: args.expand_tags,

@@ -181,6 +181,7 @@ impl Cli {
 					.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
 				local_set.block_on(&runtime, async move {
 					let viewer_options = crate::viewer::Options {
+						attached: true,
 						collapse_process_children: true,
 						depth: None,
 						expand_groups: false,
