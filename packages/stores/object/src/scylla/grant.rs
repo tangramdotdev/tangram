@@ -23,11 +23,13 @@ impl Store {
 		created_at: i64,
 	) -> tg::Result<()> {
 		let ttl = self.grant_ttl.to_i32().unwrap();
+		let expires_at = created_at + self.grant_ttl.to_i64().unwrap();
 		let params = (
 			id.to_bytes().to_vec(),
 			principal.to_string(),
 			subtree,
 			created_at,
+			expires_at,
 			ttl,
 		);
 		self.session

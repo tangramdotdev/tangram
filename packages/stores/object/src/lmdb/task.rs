@@ -29,7 +29,7 @@ impl Store {
 			for request in requests {
 				let result = match request {
 					Request::CleanGrants(request) => {
-						Self::task_clean_grants(db, &mut transaction, &request)
+						Self::task_clean_grants(db, &mut transaction, request)
 					},
 					Request::Delete(request) => {
 						Self::task_delete_object(env, db, &mut transaction, request)
@@ -46,6 +46,7 @@ impl Store {
 						&request.principal,
 						request.subtree,
 						request.created_at,
+						request.expires_at,
 					),
 					Request::GrantBatch(requests) => requests.into_iter().try_for_each(|request| {
 						Self::task_put_object_grant(
@@ -55,6 +56,7 @@ impl Store {
 							&request.principal,
 							request.subtree,
 							request.created_at,
+							request.expires_at,
 						)
 					}),
 					Request::Put(request) => {

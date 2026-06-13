@@ -28,7 +28,7 @@ pub struct Store {
 #[derive(Default)]
 struct State {
 	grants: Grants,
-	grants_by_created_at: BTreeMap<i64, GrantKeys>,
+	grants_by_expires_at: BTreeMap<i64, GrantKeys>,
 	objects: Objects,
 }
 
@@ -159,7 +159,7 @@ mod tests {
 		assert!(output.grants.is_empty());
 	}
 
-	// Cleaning grants removes those past their time to live while keeping live grants and the latest upgraded subtree grant.
+	// Cleaning grants removes those past their expiration while keeping live grants and the latest upgraded subtree grant.
 	#[test]
 	fn clean_grants_removes_expired_grants() {
 		let store = Store::new(&Config { grant_ttl: 5 });
@@ -202,6 +202,7 @@ mod tests {
 		assert!(!state.grants.contains_key(&(expired_id, principal.clone())));
 		assert!(state.grants.contains_key(&(live_id, principal.clone())));
 		let updated_grant = state.grants.get(&(updated_id, principal)).unwrap();
+		assert_eq!(updated_grant.expires_at, 16);
 		assert!(updated_grant.subtree);
 	}
 }

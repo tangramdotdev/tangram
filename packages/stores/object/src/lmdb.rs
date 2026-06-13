@@ -49,7 +49,7 @@ enum Request {
 enum Key<'a> {
 	Object(&'a tg::object::Id),
 	ObjectGrant(&'a tg::object::Id, &'a str),
-	ObjectGrantCreatedAt(i64, &'a tg::object::Id, &'a str),
+	ObjectGrantExpiresAt(i64, &'a tg::object::Id, &'a str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -57,7 +57,7 @@ enum Key<'a> {
 enum KeyKind {
 	Object = 0,
 	ObjectGrant = 1,
-	ObjectGrantCreatedAt = 2,
+	ObjectGrantExpiresAt = 2,
 }
 
 impl Store {
@@ -176,9 +176,9 @@ impl fdbt::TuplePack for Key<'_> {
 				principal,
 			)
 				.pack(w, tuple_depth),
-			Key::ObjectGrantCreatedAt(created_at, id, principal) => (
-				KeyKind::ObjectGrantCreatedAt.to_i32().unwrap(),
-				created_at,
+			Key::ObjectGrantExpiresAt(expires_at, id, principal) => (
+				KeyKind::ObjectGrantExpiresAt.to_i32().unwrap(),
+				expires_at,
 				id.to_bytes().as_ref(),
 				principal,
 			)
@@ -201,17 +201,17 @@ impl Key<'_> {
 		Ok((id, principal))
 	}
 
-	fn unpack_object_grant_created_at(bytes: &[u8]) -> tg::Result<(i64, tg::object::Id, String)> {
-		let (kind, created_at, id, principal): (i32, i64, Vec<u8>, String) = fdbt::Subspace::all()
+	fn unpack_object_grant_expires_at(bytes: &[u8]) -> tg::Result<(i64, tg::object::Id, String)> {
+		let (kind, expires_at, id, principal): (i32, i64, Vec<u8>, String) = fdbt::Subspace::all()
 			.unpack(bytes)
 			.map_err(|error| tg::error!(!error, "failed to unpack the object grant index key"))?;
 		let kind = KeyKind::from_i32(kind).ok_or_else(|| tg::error!("invalid key kind"))?;
-		if kind != KeyKind::ObjectGrantCreatedAt {
+		if kind != KeyKind::ObjectGrantExpiresAt {
 			return Err(tg::error!("unexpected object grant index key"));
 		}
 		let id = tg::object::Id::from_slice(&id)
 			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
-		Ok((created_at, id, principal))
+		Ok((expires_at, id, principal))
 	}
 }
 
@@ -441,7 +441,7 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::Root;
+		let principal = tg::Principal::User(tg::user::Id::new());
 
 		store
 			.put(crate::PutArg {
@@ -485,7 +485,7 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::Root;
+		let principal = tg::Principal::User(tg::user::Id::new());
 
 		store
 			.put(crate::PutArg {
@@ -565,9 +565,9 @@ mod tests {
 		assert!(output.object.is_some());
 	}
 
-	// A grant is no longer returned once the requested time is past its time to live, while the object remains.
+	// A grant is returned until the cleaner removes it by expiration, while the object remains.
 	#[tokio::test]
-	async fn test_object_grant_expires() {
+	async fn test_object_grant_cleaner_removes_expired_grant() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
@@ -583,7 +583,7 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::Root;
+		let principal = tg::Principal::User(tg::user::Id::new());
 
 		store
 			.put(crate::PutArg {
@@ -595,6 +595,24 @@ mod tests {
 			})
 			.await
 			.unwrap();
+
+		let arg = crate::TryGetArg {
+			id: id.clone(),
+			now: 12346,
+			principal: Some(principal.clone()),
+		};
+		let output = store.try_get(arg).await.unwrap();
+		assert!(!output.grants.is_empty());
+		assert!(output.object.is_some());
+
+		let mut transaction = store.env.write_txn().unwrap();
+		Store::task_clean_grants(
+			&store.db,
+			&mut transaction,
+			self::grant::CleanRequest { now: 12346 },
+		)
+		.unwrap();
+		transaction.commit().unwrap();
 
 		let arg = crate::TryGetArg {
 			id,
@@ -624,7 +642,7 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::Root;
+		let principal = tg::Principal::User(tg::user::Id::new());
 
 		store
 			.put(crate::PutArg {

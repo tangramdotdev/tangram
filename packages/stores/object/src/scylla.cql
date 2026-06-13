@@ -10,5 +10,6 @@ create table if not exists object_grants (
 	principal text,
 	subtree boolean,
 	created_at bigint,
+	expires_at bigint,
 	primary key (object, principal, subtree)
 );

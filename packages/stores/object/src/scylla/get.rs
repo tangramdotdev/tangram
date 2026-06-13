@@ -101,6 +101,7 @@ impl Store {
 		#[derive(scylla::DeserializeRow)]
 		struct Row {
 			created_at: i64,
+			expires_at: i64,
 			subtree: bool,
 		}
 		let result = self
@@ -119,6 +120,7 @@ impl Store {
 					result.map_err(|error| tg::error!(!error, %id, "failed to get the row"))?;
 				Ok(crate::Grant {
 					created_at: row.created_at,
+					expires_at: row.expires_at,
 					subtree: row.subtree,
 				})
 			})
@@ -244,6 +246,7 @@ impl Store {
 		struct Row<'a> {
 			object: &'a [u8],
 			created_at: i64,
+			expires_at: i64,
 			subtree: bool,
 		}
 		let result = self
@@ -266,6 +269,7 @@ impl Store {
 				.or_insert_with(Vec::new)
 				.push(crate::Grant {
 					created_at: row.created_at,
+					expires_at: row.expires_at,
 					subtree: row.subtree,
 				});
 		}

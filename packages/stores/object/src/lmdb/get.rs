@@ -12,7 +12,6 @@ impl Store {
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
-			let grant_ttl = self.grant_ttl;
 			move || {
 				let transaction = env
 					.read_txn()
@@ -23,8 +22,6 @@ impl Store {
 					&transaction,
 					&arg.id,
 					arg.principal.as_ref(),
-					arg.now,
-					grant_ttl,
 				)?;
 				Ok(TryGetOutput { grants, object })
 			}
@@ -40,7 +37,6 @@ impl Store {
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
-			let grant_ttl = self.grant_ttl;
 			move || {
 				let transaction = env
 					.read_txn()
@@ -53,8 +49,6 @@ impl Store {
 						&transaction,
 						id,
 						arg.principal.as_ref(),
-						arg.now,
-						grant_ttl,
 					)?;
 					outputs.push(TryGetOutput { grants, object });
 				}
@@ -86,8 +80,6 @@ impl Store {
 				&transaction,
 				id,
 				arg.principal.as_ref(),
-				arg.now,
-				self.grant_ttl,
 			)?;
 			outputs.push(TryGetOutput { grants, object });
 		}
@@ -116,8 +108,6 @@ impl Store {
 			transaction,
 			&arg.id,
 			arg.principal.as_ref(),
-			arg.now,
-			self.grant_ttl,
 		)?;
 		Ok(TryGetOutput { grants, object })
 	}
@@ -145,8 +135,6 @@ impl Store {
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
 		principal: Option<&tg::Principal>,
-		now: i64,
-		grant_ttl: u64,
 	) -> tg::Result<Vec<Grant>> {
 		let Some(principal) = principal else {
 			return Ok(Vec::new());
@@ -164,10 +152,7 @@ impl Store {
 		};
 		let grant = Grant::deserialize(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object grant"))?;
-		Ok((now - grant.created_at < grant_ttl.to_i64().unwrap())
-			.then_some(grant)
-			.into_iter()
-			.collect())
+		Ok(vec![grant])
 	}
 
 	pub fn try_get_data_with_transaction(

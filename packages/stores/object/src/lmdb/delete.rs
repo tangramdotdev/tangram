@@ -143,12 +143,12 @@ impl Store {
 			let grant = crate::Grant::deserialize(value).map_err(
 				|error| tg::error!(!error, %id, "failed to deserialize the object grant"),
 			)?;
-			grants.push((key.to_vec(), principal, grant.created_at));
+			grants.push((key.to_vec(), principal, grant.expires_at));
 		}
-		for (key, principal, created_at) in grants {
+		for (key, principal, expires_at) in grants {
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, %id, "failed to delete the object grant"))?;
-			let index_key = Key::ObjectGrantCreatedAt(created_at, id, &principal);
+			let index_key = Key::ObjectGrantExpiresAt(expires_at, id, &principal);
 			db.delete(transaction, &index_key.pack_to_vec()).map_err(
 				|error| tg::error!(!error, %id, "failed to delete the object grant index"),
 			)?;

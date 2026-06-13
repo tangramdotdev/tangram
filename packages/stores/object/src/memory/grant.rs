@@ -36,15 +36,14 @@ impl Store {
 		})
 	}
 
-	pub(super) fn clean_grants(state: &mut State, now: i64, grant_ttl: u64) {
-		let max_created_at = now - grant_ttl.to_i64().unwrap();
-		let expired_created_at = state
-			.grants_by_created_at
-			.range(..=max_created_at)
-			.map(|(created_at, _)| *created_at)
+	pub(super) fn clean_grants(state: &mut State, now: i64, _grant_ttl: u64) {
+		let expired_expires_at = state
+			.grants_by_expires_at
+			.range(..=now)
+			.map(|(expires_at, _)| *expires_at)
 			.collect::<Vec<_>>();
-		for created_at in expired_created_at {
-			let Some(keys) = state.grants_by_created_at.remove(&created_at) else {
+		for expires_at in expired_expires_at {
+			let Some(keys) = state.grants_by_expires_at.remove(&expires_at) else {
 				continue;
 			};
 			for key in keys {
@@ -55,13 +54,25 @@ impl Store {
 
 	pub fn grant(&self, arg: GrantArg) {
 		let mut state = self.state();
-		state.put_grant(arg.id, &arg.principal, arg.subtree, arg.created_at);
+		state.put_grant(
+			arg.id,
+			&arg.principal,
+			arg.subtree,
+			arg.created_at,
+			self.grant_ttl,
+		);
 	}
 
 	pub fn grant_batch(&self, args: Vec<GrantArg>) {
 		let mut state = self.state();
 		for arg in args {
-			state.put_grant(arg.id, &arg.principal, arg.subtree, arg.created_at);
+			state.put_grant(
+				arg.id,
+				&arg.principal,
+				arg.subtree,
+				arg.created_at,
+				self.grant_ttl,
+			);
 		}
 	}
 }
@@ -73,33 +84,39 @@ impl State {
 		principal: &tg::Principal,
 		subtree: bool,
 		created_at: i64,
+		grant_ttl: u64,
 	) {
+		let expires_at = created_at + grant_ttl.to_i64().unwrap();
 		let key = (id, principal.clone());
 		let existing = self.remove_grant(&key);
+		let expires_at = existing
+			.as_ref()
+			.map_or(expires_at, |grant| grant.expires_at.max(expires_at));
 		let grant = Grant {
 			created_at,
+			expires_at,
 			subtree: subtree || existing.is_some_and(|grant| grant.subtree),
 		};
 		self.grants.insert(key.clone(), grant);
-		self.grants_by_created_at
-			.entry(created_at)
+		self.grants_by_expires_at
+			.entry(expires_at)
 			.or_default()
 			.insert(key);
 	}
 
 	pub(super) fn remove_grant(&mut self, key: &GrantKey) -> Option<Grant> {
 		let grant = self.grants.remove(key)?;
-		self.remove_grant_index(grant.created_at, key);
+		self.remove_grant_index(grant.expires_at, key);
 		Some(grant)
 	}
 
-	fn remove_grant_index(&mut self, created_at: i64, key: &GrantKey) {
-		let Some(keys) = self.grants_by_created_at.get_mut(&created_at) else {
+	fn remove_grant_index(&mut self, expires_at: i64, key: &GrantKey) {
+		let Some(keys) = self.grants_by_expires_at.get_mut(&expires_at) else {
 			return;
 		};
 		keys.remove(key);
 		if keys.is_empty() {
-			self.grants_by_created_at.remove(&created_at);
+			self.grants_by_expires_at.remove(&expires_at);
 		}
 	}
 }

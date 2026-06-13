@@ -10,11 +10,11 @@ use {
 #[derive(Clone, Copy)]
 pub(super) struct CleanRequest {
 	pub now: i64,
-	pub ttl: u64,
 }
 
 pub(super) struct Request {
 	pub created_at: i64,
+	pub expires_at: i64,
 	pub id: tg::object::Id,
 	pub principal: tg::Principal,
 	pub subtree: bool,
@@ -42,10 +42,7 @@ impl Store {
 					.to_i64()
 					.unwrap();
 				let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-				let request = super::Request::CleanGrants(CleanRequest {
-					now,
-					ttl: grant_ttl,
-				});
+				let request = super::Request::CleanGrants(CleanRequest { now });
 				if sender.send((request, response_sender)).await.is_err() {
 					break;
 				}
@@ -57,10 +54,9 @@ impl Store {
 	pub(super) fn task_clean_grants(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		request: &CleanRequest,
+		request: CleanRequest,
 	) -> tg::Result<()> {
-		let max_created_at = request.now - request.ttl.to_i64().unwrap();
-		let prefix = (KeyKind::ObjectGrantCreatedAt.to_i32().unwrap(),).pack_to_vec();
+		let prefix = (KeyKind::ObjectGrantExpiresAt.to_i32().unwrap(),).pack_to_vec();
 		let iter = db
 			.prefix_iter(&*transaction, &prefix)
 			.map_err(|error| tg::error!(!error, "failed to iterate object grant indexes"))?;
@@ -68,18 +64,18 @@ impl Store {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|error| tg::error!(!error, "failed to read the object grant index"))?;
-			let key = Key::unpack_object_grant_created_at(key)?;
-			let (created_at, id, principal) = key;
-			if created_at > max_created_at {
+			let key = Key::unpack_object_grant_expires_at(key)?;
+			let (expires_at, id, principal) = key;
+			if expires_at > request.now {
 				break;
 			}
-			expired.push((created_at, id, principal));
+			expired.push((expires_at, id, principal));
 		}
-		for (created_at, id, principal) in expired {
+		for (expires_at, id, principal) in expired {
 			let grant_key = Key::ObjectGrant(&id, &principal);
 			db.delete(transaction, &grant_key.pack_to_vec())
 				.map_err(|error| tg::error!(!error, %id, "failed to delete the object grant"))?;
-			let index_key = Key::ObjectGrantCreatedAt(created_at, &id, &principal);
+			let index_key = Key::ObjectGrantExpiresAt(expires_at, &id, &principal);
 			db.delete(transaction, &index_key.pack_to_vec()).map_err(
 				|error| tg::error!(!error, %id, "failed to delete the object grant index"),
 			)?;
@@ -92,6 +88,7 @@ impl Store {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = super::Request::Grant(Request {
 			created_at: arg.created_at,
+			expires_at: arg.created_at + self.grant_ttl.to_i64().unwrap(),
 			id: arg.id,
 			principal: arg.principal,
 			subtree: arg.subtree,
@@ -114,6 +111,7 @@ impl Store {
 			args.into_iter()
 				.map(|arg| Request {
 					created_at: arg.created_at,
+					expires_at: arg.created_at + self.grant_ttl.to_i64().unwrap(),
 					id: arg.id,
 					principal: arg.principal,
 					subtree: arg.subtree,
@@ -142,6 +140,7 @@ impl Store {
 			&arg.principal,
 			arg.subtree,
 			arg.created_at,
+			arg.created_at + self.grant_ttl.to_i64().unwrap(),
 		)?;
 		transaction
 			.commit()
@@ -165,6 +164,7 @@ impl Store {
 				&arg.principal,
 				arg.subtree,
 				arg.created_at,
+				arg.created_at + self.grant_ttl.to_i64().unwrap(),
 			)?;
 		}
 		transaction
@@ -180,6 +180,7 @@ impl Store {
 		principal: &tg::Principal,
 		subtree: bool,
 		created_at: i64,
+		expires_at: i64,
 	) -> tg::Result<()> {
 		let principal = principal.to_string();
 		let key = Key::ObjectGrant(id, &principal);
@@ -192,20 +193,24 @@ impl Store {
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object grant"))?;
 
 		if let Some(existing) = &existing {
-			let index_key = Key::ObjectGrantCreatedAt(existing.created_at, id, &principal);
+			let index_key = Key::ObjectGrantExpiresAt(existing.expires_at, id, &principal);
 			db.delete(transaction, &index_key.pack_to_vec()).map_err(
 				|error| tg::error!(!error, %id, "failed to delete the object grant index"),
 			)?;
 		}
 
+		let expires_at = existing
+			.as_ref()
+			.map_or(expires_at, |grant| grant.expires_at.max(expires_at));
 		let grant = Grant {
 			created_at,
 			subtree: subtree || existing.is_some_and(|grant| grant.subtree),
+			expires_at,
 		};
 		let value_bytes = grant.serialize()?;
 		db.put(transaction, &key_bytes, &value_bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the object grant"))?;
-		let index_key = Key::ObjectGrantCreatedAt(created_at, id, &principal);
+		let index_key = Key::ObjectGrantExpiresAt(expires_at, id, &principal);
 		db.put(transaction, &index_key.pack_to_vec(), &[])
 			.map_err(|error| tg::error!(!error, %id, "failed to put the object grant index"))?;
 

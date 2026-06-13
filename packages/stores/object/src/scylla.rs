@@ -136,7 +136,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select object, created_at, subtree
+				select object, created_at, expires_at, subtree
 				from object_grants
 				where object in ? and principal = ?;
 			"
@@ -148,7 +148,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select created_at, subtree
+				select created_at, expires_at, subtree
 				from object_grants
 				where object = ? and principal = ?;
 			"
@@ -186,8 +186,8 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into object_grants (object, principal, subtree, created_at)
-				values (?, ?, ?, ?)
+				insert into object_grants (object, principal, subtree, created_at, expires_at)
+				values (?, ?, ?, ?, ?)
 				using ttl ?;
 			"
 		);

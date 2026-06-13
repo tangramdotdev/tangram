@@ -99,6 +99,9 @@ pub struct Grant {
 	pub created_at: i64,
 
 	#[tangram_serialize(id = 1)]
+	pub expires_at: i64,
+
+	#[tangram_serialize(id = 2)]
 	pub subtree: bool,
 }
 

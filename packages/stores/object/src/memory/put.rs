@@ -14,7 +14,13 @@ impl Store {
 		};
 		state.objects.insert(arg.id.clone(), object);
 		if let Some(principal) = &arg.principal {
-			state.put_grant(arg.id.clone(), principal, false, arg.stored_at);
+			state.put_grant(
+				arg.id.clone(),
+				principal,
+				false,
+				arg.stored_at,
+				self.grant_ttl,
+			);
 		}
 	}
 
@@ -28,7 +34,13 @@ impl Store {
 			};
 			state.objects.insert(arg.id.clone(), object);
 			if let Some(principal) = &arg.principal {
-				state.put_grant(arg.id.clone(), principal, false, arg.stored_at);
+				state.put_grant(
+					arg.id.clone(),
+					principal,
+					false,
+					arg.stored_at,
+					self.grant_ttl,
+				);
 			}
 		}
 	}

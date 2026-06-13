@@ -11,7 +11,7 @@ impl Store {
 		let state = self.state();
 		let object = Self::try_get_object(&state, &arg.id);
 		let grants = arg.principal.as_ref().map_or_else(Vec::new, |principal| {
-			Self::try_get_grant(&state, &arg.id, principal, arg.now, self.grant_ttl)
+			Self::try_get_grant(&state, &arg.id, principal)
 		});
 		TryGetOutput { grants, object }
 	}
@@ -23,7 +23,7 @@ impl Store {
 			.iter()
 			.map(|id| TryGetOutput {
 				grants: arg.principal.as_ref().map_or_else(Vec::new, |principal| {
-					Self::try_get_grant(&state, id, principal, arg.now, self.grant_ttl)
+					Self::try_get_grant(&state, id, principal)
 				}),
 				object: Self::try_get_object(&state, id),
 			})
@@ -52,8 +52,6 @@ impl Store {
 		state: &super::State,
 		id: &tg::object::Id,
 		principal: &tg::Principal,
-		now: i64,
-		grant_ttl: u64,
 	) -> Vec<Grant> {
 		if matches!(principal, tg::Principal::Root) {
 			return Vec::new();
@@ -61,9 +59,7 @@ impl Store {
 		state
 			.grants
 			.get(&(id.clone(), principal.clone()))
-			.and_then(|grant| {
-				(now - grant.created_at < grant_ttl.to_i64().unwrap()).then(|| grant.clone())
-			})
+			.cloned()
 			.into_iter()
 			.collect()
 	}
