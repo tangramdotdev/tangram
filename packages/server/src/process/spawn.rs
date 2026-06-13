@@ -1055,27 +1055,6 @@ impl Session {
 		let id = tg::process::Id::new();
 
 		let status = tg::process::Status::Finished;
-		let stderr_open = match &arg.stderr {
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
-			tg::process::Stdio::Blob(_)
-			| tg::process::Stdio::Inherit
-			| tg::process::Stdio::Log
-			| tg::process::Stdio::Null => None,
-		};
-		let stdin_open = match &arg.stdin {
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
-			tg::process::Stdio::Blob(_)
-			| tg::process::Stdio::Inherit
-			| tg::process::Stdio::Log
-			| tg::process::Stdio::Null => None,
-		};
-		let stdout_open = match &arg.stdout {
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
-			tg::process::Stdio::Blob(_)
-			| tg::process::Stdio::Inherit
-			| tg::process::Stdio::Log
-			| tg::process::Stdio::Null => None,
-		};
 
 		// Insert the process.
 		let statement = formatdoc!(
@@ -1099,9 +1078,6 @@ impl Session {
 					retry,
 					sandbox,
 					status,
-					stderr_open,
-					stdin_open,
-					stdout_open,
 					stored_at,
 					creator,
 					tty
@@ -1127,10 +1103,7 @@ impl Session {
 					{p}18,
 					{p}19,
 					{p}20,
-					{p}21,
-					{p}22,
-					{p}23,
-					{p}24
+					{p}21
 				);
 			"
 		);
@@ -1177,9 +1150,6 @@ impl Session {
 			arg.retry,
 			sandbox.to_string(),
 			status.to_string(),
-			stderr_open,
-			stdin_open,
-			stdout_open,
 			now,
 			creator,
 			tty.map(db::value::Json),
@@ -1289,32 +1259,10 @@ impl Session {
 		};
 
 		let status = if permit.is_some() {
-			tg::process::Status::Started
+			tg::process::Status::Dequeued
 		} else {
 			tg::process::Status::Created
 		};
-		let stderr_open = match &arg.stderr {
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
-			tg::process::Stdio::Blob(_)
-			| tg::process::Stdio::Inherit
-			| tg::process::Stdio::Log
-			| tg::process::Stdio::Null => None,
-		};
-		let stdin_open = match &arg.stdin {
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
-			tg::process::Stdio::Blob(_)
-			| tg::process::Stdio::Inherit
-			| tg::process::Stdio::Log
-			| tg::process::Stdio::Null => None,
-		};
-		let stdout_open = match &arg.stdout {
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
-			tg::process::Stdio::Blob(_)
-			| tg::process::Stdio::Inherit
-			| tg::process::Stdio::Log
-			| tg::process::Stdio::Null => None,
-		};
-
 		// Insert the process.
 		let statement = formatdoc!(
 			"
@@ -1333,11 +1281,8 @@ impl Session {
 					started_at,
 					status,
 					stderr,
-					stderr_open,
 					stdin,
-					stdin_open,
 					stdout,
-					stdout_open,
 					stored_at,
 					creator,
 					tty
@@ -1361,15 +1306,12 @@ impl Session {
 					{p}16,
 					{p}17,
 					{p}18,
-					{p}19,
-					{p}20,
-					{p}21,
-					{p}22
+					{p}19
 				);
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let started_at = (status == tg::process::Status::Started).then_some(now);
+		let started_at = (status == tg::process::Status::Dequeued).then_some(now);
 		let tty = match arg.tty.as_ref() {
 			None => None,
 			Some(tty) => Some(
@@ -1395,11 +1337,8 @@ impl Session {
 			started_at,
 			status.to_string(),
 			(!arg.stderr.is_null()).then(|| arg.stderr.to_string()),
-			stderr_open,
 			(!arg.stdin.is_null()).then(|| arg.stdin.to_string()),
-			stdin_open,
 			(!arg.stdout.is_null()).then(|| arg.stdout.to_string()),
-			stdout_open,
 			now,
 			creator,
 			tty.map(db::value::Json),
@@ -1963,17 +1902,17 @@ impl Session {
 					return;
 				}
 
-				let Ok(started) = session
+				let Ok(dequeued) = session
 					.server
-					.try_start_process_local(&process)
+					.try_dequeue_process_local(&process)
 					.await
 					.inspect_err(
-						|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
+						|error| tracing::trace!(error = %error.trace(), "failed to dequeue the process"),
 					)
 				else {
 					return;
 				};
-				if !started {
+				if !dequeued {
 					return;
 				}
 

@@ -1,5 +1,5 @@
 use {
-	futures::{Stream, stream},
+	futures::{Stream, StreamExt, stream},
 	num::ToPrimitive as _,
 	std::{ops::ControlFlow, time::Duration},
 };
@@ -36,6 +36,7 @@ where
 }
 
 pub fn stream(options: Options) -> impl Stream<Item = ()> {
+	let max_retries = options.max_retries.to_usize().unwrap();
 	stream::unfold(
 		(options, 0u64, true),
 		|(options, attempt, first)| async move {
@@ -48,6 +49,7 @@ pub fn stream(options: Options) -> impl Stream<Item = ()> {
 			Some(((), (options, attempt, false)))
 		},
 	)
+	.take(max_retries.saturating_add(1))
 }
 
 #[must_use]

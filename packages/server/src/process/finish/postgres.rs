@@ -48,9 +48,6 @@ impl Session {
 						lease_count = 0,
 						output = $6,
 						status = $7,
-						stderr_open = case when stderr_open is null then null else false end,
-						stdin_open = case when stdin_open is null then null else false end,
-						stdout_open = case when stdout_open is null then null else false end,
 						stored_at = $5
 					where
 						id = $8 and

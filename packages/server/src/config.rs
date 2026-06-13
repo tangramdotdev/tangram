@@ -571,6 +571,9 @@ pub struct Runner {
 	pub concurrency: Option<usize>,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub control_timeout: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
 
 	#[serde(default)]
@@ -1207,6 +1210,7 @@ impl Default for Runner {
 	fn default() -> Self {
 		Self {
 			concurrency: None,
+			control_timeout: Duration::from_secs(1),
 			heartbeat_interval: Duration::from_secs(1),
 			js: Js::default(),
 			remote: None,

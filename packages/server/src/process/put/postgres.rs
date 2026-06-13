@@ -98,11 +98,8 @@ impl Session {
 		let mut started_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut statuses = Vec::with_capacity(items.len());
 		let mut stderrs: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut stderr_opens: Vec<Option<bool>> = Vec::with_capacity(items.len());
 		let mut stdins: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut stdin_opens: Vec<Option<bool>> = Vec::with_capacity(items.len());
 		let mut stdouts: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut stdout_opens: Vec<Option<bool>> = Vec::with_capacity(items.len());
 		let mut stored_ats = Vec::with_capacity(items.len());
 		let mut creators = Vec::with_capacity(items.len());
 		let mut ttys: Vec<Option<String>> = Vec::with_capacity(items.len());
@@ -147,39 +144,9 @@ impl Session {
 			sandboxes.push(data.sandbox.to_string());
 			started_ats.push(data.started_at);
 			statuses.push(data.status.to_string());
-			let stderr_open = match &data.stderr {
-				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-					Some(!data.status.is_finished())
-				},
-				tg::process::Stdio::Blob(_)
-				| tg::process::Stdio::Inherit
-				| tg::process::Stdio::Log
-				| tg::process::Stdio::Null => None,
-			};
-			let stdin_open = match &data.stdin {
-				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-					Some(!data.status.is_finished())
-				},
-				tg::process::Stdio::Blob(_)
-				| tg::process::Stdio::Inherit
-				| tg::process::Stdio::Log
-				| tg::process::Stdio::Null => None,
-			};
-			let stdout_open = match &data.stdout {
-				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-					Some(!data.status.is_finished())
-				},
-				tg::process::Stdio::Blob(_)
-				| tg::process::Stdio::Inherit
-				| tg::process::Stdio::Log
-				| tg::process::Stdio::Null => None,
-			};
 			stderrs.push((!data.stderr.is_null()).then(|| data.stderr.to_string()));
-			stderr_opens.push(stderr_open);
 			stdins.push((!data.stdin.is_null()).then(|| data.stdin.to_string()));
-			stdin_opens.push(stdin_open);
 			stdouts.push((!data.stdout.is_null()).then(|| data.stdout.to_string()));
-			stdout_opens.push(stdout_open);
 			stored_ats.push(stored_at);
 			creators.push(creator.map(ToString::to_string));
 			ttys.push(
@@ -213,11 +180,8 @@ impl Session {
 					started_at,
 					status,
 					stderr,
-					stderr_open,
 					stdin,
-					stdin_open,
 					stdout,
-					stdout_open,
 					stored_at,
 					creator,
 					tty
@@ -244,14 +208,11 @@ impl Session {
 					unnest($18::int8[]),
 					unnest($19::text[]),
 					unnest($20::text[]),
-					unnest($21::bool[]),
+					unnest($21::text[]),
 					unnest($22::text[]),
-					unnest($23::bool[]),
+					unnest($23::int8[]),
 					unnest($24::text[]),
-					unnest($25::bool[]),
-					unnest($26::int8[]),
-					unnest($27::text[]),
-					unnest($28::text[])
+					unnest($25::text[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
 					cacheable = excluded.cacheable,
@@ -272,11 +233,8 @@ impl Session {
 					started_at = excluded.started_at,
 					status = excluded.status,
 					stderr = excluded.stderr,
-					stderr_open = excluded.stderr_open,
 					stdin = excluded.stdin,
-					stdin_open = excluded.stdin_open,
 					stdout = excluded.stdout,
-					stdout_open = excluded.stdout_open,
 					stored_at = excluded.stored_at,
 					creator = excluded.creator,
 					tty = excluded.tty;
@@ -307,11 +265,8 @@ impl Session {
 					&started_ats,
 					&statuses,
 					&stderrs,
-					&stderr_opens,
 					&stdins,
-					&stdin_opens,
 					&stdouts,
-					&stdout_opens,
 					&stored_ats,
 					&creators,
 					&ttys,
