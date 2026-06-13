@@ -11,6 +11,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 };
 
 #[cfg(feature = "postgres")]
@@ -191,6 +192,54 @@ impl Session {
 		if !finished {
 			return Ok(Some(false));
 		}
+
+		let error = arg.error.as_ref().map(|error| match error {
+			tg::Either::Left(data) => {
+				let mut children = std::collections::BTreeSet::new();
+				data.children(&mut children);
+				children.into_iter().collect::<Vec<_>>()
+			},
+			tg::Either::Right(id) => {
+				let id = id.clone().into();
+				vec![id]
+			},
+		});
+		let mut output = std::collections::BTreeSet::new();
+		if let Some(data) = &arg.output {
+			data.children(&mut output);
+		}
+		let output = arg
+			.output
+			.as_ref()
+			.map(|_| output.into_iter().collect::<Vec<_>>());
+		let put_process_arg = tangram_index::process::put::Arg {
+			children: None,
+			command: data.command.clone().into(),
+			error: Some(error),
+			id: id.clone(),
+			log: None,
+			metadata: tg::process::Metadata::default(),
+			output: Some(output),
+			parent: None,
+			stored: tangram_index::process::Stored::default(),
+			touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+		};
+		let server = self.server.clone();
+		self.server
+			.index_tasks
+			.spawn(|_| async move {
+				if let Err(error) = server
+					.index
+					.batch(tangram_index::batch::Arg {
+						put_processes: vec![put_process_arg],
+						..Default::default()
+					})
+					.await
+				{
+					tracing::error!(error = %error.trace(), "failed to put process to index");
+				}
+			})
+			.detach();
 
 		self.spawn_process_finish_tasks(&id);
 

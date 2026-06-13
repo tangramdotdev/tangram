@@ -958,12 +958,38 @@ impl Session {
 									.unwrap_object();
 								(id, kind)
 							})
-							.collect();
+							.collect::<Vec<_>>();
+						let mut command = None;
+						let mut error = Vec::new();
+						let mut log = None;
+						let mut output = Vec::new();
+						for (object, kind) in objects {
+							match kind {
+								tangram_index::process::object::Kind::Command => {
+									command = Some(object);
+								},
+								tangram_index::process::object::Kind::Error => {
+									error.push(object);
+								},
+								tangram_index::process::object::Kind::Log => {
+									log = Some(object);
+								},
+								tangram_index::process::object::Kind::Output => {
+									output.push(object);
+								},
+							}
+						}
+						let command =
+							command.ok_or_else(|| tg::error!("expected the command to be set"))?;
 						let arg = tangram_index::process::put::Arg {
-							children,
+							children: Some(children),
+							command,
+							error: Some((!error.is_empty()).then_some(error)),
 							id,
+							log: Some(log),
 							metadata,
-							objects,
+							output: Some((!output.is_empty()).then_some(output)),
+							parent: None,
 							stored,
 							touched_at,
 						};

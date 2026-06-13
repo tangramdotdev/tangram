@@ -108,57 +108,36 @@ impl Session {
 			.iter()
 			.map(|child| child.process.clone())
 			.collect();
-		let command = std::iter::once((
-			arg.data.command.clone().into(),
-			tangram_index::process::object::Kind::Command,
-		));
-		let error = arg
-			.data
-			.error
-			.as_ref()
-			.into_iter()
-			.flat_map(|error| match error {
-				tg::Either::Left(data) => {
-					let mut children = BTreeSet::new();
-					data.children(&mut children);
-					children
-						.into_iter()
-						.map(|object| {
-							let kind = tangram_index::process::object::Kind::Error;
-							(object, kind)
-						})
-						.collect::<Vec<_>>()
-				},
-				tg::Either::Right(id) => {
-					let id = id.clone().into();
-					let kind = tangram_index::process::object::Kind::Error;
-					vec![(id, kind)]
-				},
-			});
-		let log = arg.data.log.as_ref().map(|id| {
-			let id = id.clone().into();
-			let kind = tangram_index::process::object::Kind::Log;
-			(id, kind)
+		let error = arg.data.error.as_ref().map(|error| match error {
+			tg::Either::Left(data) => {
+				let mut children = BTreeSet::new();
+				data.children(&mut children);
+				children.into_iter().collect::<Vec<_>>()
+			},
+			tg::Either::Right(id) => {
+				let id = id.clone().into();
+				vec![id]
+			},
 		});
 		let mut output = BTreeSet::new();
 		if let Some(data) = &arg.data.output {
 			data.children(&mut output);
 		}
-		let output = output
-			.into_iter()
-			.map(|output| (output, tangram_index::process::object::Kind::Output));
-		let objects = std::iter::empty()
-			.chain(command)
-			.chain(error)
-			.chain(log)
-			.chain(output)
-			.collect();
+		let output = arg
+			.data
+			.output
+			.as_ref()
+			.map(|_| output.into_iter().collect::<Vec<_>>());
 		let put_process_arg = tangram_index::process::put::Arg {
-			children,
-			stored: tangram_index::process::Stored::default(),
+			children: Some(children),
+			command: arg.data.command.clone().into(),
+			error: Some(error),
 			id: id.clone(),
+			log: Some(arg.data.log.clone().map(Into::into)),
 			metadata: tg::process::Metadata::default(),
-			objects,
+			output: Some(output),
+			parent: None,
+			stored: tangram_index::process::Stored::default(),
 			touched_at: now,
 		};
 		self.server

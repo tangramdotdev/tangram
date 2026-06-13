@@ -28,6 +28,11 @@ impl Index {
 			existing.touched_at.max(arg.touched_at)
 		});
 
+		let mut set = arg.set();
+		if let Some(ref existing) = existing {
+			set.merge(&existing.set);
+		}
+
 		let mut stored = arg.stored.clone();
 		if let Some(ref existing) = existing {
 			stored.merge(&existing.stored);
@@ -41,6 +46,7 @@ impl Index {
 		let value = crate::process::Process {
 			metadata,
 			reference_count: 0,
+			set,
 			stored,
 			touched_at,
 		}
@@ -48,28 +54,75 @@ impl Index {
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 
-		for child in &arg.children {
+		if let Some(children) = &arg.children {
+			for child in children {
+				let key = Key::Process(crate::lmdb::process::Key::ProcessChild {
+					process: id.clone(),
+					child: child.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|error| tg::error!(!error, "failed to put the process child"))?;
+
+				let key = Key::Process(crate::lmdb::process::Key::ChildProcess {
+					child: child.clone(),
+					parent: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
+			}
+		}
+
+		if let Some(parent) = &arg.parent {
 			let key = Key::Process(crate::lmdb::process::Key::ProcessChild {
-				process: id.clone(),
-				child: child.clone(),
+				process: parent.clone(),
+				child: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the process child"))?;
 
 			let key = Key::Process(crate::lmdb::process::Key::ChildProcess {
-				child: child.clone(),
-				parent: id.clone(),
+				child: id.clone(),
+				parent: parent.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
 		}
 
-		for (object, kind) in &arg.objects {
+		let objects = std::iter::once((arg.command.clone(), crate::process::object::Kind::Command))
+			.chain(
+				arg.error
+					.as_ref()
+					.into_iter()
+					.flatten()
+					.flatten()
+					.cloned()
+					.map(|object| (object, crate::process::object::Kind::Error)),
+			)
+			.chain(
+				arg.log
+					.as_ref()
+					.into_iter()
+					.flatten()
+					.cloned()
+					.map(|object| (object, crate::process::object::Kind::Log)),
+			)
+			.chain(
+				arg.output
+					.as_ref()
+					.into_iter()
+					.flatten()
+					.flatten()
+					.cloned()
+					.map(|object| (object, crate::process::object::Kind::Output)),
+			);
+		for (object, kind) in objects {
 			let key = Key::Process(crate::lmdb::process::Key::ProcessObject {
 				process: id.clone(),
-				kind: *kind,
+				kind,
 				object: object.clone(),
 			});
 			let key = Self::pack(subspace, &key);
@@ -77,8 +130,8 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the process object"))?;
 
 			let key = Key::Object(crate::lmdb::object::Key::ObjectProcess {
-				object: object.clone(),
-				kind: *kind,
+				object,
+				kind,
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);

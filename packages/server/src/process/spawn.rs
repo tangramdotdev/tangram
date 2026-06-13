@@ -187,6 +187,39 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
+		if let Some(output) = &output
+			&& !output.cached
+		{
+			let put_process_arg = tangram_index::process::put::Arg {
+				children: None,
+				command: arg.command.item.clone().into(),
+				error: None,
+				id: output.id.clone(),
+				log: None,
+				metadata: tg::process::Metadata::default(),
+				output: None,
+				parent: arg.parent.clone(),
+				stored: tangram_index::process::Stored::default(),
+				touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+			};
+			let server = self.server.clone();
+			self.server
+				.index_tasks
+				.spawn(|_| async move {
+					if let Err(error) = server
+						.index
+						.batch(tangram_index::batch::Arg {
+							put_processes: vec![put_process_arg],
+							..Default::default()
+						})
+						.await
+					{
+						tracing::error!(error = %error.trace(), "failed to put process to index");
+					}
+				})
+				.detach();
+		}
+
 		// Wake the watchdog so depth-based limits are enforced promptly.
 		if output
 			.as_ref()

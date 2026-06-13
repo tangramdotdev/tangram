@@ -16,11 +16,48 @@ pub struct Process {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub reference_count: u64,
 
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_default")]
+	pub set: Set,
+
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub stored: Stored,
 
 	#[tangram_serialize(id = 3)]
 	pub touched_at: i64,
+}
+
+/// The set status of a process in the index.
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Set {
+	/// Whether this node's children are set.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
+	pub children: bool,
+
+	/// Whether this node's error is set.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
+	pub error: bool,
+
+	/// Whether this node's log is set.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
+	pub log: bool,
+
+	/// Whether this node's output is set.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_false")]
+	pub output: bool,
 }
 
 /// The stored status of a process in the index.
@@ -91,6 +128,20 @@ impl Process {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the process"))
+	}
+}
+
+impl Set {
+	#[must_use]
+	pub fn complete(&self) -> bool {
+		self.children && self.error && self.log && self.output
+	}
+
+	pub fn merge(&mut self, other: &Self) {
+		self.children = self.children || other.children;
+		self.error = self.error || other.error;
+		self.log = self.log || other.log;
+		self.output = self.output || other.output;
 	}
 }
 

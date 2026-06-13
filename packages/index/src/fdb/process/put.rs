@@ -27,6 +27,11 @@ impl Index {
 			existing.touched_at.max(arg.touched_at)
 		});
 
+		let mut set = arg.set();
+		if let Some(ref existing) = existing {
+			set.merge(&existing.set);
+		}
+
 		let mut stored = arg.stored.clone();
 		if let Some(ref existing) = existing {
 			stored.merge(&existing.stored);
@@ -40,6 +45,7 @@ impl Index {
 		let value = crate::process::Process {
 			metadata,
 			reference_count: 0,
+			set,
 			stored,
 			touched_at,
 		}
@@ -47,12 +53,34 @@ impl Index {
 		.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 		txn.set(&key, &value);
 
-		for child in &arg.children {
+		if let Some(children) = &arg.children {
+			for child in children {
+				txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+					.unwrap();
+				let key = Key::Process(crate::fdb::process::Key::ProcessChild {
+					process: id.clone(),
+					child: child.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				txn.set(&key, &[]);
+
+				txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+					.unwrap();
+				let key = Key::Process(crate::fdb::process::Key::ChildProcess {
+					child: child.clone(),
+					parent: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				txn.set(&key, &[]);
+			}
+		}
+
+		if let Some(parent) = &arg.parent {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Process(crate::fdb::process::Key::ProcessChild {
-				process: id.clone(),
-				child: child.clone(),
+				process: parent.clone(),
+				child: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
@@ -60,19 +88,46 @@ impl Index {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Process(crate::fdb::process::Key::ChildProcess {
-				child: child.clone(),
-				parent: id.clone(),
+				child: id.clone(),
+				parent: parent.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
 
-		for (object, kind) in &arg.objects {
+		let objects = std::iter::once((arg.command.clone(), crate::process::object::Kind::Command))
+			.chain(
+				arg.error
+					.as_ref()
+					.into_iter()
+					.flatten()
+					.flatten()
+					.cloned()
+					.map(|object| (object, crate::process::object::Kind::Error)),
+			)
+			.chain(
+				arg.log
+					.as_ref()
+					.into_iter()
+					.flatten()
+					.cloned()
+					.map(|object| (object, crate::process::object::Kind::Log)),
+			)
+			.chain(
+				arg.output
+					.as_ref()
+					.into_iter()
+					.flatten()
+					.flatten()
+					.cloned()
+					.map(|object| (object, crate::process::object::Kind::Output)),
+			);
+		for (object, kind) in objects {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Process(crate::fdb::process::Key::ProcessObject {
 				process: id.clone(),
-				kind: *kind,
+				kind,
 				object: object.clone(),
 			});
 			let key = Self::pack(subspace, &key);
@@ -81,8 +136,8 @@ impl Index {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::ObjectProcess {
-				object: object.clone(),
-				kind: *kind,
+				object,
+				kind,
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);

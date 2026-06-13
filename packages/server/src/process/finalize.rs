@@ -245,50 +245,25 @@ impl Server {
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let command = (
-			data.command.clone().into(),
-			tangram_index::process::object::Kind::Command,
-		);
-		let errors = data
-			.error
-			.as_ref()
-			.into_iter()
-			.flat_map(|error| match error {
-				tg::Either::Left(data) => {
-					let mut children = BTreeSet::new();
-					data.children(&mut children);
-					children
-						.into_iter()
-						.map(|object| {
-							let kind = tangram_index::process::object::Kind::Error;
-							(object, kind)
-						})
-						.collect::<Vec<_>>()
-				},
-				tg::Either::Right(id) => {
-					let id = id.clone().into();
-					let kind = tangram_index::process::object::Kind::Error;
-					vec![(id, kind)]
-				},
-			});
-		let log = data.log.as_ref().map(|id| {
-			let id = id.clone().into();
-			let kind = tangram_index::process::object::Kind::Log;
-			(id, kind)
+		let error = data.error.as_ref().map(|error| match error {
+			tg::Either::Left(data) => {
+				let mut children = BTreeSet::new();
+				data.children(&mut children);
+				children.into_iter().collect::<Vec<_>>()
+			},
+			tg::Either::Right(id) => {
+				let id = id.clone().into();
+				vec![id]
+			},
 		});
-		let mut outputs = BTreeSet::new();
-		if let Some(output) = &data.output {
-			output.children(&mut outputs);
+		let mut output = BTreeSet::new();
+		if let Some(data) = &data.output {
+			data.children(&mut output);
 		}
-		let outputs = outputs.into_iter().map(|object| {
-			let kind = tangram_index::process::object::Kind::Output;
-			(object, kind)
-		});
-		let objects = std::iter::once(command)
-			.chain(errors)
-			.chain(log)
-			.chain(outputs)
-			.collect();
+		let output = data
+			.output
+			.as_ref()
+			.map(|_| output.into_iter().collect::<Vec<_>>());
 		let children = data
 			.children
 			.as_ref()
@@ -297,11 +272,15 @@ impl Server {
 			.map(|child| child.process.clone())
 			.collect();
 		let put_process_arg = tangram_index::process::put::Arg {
-			children,
-			stored: tangram_index::process::Stored::default(),
+			children: Some(children),
+			command: data.command.clone().into(),
+			error: Some(error),
 			id: id.clone(),
+			log: Some(data.log.clone().map(Into::into)),
 			metadata: tg::process::Metadata::default(),
-			objects,
+			output: Some(output),
+			parent: None,
+			stored: tangram_index::process::Stored::default(),
 			touched_at: now,
 		};
 		self.index_tasks

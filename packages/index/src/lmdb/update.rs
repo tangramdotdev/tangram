@@ -344,563 +344,571 @@ impl Index {
 			}
 		}
 
-		if process.metadata.node.error.count.is_none() {
-			let value = error_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.count)
-				})
-				.sum::<Option<u64>>();
-			if let Some(value) = value {
-				process.metadata.node.error.count = Some(value);
-				changed = true;
+		if process.set.error {
+			if process.metadata.node.error.count.is_none() {
+				let value = error_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.count)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
+					process.metadata.node.error.count = Some(value);
+					changed = true;
+				}
+			}
+
+			if process.metadata.node.error.depth.is_none() {
+				let value = error_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.depth)
+					})
+					.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
+				if let Some(value) = value {
+					process.metadata.node.error.depth = Some(value);
+					changed = true;
+				}
+			}
+
+			if process.metadata.node.error.size.is_none() {
+				let value = error_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.size)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
+					process.metadata.node.error.size = Some(value);
+					changed = true;
+				}
+			}
+
+			if process.metadata.node.error.solvable.is_none() {
+				let value = error_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.solvable)
+					})
+					.try_fold(false, |output, value| value.map(|value| output || value));
+				if let Some(value) = value {
+					process.metadata.node.error.solvable = Some(value);
+					changed = true;
+				}
+			}
+
+			if process.metadata.node.error.solved.is_none() {
+				let value = error_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.solved)
+					})
+					.try_fold(true, |output, value| value.map(|value| output && value));
+				if let Some(value) = value {
+					process.metadata.node.error.solved = Some(value);
+					changed = true;
+				}
 			}
 		}
 
-		if process.metadata.node.error.depth.is_none() {
-			let value = error_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.depth)
-				})
-				.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
-			if let Some(value) = value {
-				process.metadata.node.error.depth = Some(value);
-				changed = true;
+		if process.set.log {
+			if let Some(Some(object)) = &log_object {
+				if process.metadata.node.log.count.is_none()
+					&& let Some(value) = object.metadata.subtree.count
+				{
+					process.metadata.node.log.count = Some(value);
+					changed = true;
+				}
+				if process.metadata.node.log.depth.is_none()
+					&& let Some(value) = object.metadata.subtree.depth
+				{
+					process.metadata.node.log.depth = Some(value);
+					changed = true;
+				}
+				if process.metadata.node.log.size.is_none()
+					&& let Some(value) = object.metadata.subtree.size
+				{
+					process.metadata.node.log.size = Some(value);
+					changed = true;
+				}
+				if process.metadata.node.log.solvable.is_none()
+					&& let Some(value) = object.metadata.subtree.solvable
+				{
+					process.metadata.node.log.solvable = Some(value);
+					changed = true;
+				}
+				if process.metadata.node.log.solved.is_none()
+					&& let Some(value) = object.metadata.subtree.solved
+				{
+					process.metadata.node.log.solved = Some(value);
+					changed = true;
+				}
+			} else if log_object.is_none() {
+				if process.metadata.node.log.count.is_none() {
+					process.metadata.node.log.count = Some(0);
+					changed = true;
+				}
+				if process.metadata.node.log.depth.is_none() {
+					process.metadata.node.log.depth = Some(0);
+					changed = true;
+				}
+				if process.metadata.node.log.size.is_none() {
+					process.metadata.node.log.size = Some(0);
+					changed = true;
+				}
+				if process.metadata.node.log.solvable.is_none() {
+					process.metadata.node.log.solvable = Some(false);
+					changed = true;
+				}
+				if process.metadata.node.log.solved.is_none() {
+					process.metadata.node.log.solved = Some(true);
+					changed = true;
+				}
 			}
 		}
 
-		if process.metadata.node.error.size.is_none() {
-			let value = error_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.size)
-				})
-				.sum::<Option<u64>>();
-			if let Some(value) = value {
-				process.metadata.node.error.size = Some(value);
-				changed = true;
+		if process.set.output {
+			if process.metadata.node.output.count.is_none() {
+				let value = output_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.count)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
+					process.metadata.node.output.count = Some(value);
+					changed = true;
+				}
+			}
+
+			if process.metadata.node.output.depth.is_none() {
+				let value = output_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.depth)
+					})
+					.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
+				if let Some(value) = value {
+					process.metadata.node.output.depth = Some(value);
+					changed = true;
+				}
+			}
+
+			if process.metadata.node.output.size.is_none() {
+				let value = output_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.size)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
+					process.metadata.node.output.size = Some(value);
+					changed = true;
+				}
+			}
+
+			if process.metadata.node.output.solvable.is_none() {
+				let value = output_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.solvable)
+					})
+					.try_fold(false, |output, value| value.map(|value| output || value));
+				if let Some(value) = value {
+					process.metadata.node.output.solvable = Some(value);
+					changed = true;
+				}
+			}
+
+			if process.metadata.node.output.solved.is_none() {
+				let value = output_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.solved)
+					})
+					.try_fold(true, |output, value| value.map(|value| output && value));
+				if let Some(value) = value {
+					process.metadata.node.output.solved = Some(value);
+					changed = true;
+				}
 			}
 		}
 
-		if process.metadata.node.error.solvable.is_none() {
-			let value = error_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.solvable)
-				})
-				.try_fold(false, |output, value| value.map(|value| output || value));
-			if let Some(value) = value {
-				process.metadata.node.error.solvable = Some(value);
-				changed = true;
+		if process.set.children {
+			if process.metadata.subtree.count.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.count)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
+					let value = 1 + value;
+					process.metadata.subtree.count = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.node.error.solved.is_none() {
-			let value = error_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.solved)
-				})
-				.try_fold(true, |output, value| value.map(|value| output && value));
-			if let Some(value) = value {
-				process.metadata.node.error.solved = Some(value);
-				changed = true;
+			if process.metadata.subtree.command.count.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.command.count)
+					})
+					.fold(process.metadata.node.command.count, |output, value| {
+						output.and_then(|output| value.map(|value| output + value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.command.count = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if let Some(Some(object)) = &log_object {
-			if process.metadata.node.log.count.is_none()
-				&& let Some(value) = object.metadata.subtree.count
-			{
-				process.metadata.node.log.count = Some(value);
-				changed = true;
+			if process.metadata.subtree.command.depth.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.command.depth)
+					})
+					.fold(process.metadata.node.command.depth, |output, value| {
+						output.and_then(|output| value.map(|value| output.max(value)))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.command.depth = Some(value);
+					changed = true;
+				}
 			}
-			if process.metadata.node.log.depth.is_none()
-				&& let Some(value) = object.metadata.subtree.depth
-			{
-				process.metadata.node.log.depth = Some(value);
-				changed = true;
-			}
-			if process.metadata.node.log.size.is_none()
-				&& let Some(value) = object.metadata.subtree.size
-			{
-				process.metadata.node.log.size = Some(value);
-				changed = true;
-			}
-			if process.metadata.node.log.solvable.is_none()
-				&& let Some(value) = object.metadata.subtree.solvable
-			{
-				process.metadata.node.log.solvable = Some(value);
-				changed = true;
-			}
-			if process.metadata.node.log.solved.is_none()
-				&& let Some(value) = object.metadata.subtree.solved
-			{
-				process.metadata.node.log.solved = Some(value);
-				changed = true;
-			}
-		} else if log_object.is_none() {
-			if process.metadata.node.log.count.is_none() {
-				process.metadata.node.log.count = Some(0);
-				changed = true;
-			}
-			if process.metadata.node.log.depth.is_none() {
-				process.metadata.node.log.depth = Some(0);
-				changed = true;
-			}
-			if process.metadata.node.log.size.is_none() {
-				process.metadata.node.log.size = Some(0);
-				changed = true;
-			}
-			if process.metadata.node.log.solvable.is_none() {
-				process.metadata.node.log.solvable = Some(false);
-				changed = true;
-			}
-			if process.metadata.node.log.solved.is_none() {
-				process.metadata.node.log.solved = Some(true);
-				changed = true;
-			}
-		}
 
-		if process.metadata.node.output.count.is_none() {
-			let value = output_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.count)
-				})
-				.sum::<Option<u64>>();
-			if let Some(value) = value {
-				process.metadata.node.output.count = Some(value);
-				changed = true;
+			if process.metadata.subtree.command.size.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.command.size)
+					})
+					.fold(process.metadata.node.command.size, |output, value| {
+						output.and_then(|output| value.map(|value| output + value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.command.size = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.node.output.depth.is_none() {
-			let value = output_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.depth)
-				})
-				.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
-			if let Some(value) = value {
-				process.metadata.node.output.depth = Some(value);
-				changed = true;
+			if process.metadata.subtree.command.solvable.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.command.solvable)
+					})
+					.fold(process.metadata.node.command.solvable, |output, value| {
+						output.and_then(|output| value.map(|value| output || value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.command.solvable = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.node.output.size.is_none() {
-			let value = output_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.size)
-				})
-				.sum::<Option<u64>>();
-			if let Some(value) = value {
-				process.metadata.node.output.size = Some(value);
-				changed = true;
+			if process.metadata.subtree.command.solved.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.command.solved)
+					})
+					.fold(process.metadata.node.command.solved, |output, value| {
+						output.and_then(|output| value.map(|value| output && value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.command.solved = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.node.output.solvable.is_none() {
-			let value = output_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.solvable)
-				})
-				.try_fold(false, |output, value| value.map(|value| output || value));
-			if let Some(value) = value {
-				process.metadata.node.output.solvable = Some(value);
-				changed = true;
+			if process.metadata.subtree.error.count.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.error.count)
+					})
+					.fold(process.metadata.node.error.count, |output, value| {
+						output.and_then(|output| value.map(|value| output + value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.error.count = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.node.output.solved.is_none() {
-			let value = output_objects
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|object| object.metadata.subtree.solved)
-				})
-				.try_fold(true, |output, value| value.map(|value| output && value));
-			if let Some(value) = value {
-				process.metadata.node.output.solved = Some(value);
-				changed = true;
+			if process.metadata.subtree.error.depth.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.error.depth)
+					})
+					.fold(process.metadata.node.error.depth, |output, value| {
+						output.and_then(|output| value.map(|value| output.max(value)))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.error.depth = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.count.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.count)
-				})
-				.sum::<Option<u64>>();
-			if let Some(value) = value {
-				let value = 1 + value;
-				process.metadata.subtree.count = Some(value);
-				changed = true;
+			if process.metadata.subtree.error.size.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.error.size)
+					})
+					.fold(process.metadata.node.error.size, |output, value| {
+						output.and_then(|output| value.map(|value| output + value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.error.size = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.command.count.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.command.count)
-				})
-				.fold(process.metadata.node.command.count, |output, value| {
-					output.and_then(|output| value.map(|value| output + value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.command.count = Some(value);
-				changed = true;
+			if process.metadata.subtree.error.solvable.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.error.solvable)
+					})
+					.fold(process.metadata.node.error.solvable, |output, value| {
+						output.and_then(|output| value.map(|value| output || value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.error.solvable = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.command.depth.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.command.depth)
-				})
-				.fold(process.metadata.node.command.depth, |output, value| {
-					output.and_then(|output| value.map(|value| output.max(value)))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.command.depth = Some(value);
-				changed = true;
+			if process.metadata.subtree.error.solved.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.error.solved)
+					})
+					.fold(process.metadata.node.error.solved, |output, value| {
+						output.and_then(|output| value.map(|value| output && value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.error.solved = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.command.size.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.command.size)
-				})
-				.fold(process.metadata.node.command.size, |output, value| {
-					output.and_then(|output| value.map(|value| output + value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.command.size = Some(value);
-				changed = true;
+			if process.metadata.subtree.log.count.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.log.count)
+					})
+					.fold(process.metadata.node.log.count, |output, value| {
+						output.and_then(|output| value.map(|value| output + value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.log.count = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.command.solvable.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.command.solvable)
-				})
-				.fold(process.metadata.node.command.solvable, |output, value| {
-					output.and_then(|output| value.map(|value| output || value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.command.solvable = Some(value);
-				changed = true;
+			if process.metadata.subtree.log.depth.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.log.depth)
+					})
+					.fold(process.metadata.node.log.depth, |output, value| {
+						output.and_then(|output| value.map(|value| output.max(value)))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.log.depth = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.command.solved.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.command.solved)
-				})
-				.fold(process.metadata.node.command.solved, |output, value| {
-					output.and_then(|output| value.map(|value| output && value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.command.solved = Some(value);
-				changed = true;
+			if process.metadata.subtree.log.size.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.log.size)
+					})
+					.fold(process.metadata.node.log.size, |output, value| {
+						output.and_then(|output| value.map(|value| output + value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.log.size = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.error.count.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.error.count)
-				})
-				.fold(process.metadata.node.error.count, |output, value| {
-					output.and_then(|output| value.map(|value| output + value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.error.count = Some(value);
-				changed = true;
+			if process.metadata.subtree.log.solvable.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.log.solvable)
+					})
+					.fold(process.metadata.node.log.solvable, |output, value| {
+						output.and_then(|output| value.map(|value| output || value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.log.solvable = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.error.depth.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.error.depth)
-				})
-				.fold(process.metadata.node.error.depth, |output, value| {
-					output.and_then(|output| value.map(|value| output.max(value)))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.error.depth = Some(value);
-				changed = true;
+			if process.metadata.subtree.log.solved.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.log.solved)
+					})
+					.fold(process.metadata.node.log.solved, |output, value| {
+						output.and_then(|output| value.map(|value| output && value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.log.solved = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.error.size.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.error.size)
-				})
-				.fold(process.metadata.node.error.size, |output, value| {
-					output.and_then(|output| value.map(|value| output + value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.error.size = Some(value);
-				changed = true;
+			if process.metadata.subtree.output.count.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.output.count)
+					})
+					.fold(process.metadata.node.output.count, |output, value| {
+						output.and_then(|output| value.map(|value| output + value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.output.count = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.error.solvable.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.error.solvable)
-				})
-				.fold(process.metadata.node.error.solvable, |output, value| {
-					output.and_then(|output| value.map(|value| output || value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.error.solvable = Some(value);
-				changed = true;
+			if process.metadata.subtree.output.depth.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.output.depth)
+					})
+					.fold(process.metadata.node.output.depth, |output, value| {
+						output.and_then(|output| value.map(|value| output.max(value)))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.output.depth = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.error.solved.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.error.solved)
-				})
-				.fold(process.metadata.node.error.solved, |output, value| {
-					output.and_then(|output| value.map(|value| output && value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.error.solved = Some(value);
-				changed = true;
+			if process.metadata.subtree.output.size.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.output.size)
+					})
+					.fold(process.metadata.node.output.size, |output, value| {
+						output.and_then(|output| value.map(|value| output + value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.output.size = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.log.count.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.log.count)
-				})
-				.fold(process.metadata.node.log.count, |output, value| {
-					output.and_then(|output| value.map(|value| output + value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.log.count = Some(value);
-				changed = true;
+			if process.metadata.subtree.output.solvable.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.output.solvable)
+					})
+					.fold(process.metadata.node.output.solvable, |output, value| {
+						output.and_then(|output| value.map(|value| output || value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.output.solvable = Some(value);
+					changed = true;
+				}
 			}
-		}
 
-		if process.metadata.subtree.log.depth.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.log.depth)
-				})
-				.fold(process.metadata.node.log.depth, |output, value| {
-					output.and_then(|output| value.map(|value| output.max(value)))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.log.depth = Some(value);
-				changed = true;
-			}
-		}
-
-		if process.metadata.subtree.log.size.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.log.size)
-				})
-				.fold(process.metadata.node.log.size, |output, value| {
-					output.and_then(|output| value.map(|value| output + value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.log.size = Some(value);
-				changed = true;
-			}
-		}
-
-		if process.metadata.subtree.log.solvable.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.log.solvable)
-				})
-				.fold(process.metadata.node.log.solvable, |output, value| {
-					output.and_then(|output| value.map(|value| output || value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.log.solvable = Some(value);
-				changed = true;
-			}
-		}
-
-		if process.metadata.subtree.log.solved.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.log.solved)
-				})
-				.fold(process.metadata.node.log.solved, |output, value| {
-					output.and_then(|output| value.map(|value| output && value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.log.solved = Some(value);
-				changed = true;
-			}
-		}
-
-		if process.metadata.subtree.output.count.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.output.count)
-				})
-				.fold(process.metadata.node.output.count, |output, value| {
-					output.and_then(|output| value.map(|value| output + value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.output.count = Some(value);
-				changed = true;
-			}
-		}
-
-		if process.metadata.subtree.output.depth.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.output.depth)
-				})
-				.fold(process.metadata.node.output.depth, |output, value| {
-					output.and_then(|output| value.map(|value| output.max(value)))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.output.depth = Some(value);
-				changed = true;
-			}
-		}
-
-		if process.metadata.subtree.output.size.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.output.size)
-				})
-				.fold(process.metadata.node.output.size, |output, value| {
-					output.and_then(|output| value.map(|value| output + value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.output.size = Some(value);
-				changed = true;
-			}
-		}
-
-		if process.metadata.subtree.output.solvable.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.output.solvable)
-				})
-				.fold(process.metadata.node.output.solvable, |output, value| {
-					output.and_then(|output| value.map(|value| output || value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.output.solvable = Some(value);
-				changed = true;
-			}
-		}
-
-		if process.metadata.subtree.output.solved.is_none() {
-			let value = children
-				.iter()
-				.map(|option| {
-					option
-						.as_ref()
-						.and_then(|child| child.metadata.subtree.output.solved)
-				})
-				.fold(process.metadata.node.output.solved, |output, value| {
-					output.and_then(|output| value.map(|value| output && value))
-				});
-			if let Some(value) = value {
-				process.metadata.subtree.output.solved = Some(value);
-				changed = true;
+			if process.metadata.subtree.output.solved.is_none() {
+				let value = children
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|child| child.metadata.subtree.output.solved)
+					})
+					.fold(process.metadata.node.output.solved, |output, value| {
+						output.and_then(|output| value.map(|value| output && value))
+					});
+				if let Some(value) = value {
+					process.metadata.subtree.output.solved = Some(value);
+					changed = true;
+				}
 			}
 		}
 
@@ -912,7 +920,7 @@ impl Index {
 			changed = true;
 		}
 
-		if !process.stored.node_error {
+		if process.set.error && !process.stored.node_error {
 			let value = error_objects
 				.iter()
 				.all(|option| option.as_ref().is_some_and(|object| object.stored.subtree));
@@ -922,17 +930,19 @@ impl Index {
 			}
 		}
 
-		if let Some(Some(object)) = &log_object {
-			if !process.stored.node_log && object.stored.subtree {
+		if process.set.log {
+			if let Some(Some(object)) = &log_object {
+				if !process.stored.node_log && object.stored.subtree {
+					process.stored.node_log = true;
+					changed = true;
+				}
+			} else if log_object.is_none() && !process.stored.node_log {
 				process.stored.node_log = true;
 				changed = true;
 			}
-		} else if log_object.is_none() && !process.stored.node_log {
-			process.stored.node_log = true;
-			changed = true;
 		}
 
-		if !process.stored.node_output {
+		if process.set.output && !process.stored.node_output {
 			let value = output_objects
 				.iter()
 				.all(|option| option.as_ref().is_some_and(|object| object.stored.subtree));
@@ -942,7 +952,7 @@ impl Index {
 			}
 		}
 
-		if !process.stored.subtree {
+		if process.set.children && !process.stored.subtree {
 			let value = children
 				.iter()
 				.all(|child| child.as_ref().is_some_and(|child| child.stored.subtree));
@@ -952,49 +962,51 @@ impl Index {
 			}
 		}
 
-		if !process.stored.subtree_command && process.stored.node_command {
-			let value = children.iter().all(|child| {
-				child
-					.as_ref()
-					.is_some_and(|child| child.stored.subtree_command)
-			});
-			if value {
-				process.stored.subtree_command = true;
-				changed = true;
+		if process.set.children {
+			if !process.stored.subtree_command && process.stored.node_command {
+				let value = children.iter().all(|child| {
+					child
+						.as_ref()
+						.is_some_and(|child| child.stored.subtree_command)
+				});
+				if value {
+					process.stored.subtree_command = true;
+					changed = true;
+				}
 			}
-		}
 
-		if !process.stored.subtree_error && process.stored.node_error {
-			let value = children.iter().all(|child| {
-				child
-					.as_ref()
-					.is_some_and(|child| child.stored.subtree_error)
-			});
-			if value {
-				process.stored.subtree_error = true;
-				changed = true;
+			if !process.stored.subtree_error && process.stored.node_error {
+				let value = children.iter().all(|child| {
+					child
+						.as_ref()
+						.is_some_and(|child| child.stored.subtree_error)
+				});
+				if value {
+					process.stored.subtree_error = true;
+					changed = true;
+				}
 			}
-		}
 
-		if !process.stored.subtree_log && process.stored.node_log {
-			let value = children
-				.iter()
-				.all(|child| child.as_ref().is_some_and(|child| child.stored.subtree_log));
-			if value {
-				process.stored.subtree_log = true;
-				changed = true;
+			if !process.stored.subtree_log && process.stored.node_log {
+				let value = children
+					.iter()
+					.all(|child| child.as_ref().is_some_and(|child| child.stored.subtree_log));
+				if value {
+					process.stored.subtree_log = true;
+					changed = true;
+				}
 			}
-		}
 
-		if !process.stored.subtree_output && process.stored.node_output {
-			let value = children.iter().all(|child| {
-				child
-					.as_ref()
-					.is_some_and(|child| child.stored.subtree_output)
-			});
-			if value {
-				process.stored.subtree_output = true;
-				changed = true;
+			if !process.stored.subtree_output && process.stored.node_output {
+				let value = children.iter().all(|child| {
+					child
+						.as_ref()
+						.is_some_and(|child| child.stored.subtree_output)
+				});
+				if value {
+					process.stored.subtree_output = true;
+					changed = true;
+				}
 			}
 		}
 
