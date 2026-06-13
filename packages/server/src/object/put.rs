@@ -108,16 +108,13 @@ impl Session {
 			.spawn(|_| {
 				let session = self.clone();
 				async move {
-					if let Err(error) = session
-						.server
-						.index
-						.batch(tangram_index::batch::Arg {
-							put_objects: vec![arg],
-							..Default::default()
-						})
-						.await
-					{
-						tracing::error!(error = %error.trace(), "failed to put object to index");
+					let arg = tangram_index::batch::Arg {
+						put_objects: vec![arg],
+						..Default::default()
+					};
+					let result = session.server.index.batch(arg).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), "failed to put the object to the index");
 					}
 				}
 			})

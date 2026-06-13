@@ -5,7 +5,6 @@ use {
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tangram_object_store::prelude::*,
 	tracing::Instrument as _,
 };
 
@@ -167,9 +166,6 @@ impl Session {
 		// Await the futures.
 		future::try_join4(input_future, queue_future, index_future, store_future).await?;
 
-		// Grant.
-		self.sync_get_grant(&state).await?;
-
 		// Stop and await the progress task.
 		progress_task.stop();
 		progress_task
@@ -177,36 +173,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
-		Ok(())
-	}
-
-	async fn sync_get_grant(&self, state: &State) -> tg::Result<()> {
-		let Some(principal) = self.context.principal.clone() else {
-			return Ok(());
-		};
-		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let args = state
-			.arg
-			.get
-			.iter()
-			.filter_map(|item| {
-				let tg::Either::Left(id) = item else {
-					return None;
-				};
-				let arg = crate::object::store::GrantArg {
-					created_at,
-					id: id.clone(),
-					principal: principal.clone(),
-					subtree: true,
-				};
-				Some(arg)
-			})
-			.collect::<Vec<_>>();
-		self.server
-			.object_store
-			.grant_batch(args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to grant access to the object roots"))?;
 		Ok(())
 	}
 }

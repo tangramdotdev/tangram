@@ -43,7 +43,7 @@ impl Session {
 		}
 		let permissions = self.recorded_tag_permissions(&arg.item).await?;
 		let session = self.clone();
-		let data = self
+		let (data, mut batch) = self
 			.server
 			.database
 			.run(|transaction| {
@@ -60,7 +60,6 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		let (data, mut batch) = data;
 		batch.put_tags.push(tangram_index::tag::put::Arg {
 			id: data.id,
 			item: match data.item {
