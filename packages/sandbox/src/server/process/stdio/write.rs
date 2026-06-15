@@ -5,7 +5,7 @@ use {
 		stream::{self},
 	},
 	std::{
-		pin::{Pin, pin},
+		pin::Pin,
 		sync::Arc,
 		task::{Context, Poll},
 	},
@@ -41,7 +41,7 @@ impl Server {
 		let pty = process.pty.clone();
 		drop(process);
 
-		let mut writer = match stdin_mode {
+		let writer = match stdin_mode {
 			Stdio::Null => {
 				let writer = tokio::io::sink();
 				Writer::Null(writer)
@@ -60,31 +60,79 @@ impl Server {
 			},
 		};
 
-		let output = stream::once(async move {
-			let mut stream = pin!(stream);
-			while let Some(event) = stream
-				.try_next()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read a stdio event"))?
-			{
-				match event {
-					tg::process::stdio::read::Event::Chunk(chunk) => {
-						writer
-							.write_all(&chunk.bytes)
+		// For each chunk written, emit a write event with the length of the chunk. A
+		// broken pipe indicates that the process closed its stdin, so it is treated as
+		// EOF rather than an error.
+		let server = self.clone();
+		let stream = stream.boxed();
+		let output = stream::try_unfold(
+			(stream, Some(writer), false),
+			move |(mut stream, mut writer, done)| {
+				let server = server.clone();
+				let id = id.clone();
+				async move {
+					if done {
+						return Ok(None);
+					}
+					loop {
+						let Some(event) = stream
+							.try_next()
 							.await
-							.map_err(|error| tg::error!(!error, "failed to write stdin"))?;
-					},
-					tg::process::stdio::read::Event::End => {
-						writer
-							.shutdown()
-							.await
-							.map_err(|error| tg::error!(!error, "failed to close stdin"))?;
-						break;
-					},
+							.map_err(|error| tg::error!(!error, "failed to read a stdio event"))?
+						else {
+							let event = tg::process::stdio::write::Event::End;
+							return Ok(Some((event, (stream, writer, true))));
+						};
+						match event {
+							tg::process::stdio::read::Event::Chunk(chunk) => {
+								if chunk.bytes.is_empty() {
+									continue;
+								}
+								let result = writer
+									.as_mut()
+									.ok_or_else(|| tg::error!("stdin was closed"))?
+									.write_all(&chunk.bytes)
+									.await;
+								match result {
+									Ok(()) => {
+										let event = tg::process::stdio::write::Event::Write(
+											chunk.bytes.len(),
+										);
+										return Ok(Some((event, (stream, writer, false))));
+									},
+									Err(error)
+										if error.kind() == std::io::ErrorKind::BrokenPipe =>
+									{
+										let event = tg::process::stdio::write::Event::End;
+										return Ok(Some((event, (stream, writer, true))));
+									},
+									Err(error) => {
+										return Err(tg::error!(!error, "failed to write stdin"));
+									},
+								}
+							},
+							tg::process::stdio::read::Event::End => {
+								// Close stdin by dropping the writer and removing the process's stdin, so that the child observes EOF.
+								if let Some(mut w) = writer.take() {
+									w.shutdown().await.map_err(|error| {
+										tg::error!(!error, "failed to close stdin")
+									})?;
+									let stdin = matches!(w, Writer::Stdin(_));
+									drop(w);
+									if stdin
+										&& let Some(mut process) = server.processes.get_mut(&id)
+									{
+										process.stdin.take();
+									}
+								}
+								let event = tg::process::stdio::write::Event::End;
+								return Ok(Some((event, (stream, writer, true))));
+							},
+						}
+					}
 				}
-			}
-			Ok(tg::process::stdio::write::Event::End)
-		});
+			},
+		);
 
 		Ok(output)
 	}

@@ -31,6 +31,7 @@ pub use self::{
 pub mod build;
 pub mod cancel;
 pub mod children;
+pub mod control;
 pub mod data;
 pub mod debug;
 pub mod env;

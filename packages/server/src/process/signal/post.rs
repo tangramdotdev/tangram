@@ -1,14 +1,10 @@
 use {
 	crate::Session,
-	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
-	indoc::formatdoc,
-	std::ops::ControlFlow,
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_messenger::prelude::*,
 };
 
 impl Session {
@@ -72,42 +68,23 @@ impl Session {
 			return Err(tg::error!(%id, "cannot signal cacheable processes"));
 		}
 
-		// Insert the signal into the process store.
-		let process = id.to_string();
-		self.server
-			.process_store
-			.run(|transaction| {
-				let process = process.clone();
-				async move {
-					Self::post_process_signal_with_transaction(transaction, &process, signal).await
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to insert the process signal"))?;
-
-		// Publish the signal message.
-		self.spawn_publish_process_signal_message_task(id);
+		// Send the control request.
+		let request =
+			tg::process::control::RequestKind::Signal(tg::process::control::SignalRequest {
+				signal,
+			});
+		let max_retries = tangram_futures::retry::Options::default().max_retries;
+		let Some(response) = self
+			.try_send_process_control_request(id, request, max_retries)
+			.await?
+		else {
+			return Ok(Some(()));
+		};
+		let tg::process::control::ResponseKind::Signal = response.kind else {
+			return Err(tg::error!("expected a signal response"));
+		};
 
 		Ok(Some(()))
-	}
-
-	async fn post_process_signal_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		process: &str,
-		signal: tg::process::Signal,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				insert into process_signals (process, signal)
-				values ({p}1, {p}2);
-			"
-		);
-		let params = db::params![process, signal.to_string()];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-		Ok(ControlFlow::Break(()))
 	}
 
 	async fn try_post_process_signal_regions(
@@ -267,24 +244,5 @@ impl Session {
 
 		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
-	}
-
-	pub(crate) fn spawn_publish_process_signal_message_task(&self, id: &tg::process::Id) {
-		let id = id.clone();
-		let subject = format!("processes.{id}.signal");
-		tokio::spawn({
-			let session = self.clone();
-			async move {
-				session
-					.server
-					.messenger
-					.publish(subject, ())
-					.await
-					.inspect_err(|error| {
-						tracing::error!(%error, %id, "failed to publish the process signal message");
-					})
-					.ok();
-			}
-		});
 	}
 }

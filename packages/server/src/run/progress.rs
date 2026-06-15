@@ -22,18 +22,15 @@ impl Session {
 	pub(crate) async fn write_progress_stream<T: Send + std::fmt::Debug + 'static>(
 		&self,
 		process: &tg::Process,
+		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
 		let stderr = process.load_with_handle(self).await?.stderr.clone();
 		let output = match stderr {
-			tg::process::Stdio::Log => self.write_progress_stream_to_log(process, stream).await?,
+			tg::process::Stdio::Log => self.write_progress_stream_to_log(progress, stream).await?,
 			tg::process::Stdio::Null => self.write_progress_stream_to_null(stream).await?,
 			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-				let location = process
-					.location()
-					.and_then(|location| location.to_location());
-				self.write_progress_stream_to_tty(process.id().unwrap_right(), location, stream)
-					.await?
+				self.write_progress_stream_to_tty(progress, stream).await?
 			},
 			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
 				return Err(tg::error!("invalid stdio"));
@@ -57,7 +54,7 @@ impl Session {
 
 	async fn write_progress_stream_to_log<T: std::fmt::Debug>(
 		&self,
-		process: &tg::Process,
+		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
 		let mut stream = pin!(stream);
@@ -69,26 +66,9 @@ impl Session {
 						if indicator.is_empty() {
 							continue;
 						}
-						let arg = tg::process::stdio::write::Arg {
-							location: process
-								.location()
-								.and_then(|location| location.to_location())
-								.map(Into::into),
-							streams: vec![tg::process::stdio::Stream::Stderr],
-						};
-						let input = futures::stream::iter([
-							Ok(tg::process::stdio::read::Event::Chunk(
-								tg::process::stdio::Chunk {
-									bytes: format!("{indicator}\n").into(),
-									position: None,
-									stream: tg::process::stdio::Stream::Stderr,
-								},
-							)),
-							Ok(tg::process::stdio::read::Event::End),
-						])
-						.boxed();
-						self.write_process_stdio_all(process.id().unwrap_right(), arg, input)
-							.await?;
+						if progress.send(format!("{indicator}\n").into()).is_err() {
+							return Err(tg::error!("failed to write the progress stream"));
+						}
 					}
 				},
 				tg::progress::Event::Output(output) => return Ok(output),
@@ -100,8 +80,7 @@ impl Session {
 
 	async fn write_progress_stream_to_tty<T: Send + 'static>(
 		&self,
-		id: &tg::process::Id,
-		location: Option<tg::Location>,
+		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(16);
@@ -148,28 +127,14 @@ impl Session {
 			}
 			output.ok_or_else(|| tg::error!("expected an output"))
 		});
-		let session = self.clone();
-		let id = id.clone();
 		let stderr_task = Task::spawn(|_| async move {
-			let arg = tg::process::stdio::write::Arg {
-				location: location.map(Into::into),
-				streams: vec![tg::process::stdio::Stream::Stderr],
-			};
-			let input = ReceiverStream::new(receiver)
-				.map(|bytes| {
-					Ok::<_, tg::Error>(tg::process::stdio::read::Event::Chunk(
-						tg::process::stdio::Chunk {
-							bytes,
-							position: None,
-							stream: tg::process::stdio::Stream::Stderr,
-						},
-					))
-				})
-				.boxed();
-			session
-				.write_process_stdio_all(&id, arg, input)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to write the progress stream"))
+			let mut receiver = pin!(ReceiverStream::new(receiver));
+			while let Some(bytes) = receiver.next().await {
+				if progress.send(bytes).is_err() {
+					return Err(tg::error!("failed to write the progress stream"));
+				}
+			}
+			Ok::<_, tg::Error>(())
 		});
 		let (result1, result2) = future::join(progress_task.wait(), stderr_task.wait()).await;
 		result2.map_err(|error| tg::error!(!error, "the stderr task panicked"))??;

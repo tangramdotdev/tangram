@@ -23,6 +23,7 @@ pub struct Arg {
 pub enum Event {
 	End,
 	Stop,
+	Write(usize),
 }
 
 impl tg::Session {
@@ -166,6 +167,15 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 				event: Some("stop".to_owned()),
 				..Default::default()
 			},
+			Event::Write(len) => {
+				let data = serde_json::to_string(&len)
+					.map_err(|error| tg::error!(!error, "failed to serialize the event"))?;
+				tangram_http::sse::Event {
+					data,
+					event: Some("write".to_owned()),
+					..Default::default()
+				}
+			},
 		};
 		Ok(event)
 	}
@@ -178,6 +188,11 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 		match value.event.as_deref() {
 			Some("end") => Ok(Self::End),
 			Some("stop") => Ok(Self::Stop),
+			Some("write") => {
+				let len = serde_json::from_str(&value.data)
+					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
+				Ok(Self::Write(len))
+			},
 			_ => Err(tg::error!("invalid event")),
 		}
 	}

@@ -55,22 +55,24 @@ impl tg::handle::Process for Session {
 		self.try_cancel_process(id, arg).await
 	}
 
+	async fn try_get_process_control_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static>,
+	> {
+		self.try_get_process_control_stream_with_context(id, arg, stream)
+			.await
+	}
+
 	async fn try_signal_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
 		self.try_post_process_signal(id, arg).await
-	}
-
-	async fn try_get_process_signal_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static>,
-	> {
-		self.try_get_process_signal_stream(id, arg).await
 	}
 
 	async fn try_get_process_status_stream(
@@ -91,16 +93,6 @@ impl tg::handle::Process for Session {
 		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
 	> {
 		self.try_get_process_children_stream(id, arg).await
-	}
-
-	async fn try_get_process_tty_size_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::tty::size::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static>,
-	> {
-		self.try_get_process_tty_size_stream(id, arg).await
 	}
 
 	async fn try_set_process_tty_size(

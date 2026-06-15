@@ -1137,7 +1137,7 @@ export namespace Process {
 		USR2: "USR2",
 	} as const;
 
-	export type Status = "created" | "started" | "finished";
+	export type Status = "created" | "dequeued" | "started" | "finished";
 
 	export type Data = {
 		actual_checksum?: tg.Checksum;

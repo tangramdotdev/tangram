@@ -28,6 +28,7 @@ use {
 #[tangram_serialize(display, from_str)]
 pub enum Status {
 	Created,
+	Dequeued,
 	Started,
 	Finished,
 }

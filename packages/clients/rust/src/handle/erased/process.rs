@@ -43,20 +43,21 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
+	fn try_get_process_control_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>>,
+	>;
+
 	fn try_signal_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
-
-	fn try_get_process_signal_stream<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::signal::get::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>>,
-	>;
 
 	fn try_get_process_status_stream<'a>(
 		&'a self,
@@ -71,15 +72,6 @@ pub trait Process: Send + Sync + 'static {
 	) -> BoxFuture<
 		'a,
 		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>>,
-	>;
-
-	fn try_get_process_tty_size_stream<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::tty::size::get::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>>,
 	>;
 
 	fn try_set_process_tty_size<'a>(
@@ -186,25 +178,26 @@ where
 		self.try_cancel_process(id, arg).boxed()
 	}
 
+	fn try_get_process_control_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>>,
+	> {
+		self.try_get_process_control_stream(id, arg, stream)
+			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.boxed()
+	}
+
 	fn try_signal_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_signal_process(id, arg).boxed()
-	}
-
-	fn try_get_process_signal_stream<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::signal::get::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>>,
-	> {
-		self.try_get_process_signal_stream(id, arg)
-			.map_ok(|option| option.map(futures::StreamExt::boxed))
-			.boxed()
 	}
 
 	fn try_get_process_status_stream<'a>(
@@ -227,19 +220,6 @@ where
 		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>>,
 	> {
 		self.try_get_process_children_stream(id, arg)
-			.map_ok(|option| option.map(futures::StreamExt::boxed))
-			.boxed()
-	}
-
-	fn try_get_process_tty_size_stream<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::tty::size::get::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>>,
-	> {
-		self.try_get_process_tty_size_stream(id, arg)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
 	}

@@ -1,6 +1,5 @@
 use crate::prelude::*;
 
-pub mod get;
 pub mod post;
 
 #[derive(
