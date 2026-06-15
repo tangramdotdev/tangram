@@ -309,6 +309,7 @@ impl crate::Index for Index {
 
 	async fn clean(
 		&self,
+		now: i64,
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
 		batch_size: usize,
@@ -317,6 +318,7 @@ impl crate::Index for Index {
 	) -> tg::Result<crate::clean::Output> {
 		Index::clean(
 			self,
+			now,
 			max_object_touched_at,
 			max_process_touched_at,
 			batch_size,

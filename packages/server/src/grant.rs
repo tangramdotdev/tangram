@@ -156,6 +156,7 @@ impl Session {
 		batch.put_grants.push(tangram_index::grant::put::Arg {
 			created_at,
 			creator: creator.clone(),
+			expires_at: None,
 			permission: arg.permission,
 			principal: principal.clone(),
 			resource: resource.clone(),
@@ -207,6 +208,7 @@ impl Session {
 			return Ok(None);
 		}
 		batch.delete_grants.push(tangram_index::grant::delete::Arg {
+			expires_at: None,
 			permission: arg.permission,
 			principal,
 			resource,
@@ -263,6 +265,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in rows {
 			batch.delete_grants.push(tangram_index::grant::delete::Arg {
+				expires_at: None,
 				permission: row.permission,
 				principal: row.principal,
 				resource: row.resource,

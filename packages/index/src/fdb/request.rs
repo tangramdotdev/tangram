@@ -31,6 +31,7 @@ pub(super) struct Clean {
 	pub batch_size: usize,
 	pub max_object_touched_at: i64,
 	pub max_process_touched_at: i64,
+	pub now: i64,
 	pub partition_count: u64,
 	pub partition_start: u64,
 }
@@ -92,6 +93,7 @@ pub(super) enum Kind {
 	Clean {
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
+		now: i64,
 		partition_count: u64,
 		partition_start: u64,
 	},

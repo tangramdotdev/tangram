@@ -27,6 +27,7 @@ enum Item {
 pub(super) struct TaskCleanArg<'a> {
 	pub txn: &'a fdb::Transaction,
 	pub subspace: &'a Subspace,
+	pub now: i64,
 	pub max_object_touched_at: i64,
 	pub max_process_touched_at: i64,
 	pub batch_size: usize,
@@ -38,6 +39,7 @@ pub(super) struct TaskCleanArg<'a> {
 impl Index {
 	pub async fn clean(
 		&self,
+		now: i64,
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
 		batch_size: usize,
@@ -49,6 +51,7 @@ impl Index {
 			batch_size,
 			max_object_touched_at,
 			max_process_touched_at,
+			now,
 			partition_count,
 			partition_start,
 		});
@@ -68,6 +71,7 @@ impl Index {
 		let TaskCleanArg {
 			txn,
 			subspace,
+			now,
 			max_object_touched_at,
 			max_process_touched_at,
 			batch_size,
@@ -75,7 +79,21 @@ impl Index {
 			partition_count,
 			partition_total,
 		} = arg;
-		let mut output = crate::clean::Output::default();
+		let grants = Self::delete_expired_grants(
+			txn,
+			subspace,
+			now,
+			batch_size,
+			partition_start,
+			partition_count,
+			partition_total,
+		)
+		.await?;
+		let mut output = crate::clean::Output {
+			grants,
+			..Default::default()
+		};
+		let remaining_batch_size = batch_size.saturating_sub(grants);
 		let mut candidates = Vec::new();
 
 		let key_kind = Kind::Clean.to_i32().unwrap();
@@ -84,7 +102,7 @@ impl Index {
 		for partition in partition_start..partition_end {
 			let begin = Self::pack(subspace, &(key_kind, partition, 0i64));
 			let end = Self::pack(subspace, &(key_kind, partition, max_touched_at + 1));
-			if candidates.len() >= batch_size {
+			if candidates.len() >= remaining_batch_size {
 				break;
 			}
 			let range = fdb::RangeOption {
@@ -94,7 +112,7 @@ impl Index {
 				..Default::default()
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
-			while candidates.len() < batch_size {
+			while candidates.len() < remaining_batch_size {
 				let Some(entry) = entries
 					.next()
 					.await
@@ -187,9 +205,68 @@ impl Index {
 			}
 		}
 
-		output.done = candidates.is_empty();
+		output.done = grants == 0 && candidates.is_empty();
 
 		Ok(output)
+	}
+
+	async fn delete_expired_grants(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		now: i64,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+		partition_total: u64,
+	) -> tg::Result<usize> {
+		let key_kind = Kind::GrantExpiresAt.to_i32().unwrap();
+		let partition_end = partition_start.saturating_add(partition_count);
+		let mut args = Vec::new();
+		for partition in partition_start..partition_end {
+			if args.len() >= batch_size {
+				break;
+			}
+			let begin = Self::pack(subspace, &(key_kind, partition, i64::MIN));
+			let end = Self::pack(subspace, &(key_kind, partition, now + 1));
+			let range = fdb::RangeOption {
+				begin: fdb::KeySelector::first_greater_or_equal(&begin),
+				end: fdb::KeySelector::first_greater_or_equal(&end),
+				mode: fdb::options::StreamingMode::Iterator,
+				..Default::default()
+			};
+			let mut entries = txn.get_ranges_keyvalues(range, false);
+			while args.len() < batch_size {
+				let Some(entry) = entries
+					.next()
+					.await
+					.transpose()
+					.map_err(|error| tg::error!(!error, "failed to get the next entry"))?
+				else {
+					break;
+				};
+				let key = Self::unpack(subspace, entry.key())
+					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
+				let crate::fdb::Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+					expires_at,
+					resource,
+					principal,
+					permission,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("expected a grant expiration key"));
+				};
+				args.push(crate::grant::delete::Arg {
+					expires_at: Some(expires_at),
+					permission,
+					principal,
+					resource,
+				});
+			}
+		}
+		let count = args.len();
+		Self::task_delete_grants(txn, subspace, &args, partition_total).await?;
+		Ok(count)
 	}
 
 	async fn get_touched_at(

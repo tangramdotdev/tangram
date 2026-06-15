@@ -27,12 +27,14 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::grant::delete::Arg],
+		partition_total: u64,
 	) -> tg::Result<()> {
 		for arg in args {
 			let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 				resource: arg.resource.clone(),
 				principal: arg.principal.clone(),
 				permission: arg.permission,
+				expires_at: arg.expires_at,
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
@@ -41,6 +43,7 @@ impl Index {
 				principal: arg.principal.clone(),
 				resource: arg.resource.clone(),
 				permission: arg.permission,
+				expires_at: arg.expires_at,
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
@@ -50,6 +53,19 @@ impl Index {
 					resource: id,
 					principal: arg.principal.clone(),
 					grant_resource: arg.resource.clone(),
+					permission: arg.permission,
+					expires_at: arg.expires_at,
+				});
+				let key = Self::pack(subspace, &key);
+				txn.clear(&key);
+			}
+			if let Some(expires_at) = arg.expires_at {
+				let partition = Self::partition_for_id(&arg.resource.to_bytes(), partition_total);
+				let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+					partition,
+					expires_at,
+					resource: arg.resource.clone(),
+					principal: arg.principal.clone(),
 					permission: arg.permission,
 				});
 				let key = Self::pack(subspace, &key);

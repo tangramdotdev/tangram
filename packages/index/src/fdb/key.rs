@@ -53,6 +53,7 @@ pub enum Kind {
 	PrincipalGrant = 28,
 	Node = 29,
 	Visibility = 30,
+	GrantExpiresAt = 31,
 }
 
 impl fdbt::TuplePack for Key {
@@ -252,11 +253,13 @@ impl fdbt::TuplePack for Key {
 				resource,
 				principal,
 				permission,
+				expires_at,
 			}) => (
 				Kind::ResourceGrant.to_i32().unwrap(),
 				resource.to_bytes().as_ref(),
 				principal.to_string(),
 				permission.to_string(),
+				expires_at,
 			)
 				.pack(w, tuple_depth),
 
@@ -264,11 +267,13 @@ impl fdbt::TuplePack for Key {
 				principal,
 				resource,
 				permission,
+				expires_at,
 			}) => (
 				Kind::PrincipalGrant.to_i32().unwrap(),
 				principal.to_string(),
 				resource.to_bytes().as_ref(),
 				permission.to_string(),
+				expires_at,
 			)
 				.pack(w, tuple_depth),
 
@@ -281,11 +286,29 @@ impl fdbt::TuplePack for Key {
 				principal,
 				grant_resource,
 				permission,
+				expires_at,
 			}) => (
 				Kind::Visibility.to_i32().unwrap(),
 				resource.to_bytes().as_ref(),
 				principal.to_string(),
 				grant_resource.to_bytes().as_ref(),
+				permission.to_string(),
+				expires_at,
+			)
+				.pack(w, tuple_depth),
+
+			Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+				partition,
+				expires_at,
+				resource,
+				principal,
+				permission,
+			}) => (
+				Kind::GrantExpiresAt.to_i32().unwrap(),
+				partition,
+				expires_at,
+				resource.to_bytes().as_ref(),
+				principal.to_string(),
 				permission.to_string(),
 			)
 				.pack(w, tuple_depth),
@@ -704,10 +727,13 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let permission = permission
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let (input, expires_at): (_, Option<i64>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 					resource,
 					principal,
 					permission,
+					expires_at,
 				});
 				Ok((input, key))
 			},
@@ -727,10 +753,13 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let permission = permission
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let (input, expires_at): (_, Option<i64>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let key = Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
 					principal,
 					resource,
 					permission,
+					expires_at,
 				});
 				Ok((input, key))
 			},
@@ -763,10 +792,40 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let permission = permission
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let (input, expires_at): (_, Option<i64>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let key = Key::Grant(crate::fdb::grant::Key::Visibility {
 					resource,
 					principal,
 					grant_resource,
+					permission,
+					expires_at,
+				});
+				Ok((input, key))
+			},
+
+			Kind::GrantExpiresAt => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, expires_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, resource_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, principal): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, permission): (_, String) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
+				let principal = principal
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let permission = permission
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+					partition,
+					expires_at,
+					resource,
+					principal,
 					permission,
 				});
 				Ok((input, key))

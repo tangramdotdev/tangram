@@ -31,6 +31,7 @@ impl Index {
 				resource: arg.resource.clone(),
 				principal: arg.principal.clone(),
 				permission: arg.permission,
+				expires_at: arg.expires_at,
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
@@ -40,6 +41,7 @@ impl Index {
 				principal: arg.principal.clone(),
 				resource: arg.resource.clone(),
 				permission: arg.permission,
+				expires_at: arg.expires_at,
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
@@ -53,10 +55,22 @@ impl Index {
 					principal: arg.principal.clone(),
 					grant_resource: arg.resource.clone(),
 					permission: arg.permission,
+					expires_at: arg.expires_at,
 				});
 				let key = Self::pack(subspace, &key);
 				db.delete(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to delete the visibility entry"))?;
+			}
+			if let Some(expires_at) = arg.expires_at {
+				let key = Key::Grant(crate::lmdb::grant::Key::GrantExpiresAt {
+					expires_at,
+					resource: arg.resource.clone(),
+					principal: arg.principal.clone(),
+					permission: arg.permission,
+				});
+				let key = Self::pack(subspace, &key);
+				db.delete(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to delete the grant expiration"))?;
 			}
 		}
 		Ok(())

@@ -24,6 +24,7 @@ enum Item {
 impl Index {
 	pub async fn clean(
 		&self,
+		now: i64,
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
 		batch_size: usize,
@@ -35,6 +36,7 @@ impl Index {
 			batch_size,
 			max_object_touched_at,
 			max_process_touched_at,
+			now,
 		});
 		self.sender_low
 			.send((request, sender))
@@ -52,11 +54,17 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
+		now: i64,
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
 		batch_size: usize,
 	) -> tg::Result<crate::clean::Output> {
-		let mut output = crate::clean::Output::default();
+		let grants = Self::delete_expired_grants(db, subspace, transaction, now, batch_size)?;
+		let mut output = crate::clean::Output {
+			grants,
+			..Default::default()
+		};
+		let remaining_batch_size = batch_size.saturating_sub(grants);
 
 		let prefix = &(Kind::Clean.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
@@ -65,7 +73,7 @@ impl Index {
 			.prefix_iter(transaction, &prefix)
 			.map_err(|error| tg::error!(!error, "failed to iterate clean keys"))?;
 		for result in iter {
-			if candidates.len() >= batch_size {
+			if candidates.len() >= remaining_batch_size {
 				break;
 			}
 			let (key, _) =
@@ -155,9 +163,52 @@ impl Index {
 			}
 		}
 
-		output.done = candidates.is_empty();
+		output.done = grants == 0 && candidates.is_empty();
 
 		Ok(output)
+	}
+
+	fn delete_expired_grants(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		now: i64,
+		batch_size: usize,
+	) -> tg::Result<usize> {
+		let prefix = Self::pack(subspace, &(Kind::GrantExpiresAt.to_i32().unwrap(),));
+		let iter = db
+			.prefix_iter(&*transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to iterate grant expiration keys"))?;
+		let mut args = Vec::new();
+		for result in iter {
+			if args.len() >= batch_size {
+				break;
+			}
+			let (key, _) = result
+				.map_err(|error| tg::error!(!error, "failed to read the grant expiration key"))?;
+			let key = Self::unpack(subspace, key)?;
+			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::GrantExpiresAt {
+				expires_at,
+				resource,
+				principal,
+				permission,
+			}) = key
+			else {
+				return Err(tg::error!("expected a grant expiration key"));
+			};
+			if expires_at > now {
+				break;
+			}
+			args.push(crate::grant::delete::Arg {
+				expires_at: Some(expires_at),
+				permission,
+				principal,
+				resource,
+			});
+		}
+		let count = args.len();
+		Self::task_delete_grants(db, subspace, transaction, &args)?;
+		Ok(count)
 	}
 
 	fn get_touched_at(

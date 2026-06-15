@@ -230,6 +230,7 @@ impl Index {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
+				now,
 				partition_count,
 				partition_start,
 			}) => {
@@ -239,6 +240,7 @@ impl Index {
 					Kind::Clean {
 						max_object_touched_at,
 						max_process_touched_at,
+						now,
 						partition_count,
 						partition_start,
 					},
@@ -379,12 +381,14 @@ impl Index {
 			Kind::Clean {
 				max_object_touched_at,
 				max_process_touched_at,
+				now,
 				partition_count,
 				partition_start,
 			} => Request::Clean(crate::fdb::Clean {
 				batch_size: items.len(),
 				max_object_touched_at: *max_object_touched_at,
 				max_process_touched_at: *max_process_touched_at,
+				now: *now,
 				partition_count: *partition_count,
 				partition_start: *partition_start,
 			}),
@@ -772,12 +776,14 @@ impl Index {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
+				now,
 				partition_count,
 				partition_start,
 			}) => {
 				let arg = super::clean::TaskCleanArg {
 					txn,
 					subspace,
+					now: *now,
 					max_object_touched_at: *max_object_touched_at,
 					max_process_touched_at: *max_process_touched_at,
 					batch_size: *batch_size,
@@ -788,7 +794,7 @@ impl Index {
 				Self::task_clean(arg).await.map(Response::CleanOutput)
 			},
 			Request::DeleteGrants(args) => {
-				Self::task_delete_grants(txn, subspace, args).await?;
+				Self::task_delete_grants(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteGroupMembers(args) => {
@@ -821,7 +827,7 @@ impl Index {
 				Ok(Response::Unit)
 			},
 			Request::PutGrants(args) => {
-				Self::task_put_grants(txn, subspace, args).await?;
+				Self::task_put_grants(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutGroupMembers(args) => {

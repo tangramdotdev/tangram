@@ -237,6 +237,7 @@ impl Server {
 		let output = self
 			.index
 			.clean(
+				now,
 				max_object_touched_at,
 				max_process_touched_at,
 				n,

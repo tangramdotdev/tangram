@@ -141,10 +141,12 @@ impl Index {
 						batch_size,
 						max_object_touched_at,
 						max_process_touched_at,
+						now,
 					}) => Self::task_clean(
 						db,
 						subspace,
 						&mut transaction,
+						now,
 						max_object_touched_at,
 						max_process_touched_at,
 						batch_size,
@@ -405,6 +407,7 @@ impl Index {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
+				now,
 			}) => {
 				let items = (0..batch_size).map(|_| Item::Clean).collect();
 				(
@@ -412,6 +415,7 @@ impl Index {
 					Kind::Clean {
 						max_object_touched_at,
 						max_process_touched_at,
+						now,
 					},
 				)
 			},
@@ -540,10 +544,12 @@ impl Index {
 			Kind::Clean {
 				max_object_touched_at,
 				max_process_touched_at,
+				now,
 			} => Request::Clean(crate::lmdb::Clean {
 				batch_size: items.len(),
 				max_object_touched_at: *max_object_touched_at,
 				max_process_touched_at: *max_process_touched_at,
+				now: *now,
 			}),
 			Kind::DeleteGrants => {
 				let args = items

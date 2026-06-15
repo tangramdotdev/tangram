@@ -324,6 +324,7 @@ impl index::Index for Index {
 
 	async fn clean(
 		&self,
+		now: i64,
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
 		batch_size: usize,
@@ -335,6 +336,7 @@ impl index::Index for Index {
 			Self::Fdb(index) => {
 				index
 					.clean(
+						now,
 						max_object_touched_at,
 						max_process_touched_at,
 						batch_size,
@@ -347,6 +349,7 @@ impl index::Index for Index {
 			Self::Lmdb(index) => {
 				index
 					.clean(
+						now,
 						max_object_touched_at,
 						max_process_touched_at,
 						batch_size,
