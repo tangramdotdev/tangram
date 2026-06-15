@@ -3,7 +3,6 @@ use {crate::Cli, tangram_client::prelude::*};
 pub mod create;
 pub mod delete;
 pub mod get;
-pub mod list;
 pub mod members;
 
 /// Manage groups.
@@ -24,9 +23,6 @@ pub enum Command {
 
 	Get(self::get::Args),
 
-	#[command(alias = "ls")]
-	List(self::list::Args),
-
 	Members(self::members::Args),
 }
 
@@ -36,7 +32,6 @@ impl Cli {
 			Command::Create(args) => self.command_group_create(args).await?,
 			Command::Delete(args) => self.command_group_delete(args).await?,
 			Command::Get(args) => self.command_group_get(args).await?,
-			Command::List(args) => self.command_group_list(args).await?,
 			Command::Members(args) => self.command_group_members(args).await?,
 		}
 		Ok(())

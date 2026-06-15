@@ -532,7 +532,6 @@ impl Server {
 			(http::Method::DELETE, ["grants"]) => session.delete_grant_request(request).boxed(),
 
 			// Groups.
-			(http::Method::GET, ["groups"]) => session.list_groups_request(request).boxed(),
 			(http::Method::POST, ["groups"]) => session.create_group_request(request).boxed(),
 			(http::Method::GET, ["groups", group]) => {
 				session.try_get_group_request(request, group).boxed()

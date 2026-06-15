@@ -8,10 +8,6 @@ impl tg::handle::Group for Session {
 		self.create_group(arg).await
 	}
 
-	async fn list_groups(&self, arg: tg::group::list::Arg) -> tg::Result<tg::group::list::Output> {
-		self.list_groups(arg).await
-	}
-
 	async fn try_get_group(
 		&self,
 		group: &tg::group::Selector,

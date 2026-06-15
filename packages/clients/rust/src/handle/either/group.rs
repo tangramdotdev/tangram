@@ -15,16 +15,6 @@ where
 		}
 	}
 
-	fn list_groups(
-		&self,
-		arg: tg::group::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::group::list::Output>> {
-		match self {
-			tg::Either::Left(s) => s.list_groups(arg).left_future(),
-			tg::Either::Right(s) => s.list_groups(arg).right_future(),
-		}
-	}
-
 	fn try_get_group(
 		&self,
 		group: &tg::group::Selector,
