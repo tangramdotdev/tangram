@@ -342,7 +342,8 @@ impl Session {
 				.try_send_process_control_request(id, request, u64::MAX)
 				.await?
 			else {
-				return Ok(());
+				// A clean end must come only from an empty read response, so surface an abandoned request as an error.
+				return Err(tg::error!("timed out reading process stdio"));
 			};
 			let tg::process::control::ResponseKind::Read(response) = response.kind else {
 				return Err(tg::error!("expected a read response"));

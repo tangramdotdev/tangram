@@ -53,7 +53,7 @@ impl Session {
 			.config
 			.runner
 			.as_ref()
-			.map_or(std::time::Duration::from_secs(60), |runner| {
+			.map_or(std::time::Duration::from_mins(1), |runner| {
 				runner.control_ttl
 			});
 
@@ -402,10 +402,22 @@ impl Session {
 											stderr_sender.send((id, read)).await.ok();
 										},
 										tg::process::stdio::Stream::Stdin => {
+											// Reading stdin is forbidden. Send a correlated error response and cache it so that a retry is answered rather than suppressed by the in-flight entry.
+											let error =
+												tg::error!("cannot read the stdin of a process");
+											let response = tg::process::control::Response {
+												id,
+												kind: tg::process::control::ResponseKind::Error(
+													error.to_data_or_id(),
+												),
+											};
+											responses.insert(id, Some(response.clone()));
 											sender
-												.send(Err(tg::error!(
-													"cannot read the stdin of a process"
-												)))
+												.send(Ok(
+													tg::process::control::ResponseEvent::Response(
+														response,
+													),
+												))
 												.await
 												.ok();
 										},

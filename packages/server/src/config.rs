@@ -1197,7 +1197,7 @@ impl Default for Runner {
 		Self {
 			concurrency: None,
 			control_timeout: Duration::from_secs(1),
-			control_ttl: Duration::from_secs(60),
+			control_ttl: Duration::from_mins(1),
 			heartbeat_interval: Duration::from_secs(1),
 			js: Js::default(),
 			remote: None,
