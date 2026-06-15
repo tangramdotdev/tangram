@@ -190,22 +190,25 @@ impl Session {
 		if let Some(output) = &output
 			&& !output.cached
 		{
-			let put_process_arg = tangram_index::process::put::Arg {
-				children: None,
-				command: arg.command.item.clone().into(),
-				error: None,
-				id: output.id.clone(),
-				log: None,
-				metadata: tg::process::Metadata::default(),
-				output: None,
-				parent: arg.parent.clone(),
-				stored: tangram_index::process::Stored::default(),
-				touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
-			};
+			let command = arg.command.item.clone();
+			let id = output.id.clone();
+			let parent = arg.parent.clone();
 			let server = self.server.clone();
 			self.server
 				.index_tasks
 				.spawn(|_| async move {
+					let put_process_arg = tangram_index::process::put::Arg {
+						children: None,
+						command: command.into(),
+						error: None,
+						id,
+						log: None,
+						metadata: tg::process::Metadata::default(),
+						output: None,
+						parent,
+						stored: tangram_index::process::Stored::default(),
+						touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+					};
 					if let Err(error) = server
 						.index
 						.batch(tangram_index::batch::Arg {

@@ -193,41 +193,44 @@ impl Session {
 			return Ok(Some(false));
 		}
 
-		let error = arg.error.as_ref().map(|error| match error {
-			tg::Either::Left(data) => {
-				let mut children = std::collections::BTreeSet::new();
-				data.children(&mut children);
-				children.into_iter().collect::<Vec<_>>()
-			},
-			tg::Either::Right(id) => {
-				let id = id.clone().into();
-				vec![id]
-			},
-		});
-		let mut output = std::collections::BTreeSet::new();
-		if let Some(data) = &arg.output {
-			data.children(&mut output);
-		}
-		let output = arg
-			.output
-			.as_ref()
-			.map(|_| output.into_iter().collect::<Vec<_>>());
-		let put_process_arg = tangram_index::process::put::Arg {
-			children: None,
-			command: data.command.clone().into(),
-			error: Some(error),
-			id: id.clone(),
-			log: None,
-			metadata: tg::process::Metadata::default(),
-			output: Some(output),
-			parent: None,
-			stored: tangram_index::process::Stored::default(),
-			touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
-		};
+		let command = data.command.clone();
+		let finish_arg = arg.clone();
 		let server = self.server.clone();
+		let process = id.clone();
 		self.server
 			.index_tasks
 			.spawn(|_| async move {
+				let error = finish_arg.error.as_ref().map(|error| match error {
+					tg::Either::Left(data) => {
+						let mut children = std::collections::BTreeSet::new();
+						data.children(&mut children);
+						children.into_iter().collect::<Vec<_>>()
+					},
+					tg::Either::Right(id) => {
+						let id = id.clone().into();
+						vec![id]
+					},
+				});
+				let mut output = std::collections::BTreeSet::new();
+				if let Some(data) = &finish_arg.output {
+					data.children(&mut output);
+				}
+				let output = finish_arg
+					.output
+					.as_ref()
+					.map(|_| output.into_iter().collect::<Vec<_>>());
+				let put_process_arg = tangram_index::process::put::Arg {
+					children: None,
+					command: command.into(),
+					error: Some(error),
+					id: process,
+					log: None,
+					metadata: tg::process::Metadata::default(),
+					output: Some(output),
+					parent: None,
+					stored: tangram_index::process::Stored::default(),
+					touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+				};
 				if let Err(error) = server
 					.index
 					.batch(tangram_index::batch::Arg {
