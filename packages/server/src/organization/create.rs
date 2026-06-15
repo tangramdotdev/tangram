@@ -84,6 +84,12 @@ impl Session {
 		if arg.specifier.components().count() != 1 {
 			return Err(tg::error!("invalid organization specifier"));
 		}
+		if Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier)
+			.await?
+			.is_some()
+		{
+			return Err(tg::error!("specifier is already in use"));
+		}
 		let id = tg::organization::Id::new();
 		let node = Self::create_node_with_transaction(
 			transaction,

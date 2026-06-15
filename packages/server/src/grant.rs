@@ -30,9 +30,12 @@ impl Session {
 				let session = session.clone();
 				async move {
 					let mut batch = tangram_index::batch::Arg::default();
-					let grant = session
+					let (grant, inserted) = session
 						.create_grant_with_transaction(transaction, arg, &mut batch)
 						.await?;
+					if !inserted {
+						return Err(tg::error!("the grant already exists").into());
+					}
 					Ok::<_, crate::database::Error>(ControlFlow::Break((grant, batch)))
 				}
 				.boxed()
@@ -89,7 +92,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::grant::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<tg::Grant> {
+	) -> tg::Result<(tg::Grant, bool)> {
 		let resource = Self::resolve_resource_with_transaction(transaction, &arg.resource)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
@@ -145,13 +148,16 @@ impl Session {
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			return Ok(tg::Grant {
-				created_at: row.created_at,
-				creator: row.creator,
-				permission: arg.permission,
-				principal,
-				resource,
-			});
+			return Ok((
+				tg::Grant {
+					created_at: row.created_at,
+					creator: row.creator,
+					permission: arg.permission,
+					principal,
+					resource,
+				},
+				false,
+			));
 		}
 		batch.put_grants.push(tangram_index::grant::put::Arg {
 			created_at,
@@ -161,13 +167,16 @@ impl Session {
 			principal: principal.clone(),
 			resource: resource.clone(),
 		});
-		Ok(tg::Grant {
-			created_at,
-			creator,
-			permission: arg.permission,
-			principal,
-			resource,
-		})
+		Ok((
+			tg::Grant {
+				created_at,
+				creator,
+				permission: arg.permission,
+				principal,
+				resource,
+			},
+			true,
+		))
 	}
 
 	pub(crate) async fn delete_grant_with_transaction(
