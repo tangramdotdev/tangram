@@ -1,5 +1,6 @@
 use {
 	crate::{Session, database::Database},
+	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -140,6 +141,29 @@ impl Session {
 			stored: tangram_index::process::Stored::default(),
 			touched_at: now,
 		};
+		let grant_expires_at = now
+			+ self
+				.server
+				.config
+				.process
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let put_grant =
+			self.context
+				.principal
+				.clone()
+				.map(|principal| tangram_index::grant::put::Arg {
+					created_at: now,
+					creator: Some(principal.clone()),
+					expires_at: Some(grant_expires_at),
+					permission: tg::grant::Permission::Process(
+						tg::grant::permission::process::Permission::Node,
+					),
+					principal: principal.into(),
+					resource: id.clone().into(),
+				});
 		self.server
 			.index_tasks
 			.spawn(|_| {
@@ -149,6 +173,7 @@ impl Session {
 						.server
 						.index
 						.batch(tangram_index::batch::Arg {
+							put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
 							put_processes: vec![put_process_arg],
 							..Default::default()
 						})
