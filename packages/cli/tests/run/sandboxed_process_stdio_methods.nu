@@ -52,5 +52,4 @@ let path = artifact {
 }
 
 let output = tg run $path | from json
-print $output
 assert ($output == { exit: 0, stderr: "stderr:hello\n", stdout: "stdout:hello\n" })
