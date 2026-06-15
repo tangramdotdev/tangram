@@ -40,6 +40,15 @@ impl Session {
 
 	async fn post_object_batch_local(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let grant_expires_at = now
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
 
 		// Store the objects.
 		let principal = self.context.principal.clone();
@@ -62,6 +71,7 @@ impl Session {
 
 		// Create the index args.
 		let mut put_object_args = Vec::with_capacity(arg.objects.len());
+		let mut put_grant_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
 			// Deserialize the object.
 			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
@@ -91,6 +101,19 @@ impl Session {
 			};
 
 			put_object_args.push(arg);
+
+			if let Some(principal) = &principal {
+				put_grant_args.push(tangram_index::grant::put::Arg {
+					created_at: now,
+					creator: Some(principal.clone()),
+					expires_at: Some(grant_expires_at),
+					permission: tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Node,
+					),
+					principal: principal.clone().into(),
+					resource: object.id.clone().into(),
+				});
+			}
 		}
 
 		// Spawn a task to index the objects.
@@ -103,6 +126,7 @@ impl Session {
 						.server
 						.index
 						.batch(tangram_index::batch::Arg {
+							put_grants: put_grant_args,
 							put_objects: put_object_args,
 							..Default::default()
 						})

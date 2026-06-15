@@ -373,6 +373,10 @@ pub struct UnixMessenger {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Object {
+	#[serde(alias = "grant_ttl", default = "default_object_grant_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_live: Duration,
+
 	#[serde(default)]
 	pub store: ObjectStore,
 
@@ -403,23 +407,14 @@ pub enum ObjectStore {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LmdbObjectStore {
-	#[serde(alias = "grant_ttl", default = "default_object_grant_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub grant_time_to_live: Duration,
-
 	pub map_size: usize,
 
 	pub path: PathBuf,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct MemoryObjectStore {
-	#[serde(alias = "grant_ttl", default = "default_object_grant_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub grant_time_to_live: Duration,
-}
+pub struct MemoryObjectStore {}
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -429,10 +424,6 @@ pub struct ScyllaObjectStore {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
-
-	#[serde(alias = "grant_ttl", default = "default_object_grant_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub grant_time_to_live: Duration,
 
 	pub keyspace: String,
 
@@ -1149,6 +1140,7 @@ impl Default for NatsMessenger {
 impl Default for Object {
 	fn default() -> Self {
 		Self {
+			grant_time_to_live: default_object_grant_time_to_live(),
 			store: ObjectStore::default(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
@@ -1166,17 +1158,8 @@ impl Default for ObjectStore {
 impl Default for LmdbObjectStore {
 	fn default() -> Self {
 		Self {
-			grant_time_to_live: default_object_grant_time_to_live(),
 			map_size: 1_099_511_627_776,
 			path: PathBuf::from("objects"),
-		}
-	}
-}
-
-impl Default for MemoryObjectStore {
-	fn default() -> Self {
-		Self {
-			grant_time_to_live: default_object_grant_time_to_live(),
 		}
 	}
 }

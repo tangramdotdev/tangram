@@ -21,10 +21,14 @@ pub enum Store {
 
 impl Store {
 	#[cfg(feature = "lmdb")]
-	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbObjectStore) -> tg::Result<Self> {
+	pub fn new_lmdb(
+		directory: &Path,
+		config: &crate::config::LmdbObjectStore,
+		grant_time_to_live: std::time::Duration,
+	) -> tg::Result<Self> {
 		let path = directory.join(&config.path);
 		let config = object_store::lmdb::Config {
-			grant_ttl: config.grant_time_to_live.as_secs().to_u64().unwrap(),
+			grant_ttl: grant_time_to_live.as_secs().to_u64().unwrap(),
 			map_size: config.map_size,
 			path: path.clone(),
 		};
@@ -34,19 +38,25 @@ impl Store {
 		Ok(Self::Lmdb(lmdb))
 	}
 
-	pub fn new_memory(config: &crate::config::MemoryObjectStore) -> Self {
+	pub fn new_memory(
+		_config: &crate::config::MemoryObjectStore,
+		grant_time_to_live: std::time::Duration,
+	) -> Self {
 		let config = object_store::memory::Config {
-			grant_ttl: config.grant_time_to_live.as_secs().to_u64().unwrap(),
+			grant_ttl: grant_time_to_live.as_secs().to_u64().unwrap(),
 		};
 		Self::Memory(object_store::memory::Store::new(&config))
 	}
 
 	#[cfg(feature = "scylla")]
-	pub async fn new_scylla(config: &crate::config::ScyllaObjectStore) -> tg::Result<Self> {
+	pub async fn new_scylla(
+		config: &crate::config::ScyllaObjectStore,
+		grant_time_to_live: std::time::Duration,
+	) -> tg::Result<Self> {
 		let config = object_store::scylla::Config {
 			addr: config.addr.clone(),
 			connections: config.connections,
-			grant_ttl: config.grant_time_to_live.as_secs().to_u64().unwrap(),
+			grant_ttl: grant_time_to_live.as_secs().to_u64().unwrap(),
 			keyspace: config.keyspace.clone(),
 			password: config.password.clone(),
 			speculative_execution: config.speculative_execution.as_ref().map(|se| match se {

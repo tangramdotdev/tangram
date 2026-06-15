@@ -44,6 +44,15 @@ impl Session {
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let grant_expires_at = now
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
 
 		let put_arg = crate::object::store::PutArg {
 			bytes: Some(arg.bytes.clone()),
@@ -103,12 +112,27 @@ impl Session {
 			stored: tangram_index::object::Stored::default(),
 			touched_at: now,
 		};
+		let put_grant =
+			self.context
+				.principal
+				.clone()
+				.map(|principal| tangram_index::grant::put::Arg {
+					created_at: now,
+					creator: Some(principal.clone()),
+					expires_at: Some(grant_expires_at),
+					permission: tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Node,
+					),
+					principal: principal.into(),
+					resource: id.clone().into(),
+				});
 		self.server
 			.index_tasks
 			.spawn(|_| {
 				let session = self.clone();
 				async move {
 					let arg = tangram_index::batch::Arg {
+						put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
 						put_objects: vec![arg],
 						..Default::default()
 					};

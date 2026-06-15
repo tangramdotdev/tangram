@@ -3,6 +3,7 @@ use {
 		Session,
 		checkin::{Graph, IndexCacheEntryArgs, IndexObjectArgs},
 	},
+	num::ToPrimitive as _,
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
@@ -54,11 +55,37 @@ impl Session {
 		// Create put object args in reverse topological order.
 		let put_index_object_args: Vec<_> = index_object_args.into_values().rev().collect();
 
+		// Create a subtree grant for the root object.
+		let grant_expires_at = touched_at
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let put_grant = self.context.principal.clone().map(|principal| {
+			let index = graph.paths.get(root).unwrap();
+			let resource = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
+			tangram_index::grant::put::Arg {
+				created_at: touched_at,
+				creator: Some(principal.clone()),
+				expires_at: Some(grant_expires_at),
+				permission: tg::grant::Permission::Object(
+					tg::grant::permission::object::Permission::Subtree,
+				),
+				principal: principal.into(),
+				resource: resource.into(),
+			}
+		});
+
 		// Index.
 		self.server
 			.index
 			.batch(tangram_index::batch::Arg {
 				put_cache_entries: put_index_cache_entry_args,
+				put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
 				put_objects: put_index_object_args,
 				..Default::default()
 			})
