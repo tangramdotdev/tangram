@@ -8,13 +8,6 @@ impl tg::handle::Group for Handle {
 		self.0.create_group(arg)
 	}
 
-	fn list_groups(
-		&self,
-		arg: tg::group::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::group::list::Output>> {
-		self.0.list_groups(arg)
-	}
-
 	fn try_get_group(
 		&self,
 		group: &tg::group::Selector,

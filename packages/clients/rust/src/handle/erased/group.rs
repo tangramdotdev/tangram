@@ -9,11 +9,6 @@ pub trait Group: Send + Sync + 'static {
 		arg: tg::group::create::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::group::create::Output>>;
 
-	fn list_groups(
-		&self,
-		arg: tg::group::list::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::group::list::Output>>;
-
 	fn try_get_group<'a>(
 		&'a self,
 		group: &'a tg::group::Selector,
@@ -55,13 +50,6 @@ where
 		arg: tg::group::create::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::group::create::Output>> {
 		self.create_group(arg).boxed()
-	}
-
-	fn list_groups(
-		&self,
-		arg: tg::group::list::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::group::list::Output>> {
-		self.list_groups(arg).boxed()
 	}
 
 	fn try_get_group<'a>(

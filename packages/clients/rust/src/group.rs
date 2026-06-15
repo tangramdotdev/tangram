@@ -5,7 +5,6 @@ pub mod data;
 pub mod delete;
 pub mod get;
 pub mod id;
-pub mod list;
 pub mod member;
 pub mod members;
 pub mod selector;

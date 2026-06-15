@@ -6,11 +6,6 @@ pub trait Group: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::group::create::Arg,
 	) -> impl Future<Output = tg::Result<tg::group::create::Output>> + Send;
 
-	fn list_groups(
-		&self,
-		arg: tg::group::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::group::list::Output>> + Send;
-
 	fn try_get_group(
 		&self,
 		group: &tg::group::Selector,
@@ -61,10 +56,6 @@ impl tg::handle::Group for tg::Client {
 		arg: tg::group::create::Arg,
 	) -> tg::Result<tg::group::create::Output> {
 		self.session(&self.context).create_group(arg).await
-	}
-
-	async fn list_groups(&self, arg: tg::group::list::Arg) -> tg::Result<tg::group::list::Output> {
-		self.session(&self.context).list_groups(arg).await
 	}
 
 	async fn try_get_group(
