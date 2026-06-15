@@ -33,7 +33,7 @@ impl Session {
 		member: &tg::group::Member,
 	) -> tg::Result<()> {
 		match self
-			.authorize(group.clone().into(), tg::grant::Permission::Write)
+			.authorize(group.clone().into(), tg::grant::Permission::Admin)
 			.await?
 		{
 			None => return Err(tg::error!("failed to find the group")),

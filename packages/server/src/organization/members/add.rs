@@ -39,7 +39,7 @@ impl Session {
 		member: &tg::organization::Member,
 	) -> tg::Result<()> {
 		match self
-			.authorize(organization.clone().into(), tg::grant::Permission::Write)
+			.authorize(organization.clone().into(), tg::grant::Permission::Admin)
 			.await?
 		{
 			None => return Err(tg::error!("failed to find the organization")),
