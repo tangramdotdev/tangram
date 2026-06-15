@@ -14,13 +14,12 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	#[command(alias = "add")]
 	Add(self::add::Args),
 
 	#[command(alias = "ls")]
 	List(self::list::Args),
 
-	#[command(alias = "remove", alias = "rm")]
+	#[command(alias = "delete", alias = "rm")]
 	Remove(self::remove::Args),
 }
 
