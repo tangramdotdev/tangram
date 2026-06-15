@@ -1,6 +1,6 @@
 use {
 	super::Store,
-	crate::{Grant, Object, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{Object, TryGetArg, TryGetBatchArg, TryGetOutput},
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
@@ -10,10 +10,7 @@ impl Store {
 	pub fn try_get_sync(&self, arg: &TryGetArg) -> TryGetOutput {
 		let state = self.state();
 		let object = Self::try_get_object(&state, &arg.id);
-		let grants = arg.principal.as_ref().map_or_else(Vec::new, |principal| {
-			Self::try_get_grant(&state, &arg.id, principal)
-		});
-		TryGetOutput { grants, object }
+		TryGetOutput { object }
 	}
 
 	#[must_use]
@@ -22,9 +19,6 @@ impl Store {
 		arg.ids
 			.iter()
 			.map(|id| TryGetOutput {
-				grants: arg.principal.as_ref().map_or_else(Vec::new, |principal| {
-					Self::try_get_grant(&state, id, principal)
-				}),
 				object: Self::try_get_object(&state, id),
 			})
 			.collect()
@@ -46,21 +40,5 @@ impl Store {
 	#[must_use]
 	fn try_get_object(state: &super::State, id: &tg::object::Id) -> Option<Object<'static>> {
 		state.objects.get(id).cloned()
-	}
-
-	fn try_get_grant(
-		state: &super::State,
-		id: &tg::object::Id,
-		principal: &tg::Principal,
-	) -> Vec<Grant> {
-		if matches!(principal, tg::Principal::Root) {
-			return Vec::new();
-		}
-		state
-			.grants
-			.get(&(id.clone(), principal.clone()))
-			.cloned()
-			.into_iter()
-			.collect()
 	}
 }

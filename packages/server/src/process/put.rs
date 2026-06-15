@@ -54,49 +54,27 @@ impl Session {
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.context.principal.clone();
 		let creator = self.context.principal.clone();
 
 		// Insert the process into the process store.
 		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
-				self.put_process_postgres(
-					id,
-					&arg,
-					process_store,
-					now,
-					principal.as_ref(),
-					creator.as_ref(),
-				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
+				self.put_process_postgres(id, &arg, process_store, now, creator.as_ref())
+					.await
+					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
-				self.put_process_sqlite(
-					id,
-					&arg,
-					process_store,
-					now,
-					principal.as_ref(),
-					creator.as_ref(),
-				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
+				self.put_process_sqlite(id, &arg, process_store, now, creator.as_ref())
+					.await
+					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
 			},
 			#[cfg(feature = "turso")]
 			Database::Turso(process_store) => {
-				self.put_process_turso(
-					id,
-					&arg,
-					process_store,
-					now,
-					principal.as_ref(),
-					creator.as_ref(),
-				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
+				self.put_process_turso(id, &arg, process_store, now, creator.as_ref())
+					.await
+					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
 			},
 		}
 

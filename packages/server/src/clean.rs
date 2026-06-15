@@ -289,9 +289,6 @@ impl Server {
 		self.clean_processes(&output.processes, max_process_touched_at)
 			.await?;
 
-		// Delete expired process grants.
-		self.clean_expired_process_grants(now).await?;
-
 		Ok(output)
 	}
 
@@ -314,26 +311,6 @@ impl Server {
 			#[cfg(feature = "turso")]
 			Database::Turso(process_store) => {
 				self.clean_processes_turso(process_store, processes, max_stored_at)
-					.await
-			},
-		}
-	}
-
-	async fn clean_expired_process_grants(&self, now: i64) -> tg::Result<()> {
-		match &self.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => {
-				self.clean_expired_process_grants_postgres(process_store, now)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => {
-				self.clean_expired_process_grants_sqlite(process_store, now)
-					.await
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(process_store) => {
-				self.clean_expired_process_grants_turso(process_store, now)
 					.await
 			},
 		}

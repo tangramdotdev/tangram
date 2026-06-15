@@ -13,15 +13,6 @@ impl Store {
 			stored_at: arg.stored_at,
 		};
 		state.objects.insert(arg.id.clone(), object);
-		if let Some(principal) = &arg.principal {
-			state.put_grant(
-				arg.id.clone(),
-				principal,
-				false,
-				arg.stored_at,
-				self.grant_ttl,
-			);
-		}
 	}
 
 	pub fn put_batch(&self, args: Vec<PutArg>) {
@@ -33,15 +24,6 @@ impl Store {
 				stored_at: arg.stored_at,
 			};
 			state.objects.insert(arg.id.clone(), object);
-			if let Some(principal) = &arg.principal {
-				state.put_grant(
-					arg.id.clone(),
-					principal,
-					false,
-					arg.stored_at,
-					self.grant_ttl,
-				);
-			}
 		}
 	}
 }

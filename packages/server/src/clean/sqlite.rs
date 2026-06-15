@@ -55,17 +55,6 @@ impl Server {
 
 		let statement = indoc!(
 			"
-				delete from process_grants
-				where process = ?1;
-			"
-		);
-		let result = transaction
-			.execute(statement, sqlite::params![process])
-			.map_err(db::sqlite::Error::from);
-		crate::database::retry!(result, "failed to execute the statement");
-
-		let statement = indoc!(
-			"
 				delete from process_tokens
 				where process = ?1;
 			"
@@ -130,36 +119,6 @@ impl Server {
 			.map_err(db::sqlite::Error::from);
 		crate::database::retry!(result, "failed to execute the statement");
 
-		Ok(ControlFlow::Break(()))
-	}
-
-	pub(crate) async fn clean_expired_process_grants_sqlite(
-		&self,
-		process_store: &db::sqlite::Database,
-		now: i64,
-	) -> tg::Result<()> {
-		process_store
-			.run(move |transaction, _cache| {
-				Self::clean_expired_process_grants_sqlite_sync(transaction, now)
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete process grants"))
-	}
-
-	fn clean_expired_process_grants_sqlite_sync(
-		transaction: &sqlite::Transaction<'_>,
-		now: i64,
-	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
-		let statement = indoc!(
-			"
-				delete from process_grants
-				where expires_at <= ?1;
-			"
-		);
-		let result = transaction
-			.execute(statement, sqlite::params![now])
-			.map_err(db::sqlite::Error::from);
-		crate::database::retry!(result, "failed to execute the statement");
 		Ok(ControlFlow::Break(()))
 	}
 }

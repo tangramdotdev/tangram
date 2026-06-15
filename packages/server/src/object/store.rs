@@ -1,10 +1,8 @@
 #[cfg(feature = "lmdb")]
 use std::path::Path;
-use {num::ToPrimitive as _, tangram_client::prelude::*, tangram_object_store as object_store};
+use {tangram_client::prelude::*, tangram_object_store as object_store};
 
-pub use object_store::{
-	CachePointer, DeleteArg, GrantArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput,
-};
+pub use object_store::{CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -21,14 +19,9 @@ pub enum Store {
 
 impl Store {
 	#[cfg(feature = "lmdb")]
-	pub fn new_lmdb(
-		directory: &Path,
-		config: &crate::config::LmdbObjectStore,
-		grant_time_to_live: std::time::Duration,
-	) -> tg::Result<Self> {
+	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbObjectStore) -> tg::Result<Self> {
 		let path = directory.join(&config.path);
 		let config = object_store::lmdb::Config {
-			grant_ttl: grant_time_to_live.as_secs().to_u64().unwrap(),
 			map_size: config.map_size,
 			path: path.clone(),
 		};
@@ -38,25 +31,15 @@ impl Store {
 		Ok(Self::Lmdb(lmdb))
 	}
 
-	pub fn new_memory(
-		_config: &crate::config::MemoryObjectStore,
-		grant_time_to_live: std::time::Duration,
-	) -> Self {
-		let config = object_store::memory::Config {
-			grant_ttl: grant_time_to_live.as_secs().to_u64().unwrap(),
-		};
-		Self::Memory(object_store::memory::Store::new(&config))
+	pub fn new_memory() -> Self {
+		Self::Memory(object_store::memory::Store::new())
 	}
 
 	#[cfg(feature = "scylla")]
-	pub async fn new_scylla(
-		config: &crate::config::ScyllaObjectStore,
-		grant_time_to_live: std::time::Duration,
-	) -> tg::Result<Self> {
+	pub async fn new_scylla(config: &crate::config::ScyllaObjectStore) -> tg::Result<Self> {
 		let config = object_store::scylla::Config {
 			addr: config.addr.clone(),
 			connections: config.connections,
-			grant_ttl: grant_time_to_live.as_secs().to_u64().unwrap(),
 			keyspace: config.keyspace.clone(),
 			password: config.password.clone(),
 			speculative_execution: config.speculative_execution.as_ref().map(|se| match se {
@@ -140,50 +123,6 @@ impl Store {
 			},
 			Self::Memory(memory) => {
 				memory.put_batch(args);
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(_) => {
-				return Err(tg::error!("unimplemented"));
-			},
-		}
-		Ok(())
-	}
-
-	#[cfg_attr(
-		not(any(feature = "lmdb", feature = "scylla")),
-		expect(clippy::unnecessary_wraps)
-	)]
-	#[expect(dead_code)]
-	pub fn grant_sync(&self, arg: GrantArg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => {
-				lmdb.grant_sync(arg)?;
-			},
-			Self::Memory(memory) => {
-				memory.grant(arg);
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(_) => {
-				return Err(tg::error!("unimplemented"));
-			},
-		}
-		Ok(())
-	}
-
-	#[cfg_attr(
-		not(any(feature = "lmdb", feature = "scylla")),
-		expect(clippy::unnecessary_wraps)
-	)]
-	#[expect(dead_code)]
-	pub fn grant_batch_sync(&self, args: Vec<GrantArg>) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => {
-				lmdb.grant_batch_sync(args)?;
-			},
-			Self::Memory(memory) => {
-				memory.grant_batch(args);
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => {
@@ -304,32 +243,6 @@ impl object_store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.put_batch(args).await,
-		}
-	}
-
-	async fn grant(&self, arg: GrantArg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.grant(arg).await,
-			Self::Memory(memory) => {
-				memory.grant(arg);
-				Ok(())
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.grant(arg).await,
-		}
-	}
-
-	async fn grant_batch(&self, args: Vec<GrantArg>) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.grant_batch(args).await,
-			Self::Memory(memory) => {
-				memory.grant_batch(args);
-				Ok(())
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.grant_batch(args).await,
 		}
 	}
 

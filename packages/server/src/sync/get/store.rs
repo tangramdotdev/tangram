@@ -104,7 +104,6 @@ impl Session {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the objects.
-		let principal = self.context.principal.clone();
 		let args = items
 			.iter()
 			.map(|item| {
@@ -112,7 +111,6 @@ impl Session {
 					bytes: Some(item.bytes.clone()),
 					cache_pointer: None,
 					id: item.id.clone(),
-					principal: principal.clone(),
 					stored_at: touched_at,
 				})
 			})
@@ -233,30 +231,23 @@ impl Session {
 
 		// Write the processes to the database.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.context.principal.clone();
 		let batch_refs: Vec<_> = batch.iter().map(|(id, data, _)| (id, data)).collect();
 		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
-				self.put_process_batch_postgres(
-					&batch_refs,
-					database,
-					now,
-					principal.as_ref(),
-					None,
-				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
+				self.put_process_batch_postgres(&batch_refs, database, now, None)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => {
-				self.put_process_batch_sqlite(&batch_refs, database, now, principal.as_ref(), None)
+				self.put_process_batch_sqlite(&batch_refs, database, now, None)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
 			},
 			#[cfg(feature = "turso")]
 			Database::Turso(database) => {
-				self.put_process_batch_turso(&batch_refs, database, now, principal.as_ref(), None)
+				self.put_process_batch_turso(&batch_refs, database, now, None)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
 			},

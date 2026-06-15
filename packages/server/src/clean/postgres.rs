@@ -56,11 +56,6 @@ impl Server {
 					where process in (select id from deleted_processes)
 					returning 1
 				),
-				deleted_process_grants as (
-					delete from process_grants
-					where process in (select id from deleted_processes)
-					returning 1
-				),
 				deleted_process_tokens as (
 					delete from process_tokens
 					where process in (select id from deleted_processes)
@@ -93,42 +88,6 @@ impl Server {
 		let result = transaction
 			.inner()
 			.query(statement, &[&processes, &max_stored_at])
-			.await
-			.map_err(db::postgres::Error::from);
-		crate::database::retry!(result, "failed to execute the statement");
-		Ok(ControlFlow::Break(()))
-	}
-
-	pub(crate) async fn clean_expired_process_grants_postgres(
-		&self,
-		process_store: &db::postgres::Database,
-		now: i64,
-	) -> tg::Result<()> {
-		process_store
-			.run(|transaction| {
-				async move {
-					Self::clean_expired_process_grants_postgres_with_transaction(transaction, now)
-						.await
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete process grants"))
-	}
-
-	async fn clean_expired_process_grants_postgres_with_transaction(
-		transaction: &db::postgres::Transaction<'_>,
-		now: i64,
-	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
-		let statement = indoc!(
-			"
-				delete from process_grants
-				where expires_at <= $1;
-			"
-		);
-		let result = transaction
-			.inner()
-			.execute(statement, &[&now])
 			.await
 			.map_err(db::postgres::Error::from);
 		crate::database::retry!(result, "failed to execute the statement");

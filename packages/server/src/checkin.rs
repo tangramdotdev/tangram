@@ -12,7 +12,6 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_ignore as ignore,
-	tangram_object_store::prelude::*,
 	tracing::Instrument as _,
 };
 
@@ -199,20 +198,6 @@ impl Session {
 				} else {
 					node.id.as_ref().unwrap().clone().try_into().unwrap()
 				};
-
-				// Grant subtree access to the artifact.
-				if let Some(principal) = session.context.principal.clone() {
-					let arg = crate::object::store::GrantArg {
-						created_at: time::OffsetDateTime::now_utc().unix_timestamp(),
-						id: id.clone().into(),
-						principal,
-						subtree: true,
-					};
-					if let Err(error) = session.server.object_store.grant(arg).await {
-						progress.error(error);
-						return;
-					}
-				}
 
 				// Create and send the output.
 				let options = tg::referent::Options::with_path(path);
@@ -410,7 +395,6 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to create blobs"))?;
 
 		// Create artifacts.
-		let principal = self.context.principal.clone();
 		let create_artifacts_arg = artifact::CheckinCreateArtifactsArg {
 			config: &self.server.config.checkin,
 			arg: &arg,
@@ -423,7 +407,6 @@ impl Session {
 			graph_data: &mut graph_data,
 			root,
 			touched_at,
-			principal: principal.as_ref(),
 		};
 		Self::checkin_create_artifacts(create_artifacts_arg)?;
 

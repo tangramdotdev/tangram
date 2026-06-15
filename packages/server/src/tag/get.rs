@@ -1,5 +1,5 @@
 use {
-	crate::{Session, tag::get_tag_data_with_transaction},
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_http::{
@@ -51,7 +51,7 @@ impl Session {
 		if !visible {
 			return Ok(None);
 		}
-		let data = get_tag_data_with_transaction(&transaction, &node).await?;
+		let data = Self::get_tag_data_with_transaction(&transaction, &node).await?;
 		Ok(Some(tg::tag::get::Output { data }))
 	}
 

@@ -1,5 +1,5 @@
 use {
-	crate::{Session, authorization},
+	crate::Session,
 	indoc::{formatdoc, indoc},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -10,8 +10,6 @@ impl Session {
 		&self,
 		process_store: &db::turso::Database,
 		ids: &[tg::process::Id],
-		principal: Option<&tg::Principal>,
-		now: i64,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let mut connection = process_store
 			.connection()
@@ -23,10 +21,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			outputs.push(
-				self.try_get_process_turso(&transaction, id, principal, now)
-					.await?,
-			);
+			outputs.push(self.try_get_process_turso(&transaction, id).await?);
 		}
 		transaction
 			.commit()
@@ -39,8 +34,6 @@ impl Session {
 		&self,
 		connection: &impl db::Query<Error = db::turso::Error>,
 		id: &tg::process::Id,
-		principal: Option<&tg::Principal>,
-		now: i64,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -93,14 +86,10 @@ impl Session {
 				where processes.id = ?1;
 			"
 		);
-		let row_future = async {
-			connection
-				.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))
-		};
-		let grant_future = Self::try_get_process_grants_turso(connection, id, principal, now);
-		let (row, grants) = futures::try_join!(row_future, grant_future)?;
+		let row = connection
+			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let Some(row) = row else {
 			return Ok(None);
 		};
@@ -237,99 +226,13 @@ impl Session {
 			metadata: None,
 		};
 
-		if !self.authorize_process(id, &grants) {
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		if self.authorize(resource, permission).await? != Some(true) {
 			return Ok(None);
 		}
 
 		Ok(Some(output))
-	}
-
-	async fn try_get_process_grants_turso(
-		connection: &impl db::Query<Error = db::turso::Error>,
-		id: &tg::process::Id,
-		principal: Option<&tg::Principal>,
-		now: i64,
-	) -> tg::Result<Vec<authorization::ProcessGrant>> {
-		let Some(principal) = principal else {
-			return Ok(Vec::new());
-		};
-		if matches!(principal, tg::Principal::Root) {
-			return Ok(Vec::new());
-		}
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			created_at: i64,
-			expires_at: i64,
-			node: bool,
-			node_command: bool,
-			node_error: bool,
-			node_log: bool,
-			node_output: bool,
-			principal: String,
-			process: String,
-			subtree: bool,
-			subtree_command: bool,
-			subtree_error: bool,
-			subtree_log: bool,
-			subtree_output: bool,
-		}
-		let statement = indoc!(
-			"
-				select
-					created_at,
-					expires_at,
-					node,
-					node_command,
-					node_error,
-					node_log,
-					node_output,
-					principal,
-					process,
-					subtree,
-					subtree_command,
-					subtree_error,
-					subtree_log,
-					subtree_output
-				from process_grants
-				where process = ?1
-					and principal = ?2
-					and expires_at > ?3;
-			"
-		);
-		let rows = connection
-			.query_all_into::<Row>(
-				statement.into(),
-				db::params![id.to_string(), principal.to_string(), now],
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let grants = rows
-			.into_iter()
-			.map(|row| {
-				Ok(authorization::ProcessGrant {
-					created_at: row.created_at,
-					expires_at: row.expires_at,
-					node: row.node,
-					node_command: row.node_command,
-					node_error: row.node_error,
-					node_log: row.node_log,
-					node_output: row.node_output,
-					principal: row
-						.principal
-						.parse()
-						.map_err(|error| tg::error!(!error, "failed to parse the principal"))?,
-					process: row
-						.process
-						.parse()
-						.map_err(|error| tg::error!(!error, "failed to parse the process"))?,
-					subtree: row.subtree,
-					subtree_command: row.subtree_command,
-					subtree_error: row.subtree_error,
-					subtree_log: row.subtree_log,
-					subtree_output: row.subtree_output,
-				})
-			})
-			.collect::<tg::Result<_>>()?;
-		Ok(grants)
 	}
 }

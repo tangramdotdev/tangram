@@ -8,17 +8,8 @@ impl Store {
 			.objects
 			.get(&arg.id)
 			.is_some_and(|entry| entry.stored_at <= arg.now - arg.ttl.to_i64().unwrap());
-		let removed = remove.then(|| state.objects.remove(&arg.id)).flatten();
-		if removed.is_some() {
-			let keys = state
-				.grants
-				.keys()
-				.filter(|(id, _)| id == &arg.id)
-				.cloned()
-				.collect::<Vec<_>>();
-			for key in keys {
-				state.remove_grant(&key);
-			}
+		if remove {
+			state.objects.remove(&arg.id);
 		}
 	}
 
@@ -29,17 +20,8 @@ impl Store {
 				.objects
 				.get(&arg.id)
 				.is_some_and(|entry| entry.stored_at <= arg.now - arg.ttl.to_i64().unwrap());
-			let removed = remove.then(|| state.objects.remove(&arg.id)).flatten();
-			if removed.is_some() {
-				let keys = state
-					.grants
-					.keys()
-					.filter(|(id, _)| id == &arg.id)
-					.cloned()
-					.collect::<Vec<_>>();
-				for key in keys {
-					state.remove_grant(&key);
-				}
+			if remove {
+				state.objects.remove(&arg.id);
 			}
 		}
 	}

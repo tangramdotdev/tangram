@@ -31,7 +31,6 @@ pub(super) struct CheckinCreateArtifactsArg<'a> {
 	pub graph_data: &'a mut GraphData,
 	pub root: &'a Path,
 	pub touched_at: i64,
-	pub principal: Option<&'a tg::Principal>,
 }
 
 struct CheckinCreateNodeArtifactArg<'a> {
@@ -42,7 +41,6 @@ struct CheckinCreateNodeArtifactArg<'a> {
 	index_object_args: &'a mut IndexObjectArgs,
 	index: usize,
 	touched_at: i64,
-	principal: Option<&'a tg::Principal>,
 }
 
 struct CheckinCreateGraphArg<'a> {
@@ -53,7 +51,6 @@ struct CheckinCreateGraphArg<'a> {
 	graph_data: &'a mut GraphData,
 	scc: &'a [usize],
 	touched_at: i64,
-	principal: Option<&'a tg::Principal>,
 }
 
 struct CheckinCreatePointerArtifactArg<'a> {
@@ -64,7 +61,6 @@ struct CheckinCreatePointerArtifactArg<'a> {
 	local: usize,
 	global: usize,
 	touched_at: i64,
-	principal: Option<&'a tg::Principal>,
 }
 
 struct CheckinUpdateBlobCachePointersArg<'a> {
@@ -93,7 +89,6 @@ impl Session {
 			graph_data,
 			root,
 			touched_at,
-			principal,
 		} = arg;
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
 		let mut sccs = petgraph::algo::tarjan_scc(&Petgraph { graph, next });
@@ -121,7 +116,6 @@ impl Session {
 					index_object_args,
 					index: scc[0],
 					touched_at,
-					principal,
 				};
 				Self::checkin_create_node_artifact(arg)?;
 			} else {
@@ -133,7 +127,6 @@ impl Session {
 					graph_data,
 					scc,
 					touched_at,
-					principal,
 				};
 				Self::checkin_create_graph(arg)?;
 			}
@@ -164,7 +157,6 @@ impl Session {
 				local: pointer.index,
 				global: index,
 				touched_at,
-				principal,
 			};
 			Self::checkin_create_pointer_artifact(arg)?;
 		}
@@ -181,7 +173,6 @@ impl Session {
 			index_object_args,
 			index,
 			touched_at,
-			principal,
 		} = arg;
 		// Get the node.
 		let node = graph.nodes.get(&index).unwrap();
@@ -230,7 +221,6 @@ impl Session {
 					store_args,
 					index_object_args,
 					touched_at,
-					principal,
 				)?;
 				tg::directory::Data::Node(node).into()
 			},
@@ -323,7 +313,6 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
-			principal,
 		)?;
 
 		// Update the node.
@@ -346,7 +335,6 @@ impl Session {
 			graph_data,
 			scc,
 			touched_at,
-			principal,
 		} = arg;
 		// Run WL to compute canonical labels for all nodes in the SCC.
 		let canonical_labels = Self::checkin_graph_canonical_labels(graph, paths, scc)?;
@@ -388,7 +376,6 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
-			principal,
 		)?;
 		graph_data.insert(
 			id.unwrap_graph_ref().clone(),
@@ -616,7 +603,6 @@ impl Session {
 			local,
 			global,
 			touched_at,
-			principal,
 		} = arg;
 		let node = graph.nodes.get(&global).unwrap();
 		let artifact_kind = node.variant.kind();
@@ -653,7 +639,6 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
-			principal,
 		)?;
 
 		// Update the node.
@@ -671,7 +656,6 @@ impl Session {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
-		principal: Option<&tg::Principal>,
 	) -> tg::Result<(tg::object::Id, bool, tg::object::Metadata)> {
 		let kind = data.kind();
 		let bytes = data
@@ -784,7 +768,6 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
-			principal: principal.cloned(),
 			stored_at: touched_at,
 		};
 
@@ -916,7 +899,6 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
-			principal: self.context.principal.clone(),
 			stored_at: touched_at,
 		};
 		self.server
@@ -1165,7 +1147,6 @@ impl Session {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
-		principal: Option<&tg::Principal>,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the entries fit in a single leaf, then return a leaf.
 		if entries.len() <= config.directory.max_leaf_entries {
@@ -1195,7 +1176,6 @@ impl Session {
 				store_args,
 				index_object_args,
 				touched_at,
-				principal,
 			)?;
 
 			children.push(tg::graph::data::DirectoryChild {
@@ -1212,7 +1192,6 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
-			principal,
 		)
 	}
 
@@ -1223,7 +1202,6 @@ impl Session {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
-		principal: Option<&tg::Principal>,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the children fit in a single branch, return a branch.
 		if children.len() <= config.directory.max_branch_children {
@@ -1252,7 +1230,6 @@ impl Session {
 				store_args,
 				index_object_args,
 				touched_at,
-				principal,
 			)?;
 
 			branch_children.push(tg::graph::data::DirectoryChild {
@@ -1269,7 +1246,6 @@ impl Session {
 			store_args,
 			index_object_args,
 			touched_at,
-			principal,
 		)
 	}
 
@@ -1279,7 +1255,6 @@ impl Session {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
-		principal: Option<&tg::Principal>,
 	) -> tg::Result<tg::directory::Id> {
 		// Create the directory data.
 		let data: tg::object::Data = tg::directory::Data::Node(directory.clone()).into();
@@ -1346,7 +1321,6 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
-			principal: principal.cloned(),
 			stored_at: touched_at,
 		};
 

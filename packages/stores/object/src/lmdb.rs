@@ -1,20 +1,18 @@
 use {
-	crate::{DeleteArg, GrantArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
 	foundationdb_tuple as fdbt, heed as lmdb,
-	num::{FromPrimitive as _, ToPrimitive as _},
+	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
 mod delete;
 mod flush;
 mod get;
-mod grant;
 mod put;
 mod task;
 
 #[derive(Clone, Debug)]
 pub struct Config {
-	pub grant_ttl: u64,
 	pub map_size: usize,
 	pub path: std::path::PathBuf,
 }
@@ -22,9 +20,6 @@ pub struct Config {
 pub struct Store {
 	db: Db,
 	env: lmdb::Env,
-	#[expect(dead_code)]
-	grant_clean_task: tangram_futures::task::Task<()>,
-	grant_ttl: u64,
 	sender: RequestSender,
 }
 
@@ -36,11 +31,8 @@ type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
 type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
 
 enum Request {
-	CleanGrants(self::grant::CleanRequest),
 	Delete(self::delete::Request),
 	DeleteBatch(Vec<self::delete::Request>),
-	Grant(self::grant::Request),
-	GrantBatch(Vec<self::grant::Request>),
 	Put(self::put::Request),
 	PutBatch(Vec<self::put::Request>),
 }
@@ -48,16 +40,12 @@ enum Request {
 #[derive(Debug)]
 enum Key<'a> {
 	Object(&'a tg::object::Id),
-	ObjectGrant(&'a tg::object::Id, &'a str),
-	ObjectGrantExpiresAt(i64, &'a tg::object::Id, &'a str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 enum KeyKind {
 	Object = 0,
-	ObjectGrant = 1,
-	ObjectGrantExpiresAt = 2,
 }
 
 impl Store {
@@ -100,15 +88,8 @@ impl Store {
 			let env = env.clone();
 			move || Self::task(&env, &db, receiver)
 		});
-		let grant_clean_task = Self::spawn_grant_clean_task(&sender, config.grant_ttl);
 
-		Ok(Self {
-			db,
-			env,
-			grant_clean_task,
-			grant_ttl: config.grant_ttl,
-			sender,
-		})
+		Ok(Self { db, env, sender })
 	}
 
 	#[must_use]
@@ -139,14 +120,6 @@ impl crate::Store for Store {
 		self.put_batch(args).await
 	}
 
-	async fn grant(&self, arg: GrantArg) -> tg::Result<()> {
-		self.grant(arg).await
-	}
-
-	async fn grant_batch(&self, args: Vec<GrantArg>) -> tg::Result<()> {
-		self.grant_batch(args).await
-	}
-
 	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		self.delete(arg).await
 	}
@@ -170,48 +143,7 @@ impl fdbt::TuplePack for Key<'_> {
 			Key::Object(id) => {
 				(KeyKind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
-			Key::ObjectGrant(id, principal) => (
-				KeyKind::ObjectGrant.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
-				principal,
-			)
-				.pack(w, tuple_depth),
-			Key::ObjectGrantExpiresAt(expires_at, id, principal) => (
-				KeyKind::ObjectGrantExpiresAt.to_i32().unwrap(),
-				expires_at,
-				id.to_bytes().as_ref(),
-				principal,
-			)
-				.pack(w, tuple_depth),
 		}
-	}
-}
-
-impl Key<'_> {
-	fn unpack_object_grant(bytes: &[u8]) -> tg::Result<(tg::object::Id, String)> {
-		let (kind, id, principal): (i32, Vec<u8>, String) = fdbt::Subspace::all()
-			.unpack(bytes)
-			.map_err(|error| tg::error!(!error, "failed to unpack the object grant key"))?;
-		let kind = KeyKind::from_i32(kind).ok_or_else(|| tg::error!("invalid key kind"))?;
-		if kind != KeyKind::ObjectGrant {
-			return Err(tg::error!("unexpected object grant key"));
-		}
-		let id = tg::object::Id::from_slice(&id)
-			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
-		Ok((id, principal))
-	}
-
-	fn unpack_object_grant_expires_at(bytes: &[u8]) -> tg::Result<(i64, tg::object::Id, String)> {
-		let (kind, expires_at, id, principal): (i32, i64, Vec<u8>, String) = fdbt::Subspace::all()
-			.unpack(bytes)
-			.map_err(|error| tg::error!(!error, "failed to unpack the object grant index key"))?;
-		let kind = KeyKind::from_i32(kind).ok_or_else(|| tg::error!("invalid key kind"))?;
-		if kind != KeyKind::ObjectGrantExpiresAt {
-			return Err(tg::error!("unexpected object grant index key"));
-		}
-		let id = tg::object::Id::from_slice(&id)
-			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
-		Ok((expires_at, id, principal))
 	}
 }
 
@@ -225,7 +157,6 @@ mod tests {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
-			grant_ttl: 86_400,
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 		};
@@ -245,18 +176,13 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				principal: None,
 				stored_at: 12345,
 			})
 			.await
 			.unwrap();
 
 		// Get the object.
-		let arg = crate::TryGetArg {
-			id: id.clone(),
-			now: 12345,
-			principal: Some(tg::Principal::Root),
-		};
+		let arg = crate::TryGetArg { id: id.clone() };
 		let result = store.try_get(arg).await.unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
@@ -270,7 +196,6 @@ mod tests {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
-			grant_ttl: 86_400,
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 		};
@@ -290,18 +215,13 @@ mod tests {
 				bytes: None,
 				cache_pointer: None,
 				id: id.clone(),
-				principal: None,
 				stored_at: 12345,
 			})
 			.await
 			.unwrap();
 
 		// Verify object bytes do not exist (object may exist with bytes=None).
-		let arg = crate::TryGetArg {
-			id: id.clone(),
-			now: 12345,
-			principal: Some(tg::Principal::Root),
-		};
+		let arg = crate::TryGetArg { id: id.clone() };
 		let result = store.try_get(arg).await.unwrap().object;
 		assert!(
 			result.is_none()
@@ -317,18 +237,13 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				principal: None,
 				stored_at: 12346,
 			})
 			.await
 			.unwrap();
 
 		// Verify object now exists.
-		let arg = crate::TryGetArg {
-			id: id.clone(),
-			now: 12346,
-			principal: Some(tg::Principal::Root),
-		};
+		let arg = crate::TryGetArg { id: id.clone() };
 		let result = store.try_get(arg).await.unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
@@ -343,7 +258,6 @@ mod tests {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
-			grant_ttl: 86_400,
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 		};
@@ -363,17 +277,12 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				principal: None,
 				stored_at: 12345,
 			})
 			.unwrap();
 
 		// Get the object using sync function.
-		let arg = crate::TryGetArg {
-			id: id.clone(),
-			now: 12345,
-			principal: Some(tg::Principal::Root),
-		};
+		let arg = crate::TryGetArg { id: id.clone() };
 		let result = store.try_get_sync(&arg).unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
@@ -387,7 +296,6 @@ mod tests {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
-			grant_ttl: 86_400,
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 		};
@@ -405,17 +313,12 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				principal: None,
 				stored_at: 12345,
 			}])
 			.await
 			.unwrap();
 
-		let arg = crate::TryGetArg {
-			id: id.clone(),
-			now: 12345,
-			principal: Some(tg::Principal::Root),
-		};
+		let arg = crate::TryGetArg { id: id.clone() };
 		let result = store.try_get(arg).await.unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
@@ -423,115 +326,12 @@ mod tests {
 		);
 	}
 
-	// A get by the same principal that was granted access returns the grant and the object bytes.
+	// Deleting an object removes the object.
 	#[tokio::test]
-	async fn test_object_grant_authorizes_matching_principal() {
+	async fn test_delete_removes_object() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
-			grant_ttl: 86_400,
-			map_size: 1024 * 1024 * 10,
-			path: temp.path().join("test.lmdb"),
-		};
-		let store = Store::new(&config).unwrap();
-
-		let content = b"hello world";
-		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
-			bytes: Bytes::from_static(content),
-		}));
-		let bytes = data.serialize().unwrap();
-		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::User(tg::user::Id::new());
-
-		store
-			.put(crate::PutArg {
-				bytes: Some(bytes.clone()),
-				cache_pointer: None,
-				id: id.clone(),
-				principal: Some(principal.clone()),
-				stored_at: 12345,
-			})
-			.await
-			.unwrap();
-
-		let arg = crate::TryGetArg {
-			id: id.clone(),
-			now: 12346,
-			principal: Some(principal),
-		};
-		let output = store.try_get(arg).await.unwrap();
-		assert!(!output.grants.is_empty());
-		assert_eq!(
-			output.object.and_then(|object| object.bytes),
-			Some(Cow::Owned(bytes.to_vec()))
-		);
-	}
-
-	// A non-subtree grant can be upgraded to a subtree grant by a subsequent grant call.
-	#[tokio::test]
-	async fn test_object_grant_can_be_upgraded_to_subtree() {
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		std::fs::create_dir(temp.path()).unwrap();
-		let config = Config {
-			grant_ttl: 86_400,
-			map_size: 1024 * 1024 * 10,
-			path: temp.path().join("test.lmdb"),
-		};
-		let store = Store::new(&config).unwrap();
-
-		let content = b"hello world";
-		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
-			bytes: Bytes::from_static(content),
-		}));
-		let bytes = data.serialize().unwrap();
-		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::User(tg::user::Id::new());
-
-		store
-			.put(crate::PutArg {
-				bytes: Some(bytes),
-				cache_pointer: None,
-				id: id.clone(),
-				principal: Some(principal.clone()),
-				stored_at: 12345,
-			})
-			.await
-			.unwrap();
-
-		let arg = crate::TryGetArg {
-			id: id.clone(),
-			now: 12346,
-			principal: Some(principal.clone()),
-		};
-		let output = store.try_get(arg).await.unwrap();
-		assert!(output.grants.iter().all(|grant| !grant.subtree));
-
-		store
-			.grant(crate::GrantArg {
-				created_at: 12347,
-				id: id.clone(),
-				principal: principal.clone(),
-				subtree: true,
-			})
-			.await
-			.unwrap();
-
-		let arg = crate::TryGetArg {
-			id,
-			now: 12348,
-			principal: Some(principal),
-		};
-		let output = store.try_get(arg).await.unwrap();
-		assert!(output.grants.iter().any(|grant| grant.subtree));
-	}
-
-	// A get by a principal different from the one granted access returns the object but no grants.
-	#[tokio::test]
-	async fn test_object_grant_does_not_authorize_different_principal() {
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		std::fs::create_dir(temp.path()).unwrap();
-		let config = Config {
-			grant_ttl: 86_400,
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 		};
@@ -549,125 +349,19 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				principal: Some(tg::Principal::Root),
-				stored_at: 12345,
-			})
-			.await
-			.unwrap();
-
-		let arg = crate::TryGetArg {
-			id,
-			now: 12346,
-			principal: Some(tg::Principal::User(tg::user::Id::new())),
-		};
-		let output = store.try_get(arg).await.unwrap();
-		assert!(output.grants.is_empty());
-		assert!(output.object.is_some());
-	}
-
-	// A grant is returned until the cleaner removes it by expiration, while the object remains.
-	#[tokio::test]
-	async fn test_object_grant_cleaner_removes_expired_grant() {
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		std::fs::create_dir(temp.path()).unwrap();
-		let config = Config {
-			grant_ttl: 1,
-			map_size: 1024 * 1024 * 10,
-			path: temp.path().join("test.lmdb"),
-		};
-		let store = Store::new(&config).unwrap();
-
-		let content = b"hello world";
-		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
-			bytes: Bytes::from_static(content),
-		}));
-		let bytes = data.serialize().unwrap();
-		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::User(tg::user::Id::new());
-
-		store
-			.put(crate::PutArg {
-				bytes: Some(bytes),
-				cache_pointer: None,
-				id: id.clone(),
-				principal: Some(principal.clone()),
-				stored_at: 12345,
-			})
-			.await
-			.unwrap();
-
-		let arg = crate::TryGetArg {
-			id: id.clone(),
-			now: 12346,
-			principal: Some(principal.clone()),
-		};
-		let output = store.try_get(arg).await.unwrap();
-		assert!(!output.grants.is_empty());
-		assert!(output.object.is_some());
-
-		let mut transaction = store.env.write_txn().unwrap();
-		Store::task_clean_grants(
-			&store.db,
-			&mut transaction,
-			self::grant::CleanRequest { now: 12346 },
-		)
-		.unwrap();
-		transaction.commit().unwrap();
-
-		let arg = crate::TryGetArg {
-			id,
-			now: 12346,
-			principal: Some(principal),
-		};
-		let output = store.try_get(arg).await.unwrap();
-		assert!(output.grants.is_empty());
-		assert!(output.object.is_some());
-	}
-
-	// Deleting an object removes both the object and its grants.
-	#[tokio::test]
-	async fn test_delete_removes_object_grants() {
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		std::fs::create_dir(temp.path()).unwrap();
-		let config = Config {
-			grant_ttl: 86_400,
-			map_size: 1024 * 1024 * 10,
-			path: temp.path().join("test.lmdb"),
-		};
-		let store = Store::new(&config).unwrap();
-
-		let content = b"hello world";
-		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
-			bytes: Bytes::from_static(content),
-		}));
-		let bytes = data.serialize().unwrap();
-		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
-		let principal = tg::Principal::User(tg::user::Id::new());
-
-		store
-			.put(crate::PutArg {
-				bytes: Some(bytes.clone()),
-				cache_pointer: None,
-				id: id.clone(),
-				principal: Some(principal.clone()),
 				stored_at: 10,
 			})
 			.await
 			.unwrap();
 
 		let output = store
-			.try_get(crate::TryGetArg {
-				id: id.clone(),
-				now: 11,
-				principal: Some(principal.clone()),
-			})
+			.try_get(crate::TryGetArg { id: id.clone() })
 			.await
 			.unwrap();
 		assert_eq!(
 			output.object.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
 		);
-		assert!(!output.grants.is_empty());
 
 		store
 			.delete(crate::DeleteArg {
@@ -678,15 +372,7 @@ mod tests {
 			.await
 			.unwrap();
 
-		let output = store
-			.try_get(crate::TryGetArg {
-				id,
-				now: 17,
-				principal: Some(principal),
-			})
-			.await
-			.unwrap();
+		let output = store.try_get(crate::TryGetArg { id }).await.unwrap();
 		assert!(output.object.is_none());
-		assert!(output.grants.is_empty());
 	}
 }

@@ -239,11 +239,8 @@ impl Session {
 impl Reader {
 	pub async fn new(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let principal = session.context.principal.clone();
 		let arg = crate::object::store::TryGetArg {
 			id: id.clone().into(),
-			now: time::OffsetDateTime::now_utc().unix_timestamp(),
-			principal: principal.clone(),
 		};
 		let object = session
 			.server
@@ -278,11 +275,8 @@ impl Reader {
 
 	pub fn new_sync(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let principal = session.context.principal.clone();
 		let arg = crate::object::store::TryGetArg {
 			id: id.clone().into(),
-			now: time::OffsetDateTime::now_utc().unix_timestamp(),
-			principal: principal.clone(),
 		};
 		let object = session
 			.server

@@ -150,7 +150,7 @@ impl Index {
 						)?;
 						for parent in parents {
 							let needed =
-								tg::grant::Permission::Process(process_permission.subtree());
+								tg::grant::Permission::Process(process_permission.to_subtree());
 							resource_queue.push_back((parent.into(), needed));
 						}
 						Self::expand_item_tags_with_transaction(

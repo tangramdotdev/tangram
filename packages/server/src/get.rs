@@ -1,5 +1,5 @@
 use {
-	crate::{Session, tag::get_tag_data_with_transaction},
+	crate::Session,
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,
@@ -220,7 +220,7 @@ impl Session {
 					return Ok(stream.boxed());
 				}
 				if node.kind == tg::id::Kind::Tag {
-					let data = get_tag_data_with_transaction(&transaction, &node).await?;
+					let data = Self::get_tag_data_with_transaction(&transaction, &node).await?;
 					let id = tag_data_item_to_id(data.item);
 					let output = tg::get::Output {
 						referent: tg::Referent::new(

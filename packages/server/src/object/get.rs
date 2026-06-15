@@ -108,20 +108,17 @@ impl Session {
 	}
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.context.principal.clone();
-		let arg = crate::object::store::TryGetArg {
-			id: id.clone(),
-			now,
-			principal: principal.clone(),
-		};
+		let arg = crate::object::store::TryGetArg { id: id.clone() };
 		let output = self
 			.server
 			.object_store
 			.try_get(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		if !self.authorize_object(id, &output.grants) {
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		if self.authorize(resource, permission).await? != Some(true) {
 			return Ok(None);
 		}
 		let object = output.object;
@@ -142,17 +139,8 @@ impl Session {
 		id: &tg::object::Id,
 		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.context.principal.clone();
-		let arg = crate::object::store::TryGetArg {
-			id: id.clone(),
-			now,
-			principal: principal.clone(),
-		};
+		let arg = crate::object::store::TryGetArg { id: id.clone() };
 		let output = self.server.object_store.try_get_sync(&arg)?;
-		if !self.authorize_object(id, &output.grants) {
-			return Ok(None);
-		}
 		let object = output.object;
 		let Some(object) = object else {
 			return Ok(None);
@@ -251,12 +239,8 @@ impl Session {
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Bytes>>> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let principal = self.context.principal.clone();
 		let arg = crate::object::store::TryGetBatchArg {
 			ids: ids.to_owned(),
-			now,
-			principal: principal.clone(),
 		};
 		let output = self
 			.server
@@ -268,7 +252,10 @@ impl Session {
 			.iter()
 			.zip(output)
 			.map(|(id, output)| async move {
-				if !self.authorize_object(id, &output.grants) {
+				let resource = tg::grant::Resource::Id(id.clone().into());
+				let permission =
+					tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+				if self.authorize(resource, permission).await? != Some(true) {
 					return Ok(None);
 				}
 				let object = output.object;

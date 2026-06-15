@@ -610,14 +610,12 @@ impl Server {
 				}
 				#[cfg(feature = "lmdb")]
 				{
-					self::object::Store::new_lmdb(&path, lmdb, config.object.grant_time_to_live)
+					self::object::Store::new_lmdb(&path, lmdb)
 						.map_err(|error| tg::error!(!error, "failed to create the object store"))?
 				}
 			},
 
-			config::ObjectStore::Memory(memory) => {
-				self::object::Store::new_memory(memory, config.object.grant_time_to_live)
-			},
+			config::ObjectStore::Memory(_) => self::object::Store::new_memory(),
 
 			config::ObjectStore::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]
@@ -629,7 +627,7 @@ impl Server {
 				}
 				#[cfg(feature = "scylla")]
 				{
-					self::object::Store::new_scylla(scylla, config.object.grant_time_to_live)
+					self::object::Store::new_scylla(scylla)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to create the object store"))?
 				}

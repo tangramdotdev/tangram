@@ -4,7 +4,6 @@ use {
 	bytes::Bytes,
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
-	num::ToPrimitive as _,
 	std::borrow::Cow,
 	tangram_client::prelude::*,
 };
@@ -12,9 +11,7 @@ use {
 pub(super) struct Request {
 	pub bytes: Option<Bytes>,
 	pub cache_pointer: Option<CachePointer>,
-	pub grant_expires_at: Option<i64>,
 	pub id: tg::object::Id,
-	pub principal: Option<tg::Principal>,
 	pub stored_at: i64,
 }
 
@@ -25,12 +22,7 @@ impl Store {
 		let request = super::Request::Put(Request {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
-			grant_expires_at: arg
-				.principal
-				.as_ref()
-				.map(|_| arg.stored_at + self.grant_ttl.to_i64().unwrap()),
 			id: arg.id,
-			principal: arg.principal,
 			stored_at: arg.stored_at,
 		});
 		self.sender
@@ -52,12 +44,7 @@ impl Store {
 				.map(|arg| Request {
 					bytes: arg.bytes,
 					cache_pointer: arg.cache_pointer,
-					grant_expires_at: arg
-						.principal
-						.as_ref()
-						.map(|_| arg.stored_at + self.grant_ttl.to_i64().unwrap()),
 					id: arg.id,
-					principal: arg.principal,
 					stored_at: arg.stored_at,
 				})
 				.collect(),
@@ -79,15 +66,10 @@ impl Store {
 		let request = Request {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
-			grant_expires_at: arg
-				.principal
-				.as_ref()
-				.map(|_| arg.stored_at + self.grant_ttl.to_i64().unwrap()),
 			id: arg.id,
-			principal: arg.principal,
 			stored_at: arg.stored_at,
 		};
-		Self::task_put_object(&self.env, &self.db, &mut transaction, request)?;
+		Self::task_put_object(&self.db, &mut transaction, request)?;
 		transaction
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
@@ -106,15 +88,10 @@ impl Store {
 			let request = Request {
 				bytes: arg.bytes,
 				cache_pointer: arg.cache_pointer,
-				grant_expires_at: arg
-					.principal
-					.as_ref()
-					.map(|_| arg.stored_at + self.grant_ttl.to_i64().unwrap()),
 				id: arg.id,
-				principal: arg.principal,
 				stored_at: arg.stored_at,
 			};
-			Self::task_put_object(&self.env, &self.db, &mut transaction, request)?;
+			Self::task_put_object(&self.db, &mut transaction, request)?;
 		}
 		transaction
 			.commit()
@@ -123,7 +100,6 @@ impl Store {
 	}
 
 	pub(super) fn task_put_object(
-		_env: &lmdb::Env,
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		request: Request,
@@ -154,18 +130,6 @@ impl Store {
 		let value_bytes = value.serialize().unwrap();
 		db.put(transaction, &key_bytes, &value_bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
-
-		if let (Some(principal), Some(expires_at)) = (request.principal, request.grant_expires_at) {
-			Self::task_put_object_grant(
-				db,
-				transaction,
-				id,
-				&principal,
-				false,
-				request.stored_at,
-				expires_at,
-			)?;
-		}
 
 		Ok(())
 	}

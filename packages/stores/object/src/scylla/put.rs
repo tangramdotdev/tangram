@@ -19,9 +19,6 @@ impl Store {
 			.execute_unpaged(&self.statements.put_object, params)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?;
-		if let Some(principal) = arg.principal {
-			self.put_grant(id, principal, false, stored_at).await?;
-		}
 		Ok(())
 	}
 
@@ -60,12 +57,6 @@ impl Store {
 			.batch(&batch, params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the batch"))?;
-		futures::future::try_join_all(args.iter().filter_map(|arg| {
-			arg.principal
-				.clone()
-				.map(|principal| self.put_grant(&arg.id, principal, false, arg.stored_at))
-		}))
-		.await?;
 		Ok(())
 	}
 }

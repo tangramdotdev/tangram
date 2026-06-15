@@ -37,8 +37,7 @@ impl Session {
 		let guest_url = arg.guest_url.clone();
 		let stopper = arg.process_stopper.clone();
 		arg.process_tasks.spawn(async move {
-			session
-				.process_task(&process, process_token, sandbox, guest_url, stopper)
+			Box::pin(session.process_task(&process, process_token, sandbox, guest_url, stopper))
 				.await
 		});
 	}

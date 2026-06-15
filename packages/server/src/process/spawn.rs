@@ -735,19 +735,6 @@ impl Session {
 			None
 		};
 
-		if let (Some(output), Some(principal)) = (&output, self.context.principal.clone()) {
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let result = self
-				.server
-				.grant_process_with_transaction(transaction, &output.id, &principal, now)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to grant the process"))?;
-			match result {
-				ControlFlow::Break(()) => {},
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			}
-		}
-
 		Ok(ControlFlow::Break(output))
 	}
 

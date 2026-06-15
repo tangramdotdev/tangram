@@ -64,17 +64,6 @@ impl Server {
 
 		let statement = indoc!(
 			"
-				delete from process_grants
-				where process = ?1;
-			"
-		);
-		let result = transaction
-			.execute(statement.into(), db::params![process.to_owned()])
-			.await;
-		crate::database::retry!(result, "failed to execute the statement");
-
-		let statement = indoc!(
-			"
 				delete from process_tokens
 				where process = ?1;
 			"
@@ -139,40 +128,6 @@ impl Server {
 			.await;
 		crate::database::retry!(result, "failed to execute the statement");
 
-		Ok(ControlFlow::Break(()))
-	}
-
-	pub(crate) async fn clean_expired_process_grants_turso(
-		&self,
-		process_store: &db::turso::Database,
-		now: i64,
-	) -> tg::Result<()> {
-		process_store
-			.run(|transaction| {
-				async move {
-					Self::clean_expired_process_grants_turso_with_transaction(transaction, now)
-						.await
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete process grants"))
-	}
-
-	async fn clean_expired_process_grants_turso_with_transaction(
-		transaction: &db::turso::Transaction<'_>,
-		now: i64,
-	) -> tg::Result<ControlFlow<(), db::turso::Error>> {
-		let statement = indoc!(
-			"
-				delete from process_grants
-				where expires_at <= ?1;
-			"
-		);
-		let result = transaction
-			.execute(statement.into(), db::params![now])
-			.await;
-		crate::database::retry!(result, "failed to execute the statement");
 		Ok(ControlFlow::Break(()))
 	}
 }

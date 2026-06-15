@@ -74,15 +74,9 @@ impl Session {
 		ids: &[tg::process::Id],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let sandbox = match &self.context.principal {
 			Some(tg::Principal::Sandbox(sandbox)) => Some(sandbox.clone()),
 			_ => None,
-		};
-		let principal = if sandbox.is_some() {
-			Some(tg::Principal::Root)
-		} else {
-			self.context.principal.clone()
 		};
 
 		// Get the process from the process store.
@@ -90,19 +84,13 @@ impl Session {
 			match &self.server.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => {
-					self.try_get_process_batch_postgres(process_store, ids, principal.as_ref(), now)
+					self.try_get_process_batch_postgres(process_store, ids)
 						.await
 				},
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(process_store) => {
-					self.try_get_process_batch_sqlite(process_store, ids, principal.as_ref(), now)
-						.await
-				},
+				Database::Sqlite(process_store) => self.try_get_process_batch_sqlite(process_store, ids).await,
 				#[cfg(feature = "turso")]
-				Database::Turso(process_store) => {
-					self.try_get_process_batch_turso(process_store, ids, principal.as_ref(), now)
-						.await
-				},
+				Database::Turso(process_store) => self.try_get_process_batch_turso(process_store, ids).await,
 			}
 		};
 

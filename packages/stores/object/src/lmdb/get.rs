@@ -1,6 +1,6 @@
 use {
 	super::{Db, Key, Store},
-	crate::{Grant, Object, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{Object, TryGetArg, TryGetBatchArg, TryGetOutput},
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
 	num::ToPrimitive as _,
@@ -17,13 +17,7 @@ impl Store {
 					.read_txn()
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				let object = Self::try_get_object_with_transaction(&db, &transaction, &arg.id)?;
-				let grants = Self::try_get_grant_with_transaction(
-					&db,
-					&transaction,
-					&arg.id,
-					arg.principal.as_ref(),
-				)?;
-				Ok(TryGetOutput { grants, object })
+				Ok(TryGetOutput { object })
 			}
 		})
 		.await
@@ -44,13 +38,7 @@ impl Store {
 				let mut outputs = Vec::with_capacity(arg.ids.len());
 				for id in &arg.ids {
 					let object = Self::try_get_object_with_transaction(&db, &transaction, id)?;
-					let grants = Self::try_get_grant_with_transaction(
-						&db,
-						&transaction,
-						id,
-						arg.principal.as_ref(),
-					)?;
-					outputs.push(TryGetOutput { grants, object });
+					outputs.push(TryGetOutput { object });
 				}
 				Ok(outputs)
 			}
@@ -75,13 +63,7 @@ impl Store {
 		let mut outputs = Vec::with_capacity(arg.ids.len());
 		for id in &arg.ids {
 			let object = Self::try_get_object_with_transaction(&self.db, &transaction, id)?;
-			let grants = Self::try_get_grant_with_transaction(
-				&self.db,
-				&transaction,
-				id,
-				arg.principal.as_ref(),
-			)?;
-			outputs.push(TryGetOutput { grants, object });
+			outputs.push(TryGetOutput { object });
 		}
 		Ok(outputs)
 	}
@@ -103,13 +85,7 @@ impl Store {
 		arg: &TryGetArg,
 	) -> tg::Result<TryGetOutput> {
 		let object = Self::try_get_object_with_transaction(&self.db, transaction, &arg.id)?;
-		let grants = Self::try_get_grant_with_transaction(
-			&self.db,
-			transaction,
-			&arg.id,
-			arg.principal.as_ref(),
-		)?;
-		Ok(TryGetOutput { grants, object })
+		Ok(TryGetOutput { object })
 	}
 
 	fn try_get_object_with_transaction(
@@ -128,31 +104,6 @@ impl Store {
 		let value = Object::deserialize(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 		Ok(Some(value))
-	}
-
-	fn try_get_grant_with_transaction(
-		db: &Db,
-		transaction: &lmdb::RoTxn<'_>,
-		id: &tg::object::Id,
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<Vec<Grant>> {
-		let Some(principal) = principal else {
-			return Ok(Vec::new());
-		};
-		if matches!(principal, tg::Principal::Root) {
-			return Ok(Vec::new());
-		}
-		let principal = principal.to_string();
-		let key = Key::ObjectGrant(id, &principal);
-		let Some(bytes) = db
-			.get(transaction, &key.pack_to_vec())
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object grant"))?
-		else {
-			return Ok(Vec::new());
-		};
-		let grant = Grant::deserialize(bytes)
-			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object grant"))?;
-		Ok(vec![grant])
 	}
 
 	pub fn try_get_data_with_transaction(

@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Transaction, tag::tag_item_to_string},
+	crate::{Session, database::Transaction},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -93,7 +93,7 @@ impl Session {
 			.await?;
 		let existing =
 			Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier).await?;
-		let item = tag_item_to_string(&arg.item);
+		let item = Self::tag_item_to_string(&arg.item);
 		let permissions_json = serde_json::to_string(&permissions)
 			.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
 		let (node, permissions) = if let Some(node) = existing {

@@ -52,7 +52,7 @@ impl Permission {
 	pub fn subtree(self) -> Self {
 		match self {
 			Self::Object(permission) => Self::Object(permission.subtree()),
-			Self::Process(permission) => Self::Process(permission.subtree()),
+			Self::Process(permission) => Self::Process(permission.to_subtree()),
 			permission => permission,
 		}
 	}

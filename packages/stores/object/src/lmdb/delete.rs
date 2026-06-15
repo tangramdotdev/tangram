@@ -1,5 +1,5 @@
 use {
-	super::{Db, Key, KeyKind, Store},
+	super::{Db, Key, Store},
 	crate::{DeleteArg, Object},
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
@@ -64,7 +64,7 @@ impl Store {
 			now: arg.now,
 			ttl: arg.ttl,
 		};
-		Self::task_delete_object(&self.env, &self.db, &mut transaction, request)?;
+		Self::task_delete_object(&self.db, &mut transaction, request)?;
 		transaction
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
@@ -85,7 +85,7 @@ impl Store {
 				now: arg.now,
 				ttl: arg.ttl,
 			};
-			Self::task_delete_object(&self.env, &self.db, &mut transaction, request)?;
+			Self::task_delete_object(&self.db, &mut transaction, request)?;
 		}
 		transaction
 			.commit()
@@ -95,7 +95,6 @@ impl Store {
 
 	#[expect(clippy::needless_pass_by_value)]
 	pub(super) fn task_delete_object(
-		_env: &lmdb::Env,
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		request: Request,
@@ -116,43 +115,8 @@ impl Store {
 		if request.now - value.stored_at >= request.ttl.to_i64().unwrap() {
 			db.delete(transaction, &key_bytes)
 				.map_err(|error| tg::error!(!error, %id, "failed to delete the object"))?;
-			Self::task_delete_object_grants(db, transaction, id)?;
 		}
 
-		Ok(())
-	}
-
-	fn task_delete_object_grants(
-		db: &Db,
-		transaction: &mut lmdb::RwTxn<'_>,
-		id: &tg::object::Id,
-	) -> tg::Result<()> {
-		let prefix = (
-			KeyKind::ObjectGrant.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
-		let iter = db
-			.prefix_iter(&*transaction, &prefix)
-			.map_err(|error| tg::error!(!error, %id, "failed to iterate the object grants"))?;
-		let mut grants = Vec::new();
-		for entry in iter {
-			let (key, value) = entry
-				.map_err(|error| tg::error!(!error, %id, "failed to read the object grant"))?;
-			let (_, principal) = Key::unpack_object_grant(key)?;
-			let grant = crate::Grant::deserialize(value).map_err(
-				|error| tg::error!(!error, %id, "failed to deserialize the object grant"),
-			)?;
-			grants.push((key.to_vec(), principal, grant.expires_at));
-		}
-		for (key, principal, expires_at) in grants {
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, %id, "failed to delete the object grant"))?;
-			let index_key = Key::ObjectGrantExpiresAt(expires_at, id, &principal);
-			db.delete(transaction, &index_key.pack_to_vec()).map_err(
-				|error| tg::error!(!error, %id, "failed to delete the object grant index"),
-			)?;
-		}
 		Ok(())
 	}
 }

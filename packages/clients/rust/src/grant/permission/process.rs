@@ -28,9 +28,8 @@ pub enum Permission {
 }
 
 impl Permission {
-	/// Raise the permission to the subtree variant of its aspect.
 	#[must_use]
-	pub fn subtree(self) -> Self {
+	pub fn to_subtree(self) -> Self {
 		match self {
 			Self::Node | Self::Subtree => Self::Subtree,
 			Self::NodeCommand | Self::SubtreeCommand => Self::SubtreeCommand,
@@ -42,6 +41,6 @@ impl Permission {
 
 	#[must_use]
 	pub fn implies(self, needed: Self) -> bool {
-		self == needed || self == needed.subtree()
+		self == needed || self == needed.to_subtree()
 	}
 }

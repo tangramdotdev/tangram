@@ -1,5 +1,5 @@
 use {
-	crate::{Session, tag::get_tag_data_with_transaction},
+	crate::Session,
 	futures::FutureExt as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -129,7 +129,7 @@ impl Session {
 				return Ok(Vec::new());
 			}
 			return Ok(vec![
-				get_tag_data_with_transaction(transaction, &node).await?,
+				Self::get_tag_data_with_transaction(transaction, &node).await?,
 			]);
 		}
 		let output = self
@@ -152,7 +152,7 @@ impl Session {
 			else {
 				continue;
 			};
-			tags.push(get_tag_data_with_transaction(transaction, &node).await?);
+			tags.push(Self::get_tag_data_with_transaction(transaction, &node).await?);
 		}
 		tags.sort_by(|a, b| {
 			let a_depth = a.specifier.components().count();

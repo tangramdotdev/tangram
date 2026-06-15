@@ -1,5 +1,5 @@
 use {
-	crate::{Session, tag::parse_tag_item},
+	crate::Session,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
@@ -242,7 +242,7 @@ impl Session {
 			if !matches_pattern(&row.specifier, arg) {
 				continue;
 			}
-			let item = parse_tag_item(&row.item)?;
+			let item = Self::parse_tag_item(&row.item)?;
 			let item = match item {
 				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
 				tg::tag::data::Item::Process(id) => tg::Either::Right(id),

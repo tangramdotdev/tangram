@@ -1356,11 +1356,7 @@ impl Provider {
 
 	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
-		let arg = crate::object::store::TryGetArg {
-			id: id.clone(),
-			now: time::OffsetDateTime::now_utc().unix_timestamp(),
-			principal: Some(tg::Principal::Root),
-		};
+		let arg = crate::object::store::TryGetArg { id: id.clone() };
 		let object = self
 			.server
 			.object_store
@@ -1819,11 +1815,7 @@ impl Provider {
 		if let (crate::object::Store::Lmdb(store), Some(transaction)) =
 			(&self.server.object_store, transaction)
 		{
-			let arg = crate::object::store::TryGetArg {
-				id: id.clone(),
-				now: time::OffsetDateTime::now_utc().unix_timestamp(),
-				principal: Some(tg::Principal::Root),
-			};
+			let arg = crate::object::store::TryGetArg { id: id.clone() };
 			return store
 				.try_get_with_transaction(transaction, &arg)
 				.map(|output| output.object)
@@ -1833,11 +1825,7 @@ impl Provider {
 		#[cfg(not(feature = "lmdb"))]
 		let _ = transaction;
 
-		let arg = crate::object::store::TryGetArg {
-			id: id.clone(),
-			now: time::OffsetDateTime::now_utc().unix_timestamp(),
-			principal: Some(tg::Principal::Root),
-		};
+		let arg = crate::object::store::TryGetArg { id: id.clone() };
 		self.server
 			.object_store
 			.try_get_sync(&arg)

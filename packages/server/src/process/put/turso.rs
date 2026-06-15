@@ -15,17 +15,10 @@ impl Session {
 		arg: &tg::process::put::Arg,
 		process_store: &db::turso::Database,
 		stored_at: i64,
-		principal: Option<&tg::Principal>,
 		creator: Option<&tg::Principal>,
 	) -> tg::Result<()> {
-		self.put_process_batch_turso(
-			&[(id, &arg.data)],
-			process_store,
-			stored_at,
-			principal,
-			creator,
-		)
-		.await
+		self.put_process_batch_turso(&[(id, &arg.data)], process_store, stored_at, creator)
+			.await
 	}
 
 	pub(crate) async fn put_process_batch_turso(
@@ -33,7 +26,6 @@ impl Session {
 		items: &[(&tg::process::Id, &tg::process::Data)],
 		process_store: &db::turso::Database,
 		stored_at: i64,
-		principal: Option<&tg::Principal>,
 		creator: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		if items.is_empty() {
@@ -44,22 +36,17 @@ impl Session {
 			.iter()
 			.map(|(id, data)| ((*id).clone(), (*data).clone()))
 			.collect();
-		let principal = principal.cloned();
 		let creator = creator.cloned();
-		let grant_ttl = self.server.config.process.grant_time_to_live;
 
 		process_store
 			.run(|transaction| {
 				let items = items.clone();
-				let principal = principal.clone();
 				let creator = creator.clone();
 				async move {
 					Self::put_process_batch_turso_with_transaction(
 						transaction,
 						&items,
 						stored_at,
-						principal.as_ref(),
-						grant_ttl,
 						creator.as_ref(),
 					)
 					.await
@@ -74,8 +61,6 @@ impl Session {
 		transaction: &db::turso::Transaction<'_>,
 		items: &[(tg::process::Id, tg::process::Data)],
 		stored_at: i64,
-		principal: Option<&tg::Principal>,
-		grant_ttl: std::time::Duration,
 		creator: Option<&tg::Principal>,
 	) -> tg::Result<ControlFlow<(), db::turso::Error>> {
 		let process_statement = indoc!(
@@ -179,41 +164,6 @@ impl Session {
 				on conflict (process, child) do nothing;
 			"
 		);
-		let grant_statement = indoc!(
-			"
-				insert into process_grants (
-					process,
-					principal,
-					node,
-					node_command,
-					node_error,
-					node_log,
-					node_output,
-					subtree,
-					subtree_command,
-					subtree_error,
-					subtree_log,
-					subtree_output,
-					created_at,
-					expires_at
-				) values (
-					?1, ?2, true, true, true, true, true, true, true, true, true, true, ?3, ?4
-				)
-				on conflict (process, principal) do update set
-					node = process_grants.node or excluded.node,
-					node_command = process_grants.node_command or excluded.node_command,
-					node_error = process_grants.node_error or excluded.node_error,
-					node_log = process_grants.node_log or excluded.node_log,
-					node_output = process_grants.node_output or excluded.node_output,
-					subtree = process_grants.subtree or excluded.subtree,
-					subtree_command = process_grants.subtree_command or excluded.subtree_command,
-					subtree_error = process_grants.subtree_error or excluded.subtree_error,
-					subtree_log = process_grants.subtree_log or excluded.subtree_log,
-					subtree_output = process_grants.subtree_output or excluded.subtree_output,
-					expires_at = max(process_grants.expires_at, excluded.expires_at);
-			"
-		);
-
 		for (id, data) in items {
 			let error_string = data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
@@ -316,17 +266,6 @@ impl Session {
 						.await;
 					crate::database::retry!(result, "failed to execute the statement");
 				}
-			}
-
-			if let Some(principal) = principal {
-				let expires_at = stored_at + grant_ttl.as_secs().to_i64().unwrap();
-				let result = transaction
-					.execute(
-						grant_statement.into(),
-						db::params![id.to_string(), principal.to_string(), stored_at, expires_at],
-					)
-					.await;
-				crate::database::retry!(result, "failed to execute the statement");
 			}
 		}
 

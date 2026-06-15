@@ -15,17 +15,10 @@ impl Session {
 		arg: &tg::process::put::Arg,
 		process_store: &db::postgres::Database,
 		stored_at: i64,
-		principal: Option<&tg::Principal>,
 		creator: Option<&tg::Principal>,
 	) -> tg::Result<()> {
-		self.put_process_batch_postgres(
-			&[(id, &arg.data)],
-			process_store,
-			stored_at,
-			principal,
-			creator,
-		)
-		.await
+		self.put_process_batch_postgres(&[(id, &arg.data)], process_store, stored_at, creator)
+			.await
 	}
 
 	pub(crate) async fn put_process_batch_postgres(
@@ -33,7 +26,6 @@ impl Session {
 		items: &[(&tg::process::Id, &tg::process::Data)],
 		process_store: &db::postgres::Database,
 		stored_at: i64,
-		principal: Option<&tg::Principal>,
 		creator: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		if items.is_empty() {
@@ -44,22 +36,17 @@ impl Session {
 			.iter()
 			.map(|(id, data)| ((*id).clone(), (*data).clone()))
 			.collect::<Vec<_>>();
-		let principal = principal.cloned();
 		let creator = creator.cloned();
-		let grant_ttl = self.server.config.process.grant_time_to_live;
 
 		process_store
 			.run(|transaction| {
 				let items = items.clone();
-				let principal = principal.clone();
 				let creator = creator.clone();
 				async move {
 					Self::put_process_batch_postgres_with_transaction(
 						transaction,
 						&items,
 						stored_at,
-						principal.as_ref(),
-						grant_ttl,
 						creator.as_ref(),
 					)
 					.await
@@ -74,8 +61,6 @@ impl Session {
 		transaction: &db::postgres::Transaction<'_>,
 		items: &[(tg::process::Id, tg::process::Data)],
 		stored_at: i64,
-		principal: Option<&tg::Principal>,
-		grant_ttl: std::time::Duration,
 		creator: Option<&tg::Principal>,
 	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let mut actual_checksums: Vec<Option<String>> = Vec::with_capacity(items.len());
@@ -363,74 +348,6 @@ impl Session {
 				.map_err(db::postgres::Error::from);
 			crate::database::retry!(result, "failed to execute the statement");
 		}
-
-		if let Some(principal) = principal {
-			let expires_at = stored_at + grant_ttl.as_secs().to_i64().unwrap();
-			let processes = items
-				.iter()
-				.map(|(id, _)| id.to_string())
-				.collect::<Vec<_>>();
-			let principals = vec![principal.to_string(); processes.len()];
-			let created_ats = vec![stored_at; processes.len()];
-			let expires_ats = vec![expires_at; processes.len()];
-			let statement = indoc!(
-				"
-					insert into process_grants (
-						process,
-						principal,
-						node,
-						node_command,
-						node_error,
-						node_log,
-						node_output,
-						subtree,
-						subtree_command,
-						subtree_error,
-						subtree_log,
-						subtree_output,
-						created_at,
-						expires_at
-					)
-					select
-						unnest($1::text[]),
-						unnest($2::text[]),
-						true,
-						true,
-						true,
-						true,
-						true,
-						true,
-						true,
-						true,
-						true,
-						true,
-						unnest($3::int8[]),
-						unnest($4::int8[])
-					on conflict (process, principal) do update set
-						node = process_grants.node or excluded.node,
-						node_command = process_grants.node_command or excluded.node_command,
-						node_error = process_grants.node_error or excluded.node_error,
-						node_log = process_grants.node_log or excluded.node_log,
-						node_output = process_grants.node_output or excluded.node_output,
-						subtree = process_grants.subtree or excluded.subtree,
-						subtree_command = process_grants.subtree_command or excluded.subtree_command,
-						subtree_error = process_grants.subtree_error or excluded.subtree_error,
-						subtree_log = process_grants.subtree_log or excluded.subtree_log,
-						subtree_output = process_grants.subtree_output or excluded.subtree_output,
-						expires_at = greatest(process_grants.expires_at, excluded.expires_at);
-				"
-			);
-			let result = transaction
-				.inner()
-				.execute(
-					statement,
-					&[&processes, &principals, &created_ats, &expires_ats],
-				)
-				.await
-				.map_err(db::postgres::Error::from);
-			crate::database::retry!(result, "failed to execute the statement");
-		}
-
 		Ok(ControlFlow::Break(()))
 	}
 }

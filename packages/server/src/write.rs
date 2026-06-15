@@ -118,8 +118,6 @@ impl Session {
 		reader: impl AsyncRead,
 		destination: Option<&Destination>,
 	) -> tg::Result<Output> {
-		let principal = self.context.principal.clone();
-
 		// Create the reader.
 		let reader = pin!(reader);
 		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
@@ -169,7 +167,6 @@ impl Session {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
-						principal: principal.clone(),
 						stored_at: *stored_at,
 					};
 					self.server
@@ -222,8 +219,6 @@ impl Session {
 		destination: Option<&Destination>,
 		progress: &crate::progress::Handle<crate::checkin::TaskOutput>,
 	) -> tg::Result<Output> {
-		let principal = self.context.principal.clone();
-
 		// Create the chunker.
 		let config = &self.server.config.write;
 		let mut chunker = fastcdc::v2020::StreamCDC::new(
@@ -268,7 +263,6 @@ impl Session {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
-						principal: principal.clone(),
 						stored_at: *stored_at,
 					};
 					self.server
@@ -445,9 +439,7 @@ impl Session {
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		stored_at: i64,
 	) -> tg::Result<()> {
-		let principal = self.context.principal.clone();
-		let arg =
-			Self::write_store_args(blob, cache_pointer.as_ref(), principal.as_ref(), stored_at);
+		let arg = Self::write_store_args(blob, cache_pointer.as_ref(), stored_at);
 		self.server
 			.object_store
 			.put_batch(arg)
@@ -459,7 +451,6 @@ impl Session {
 	pub(crate) fn write_store_args(
 		blob: &Output,
 		cache_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
-		principal: Option<&tg::Principal>,
 		stored_at: i64,
 	) -> Vec<crate::object::store::PutArg> {
 		let mut args = Vec::new();
@@ -482,7 +473,6 @@ impl Session {
 				bytes: blob.bytes.clone(),
 				cache_pointer,
 				id: blob.id.clone().into(),
-				principal: principal.cloned(),
 				stored_at,
 			});
 			stack.extend(&blob.children);
