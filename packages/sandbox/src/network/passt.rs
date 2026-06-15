@@ -88,7 +88,7 @@ impl Device {
 		}
 		let mut child = command
 			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn {}", executable.display()))?;
+			.map_err(|error| tg::error!(!error, "failed to spawn {}", executable.display()))?;
 		if let Err(error) = wait_for_pid_file(&pid_file, executable) {
 			let pid = child.id().try_into().unwrap();
 			unsafe {
@@ -201,17 +201,17 @@ fn wait_for_pid_file(path: &Path, executable: &Path) -> tg::Result<()> {
 fn watch_pid_file(path: &Path) -> tg::Result<OwnedFd> {
 	let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC) };
 	if fd < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to create the pid file watcher"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to create the pid file watcher"));
 	}
 	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 	let path = CString::new(path.as_os_str().as_bytes())
-		.map_err(|source| tg::error!(!source, "the pid file path is invalid"))?;
+		.map_err(|error| tg::error!(!error, "the pid file path is invalid"))?;
 	let result =
 		unsafe { libc::inotify_add_watch(fd.as_raw_fd(), path.as_ptr(), libc::IN_CLOSE_WRITE) };
 	if result < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to watch the pid file"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to watch the pid file"));
 	}
 	Ok(fd)
 }
@@ -230,8 +230,8 @@ fn wait_for_pid_file_write(inotify: &OwnedFd, executable: &Path) -> tg::Result<(
 		)
 	};
 	if result < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to wait for the pid file"));
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to wait for the pid file"));
 	}
 	if result == 0 {
 		return Err(tg::error!(
@@ -244,17 +244,17 @@ fn wait_for_pid_file_write(inotify: &OwnedFd, executable: &Path) -> tg::Result<(
 
 fn create_empty_pid_file(path: &Path) -> tg::Result<()> {
 	std::fs::File::create(path).map(drop).map_err(
-		|source| tg::error!(!source, path = %path.display(), "failed to create the pid file"),
+		|error| tg::error!(!error, path = %path.display(), "failed to create the pid file"),
 	)
 }
 
 fn pid_file_ready(path: &Path) -> tg::Result<bool> {
 	let contents = match std::fs::read_to_string(path) {
 		Ok(contents) => contents,
-		Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-		Err(source) => {
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+		Err(error) => {
 			return Err(tg::error!(
-				!source,
+				!error,
 				path = %path.display(),
 				"failed to read the pid file"
 			));
@@ -265,7 +265,7 @@ fn pid_file_ready(path: &Path) -> tg::Result<bool> {
 		return Ok(false);
 	}
 	contents.parse::<libc::pid_t>().map_err(
-		|source| tg::error!(!source, path = %path.display(), "failed to parse the pid file"),
+		|error| tg::error!(!error, path = %path.display(), "failed to parse the pid file"),
 	)?;
 	Ok(true)
 }
@@ -274,6 +274,6 @@ fn remove_file_if_exists(path: &Path, message: &'static str) -> tg::Result<()> {
 	match std::fs::remove_file(path) {
 		Ok(()) => Ok(()),
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-		Err(source) => Err(tg::error!(!source, path = %path.display(), "{}", message)),
+		Err(error) => Err(tg::error!(!error, path = %path.display(), "{}", message)),
 	}
 }

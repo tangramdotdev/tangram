@@ -124,7 +124,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				let mut buf = [0u8; 1];
 				socket
 					.read_exact(&mut buf)
-					.map_err(|source| tg::error!(!source, "failed to wait for go from the host"))?;
+					.map_err(|error| tg::error!(!error, "failed to wait for go from the host"))?;
 			},
 			Some(Network::Veth) => {
 				unshare(

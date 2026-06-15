@@ -222,7 +222,7 @@ pub(crate) async fn spawn(
 		let pid = child
 			.id()
 			.ok_or_else(|| tg::error!("no child pid available"))?;
-		let pid = i32::try_from(pid).map_err(|source| tg::error!(!source, "invalid child pid"))?;
+		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
 		network.start_netns(pid).await?;
 	}
 	if let Some(veth) = veth.as_mut() {

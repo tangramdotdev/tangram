@@ -60,21 +60,20 @@ pub struct NetworkConfig {
 pub fn run() -> tg::Result<ExitCode> {
 	tracing::trace!("starting");
 
-	mount_proc(Path::new("/proc"))
-		.map_err(|source| tg::error!(!source, "failed to mount /proc"))?;
+	mount_proc(Path::new("/proc")).map_err(|error| tg::error!(!error, "failed to mount /proc"))?;
 	tracing::trace!("mounted /proc");
 
-	mount_sys(Path::new("/sys")).map_err(|source| tg::error!(!source, "failed to mount /sys"))?;
+	mount_sys(Path::new("/sys")).map_err(|error| tg::error!(!error, "failed to mount /sys"))?;
 	tracing::trace!("mounted /sys");
 
-	mount_dev(Path::new("/dev")).map_err(|source| tg::error!(!source, "failed to mount /dev"))?;
+	mount_dev(Path::new("/dev")).map_err(|error| tg::error!(!error, "failed to mount /dev"))?;
 	tracing::trace!("mounted /dev");
 
 	configure_memory_hotplug();
 	online_cpus();
 
 	wait_for_virtiofs()
-		.map_err(|source| tg::error!(!source, "error waiting for virtiofs tags to connect"))?;
+		.map_err(|error| tg::error!(!error, "error waiting for virtiofs tags to connect"))?;
 	tracing::trace!("virtiofs tags ready");
 
 	signal_ready();
@@ -121,10 +120,10 @@ pub fn run() -> tg::Result<ExitCode> {
 		.map_err(|error| tg::error!(!error, "failed to parse the init config"))?;
 	tracing::trace!("parsed config: uid={} gid={}", config.uid, config.gid);
 
-	setup_rootfs(&config).map_err(|source| tg::error!(!source, "failed to setup rootfs"))?;
+	setup_rootfs(&config).map_err(|error| tg::error!(!error, "failed to setup rootfs"))?;
 	tracing::trace!("created rootfs");
 
-	make_root_private().map_err(|source| tg::error!(!source, "failed to make rootfs private"))?;
+	make_root_private().map_err(|error| tg::error!(!error, "failed to make rootfs private"))?;
 	tracing::trace!("made rootfs private");
 
 	chroot(ROOTVIEW_MERGED)?;
@@ -148,17 +147,17 @@ pub fn run() -> tg::Result<ExitCode> {
 
 	if let Some(network) = &network {
 		configure_network(network)
-			.map_err(|source| tg::error!(!source, "failed to configure network"))?;
+			.map_err(|error| tg::error!(!error, "failed to configure network"))?;
 		prime_network(network);
 		write_resolv_conf(&network.dns_servers)
-			.map_err(|source| tg::error!(!source, "failed to write /etc/resolv.conf"))?;
+			.map_err(|error| tg::error!(!error, "failed to write /etc/resolv.conf"))?;
 		tracing::trace!("configured network guest_ip={}", network.guest_ip);
 	}
 
 	let home = resolve_home(config.uid);
 
-	setresgid(config.gid).map_err(|source| tg::error!(!source, "failed to set gid"))?;
-	setresuid(config.uid).map_err(|source| tg::error!(!source, "failed to set uid"))?;
+	setresgid(config.gid).map_err(|error| tg::error!(!error, "failed to set gid"))?;
+	setresuid(config.uid).map_err(|error| tg::error!(!error, "failed to set uid"))?;
 	tracing::trace!("set uid={} gid={}", config.uid, config.gid);
 
 	let serve = crate::serve::Arg {
@@ -170,7 +169,7 @@ pub fn run() -> tg::Result<ExitCode> {
 	};
 
 	let child = spawn_server(&serve, home.as_deref())
-		.map_err(|source| tg::error!(!source, "failed to spawn server"))?;
+		.map_err(|error| tg::error!(!error, "failed to spawn server"))?;
 	tracing::trace!("spawned sandbox server");
 	let pid: libc::pid_t = child
 		.id()

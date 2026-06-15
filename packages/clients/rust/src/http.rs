@@ -406,12 +406,12 @@ impl tg::Client {
 
 	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
 		let path_ = tangram_util::io::unix::resolve(path).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to resolve the socket path"),
+			|error| tg::error!(!error, path = %path.display(), "failed to resolve the socket path"),
 		)?;
 		tokio::net::UnixStream::connect(path_.as_ref())
 			.await
 			.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to connect to the socket"),
+				|error| tg::error!(!error, path = %path.display(), "failed to connect to the socket"),
 			)
 	}
 
