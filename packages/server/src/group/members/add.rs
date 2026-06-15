@@ -125,7 +125,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		if inserted == 0 {
-			return Ok(());
+			return Err(tg::error!("the member is already in the group"));
 		}
 		batch
 			.put_group_members
