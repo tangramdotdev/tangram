@@ -301,6 +301,7 @@ impl Reader {
 		} else {
 			let mut file = None;
 			let Some(output) = session
+				.server
 				.try_get_object_sync(&id.clone().into(), &mut file)
 				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			else {
@@ -956,6 +957,7 @@ fn read_inner_sync(
 			object
 		} else {
 			let Some(output) = session
+				.server
 				.try_get_object_sync(&id.unwrap(), cache_file)
 				.map_err(|error| tg::error!(!error, "failed to get the object"))?
 			else {

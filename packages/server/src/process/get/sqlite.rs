@@ -1,12 +1,12 @@
 use {
-	crate::Session,
+	crate::Server,
 	indoc::{formatdoc, indoc},
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Session {
+impl Server {
 	pub(crate) async fn try_get_process_batch_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,
@@ -33,33 +33,7 @@ impl Session {
 			.commit()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
-		let mut authorized_outputs = Vec::with_capacity(ids.len());
-		for (id, output) in ids.iter().zip(outputs) {
-			let output = if let Some(mut output) = output {
-				let resource = tg::grant::Resource::Id(id.clone().into());
-				let permission = tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Node,
-				);
-				if self.authorize(resource, permission).await? == Some(true) {
-					output.location = Some(self.server.config().region.clone().map_or_else(
-						|| tg::Location::Local(tg::location::Local::default()),
-						|region| {
-							tg::Location::Local(tg::location::Local {
-								region: Some(region),
-							})
-						},
-					));
-					Some(output)
-				} else {
-					None
-				}
-			} else {
-				None
-			};
-			authorized_outputs.push(output);
-		}
-
-		Ok(authorized_outputs)
+		Ok(outputs)
 	}
 
 	pub(crate) fn try_get_process_batch_sqlite_sync(

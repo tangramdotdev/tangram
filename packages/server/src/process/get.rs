@@ -1,13 +1,14 @@
 use {
-	crate::{Session, database::Database},
+	crate::{Server, Session, database::Database},
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
-		stream::{self, FuturesUnordered},
+		stream::{self, FuturesOrdered, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 };
 
 #[cfg(feature = "postgres")]
@@ -74,67 +75,28 @@ impl Session {
 		ids: &[tg::process::Id],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let sandbox = match &self.context.principal {
-			Some(tg::Principal::Sandbox(sandbox)) => Some(sandbox.clone()),
-			_ => None,
-		};
+		let outputs = self
+			.server
+			.try_get_process_batch_local(ids, metadata)
+			.await?;
 
-		// Get the process from the process store.
-		let data_future = async {
-			match &self.server.process_store {
-				#[cfg(feature = "postgres")]
-				Database::Postgres(process_store) => {
-					self.try_get_process_batch_postgres(process_store, ids)
-						.await
-				},
-				#[cfg(feature = "sqlite")]
-				Database::Sqlite(process_store) => self.try_get_process_batch_sqlite(process_store, ids).await,
-				#[cfg(feature = "turso")]
-				Database::Turso(process_store) => self.try_get_process_batch_turso(process_store, ids).await,
-			}
-		};
-
-		// Get the metadata if requested.
-		let metadata_future = async {
-			if metadata {
-				self.try_get_process_metadata_batch_local(ids)
-					.await
-					.unwrap_or_else(|_| vec![None; ids.len()])
-			} else {
-				vec![None; ids.len()]
-			}
-		};
-
-		// Fetch the data and metadata concurrently.
-		let (data, metadata) = future::join(data_future, metadata_future).await;
-		let data = data?;
-		let location = self.server.config().region.clone().map_or_else(
-			|| tg::Location::Local(tg::location::Local::default()),
-			|region| {
-				tg::Location::Local(tg::location::Local {
-					region: Some(region),
-				})
-			},
-		);
-
-		// Combine data and metadata into outputs.
-		let outputs = std::iter::zip(data, metadata)
-			.map(|(output, metadata)| {
-				output.map(|mut output| {
-					output.location = Some(location.clone());
-					output.metadata = metadata;
-					output
-				})
-			})
-			.map(|output| {
-				if let (Some(output), Some(sandbox)) = (&output, &sandbox)
-					&& output.data.sandbox != *sandbox
-				{
-					return None;
+		let outputs = std::iter::zip(ids, outputs)
+			.map(|(id, output)| async move {
+				if output.is_none() {
+					return Ok::<_, tg::Error>(None);
 				}
-				output
+				let resource = tg::grant::Resource::Id(id.clone().into());
+				let permission = tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::Node,
+				);
+				if self.authorize(resource, permission).await? != Some(true) {
+					return Ok(None);
+				}
+				Ok::<_, tg::Error>(output)
 			})
-			.collect();
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
 
 		Ok(outputs)
 	}
@@ -347,5 +309,80 @@ impl Session {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl Server {
+	pub async fn try_get_process_local(
+		&self,
+		id: &tg::process::Id,
+		metadata: bool,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		self.try_get_process_batch_local(std::slice::from_ref(id), metadata)
+			.await
+			.map(|outputs| outputs.into_iter().next().unwrap())
+	}
+
+	pub async fn try_get_process_batch_local(
+		&self,
+		ids: &[tg::process::Id],
+		metadata: bool,
+	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
+		// Get the process from the process store.
+		let data_future = async {
+			match &self.process_store {
+				#[cfg(feature = "postgres")]
+				Database::Postgres(process_store) => {
+					self.try_get_process_batch_postgres(process_store, ids)
+						.await
+				},
+				#[cfg(feature = "sqlite")]
+				Database::Sqlite(process_store) => self.try_get_process_batch_sqlite(process_store, ids).await,
+				#[cfg(feature = "turso")]
+				Database::Turso(process_store) => self.try_get_process_batch_turso(process_store, ids).await,
+			}
+		};
+
+		// Get the metadata if requested.
+		let metadata_future = async {
+			if metadata {
+				self.index.try_get_processes(ids).await.ok().map_or_else(
+					|| vec![None; ids.len()],
+					|processes| {
+						processes
+							.into_iter()
+							.map(|process| process.map(|process| process.metadata))
+							.collect()
+					},
+				)
+			} else {
+				vec![None; ids.len()]
+			}
+		};
+
+		// Fetch the data and metadata concurrently.
+		let (data, metadata) = future::join(data_future, metadata_future).await;
+		let data = data?;
+		let location = self.config().region.clone().map_or_else(
+			|| tg::Location::Local(tg::location::Local::default()),
+			|region| {
+				tg::Location::Local(tg::location::Local {
+					region: Some(region),
+				})
+			},
+		);
+
+		// Combine data and metadata into outputs.
+		let outputs = std::iter::zip(data, metadata)
+			.map(|(output, metadata)| {
+				output.map(|mut output| {
+					output.location = Some(location.clone());
+					output.metadata = metadata;
+					output
+				})
+			})
+			.collect();
+
+		Ok(outputs)
 	}
 }

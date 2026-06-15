@@ -69,20 +69,6 @@ impl Session {
 			.map(|p| p.metadata))
 	}
 
-	pub(crate) async fn try_get_process_metadata_batch_local(
-		&self,
-		ids: &[tg::process::Id],
-	) -> tg::Result<Vec<Option<tg::process::Metadata>>> {
-		Ok(self
-			.server
-			.index
-			.try_get_processes(ids)
-			.await?
-			.into_iter()
-			.map(|p| p.map(|p| p.metadata))
-			.collect())
-	}
-
 	async fn try_get_process_metadata_regions(
 		&self,
 		id: &tg::process::Id,

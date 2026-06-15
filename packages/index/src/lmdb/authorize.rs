@@ -34,6 +34,10 @@ impl Index {
 				if matches!(principal, Some(tg::Principal::Root)) {
 					return Ok(Some(true));
 				}
+				if matches!(principal, Some(tg::Principal::Process(ref process)) if tg::Id::from(process.clone()) == id)
+				{
+					return Ok(Some(true));
+				}
 				let authorized = Self::authorize_with_transaction(
 					&db,
 					&subspace,
@@ -75,6 +79,12 @@ impl Index {
 			if let Some((id, needed)) = resource_queue.pop_front() {
 				if !resource_visited.insert((id.clone(), needed)) {
 					continue;
+				}
+				if let (Some(tg::Principal::Process(process)), tg::grant::Permission::Process(_)) =
+					(principal, needed)
+					&& tg::Id::from(process.clone()) == id
+				{
+					return Ok(true);
 				}
 
 				// Check the grants on this resource.

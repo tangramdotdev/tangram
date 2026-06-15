@@ -1,12 +1,12 @@
 use {
-	crate::Session,
+	crate::Server,
 	indoc::formatdoc,
 	std::collections::HashMap,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Session {
+impl Server {
 	pub(crate) async fn try_get_process_batch_postgres(
 		&self,
 		process_store: &db::postgres::Database,
@@ -159,20 +159,7 @@ impl Session {
 			})
 			.collect::<tg::Result<HashMap<_, _>>>()?;
 
-		let mut authorized_outputs = Vec::with_capacity(ids.len());
-		for id in ids {
-			let output = if let Some(output) = outputs.get(id).cloned() {
-				let resource = tg::grant::Resource::Id(id.clone().into());
-				let permission = tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Node,
-				);
-				(self.authorize(resource, permission).await? == Some(true)).then_some(output)
-			} else {
-				None
-			};
-			authorized_outputs.push(output);
-		}
-
-		Ok(authorized_outputs)
+		let outputs = ids.iter().map(|id| outputs.get(id).cloned()).collect();
+		Ok(outputs)
 	}
 }

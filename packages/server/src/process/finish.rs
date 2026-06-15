@@ -86,18 +86,6 @@ impl Session {
 		arg: tg::process::finish::Arg,
 		condition: Option<Condition>,
 	) -> tg::Result<Option<bool>> {
-		// Authorize.
-		if !matches!(
-			self.context.principal.as_ref(),
-			Some(principal) if match principal {
-				tg::Principal::Process(process) => process == id,
-				tg::Principal::Root => true,
-				_ => false,
-			}
-		) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let tg::process::finish::Arg {
 			mut error,
 			output,

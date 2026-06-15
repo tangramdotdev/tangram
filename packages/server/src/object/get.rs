@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Server, Session},
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, future,
@@ -14,18 +14,19 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
-pub type Tasks = tangram_futures::task::Map<
+pub(crate) type Tasks = tangram_futures::task::Map<
 	crate::object::get::TaskKey,
 	tg::Result<Option<tg::object::get::Output>>,
 	(),
 	fnv::FnvBuildHasher,
 >;
 
-pub struct CacheFile {
+pub(crate) struct CacheFile {
 	pub artifact: tg::artifact::Id,
 	pub path: Option<PathBuf>,
 	pub file: std::fs::File,
@@ -85,81 +86,13 @@ impl Session {
 		id: &tg::object::Id,
 		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let bytes_future = self.try_get_object_bytes_local(id);
-		let metadata_future = async {
-			if metadata {
-				self.try_get_object_metadata_local(id).await.ok().flatten()
-			} else {
-				None
-			}
-		};
-		let (bytes, metadata) = future::join(bytes_future, metadata_future).await;
-		let bytes = bytes?;
-
-		// If the bytes were not found, then return None.
-		let Some(bytes) = bytes else {
-			return Ok(None);
-		};
-
-		// Create the output.
-		let output = tg::object::get::Output { bytes, metadata };
-
-		Ok(Some(output))
-	}
-
-	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		let arg = crate::object::store::TryGetArg { id: id.clone() };
-		let output = self
-			.server
-			.object_store
-			.try_get(arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let resource = tg::grant::Resource::Id(id.clone().into());
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 		if self.authorize(resource, permission).await? != Some(true) {
 			return Ok(None);
 		}
-		let object = output.object;
-		let Some(object) = object else {
-			return Ok(None);
-		};
-		if let Some(bytes) = object.bytes {
-			return Ok(Some(bytes.into_owned().into()));
-		}
-		if let Some(cache_pointer) = object.cache_pointer {
-			return self.try_read_cache_pointer(&cache_pointer).await;
-		}
-		Ok(None)
-	}
-
-	pub(crate) fn try_get_object_sync(
-		&self,
-		id: &tg::object::Id,
-		cache_file: &mut Option<CacheFile>,
-	) -> tg::Result<Option<tg::object::get::Output>> {
-		let arg = crate::object::store::TryGetArg { id: id.clone() };
-		let output = self.server.object_store.try_get_sync(&arg)?;
-		let object = output.object;
-		let Some(object) = object else {
-			return Ok(None);
-		};
-		let bytes = if let Some(bytes) = object.bytes {
-			bytes.into_owned().into()
-		} else if let Some(cache_pointer) = object.cache_pointer {
-			let Some(bytes) = self.try_read_cache_pointer_sync(&cache_pointer, cache_file)? else {
-				return Ok(None);
-			};
-			bytes
-		} else {
-			return Ok(None);
-		};
-		let output = tg::object::get::Output {
-			bytes,
-			metadata: None,
-		};
-		Ok(Some(output))
+		self.server.try_get_object_local(id, metadata).await
 	}
 
 	#[expect(dead_code)]
@@ -213,67 +146,27 @@ impl Session {
 		ids: &[tg::object::Id],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
-		let bytes_future = self.try_get_object_bytes_batch_local(ids);
-		let metadata_future = async {
-			if metadata {
-				self.try_get_object_metadata_batch_local(ids).await.ok()
-			} else {
-				None
-			}
-			.unwrap_or_else(|| vec![None; ids.len()])
-		};
-
-		// Fetch bytes and metadata concurrently.
-		let (bytes, metadata) = future::join(bytes_future, metadata_future).await;
-		let bytes = bytes?;
-
-		// Create the outputs.
-		let outputs = std::iter::zip(bytes, metadata)
-			.map(|(bytes, metadata)| bytes.map(|bytes| tg::object::get::Output { bytes, metadata }))
-			.collect();
-
-		Ok(outputs)
-	}
-
-	async fn try_get_object_bytes_batch_local(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<Bytes>>> {
-		let arg = crate::object::store::TryGetBatchArg {
-			ids: ids.to_owned(),
-		};
-		let output = self
+		let outputs = self
 			.server
-			.object_store
-			.try_get_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
-		let output = ids
-			.iter()
-			.zip(output)
+			.try_get_object_batch_local(ids, metadata)
+			.await?;
+		let outputs = std::iter::zip(ids, outputs)
 			.map(|(id, output)| async move {
+				if output.is_none() {
+					return Ok::<_, tg::Error>(None);
+				}
 				let resource = tg::grant::Resource::Id(id.clone().into());
 				let permission =
 					tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 				if self.authorize(resource, permission).await? != Some(true) {
 					return Ok(None);
 				}
-				let object = output.object;
-				let Some(object) = object else {
-					return Ok(None);
-				};
-				if let Some(bytes) = object.bytes {
-					return Ok(Some(bytes.into_owned().into()));
-				}
-				if let Some(cache_pointer) = object.cache_pointer {
-					return self.try_read_cache_pointer(&cache_pointer).await;
-				}
-				Ok(None)
+				Ok::<_, tg::Error>(output)
 			})
 			.collect::<FuturesOrdered<_>>()
-			.try_collect::<Vec<_>>()
+			.try_collect()
 			.await?;
-		Ok(output)
+		Ok(outputs)
 	}
 
 	async fn try_get_object_regions(
@@ -307,7 +200,6 @@ impl Session {
 
 		Ok(Some(output))
 	}
-
 	async fn try_get_object_region(
 		&self,
 		id: &tg::object::Id,
@@ -493,90 +385,6 @@ impl Session {
 			}
 		});
 	}
-
-	async fn try_read_cache_pointer(
-		&self,
-		cache_pointer: &tangram_object_store::CachePointer,
-	) -> tg::Result<Option<Bytes>> {
-		// Read the leaf from the file.
-		let mut path = self
-			.server
-			.cache_path()
-			.join(cache_pointer.artifact.to_string());
-		if let Some(path_) = &cache_pointer.path {
-			path.push(path_);
-		}
-		let mut file = match tokio::fs::File::open(path).await {
-			Ok(file) => file,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(None);
-			},
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"failed to open the entry in the cache directory"
-				));
-			},
-		};
-
-		// Seek.
-		file.seek(std::io::SeekFrom::Start(cache_pointer.position))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to seek in the file"))?;
-
-		// Read.
-		let mut buffer = vec![0; 1 + cache_pointer.length.to_usize().unwrap()];
-		file.read_exact(&mut buffer[1..])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read the leaf from the file"))?;
-
-		Ok(Some(buffer.into()))
-	}
-
-	fn try_read_cache_pointer_sync(
-		&self,
-		cache_pointer: &tangram_object_store::CachePointer,
-		cache_file: &mut Option<CacheFile>,
-	) -> tg::Result<Option<Bytes>> {
-		// Replace the file if necessary.
-		match cache_file {
-			Some(CacheFile { artifact, path, .. })
-				if artifact == &cache_pointer.artifact && path == &cache_pointer.path => {},
-			_ => {
-				drop(cache_file.take());
-				let mut path = self
-					.server
-					.cache_path()
-					.join(cache_pointer.artifact.to_string());
-				if let Some(path_) = &cache_pointer.path {
-					path = path.join(path_);
-				}
-				let file_ = std::fs::File::open(&path).map_err(
-					|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
-				)?;
-				cache_file.replace(CacheFile {
-					artifact: cache_pointer.artifact.clone(),
-					path: cache_pointer.path.clone(),
-					file: file_,
-				});
-			},
-		}
-
-		// Seek.
-		let file_handle = &mut cache_file.as_mut().unwrap().file;
-		file_handle
-			.seek(std::io::SeekFrom::Start(cache_pointer.position))
-			.map_err(|error| tg::error!(!error, "failed to seek the cache file"))?;
-
-		// Read.
-		let mut buffer = vec![0u8; 1 + cache_pointer.length.to_usize().unwrap()];
-		file_handle
-			.read_exact(&mut buffer[1..])
-			.map_err(|error| tg::error!(!error, "failed to read from the cache file"))?;
-
-		Ok(Some(buffer.into()))
-	}
-
 	pub(crate) async fn try_get_object_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -633,5 +441,230 @@ impl Session {
 		let response = response.bytes(output.bytes).unwrap().boxed_body();
 
 		Ok(response)
+	}
+}
+
+impl Server {
+	pub(crate) async fn try_get_object_local(
+		&self,
+		id: &tg::object::Id,
+		metadata: bool,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		let bytes_future = self.try_get_object_bytes_local(id);
+		let metadata_future = async {
+			if metadata {
+				self.index
+					.try_get_object(id)
+					.await
+					.ok()
+					.flatten()
+					.map(|object| object.metadata)
+			} else {
+				None
+			}
+		};
+		let (bytes, metadata) = future::join(bytes_future, metadata_future).await;
+		let bytes = bytes?;
+
+		// If the bytes were not found, then return None.
+		let Some(bytes) = bytes else {
+			return Ok(None);
+		};
+
+		// Create the output.
+		let output = tg::object::get::Output { bytes, metadata };
+
+		Ok(Some(output))
+	}
+
+	pub(crate) fn try_get_object_sync(
+		&self,
+		id: &tg::object::Id,
+		cache_file: &mut Option<CacheFile>,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		let arg = crate::object::store::TryGetArg { id: id.clone() };
+		let output = self.object_store.try_get_sync(&arg)?;
+		let object = output.object;
+		let Some(object) = object else {
+			return Ok(None);
+		};
+		let bytes = if let Some(bytes) = object.bytes {
+			bytes.into_owned().into()
+		} else if let Some(cache_pointer) = object.cache_pointer {
+			let Some(bytes) = self.try_read_cache_pointer_sync(&cache_pointer, cache_file)? else {
+				return Ok(None);
+			};
+			bytes
+		} else {
+			return Ok(None);
+		};
+		let output = tg::object::get::Output {
+			bytes,
+			metadata: None,
+		};
+		Ok(Some(output))
+	}
+
+	pub(crate) async fn try_get_object_batch_local(
+		&self,
+		ids: &[tg::object::Id],
+		metadata: bool,
+	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
+		let bytes_future = self.try_get_object_bytes_batch_local(ids);
+		let metadata_future = async {
+			if metadata {
+				self.index.try_get_objects(ids).await.ok().map(|objects| {
+					objects
+						.into_iter()
+						.map(|object| object.map(|object| object.metadata))
+						.collect()
+				})
+			} else {
+				None
+			}
+			.unwrap_or_else(|| vec![None; ids.len()])
+		};
+
+		// Fetch bytes and metadata concurrently.
+		let (bytes, metadata) = future::join(bytes_future, metadata_future).await;
+		let bytes = bytes?;
+
+		// Create the outputs.
+		let outputs = std::iter::zip(bytes, metadata)
+			.map(|(bytes, metadata)| bytes.map(|bytes| tg::object::get::Output { bytes, metadata }))
+			.collect();
+
+		Ok(outputs)
+	}
+
+	async fn try_get_object_bytes_batch_local(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<Bytes>>> {
+		let arg = crate::object::store::TryGetBatchArg {
+			ids: ids.to_owned(),
+		};
+		let output = self
+			.object_store
+			.try_get_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
+		let output = ids
+			.iter()
+			.zip(output)
+			.map(|(_id, output)| async move {
+				let object = output.object;
+				let Some(object) = object else {
+					return Ok(None);
+				};
+				if let Some(bytes) = object.bytes {
+					return Ok(Some(bytes.into_owned().into()));
+				}
+				if let Some(cache_pointer) = object.cache_pointer {
+					return self.try_read_cache_pointer(&cache_pointer).await;
+				}
+				Ok(None)
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(output)
+	}
+
+	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+		let arg = crate::object::store::TryGetArg { id: id.clone() };
+		let output = self
+			.object_store
+			.try_get(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+		let object = output.object;
+		let Some(object) = object else {
+			return Ok(None);
+		};
+		if let Some(bytes) = object.bytes {
+			return Ok(Some(bytes.into_owned().into()));
+		}
+		if let Some(cache_pointer) = object.cache_pointer {
+			return self.try_read_cache_pointer(&cache_pointer).await;
+		}
+		Ok(None)
+	}
+
+	async fn try_read_cache_pointer(
+		&self,
+		cache_pointer: &tangram_object_store::CachePointer,
+	) -> tg::Result<Option<Bytes>> {
+		// Read the leaf from the file.
+		let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
+		if let Some(path_) = &cache_pointer.path {
+			path.push(path_);
+		}
+		let mut file = match tokio::fs::File::open(path).await {
+			Ok(file) => file,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"failed to open the entry in the cache directory"
+				));
+			},
+		};
+
+		// Seek.
+		file.seek(std::io::SeekFrom::Start(cache_pointer.position))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to seek in the file"))?;
+
+		// Read.
+		let mut buffer = vec![0; 1 + cache_pointer.length.to_usize().unwrap()];
+		file.read_exact(&mut buffer[1..])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the leaf from the file"))?;
+
+		Ok(Some(buffer.into()))
+	}
+
+	fn try_read_cache_pointer_sync(
+		&self,
+		cache_pointer: &tangram_object_store::CachePointer,
+		cache_file: &mut Option<CacheFile>,
+	) -> tg::Result<Option<Bytes>> {
+		// Replace the file if necessary.
+		match cache_file {
+			Some(CacheFile { artifact, path, .. })
+				if artifact == &cache_pointer.artifact && path == &cache_pointer.path => {},
+			_ => {
+				drop(cache_file.take());
+				let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
+				if let Some(path_) = &cache_pointer.path {
+					path = path.join(path_);
+				}
+				let file_ = std::fs::File::open(&path).map_err(
+					|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
+				)?;
+				cache_file.replace(CacheFile {
+					artifact: cache_pointer.artifact.clone(),
+					path: cache_pointer.path.clone(),
+					file: file_,
+				});
+			},
+		}
+
+		// Seek.
+		let file_handle = &mut cache_file.as_mut().unwrap().file;
+		file_handle
+			.seek(std::io::SeekFrom::Start(cache_pointer.position))
+			.map_err(|error| tg::error!(!error, "failed to seek the cache file"))?;
+
+		// Read.
+		let mut buffer = vec![0u8; 1 + cache_pointer.length.to_usize().unwrap()];
+		file_handle
+			.read_exact(&mut buffer[1..])
+			.map_err(|error| tg::error!(!error, "failed to read from the cache file"))?;
+
+		Ok(Some(buffer.into()))
 	}
 }

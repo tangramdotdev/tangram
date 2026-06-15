@@ -1,11 +1,11 @@
 use {
-	crate::Session,
+	crate::Server,
 	indoc::{formatdoc, indoc},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Session {
+impl Server {
 	pub(crate) async fn try_get_process_batch_turso(
 		&self,
 		process_store: &db::turso::Database,
@@ -225,13 +225,6 @@ impl Session {
 			location: None,
 			metadata: None,
 		};
-
-		let resource = tg::grant::Resource::Id(id.clone().into());
-		let permission =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		if self.authorize(resource, permission).await? != Some(true) {
-			return Ok(None);
-		}
 
 		Ok(Some(output))
 	}

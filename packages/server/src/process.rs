@@ -153,35 +153,15 @@ impl Session {
 
 		// Check if the process exists.
 		let p = transaction.p();
-		let sandbox = match &self.context.principal {
-			Some(tg::Principal::Sandbox(sandbox)) => Some(sandbox.clone()),
-			_ => None,
-		};
-		let principal = if sandbox.is_some() {
-			Some(tg::Principal::Root)
-		} else {
-			self.context.principal.clone()
-		};
-		let sandbox_condition =
-			if matches!(principal, Some(tg::Principal::Root)) && sandbox.is_some() {
-				format!("and processes.sandbox = {p}2")
-			} else {
-				String::new()
-			};
 		let statement = formatdoc!(
 			"
 				select count(*) != 0
 				from processes
 				where
-					processes.id = {p}1
-					{sandbox_condition};
+					processes.id = {p}1;
 			"
 		);
-		let params = if let Some(sandbox) = sandbox {
-			db::params![id.to_string(), sandbox.to_string()]
-		} else {
-			db::params![id.to_string()]
-		};
+		let params = db::params![id.to_string()];
 		let exists = transaction
 			.query_one_value_into(statement.into(), params)
 			.await
@@ -194,10 +174,15 @@ impl Session {
 		// Drop the database connection.
 		drop(connection);
 
+		// Authorize.
 		let resource = tg::grant::Resource::Id(id.clone().into());
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		Ok(exists && self.authorize(resource, permission).await? == Some(true))
+		let authorized = self.authorize(resource, permission).await? == Some(true);
+
+		let output = exists && authorized;
+
+		Ok(output)
 	}
 }
 

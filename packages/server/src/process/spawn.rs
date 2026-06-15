@@ -194,70 +194,63 @@ impl Session {
 			let id = output.id.clone();
 			let parent = arg.parent.clone();
 			let principal = self.context.principal.clone();
-			let server = self.server.clone();
-			self.server
-				.index_tasks
-				.spawn(|_| async move {
-					let now = time::OffsetDateTime::now_utc().unix_timestamp();
-					let put_process_arg = tangram_index::process::put::Arg {
-						children: None,
-						command: command.into(),
-						error: None,
-						id: id.clone(),
-						log: None,
-						metadata: tg::process::Metadata::default(),
-						output: None,
-						parent,
-						stored: tangram_index::process::Stored::default(),
-						touched_at: now,
-					};
-					let put_grants = principal
-						.map(|principal| {
-							let expires_at = now
-								+ server
-									.config
-									.process
-									.grant_time_to_live
-									.as_secs()
-									.to_i64()
-									.unwrap();
-							[
-								tg::grant::permission::process::Permission::Node,
-								tg::grant::permission::process::Permission::NodeCommand,
-								tg::grant::permission::process::Permission::NodeError,
-								tg::grant::permission::process::Permission::NodeLog,
-								tg::grant::permission::process::Permission::NodeOutput,
-								tg::grant::permission::process::Permission::Subtree,
-								tg::grant::permission::process::Permission::SubtreeCommand,
-								tg::grant::permission::process::Permission::SubtreeError,
-								tg::grant::permission::process::Permission::SubtreeLog,
-								tg::grant::permission::process::Permission::SubtreeOutput,
-							]
-							.into_iter()
-							.map(|permission| tangram_index::grant::put::Arg {
-								created_at: now,
-								creator: Some(principal.clone()),
-								expires_at: Some(expires_at),
-								permission: tg::grant::Permission::Process(permission),
-								principal: principal.clone().into(),
-								resource: id.clone().into(),
-							})
-							.collect()
-						})
-						.unwrap_or_default();
-					if let Err(error) = server
-						.index
-						.batch(tangram_index::batch::Arg {
-							put_grants,
-							put_processes: vec![put_process_arg],
-							..Default::default()
-						})
-						.await
-					{
-						tracing::error!(error = %error.trace(), "failed to put process to index");
-					}
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let put_process_arg = tangram_index::process::put::Arg {
+				children: None,
+				command: command.into(),
+				error: None,
+				id: id.clone(),
+				log: None,
+				metadata: tg::process::Metadata::default(),
+				output: None,
+				parent,
+				stored: tangram_index::process::Stored::default(),
+				touched_at: now,
+			};
+			let put_grants = principal
+				.map(|principal| {
+					let expires_at = now
+						+ self
+							.server
+							.config
+							.process
+							.grant_time_to_live
+							.as_secs()
+							.to_i64()
+							.unwrap();
+					[
+						tg::grant::permission::process::Permission::Node,
+						tg::grant::permission::process::Permission::NodeCommand,
+						tg::grant::permission::process::Permission::NodeError,
+						tg::grant::permission::process::Permission::NodeLog,
+						tg::grant::permission::process::Permission::NodeOutput,
+						tg::grant::permission::process::Permission::Subtree,
+						tg::grant::permission::process::Permission::SubtreeCommand,
+						tg::grant::permission::process::Permission::SubtreeError,
+						tg::grant::permission::process::Permission::SubtreeLog,
+						tg::grant::permission::process::Permission::SubtreeOutput,
+					]
+					.into_iter()
+					.map(|permission| tangram_index::grant::put::Arg {
+						created_at: now,
+						creator: Some(principal.clone()),
+						expires_at: Some(expires_at),
+						permission: tg::grant::Permission::Process(permission),
+						principal: principal.clone().into(),
+						resource: id.clone().into(),
+					})
+					.collect()
 				})
-				.detach();
+				.unwrap_or_default();
+			self.server
+				.index
+				.batch(tangram_index::batch::Arg {
+					put_grants,
+					put_processes: vec![put_process_arg],
+					..Default::default()
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the process to the index"))?;
 		}
 
 		// Wake the watchdog so depth-based limits are enforced promptly.

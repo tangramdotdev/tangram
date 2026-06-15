@@ -239,8 +239,7 @@ impl Server {
 	}
 
 	async fn finalizer_spawn_index_task(&self, id: &tg::process::Id) -> tg::Result<()> {
-		let session = self.session(&self.context);
-		let tg::process::get::Output { data, .. } = session
+		let tg::process::get::Output { data, .. } = self
 			.try_get_process_local(id, false)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;

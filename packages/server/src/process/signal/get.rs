@@ -81,13 +81,6 @@ impl Session {
 		id: &tg::process::Id,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
-		if !matches!(
-			self.context.principal.as_ref(),
-			Some(tg::Principal::Process(process)) if process == id
-		) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		// Verify the process is local.
 		let Some(_output) = self
 			.try_get_process_local(id, false)

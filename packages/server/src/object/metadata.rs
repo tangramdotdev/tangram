@@ -66,20 +66,6 @@ impl Session {
 			.map(|object| object.metadata))
 	}
 
-	pub(crate) async fn try_get_object_metadata_batch_local(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<tg::object::Metadata>>> {
-		Ok(self
-			.server
-			.index
-			.try_get_objects(ids)
-			.await?
-			.into_iter()
-			.map(|object| object.map(|object| object.metadata))
-			.collect())
-	}
-
 	async fn try_get_object_metadata_regions(
 		&self,
 		id: &tg::object::Id,
