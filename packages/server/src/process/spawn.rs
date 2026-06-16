@@ -252,6 +252,11 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the process to the index"))?;
 		}
+		if let Some(output) = &output
+			&& output.cached
+		{
+			self.spawn_put_process_grants_to_index_task(&output.id);
+		}
 
 		// Wake the watchdog so depth-based limits are enforced promptly.
 		if output
@@ -513,6 +518,55 @@ impl Session {
 			}
 		}
 		Err(tg::error!("expected an output"))
+	}
+
+	fn spawn_put_process_grants_to_index_task(&self, id: &tg::process::Id) {
+		let Some(principal) = self.context.principal.clone() else {
+			return;
+		};
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let expires_at = now
+			+ self
+				.server
+				.config
+				.process
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let put_grants = [
+			tg::grant::permission::process::Permission::Node,
+			tg::grant::permission::process::Permission::NodeCommand,
+			tg::grant::permission::process::Permission::NodeError,
+			tg::grant::permission::process::Permission::NodeLog,
+			tg::grant::permission::process::Permission::NodeOutput,
+			tg::grant::permission::process::Permission::Subtree,
+			tg::grant::permission::process::Permission::SubtreeCommand,
+			tg::grant::permission::process::Permission::SubtreeError,
+			tg::grant::permission::process::Permission::SubtreeLog,
+			tg::grant::permission::process::Permission::SubtreeOutput,
+		]
+		.into_iter()
+		.map(|permission| tangram_index::grant::put::Arg {
+			created_at: now,
+			creator: Some(principal.clone()),
+			expires_at: Some(expires_at),
+			permission: tg::grant::Permission::Process(permission),
+			principal: principal.clone().into(),
+			resource: id.clone().into(),
+		})
+		.collect::<Vec<_>>();
+		self.server
+			.index_tasks
+			.spawn(|_| {
+				let server = self.server.clone();
+				async move {
+					if let Err(error) = server.index.put_grants(&put_grants).await {
+						tracing::error!(error = %error.trace(), "failed to put process grants to index");
+					}
+				}
+			})
+			.detach();
 	}
 
 	async fn spawn_process_push_command(
