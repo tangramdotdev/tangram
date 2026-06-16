@@ -58,11 +58,11 @@ impl Session {
 			});
 
 		// Create the cache of responses that have been sent but not yet acked. Deduplication and acknowledgement are handled here, in the control task that owns the process's streams, rather than at the messenger level, so that a retried request is not executed more than once even across a restart of an intermediate server.
-		let responses: Arc<DashMap<uuid::Uuid, Option<tg::process::control::Response>>> =
+		let responses: Arc<DashMap<String, Option<tg::process::control::Response>>> =
 			Arc::new(DashMap::new());
 
 		let (stdout_sender, mut stdout_receiver) =
-			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::ReadRequest)>(256);
+			tokio::sync::mpsc::channel::<(String, tg::process::control::ReadRequest)>(256);
 		let stdout_task = Task::spawn({
 			let sandbox = sandbox.clone();
 			let mut sandbox_process = sandbox_process.clone();
@@ -75,7 +75,11 @@ impl Session {
 				}
 
 				// Wait until the sandbox process has spawned or it is known that it never will.
-				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+				let sandbox_process = sandbox_process
+					.wait_for(Option::is_some)
+					.await
+					.ok()
+					.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
 				let mut writes = None;
 				let mut reader = None;
@@ -105,7 +109,10 @@ impl Session {
 							tg::process::control::ResponseKind::Error(error.to_data_or_id())
 						},
 					};
-					let response = tg::process::control::Response { id, kind };
+					let response = tg::process::control::Response {
+						id: id.clone(),
+						kind,
+					};
 					responses.insert(id, Some(response.clone()));
 					sender
 						.send(Ok(tg::process::control::ResponseEvent::Response(response)))
@@ -120,7 +127,7 @@ impl Session {
 		});
 
 		let (stderr_sender, mut stderr_receiver) =
-			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::ReadRequest)>(256);
+			tokio::sync::mpsc::channel::<(String, tg::process::control::ReadRequest)>(256);
 		let stderr_task = Task::spawn({
 			let sandbox = sandbox.clone();
 			let mut sandbox_process = sandbox_process.clone();
@@ -133,7 +140,11 @@ impl Session {
 				}
 
 				// Wait until the sandbox process has spawned or it is known that it never will.
-				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+				let sandbox_process = sandbox_process
+					.wait_for(Option::is_some)
+					.await
+					.ok()
+					.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
 				// Serve the progress stream to readers along with the output of the sandbox process.
 				let mut writes = stderr_progress.map(|progress| {
@@ -175,7 +186,10 @@ impl Session {
 							tg::process::control::ResponseKind::Error(error.to_data_or_id())
 						},
 					};
-					let response = tg::process::control::Response { id, kind };
+					let response = tg::process::control::Response {
+						id: id.clone(),
+						kind,
+					};
 					responses.insert(id, Some(response.clone()));
 					sender
 						.send(Ok(tg::process::control::ResponseEvent::Response(response)))
@@ -190,7 +204,7 @@ impl Session {
 		});
 
 		let (stdin_sender, mut stdin_receiver) =
-			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::WriteRequest)>(256);
+			tokio::sync::mpsc::channel::<(String, tg::process::control::WriteRequest)>(256);
 		let stdin_task = Task::spawn({
 			let session = self.clone();
 			let sandbox = sandbox.clone();
@@ -200,7 +214,11 @@ impl Session {
 			let piped = matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty);
 			move |_| async move {
 				// Wait until the sandbox process has spawned or it is known that it never will.
-				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+				let sandbox_process = sandbox_process
+					.wait_for(Option::is_some)
+					.await
+					.ok()
+					.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
 				// Dump stdin if necessary.
 				if let Some(blob) = stdin_blob
@@ -272,7 +290,10 @@ impl Session {
 							tg::process::control::ResponseKind::Error(error.to_data_or_id())
 						},
 					};
-					let response = tg::process::control::Response { id, kind };
+					let response = tg::process::control::Response {
+						id: id.clone(),
+						kind,
+					};
 					responses.insert(id, Some(response.clone()));
 					sender
 						.send(Ok(tg::process::control::ResponseEvent::Response(response)))
@@ -287,7 +308,7 @@ impl Session {
 		});
 
 		let (signal_sender, mut signal_receiver) =
-			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::SignalRequest)>(256);
+			tokio::sync::mpsc::channel::<(String, tg::process::control::SignalRequest)>(256);
 		let signal_task = Task::spawn({
 			let sandbox = sandbox.clone();
 			let mut sandbox_process = sandbox_process.clone();
@@ -295,7 +316,11 @@ impl Session {
 			let responses = responses.clone();
 			|_| async move {
 				// Wait until the sandbox process has spawned or it is known that it never will.
-				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+				let sandbox_process = sandbox_process
+					.wait_for(Option::is_some)
+					.await
+					.ok()
+					.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
 				while let Some((id, request)) = signal_receiver.recv().await {
 					let result = if let Some(sandbox_process) = &sandbox_process {
@@ -314,7 +339,10 @@ impl Session {
 							tg::process::control::ResponseKind::Error(error.to_data_or_id())
 						},
 					};
-					let response = tg::process::control::Response { id, kind };
+					let response = tg::process::control::Response {
+						id: id.clone(),
+						kind,
+					};
 					responses.insert(id, Some(response.clone()));
 					sender
 						.send(Ok(tg::process::control::ResponseEvent::Response(response)))
@@ -326,7 +354,7 @@ impl Session {
 		});
 
 		let (tty_sender, mut tty_receiver) =
-			tokio::sync::mpsc::channel::<(uuid::Uuid, tg::process::control::TtyRequest)>(256);
+			tokio::sync::mpsc::channel::<(String, tg::process::control::TtyRequest)>(256);
 		let tty_task = Task::spawn({
 			let sandbox = sandbox.clone();
 			let mut sandbox_process = sandbox_process.clone();
@@ -334,7 +362,11 @@ impl Session {
 			let responses = responses.clone();
 			|_| async move {
 				// Wait until the sandbox process has spawned or it is known that it never will.
-				let sandbox_process = wait_for_sandbox_process(&mut sandbox_process).await;
+				let sandbox_process = sandbox_process
+					.wait_for(Option::is_some)
+					.await
+					.ok()
+					.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
 				while let Some((id, request)) = tty_receiver.recv().await {
 					let result = if let Some(sandbox_process) = &sandbox_process {
@@ -349,7 +381,10 @@ impl Session {
 							tg::process::control::ResponseKind::Error(error.to_data_or_id())
 						},
 					};
-					let response = tg::process::control::Response { id, kind };
+					let response = tg::process::control::Response {
+						id: id.clone(),
+						kind,
+					};
 					responses.insert(id, Some(response.clone()));
 					sender
 						.send(Ok(tg::process::control::ResponseEvent::Response(response)))
@@ -390,7 +425,7 @@ impl Session {
 							}
 
 							// Mark the request as in flight so that duplicates are dropped until the response is ready.
-							responses.insert(id, None);
+							responses.insert(id.clone(), None);
 
 							match request.kind {
 								tg::process::control::RequestKind::Read(read) => {
@@ -406,7 +441,7 @@ impl Session {
 											let error =
 												tg::error!("cannot read the stdin of a process");
 											let response = tg::process::control::Response {
-												id,
+												id: id.clone(),
 												kind: tg::process::control::ResponseKind::Error(
 													error.to_data_or_id(),
 												),
@@ -435,7 +470,7 @@ impl Session {
 												"cannot write to the stdout or stderr of a process"
 											);
 											let response = tg::process::control::Response {
-												id,
+												id: id.clone(),
 												kind: tg::process::control::ResponseKind::Error(
 													error.to_data_or_id(),
 												),
@@ -461,12 +496,13 @@ impl Session {
 							}
 						},
 						tg::process::control::RequestEvent::Ack(ack) => {
-							responses.insert(ack.id, None);
+							let id = ack.id;
+							responses.insert(id.clone(), None);
 							tokio::spawn({
 								let responses = responses.clone();
 								async move {
 									tokio::time::sleep(control_ttl).await;
-									responses.remove(&ack.id);
+									responses.remove(&id);
 								}
 							});
 						},
@@ -589,8 +625,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to write the process stdio"))?;
 
-		// Accumulate the lengths of the writes. A total length of zero indicates that
-		// the stream has reached EOF.
+		// Accumulate the lengths of the writes. A total length of zero indicates that the stream has reached EOF.
 		let mut len = 0;
 		let mut output = pin!(output);
 		while let Some(event) = output.try_next().await? {
@@ -652,14 +687,4 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to set the tty size"))?;
 		Ok(())
 	}
-}
-
-async fn wait_for_sandbox_process(
-	receiver: &mut tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
-) -> Option<Arc<tangram_sandbox::Process>> {
-	receiver
-		.wait_for(Option::is_some)
-		.await
-		.ok()
-		.and_then(|sandbox_process| sandbox_process.as_ref().cloned())
 }

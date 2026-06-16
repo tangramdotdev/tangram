@@ -5,7 +5,7 @@ use {
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::{BytesBase64, UuidBase32},
+	tangram_util::serde::BytesBase64,
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -51,7 +51,6 @@ pub enum ResponseEvent {
 	End,
 }
 
-#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -61,19 +60,13 @@ pub enum ResponseEvent {
 	tangram_serialize::Serialize,
 )]
 pub struct Response {
-	#[serde_as(as = "UuidBase32")]
-	#[tangram_serialize(
-		id = 0,
-		deserialize_with = "deserialize_uuid",
-		serialize_with = "serialize_uuid"
-	)]
-	pub id: uuid::Uuid,
+	#[tangram_serialize(id = 0)]
+	pub id: String,
 
 	#[tangram_serialize(id = 1)]
 	pub kind: ResponseKind,
 }
 
-#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -83,19 +76,13 @@ pub struct Response {
 	tangram_serialize::Serialize,
 )]
 pub struct Request {
-	#[serde_as(as = "UuidBase32")]
-	#[tangram_serialize(
-		id = 0,
-		deserialize_with = "deserialize_uuid",
-		serialize_with = "serialize_uuid"
-	)]
-	pub id: uuid::Uuid,
+	#[tangram_serialize(id = 0)]
+	pub id: String,
 
 	#[tangram_serialize(id = 1)]
 	pub kind: RequestKind,
 }
 
-#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -105,13 +92,8 @@ pub struct Request {
 	tangram_serialize::Serialize,
 )]
 pub struct Ack {
-	#[serde_as(as = "UuidBase32")]
-	#[tangram_serialize(
-		id = 0,
-		deserialize_with = "deserialize_uuid",
-		serialize_with = "serialize_uuid"
-	)]
-	pub id: uuid::Uuid,
+	#[tangram_serialize(id = 0)]
+	pub id: String,
 }
 
 #[derive(
@@ -252,20 +234,6 @@ pub struct ReadResponse {
 pub struct WriteResponse {
 	#[tangram_serialize(id = 0)]
 	pub len: usize,
-}
-
-fn serialize_uuid(
-	value: &uuid::Uuid,
-	serializer: &mut tangram_serialize::Serializer<'_>,
-) -> std::io::Result<()> {
-	serializer.serialize(value.as_bytes())
-}
-
-fn deserialize_uuid(
-	deserializer: &mut tangram_serialize::Deserializer<'_>,
-) -> std::io::Result<uuid::Uuid> {
-	let bytes: [u8; 16] = deserializer.deserialize()?;
-	Ok(uuid::Uuid::from_bytes(bytes))
 }
 
 impl tg::Session {

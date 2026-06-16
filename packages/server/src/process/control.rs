@@ -69,7 +69,7 @@ impl Session {
 
 		// Create the request.
 		let request = tg::process::control::Request {
-			id: uuid::Uuid::now_v7(),
+			id: tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes()),
 			kind: request,
 		};
 		let subject = format!("processes.{id}.control.{}", request.id);
@@ -103,7 +103,9 @@ impl Session {
 						// Send the ack over the control stream so that the runner can release the cached response.
 						let subject = format!("processes.{id}.control");
 						let payload = Message::Request(tg::process::control::RequestEvent::Ack(
-							tg::process::control::Ack { id: response.id },
+							tg::process::control::Ack {
+								id: response.id.clone(),
+							},
 						));
 						self.server
 							.messenger
@@ -259,8 +261,7 @@ impl Session {
 			})
 			.boxed();
 
-		// Mark the process started now that the subscription exists. This is a no-op if
-		// the process was already started, which is allowed due to reconnection.
+		// Mark the process started now that the subscription exists. This is a no-op if the process was already started, which is allowed due to reconnection.
 		self.server
 			.try_start_process_local(id)
 			.await

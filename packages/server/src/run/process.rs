@@ -342,8 +342,7 @@ impl Session {
 				_ => render_args_string(&command.args, &guest_artifacts_path, &guest_output_path)?,
 			};
 
-			// Get the working directory. On macOS there is no chroot, so "/" is the
-			// host root and not writable. Default to the scratch directory instead.
+			// Get the working directory. On macOS there is no chroot, so "/" is the host root and not writable. Default to the scratch directory instead.
 			let cwd = if let Some(cwd) = &command.cwd {
 				cwd.clone()
 			} else if cfg!(target_os = "macos") {

@@ -60,9 +60,7 @@ impl Server {
 			},
 		};
 
-		// For each chunk written, emit a write event with the length of the chunk. A
-		// broken pipe indicates that the process closed its stdin, so it is treated as
-		// EOF rather than an error.
+		// For each chunk written, emit a write event with the length of the chunk. A broken pipe indicates that the process closed its stdin, so it is treated as EOF rather than an error.
 		let server = self.clone();
 		let stream = stream.boxed();
 		let output = stream::try_unfold(

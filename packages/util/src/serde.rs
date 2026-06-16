@@ -1,9 +1,5 @@
 use {bytes::Bytes, num::ToPrimitive as _, std::borrow::Cow};
 
-const UUID_ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
-	symbols: "0123456789abcdefghjkmnpqrstvwxyz",
-};
-
 pub struct BytesBase64;
 
 impl serde_with::SerializeAs<Bytes> for BytesBase64 {
@@ -175,50 +171,6 @@ impl<'de> serde_with::DeserializeAs<'de, std::io::SeekFrom> for SeekFromNumberOr
 						.map_err(|error| serde::de::Error::custom(error))?;
 					Ok(std::io::SeekFrom::Start(seek))
 				}
-			}
-		}
-
-		deserializer.deserialize_any(Visitor)
-	}
-}
-
-pub struct UuidBase32;
-
-impl serde_with::SerializeAs<uuid::Uuid> for UuidBase32 {
-	fn serialize_as<S>(value: &uuid::Uuid, serializer: S) -> Result<S::Ok, S::Error>
-	where
-		S: serde::Serializer,
-	{
-		let string = UUID_ENCODING.encode(value.as_bytes());
-		serializer.serialize_str(&string)
-	}
-}
-
-impl<'de> serde_with::DeserializeAs<'de, uuid::Uuid> for UuidBase32 {
-	fn deserialize_as<D>(deserializer: D) -> Result<uuid::Uuid, D::Error>
-	where
-		D: serde::Deserializer<'de>,
-	{
-		struct Visitor;
-
-		impl serde::de::Visitor<'_> for Visitor {
-			type Value = uuid::Uuid;
-
-			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-				formatter.write_str("a base32 encoded uuid")
-			}
-
-			fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-			where
-				E: serde::de::Error,
-			{
-				let bytes = UUID_ENCODING
-					.decode(value.as_bytes())
-					.map_err(|_| serde::de::Error::custom("invalid string"))?;
-				let bytes: [u8; 16] = bytes
-					.try_into()
-					.map_err(|_| serde::de::Error::custom("invalid length"))?;
-				Ok(uuid::Uuid::from_bytes(bytes))
 			}
 		}
 

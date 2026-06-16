@@ -81,8 +81,7 @@ impl Session {
 		self.authorize_process_stdio_write(id, streams).await?;
 		let (sender, receiver) = tokio::sync::mpsc::channel(4);
 
-		// Create a stopper that is triggered when the process is finished. A write to a
-		// finished process will never be acknowledged, so the write task must stop.
+		// Create a stopper that is triggered when the process is finished. A write to a finished process will never be acknowledged, so the write task must stop.
 		let finished = Stopper::new();
 
 		// Spawn the write task.
@@ -139,9 +138,7 @@ impl Session {
 			}
 		});
 
-		// Spawn the status task. When the process is finished, stop the write task.
-		// This applies only to stdin: a write to a finished process's stdin will never
-		// be acknowledged, whereas logged stdout and stderr must be drained to the end.
+		// Spawn the status task. When the process is finished, stop the write task. This applies only to stdin: a write to a finished process's stdin will never be acknowledged, whereas logged stdout and stderr must be drained to the end.
 		let status_task = if streams.contains(&tg::process::stdio::Stream::Stdin) {
 			Some(Task::spawn({
 				let session = self.clone();
@@ -292,9 +289,7 @@ impl Session {
 								.write_process_stdio_chunk_local(id, chunk.stream, chunk.bytes)
 								.await?;
 
-							// A write length of zero indicates that the stream reached EOF,
-							// either because the process closed the stream or because the
-							// client sent an empty chunk to signal EOF, so end the stream.
+							// A write length of zero indicates that the stream reached EOF, either because the process closed the stream or because the client sent an empty chunk to signal EOF, so end the stream.
 							if len == 0 {
 								return Ok(());
 							}
