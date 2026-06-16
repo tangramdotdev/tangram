@@ -195,7 +195,7 @@ tokio-util = { version = "0.7", features = ["full"] }
 tokio-vsock = "0.7.2"
 toml = { version = "1" }
 tower = { version = "0.5", features = ["timeout", "util"] }
-tower-http = { version = "0.6", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
+tower-http = { version = "0.7", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = "0.1.44"
 tracing-opentelemetry = "0.33"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

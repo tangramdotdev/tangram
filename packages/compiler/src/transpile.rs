@@ -23,27 +23,31 @@ impl Compiler {
 		let source_type = oxc::span::SourceType::ts();
 		let oxc::parser::ParserReturn {
 			mut program,
-			errors,
+			diagnostics: parse_diagnostics,
 			..
 		} = oxc::parser::Parser::new(&allocator, text, source_type).parse();
-		for error in &errors {
+		for error in &parse_diagnostics {
 			diagnostics.push(crate::util::convert_diagnostic(error, module, text));
 		}
 
 		// Get semantic analysis.
-		let oxc::semantic::SemanticBuilderReturn { semantic, errors } =
-			oxc::semantic::SemanticBuilder::new().build(&program);
-		for error in &errors {
+		let oxc::semantic::SemanticBuilderReturn {
+			semantic,
+			diagnostics: semantic_diagnostics,
+		} = oxc::semantic::SemanticBuilder::new().build(&program);
+		for error in &semantic_diagnostics {
 			diagnostics.push(crate::util::convert_diagnostic(error, module, text));
 		}
 
 		// Transform.
 		let path = Path::new("module.ts");
 		let options = oxc::transformer::TransformOptions::default();
-		let oxc::transformer::TransformerReturn { errors, .. } =
-			oxc::transformer::Transformer::new(&allocator, path, &options)
-				.build_with_scoping(semantic.into_scoping(), &mut program);
-		for error in &errors {
+		let oxc::transformer::TransformerReturn {
+			diagnostics: transform_diagnostics,
+			..
+		} = oxc::transformer::Transformer::new(&allocator, path, &options)
+			.build_with_scoping(semantic.into_scoping(), &mut program);
+		for error in &transform_diagnostics {
 			diagnostics.push(crate::util::convert_diagnostic(error, module, text));
 		}
 

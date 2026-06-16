@@ -29,7 +29,7 @@ impl Compiler {
 		// Parse the text.
 		let source_type = oxc::span::SourceType::ts();
 		let output = oxc::parser::Parser::new(&allocator, text, source_type).parse();
-		for error in &output.errors {
+		for error in &output.diagnostics {
 			diagnostics.push(crate::util::convert_diagnostic(error, module, text));
 		}
 

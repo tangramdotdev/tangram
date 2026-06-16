@@ -10,8 +10,8 @@ pub fn metadata(text: &str) -> tg::Result<Option<serde_json::Map<String, serde_j
 	let source_type = oxc::span::SourceType::ts();
 	let output = oxc::parser::Parser::new(&allocator, text, source_type).parse();
 
-	if !output.errors.is_empty() {
-		let messages: Vec<_> = output.errors.iter().map(ToString::to_string).collect();
+	if !output.diagnostics.is_empty() {
+		let messages: Vec<_> = output.diagnostics.iter().map(ToString::to_string).collect();
 		return Err(tg::error!(
 			"failed to parse module: {}",
 			messages.join(", ")

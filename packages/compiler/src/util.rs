@@ -8,13 +8,9 @@ pub fn convert_diagnostic(
 ) -> tg::diagnostic::Data {
 	let span = diagnostic
 		.labels
-		.as_ref()
-		.and_then(|labels| labels.first())
+		.first()
 		.map_or(oxc::span::Span::new(0, 0), |label| {
-			oxc::span::Span::new(
-				label.offset().try_into().unwrap(),
-				(label.offset() + label.len()).try_into().unwrap(),
-			)
+			oxc::span::Span::new(label.offset(), label.offset() + label.len())
 		});
 	let byte_range = span.start as usize..span.end as usize;
 	let range =
