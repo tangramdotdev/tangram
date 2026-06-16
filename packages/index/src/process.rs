@@ -119,6 +119,22 @@ pub struct Stored {
 	pub subtree_output: bool,
 }
 
+bitflags::bitflags! {
+	#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+	pub struct Permissions: u16 {
+		const NODE = 1 << 0;
+		const NODE_COMMAND = 1 << 1;
+		const NODE_ERROR = 1 << 2;
+		const NODE_LOG = 1 << 3;
+		const NODE_OUTPUT = 1 << 4;
+		const SUBTREE = 1 << 5;
+		const SUBTREE_COMMAND = 1 << 6;
+		const SUBTREE_ERROR = 1 << 7;
+		const SUBTREE_LOG = 1 << 8;
+		const SUBTREE_OUTPUT = 1 << 9;
+	}
+}
+
 impl Process {
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
@@ -156,5 +172,31 @@ impl Stored {
 		self.subtree_error = self.subtree_error || other.subtree_error;
 		self.subtree_log = self.subtree_log || other.subtree_log;
 		self.subtree_output = self.subtree_output || other.subtree_output;
+	}
+}
+
+impl Permissions {
+	#[must_use]
+	pub fn from_grant_permission(permission: tg::grant::permission::process::Permission) -> Self {
+		match permission {
+			tg::grant::permission::process::Permission::Node => Self::NODE,
+			tg::grant::permission::process::Permission::NodeCommand => Self::NODE_COMMAND,
+			tg::grant::permission::process::Permission::NodeError => Self::NODE_ERROR,
+			tg::grant::permission::process::Permission::NodeLog => Self::NODE_LOG,
+			tg::grant::permission::process::Permission::NodeOutput => Self::NODE_OUTPUT,
+			tg::grant::permission::process::Permission::Subtree => Self::SUBTREE,
+			tg::grant::permission::process::Permission::SubtreeCommand => Self::SUBTREE_COMMAND,
+			tg::grant::permission::process::Permission::SubtreeError => Self::SUBTREE_ERROR,
+			tg::grant::permission::process::Permission::SubtreeLog => Self::SUBTREE_LOG,
+			tg::grant::permission::process::Permission::SubtreeOutput => Self::SUBTREE_OUTPUT,
+		}
+	}
+
+	#[must_use]
+	pub fn contains_grant_permission(
+		self,
+		permission: tg::grant::permission::process::Permission,
+	) -> bool {
+		self.contains(Self::from_grant_permission(permission))
 	}
 }

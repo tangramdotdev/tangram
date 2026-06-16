@@ -23,15 +23,15 @@ impl Session {
 		}
 
 		// Attempt to authorize.
-		if let Some(true) = self
+		if let Some(output) = self
 			.server
 			.index
 			.authorize(
 				resource.clone(),
-				permission,
+				tangram_index::authorize::Permissions::from_grant_permission(permission),
 				self.context.principal.as_ref(),
 			)
-			.await?
+			.await? && output.permissions.contains_grant_permission(permission)
 		{
 			return Ok(Some(true));
 		}
@@ -48,9 +48,13 @@ impl Session {
 		let output = self
 			.server
 			.index
-			.authorize(resource, permission, self.context.principal.as_ref())
+			.authorize(
+				resource,
+				tangram_index::authorize::Permissions::from_grant_permission(permission),
+				self.context.principal.as_ref(),
+			)
 			.await?;
 
-		Ok(output)
+		Ok(output.map(|output| output.permissions.contains_grant_permission(permission)))
 	}
 }

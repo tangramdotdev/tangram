@@ -6,47 +6,61 @@ use {
 };
 
 impl Index {
-	pub async fn authorize(
+	pub async fn authorize_batch(
 		&self,
-		resource: tg::grant::Resource,
-		permission: tg::grant::Permission,
+		args: &[crate::authorize::Arg],
 		principal: Option<&tg::Principal>,
-	) -> tg::Result<Option<bool>> {
+	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
+		if args.is_empty() {
+			return Ok(Vec::new());
+		}
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let subspace = self.subspace.clone();
+			let args = args.to_owned();
 			let principal = principal.cloned();
 			move || {
 				let transaction = env
 					.read_txn()
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let Some(id) = Self::try_resolve_resource_with_transaction(
-					&db,
-					&subspace,
-					&transaction,
-					&resource,
-				)?
-				else {
-					return Ok(None);
-				};
-				crate::authorize::validate(&id, permission)?;
-				if matches!(principal, Some(tg::Principal::Root)) {
-					return Ok(Some(true));
+				let mut outputs = Vec::with_capacity(args.len());
+				for arg in args {
+					let Some(id) = Self::try_resolve_resource_with_transaction(
+						&db,
+						&subspace,
+						&transaction,
+						&arg.resource,
+					)?
+					else {
+						outputs.push(None);
+						continue;
+					};
+					arg.permissions.validate(&id)?;
+					if matches!(principal, Some(tg::Principal::Root)) {
+						outputs.push(Some(crate::authorize::Output {
+							permissions: arg.permissions,
+						}));
+						continue;
+					}
+					if matches!(principal, Some(tg::Principal::Process(ref process)) if tg::Id::from(process.clone()) == id)
+					{
+						outputs.push(Some(crate::authorize::Output {
+							permissions: arg.permissions,
+						}));
+						continue;
+					}
+					let permissions = Self::authorize_with_transaction(
+						&db,
+						&subspace,
+						&transaction,
+						&id,
+						arg.permissions,
+						principal.as_ref(),
+					)?;
+					outputs.push(Some(crate::authorize::Output { permissions }));
 				}
-				if matches!(principal, Some(tg::Principal::Process(ref process)) if tg::Id::from(process.clone()) == id)
-				{
-					return Ok(Some(true));
-				}
-				let authorized = Self::authorize_with_transaction(
-					&db,
-					&subspace,
-					&transaction,
-					id,
-					permission,
-					principal.as_ref(),
-				)?;
-				Ok(Some(authorized))
+				Ok(outputs)
 			}
 		})
 		.await
@@ -58,10 +72,10 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		resource: tg::Id,
-		permission: tg::grant::Permission,
+		resource: &tg::Id,
+		permissions: crate::authorize::Permissions,
 		principal: Option<&tg::Principal>,
-	) -> tg::Result<bool> {
+	) -> tg::Result<crate::authorize::Permissions> {
 		let requester = principal.cloned().map(tg::grant::Principal::from);
 		let requester_id = principal.and_then(|principal| match principal {
 			tg::Principal::Group(id) => Some(tg::Id::from(id.clone())),
@@ -71,20 +85,32 @@ impl Index {
 			tg::Principal::User(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Root | tg::Principal::Runner => None,
 		});
-		let mut resource_queue = VecDeque::from([(resource, permission)]);
+		let mut resource_queue = permissions
+			.entries()
+			.map(|(permission, requested)| (resource.to_owned(), permission, requested))
+			.collect::<VecDeque<_>>();
 		let mut resource_visited = HashSet::new();
-		let mut principal_queue: VecDeque<tg::Id> = VecDeque::new();
+		let mut found = permissions.empty_like();
+		let mut principal_queue: VecDeque<(tg::Id, crate::authorize::Permissions)> =
+			VecDeque::new();
 		let mut principal_visited = HashSet::new();
 		loop {
-			if let Some((id, needed)) = resource_queue.pop_front() {
-				if !resource_visited.insert((id.clone(), needed)) {
+			if found.contains(permissions) {
+				break;
+			}
+			if let Some((id, needed, requested)) = resource_queue.pop_front() {
+				if found.contains(requested) {
+					continue;
+				}
+				if !resource_visited.insert((id.clone(), needed, requested)) {
 					continue;
 				}
 				if let (Some(tg::Principal::Process(process)), tg::grant::Permission::Process(_)) =
 					(principal, needed)
 					&& tg::Id::from(process.clone()) == id
 				{
-					return Ok(true);
+					found.insert(requested);
+					continue;
 				}
 
 				// Check the grants on this resource.
@@ -95,22 +121,27 @@ impl Index {
 						continue;
 					}
 					if granted_principal == tg::grant::Principal::Public {
-						return Ok(true);
+						found.insert(requested);
+						break;
 					}
 					if requester.as_ref() == Some(&granted_principal) {
-						return Ok(true);
+						found.insert(requested);
+						break;
 					}
 					if requester_id.is_some() {
 						match granted_principal {
 							tg::grant::Principal::Group(group) => {
-								principal_queue.push_back(group.into());
+								principal_queue.push_back((group.into(), requested));
 							},
 							tg::grant::Principal::Organization(organization) => {
-								principal_queue.push_back(organization.into());
+								principal_queue.push_back((organization.into(), requested));
 							},
 							_ => {},
 						}
 					}
+				}
+				if found.contains(requested) {
+					continue;
 				}
 
 				// Expand to the resources whose grants confer the needed permission.
@@ -127,7 +158,7 @@ impl Index {
 							let needed = tg::grant::Permission::Object(
 								tg::grant::permission::object::Permission::Subtree,
 							);
-							resource_queue.push_back((parent.into(), needed));
+							resource_queue.push_back((parent.into(), needed, requested));
 						}
 						let processes = Self::get_object_processes_with_transaction(
 							db,
@@ -136,10 +167,22 @@ impl Index {
 							&object,
 						)?;
 						for (process, kind) in processes {
-							let needed = tg::grant::Permission::Process(
-								crate::authorize::node_permission(kind),
-							);
-							resource_queue.push_back((process.into(), needed));
+							let permission = match kind {
+								crate::process::object::Kind::Command => {
+									tg::grant::permission::process::Permission::NodeCommand
+								},
+								crate::process::object::Kind::Error => {
+									tg::grant::permission::process::Permission::NodeError
+								},
+								crate::process::object::Kind::Log => {
+									tg::grant::permission::process::Permission::NodeLog
+								},
+								crate::process::object::Kind::Output => {
+									tg::grant::permission::process::Permission::NodeOutput
+								},
+							};
+							let needed = tg::grant::Permission::Process(permission);
+							resource_queue.push_back((process.into(), needed, requested));
 						}
 						Self::expand_item_tags_with_transaction(
 							db,
@@ -147,6 +190,7 @@ impl Index {
 							transaction,
 							&id,
 							needed,
+							requested,
 							&mut resource_queue,
 						)?;
 					},
@@ -161,7 +205,7 @@ impl Index {
 						for parent in parents {
 							let needed =
 								tg::grant::Permission::Process(process_permission.to_subtree());
-							resource_queue.push_back((parent.into(), needed));
+							resource_queue.push_back((parent.into(), needed, requested));
 						}
 						Self::expand_item_tags_with_transaction(
 							db,
@@ -169,6 +213,7 @@ impl Index {
 							transaction,
 							&id,
 							needed,
+							requested,
 							&mut resource_queue,
 						)?;
 					},
@@ -193,7 +238,7 @@ impl Index {
 							_ => None,
 						};
 						if let Some(parent) = parent {
-							resource_queue.push_back((parent, needed));
+							resource_queue.push_back((parent, needed, requested));
 						}
 					},
 				}
@@ -201,8 +246,11 @@ impl Index {
 				continue;
 			}
 
-			if let Some(id) = principal_queue.pop_front() {
-				if !principal_visited.insert(id.clone()) {
+			if let Some((id, requested)) = principal_queue.pop_front() {
+				if found.contains(requested) {
+					continue;
+				}
+				if !principal_visited.insert((id.clone(), requested)) {
 					continue;
 				}
 				let members: Vec<tg::Id> = match id.kind() {
@@ -228,10 +276,11 @@ impl Index {
 				};
 				for member in members {
 					if requester_id.as_ref() == Some(&member) {
-						return Ok(true);
+						found.insert(requested);
+						break;
 					}
 					if member.kind() == tg::id::Kind::Group {
-						principal_queue.push_back(member);
+						principal_queue.push_back((member, requested));
 					}
 				}
 				continue;
@@ -239,7 +288,7 @@ impl Index {
 
 			break;
 		}
-		Ok(false)
+		Ok(found)
 	}
 
 	/// Expand to the tags on an item whose recorded permissions imply the needed permission.
@@ -249,7 +298,12 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		item: &tg::Id,
 		needed: tg::grant::Permission,
-		resource_queue: &mut VecDeque<(tg::Id, tg::grant::Permission)>,
+		requested: crate::authorize::Permissions,
+		resource_queue: &mut VecDeque<(
+			tg::Id,
+			tg::grant::Permission,
+			crate::authorize::Permissions,
+		)>,
 	) -> tg::Result<()> {
 		let item_bytes = item.to_bytes();
 		let tags =
@@ -264,7 +318,7 @@ impl Index {
 				.iter()
 				.any(|permission| permission.implies(needed))
 			{
-				resource_queue.push_back((tag.into(), tg::grant::Permission::Read));
+				resource_queue.push_back((tag.into(), tg::grant::Permission::Read, requested));
 			}
 		}
 		Ok(())

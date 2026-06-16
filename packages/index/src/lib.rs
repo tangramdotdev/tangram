@@ -22,12 +22,31 @@ pub mod prelude {
 }
 
 pub trait Index {
+	fn authorize_batch(
+		&self,
+		args: &[crate::authorize::Arg],
+		principal: Option<&tg::Principal>,
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::authorize::Output>>>> + Send;
+
 	fn authorize(
 		&self,
 		resource: tg::grant::Resource,
-		permission: tg::grant::Permission,
+		permissions: crate::authorize::Permissions,
 		principal: Option<&tg::Principal>,
-	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<crate::authorize::Output>>> + Send
+	where
+		Self: Sync,
+	{
+		let arg = crate::authorize::Arg {
+			permissions,
+			resource,
+		};
+		async move {
+			self.authorize_batch(&[arg], principal)
+				.await
+				.map(|mut output| output.pop().unwrap())
+		}
+	}
 
 	fn visible(
 		&self,

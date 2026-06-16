@@ -7848,6 +7848,7 @@ dependencies = [
 name = "tangram_index"
 version = "0.0.0"
 dependencies = [
+ "bitflags 2.13.0",
  "crossbeam-channel",
  "derive_more",
  "foundationdb",

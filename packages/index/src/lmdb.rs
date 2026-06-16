@@ -159,13 +159,12 @@ impl Index {
 }
 
 impl crate::Index for Index {
-	async fn authorize(
+	async fn authorize_batch(
 		&self,
-		resource: tg::grant::Resource,
-		permission: tg::grant::Permission,
+		args: &[crate::authorize::Arg],
 		principal: Option<&tg::Principal>,
-	) -> tg::Result<Option<bool>> {
-		self.authorize(resource, permission, principal).await
+	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
+		self.authorize_batch(args, principal).await
 	}
 
 	async fn visible(

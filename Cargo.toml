@@ -68,6 +68,7 @@ async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.49"
 async_zip = { version = "0.0.18", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
+bitflags = "2"
 blake3 = "1"
 byte-unit = { version = "5", features = ["byte"] }
 byteorder = "1"

@@ -22,6 +22,7 @@ doctest = false
 test = false
 
 [dependencies]
+bitflags = { workspace = true }
 crossbeam-channel = { workspace = true }
 derive_more = { workspace = true }
 foundationdb = { workspace = true, optional = true }
