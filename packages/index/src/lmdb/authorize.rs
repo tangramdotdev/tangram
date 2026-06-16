@@ -1,7 +1,7 @@
 use {
 	crate::lmdb::{Db, Index},
 	foundationdb_tuple as fdbt, heed as lmdb,
-	std::collections::{HashMap, HashSet},
+	std::collections::{HashMap, HashSet, VecDeque},
 	tangram_client::prelude::*,
 };
 
@@ -160,13 +160,13 @@ impl Index {
 		}
 
 		let mut pending = HashSet::from([root.clone()]);
-		let mut stack = vec![AuthorizationFrame {
+		let mut queue = VecDeque::from([AuthorizationFrame {
 			resource: resource.clone(),
 			permission,
 			dependencies: None,
-		}];
+		}]);
 
-		while let Some(frame) = stack.pop() {
+		while let Some(frame) = queue.pop_front() {
 			let key = (frame.resource.clone(), frame.permission);
 			if cache.authorization.contains_key(&key) {
 				pending.remove(&key);
@@ -193,7 +193,7 @@ impl Index {
 				if complete {
 					Self::finish_authorization(cache, &mut pending, key, authorized);
 				} else {
-					stack.push(AuthorizationFrame {
+					queue.push_back(AuthorizationFrame {
 						resource: frame.resource,
 						permission: frame.permission,
 						dependencies: Some(dependencies),
@@ -249,13 +249,13 @@ impl Index {
 				continue;
 			}
 
-			stack.push(AuthorizationFrame {
+			queue.push_back(AuthorizationFrame {
 				resource: frame.resource,
 				permission: frame.permission,
 				dependencies: Some(dependencies),
 			});
-			for (dependency, dependency_permission) in dependencies_to_push.into_iter().rev() {
-				stack.push(AuthorizationFrame {
+			for (dependency, dependency_permission) in dependencies_to_push {
+				queue.push_back(AuthorizationFrame {
 					resource: dependency,
 					permission: dependency_permission,
 					dependencies: None,
