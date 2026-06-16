@@ -270,7 +270,7 @@ impl Session {
 								sandbox_process,
 							)
 							.await
-							.map(|()| tg::process::control::WriteResponse { len: 0 })
+							.map(|()| tg::process::control::WriteResponse { length: 0 })
 						} else {
 							Self::handle_process_control_write_request(
 								&sandbox,
@@ -281,9 +281,9 @@ impl Session {
 						}
 					} else {
 						// If the sandbox process was never spawned, then respond with EOF.
-						Ok(tg::process::control::WriteResponse { len: 0 })
+						Ok(tg::process::control::WriteResponse { length: 0 })
 					};
-					let eof = response.as_ref().is_ok_and(|response| response.len == 0);
+					let eof = response.as_ref().is_ok_and(|response| response.length == 0);
 					let kind = match response {
 						Ok(response) => tg::process::control::ResponseKind::Write(response),
 						Err(error) => {
@@ -598,7 +598,7 @@ impl Session {
 			}
 
 			// Take up to the requested length from the buffer.
-			let amount = (r.buffer.len() - r.offset).min(request.len);
+			let amount = (r.buffer.len() - r.offset).min(request.length);
 			let bytes = r.buffer.slice(r.offset..r.offset + amount);
 			r.offset += amount;
 
@@ -639,7 +639,7 @@ impl Session {
 				tg::process::stdio::write::Event::Stop => (),
 			}
 		}
-		Ok(tg::process::control::WriteResponse { len })
+		Ok(tg::process::control::WriteResponse { length: len })
 	}
 
 	async fn handle_process_control_stdin_close_request(

@@ -336,7 +336,7 @@ impl Session {
 			let request =
 				tg::process::control::RequestKind::Read(tg::process::control::ReadRequest {
 					stream,
-					len: READ_CHUNK_SIZE,
+					length: READ_CHUNK_SIZE,
 				});
 			let Some(response) = self
 				.try_send_process_control_request(id, request, u64::MAX)

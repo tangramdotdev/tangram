@@ -59,12 +59,12 @@ pub enum ResponseEvent {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Response {
+pub struct Request {
 	#[tangram_serialize(id = 0)]
 	pub id: String,
 
 	#[tangram_serialize(id = 1)]
-	pub kind: ResponseKind,
+	pub kind: RequestKind,
 }
 
 #[derive(
@@ -75,12 +75,12 @@ pub struct Response {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Request {
+pub struct Response {
 	#[tangram_serialize(id = 0)]
 	pub id: String,
 
 	#[tangram_serialize(id = 1)]
-	pub kind: RequestKind,
+	pub kind: ResponseKind,
 }
 
 #[derive(
@@ -158,7 +158,7 @@ pub struct ReadRequest {
 	pub stream: tg::process::stdio::Stream,
 
 	#[tangram_serialize(id = 1)]
-	pub len: usize,
+	pub length: usize,
 }
 
 #[serde_as]
@@ -233,7 +233,7 @@ pub struct ReadResponse {
 )]
 pub struct WriteResponse {
 	#[tangram_serialize(id = 0)]
-	pub len: usize,
+	pub length: usize,
 }
 
 impl tg::Session {

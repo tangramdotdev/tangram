@@ -285,12 +285,12 @@ impl Session {
 							});
 						},
 						Destination::Pipe => {
-							let len = self
+							let length = self
 								.write_process_stdio_chunk_local(id, chunk.stream, chunk.bytes)
 								.await?;
 
 							// A write length of zero indicates that the stream reached EOF, either because the process closed the stream or because the client sent an empty chunk to signal EOF, so end the stream.
-							if len == 0 {
+							if length == 0 {
 								return Ok(());
 							}
 						},
@@ -338,7 +338,7 @@ impl Session {
 		let tg::process::control::ResponseKind::Write(response) = response.kind else {
 			return Err(tg::error!("expected a write response"));
 		};
-		Ok(response.len)
+		Ok(response.length)
 	}
 
 	async fn try_write_process_stdio_region(
