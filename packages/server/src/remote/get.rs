@@ -28,9 +28,15 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!("unauthenticated"))?;
 		match principal {
-			tg::Principal::Process(_) | tg::Principal::Root | tg::Principal::Sandbox(_) => {
-				self.try_get_remote_root(name).await
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
+				match self.resolve_remote_principal(principal).await? {
+					tg::Principal::Root => self.try_get_remote_root(name).await,
+					tg::Principal::Runner => self.try_get_remote_runner(name).await,
+					tg::Principal::User(user) => self.try_get_remote_user(name, &user).await,
+					_ => unreachable!(),
+				}
 			},
+			tg::Principal::Root => self.try_get_remote_root(name).await,
 			tg::Principal::Runner => self.try_get_remote_runner(name).await,
 			tg::Principal::User(user) => self.try_get_remote_user(name, user).await,
 			tg::Principal::Group(_) | tg::Principal::Organization(_) => {

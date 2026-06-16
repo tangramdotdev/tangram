@@ -24,7 +24,7 @@ impl Session {
 		};
 		match principal {
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-				match self.resolve_remote_list_principal(principal).await? {
+				match self.resolve_remote_principal(principal).await? {
 					tg::Principal::Root => self.list_remotes_root().await,
 					tg::Principal::Runner => self.list_remotes_runner().await,
 					tg::Principal::User(user) => self.list_remotes_user(&user).await,
@@ -37,71 +37,6 @@ impl Session {
 			tg::Principal::Group(_) | tg::Principal::Organization(_) => {
 				Err(tg::error!("unauthorized"))
 			},
-		}
-	}
-
-	async fn resolve_remote_list_principal(
-		&self,
-		principal: &tg::Principal,
-	) -> tg::Result<tg::Principal> {
-		let id = match principal {
-			tg::Principal::Process(id) => id.to_string(),
-			tg::Principal::Sandbox(id) => id.to_string(),
-			_ => return Ok(principal.clone()),
-		};
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				with recursive creators(principal) as (
-					select creator from (
-						select creator
-						from processes
-						where id = {p}1
-
-						union
-
-						select creator
-						from sandboxes
-						where id = {p}1
-					) anchors
-
-					union
-
-					select edges.creator
-					from creators
-					join (
-						select id, creator
-						from processes
-
-						union
-
-						select id, creator
-						from sandboxes
-					) edges on edges.id = creators.principal
-				)
-				select principal
-				from creators
-				where principal in ('root', 'runner') or principal like 'usr_%'
-				limit 1;
-			"
-		);
-		let principal = connection
-			.query_optional_value_into::<String>(statement.into(), db::params![id])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.ok_or_else(|| tg::error!("failed to resolve the principal creator"))?;
-		let principal = principal
-			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the principal creator"))?;
-		match principal {
-			tg::Principal::Root | tg::Principal::Runner | tg::Principal::User(_) => Ok(principal),
-			_ => Err(tg::error!("failed to resolve the principal creator")),
 		}
 	}
 

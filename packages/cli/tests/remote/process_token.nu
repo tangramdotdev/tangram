@@ -35,6 +35,10 @@ let remotes = tg --token $token remote list | from json
 assert equal ($remotes | get name) [alice]
 assert equal ($remotes | get url) [$alice_remote.url]
 
+# Getting a remote with a process token uses the creator's remotes.
+let remote = tg --token $token remote get alice | from json
+assert equal $remote.url $alice_remote.url
+
 # Putting a remote with a process token is unauthorized.
 let output = tg --token $token remote put upstream "http://localhost:9999" | complete
 failure $output
