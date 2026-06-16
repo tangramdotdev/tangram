@@ -92,6 +92,12 @@ impl Session {
 				if self.authorize(resource, permission).await? != Some(true) {
 					return Ok(None);
 				}
+				let mut output = output;
+				if let Some(output) = &mut output
+					&& let Some(metadata) = output.metadata.take()
+				{
+					output.metadata = self.mask_process_metadata(id, metadata).await?;
+				}
 				Ok::<_, tg::Error>(output)
 			})
 			.collect::<FuturesOrdered<_>>()

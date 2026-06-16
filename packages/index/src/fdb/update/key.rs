@@ -4,10 +4,18 @@ use {foundationdb_tuple as fdbt, tangram_client::prelude::*};
 pub enum Key {
 	Update {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
+		kind: Kind,
 	},
 	UpdateVersion {
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+		kind: Kind,
 		partition: u64,
 		version: fdbt::Versionstamp,
-		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Kind {
+	Item,
+	Grants(tg::grant::Principal),
 }

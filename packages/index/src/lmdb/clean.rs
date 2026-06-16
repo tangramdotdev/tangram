@@ -207,7 +207,28 @@ impl Index {
 			});
 		}
 		let count = args.len();
-		Self::task_delete_grants(db, subspace, transaction, &args)?;
+		for arg in args {
+			Self::delete_grant_index_entry(
+				db,
+				subspace,
+				transaction,
+				&crate::lmdb::grant::GrantIndexEntry {
+					expires_at: arg.expires_at,
+					permission: arg.permission,
+					principal: &arg.principal,
+					resource: &arg.resource,
+				},
+				crate::lmdb::grant::GrantSource::All,
+			)?;
+			Self::enqueue_grant_update(
+				db,
+				subspace,
+				transaction,
+				&arg.resource,
+				&arg.principal,
+				arg.permission,
+			)?;
+		}
 		Ok(count)
 	}
 

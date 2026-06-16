@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Server, Session},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -58,15 +58,132 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		if !self.get_process_exists_local(id).await? {
+		let Some(metadata) = self.server.try_get_process_metadata_local(id).await? else {
 			return Ok(None);
+		};
+		self.mask_process_metadata(id, metadata).await
+	}
+
+	pub(crate) async fn mask_process_metadata(
+		&self,
+		id: &tg::process::Id,
+		metadata: tg::process::Metadata,
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		let permission = |permission| tg::grant::Permission::Process(permission);
+		let mut output = tg::process::Metadata::default();
+		let mut authorized = false;
+
+		if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::Node),
+			)
+			.await? == Some(true)
+		{
+			authorized = true;
 		}
-		Ok(self
-			.server
-			.index
-			.try_get_process(id)
-			.await?
-			.map(|p| p.metadata))
+
+		if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::Subtree),
+			)
+			.await? == Some(true)
+		{
+			output.subtree.count = metadata.subtree.count;
+			authorized = true;
+		}
+
+		if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::SubtreeCommand),
+			)
+			.await? == Some(true)
+		{
+			output.node.command = metadata.node.command.clone();
+			output.subtree.command = metadata.subtree.command.clone();
+			authorized = true;
+		} else if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::NodeCommand),
+			)
+			.await? == Some(true)
+		{
+			output.node.command = metadata.node.command.clone();
+			authorized = true;
+		}
+
+		if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::SubtreeError),
+			)
+			.await? == Some(true)
+		{
+			output.node.error = metadata.node.error.clone();
+			output.subtree.error = metadata.subtree.error.clone();
+			authorized = true;
+		} else if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::NodeError),
+			)
+			.await? == Some(true)
+		{
+			output.node.error = metadata.node.error.clone();
+			authorized = true;
+		}
+
+		if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::SubtreeLog),
+			)
+			.await? == Some(true)
+		{
+			output.node.log = metadata.node.log.clone();
+			output.subtree.log = metadata.subtree.log.clone();
+			authorized = true;
+		} else if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::NodeLog),
+			)
+			.await? == Some(true)
+		{
+			output.node.log = metadata.node.log.clone();
+			authorized = true;
+		}
+
+		if self
+			.authorize(
+				resource.clone(),
+				permission(tg::grant::permission::process::Permission::SubtreeOutput),
+			)
+			.await? == Some(true)
+		{
+			output.node.output = metadata.node.output.clone();
+			output.subtree.output = metadata.subtree.output.clone();
+			authorized = true;
+		} else if self
+			.authorize(
+				resource,
+				permission(tg::grant::permission::process::Permission::NodeOutput),
+			)
+			.await? == Some(true)
+		{
+			output.node.output = metadata.node.output.clone();
+			authorized = true;
+		}
+
+		if authorized {
+			Ok(Some(output))
+		} else {
+			Ok(None)
+		}
 	}
 
 	async fn try_get_process_metadata_regions(
@@ -225,5 +342,21 @@ impl Session {
 		}
 		let response = response.body(body).unwrap();
 		Ok(response)
+	}
+}
+
+impl Server {
+	pub(crate) async fn try_get_process_metadata_local(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		let Some(_) = self.try_get_process_local(id, false).await? else {
+			return Ok(None);
+		};
+		Ok(self
+			.index
+			.try_get_process(id)
+			.await?
+			.map(|process| process.metadata))
 	}
 }

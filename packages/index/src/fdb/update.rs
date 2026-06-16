@@ -1,21 +1,67 @@
 mod key;
 
-pub(super) use key::Key;
+pub(super) use key::{Key, Kind};
 
 use {
-	super::{Index, Kind, Request, Response},
+	super::{Index, Kind as KeyKind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::{self as fdbt, Subspace},
 	futures::future,
-	num_traits::{FromPrimitive as _, ToPrimitive as _},
+	num_traits::ToPrimitive as _,
+	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
-#[repr(u8)]
-pub(super) enum Update {
-	Put = 0,
-	Propagate = 1,
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) struct Update {
+	#[tangram_serialize(id = 0)]
+	pub source: Source,
+}
+
+#[derive(
+	Clone, Copy, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) enum Source {
+	#[tangram_serialize(id = 0)]
+	Put,
+
+	#[tangram_serialize(id = 1)]
+	Propagate,
+}
+
+struct ProcessGrantInputs<'a> {
+	resource: &'a tg::Id,
+	entries: &'a [crate::fdb::grant::GrantEntry],
+	child_entries: &'a [Vec<crate::fdb::grant::GrantEntry>],
+	command_object_entries: Option<&'a [crate::fdb::grant::GrantEntry]>,
+	error_object_entries: &'a [Vec<crate::fdb::grant::GrantEntry>],
+	log_object_entries: Option<&'a [crate::fdb::grant::GrantEntry]>,
+	output_object_entries: &'a [Vec<crate::fdb::grant::GrantEntry>],
+	set: ProcessGrantSet,
+}
+
+#[derive(Clone, Copy)]
+struct ProcessGrantSet {
+	error: bool,
+	output: bool,
+}
+
+impl Update {
+	pub fn new(source: Source) -> Self {
+		Self { source }
+	}
+
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the update"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the update"))
+	}
 }
 
 impl Index {
@@ -25,11 +71,25 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
 	) {
+		Self::enqueue_update_with_kind(txn, subspace, id, Kind::Item, Source::Put, partition_total);
+	}
+
+	pub(super) fn enqueue_update_with_kind(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: Kind,
+		source: Source,
+		partition_total: u64,
+	) {
 		let key = Self::pack(
 			subspace,
-			&crate::fdb::Key::Update(crate::fdb::update::Key::Update { id: id.clone() }),
+			&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
+				id: id.clone(),
+				kind: kind.clone(),
+			}),
 		);
-		let value = [Update::Put.to_u8().unwrap()];
+		let value = Update::new(source).serialize().unwrap();
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		txn.set(&key, &value);
@@ -41,12 +101,12 @@ impl Index {
 		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		let key = Self::pack_with_versionstamp(
 			subspace,
-			&(
-				Kind::UpdateVersion.to_i32().unwrap(),
+			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
+				id: id.clone(),
+				kind,
 				partition,
-				fdbt::Versionstamp::incomplete(0),
-				id_bytes.as_ref(),
-			),
+				version: fdbt::Versionstamp::incomplete(0),
+			}),
 		);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
@@ -64,7 +124,7 @@ impl Index {
 		bytes[8..].copy_from_slice(&0xFFFFu16.to_be_bytes());
 		let versionstamp = fdbt::Versionstamp::complete(bytes, 0);
 
-		let key_kind = Kind::UpdateVersion.to_i32().unwrap();
+		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
 		let futures = (0..self.partition_total).map(|partition| {
 			let begin = Self::pack(&self.subspace, &(key_kind, partition));
 			let end = Self::pack(&self.subspace, &(key_kind, partition, versionstamp.clone()));
@@ -119,7 +179,7 @@ impl Index {
 	) -> tg::Result<usize> {
 		let mut entries = Vec::new();
 
-		let key_kind = Kind::UpdateVersion.to_i32().unwrap();
+		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
 		let partition_end = partition_start.saturating_add(partition_count);
 		for partition in partition_start..partition_end {
 			let remaining = batch_size.saturating_sub(entries.len());
@@ -145,19 +205,23 @@ impl Index {
 					partition,
 					version,
 					id,
+					kind,
 				}) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				entries.push((partition, version, id));
+				entries.push((partition, version, id, kind));
 			}
 		}
 
 		let mut count = 0;
-		for (partition, version, id) in entries {
+		for (partition, version, id, kind) in entries {
 			let key = Self::pack(
 				subspace,
-				&crate::fdb::Key::Update(crate::fdb::update::Key::Update { id: id.clone() }),
+				&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
+					id: id.clone(),
+					kind: kind.clone(),
+				}),
 			);
 			let value = txn
 				.get(&key, false)
@@ -168,9 +232,10 @@ impl Index {
 				let key = Self::pack(
 					subspace,
 					&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
+						id: id.clone(),
+						kind: kind.clone(),
 						partition,
 						version: version.clone(),
-						id: id.clone(),
 					}),
 				);
 				txn.clear(&key);
@@ -178,34 +243,59 @@ impl Index {
 				continue;
 			};
 
-			let update = value
-				.first()
-				.and_then(|value| Update::from_u8(*value))
-				.ok_or_else(|| tg::error!("invalid update value"))?;
+			let update = Update::deserialize(&value)?;
 
-			let changed = match &id {
-				tg::Either::Left(id) => Self::update_object(txn, subspace, id).await?,
-				tg::Either::Right(id) => Self::update_process(txn, subspace, id).await?,
+			let changed = match &kind {
+				Kind::Item => match &id {
+					tg::Either::Left(id) => Self::update_object(txn, subspace, id).await?,
+					tg::Either::Right(id) => Self::update_process(txn, subspace, id).await?,
+				},
+				Kind::Grants(principal) => match &id {
+					tg::Either::Left(id) => {
+						Self::update_object_grants_for_principal(
+							txn,
+							subspace,
+							id,
+							principal,
+							partition_total,
+						)
+						.await?
+					},
+					tg::Either::Right(id) => {
+						Self::update_process_grants_for_principal(
+							txn,
+							subspace,
+							id,
+							principal,
+							partition_total,
+						)
+						.await?
+					},
+				},
 			};
 
-			if match update {
-				Update::Put => true,
-				Update::Propagate => changed,
+			if match update.source {
+				Source::Put => true,
+				Source::Propagate => changed,
 			} {
-				Self::enqueue_parents(txn, subspace, &id, &version, partition_total).await?;
+				Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total).await?;
 			}
 
 			let key = Self::pack(
 				subspace,
-				&crate::fdb::Key::Update(crate::fdb::update::Key::Update { id: id.clone() }),
+				&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
+					id: id.clone(),
+					kind: kind.clone(),
+				}),
 			);
 			txn.clear(&key);
 			let key = Self::pack(
 				subspace,
 				&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
+					id: id.clone(),
+					kind,
 					partition,
 					version: version.clone(),
-					id: id.clone(),
 				}),
 			);
 			txn.clear(&key);
@@ -238,7 +328,6 @@ impl Index {
 				.map(|child| Self::try_get_object_with_transaction(txn, subspace, child)),
 		)
 		.await?;
-
 		let mut changed = false;
 
 		if !object.stored.subtree {
@@ -341,6 +430,378 @@ impl Index {
 		}
 
 		Ok(changed)
+	}
+
+	async fn update_object_grants_for_principal(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::object::Id,
+		principal: &tg::grant::Principal,
+		partition_total: u64,
+	) -> tg::Result<bool> {
+		let resource = tg::Id::from(id.clone());
+		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
+		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+			txn, subspace, &resource, principal,
+		)
+		.await?;
+		let child_entries = future::try_join_all(children.iter().map(|child| {
+			let resource = tg::Id::from(child.clone());
+			async move {
+				Self::get_resource_grant_entries_for_principal_with_transaction(
+					txn, subspace, &resource, principal,
+				)
+				.await
+			}
+		}))
+		.await?;
+		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let explicit_subtree = entries
+			.iter()
+			.filter(|entry| {
+				entry.permission == subtree
+					&& entry.sources & crate::fdb::grant::EXPLICIT_GRANT_SOURCE != 0
+			})
+			.map(|entry| (entry.principal.clone(), entry.expires_at))
+			.collect::<BTreeSet<_>>();
+		let mut expected = BTreeSet::new();
+		for entry in entries.iter().filter(|entry| entry.permission == node) {
+			if explicit_subtree.contains(&(entry.principal.clone(), entry.expires_at)) {
+				continue;
+			}
+			let children_have_subtree = child_entries.iter().all(|entries| {
+				Self::grant_entries_cover(entries, &entry.principal, subtree, entry.expires_at)
+			});
+			if children_have_subtree {
+				expected.insert((entry.principal.clone(), subtree, entry.expires_at));
+			}
+		}
+		let managed = BTreeSet::from([subtree]);
+		Self::reconcile_materialized_grants(
+			txn,
+			subspace,
+			&resource,
+			&entries,
+			&expected,
+			&managed,
+			partition_total,
+		)
+		.await
+	}
+
+	async fn reconcile_materialized_grants(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		resource: &tg::Id,
+		entries: &[crate::fdb::grant::GrantEntry],
+		expected: &BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
+		managed: &BTreeSet<tg::grant::Permission>,
+		partition_total: u64,
+	) -> tg::Result<bool> {
+		let mut changed = false;
+		let current = entries
+			.iter()
+			.filter(|entry| {
+				managed.contains(&entry.permission)
+					&& entry.sources & crate::fdb::grant::MATERIALIZED_GRANT_SOURCE != 0
+			})
+			.map(|entry| (entry.principal.clone(), entry.permission, entry.expires_at))
+			.collect::<BTreeSet<_>>();
+		for (principal, permission, expires_at) in current.difference(expected) {
+			if Self::delete_grant_index_entry(
+				txn,
+				subspace,
+				&crate::fdb::grant::GrantIndexEntry {
+					expires_at: *expires_at,
+					permission: *permission,
+					principal,
+					resource,
+				},
+				crate::fdb::grant::GrantSource::Materialized,
+				partition_total,
+			)
+			.await?
+			{
+				changed = true;
+			}
+		}
+		for (principal, permission, expires_at) in expected.difference(&current) {
+			if Self::put_grant_index_entry(
+				txn,
+				subspace,
+				&crate::fdb::grant::GrantIndexEntry {
+					expires_at: *expires_at,
+					permission: *permission,
+					principal,
+					resource,
+				},
+				crate::fdb::grant::GrantSource::Materialized,
+				partition_total,
+			)
+			.await?
+			{
+				changed = true;
+			}
+		}
+		Ok(changed)
+	}
+
+	async fn update_process_grants(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		input: &ProcessGrantInputs<'_>,
+		partition_total: u64,
+	) -> tg::Result<bool> {
+		let object_subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let process_permission = |permission| tg::grant::Permission::Process(permission);
+		let node = process_permission(tg::grant::permission::process::Permission::Node);
+		let node_command =
+			process_permission(tg::grant::permission::process::Permission::NodeCommand);
+		let node_error = process_permission(tg::grant::permission::process::Permission::NodeError);
+		let node_log = process_permission(tg::grant::permission::process::Permission::NodeLog);
+		let node_output =
+			process_permission(tg::grant::permission::process::Permission::NodeOutput);
+		let subtree = process_permission(tg::grant::permission::process::Permission::Subtree);
+		let subtree_command =
+			process_permission(tg::grant::permission::process::Permission::SubtreeCommand);
+		let subtree_error =
+			process_permission(tg::grant::permission::process::Permission::SubtreeError);
+		let subtree_log =
+			process_permission(tg::grant::permission::process::Permission::SubtreeLog);
+		let subtree_output =
+			process_permission(tg::grant::permission::process::Permission::SubtreeOutput);
+
+		let explicit = input
+			.entries
+			.iter()
+			.filter(|entry| entry.sources & crate::fdb::grant::EXPLICIT_GRANT_SOURCE != 0)
+			.map(|entry| (entry.principal.clone(), entry.permission, entry.expires_at))
+			.collect::<BTreeSet<_>>();
+		let mut expected = BTreeSet::new();
+
+		if let Some(command_object_entries) = input.command_object_entries {
+			Self::insert_object_aspect_grants(
+				&mut expected,
+				&explicit,
+				command_object_entries,
+				&[command_object_entries],
+				object_subtree,
+				node_command,
+			);
+		}
+		if input.set.error {
+			let error_object_entries = input
+				.error_object_entries
+				.iter()
+				.map(Vec::as_slice)
+				.collect::<Vec<_>>();
+			Self::insert_object_aspect_grants(
+				&mut expected,
+				&explicit,
+				error_object_entries.iter().flat_map(|entries| *entries),
+				&error_object_entries,
+				object_subtree,
+				node_error,
+			);
+		}
+		if let Some(log_object_entries) = input.log_object_entries {
+			Self::insert_object_aspect_grants(
+				&mut expected,
+				&explicit,
+				log_object_entries,
+				&[log_object_entries],
+				object_subtree,
+				node_log,
+			);
+		}
+		if input.set.output {
+			let output_object_entries = input
+				.output_object_entries
+				.iter()
+				.map(Vec::as_slice)
+				.collect::<Vec<_>>();
+			Self::insert_object_aspect_grants(
+				&mut expected,
+				&explicit,
+				output_object_entries.iter().flat_map(|entries| *entries),
+				&output_object_entries,
+				object_subtree,
+				node_output,
+			);
+		}
+
+		for (source, target) in [
+			(node, subtree),
+			(node_command, subtree_command),
+			(node_error, subtree_error),
+			(node_log, subtree_log),
+			(node_output, subtree_output),
+		] {
+			for entry in input
+				.entries
+				.iter()
+				.filter(|entry| entry.permission == source)
+			{
+				if explicit.contains(&(entry.principal.clone(), target, entry.expires_at)) {
+					continue;
+				}
+				let children_have_target = input.child_entries.iter().all(|entries| {
+					Self::grant_entries_cover(entries, &entry.principal, target, entry.expires_at)
+				});
+				if children_have_target {
+					expected.insert((entry.principal.clone(), target, entry.expires_at));
+				}
+			}
+		}
+
+		let managed = BTreeSet::from([
+			node_command,
+			node_error,
+			node_log,
+			node_output,
+			subtree,
+			subtree_command,
+			subtree_error,
+			subtree_log,
+			subtree_output,
+		]);
+		Self::reconcile_materialized_grants(
+			txn,
+			subspace,
+			input.resource,
+			input.entries,
+			&expected,
+			&managed,
+			partition_total,
+		)
+		.await
+	}
+
+	async fn update_process_grants_for_principal(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+		principal: &tg::grant::Principal,
+		partition_total: u64,
+	) -> tg::Result<bool> {
+		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
+		let key = Self::pack(subspace, &key);
+		let bytes = txn
+			.get(&key, false)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+			.ok_or_else(|| tg::error!(%id, "process not found"))?;
+		let process = crate::process::Process::deserialize(&bytes)?;
+		let resource = tg::Id::from(id.clone());
+		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+			txn, subspace, &resource, principal,
+		)
+		.await?;
+		let children = Self::get_process_children_with_transaction(txn, subspace, id).await?;
+		let child_entries = future::try_join_all(children.iter().map(|child| {
+			let resource = tg::Id::from(child.clone());
+			async move {
+				Self::get_resource_grant_entries_for_principal_with_transaction(
+					txn, subspace, &resource, principal,
+				)
+				.await
+			}
+		}))
+		.await?;
+		let objects = Self::get_process_objects_with_transaction(txn, subspace, id).await?;
+		let mut command_object_entries: Option<Vec<crate::fdb::grant::GrantEntry>> = None;
+		let mut error_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
+		let mut log_object_entries: Option<Vec<crate::fdb::grant::GrantEntry>> = None;
+		let mut output_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
+		for (object, kind) in objects {
+			let resource = tg::Id::from(object);
+			let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+				txn, subspace, &resource, principal,
+			)
+			.await?;
+			match kind {
+				crate::process::object::Kind::Command => {
+					command_object_entries = Some(entries);
+				},
+				crate::process::object::Kind::Error => {
+					error_object_entries.push(entries);
+				},
+				crate::process::object::Kind::Log => {
+					log_object_entries = Some(entries);
+				},
+				crate::process::object::Kind::Output => {
+					output_object_entries.push(entries);
+				},
+			}
+		}
+		Self::update_process_grants(
+			txn,
+			subspace,
+			&ProcessGrantInputs {
+				resource: &resource,
+				entries: &entries,
+				child_entries: &child_entries,
+				command_object_entries: command_object_entries.as_deref(),
+				error_object_entries: &error_object_entries,
+				log_object_entries: log_object_entries.as_deref(),
+				output_object_entries: &output_object_entries,
+				set: ProcessGrantSet {
+					error: process.set.error,
+					output: process.set.output,
+				},
+			},
+			partition_total,
+		)
+		.await
+	}
+
+	fn insert_object_aspect_grants<'a>(
+		expected: &mut BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
+		explicit: &BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
+		sources: impl IntoIterator<Item = &'a crate::fdb::grant::GrantEntry>,
+		required: &[&[crate::fdb::grant::GrantEntry]],
+		source_permission: tg::grant::Permission,
+		target_permission: tg::grant::Permission,
+	) {
+		for entry in sources
+			.into_iter()
+			.filter(|entry| entry.permission == source_permission)
+		{
+			if explicit.contains(&(entry.principal.clone(), target_permission, entry.expires_at)) {
+				continue;
+			}
+			let all_required = required.iter().all(|entries| {
+				Self::grant_entries_cover(
+					entries,
+					&entry.principal,
+					source_permission,
+					entry.expires_at,
+				)
+			});
+			if all_required {
+				expected.insert((entry.principal.clone(), target_permission, entry.expires_at));
+			}
+		}
+	}
+
+	fn grant_entries_cover(
+		entries: &[crate::fdb::grant::GrantEntry],
+		principal: &tg::grant::Principal,
+		permission: tg::grant::Permission,
+		expires_at: Option<i64>,
+	) -> bool {
+		entries.iter().any(|entry| {
+			entry.principal == *principal
+				&& entry.permission == permission
+				&& match (entry.expires_at, expires_at) {
+					(None, _) => true,
+					(Some(_), None) => false,
+					(Some(entry), Some(expires_at)) => entry >= expires_at,
+				}
+		})
 	}
 
 	async fn update_process(
@@ -1103,6 +1564,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: &Kind,
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
 	) -> tg::Result<()> {
@@ -1114,9 +1576,11 @@ impl Index {
 						txn,
 						subspace,
 						&tg::Either::Left(parent),
+						kind,
 						version,
 						partition_total,
-					);
+					)
+					.await?;
 				}
 				let process_parents =
 					Self::get_object_processes_with_transaction(txn, subspace, id).await?;
@@ -1125,9 +1589,11 @@ impl Index {
 						txn,
 						subspace,
 						&tg::Either::Right(process),
+						kind,
 						version,
 						partition_total,
-					);
+					)
+					.await?;
 				}
 			},
 			tg::Either::Right(id) => {
@@ -1137,28 +1603,49 @@ impl Index {
 						txn,
 						subspace,
 						&tg::Either::Right(parent),
+						kind,
 						version,
 						partition_total,
-					);
+					)
+					.await?;
 				}
 			},
 		}
 		Ok(())
 	}
 
-	fn enqueue_update_propagate(
+	async fn enqueue_update_propagate(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: &Kind,
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
-	) {
+	) -> tg::Result<()> {
 		let key = Self::pack(
 			subspace,
-			&crate::fdb::Key::Update(crate::fdb::update::Key::Update { id: id.clone() }),
+			&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
+				id: id.clone(),
+				kind: kind.clone(),
+			}),
 		);
-		let value = [Update::Propagate.to_u8().unwrap()];
-		txn.atomic_op(&key, &value, fdb::options::MutationType::Min);
+		let update = txn
+			.get(&key, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get update key"))?
+			.map(|bytes| Update::deserialize(&bytes))
+			.transpose()?;
+		if !matches!(
+			update,
+			Some(Update {
+				source: Source::Put
+			})
+		) {
+			let value = Update::new(Source::Propagate).serialize()?;
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			txn.set(&key, &value);
+		}
 
 		let id_bytes = match &id {
 			tg::Either::Left(id) => id.to_bytes(),
@@ -1167,15 +1654,16 @@ impl Index {
 		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		let key = Self::pack(
 			subspace,
-			&(
-				Kind::UpdateVersion.to_i32().unwrap(),
+			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
+				id: id.clone(),
+				kind: kind.clone(),
 				partition,
-				version.clone(),
-				id_bytes.as_ref(),
-			),
+				version: version.clone(),
+			}),
 		);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		txn.set(&key, &[]);
+		Ok(())
 	}
 }

@@ -1,5 +1,5 @@
 use {
-	foundationdb_tuple as fdbt,
+	foundationdb_tuple::{self as fdbt, TuplePack as _},
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	tangram_client::prelude::*,
 };
@@ -330,19 +330,22 @@ impl fdbt::TuplePack for Key {
 				id.as_ref().pack(w, tuple_depth)
 			},
 
-			Key::Update(crate::fdb::update::Key::Update { id }) => {
+			Key::Update(crate::fdb::update::Key::Update { id, kind }) => {
 				Kind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
 				let id = match &id {
 					tg::Either::Left(id) => id.to_bytes(),
 					tg::Either::Right(id) => id.to_bytes(),
 				};
-				id.as_ref().pack(w, tuple_depth)
+				let mut offset = id.as_ref().pack(w, tuple_depth)?;
+				offset += pack_update_kind(w, tuple_depth, kind)?;
+				Ok(offset)
 			},
 
 			Key::Update(crate::fdb::update::Key::UpdateVersion {
+				id,
+				kind,
 				partition,
 				version,
-				id,
 			}) => {
 				let mut offset = Kind::UpdateVersion.to_i32().unwrap().pack(w, tuple_depth)?;
 				offset += partition.pack(w, tuple_depth)?;
@@ -352,6 +355,7 @@ impl fdbt::TuplePack for Key {
 					tg::Either::Right(id) => id.to_bytes(),
 				};
 				offset += id.as_ref().pack(w, tuple_depth)?;
+				offset += pack_update_kind(w, tuple_depth, kind)?;
 				Ok(offset)
 			},
 		}
@@ -868,7 +872,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 				} else {
 					return Err(fdbt::PackError::Message("invalid id".into()));
 				};
-				Ok((input, Key::Update(crate::fdb::update::Key::Update { id })))
+				let (input, kind) = unpack_update_kind(input, tuple_depth)?;
+				Ok((
+					input,
+					Key::Update(crate::fdb::update::Key::Update { id, kind }),
+				))
 			},
 
 			Kind::UpdateVersion => {
@@ -884,14 +892,49 @@ impl fdbt::TupleUnpack<'_> for Key {
 				} else {
 					return Err(fdbt::PackError::Message("invalid id".into()));
 				};
+				let (input, kind) = unpack_update_kind(input, tuple_depth)?;
 				let key = Key::Update(crate::fdb::update::Key::UpdateVersion {
+					id,
+					kind,
 					partition,
 					version,
-					id,
 				});
 				Ok((input, key))
 			},
 		}
+	}
+}
+
+fn pack_update_kind<W: std::io::Write>(
+	w: &mut W,
+	tuple_depth: fdbt::TupleDepth,
+	kind: &crate::fdb::update::Kind,
+) -> std::io::Result<fdbt::VersionstampOffset> {
+	match kind {
+		crate::fdb::update::Kind::Item => 0i32.pack(w, tuple_depth),
+		crate::fdb::update::Kind::Grants(principal) => {
+			let mut offset = 1i32.pack(w, tuple_depth)?;
+			offset += principal.to_string().pack(w, tuple_depth)?;
+			Ok(offset)
+		},
+	}
+}
+
+fn unpack_update_kind(
+	input: &[u8],
+	tuple_depth: fdbt::TupleDepth,
+) -> Result<(&[u8], crate::fdb::update::Kind), fdbt::PackError> {
+	let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+	match kind {
+		0 => Ok((input, crate::fdb::update::Kind::Item)),
+		1 => {
+			let (input, principal): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			let principal = principal
+				.parse()
+				.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+			Ok((input, crate::fdb::update::Kind::Grants(principal)))
+		},
+		_ => Err(fdbt::PackError::Message("invalid update kind".into())),
 	}
 }
 

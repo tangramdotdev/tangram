@@ -92,7 +92,13 @@ impl Session {
 		if self.authorize(resource, permission).await? != Some(true) {
 			return Ok(None);
 		}
-		self.server.try_get_object_local(id, metadata).await
+		let Some(mut output) = self.server.try_get_object_local(id, metadata).await? else {
+			return Ok(None);
+		};
+		if let Some(metadata) = output.metadata {
+			output.metadata = self.mask_object_metadata(id, metadata).await?;
+		}
+		Ok(Some(output))
 	}
 
 	#[expect(dead_code)]
@@ -160,6 +166,12 @@ impl Session {
 					tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 				if self.authorize(resource, permission).await? != Some(true) {
 					return Ok(None);
+				}
+				let mut output = output;
+				if let Some(output) = &mut output
+					&& let Some(metadata) = output.metadata.take()
+				{
+					output.metadata = self.mask_object_metadata(id, metadata).await?;
 				}
 				Ok::<_, tg::Error>(output)
 			})

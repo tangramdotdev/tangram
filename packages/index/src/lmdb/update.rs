@@ -1,19 +1,65 @@
 mod key;
 
-pub(super) use key::Key;
+pub(super) use key::{Key, Kind};
 
 use {
-	super::{Db, Index, Kind, Request, Response},
+	super::{Db, Index, Kind as KeyKind, Request, Response},
 	foundationdb_tuple as fdbt, heed as lmdb,
-	num_traits::{FromPrimitive as _, ToPrimitive as _},
+	num_traits::ToPrimitive as _,
+	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
-#[repr(u8)]
-pub(super) enum Update {
-	Put = 0,
-	Propagate = 1,
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) struct Update {
+	#[tangram_serialize(id = 0)]
+	pub source: Source,
+}
+
+#[derive(
+	Clone, Copy, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) enum Source {
+	#[tangram_serialize(id = 0)]
+	Put,
+
+	#[tangram_serialize(id = 1)]
+	Propagate,
+}
+
+struct ProcessGrantInputs<'a> {
+	resource: &'a tg::Id,
+	entries: &'a [crate::lmdb::grant::GrantEntry],
+	child_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
+	command_object_entries: Option<&'a [crate::lmdb::grant::GrantEntry]>,
+	error_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
+	log_object_entries: Option<&'a [crate::lmdb::grant::GrantEntry]>,
+	output_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
+	set: ProcessGrantSet,
+}
+
+#[derive(Clone, Copy)]
+struct ProcessGrantSet {
+	error: bool,
+	output: bool,
+}
+
+impl Update {
+	pub fn new(source: Source) -> Self {
+		Self { source }
+	}
+
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the update"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the update"))
+	}
 }
 
 impl Index {
@@ -25,7 +71,7 @@ impl Index {
 			let transaction = env
 				.read_txn()
 				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let prefix = &(Kind::UpdateVersion.to_i32().unwrap(),);
+			let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
 			let prefix = Self::pack(&subspace, prefix);
 			for entry in db
 				.prefix_iter(&transaction, &prefix)
@@ -77,7 +123,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		let prefix = &(Kind::UpdateVersion.to_i32().unwrap(),);
+		let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
 		let entries = db
 			.prefix_iter(transaction, &prefix)
@@ -90,47 +136,70 @@ impl Index {
 				let crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
 					version,
 					id,
+					kind,
 				}) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				Ok((version, id))
+				Ok((version, id, kind))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let mut count = 0;
-		for (version, id) in entries {
-			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update { id: id.clone() });
+		for (version, id, kind) in entries {
+			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update {
+				id: id.clone(),
+				kind: kind.clone(),
+			});
 			let key = Self::pack(subspace, &key);
 			let value = db
 				.get(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to get update key"))?
 				.ok_or_else(|| tg::error!("expected an update key for the update version key"))?;
 
-			let update = value
-				.first()
-				.and_then(|value| Update::from_u8(*value))
-				.ok_or_else(|| tg::error!("invalid update value"))?;
+			let update = Update::deserialize(value)?;
 
-			let changed = match &id {
-				tg::Either::Left(id) => Self::update_object(db, subspace, transaction, id)?,
-				tg::Either::Right(id) => Self::update_process(db, subspace, transaction, id)?,
+			let changed = match &kind {
+				Kind::Item => match &id {
+					tg::Either::Left(id) => Self::update_object(db, subspace, transaction, id)?,
+					tg::Either::Right(id) => Self::update_process(db, subspace, transaction, id)?,
+				},
+				Kind::Grants(principal) => match &id {
+					tg::Either::Left(id) => Self::update_object_grants_for_principal(
+						db,
+						subspace,
+						transaction,
+						id,
+						principal,
+					)?,
+					tg::Either::Right(id) => Self::update_process_grants_for_principal(
+						db,
+						subspace,
+						transaction,
+						id,
+						principal,
+					)?,
+				},
 			};
 
-			if match update {
-				Update::Put => true,
-				Update::Propagate => changed,
+			if match update.source {
+				Source::Put => true,
+				Source::Propagate => changed,
 			} {
-				Self::enqueue_parents(db, subspace, transaction, &id, version)?;
+				Self::enqueue_parents(db, subspace, transaction, &id, &kind, version)?;
 			}
 
-			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update { id: id.clone() });
+			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update {
+				id: id.clone(),
+				kind: kind.clone(),
+			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete update key"))?;
 			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
-				version,
 				id: id.clone(),
+				kind,
+				version,
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
@@ -264,6 +333,385 @@ impl Index {
 		}
 
 		Ok(changed)
+	}
+
+	fn update_object_grants_for_principal(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::object::Id,
+		principal: &tg::grant::Principal,
+	) -> tg::Result<bool> {
+		let resource = tg::Id::from(id.clone());
+		let children = Self::get_object_children_with_transaction(db, subspace, transaction, id)?;
+		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			principal,
+		)?;
+		let child_entries = children
+			.iter()
+			.map(|child| {
+				let resource = tg::Id::from(child.clone());
+				Self::get_resource_grant_entries_for_principal_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&resource,
+					principal,
+				)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let explicit_subtree = entries
+			.iter()
+			.filter(|entry| {
+				entry.permission == subtree
+					&& entry.sources & crate::lmdb::grant::EXPLICIT_GRANT_SOURCE != 0
+			})
+			.map(|entry| (entry.principal.clone(), entry.expires_at))
+			.collect::<BTreeSet<_>>();
+		let mut expected = BTreeSet::new();
+		for entry in entries.iter().filter(|entry| entry.permission == node) {
+			if explicit_subtree.contains(&(entry.principal.clone(), entry.expires_at)) {
+				continue;
+			}
+			let children_have_subtree = child_entries.iter().all(|entries| {
+				Self::grant_entries_cover(entries, &entry.principal, subtree, entry.expires_at)
+			});
+			if children_have_subtree {
+				expected.insert((entry.principal.clone(), subtree, entry.expires_at));
+			}
+		}
+		let managed = BTreeSet::from([subtree]);
+		Self::reconcile_materialized_grants(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			&entries,
+			&expected,
+			&managed,
+		)
+	}
+
+	fn reconcile_materialized_grants(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		resource: &tg::Id,
+		entries: &[crate::lmdb::grant::GrantEntry],
+		expected: &BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
+		managed: &BTreeSet<tg::grant::Permission>,
+	) -> tg::Result<bool> {
+		let mut changed = false;
+		let current = entries
+			.iter()
+			.filter(|entry| {
+				managed.contains(&entry.permission)
+					&& entry.sources & crate::lmdb::grant::MATERIALIZED_GRANT_SOURCE != 0
+			})
+			.map(|entry| (entry.principal.clone(), entry.permission, entry.expires_at))
+			.collect::<BTreeSet<_>>();
+		for (principal, permission, expires_at) in current.difference(expected) {
+			if Self::delete_grant_index_entry(
+				db,
+				subspace,
+				transaction,
+				&crate::lmdb::grant::GrantIndexEntry {
+					expires_at: *expires_at,
+					permission: *permission,
+					principal,
+					resource,
+				},
+				crate::lmdb::grant::GrantSource::Materialized,
+			)? {
+				changed = true;
+			}
+		}
+		for (principal, permission, expires_at) in expected.difference(&current) {
+			if Self::put_grant_index_entry(
+				db,
+				subspace,
+				transaction,
+				&crate::lmdb::grant::GrantIndexEntry {
+					expires_at: *expires_at,
+					permission: *permission,
+					principal,
+					resource,
+				},
+				crate::lmdb::grant::GrantSource::Materialized,
+			)? {
+				changed = true;
+			}
+		}
+		Ok(changed)
+	}
+
+	fn update_process_grants(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		input: &ProcessGrantInputs<'_>,
+	) -> tg::Result<bool> {
+		let object_subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let process_permission = |permission| tg::grant::Permission::Process(permission);
+		let node = process_permission(tg::grant::permission::process::Permission::Node);
+		let node_command =
+			process_permission(tg::grant::permission::process::Permission::NodeCommand);
+		let node_error = process_permission(tg::grant::permission::process::Permission::NodeError);
+		let node_log = process_permission(tg::grant::permission::process::Permission::NodeLog);
+		let node_output =
+			process_permission(tg::grant::permission::process::Permission::NodeOutput);
+		let subtree = process_permission(tg::grant::permission::process::Permission::Subtree);
+		let subtree_command =
+			process_permission(tg::grant::permission::process::Permission::SubtreeCommand);
+		let subtree_error =
+			process_permission(tg::grant::permission::process::Permission::SubtreeError);
+		let subtree_log =
+			process_permission(tg::grant::permission::process::Permission::SubtreeLog);
+		let subtree_output =
+			process_permission(tg::grant::permission::process::Permission::SubtreeOutput);
+
+		let explicit = input
+			.entries
+			.iter()
+			.filter(|entry| entry.sources & crate::lmdb::grant::EXPLICIT_GRANT_SOURCE != 0)
+			.map(|entry| (entry.principal.clone(), entry.permission, entry.expires_at))
+			.collect::<BTreeSet<_>>();
+		let mut expected = BTreeSet::new();
+
+		if let Some(command_object_entries) = input.command_object_entries {
+			Self::insert_object_aspect_grants(
+				&mut expected,
+				&explicit,
+				command_object_entries,
+				&[command_object_entries],
+				object_subtree,
+				node_command,
+			);
+		}
+		if input.set.error {
+			let error_object_entries = input
+				.error_object_entries
+				.iter()
+				.map(Vec::as_slice)
+				.collect::<Vec<_>>();
+			Self::insert_object_aspect_grants(
+				&mut expected,
+				&explicit,
+				error_object_entries.iter().flat_map(|entries| *entries),
+				&error_object_entries,
+				object_subtree,
+				node_error,
+			);
+		}
+		if let Some(log_object_entries) = input.log_object_entries {
+			Self::insert_object_aspect_grants(
+				&mut expected,
+				&explicit,
+				log_object_entries,
+				&[log_object_entries],
+				object_subtree,
+				node_log,
+			);
+		}
+		if input.set.output {
+			let output_object_entries = input
+				.output_object_entries
+				.iter()
+				.map(Vec::as_slice)
+				.collect::<Vec<_>>();
+			Self::insert_object_aspect_grants(
+				&mut expected,
+				&explicit,
+				output_object_entries.iter().flat_map(|entries| *entries),
+				&output_object_entries,
+				object_subtree,
+				node_output,
+			);
+		}
+
+		for (source, target) in [
+			(node, subtree),
+			(node_command, subtree_command),
+			(node_error, subtree_error),
+			(node_log, subtree_log),
+			(node_output, subtree_output),
+		] {
+			for entry in input
+				.entries
+				.iter()
+				.filter(|entry| entry.permission == source)
+			{
+				if explicit.contains(&(entry.principal.clone(), target, entry.expires_at)) {
+					continue;
+				}
+				let children_have_target = input.child_entries.iter().all(|entries| {
+					Self::grant_entries_cover(entries, &entry.principal, target, entry.expires_at)
+				});
+				if children_have_target {
+					expected.insert((entry.principal.clone(), target, entry.expires_at));
+				}
+			}
+		}
+
+		let managed = BTreeSet::from([
+			node_command,
+			node_error,
+			node_log,
+			node_output,
+			subtree,
+			subtree_command,
+			subtree_error,
+			subtree_log,
+			subtree_output,
+		]);
+		Self::reconcile_materialized_grants(
+			db,
+			subspace,
+			transaction,
+			input.resource,
+			input.entries,
+			&expected,
+			&managed,
+		)
+	}
+
+	fn insert_object_aspect_grants<'a>(
+		expected: &mut BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
+		explicit: &BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
+		sources: impl IntoIterator<Item = &'a crate::lmdb::grant::GrantEntry>,
+		required: &[&[crate::lmdb::grant::GrantEntry]],
+		source_permission: tg::grant::Permission,
+		target_permission: tg::grant::Permission,
+	) {
+		for entry in sources
+			.into_iter()
+			.filter(|entry| entry.permission == source_permission)
+		{
+			if explicit.contains(&(entry.principal.clone(), target_permission, entry.expires_at)) {
+				continue;
+			}
+			let all_required = required.iter().all(|entries| {
+				Self::grant_entries_cover(
+					entries,
+					&entry.principal,
+					source_permission,
+					entry.expires_at,
+				)
+			});
+			if all_required {
+				expected.insert((entry.principal.clone(), target_permission, entry.expires_at));
+			}
+		}
+	}
+
+	fn grant_entries_cover(
+		entries: &[crate::lmdb::grant::GrantEntry],
+		principal: &tg::grant::Principal,
+		permission: tg::grant::Permission,
+		expires_at: Option<i64>,
+	) -> bool {
+		entries.iter().any(|entry| {
+			entry.principal == *principal
+				&& entry.permission == permission
+				&& match (entry.expires_at, expires_at) {
+					(None, _) => true,
+					(Some(_), None) => false,
+					(Some(entry), Some(expires_at)) => entry >= expires_at,
+				}
+		})
+	}
+
+	fn update_process_grants_for_principal(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::process::Id,
+		principal: &tg::grant::Principal,
+	) -> tg::Result<bool> {
+		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
+		let key = Self::pack(subspace, &key);
+		let bytes = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+			.ok_or_else(|| tg::error!(%id, "process not found"))?;
+		let process = crate::process::Process::deserialize(bytes)?;
+		let resource = tg::Id::from(id.clone());
+		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			principal,
+		)?;
+		let children = Self::get_process_children_with_transaction(db, subspace, transaction, id)?;
+		let child_entries = children
+			.iter()
+			.map(|child| {
+				let resource = tg::Id::from(child.clone());
+				Self::get_resource_grant_entries_for_principal_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&resource,
+					principal,
+				)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
+		let mut command_object_entries: Option<Vec<crate::lmdb::grant::GrantEntry>> = None;
+		let mut error_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
+		let mut log_object_entries: Option<Vec<crate::lmdb::grant::GrantEntry>> = None;
+		let mut output_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
+		for (object, kind) in objects {
+			let resource = tg::Id::from(object);
+			let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&resource,
+				principal,
+			)?;
+			match kind {
+				crate::process::object::Kind::Command => {
+					command_object_entries = Some(entries);
+				},
+				crate::process::object::Kind::Error => {
+					error_object_entries.push(entries);
+				},
+				crate::process::object::Kind::Log => {
+					log_object_entries = Some(entries);
+				},
+				crate::process::object::Kind::Output => {
+					output_object_entries.push(entries);
+				},
+			}
+		}
+		Self::update_process_grants(
+			db,
+			subspace,
+			transaction,
+			&ProcessGrantInputs {
+				resource: &resource,
+				entries: &entries,
+				child_entries: &child_entries,
+				command_object_entries: command_object_entries.as_deref(),
+				error_object_entries: &error_object_entries,
+				log_object_entries: log_object_entries.as_deref(),
+				output_object_entries: &output_object_entries,
+				set: ProcessGrantSet {
+					error: process.set.error,
+					output: process.set.output,
+				},
+			},
+		)
 	}
 
 	fn update_process(
@@ -1024,6 +1472,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: &Kind,
 		version: u64,
 	) -> tg::Result<()> {
 		match id {
@@ -1031,24 +1480,26 @@ impl Index {
 				let parents =
 					Self::get_object_parents_with_transaction(db, subspace, transaction, id)?;
 				for parent in parents {
-					Self::enqueue_update(
+					Self::enqueue_update_with_kind(
 						db,
 						subspace,
 						transaction,
 						tg::Either::Left(parent),
-						Update::Propagate,
+						kind.clone(),
+						Source::Propagate,
 						Some(version),
 					)?;
 				}
 				let process_parents =
 					Self::get_object_processes_with_transaction(db, subspace, transaction, id)?;
 				for (process, _kind) in process_parents {
-					Self::enqueue_update(
+					Self::enqueue_update_with_kind(
 						db,
 						subspace,
 						transaction,
 						tg::Either::Right(process),
-						Update::Propagate,
+						kind.clone(),
+						Source::Propagate,
 						Some(version),
 					)?;
 				}
@@ -1057,12 +1508,13 @@ impl Index {
 				let parents =
 					Self::get_process_parents_with_transaction(db, subspace, transaction, id)?;
 				for parent in parents {
-					Self::enqueue_update(
+					Self::enqueue_update_with_kind(
 						db,
 						subspace,
 						transaction,
 						tg::Either::Right(parent),
-						Update::Propagate,
+						kind.clone(),
+						Source::Propagate,
 						Some(version),
 					)?;
 				}
@@ -1076,33 +1528,46 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
-		update: Update,
+		source: Source,
 		version: Option<u64>,
 	) -> tg::Result<()> {
-		let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update { id: id.clone() });
+		Self::enqueue_update_with_kind(db, subspace, transaction, id, Kind::Item, source, version)
+	}
+
+	pub(super) fn enqueue_update_with_kind(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+		kind: Kind,
+		source: Source,
+		version: Option<u64>,
+	) -> tg::Result<()> {
+		let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update {
+			id: id.clone(),
+			kind: kind.clone(),
+		});
 		let key = Self::pack(subspace, &key);
 		if let Some(existing) = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get update key"))?
 		{
-			let existing = existing
-				.first()
-				.and_then(|value| Update::from_u8(*value))
-				.unwrap_or(Update::Put);
-			if existing == Update::Propagate && update == Update::Put {
-				let value = [update.to_u8().unwrap()];
+			let existing = Update::deserialize(existing)?;
+			if existing.source == Source::Propagate && source == Source::Put {
+				let value = Update::new(source).serialize()?;
 				db.put(transaction, &key, &value)
 					.map_err(|error| tg::error!(!error, "failed to put update key"))?;
 			}
 			return Ok(());
 		}
 
-		let value = [update.to_u8().unwrap()];
+		let value = Update::new(source).serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, "failed to put update key"))?;
 
 		let version = version.unwrap_or_else(|| transaction.id() as u64);
-		let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion { version, id });
+		let key =
+			crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion { id, kind, version });
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|error| tg::error!(!error, "failed to put update version key"))?;

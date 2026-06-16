@@ -45,6 +45,53 @@ impl Index {
 		Ok(grants)
 	}
 
+	pub(crate) async fn get_resource_grant_entries_for_principal_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		resource: &tg::Id,
+		principal: &tg::grant::Principal,
+	) -> tg::Result<Vec<crate::fdb::grant::GrantEntry>> {
+		let bytes = resource.to_bytes();
+		let key = (
+			Kind::ResourceGrant.to_i32().unwrap(),
+			bytes.as_ref(),
+			principal.to_string(),
+		);
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the resource grants"))?;
+
+		entries
+			.iter()
+			.map(|entry| {
+				let key = Self::unpack(subspace, entry.key())?;
+				let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+					principal,
+					permission,
+					expires_at,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(crate::fdb::grant::GrantEntry {
+					expires_at,
+					permission,
+					principal,
+					sources: crate::fdb::grant::grant_sources(entry.value()),
+				})
+			})
+			.collect()
+	}
+
 	pub(crate) async fn try_get_visibility_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,

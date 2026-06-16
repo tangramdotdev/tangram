@@ -1,5 +1,8 @@
 use {
-	crate::fdb::{Index, Key, Request, Response},
+	crate::fdb::{
+		Index, Key, Request, Response,
+		grant::{GrantIndexEntry, GrantSource, grant_source_mask, grant_sources},
+	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
 };
@@ -30,48 +33,150 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<()> {
 		for arg in args {
-			let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
-				resource: arg.resource.clone(),
-				principal: arg.principal.clone(),
-				permission: arg.permission,
-				expires_at: arg.expires_at,
-			});
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
-
-			let key = Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
-				principal: arg.principal.clone(),
-				resource: arg.resource.clone(),
-				permission: arg.permission,
-				expires_at: arg.expires_at,
-			});
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
-
-			for id in Self::ancestor_ids_with_transaction(txn, subspace, &arg.resource).await? {
-				let key = Key::Grant(crate::fdb::grant::Key::Visibility {
-					resource: id,
-					principal: arg.principal.clone(),
-					grant_resource: arg.resource.clone(),
-					permission: arg.permission,
+			Self::put_grant_index_entry(
+				txn,
+				subspace,
+				&GrantIndexEntry {
 					expires_at: arg.expires_at,
-				});
-				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
-			}
-			if let Some(expires_at) = arg.expires_at {
-				let partition = Self::partition_for_id(&arg.resource.to_bytes(), partition_total);
-				let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
-					partition,
-					expires_at,
-					resource: arg.resource.clone(),
-					principal: arg.principal.clone(),
 					permission: arg.permission,
-				});
-				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
-			}
+					principal: &arg.principal,
+					resource: &arg.resource,
+				},
+				GrantSource::Explicit,
+				partition_total,
+			)
+			.await?;
+			Self::enqueue_grant_update(
+				txn,
+				subspace,
+				&arg.resource,
+				&arg.principal,
+				arg.permission,
+				partition_total,
+			);
 		}
 		Ok(())
+	}
+
+	pub(crate) async fn put_grant_index_entry(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		entry: &GrantIndexEntry<'_>,
+		source: GrantSource,
+		partition_total: u64,
+	) -> tg::Result<bool> {
+		let mask = grant_source_mask(source);
+		let mut changed = false;
+		let keys = std::iter::once(Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+			resource: entry.resource.clone(),
+			principal: entry.principal.clone(),
+			permission: entry.permission,
+			expires_at: entry.expires_at,
+		}))
+		.chain(std::iter::once(Key::Grant(
+			crate::fdb::grant::Key::PrincipalGrant {
+				principal: entry.principal.clone(),
+				resource: entry.resource.clone(),
+				permission: entry.permission,
+				expires_at: entry.expires_at,
+			},
+		)))
+		.collect::<Vec<_>>();
+		for key in keys {
+			let key = Self::pack(subspace, &key);
+			let sources = txn
+				.get(&key, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the grant entry"))?
+				.as_deref()
+				.map_or(0, grant_sources);
+			let new_sources = sources | mask;
+			if new_sources != sources {
+				txn.set(&key, &[new_sources]);
+				changed = true;
+			}
+		}
+
+		for id in Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await? {
+			let key = Key::Grant(crate::fdb::grant::Key::Visibility {
+				resource: id,
+				principal: entry.principal.clone(),
+				grant_resource: entry.resource.clone(),
+				permission: entry.permission,
+				expires_at: entry.expires_at,
+			});
+			let key = Self::pack(subspace, &key);
+			let sources = txn
+				.get(&key, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the visibility entry"))?
+				.as_deref()
+				.map_or(0, grant_sources);
+			let new_sources = sources | mask;
+			if new_sources != sources {
+				txn.set(&key, &[new_sources]);
+			}
+		}
+		if let Some(expires_at) = entry.expires_at {
+			let partition = Self::partition_for_id(&entry.resource.to_bytes(), partition_total);
+			let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+				partition,
+				expires_at,
+				resource: entry.resource.clone(),
+				principal: entry.principal.clone(),
+				permission: entry.permission,
+			});
+			let key = Self::pack(subspace, &key);
+			let sources = txn
+				.get(&key, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the grant expiration"))?
+				.as_deref()
+				.map_or(0, grant_sources);
+			let new_sources = sources | mask;
+			if new_sources != sources {
+				txn.set(&key, &[new_sources]);
+			}
+		}
+		Ok(changed)
+	}
+
+	pub(crate) fn enqueue_grant_update(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		resource: &tg::Id,
+		principal: &tg::grant::Principal,
+		permission: tg::grant::Permission,
+		partition_total: u64,
+	) {
+		match permission {
+			tg::grant::Permission::Object(_) => {
+				if let Ok(id) = tg::object::Id::try_from(resource.clone()) {
+					Self::enqueue_update_with_kind(
+						txn,
+						subspace,
+						&tg::Either::Left(id),
+						crate::fdb::update::Kind::Grants(principal.clone()),
+						crate::fdb::update::Source::Put,
+						partition_total,
+					);
+				}
+			},
+			tg::grant::Permission::Process(_) => {
+				if let Ok(id) = tg::process::Id::try_from(resource.clone()) {
+					Self::enqueue_update_with_kind(
+						txn,
+						subspace,
+						&tg::Either::Right(id),
+						crate::fdb::update::Kind::Grants(principal.clone()),
+						crate::fdb::update::Source::Put,
+						partition_total,
+					);
+				}
+			},
+			tg::grant::Permission::Admin
+			| tg::grant::Permission::Read
+			| tg::grant::Permission::Write => {},
+		}
 	}
 }

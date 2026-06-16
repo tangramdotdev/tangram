@@ -39,6 +39,47 @@ impl Index {
 		Ok(grants)
 	}
 
+	pub(crate) fn get_resource_grant_entries_for_principal_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		resource: &tg::Id,
+		principal: &tg::grant::Principal,
+	) -> tg::Result<Vec<crate::lmdb::grant::GrantEntry>> {
+		let resource_bytes = resource.to_bytes();
+		let prefix = &(
+			Kind::ResourceGrant.to_i32().unwrap(),
+			resource_bytes.as_ref(),
+			principal.to_string(),
+		);
+		let prefix = Self::pack(subspace, prefix);
+		let mut grants = Vec::new();
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the resource grants"))?;
+		for entry in iter {
+			let (key, value) = entry
+				.map_err(|error| tg::error!(!error, "failed to read the resource grant entry"))?;
+			let key = Self::unpack(subspace, key)?;
+			let Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+				principal,
+				permission,
+				expires_at,
+				..
+			}) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			grants.push(crate::lmdb::grant::GrantEntry {
+				expires_at,
+				permission,
+				principal,
+				sources: crate::lmdb::grant::grant_sources(value),
+			});
+		}
+		Ok(grants)
+	}
+
 	pub(crate) fn try_get_visibility_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

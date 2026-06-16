@@ -107,7 +107,7 @@ impl Index {
 			subspace,
 			transaction,
 			tg::Either::Left(id.clone()),
-			crate::lmdb::update::Update::Put,
+			crate::lmdb::update::Source::Put,
 			None,
 		)?;
 

@@ -265,7 +265,29 @@ impl Index {
 			}
 		}
 		let count = args.len();
-		Self::task_delete_grants(txn, subspace, &args, partition_total).await?;
+		for arg in args {
+			Self::delete_grant_index_entry(
+				txn,
+				subspace,
+				&crate::fdb::grant::GrantIndexEntry {
+					expires_at: arg.expires_at,
+					permission: arg.permission,
+					principal: &arg.principal,
+					resource: &arg.resource,
+				},
+				crate::fdb::grant::GrantSource::All,
+				partition_total,
+			)
+			.await?;
+			Self::enqueue_grant_update(
+				txn,
+				subspace,
+				&arg.resource,
+				&arg.principal,
+				arg.permission,
+				partition_total,
+			);
+		}
 		Ok(count)
 	}
 

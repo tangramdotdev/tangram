@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Server, Session},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -58,12 +58,30 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		Ok(self
-			.server
-			.index
-			.try_get_object(id)
-			.await?
-			.map(|object| object.metadata))
+		let Some(metadata) = self.server.try_get_object_metadata_local(id).await? else {
+			return Ok(None);
+		};
+		self.mask_object_metadata(id, metadata).await
+	}
+
+	pub(crate) async fn mask_object_metadata(
+		&self,
+		id: &tg::object::Id,
+		metadata: tg::object::Metadata,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		let subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		if self.authorize(resource.clone(), subtree).await? == Some(true) {
+			return Ok(Some(metadata));
+		}
+
+		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		if self.authorize(resource, node).await? == Some(true) {
+			return Ok(Some(tg::object::Metadata::default()));
+		}
+
+		Ok(None)
 	}
 
 	async fn try_get_object_metadata_regions(
@@ -229,5 +247,18 @@ impl Session {
 		}
 		let response = response.body(body).unwrap();
 		Ok(response)
+	}
+}
+
+impl Server {
+	pub(crate) async fn try_get_object_metadata_local(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		Ok(self
+			.index
+			.try_get_object(id)
+			.await?
+			.map(|object| object.metadata))
 	}
 }

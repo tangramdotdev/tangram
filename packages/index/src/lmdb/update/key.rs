@@ -4,9 +4,17 @@ use tangram_client::prelude::*;
 pub enum Key {
 	Update {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
+		kind: Kind,
 	},
 	UpdateVersion {
-		version: u64,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
+		kind: Kind,
+		version: u64,
 	},
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Kind {
+	Item,
+	Grants(tg::grant::Principal),
 }
