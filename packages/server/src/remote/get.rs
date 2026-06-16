@@ -22,12 +22,12 @@ impl Session {
 		&self,
 		name: &str,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let authentication = self
+		let principal = self
 			.context
 			.principal
 			.as_ref()
 			.ok_or_else(|| tg::error!("unauthenticated"))?;
-		match authentication {
+		match principal {
 			tg::Principal::Process(_) | tg::Principal::Root | tg::Principal::Sandbox(_) => {
 				self.try_get_remote_root(name).await
 			},

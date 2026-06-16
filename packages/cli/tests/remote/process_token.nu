@@ -1,22 +1,39 @@
 use ../../test.nu *
 
-# A process authenticated client may not put a remote.
+# A process authenticated client lists its creator's remotes but may not put a remote.
 
-let server = spawn --busybox
+let root_remote = spawn --name root-remote
+let alice_remote = spawn --name alice-remote
+let server = spawn --config {
+	authentication: true,
+	remotes: { root: { url: $root_remote.url } },
+}
 
-# Run a sandboxed command that logs its process token and stays alive.
+def current_token [] {
+	open $env.TANGRAM_CONFIG | get token
+}
+
+tg user login alice
+let alice = current_token
+tg --token $alice remote put alice $alice_remote.url
+
+# Run a command that logs its process token and stays alive.
 let path = artifact {
 	tangram.ts: '
-		import busybox from "busybox";
-
 		export default async function () {
-			await tg.run`echo "$TANGRAM_TOKEN" && sleep 60`.env(tg.build(busybox)).sandbox();
+			console.log(tg.process.env.TANGRAM_TOKEN);
+			await tg.sleep(60);
 		}
 	'
 }
 let parent = tg build --detach --verbose $path | from json
 wait_until { (tg log $parent.process | str trim | str length) > 0 } "the process should log its token"
 let token = tg log $parent.process | str trim
+
+# Listing remotes with a process token uses the creator's remotes.
+let remotes = tg --token $token remote list | from json
+assert equal ($remotes | get name) [alice]
+assert equal ($remotes | get url) [$alice_remote.url]
 
 # Putting a remote with a process token is unauthorized.
 let output = tg --token $token remote put upstream "http://localhost:9999" | complete
