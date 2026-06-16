@@ -20,6 +20,7 @@ impl Session {
 		{
 			return Err(tg::error!("failed to find the resource"));
 		}
+
 		// Creating a grant requires admin permission on the resource.
 		if self
 			.authorize(arg.resource.clone(), tg::grant::Permission::Admin)
