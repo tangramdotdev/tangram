@@ -49,7 +49,7 @@ impl Session {
 				update processes
 				set
 					started_at = $2,
-					status = 'started'
+					status = 'dequeued'
 				where id in (select id from candidate)
 				returning id;
 			"

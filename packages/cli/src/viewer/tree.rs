@@ -2187,7 +2187,9 @@ impl Tree {
 			let guard = counter.guard();
 			let indicator = match (process.item.cached(), status) {
 				(Some(true), _) => Indicator::Cached,
-				(_, tg::process::Status::Created) => Indicator::Created,
+				(_, tg::process::Status::Created | tg::process::Status::Dequeued) => {
+					Indicator::Created
+				},
 				(_, tg::process::Status::Started) => Indicator::Started,
 				(_, tg::process::Status::Finished) => {
 					// Remove the child if necessary.

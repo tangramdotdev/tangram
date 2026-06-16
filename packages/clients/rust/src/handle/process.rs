@@ -102,6 +102,19 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
+	fn try_get_process_control_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+
 	fn signal_process(
 		&self,
 		id: &tg::process::Id,
@@ -119,18 +132,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
-
-	fn try_get_process_signal_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static,
-			>,
-		>,
-	> + Send;
 
 	fn try_get_process_status_stream(
 		&self,
@@ -150,18 +151,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		Output = tg::Result<
 			Option<
 				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
-			>,
-		>,
-	> + Send;
-
-	fn try_get_process_tty_size_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::tty::size::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static,
 			>,
 		>,
 	> + Send;
@@ -348,6 +337,19 @@ impl tg::handle::Process for tg::Client {
 			.await
 	}
 
+	async fn try_get_process_control_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static>,
+	> {
+		self.session(&self.context)
+			.try_get_process_control_stream(id, arg, stream)
+			.await
+	}
+
 	async fn try_signal_process(
 		&self,
 		id: &tg::process::Id,
@@ -355,18 +357,6 @@ impl tg::handle::Process for tg::Client {
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
 			.try_post_process_signal(id, arg)
-			.await
-	}
-
-	async fn try_get_process_signal_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::signal::get::Event>> + Send + 'static>,
-	> {
-		self.session(&self.context)
-			.try_get_process_signal_stream(id, arg)
 			.await
 	}
 
@@ -391,18 +381,6 @@ impl tg::handle::Process for tg::Client {
 	> {
 		self.session(&self.context)
 			.try_get_process_children_stream(id, arg)
-			.await
-	}
-
-	async fn try_get_process_tty_size_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::tty::size::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static>,
-	> {
-		self.session(&self.context)
-			.try_get_process_tty_size_stream(id, arg)
 			.await
 	}
 

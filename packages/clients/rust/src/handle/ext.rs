@@ -373,6 +373,118 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
+	fn try_get_process_control_stream_all(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+			>,
+		>,
+	> + Send {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+
+			// Create a channel for buffering events from the input.
+			let (response_sender, response_receiver) = async_channel::bounded(1);
+
+			// Create the input task. This will read events from the input stream and write them to the response channel. It is detached so that it forwards the remaining events when the request stream is dropped. It completes when the input stream ends or all of the receivers are dropped.
+			let mut input_task = Task::spawn(move |_| async move {
+				let mut input = pin!(stream);
+				while let Some(event) = input.next().await {
+					if response_sender.send(event).await.is_err() {
+						break;
+					}
+				}
+			});
+			input_task.detach();
+
+			// Get the initial output stream.
+			let Some(output) = handle
+				.try_get_process_control_stream(&id, arg.clone(), response_receiver.clone().boxed())
+				.await?
+			else {
+				input_task.abort();
+				return Ok(None);
+			};
+
+			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
+			struct State {
+				retries: Option<BoxStream<'static, ()>>,
+				stream: Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>,
+			}
+			let state = State {
+				retries: None,
+				stream: Some(output.boxed()),
+			};
+			let stream = stream::unfold(state, move |mut state| {
+				let handle = handle.clone();
+				let id = id.clone();
+				let arg = arg.clone();
+				let response_receiver = response_receiver.clone();
+				async move {
+					loop {
+						if state.stream.is_none() {
+							let retries = state.retries.get_or_insert_with(|| {
+								let options = tangram_futures::retry::Options {
+									max_retries: u64::MAX,
+									..Default::default()
+								};
+								tangram_futures::retry::stream(options).boxed()
+							});
+							retries.next().await?;
+							match handle
+								.try_get_process_control_stream(
+									&id,
+									arg.clone(),
+									response_receiver.clone().boxed(),
+								)
+								.await
+							{
+								Ok(Some(stream)) => {
+									state.stream.replace(stream.boxed());
+								},
+								Ok(None) => {
+									let error = tg::error!("failed to find the process");
+									return Some((Err(error), state));
+								},
+								Err(error) => {
+									tracing::error!(error = %error.trace(), "failed to reconnect the control stream");
+									continue;
+								},
+							}
+						}
+						match state.stream.as_mut().unwrap().next().await {
+							Some(Ok(event)) => {
+								state.retries.take();
+								return Some((Ok(event), state));
+							},
+							Some(Err(error)) => {
+								tracing::error!(error = %error.trace(), "the control stream returned an error");
+								state.stream.take();
+							},
+							None => {
+								state.stream.take();
+							},
+						}
+					}
+				}
+			})
+			.take_while(|event| {
+				future::ready(!matches!(
+					event,
+					Ok(tg::process::control::RequestEvent::End)
+				))
+			});
+
+			Ok(Some(stream))
+		}
+	}
+
 	fn try_read_process_stdio_all(
 		&self,
 		id: &tg::process::Id,
@@ -575,6 +687,8 @@ pub trait Ext: tg::Handle {
 										}
 										break;
 									},
+
+									Ok(tg::process::stdio::write::Event::Write(_)) => (),
 
 									Err(error) => {
 										// Retry if the server returned an error.
