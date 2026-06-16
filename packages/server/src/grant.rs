@@ -13,13 +13,20 @@ use {
 
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
-		match self
-			.authorize(arg.resource.clone(), tg::grant::Permission::Admin)
-			.await?
+		// The resource is not found without read permission, so creating a grant does not reveal whether a resource the actor cannot see exists.
+		if self
+			.authorize(arg.resource.clone(), tg::grant::Permission::Read)
+			.await? != Some(true)
 		{
-			None => return Err(tg::error!("failed to find the resource")),
-			Some(false) => return Err(tg::error!("unauthorized")),
-			Some(true) => (),
+			return Err(tg::error!("failed to find the resource"));
+		}
+
+		// Creating a grant requires admin permission on the resource.
+		if self
+			.authorize(arg.resource.clone(), tg::grant::Permission::Admin)
+			.await? != Some(true)
+		{
+			return Err(tg::error!("unauthorized"));
 		}
 		let session = self.clone();
 		let (grant, batch) = self
