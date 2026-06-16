@@ -7,19 +7,21 @@ impl Session {
 	pub(crate) async fn authorize(
 		&self,
 		resource: tg::grant::Resource,
-		permission: tg::grant::Permission,
-	) -> tg::Result<Option<bool>> {
+		permissions: impl Into<tg::grant::Set>,
+	) -> tg::Result<Option<tg::grant::Set>> {
+		let permissions = permissions.into();
+
 		// Authorize a sandbox for its own processes.
 		if let (
 			tg::grant::Resource::Id(id),
-			tg::grant::Permission::Process(_),
+			tg::grant::Set::Process(_),
 			Some(tg::Principal::Sandbox(sandbox)),
-		) = (&resource, permission, self.context.principal.as_ref())
+		) = (&resource, permissions, self.context.principal.as_ref())
 			&& let Ok(process) = tg::process::Id::try_from(id.clone())
 			&& let Some(output) = self.server.try_get_process_local(&process, false).await?
 			&& output.data.sandbox == *sandbox
 		{
-			return Ok(Some(true));
+			return Ok(Some(permissions));
 		}
 
 		// Attempt to authorize.
@@ -28,12 +30,12 @@ impl Session {
 			.index
 			.authorize(
 				resource.clone(),
-				tangram_index::authorize::Permissions::from_grant_permission(permission),
+				permissions,
 				self.context.principal.as_ref(),
 			)
-			.await? && output.permissions.contains_grant_permission(permission)
+			.await? && !output.permissions.is_empty()
 		{
-			return Ok(Some(true));
+			return Ok(Some(output.permissions));
 		}
 
 		// Index.
@@ -48,13 +50,9 @@ impl Session {
 		let output = self
 			.server
 			.index
-			.authorize(
-				resource,
-				tangram_index::authorize::Permissions::from_grant_permission(permission),
-				self.context.principal.as_ref(),
-			)
+			.authorize(resource, permissions, self.context.principal.as_ref())
 			.await?;
 
-		Ok(output.map(|output| output.permissions.contains_grant_permission(permission)))
+		Ok(output.map(|output| output.permissions))
 	}
 }

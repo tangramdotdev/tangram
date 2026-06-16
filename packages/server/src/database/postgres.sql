@@ -75,10 +75,10 @@ create index organization_members_member_index on organization_members (member);
 create table grants (
 	resource text not null,
 	principal text not null,
-	permission text not null,
+	permissions text not null,
 	created_at int8 not null,
-	creator text,
-	unique (resource, principal, permission)
+	creator text not null,
+	unique (resource, principal, creator)
 );
 
 create index grants_resource_index on grants (resource);

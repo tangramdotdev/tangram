@@ -72,12 +72,20 @@ impl Session {
 		let resource = tg::grant::Resource::Id(id.clone().into());
 		let subtree =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		if self.authorize(resource.clone(), subtree).await? == Some(true) {
+		if self
+			.authorize(resource.clone(), subtree)
+			.await?
+			.is_some_and(|permissions| permissions.contains(subtree))
+		{
 			return Ok(Some(metadata));
 		}
 
 		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-		if self.authorize(resource, node).await? == Some(true) {
+		if self
+			.authorize(resource, node)
+			.await?
+			.is_some_and(|permissions| permissions.contains(node))
+		{
 			return Ok(Some(tg::object::Metadata::default()));
 		}
 

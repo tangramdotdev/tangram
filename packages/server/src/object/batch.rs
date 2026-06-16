@@ -106,9 +106,10 @@ impl Session {
 					created_at: now,
 					creator: Some(principal.clone()),
 					expires_at: Some(grant_expires_at),
-					permission: tg::grant::Permission::Object(
+					permissions: tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Node,
-					),
+					)
+					.into(),
 					principal: principal.clone().into(),
 					resource: object.id.clone().into(),
 				});

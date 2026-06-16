@@ -43,14 +43,6 @@ pub struct Stored {
 	pub subtree: bool,
 }
 
-bitflags::bitflags! {
-	#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-	pub struct Permissions: u8 {
-		const NODE = 1 << 0;
-		const SUBTREE = 1 << 1;
-	}
-}
-
 impl Object {
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
@@ -66,23 +58,5 @@ impl Object {
 impl Stored {
 	pub fn merge(&mut self, other: &Self) {
 		self.subtree = self.subtree || other.subtree;
-	}
-}
-
-impl Permissions {
-	#[must_use]
-	pub fn from_grant_permission(permission: tg::grant::permission::object::Permission) -> Self {
-		match permission {
-			tg::grant::permission::object::Permission::Node => Self::NODE,
-			tg::grant::permission::object::Permission::Subtree => Self::SUBTREE,
-		}
-	}
-
-	#[must_use]
-	pub fn contains_grant_permission(
-		self,
-		permission: tg::grant::permission::object::Permission,
-	) -> bool {
-		self.contains(Self::from_grant_permission(permission))
 	}
 }

@@ -91,7 +91,9 @@ impl Session {
 					tg::grant::Permission::Write,
 				)
 				.await?;
-			if authorized != Some(true) {
+			if !authorized
+				.is_some_and(|permissions| permissions.contains(tg::grant::Permission::Write))
+			{
 				return Err(tg::error!("unauthorized"));
 			}
 		}

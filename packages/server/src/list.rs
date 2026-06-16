@@ -144,10 +144,9 @@ impl Session {
 		}
 		if !arg.pattern.is_empty() && !arg.pattern.contains_operators() {
 			let resource = tg::grant::Resource::Specifier(arg.pattern.to_specifier());
-			let authorized = self
-				.authorize(resource, tg::grant::Permission::Read)
-				.await?;
-			if authorized == Some(true) {
+			let permission = tg::grant::Permission::Read;
+			let authorized = self.authorize(resource, permission).await?;
+			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
 				return Ok(entries.into_iter().map(|(_, entry)| entry).collect());
 			}
 		}

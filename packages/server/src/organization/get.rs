@@ -30,10 +30,11 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 	) -> tg::Result<Option<tg::Organization>> {
+		let permission = tg::grant::Permission::Read;
 		let authorized = self
-			.authorize(organization.clone().into(), tg::grant::Permission::Read)
+			.authorize(organization.clone().into(), permission)
 			.await?;
-		if authorized != Some(true) {
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
 		let mut connection = self

@@ -127,7 +127,7 @@ impl Session {
 		{
 			let arg = tg::grant::create::Arg {
 				principal: tg::grant::Principal::from(principal.clone()).into(),
-				permission: tg::grant::Permission::Admin,
+				permissions: tg::grant::Permission::Admin.into(),
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			};
 			self.create_grant_with_transaction(transaction, arg, batch)

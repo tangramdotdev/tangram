@@ -72,9 +72,10 @@ impl Session {
 				created_at: touched_at,
 				creator: Some(principal.clone()),
 				expires_at: Some(grant_expires_at),
-				permission: tg::grant::Permission::Object(
+				permissions: tg::grant::Permission::Object(
 					tg::grant::permission::object::Permission::Subtree,
-				),
+				)
+				.into(),
 				principal: principal.into(),
 				resource: resource.into(),
 			}

@@ -252,6 +252,7 @@ impl fdbt::TuplePack for Key {
 			Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 				resource,
 				principal,
+				creator,
 				permission,
 				expires_at,
 			}) => (
@@ -259,6 +260,7 @@ impl fdbt::TuplePack for Key {
 				resource.to_bytes().as_ref(),
 				principal.to_string(),
 				permission.to_string(),
+				creator.as_ref().map(ToString::to_string),
 				expires_at,
 			)
 				.pack(w, tuple_depth),
@@ -266,6 +268,7 @@ impl fdbt::TuplePack for Key {
 			Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
 				principal,
 				resource,
+				creator,
 				permission,
 				expires_at,
 			}) => (
@@ -273,6 +276,7 @@ impl fdbt::TuplePack for Key {
 				principal.to_string(),
 				resource.to_bytes().as_ref(),
 				permission.to_string(),
+				creator.as_ref().map(ToString::to_string),
 				expires_at,
 			)
 				.pack(w, tuple_depth),
@@ -285,6 +289,7 @@ impl fdbt::TuplePack for Key {
 				resource,
 				principal,
 				grant_resource,
+				creator,
 				permission,
 				expires_at,
 			}) => (
@@ -293,6 +298,7 @@ impl fdbt::TuplePack for Key {
 				principal.to_string(),
 				grant_resource.to_bytes().as_ref(),
 				permission.to_string(),
+				creator.as_ref().map(ToString::to_string),
 				expires_at,
 			)
 				.pack(w, tuple_depth),
@@ -302,6 +308,7 @@ impl fdbt::TuplePack for Key {
 				expires_at,
 				resource,
 				principal,
+				creator,
 				permission,
 			}) => (
 				Kind::GrantExpiresAt.to_i32().unwrap(),
@@ -310,6 +317,7 @@ impl fdbt::TuplePack for Key {
 				resource.to_bytes().as_ref(),
 				principal.to_string(),
 				permission.to_string(),
+				creator.as_ref().map(ToString::to_string),
 			)
 				.pack(w, tuple_depth),
 
@@ -723,11 +731,20 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, creator): (_, Option<String>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let principal = principal
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let creator = creator
+					.map(|creator| {
+						creator
+							.parse()
+							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
+					})
+					.transpose()?;
 				let permission = permission
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
@@ -736,6 +753,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 					resource,
 					principal,
+					creator,
 					permission,
 					expires_at,
 				});
@@ -749,11 +767,20 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, creator): (_, Option<String>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let principal = principal
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
+				let creator = creator
+					.map(|creator| {
+						creator
+							.parse()
+							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
+					})
+					.transpose()?;
 				let permission = permission
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
@@ -762,6 +789,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let key = Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
 					principal,
 					resource,
+					creator,
 					permission,
 					expires_at,
 				});
@@ -786,6 +814,8 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, creator): (_, Option<String>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let principal = principal
@@ -793,6 +823,13 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
 				let grant_resource = tg::Id::from_slice(&grant_resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
+				let creator = creator
+					.map(|creator| {
+						creator
+							.parse()
+							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
+					})
+					.transpose()?;
 				let permission = permission
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
@@ -802,6 +839,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					resource,
 					principal,
 					grant_resource,
+					creator,
 					permission,
 					expires_at,
 				});
@@ -817,11 +855,20 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, creator): (_, Option<String>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let principal = principal
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let creator = creator
+					.map(|creator| {
+						creator
+							.parse()
+							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
+					})
+					.transpose()?;
 				let permission = permission
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
@@ -830,6 +877,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					expires_at,
 					resource,
 					principal,
+					creator,
 					permission,
 				});
 				Ok((input, key))

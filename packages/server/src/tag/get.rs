@@ -47,7 +47,8 @@ impl Session {
 				tg::grant::Resource::Id(node.id.clone()),
 				tg::grant::Permission::Read,
 			)
-			.await? == Some(true);
+			.await?
+			.is_some_and(|permissions| permissions.contains(tg::grant::Permission::Read));
 		if !visible {
 			return Ok(None);
 		}

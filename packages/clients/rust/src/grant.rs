@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-pub use {permission::Permission, principal::Principal, resource::Resource};
+pub use {permission::Permission, permission::Set, principal::Principal, resource::Resource};
 
 pub mod create;
 pub mod delete;
@@ -14,7 +14,7 @@ pub struct Grant {
 	pub created_at: i64,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub creator: Option<tg::Principal>,
-	pub permission: tg::grant::Permission,
+	pub permissions: tg::grant::Set,
 	pub principal: tg::grant::Principal,
 	pub resource: tg::Id,
 }

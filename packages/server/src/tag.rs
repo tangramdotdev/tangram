@@ -97,7 +97,11 @@ impl Session {
 		for aspect in aspects {
 			for permission in [aspect.subtree(), aspect] {
 				let resource = tg::grant::Resource::Id(resource.clone());
-				if self.authorize(resource, permission).await? == Some(true) {
+				if self
+					.authorize(resource, permission)
+					.await?
+					.is_some_and(|permissions| permissions.contains(permission))
+				{
 					permissions.push(permission);
 					break;
 				}

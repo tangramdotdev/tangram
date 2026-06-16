@@ -27,10 +27,9 @@ impl Session {
 		&self,
 		group: &tg::group::Selector,
 	) -> tg::Result<Option<tg::Group>> {
-		let authorized = self
-			.authorize(group.clone().into(), tg::grant::Permission::Read)
-			.await?;
-		if authorized != Some(true) {
+		let permission = tg::grant::Permission::Read;
+		let authorized = self.authorize(group.clone().into(), permission).await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
 		let mut connection = self

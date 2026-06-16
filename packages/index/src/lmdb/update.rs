@@ -46,6 +46,11 @@ struct ProcessGrantSet {
 	output: bool,
 }
 
+#[derive(Clone, Copy)]
+struct GrantCover {
+	expires_at: Option<i64>,
+}
+
 impl Update {
 	pub fn new(source: Source) -> Self {
 		Self { source }
@@ -380,11 +385,14 @@ impl Index {
 			if explicit_subtree.contains(&(entry.principal.clone(), entry.expires_at)) {
 				continue;
 			}
-			let children_have_subtree = child_entries.iter().all(|entries| {
-				Self::grant_entries_cover(entries, &entry.principal, subtree, entry.expires_at)
-			});
-			if children_have_subtree {
-				expected.insert((entry.principal.clone(), subtree, entry.expires_at));
+			let expires_at = child_entries
+				.iter()
+				.try_fold(entry.expires_at, |output, entries| {
+					Self::grant_entries_cover_expires_at(entries, &entry.principal, subtree)
+						.map(|cover| Self::min_expires_at(output, cover.expires_at))
+				});
+			if let Some(expires_at) = expires_at {
+				expected.insert((entry.principal.clone(), subtree, expires_at));
 			}
 		}
 		let managed = BTreeSet::from([subtree]);
@@ -423,6 +431,7 @@ impl Index {
 				subspace,
 				transaction,
 				&crate::lmdb::grant::GrantIndexEntry {
+					creator: None,
 					expires_at: *expires_at,
 					permission: *permission,
 					principal,
@@ -439,6 +448,7 @@ impl Index {
 				subspace,
 				transaction,
 				&crate::lmdb::grant::GrantIndexEntry {
+					creator: None,
 					expires_at: *expires_at,
 					permission: *permission,
 					principal,
@@ -552,11 +562,16 @@ impl Index {
 				if explicit.contains(&(entry.principal.clone(), target, entry.expires_at)) {
 					continue;
 				}
-				let children_have_target = input.child_entries.iter().all(|entries| {
-					Self::grant_entries_cover(entries, &entry.principal, target, entry.expires_at)
-				});
-				if children_have_target {
-					expected.insert((entry.principal.clone(), target, entry.expires_at));
+				let expires_at =
+					input
+						.child_entries
+						.iter()
+						.try_fold(entry.expires_at, |output, entries| {
+							Self::grant_entries_cover_expires_at(entries, &entry.principal, target)
+								.map(|cover| Self::min_expires_at(output, cover.expires_at))
+						});
+				if let Some(expires_at) = expires_at {
+					expected.insert((entry.principal.clone(), target, expires_at));
 				}
 			}
 		}
@@ -598,35 +613,50 @@ impl Index {
 			if explicit.contains(&(entry.principal.clone(), target_permission, entry.expires_at)) {
 				continue;
 			}
-			let all_required = required.iter().all(|entries| {
-				Self::grant_entries_cover(
-					entries,
-					&entry.principal,
-					source_permission,
-					entry.expires_at,
-				)
-			});
-			if all_required {
-				expected.insert((entry.principal.clone(), target_permission, entry.expires_at));
+			let expires_at = required
+				.iter()
+				.try_fold(entry.expires_at, |output, entries| {
+					Self::grant_entries_cover_expires_at(
+						entries,
+						&entry.principal,
+						source_permission,
+					)
+					.map(|cover| Self::min_expires_at(output, cover.expires_at))
+				});
+			if let Some(expires_at) = expires_at {
+				expected.insert((entry.principal.clone(), target_permission, expires_at));
 			}
 		}
 	}
 
-	fn grant_entries_cover(
+	fn grant_entries_cover_expires_at(
 		entries: &[crate::lmdb::grant::GrantEntry],
 		principal: &tg::grant::Principal,
 		permission: tg::grant::Permission,
-		expires_at: Option<i64>,
-	) -> bool {
-		entries.iter().any(|entry| {
-			entry.principal == *principal
-				&& entry.permission == permission
-				&& match (entry.expires_at, expires_at) {
-					(None, _) => true,
-					(Some(_), None) => false,
-					(Some(entry), Some(expires_at)) => entry >= expires_at,
-				}
-		})
+	) -> Option<GrantCover> {
+		entries
+			.iter()
+			.filter(|entry| entry.principal == *principal && entry.permission == permission)
+			.map(|entry| GrantCover {
+				expires_at: entry.expires_at,
+			})
+			.reduce(|left, right| GrantCover {
+				expires_at: Self::max_expires_at(left.expires_at, right.expires_at),
+			})
+	}
+
+	fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+		match (left, right) {
+			(None, _) | (_, None) => None,
+			(Some(left), Some(right)) => Some(left.max(right)),
+		}
+	}
+
+	fn min_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+		match (left, right) {
+			(None, expires_at) | (expires_at, None) => expires_at,
+			(Some(left), Some(right)) => Some(left.min(right)),
+		}
 	}
 
 	fn update_process_grants_for_principal(

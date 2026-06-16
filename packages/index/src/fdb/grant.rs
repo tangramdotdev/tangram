@@ -22,6 +22,7 @@ pub(crate) struct GrantEntry {
 
 #[derive(Clone)]
 pub(crate) struct GrantIndexEntry<'a> {
+	pub creator: Option<&'a tangram_client::Principal>,
 	pub expires_at: Option<i64>,
 	pub permission: tangram_client::grant::Permission,
 	pub principal: &'a tangram_client::grant::Principal,

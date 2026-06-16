@@ -89,7 +89,11 @@ impl Session {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::Node,
 				);
-				if self.authorize(resource, permission).await? != Some(true) {
+				if !self
+					.authorize(resource, permission)
+					.await?
+					.is_some_and(|permissions| permissions.contains(permission))
+				{
 					return Ok(None);
 				}
 				let mut output = output;

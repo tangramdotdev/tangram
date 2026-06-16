@@ -11,5 +11,5 @@ tg --token $alice.token group create team
 tg --token $alice.token grant $bob.user.id read team
 
 let grants = tg --token $alice.token grants list --resource team | from json
-assert ($grants | any {|g| $g.principal == $alice.user.id and $g.permission == "admin" }) "the creator's admin grant should be listed"
-assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permission == "read" }) "bob's read grant should be listed"
+assert ($grants | any {|g| $g.principal == $alice.user.id and $g.permissions == "admin" }) "the creator's admin grant should be listed"
+assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "read" }) "bob's read grant should be listed"

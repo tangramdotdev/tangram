@@ -38,13 +38,14 @@ impl Session {
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
 	) -> tg::Result<()> {
+		let permission = tg::grant::Permission::Admin;
 		match self
-			.authorize(organization.clone().into(), tg::grant::Permission::Admin)
+			.authorize(organization.clone().into(), permission)
 			.await?
 		{
 			None => return Err(tg::error!("failed to find the organization")),
-			Some(false) => return Err(tg::error!("unauthorized")),
-			Some(true) => (),
+			Some(permissions) if permissions.contains(permission) => (),
+			Some(_) => return Err(tg::error!("unauthorized")),
 		}
 		let session = self.clone();
 		let batch = self
@@ -148,7 +149,7 @@ impl Session {
 		};
 		let arg = tg::grant::create::Arg {
 			principal: principal.into(),
-			permission: tg::grant::Permission::Write,
+			permissions: tg::grant::Permission::Write.into(),
 			resource: tg::grant::Resource::Id(organization.id.clone()),
 		};
 		self.create_grant_with_transaction(transaction, arg, batch)

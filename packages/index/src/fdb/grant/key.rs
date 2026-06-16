@@ -5,12 +5,14 @@ pub enum Key {
 	ResourceGrant {
 		resource: tg::Id,
 		principal: tg::grant::Principal,
+		creator: Option<tg::Principal>,
 		permission: tg::grant::Permission,
 		expires_at: Option<i64>,
 	},
 	PrincipalGrant {
 		principal: tg::grant::Principal,
 		resource: tg::Id,
+		creator: Option<tg::Principal>,
 		permission: tg::grant::Permission,
 		expires_at: Option<i64>,
 	},
@@ -18,6 +20,7 @@ pub enum Key {
 		resource: tg::Id,
 		principal: tg::grant::Principal,
 		grant_resource: tg::Id,
+		creator: Option<tg::Principal>,
 		permission: tg::grant::Permission,
 		expires_at: Option<i64>,
 	},
@@ -26,6 +29,7 @@ pub enum Key {
 		expires_at: i64,
 		resource: tg::Id,
 		principal: tg::grant::Principal,
+		creator: Option<tg::Principal>,
 		permission: tg::grant::Permission,
 	},
 }

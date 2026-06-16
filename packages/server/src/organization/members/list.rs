@@ -29,10 +29,11 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 	) -> tg::Result<tg::organization::members::list::Output> {
+		let permission = tg::grant::Permission::Read;
 		let authorized = self
-			.authorize(organization.clone().into(), tg::grant::Permission::Read)
+			.authorize(organization.clone().into(), permission)
 			.await?;
-		if authorized != Some(true) {
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Err(tg::error!("failed to find the organization"));
 		}
 		let mut connection = self

@@ -218,28 +218,16 @@ impl Session {
 							.as_secs()
 							.to_i64()
 							.unwrap();
-					[
-						tg::grant::permission::process::Permission::Node,
-						tg::grant::permission::process::Permission::NodeCommand,
-						tg::grant::permission::process::Permission::NodeError,
-						tg::grant::permission::process::Permission::NodeLog,
-						tg::grant::permission::process::Permission::NodeOutput,
-						tg::grant::permission::process::Permission::Subtree,
-						tg::grant::permission::process::Permission::SubtreeCommand,
-						tg::grant::permission::process::Permission::SubtreeError,
-						tg::grant::permission::process::Permission::SubtreeLog,
-						tg::grant::permission::process::Permission::SubtreeOutput,
-					]
-					.into_iter()
-					.map(|permission| tangram_index::grant::put::Arg {
+					vec![tangram_index::grant::put::Arg {
 						created_at: now,
 						creator: Some(principal.clone()),
 						expires_at: Some(expires_at),
-						permission: tg::grant::Permission::Process(permission),
+						permissions: tg::grant::Set::Process(
+							tg::grant::permission::process::Set::all(),
+						),
 						principal: principal.clone().into(),
 						resource: id.clone().into(),
-					})
-					.collect()
+					}]
 				})
 				.unwrap_or_default();
 			self.server
@@ -534,28 +522,14 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let put_grants = [
-			tg::grant::permission::process::Permission::Node,
-			tg::grant::permission::process::Permission::NodeCommand,
-			tg::grant::permission::process::Permission::NodeError,
-			tg::grant::permission::process::Permission::NodeLog,
-			tg::grant::permission::process::Permission::NodeOutput,
-			tg::grant::permission::process::Permission::Subtree,
-			tg::grant::permission::process::Permission::SubtreeCommand,
-			tg::grant::permission::process::Permission::SubtreeError,
-			tg::grant::permission::process::Permission::SubtreeLog,
-			tg::grant::permission::process::Permission::SubtreeOutput,
-		]
-		.into_iter()
-		.map(|permission| tangram_index::grant::put::Arg {
+		let put_grants = vec![tangram_index::grant::put::Arg {
 			created_at: now,
 			creator: Some(principal.clone()),
 			expires_at: Some(expires_at),
-			permission: tg::grant::Permission::Process(permission),
+			permissions: tg::grant::Set::Process(tg::grant::permission::process::Set::all()),
 			principal: principal.clone().into(),
 			resource: id.clone().into(),
-		})
-		.collect::<Vec<_>>();
+		}];
 		self.server
 			.index_tasks
 			.spawn(|_| {

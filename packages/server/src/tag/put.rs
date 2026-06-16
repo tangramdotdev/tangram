@@ -38,7 +38,8 @@ impl Session {
 				tg::grant::Permission::Write,
 			)
 			.await?;
-		if authorized == Some(false) {
+		if authorized.is_some_and(|permissions| !permissions.contains(tg::grant::Permission::Write))
+		{
 			return Err(tg::error!("unauthorized"));
 		}
 		let permissions = self.recorded_tag_permissions(&arg.item).await?;
@@ -176,7 +177,7 @@ impl Session {
 			if arg.public {
 				let arg = tg::grant::create::Arg {
 					principal: tg::grant::Principal::Public.into(),
-					permission: tg::grant::Permission::Read,
+					permissions: tg::grant::Permission::Read.into(),
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
@@ -185,7 +186,7 @@ impl Session {
 			if let Some(principal) = self.write_user_grant_principal() {
 				let arg = tg::grant::create::Arg {
 					principal: principal.into(),
-					permission: tg::grant::Permission::Admin,
+					permissions: tg::grant::Permission::Admin.into(),
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)

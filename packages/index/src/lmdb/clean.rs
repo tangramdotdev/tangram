@@ -191,6 +191,7 @@ impl Index {
 				expires_at,
 				resource,
 				principal,
+				creator,
 				permission,
 			}) = key
 			else {
@@ -200,34 +201,38 @@ impl Index {
 				break;
 			}
 			args.push(crate::grant::delete::Arg {
+				creator,
 				expires_at: Some(expires_at),
-				permission,
+				permissions: permission.into(),
 				principal,
 				resource,
 			});
 		}
 		let count = args.len();
 		for arg in args {
-			Self::delete_grant_index_entry(
-				db,
-				subspace,
-				transaction,
-				&crate::lmdb::grant::GrantIndexEntry {
-					expires_at: arg.expires_at,
-					permission: arg.permission,
-					principal: &arg.principal,
-					resource: &arg.resource,
-				},
-				crate::lmdb::grant::GrantSource::All,
-			)?;
-			Self::enqueue_grant_update(
-				db,
-				subspace,
-				transaction,
-				&arg.resource,
-				&arg.principal,
-				arg.permission,
-			)?;
+			for permission in arg.permissions.iter() {
+				Self::delete_grant_index_entry(
+					db,
+					subspace,
+					transaction,
+					&crate::lmdb::grant::GrantIndexEntry {
+						creator: arg.creator.as_ref(),
+						expires_at: arg.expires_at,
+						permission,
+						principal: &arg.principal,
+						resource: &arg.resource,
+					},
+					crate::lmdb::grant::GrantSource::All,
+				)?;
+				Self::enqueue_grant_update(
+					db,
+					subspace,
+					transaction,
+					&arg.resource,
+					&arg.principal,
+					permission,
+				)?;
+			}
 		}
 		Ok(count)
 	}

@@ -38,8 +38,8 @@ impl Session {
 			.await?
 		{
 			None => return Ok(None),
-			Some(false) => return Err(tg::error!("unauthorized")),
-			Some(true) => (),
+			Some(permissions) if permissions.contains(tg::grant::Permission::Admin) => (),
+			Some(_) => return Err(tg::error!("unauthorized")),
 		}
 		let session = self.clone();
 		let (output, batch) = self

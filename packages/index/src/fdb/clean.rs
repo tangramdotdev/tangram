@@ -250,6 +250,7 @@ impl Index {
 					expires_at,
 					resource,
 					principal,
+					creator,
 					permission,
 					..
 				}) = key
@@ -257,8 +258,9 @@ impl Index {
 					return Err(tg::error!("expected a grant expiration key"));
 				};
 				args.push(crate::grant::delete::Arg {
+					creator,
 					expires_at: Some(expires_at),
-					permission,
+					permissions: permission.into(),
 					principal,
 					resource,
 				});
@@ -266,27 +268,30 @@ impl Index {
 		}
 		let count = args.len();
 		for arg in args {
-			Self::delete_grant_index_entry(
-				txn,
-				subspace,
-				&crate::fdb::grant::GrantIndexEntry {
-					expires_at: arg.expires_at,
-					permission: arg.permission,
-					principal: &arg.principal,
-					resource: &arg.resource,
-				},
-				crate::fdb::grant::GrantSource::All,
-				partition_total,
-			)
-			.await?;
-			Self::enqueue_grant_update(
-				txn,
-				subspace,
-				&arg.resource,
-				&arg.principal,
-				arg.permission,
-				partition_total,
-			);
+			for permission in arg.permissions.iter() {
+				Self::delete_grant_index_entry(
+					txn,
+					subspace,
+					&crate::fdb::grant::GrantIndexEntry {
+						creator: arg.creator.as_ref(),
+						expires_at: arg.expires_at,
+						permission,
+						principal: &arg.principal,
+						resource: &arg.resource,
+					},
+					crate::fdb::grant::GrantSource::All,
+					partition_total,
+				)
+				.await?;
+				Self::enqueue_grant_update(
+					txn,
+					subspace,
+					&arg.resource,
+					&arg.principal,
+					permission,
+					partition_total,
+				);
+			}
 		}
 		Ok(count)
 	}

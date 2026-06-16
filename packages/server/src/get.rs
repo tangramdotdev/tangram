@@ -166,7 +166,8 @@ impl Session {
 				tg::grant::Resource::Id(node.id.clone()),
 				tg::grant::Permission::Read,
 			)
-			.await? == Some(true);
+			.await?
+			.is_some_and(|permissions| permissions.contains(tg::grant::Permission::Read));
 		if !visible {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
@@ -217,7 +218,8 @@ impl Session {
 						tg::grant::Resource::Id(node.id.clone()),
 						tg::grant::Permission::Read,
 					)
-					.await? == Some(true);
+					.await?
+					.is_some_and(|permissions| permissions.contains(tg::grant::Permission::Read));
 				if !visible {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok(stream.boxed());

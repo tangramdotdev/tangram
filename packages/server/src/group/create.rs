@@ -31,13 +31,14 @@ impl Session {
 		if self.context.principal.is_none() {
 			return Err(tg::error!("unauthorized"));
 		}
+		let permission = tg::grant::Permission::Write;
 		let authorized = self
 			.authorize(
 				tg::grant::Resource::Specifier(arg.specifier.clone()),
-				tg::grant::Permission::Write,
+				permission,
 			)
 			.await?;
-		if authorized == Some(false) {
+		if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let session = self.clone();
@@ -195,7 +196,7 @@ impl Session {
 		{
 			let arg = tg::grant::create::Arg {
 				principal: tg::grant::Principal::from(principal.clone()).into(),
-				permission: tg::grant::Permission::Admin,
+				permissions: tg::grant::Permission::Admin.into(),
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			};
 			self.create_grant_with_transaction(transaction, arg, batch)

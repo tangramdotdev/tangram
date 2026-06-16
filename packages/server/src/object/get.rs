@@ -89,7 +89,11 @@ impl Session {
 		let resource = tg::grant::Resource::Id(id.clone().into());
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-		if self.authorize(resource, permission).await? != Some(true) {
+		if !self
+			.authorize(resource, permission)
+			.await?
+			.is_some_and(|permissions| permissions.contains(permission))
+		{
 			return Ok(None);
 		}
 		let Some(mut output) = self.server.try_get_object_local(id, metadata).await? else {
@@ -164,7 +168,11 @@ impl Session {
 				let resource = tg::grant::Resource::Id(id.clone().into());
 				let permission =
 					tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-				if self.authorize(resource, permission).await? != Some(true) {
+				if !self
+					.authorize(resource, permission)
+					.await?
+					.is_some_and(|permissions| permissions.contains(permission))
+				{
 					return Ok(None);
 				}
 				let mut output = output;

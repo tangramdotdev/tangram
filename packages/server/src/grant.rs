@@ -14,17 +14,21 @@ use {
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
 		// The resource is not found without read permission, so creating a grant does not reveal whether a resource the actor cannot see exists.
+		let permission = tg::grant::Permission::Read;
 		if self
-			.authorize(arg.resource.clone(), tg::grant::Permission::Read)
-			.await? != Some(true)
+			.authorize(arg.resource.clone(), permission)
+			.await?
+			.is_none_or(|permissions| !permissions.contains(permission))
 		{
 			return Err(tg::error!("failed to find the resource"));
 		}
 
 		// Creating a grant requires admin permission on the resource.
+		let permission = tg::grant::Permission::Admin;
 		if self
-			.authorize(arg.resource.clone(), tg::grant::Permission::Admin)
-			.await? != Some(true)
+			.authorize(arg.resource.clone(), permission)
+			.await?
+			.is_none_or(|permissions| !permissions.contains(permission))
 		{
 			return Err(tg::error!("unauthorized"));
 		}
@@ -59,13 +63,11 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
-		match self
-			.authorize(arg.resource.clone(), tg::grant::Permission::Admin)
-			.await?
-		{
+		let permission = tg::grant::Permission::Admin;
+		match self.authorize(arg.resource.clone(), permission).await? {
 			None => return Ok(None),
-			Some(false) => return Err(tg::error!("unauthorized")),
-			Some(true) => (),
+			Some(permissions) if permissions.contains(permission) => (),
+			Some(_) => return Err(tg::error!("unauthorized")),
 		}
 		let session = self.clone();
 		let (output, batch) = self
@@ -103,86 +105,118 @@ impl Session {
 		let resource = Self::resolve_resource_with_transaction(transaction, &arg.resource)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
-		tangram_index::authorize::validate(&resource, arg.permission)?;
+		tangram_index::authorize::validate(&resource, arg.permissions)?;
 		let principal = Self::resolve_principal_with_transaction(transaction, &arg.principal)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the principal"))?;
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let creator = self.context.principal.clone();
+		let creator = self
+			.context
+			.principal
+			.clone()
+			.unwrap_or_else(|| Self::default_grant_creator(&principal));
+		let creator_string = creator.to_string();
 		let p = transaction.p();
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+			#[tangram_database(as = "db::value::FromStr")]
+			creator: tg::Principal,
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::grant::Set,
+		}
 		let statement = formatdoc!(
 			"
-				insert into grants (resource, principal, permission, created_at, creator)
-				values ({p}1, {p}2, {p}3, {p}4, {p}5)
-				on conflict (resource, principal, permission) do nothing;
+				select created_at, creator, permissions
+				from grants
+				where resource = {p}1 and principal = {p}2 and creator = {p}3;
 			"
 		);
-		let inserted = transaction
-			.execute(
+		let row = transaction
+			.query_optional_into::<Row>(
 				statement.into(),
 				db::params![
 					resource.to_string(),
 					principal.to_string(),
-					arg.permission.to_string(),
-					created_at,
-					creator.as_ref().map(ToString::to_string)
+					creator_string.clone()
 				],
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		if inserted == 0 {
-			#[derive(db::row::Deserialize)]
-			struct Row {
-				created_at: i64,
-				#[tangram_database(as = "Option<db::value::FromStr>")]
-				creator: Option<tg::Principal>,
+		let (created_at, output_creator, permissions, changed) = if let Some(row) = row {
+			let mut permissions = row.permissions;
+			permissions.insert(arg.permissions);
+			if permissions == row.permissions {
+				return Ok((
+					tg::Grant {
+						created_at: row.created_at,
+						creator: Some(row.creator),
+						permissions,
+						principal,
+						resource,
+					},
+					false,
+				));
 			}
 			let statement = formatdoc!(
 				"
-					select created_at, creator
-					from grants
-					where resource = {p}1 and principal = {p}2 and permission = {p}3;
+					update grants
+					set permissions = {p}3
+					where resource = {p}1 and principal = {p}2 and creator = {p}4;
 				"
 			);
-			let row = transaction
-				.query_one_into::<Row>(
+			transaction
+				.execute(
 					statement.into(),
 					db::params![
 						resource.to_string(),
 						principal.to_string(),
-						arg.permission.to_string()
+						permissions.to_string(),
+						creator_string.clone()
 					],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			return Ok((
-				tg::Grant {
-					created_at: row.created_at,
-					creator: row.creator,
-					permission: arg.permission,
-					principal,
-					resource,
-				},
-				false,
-			));
-		}
+			(row.created_at, Some(row.creator), permissions, true)
+		} else {
+			let statement = formatdoc!(
+				"
+					insert into grants (resource, principal, permissions, created_at, creator)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5);
+				"
+			);
+			transaction
+				.execute(
+					statement.into(),
+					db::params![
+						resource.to_string(),
+						principal.to_string(),
+						arg.permissions.to_string(),
+						created_at,
+						creator_string
+					],
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			(created_at, Some(creator.clone()), arg.permissions, true)
+		};
 		batch.put_grants.push(tangram_index::grant::put::Arg {
 			created_at,
-			creator: creator.clone(),
+			creator: output_creator.clone(),
 			expires_at: None,
-			permission: arg.permission,
+			permissions,
 			principal: principal.clone(),
 			resource: resource.clone(),
 		});
 		Ok((
 			tg::Grant {
 				created_at,
-				creator,
-				permission: arg.permission,
+				creator: output_creator,
+				permissions,
 				principal,
 				resource,
 			},
-			true,
+			changed,
 		))
 	}
 
@@ -197,39 +231,117 @@ impl Session {
 		else {
 			return Ok(None);
 		};
+		tangram_index::authorize::validate(&resource, arg.permissions)?;
 		let Some(principal) =
 			Self::resolve_principal_with_transaction(transaction, &arg.principal).await?
 		else {
 			return Ok(None);
 		};
+		let creator = self
+			.context
+			.principal
+			.clone()
+			.unwrap_or_else(|| Self::default_grant_creator(&principal));
+		let creator_string = creator.to_string();
 		let p = transaction.p();
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::grant::Set,
+		}
 		let statement = formatdoc!(
 			"
-				delete from grants
-				where resource = {p}1 and principal = {p}2 and permission = {p}3;
+				select permissions
+				from grants
+				where resource = {p}1 and principal = {p}2 and creator = {p}3;
 			"
 		);
-		let deleted = transaction
-			.execute(
+		let Some(row) = transaction
+			.query_optional_into::<Row>(
 				statement.into(),
 				db::params![
 					resource.to_string(),
 					principal.to_string(),
-					arg.permission.to_string()
+					creator_string.clone()
 				],
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		if deleted == 0 {
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
+		let mut remaining = row.permissions;
+		remaining.remove(arg.permissions);
+		if remaining == row.permissions {
 			return Ok(None);
 		}
-		batch.delete_grants.push(tangram_index::grant::delete::Arg {
-			expires_at: None,
-			permission: arg.permission,
-			principal,
-			resource,
-		});
+		if remaining.is_empty() {
+			let statement = formatdoc!(
+				"
+					delete from grants
+					where resource = {p}1 and principal = {p}2 and creator = {p}3;
+				"
+			);
+			transaction
+				.execute(
+					statement.into(),
+					db::params![
+						resource.to_string(),
+						principal.to_string(),
+						creator_string.clone()
+					],
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		} else {
+			let statement = formatdoc!(
+				"
+					update grants
+					set permissions = {p}3
+					where resource = {p}1 and principal = {p}2 and creator = {p}4;
+				"
+			);
+			transaction
+				.execute(
+					statement.into(),
+					db::params![
+						resource.to_string(),
+						principal.to_string(),
+						remaining.to_string(),
+						creator_string.clone()
+					],
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		}
+		let mut deleted = row.permissions.empty_like();
+		for permission in row.permissions.iter() {
+			if arg.permissions.contains(permission) {
+				deleted.insert(permission.into());
+			}
+		}
+		if !deleted.is_empty() {
+			batch.delete_grants.push(tangram_index::grant::delete::Arg {
+				creator: Some(creator),
+				expires_at: None,
+				permissions: deleted,
+				principal,
+				resource,
+			});
+		}
 		Ok(Some(()))
+	}
+
+	fn default_grant_creator(principal: &tg::grant::Principal) -> tg::Principal {
+		match principal {
+			tg::grant::Principal::Group(id) => tg::Principal::Group(id.clone()),
+			tg::grant::Principal::Organization(id) => tg::Principal::Organization(id.clone()),
+			tg::grant::Principal::Process(id) => tg::Principal::Process(id.clone()),
+			tg::grant::Principal::Public | tg::grant::Principal::Root => tg::Principal::Root,
+			tg::grant::Principal::Runner => tg::Principal::Runner,
+			tg::grant::Principal::Sandbox(id) => tg::Principal::Sandbox(id.clone()),
+			tg::grant::Principal::User(id) => tg::Principal::User(id.clone()),
+		}
 	}
 
 	pub(crate) async fn delete_node_grants_with_transaction(
@@ -241,7 +353,9 @@ impl Session {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
-			permission: tg::grant::Permission,
+			creator: tg::Principal,
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::grant::Set,
 			#[tangram_database(as = "db::value::FromStr")]
 			principal: tg::grant::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -250,7 +364,7 @@ impl Session {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select resource, permission, principal
+				select creator, resource, permissions, principal
 				from grants
 				where resource = {p}1;
 			"
@@ -260,17 +374,27 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in rows {
-			let arg = tg::grant::delete::Arg {
-				permission: row.permission,
-				principal: tg::principal::Selector::Principal(row.principal),
-				resource: tg::grant::Resource::Id(id.clone()),
-			};
-			self.delete_grant_with_transaction(transaction, arg, batch)
-				.await?;
+			batch.delete_grants.push(tangram_index::grant::delete::Arg {
+				creator: Some(row.creator),
+				expires_at: None,
+				permissions: row.permissions,
+				principal: row.principal,
+				resource: row.resource,
+			});
 		}
 		let statement = formatdoc!(
 			"
-				select resource, permission, principal
+				delete from grants
+				where resource = {p}1;
+			"
+		);
+		transaction
+			.execute(statement.into(), db::params![id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let statement = formatdoc!(
+			"
+				select creator, resource, permissions, principal
 				from grants
 				where principal = {p}1;
 			"
@@ -281,8 +405,9 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in rows {
 			batch.delete_grants.push(tangram_index::grant::delete::Arg {
+				creator: Some(row.creator),
 				expires_at: None,
-				permission: row.permission,
+				permissions: row.permissions,
 				principal: row.principal,
 				resource: row.resource,
 			});
@@ -352,15 +477,19 @@ impl Session {
 			return Ok(Some(tg::grant::list::Output { data }));
 		}
 		// Listing the grants on a node requires admin permission, and the node is not found without read permission.
-		if self
-			.authorize(resource.clone(), tg::grant::Permission::Read)
-			.await? != Some(true)
+		let read = tg::grant::Permission::Read;
+		if !self
+			.authorize(resource.clone(), read)
+			.await?
+			.is_some_and(|permissions| permissions.contains(read))
 		{
 			return Ok(None);
 		}
-		if self
-			.authorize(resource.clone(), tg::grant::Permission::Admin)
-			.await? != Some(true)
+		let admin = tg::grant::Permission::Admin;
+		if !self
+			.authorize(resource.clone(), admin)
+			.await?
+			.is_some_and(|permissions| permissions.contains(admin))
 		{
 			return Err(tg::error!("unauthorized"));
 		}
@@ -412,18 +541,19 @@ impl Session {
 					tg::grant::Principal::User(id) => id.clone().into(),
 					_ => unreachable!(),
 				};
-				if self
-					.authorize(
-						tg::grant::Resource::Id(id.clone()),
-						tg::grant::Permission::Read,
-					)
-					.await? != Some(true)
+				let read = tg::grant::Permission::Read;
+				if !self
+					.authorize(tg::grant::Resource::Id(id.clone()), read)
+					.await?
+					.is_some_and(|permissions| permissions.contains(read))
 				{
 					return Ok(None);
 				}
-				if self
-					.authorize(tg::grant::Resource::Id(id), tg::grant::Permission::Admin)
-					.await? != Some(true)
+				let admin = tg::grant::Permission::Admin;
+				if !self
+					.authorize(tg::grant::Resource::Id(id), admin)
+					.await?
+					.is_some_and(|permissions| permissions.contains(admin))
 				{
 					return Err(tg::error!("unauthorized"));
 				}
@@ -507,20 +637,20 @@ impl Session {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			created_at: i64,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			creator: Option<tg::Principal>,
 			#[tangram_database(as = "db::value::FromStr")]
-			permission: tg::grant::Permission,
+			creator: tg::Principal,
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::grant::Set,
 			#[tangram_database(as = "db::value::FromStr")]
 			principal: tg::grant::Principal,
 		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select created_at, creator, permission, principal
+				select created_at, creator, permissions, principal
 				from grants
 				where resource = {p}1
-				order by principal, permission;
+				order by principal, creator, permissions;
 			"
 		);
 		let rows = transaction
@@ -531,8 +661,8 @@ impl Session {
 			.into_iter()
 			.map(|row| tg::Grant {
 				created_at: row.created_at,
-				creator: row.creator,
-				permission: row.permission,
+				creator: Some(row.creator),
+				permissions: row.permissions,
 				principal: row.principal,
 				resource: resource.clone(),
 			})
@@ -546,20 +676,20 @@ impl Session {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			created_at: i64,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			creator: Option<tg::Principal>,
 			#[tangram_database(as = "db::value::FromStr")]
-			permission: tg::grant::Permission,
+			creator: tg::Principal,
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::grant::Set,
 			#[tangram_database(as = "db::value::FromStr")]
 			resource: tg::Id,
 		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select created_at, creator, permission, resource
+				select created_at, creator, permissions, resource
 				from grants
 				where principal = {p}1
-				order by resource, permission;
+				order by resource, creator, permissions;
 			"
 		);
 		let rows = transaction
@@ -570,8 +700,8 @@ impl Session {
 			.into_iter()
 			.map(|row| tg::Grant {
 				created_at: row.created_at,
-				creator: row.creator,
-				permission: row.permission,
+				creator: Some(row.creator),
+				permissions: row.permissions,
 				principal: principal.clone(),
 				resource: row.resource,
 			})

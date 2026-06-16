@@ -83,7 +83,7 @@ impl Index {
 						outputs.push(None);
 						continue;
 					};
-					arg.permissions.validate(&id)?;
+					crate::authorize::validate(&id, arg.permissions)?;
 					if matches!(principal, Some(tg::Principal::Root)) {
 						outputs.push(Some(crate::authorize::Output {
 							permissions: arg.permissions,
@@ -120,12 +120,12 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
-		permissions: crate::authorize::Permissions,
+		permissions: tg::grant::Set,
 		requester: &Requester<'_>,
 		cache: &mut Cache,
-	) -> tg::Result<crate::authorize::Permissions> {
+	) -> tg::Result<tg::grant::Set> {
 		let mut found = permissions.empty_like();
-		for (permission, requested) in permissions.entries() {
+		for permission in permissions.iter() {
 			let authorized = Self::authorize_permission_with_transaction(
 				db,
 				subspace,
@@ -136,7 +136,7 @@ impl Index {
 				cache,
 			)?;
 			if authorized {
-				found.insert(requested);
+				found.insert(tg::grant::Set::from_permission(permission));
 				if found.contains(permissions) {
 					break;
 				}

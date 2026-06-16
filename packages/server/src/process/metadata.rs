@@ -70,120 +70,83 @@ impl Session {
 		metadata: tg::process::Metadata,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		let resource = tg::grant::Resource::Id(id.clone().into());
-		let permission = |permission| tg::grant::Permission::Process(permission);
+		let requested = tg::grant::Set::Process(tg::grant::permission::process::Set::all());
+		let Some(permissions) = self.authorize(resource, requested).await? else {
+			return Ok(None);
+		};
 		let mut output = tg::process::Metadata::default();
 		let mut authorized = false;
 
-		if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::Node),
-			)
-			.await? == Some(true)
-		{
+		if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::Node,
+		)) {
 			authorized = true;
 		}
 
-		if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::Subtree),
-			)
-			.await? == Some(true)
-		{
+		if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::Subtree,
+		)) {
 			output.subtree.count = metadata.subtree.count;
 			authorized = true;
 		}
 
-		if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::SubtreeCommand),
-			)
-			.await? == Some(true)
-		{
+		if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::SubtreeCommand,
+		)) {
 			output.node.command = metadata.node.command.clone();
 			output.subtree.command = metadata.subtree.command.clone();
 			authorized = true;
-		} else if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::NodeCommand),
-			)
-			.await? == Some(true)
-		{
+		} else if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::NodeCommand,
+		)) {
 			output.node.command = metadata.node.command.clone();
 			authorized = true;
 		}
 
-		if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::SubtreeError),
-			)
-			.await? == Some(true)
-		{
+		if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::SubtreeError,
+		)) {
 			output.node.error = metadata.node.error.clone();
 			output.subtree.error = metadata.subtree.error.clone();
 			authorized = true;
-		} else if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::NodeError),
-			)
-			.await? == Some(true)
-		{
+		} else if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::NodeError,
+		)) {
 			output.node.error = metadata.node.error.clone();
 			authorized = true;
 		}
 
-		if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::SubtreeLog),
-			)
-			.await? == Some(true)
-		{
+		if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::SubtreeLog,
+		)) {
 			output.node.log = metadata.node.log.clone();
 			output.subtree.log = metadata.subtree.log.clone();
 			authorized = true;
-		} else if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::NodeLog),
-			)
-			.await? == Some(true)
-		{
+		} else if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::NodeLog,
+		)) {
 			output.node.log = metadata.node.log.clone();
 			authorized = true;
 		}
 
-		if self
-			.authorize(
-				resource.clone(),
-				permission(tg::grant::permission::process::Permission::SubtreeOutput),
-			)
-			.await? == Some(true)
-		{
+		if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::SubtreeOutput,
+		)) {
 			output.node.output = metadata.node.output.clone();
 			output.subtree.output = metadata.subtree.output.clone();
 			authorized = true;
-		} else if self
-			.authorize(
-				resource,
-				permission(tg::grant::permission::process::Permission::NodeOutput),
-			)
-			.await? == Some(true)
-		{
+		} else if permissions.contains(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::NodeOutput,
+		)) {
 			output.node.output = metadata.node.output.clone();
 			authorized = true;
 		}
 
-		if authorized {
-			Ok(Some(output))
-		} else {
-			Ok(None)
+		if !authorized {
+			return Ok(None);
 		}
+
+		Ok(Some(output))
 	}
 
 	async fn try_get_process_metadata_regions(

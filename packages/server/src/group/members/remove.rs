@@ -36,13 +36,11 @@ impl Session {
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
 	) -> tg::Result<Option<()>> {
-		match self
-			.authorize(group.clone().into(), tg::grant::Permission::Admin)
-			.await?
-		{
+		let permission = tg::grant::Permission::Admin;
+		match self.authorize(group.clone().into(), permission).await? {
 			None => return Ok(None),
-			Some(false) => return Err(tg::error!("unauthorized")),
-			Some(true) => (),
+			Some(permissions) if permissions.contains(permission) => (),
+			Some(_) => return Err(tg::error!("unauthorized")),
 		}
 		let session = self.clone();
 		let (output, batch) = self
@@ -138,7 +136,7 @@ impl Session {
 		};
 		let arg = tg::grant::delete::Arg {
 			principal: principal.into(),
-			permission: tg::grant::Permission::Write,
+			permissions: tg::grant::Permission::Write.into(),
 			resource: tg::grant::Resource::Id(group.id.clone()),
 		};
 		self.delete_grant_with_transaction(transaction, arg, batch)

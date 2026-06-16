@@ -30,26 +30,29 @@ impl Index {
 		args: &[crate::grant::put::Arg],
 	) -> tg::Result<()> {
 		for arg in args {
-			Self::put_grant_index_entry(
-				db,
-				subspace,
-				transaction,
-				&GrantIndexEntry {
-					expires_at: arg.expires_at,
-					permission: arg.permission,
-					principal: &arg.principal,
-					resource: &arg.resource,
-				},
-				GrantSource::Explicit,
-			)?;
-			Self::enqueue_grant_update(
-				db,
-				subspace,
-				transaction,
-				&arg.resource,
-				&arg.principal,
-				arg.permission,
-			)?;
+			for permission in arg.permissions.iter() {
+				Self::put_grant_index_entry(
+					db,
+					subspace,
+					transaction,
+					&GrantIndexEntry {
+						creator: arg.creator.as_ref(),
+						expires_at: arg.expires_at,
+						permission,
+						principal: &arg.principal,
+						resource: &arg.resource,
+					},
+					GrantSource::Explicit,
+				)?;
+				Self::enqueue_grant_update(
+					db,
+					subspace,
+					transaction,
+					&arg.resource,
+					&arg.principal,
+					permission,
+				)?;
+			}
 		}
 		Ok(())
 	}
@@ -66,6 +69,7 @@ impl Index {
 		let keys = std::iter::once(Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
 			principal: entry.principal.clone(),
+			creator: entry.creator.cloned(),
 			permission: entry.permission,
 			expires_at: entry.expires_at,
 		}))
@@ -73,6 +77,7 @@ impl Index {
 			crate::lmdb::grant::Key::PrincipalGrant {
 				principal: entry.principal.clone(),
 				resource: entry.resource.clone(),
+				creator: entry.creator.cloned(),
 				permission: entry.permission,
 				expires_at: entry.expires_at,
 			},
@@ -98,6 +103,7 @@ impl Index {
 				resource: id,
 				principal: entry.principal.clone(),
 				grant_resource: entry.resource.clone(),
+				creator: entry.creator.cloned(),
 				permission: entry.permission,
 				expires_at: entry.expires_at,
 			});
@@ -117,6 +123,7 @@ impl Index {
 				expires_at,
 				resource: entry.resource.clone(),
 				principal: entry.principal.clone(),
+				creator: entry.creator.cloned(),
 				permission: entry.permission,
 			});
 			let key = Self::pack(subspace, &key);
