@@ -5,6 +5,7 @@ use {
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
+	tangram_index::prelude::*,
 	tracing::Instrument as _,
 };
 
@@ -174,5 +175,83 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
 		Ok(())
+	}
+
+	async fn sync_get_authorize_objects(
+		&self,
+		ids: &[tg::object::Id],
+		objects: &[Option<tangram_index::object::Object>],
+	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
+		let mut arg_indices = Vec::new();
+		let mut args = Vec::new();
+		for (index, (id, object)) in std::iter::zip(ids, objects).enumerate() {
+			let Some(object) = object else {
+				continue;
+			};
+			let Some(permissions) = Graph::object_permissions_for_stored(&object.stored) else {
+				continue;
+			};
+			arg_indices.push(index);
+			args.push(tangram_index::authorize::Arg {
+				permissions,
+				resource: tg::grant::Resource::Id(tg::Id::from(id.clone())),
+			});
+		}
+
+		let mut permissions = vec![None; ids.len()];
+		if args.is_empty() {
+			return Ok(permissions);
+		}
+		let outputs = self
+			.server
+			.index
+			.authorize_batch(&args, self.context.principal.as_ref())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
+		for (index, output) in std::iter::zip(arg_indices, outputs) {
+			permissions[index] = output
+				.map(|output| output.permissions)
+				.filter(|permissions| !permissions.is_empty());
+		}
+		Ok(permissions)
+	}
+
+	async fn sync_get_authorize_processes(
+		&self,
+		ids: &[tg::process::Id],
+		processes: &[Option<tangram_index::process::Process>],
+	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
+		let mut arg_indices = Vec::new();
+		let mut args = Vec::new();
+		for (index, (id, process)) in std::iter::zip(ids, processes).enumerate() {
+			let Some(process) = process else {
+				continue;
+			};
+			let Some(permissions) = Graph::process_permissions_for_stored(&process.stored) else {
+				continue;
+			};
+			arg_indices.push(index);
+			args.push(tangram_index::authorize::Arg {
+				permissions,
+				resource: tg::grant::Resource::Id(tg::Id::from(id.clone())),
+			});
+		}
+
+		let mut permissions = vec![None; ids.len()];
+		if args.is_empty() {
+			return Ok(permissions);
+		}
+		let outputs = self
+			.server
+			.index
+			.authorize_batch(&args, self.context.principal.as_ref())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
+		for (index, output) in std::iter::zip(arg_indices, outputs) {
+			permissions[index] = output
+				.map(|output| output.permissions)
+				.filter(|permissions| !permissions.is_empty());
+		}
+		Ok(permissions)
 	}
 }

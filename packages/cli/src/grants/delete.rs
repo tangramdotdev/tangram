@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 2)]
-	pub permissions: tg::grant::Set,
+	pub permissions: tg::grant::permission::Set,
 
 	#[arg(index = 1)]
 	pub principal: tg::principal::Selector,

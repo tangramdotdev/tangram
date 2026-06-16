@@ -7,14 +7,14 @@ impl Session {
 	pub(crate) async fn authorize(
 		&self,
 		resource: tg::grant::Resource,
-		permissions: impl Into<tg::grant::Set>,
-	) -> tg::Result<Option<tg::grant::Set>> {
+		permissions: impl Into<tg::grant::permission::Set>,
+	) -> tg::Result<Option<tg::grant::permission::Set>> {
 		let permissions = permissions.into();
 
 		// Authorize a sandbox for its own processes.
 		if let (
 			tg::grant::Resource::Id(id),
-			tg::grant::Set::Process(_),
+			tg::grant::permission::Set::Process(_),
 			Some(tg::Principal::Sandbox(sandbox)),
 		) = (&resource, permissions, self.context.principal.as_ref())
 			&& let Ok(process) = tg::process::Id::try_from(id.clone())

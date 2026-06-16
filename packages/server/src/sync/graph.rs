@@ -48,7 +48,9 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
+	pub local_permissions: Option<tg::grant::permission::Set>,
 	pub local_stored: Option<tangram_index::object::Stored>,
+	pub local_visible: Option<tangram_index::object::Stored>,
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[usize; 1]>,
@@ -59,7 +61,9 @@ pub struct ObjectNode {
 #[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
+	pub local_permissions: Option<tg::grant::permission::Set>,
 	pub local_stored: Option<tangram_index::process::Stored>,
+	pub local_visible: Option<tangram_index::process::Stored>,
 	pub marked: bool,
 	pub metadata: Option<tg::process::Metadata>,
 	pub objects: Option<Vec<(usize, tangram_index::process::object::Kind)>>,
@@ -72,6 +76,28 @@ pub struct ProcessNode {
 pub struct Requested {
 	pub eager: bool,
 }
+
+pub struct UpdateObjectLocalArg<'a> {
+	pub data: Option<&'a tg::object::Data>,
+	pub id: &'a tg::object::Id,
+	pub marked: Option<bool>,
+	pub metadata: Option<tg::object::Metadata>,
+	pub permissions: Option<tg::grant::permission::Set>,
+	pub requested: Option<Requested>,
+	pub stored: Option<tangram_index::object::Stored>,
+}
+
+pub struct UpdateProcessLocalArg<'a> {
+	pub data: Option<&'a tg::process::Data>,
+	pub id: &'a tg::process::Id,
+	pub marked: Option<bool>,
+	pub metadata: Option<tg::process::Metadata>,
+	pub permissions: Option<tg::grant::permission::Set>,
+	pub requested: Option<Requested>,
+	pub stored: Option<tangram_index::process::Stored>,
+}
+
+// Remaining grant sync work: seed graph grant state from sent items and authorized touches, propagate grants separately from stored state, emit reduced grants in the final sync index batch, and add focused authorization, stored, and grant propagation tests.
 
 impl Graph {
 	pub fn new(
@@ -104,15 +130,16 @@ impl Graph {
 		self.get_end_received = true;
 	}
 
-	pub fn update_object_local(
-		&mut self,
-		id: &tg::object::Id,
-		data: Option<&tg::object::Data>,
-		stored: Option<tangram_index::object::Stored>,
-		metadata: Option<tg::object::Metadata>,
-		marked: Option<bool>,
-		requested: Option<Requested>,
-	) {
+	pub fn update_object_local(&mut self, update: UpdateObjectLocalArg) {
+		let UpdateObjectLocalArg {
+			data,
+			id,
+			marked,
+			metadata,
+			permissions,
+			requested,
+			stored,
+		} = update;
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
@@ -135,7 +162,6 @@ impl Graph {
 		} else {
 			None
 		};
-
 		let computed_stored = children.as_ref().map(|children| {
 			children.iter().all(|child| {
 				self.nodes
@@ -149,15 +175,13 @@ impl Graph {
 			})
 		});
 
-		let old_stored = self
-			.nodes
-			.get_index(index)
-			.unwrap()
-			.1
-			.unwrap_object_ref()
-			.local_stored
-			.as_ref()
-			.is_some_and(|stored| stored.subtree);
+		let old_stored = self.object_local_stored(index);
+		let old_visible = self.object_local_visible(index);
+		let computed_visible = children.as_ref().is_some_and(|children| {
+			children
+				.iter()
+				.all(|index| self.object_local_visible(*index))
+		});
 
 		let node = self
 			.nodes
@@ -177,6 +201,10 @@ impl Graph {
 			node.local_stored = Some(stored);
 		}
 
+		if let Some(permissions) = permissions {
+			Self::merge_local_permissions(&mut node.local_permissions, permissions);
+		}
+
 		if let Some(mut metadata) = metadata {
 			if let Some(existing) = &node.metadata {
 				metadata.merge(existing);
@@ -192,12 +220,32 @@ impl Graph {
 			node.requested = Some(requested);
 		}
 
-		let new_stored = node
-			.local_stored
+		let visible =
+			Self::compute_object_visible(node.local_stored.as_ref(), node.local_permissions)
+				|| (node
+					.local_stored
+					.as_ref()
+					.is_some_and(|stored| stored.subtree)
+					&& computed_visible);
+		let visible = node
+			.local_visible
 			.as_ref()
-			.is_some_and(|stored| stored.subtree);
-		if !old_stored && new_stored {
-			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
+			.is_some_and(|visible| visible.subtree)
+			|| visible;
+		node.local_visible = Some(tangram_index::object::Stored { subtree: visible });
+
+		let new_stored = self.object_local_stored(index);
+		let new_visible = self.object_local_visible(index);
+		if (!old_stored && new_stored) || (!old_visible && new_visible) {
+			let mut stack: Vec<usize> = self
+				.nodes
+				.get_index(index)
+				.unwrap()
+				.1
+				.parents()
+				.iter()
+				.copied()
+				.collect();
 			while let Some(parent_index) = stack.pop() {
 				if let Some(parents) = self.try_propagate_local_stored(parent_index) {
 					stack.extend(parents);
@@ -206,15 +254,16 @@ impl Graph {
 		}
 	}
 
-	pub fn update_process_local(
-		&mut self,
-		id: &tg::process::Id,
-		data: Option<&tg::process::Data>,
-		stored: Option<tangram_index::process::Stored>,
-		metadata: Option<tg::process::Metadata>,
-		marked: Option<bool>,
-		requested: Option<Requested>,
-	) {
+	pub fn update_process_local(&mut self, update: UpdateProcessLocalArg) {
+		let UpdateProcessLocalArg {
+			data,
+			id,
+			marked,
+			metadata,
+			permissions,
+			requested,
+			stored,
+		} = update;
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Process(ProcessNode::default()));
@@ -300,67 +349,109 @@ impl Graph {
 		} else {
 			None
 		};
-
-		let node = self
+		let node_old_stored = self
 			.nodes
-			.get_index_mut(index)
+			.get_index(index)
 			.unwrap()
 			.1
-			.unwrap_process_mut();
-		let node_old_stored = node.local_stored.clone();
+			.unwrap_process_ref()
+			.local_stored
+			.clone();
+		let node_old_visible = self.process_local_visible(index);
 
-		if let (Some(children), Some(objects)) = (&children, &objects) {
-			let new_stored = self.compute_process_local_stored(children, objects);
-			let merged = Self::merge_process_stored(node_old_stored.as_ref(), new_stored);
+		let computed_stored = if let (Some(children), Some(objects)) = (&children, &objects) {
+			Some(self.compute_process_local_stored(children, objects))
+		} else {
+			None
+		};
+		let computed_visible = if let (Some(children), Some(objects)) = (&children, &objects) {
+			Some(self.compute_process_local_visible(children, objects))
+		} else {
+			None
+		};
+
+		{
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.local_stored = Some(merged);
+
+			if let Some(children) = children {
+				node.children = Some(children);
+			}
+
+			if let Some(stored) = stored {
+				let merged = Self::merge_process_stored(node.local_stored.as_ref(), stored);
+				node.local_stored = Some(merged);
+			}
+
+			if let Some(permissions) = permissions {
+				Self::merge_local_permissions(&mut node.local_permissions, permissions);
+			}
+
+			if let Some(mut metadata) = metadata {
+				if let Some(existing) = &node.metadata {
+					metadata.merge(existing);
+				}
+				node.metadata = Some(metadata);
+			}
+
+			if let Some(objects) = objects {
+				node.objects = Some(objects);
+			}
+
+			if let Some(marked) = marked {
+				node.marked = marked;
+			}
+
+			if let Some(requested) = requested {
+				node.requested = Some(requested);
+			}
+
+			if let Some(computed_stored) = computed_stored {
+				let merged_stored =
+					Self::merge_process_stored(node.local_stored.as_ref(), computed_stored);
+				node.local_stored = Some(merged_stored);
+			}
+
+			let visible_from_permissions = Self::compute_process_visible_from_permissions(
+				node.local_stored.as_ref(),
+				node.local_permissions,
+			);
+			let computed_visible = computed_visible
+				.map_or(visible_from_permissions.clone(), |visible| {
+					Self::merge_process_visible(Some(&visible_from_permissions), visible)
+				});
+			let merged_visible =
+				Self::merge_process_visible(node.local_visible.as_ref(), computed_visible);
+			node.local_visible = Some(merged_visible);
 		}
 
-		let node = self
+		let node_new_stored = self
 			.nodes
-			.get_index_mut(index)
+			.get_index(index)
 			.unwrap()
 			.1
-			.unwrap_process_mut();
-
-		if let Some(children) = children {
-			node.children = Some(children);
-		}
-
-		if let Some(stored) = stored {
-			let merged = Self::merge_process_stored(node.local_stored.as_ref(), stored);
-			node.local_stored = Some(merged);
-		}
-
-		if let Some(mut metadata) = metadata {
-			if let Some(existing) = &node.metadata {
-				metadata.merge(existing);
-			}
-			node.metadata = Some(metadata);
-		}
-
-		if let Some(objects) = objects {
-			node.objects = Some(objects);
-		}
-
-		if let Some(marked) = marked {
-			node.marked = marked;
-		}
-
-		if let Some(requested) = requested {
-			node.requested = Some(requested);
-		}
-
-		if Self::should_propagate_process_stored(
-			node_old_stored.as_ref(),
-			node.local_stored.as_ref(),
-		) {
-			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
+			.unwrap_process_ref()
+			.local_stored
+			.clone();
+		let node_new_visible = self.process_local_visible(index);
+		if Self::should_propagate_process_stored(node_old_stored.as_ref(), node_new_stored.as_ref())
+			|| Self::should_propagate_process_visible(
+				Some(&node_old_visible),
+				Some(&node_new_visible),
+			) {
+			let mut stack: Vec<usize> = self
+				.nodes
+				.get_index(index)
+				.unwrap()
+				.1
+				.parents()
+				.iter()
+				.copied()
+				.collect();
 			while let Some(parent_index) = stack.pop() {
 				if let Some(parents) = self.try_propagate_local_stored(parent_index) {
 					stack.extend(parents);
@@ -629,6 +720,25 @@ impl Graph {
 			.and_then(|node| node.unwrap_process_ref().local_stored.as_ref())
 	}
 
+	pub fn get_process_local_visible(
+		&self,
+		id: &tg::process::Id,
+	) -> tangram_index::process::Stored {
+		self.nodes
+			.get_index_of(&Id::Process(id.clone()))
+			.map(|index| self.process_local_visible(index))
+			.unwrap_or_default()
+	}
+
+	pub fn get_object_local_visible(&self, id: &tg::object::Id) -> tangram_index::object::Stored {
+		tangram_index::object::Stored {
+			subtree: self
+				.nodes
+				.get_index_of(&Id::Object(id.clone()))
+				.is_some_and(|index| self.object_local_visible(index)),
+		}
+	}
+
 	pub fn get_object_requested(&self, id: &tg::object::Id) -> Option<Requested> {
 		self.nodes
 			.get(&Id::Object(id.clone()))
@@ -647,24 +757,25 @@ impl Graph {
 				return false;
 			};
 			match node {
-				Node::Object(node) => node
-					.local_stored
-					.as_ref()
-					.is_some_and(|stored| stored.subtree),
-				Node::Process(node) => node.local_stored.as_ref().is_some_and(|stored| {
+				Node::Object(_) => {
+					self.object_local_visible(self.nodes.get_index_of(root).unwrap())
+				},
+				Node::Process(_) => {
+					let visible =
+						self.process_local_visible(self.nodes.get_index_of(root).unwrap());
 					if arg.recursive {
-						stored.subtree
-							&& (!arg.commands || stored.subtree_command)
-							&& (!arg.errors || stored.subtree_error)
-							&& (!arg.logs || stored.subtree_log)
-							&& (!arg.outputs || stored.subtree_output)
+						visible.subtree
+							&& (!arg.commands || visible.subtree_command)
+							&& (!arg.errors || visible.subtree_error)
+							&& (!arg.logs || visible.subtree_log)
+							&& (!arg.outputs || visible.subtree_output)
 					} else {
-						(!arg.commands || stored.node_command)
-							&& (!arg.errors || stored.node_error)
-							&& (!arg.logs || stored.node_log)
-							&& (!arg.outputs || stored.node_output)
+						(!arg.commands || visible.node_command)
+							&& (!arg.errors || visible.node_error)
+							&& (!arg.logs || visible.node_log)
+							&& (!arg.outputs || visible.node_output)
 					}
-				}),
+				},
 			}
 		})
 	}
@@ -763,6 +874,227 @@ impl Graph {
 		stored
 	}
 
+	fn compute_process_local_visible(
+		&self,
+		children: &[usize],
+		objects: &[(usize, tangram_index::process::object::Kind)],
+	) -> tangram_index::process::Stored {
+		let mut visible = tangram_index::process::Stored {
+			node_command: true,
+			node_error: true,
+			node_log: true,
+			node_output: true,
+			subtree: true,
+			subtree_command: true,
+			subtree_error: true,
+			subtree_log: true,
+			subtree_output: true,
+		};
+		for child_index in children {
+			let child_visible = self.process_local_visible(*child_index);
+			visible.subtree = visible.subtree && child_visible.subtree;
+			visible.subtree_command = visible.subtree_command && child_visible.subtree_command;
+			visible.subtree_error = visible.subtree_error && child_visible.subtree_error;
+			visible.subtree_log = visible.subtree_log && child_visible.subtree_log;
+			visible.subtree_output = visible.subtree_output && child_visible.subtree_output;
+		}
+		for (object_index, object_kind) in objects {
+			let object_visible = self.object_local_visible(*object_index);
+			match object_kind {
+				tangram_index::process::object::Kind::Command => {
+					visible.node_command = visible.node_command && object_visible;
+					visible.subtree_command = visible.subtree_command && object_visible;
+				},
+				tangram_index::process::object::Kind::Error => {
+					visible.node_error = visible.node_error && object_visible;
+					visible.subtree_error = visible.subtree_error && object_visible;
+				},
+				tangram_index::process::object::Kind::Log => {
+					visible.node_log = visible.node_log && object_visible;
+					visible.subtree_log = visible.subtree_log && object_visible;
+				},
+				tangram_index::process::object::Kind::Output => {
+					visible.node_output = visible.node_output && object_visible;
+					visible.subtree_output = visible.subtree_output && object_visible;
+				},
+			}
+		}
+		visible
+	}
+
+	fn object_local_stored(&self, index: usize) -> bool {
+		self.nodes
+			.get_index(index)
+			.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.local_stored.as_ref())
+			.is_some_and(|stored| stored.subtree)
+	}
+
+	fn object_local_visible(&self, index: usize) -> bool {
+		self.nodes
+			.get_index(index)
+			.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.local_visible.as_ref())
+			.is_some_and(|visible| visible.subtree)
+	}
+
+	fn process_local_visible(&self, index: usize) -> tangram_index::process::Stored {
+		self.nodes
+			.get_index(index)
+			.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.local_visible.clone())
+			.unwrap_or_default()
+	}
+
+	fn compute_object_visible(
+		stored: Option<&tangram_index::object::Stored>,
+		permissions: Option<tg::grant::permission::Set>,
+	) -> bool {
+		stored.is_some_and(|stored| stored.subtree)
+			&& permissions.is_some_and(|permissions| {
+				permissions.contains(tg::grant::Permission::Object(
+					tg::grant::permission::object::Permission::Subtree,
+				))
+			})
+	}
+
+	fn compute_process_visible_from_permissions(
+		stored: Option<&tangram_index::process::Stored>,
+		permissions: Option<tg::grant::permission::Set>,
+	) -> tangram_index::process::Stored {
+		let Some(stored) = stored else {
+			return tangram_index::process::Stored::default();
+		};
+		tangram_index::process::Stored {
+			node_command: stored.node_command
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::NodeCommand,
+				),
+			node_error: stored.node_error
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::NodeError,
+				),
+			node_log: stored.node_log
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::NodeLog,
+				),
+			node_output: stored.node_output
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::NodeOutput,
+				),
+			subtree: stored.subtree
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::Subtree,
+				),
+			subtree_command: stored.subtree_command
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::SubtreeCommand,
+				),
+			subtree_error: stored.subtree_error
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::SubtreeError,
+				),
+			subtree_log: stored.subtree_log
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::SubtreeLog,
+				),
+			subtree_output: stored.subtree_output
+				&& Self::contains_process_permission(
+					permissions,
+					tg::grant::permission::process::Permission::SubtreeOutput,
+				),
+		}
+	}
+
+	fn contains_process_permission(
+		permissions: Option<tg::grant::permission::Set>,
+		permission: tg::grant::permission::process::Permission,
+	) -> bool {
+		permissions.is_some_and(|permissions| {
+			permissions.contains(tg::grant::Permission::Process(permission))
+		})
+	}
+
+	pub fn object_permissions_for_stored(
+		stored: &tangram_index::object::Stored,
+	) -> Option<tg::grant::permission::Set> {
+		stored.subtree.then(|| {
+			tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
+				tg::grant::permission::object::Permission::Subtree,
+			))
+		})
+	}
+
+	pub fn process_permissions_for_stored(
+		stored: &tangram_index::process::Stored,
+	) -> Option<tg::grant::permission::Set> {
+		let mut permissions =
+			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::empty());
+		let mut insert = |permission| {
+			permissions.insert(tg::grant::permission::Set::from_permission(
+				tg::grant::Permission::Process(permission),
+			));
+		};
+		if stored.node_command {
+			insert(tg::grant::permission::process::Permission::NodeCommand);
+		}
+		if stored.node_error {
+			insert(tg::grant::permission::process::Permission::NodeError);
+		}
+		if stored.node_log {
+			insert(tg::grant::permission::process::Permission::NodeLog);
+		}
+		if stored.node_output {
+			insert(tg::grant::permission::process::Permission::NodeOutput);
+		}
+		if stored.subtree {
+			insert(tg::grant::permission::process::Permission::Subtree);
+		}
+		if stored.subtree_command {
+			insert(tg::grant::permission::process::Permission::SubtreeCommand);
+		}
+		if stored.subtree_error {
+			insert(tg::grant::permission::process::Permission::SubtreeError);
+		}
+		if stored.subtree_log {
+			insert(tg::grant::permission::process::Permission::SubtreeLog);
+		}
+		if stored.subtree_output {
+			insert(tg::grant::permission::process::Permission::SubtreeOutput);
+		}
+		(!permissions.is_empty()).then_some(permissions)
+	}
+
+	pub fn process_visible_any(visible: &tangram_index::process::Stored) -> bool {
+		visible.node_command
+			|| visible.node_error
+			|| visible.node_log
+			|| visible.node_output
+			|| visible.subtree
+			|| visible.subtree_command
+			|| visible.subtree_error
+			|| visible.subtree_log
+			|| visible.subtree_output
+	}
+
+	fn merge_local_permissions(
+		existing: &mut Option<tg::grant::permission::Set>,
+		permissions: tg::grant::permission::Set,
+	) {
+		if permissions.is_empty() {
+			return;
+		}
+		match existing {
+			Some(existing) if existing.same_kind(permissions) => existing.insert(permissions),
+			Some(_) | None => *existing = Some(permissions),
+		}
+	}
+
 	fn try_propagate_local_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
 		let (_, node) = self.nodes.get_index(index)?;
 		match node {
@@ -772,14 +1104,28 @@ impl Graph {
 	}
 
 	fn try_propagate_object_local_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
-		let (children, parents) = self.nodes.get_index(index).and_then(|(_, node)| {
-			let node = node.try_unwrap_object_ref().ok()?;
-			if node.local_stored.as_ref().is_some_and(|s| s.subtree) {
-				return None;
-			}
-			let children = node.children.as_ref()?.clone();
-			Some((children, node.parents.clone()))
-		})?;
+		let (old_stored, old_visible, children, parents) =
+			self.nodes.get_index(index).and_then(|(_, node)| {
+				let node = node.try_unwrap_object_ref().ok()?;
+				if node
+					.local_stored
+					.as_ref()
+					.is_some_and(|stored| stored.subtree)
+					&& node
+						.local_visible
+						.as_ref()
+						.is_some_and(|visible| visible.subtree)
+				{
+					return None;
+				}
+				let children = node.children.as_ref()?.clone();
+				Some((
+					self.object_local_stored(index),
+					self.object_local_visible(index),
+					children,
+					node.parents.clone(),
+				))
+			})?;
 
 		let all_children_stored = children.iter().all(|child_index| {
 			self.nodes
@@ -787,26 +1133,38 @@ impl Graph {
 				.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.local_stored.as_ref())
 				.is_some_and(|s| s.subtree)
 		});
-		if all_children_stored {
-			if let Some((_, node)) = self.nodes.get_index_mut(index)
-				&& let Ok(node) = node.try_unwrap_object_mut()
-			{
-				node.local_stored = Some(tangram_index::object::Stored { subtree: true });
-			}
-			Some(parents)
-		} else {
-			None
+		if all_children_stored
+			&& let Some((_, node)) = self.nodes.get_index_mut(index)
+			&& let Ok(node) = node.try_unwrap_object_mut()
+		{
+			node.local_stored = Some(tangram_index::object::Stored { subtree: true });
 		}
+
+		let all_children_visible = children
+			.iter()
+			.all(|child_index| self.object_local_visible(*child_index));
+		if self.object_local_stored(index)
+			&& all_children_visible
+			&& let Some((_, node)) = self.nodes.get_index_mut(index)
+			&& let Ok(node) = node.try_unwrap_object_mut()
+		{
+			node.local_visible = Some(tangram_index::object::Stored { subtree: true });
+		}
+
+		let new_stored = self.object_local_stored(index);
+		let new_visible = self.object_local_visible(index);
+		((!old_stored && new_stored) || (!old_visible && new_visible)).then_some(parents)
 	}
 
 	fn try_propagate_process_local_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
-		let (old_stored, children, objects, parents) =
+		let (old_stored, old_visible, children, objects, parents) =
 			self.nodes.get_index(index).and_then(|(_, node)| {
 				let node = node.try_unwrap_process_ref().ok()?;
 				let children = node.children.clone().unwrap_or_default();
 				let objects = node.objects.as_ref()?.clone();
 				Some((
 					node.local_stored.clone(),
+					self.process_local_visible(index),
 					children,
 					objects,
 					node.parents.clone(),
@@ -814,16 +1172,38 @@ impl Graph {
 			})?;
 		let new_stored = self.compute_process_local_stored(&children, &objects);
 		let merged_stored = Self::merge_process_stored(old_stored.as_ref(), new_stored);
-		if Self::should_propagate_process_stored(old_stored.as_ref(), Some(&merged_stored)) {
-			if let Some((_, node)) = self.nodes.get_index_mut(index)
-				&& let Ok(process) = node.try_unwrap_process_mut()
-			{
-				process.local_stored = Some(merged_stored);
-			}
-			Some(parents)
-		} else {
-			None
+		let stored_improved =
+			Self::should_propagate_process_stored(old_stored.as_ref(), Some(&merged_stored));
+
+		let new_visible = self.compute_process_local_visible(&children, &objects);
+		let merged_visible = self
+			.nodes
+			.get_index(index)
+			.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.local_visible.as_ref())
+			.map_or(new_visible.clone(), |old| {
+				Self::merge_process_visible(Some(old), new_visible)
+			});
+		let visible_improved =
+			Self::should_propagate_process_visible(Some(&old_visible), Some(&merged_visible));
+
+		if stored_improved
+			&& let Some((_, node)) = self.nodes.get_index_mut(index)
+			&& let Ok(process) = node.try_unwrap_process_mut()
+		{
+			process.local_stored = Some(merged_stored);
 		}
+
+		if visible_improved
+			&& let Some((_, node)) = self.nodes.get_index_mut(index)
+			&& let Ok(process) = node.try_unwrap_process_mut()
+		{
+			process.local_visible = Some(merged_visible);
+		}
+
+		if stored_improved || visible_improved {
+			return Some(parents);
+		}
+		None
 	}
 
 	fn should_propagate_process_stored(
@@ -847,6 +1227,13 @@ impl Graph {
 			|| (!old.subtree_output && new.subtree_output)
 	}
 
+	fn should_propagate_process_visible(
+		old: Option<&tangram_index::process::Stored>,
+		new: Option<&tangram_index::process::Stored>,
+	) -> bool {
+		Self::should_propagate_process_stored(old, new)
+	}
+
 	fn merge_process_stored(
 		old: Option<&tangram_index::process::Stored>,
 		new: tangram_index::process::Stored,
@@ -865,6 +1252,13 @@ impl Graph {
 			node_log: old.node_log || new.node_log,
 			node_output: old.node_output || new.node_output,
 		}
+	}
+
+	fn merge_process_visible(
+		old: Option<&tangram_index::process::Stored>,
+		new: tangram_index::process::Stored,
+	) -> tangram_index::process::Stored {
+		Self::merge_process_stored(old, new)
 	}
 
 	fn find_object_remote_ancestor(

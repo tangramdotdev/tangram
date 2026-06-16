@@ -3,7 +3,7 @@ use {
 		Session,
 		sync::{
 			get::State,
-			graph::Requested,
+			graph::{Graph, Requested, UpdateObjectLocalArg, UpdateProcessLocalArg},
 			queue::{ObjectItem, ProcessItem},
 		},
 	},
@@ -84,9 +84,12 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to touch the objects"))?
 		};
+		let permissions = self.sync_get_authorize_objects(&ids, &outputs).await?;
 
 		// Handle each item and output.
-		for (item, output) in std::iter::zip(items, outputs) {
+		for ((item, output), permissions) in
+			std::iter::zip(std::iter::zip(items, outputs), permissions)
+		{
 			match output {
 				// If the object is absent, then send a get item message.
 				None => {
@@ -98,14 +101,16 @@ impl Session {
 							true
 						} else {
 							let requested = Requested { eager: item.eager };
-							graph.update_object_local(
-								&item.id,
-								None,
-								None,
-								None,
-								None,
-								Some(requested),
-							);
+							let arg = UpdateObjectLocalArg {
+								data: None,
+								id: &item.id,
+								marked: None,
+								metadata: None,
+								permissions: None,
+								requested: Some(requested),
+								stored: None,
+							};
+							graph.update_object_local(arg);
 							false
 						}
 					};
@@ -130,17 +135,24 @@ impl Session {
 					let metadata = object.metadata;
 
 					// Update the graph with stored and metadata.
-					state.graph.lock().unwrap().update_object_local(
-						&item.id,
-						None,
-						Some(stored.clone()),
-						Some(metadata.clone()),
-						None,
-						None,
-					);
+					let arg = UpdateObjectLocalArg {
+						data: None,
+						id: &item.id,
+						marked: None,
+						metadata: Some(metadata.clone()),
+						permissions,
+						requested: None,
+						stored: Some(stored.clone()),
+					};
+					state.graph.lock().unwrap().update_object_local(arg);
+					let visible = state
+						.graph
+						.lock()
+						.unwrap()
+						.get_object_local_visible(&item.id);
 
-					if stored.subtree {
-						// If the object is stored, then send a stored message.
+					if visible.subtree {
+						// If the object is visible, then send a stored message.
 						let message = tg::sync::GetMessage::Stored(
 							tg::sync::GetStoredMessage::Object(tg::sync::GetStoredObjectMessage {
 								id: item.id.clone(),
@@ -157,7 +169,7 @@ impl Session {
 						let bytes = metadata.subtree.size.unwrap_or(metadata.node.size);
 						state.progress.increment_skipped(0, objects, bytes);
 					} else {
-						// If the object is stored but its subtree is not stored, then enqueue the children.
+						// If the object is stored but its subtree is not visible, then enqueue the children.
 						let bytes = self
 							.try_get_object_local(&item.id, false)
 							.await
@@ -169,14 +181,16 @@ impl Session {
 						)?;
 
 						// Update the graph with data.
-						state.graph.lock().unwrap().update_object_local(
-							&item.id,
-							Some(&data),
-							None,
-							None,
-							None,
-							None,
-						);
+						let arg = UpdateObjectLocalArg {
+							data: Some(&data),
+							id: &item.id,
+							marked: None,
+							metadata: None,
+							permissions: None,
+							requested: None,
+							stored: None,
+						};
+						state.graph.lock().unwrap().update_object_local(arg);
 
 						Self::sync_get_enqueue_object_children(state, &item.id, &data, item.kind);
 
@@ -214,9 +228,12 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to touch the processes"))?
 		};
+		let permissions = self.sync_get_authorize_processes(&ids, &outputs).await?;
 
 		// Handle each item and output.
-		for (item, output) in std::iter::zip(items, outputs) {
+		for ((item, output), permissions) in
+			std::iter::zip(std::iter::zip(items, outputs), permissions)
+		{
 			match &output {
 				// If the process is absent, then send a get item message.
 				None => {
@@ -228,14 +245,16 @@ impl Session {
 							true
 						} else {
 							let requested = Requested { eager: item.eager };
-							graph.update_process_local(
-								&item.id,
-								None,
-								None,
-								None,
-								None,
-								Some(requested),
-							);
+							let arg = UpdateProcessLocalArg {
+								data: None,
+								id: &item.id,
+								marked: None,
+								metadata: None,
+								permissions: None,
+								requested: Some(requested),
+								stored: None,
+							};
+							graph.update_process_local(arg);
 							false
 						}
 					};
@@ -268,38 +287,40 @@ impl Session {
 						.data;
 
 					// Update the graph with stored and metadata and data.
-					state.graph.lock().unwrap().update_process_local(
-						&item.id,
-						Some(&data),
-						Some(stored.clone()),
-						Some(metadata.clone()),
-						None,
-						None,
-					);
+					let arg = UpdateProcessLocalArg {
+						data: Some(&data),
+						id: &item.id,
+						marked: None,
+						metadata: Some(metadata.clone()),
+						permissions,
+						requested: None,
+						stored: Some(stored.clone()),
+					};
+					state.graph.lock().unwrap().update_process_local(arg);
+					let visible = state
+						.graph
+						.lock()
+						.unwrap()
+						.get_process_local_visible(&item.id);
 
 					// Enqueue the children as necessary.
-					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(stored));
+					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&visible));
 
-					// Send a stored message if necessary.
-					if stored.subtree
-						|| stored.subtree_command
-						|| stored.subtree_error
-						|| stored.subtree_log
-						|| stored.subtree_output
-					{
+					// Send a stored message if the process is visible.
+					if Graph::process_visible_any(&visible) {
 						let message =
 							tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
 								tg::sync::GetStoredProcessMessage {
 									id: item.id.clone(),
-									node_command_stored: stored.node_command,
-									node_error_stored: stored.node_error,
-									node_log_stored: stored.node_log,
-									node_output_stored: stored.node_output,
-									subtree_command_stored: stored.subtree_command,
-									subtree_error_stored: stored.subtree_error,
-									subtree_log_stored: stored.subtree_log,
-									subtree_output_stored: stored.subtree_output,
-									subtree_stored: stored.subtree,
+									node_command_stored: visible.node_command,
+									node_error_stored: visible.node_error,
+									node_log_stored: visible.node_log,
+									node_output_stored: visible.node_output,
+									subtree_command_stored: visible.subtree_command,
+									subtree_error_stored: visible.subtree_error,
+									subtree_log_stored: visible.subtree_log,
+									subtree_output_stored: visible.subtree_output,
+									subtree_stored: visible.subtree,
 								},
 							));
 						state.sender.send(Ok(message)).await.map_err(|error| {

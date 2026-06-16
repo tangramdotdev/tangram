@@ -10,6 +10,7 @@ let local = spawn --name local --config {
 # Push an object.
 let a = tg put 'tg.file("a")' | str trim
 tg push $a
+wait_until { (tg --url $remote.url get $a --local | complete).exit_code == 0 } "the first object should be present on the remote"
 
 # Kill the remote server.
 let pid = open ($remote.directory | path join 'lock') | into int

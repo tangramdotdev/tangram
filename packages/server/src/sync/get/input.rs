@@ -1,5 +1,8 @@
 use {
-	crate::{Session, sync::get::State},
+	crate::{
+		Session,
+		sync::{get::State, graph::UpdateObjectLocalArg, graph::UpdateProcessLocalArg},
+	},
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
 };
@@ -34,14 +37,16 @@ impl Session {
 
 					// Update the graph with data and metadata.
 					let metadata = message.metadata.clone();
-					state.graph.lock().unwrap().update_object_local(
-						&message.id,
-						Some(&data),
-						None,
+					let arg = UpdateObjectLocalArg {
+						data: Some(&data),
+						id: &message.id,
+						marked: None,
 						metadata,
-						None,
-						None,
-					);
+						permissions: None,
+						requested: None,
+						stored: None,
+					};
+					state.graph.lock().unwrap().update_object_local(arg);
 
 					// Close the queue if necessary.
 					if state.graph.lock().unwrap().end_local(&state.arg) {
@@ -93,14 +98,16 @@ impl Session {
 
 					// Update the graph with data and metadata.
 					let metadata = message.metadata.clone();
-					state.graph.lock().unwrap().update_process_local(
-						&message.id,
-						Some(&data),
-						None,
+					let arg = UpdateProcessLocalArg {
+						data: Some(&data),
+						id: &message.id,
+						marked: None,
 						metadata,
-						None,
-						None,
-					);
+						permissions: None,
+						requested: None,
+						stored: None,
+					};
+					state.graph.lock().unwrap().update_process_local(arg);
 
 					// Check if all roots are stored and close the queue if so.
 					if state.graph.lock().unwrap().end_local(&state.arg) {
@@ -118,17 +125,16 @@ impl Session {
 						})?;
 					} else {
 						// Enqueue the children as necessary.
-						let stored = state
+						let visible = state
 							.graph
 							.lock()
 							.unwrap()
-							.get_process_local_stored(&message.id)
-							.cloned();
+							.get_process_local_visible(&message.id);
 						Self::sync_get_enqueue_process_children(
 							state,
 							&message.id,
 							&data,
-							stored.as_ref(),
+							Some(&visible),
 						);
 					}
 

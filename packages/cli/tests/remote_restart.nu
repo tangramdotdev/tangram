@@ -9,7 +9,7 @@ let config =  {
 		single_process: false,
 	}
 }
-let remote = spawn --name remote --cloud --config $config --url http://localhost:8476
+let remote = spawn --name remote --cloud --config $config
 
 # Spawn a remote runner.
 let runner = spawn --name runner --config {

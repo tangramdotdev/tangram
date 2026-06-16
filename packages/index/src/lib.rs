@@ -31,7 +31,7 @@ pub trait Index {
 	fn authorize(
 		&self,
 		resource: tg::grant::Resource,
-		permissions: tg::grant::Set,
+		permissions: tg::grant::permission::Set,
 		principal: Option<&tg::Principal>,
 	) -> impl Future<Output = tg::Result<Option<crate::authorize::Output>>> + Send
 	where

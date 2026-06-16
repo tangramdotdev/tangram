@@ -1,7 +1,8 @@
 use {
-	crate::sync::graph::{Graph, Node},
+	crate::sync::graph::{Graph, Node, UpdateObjectLocalArg, UpdateProcessLocalArg},
 	crate::{Session, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _},
+	num::ToPrimitive as _,
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
@@ -80,20 +81,30 @@ impl Session {
 			.touch_objects(&ids, touched_at, self.server.config.object.time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
+		let permissions = self.sync_get_authorize_objects(&ids, &outputs).await?;
 
-		for (item, output) in std::iter::zip(items, outputs) {
+		for ((item, output), permissions) in
+			std::iter::zip(std::iter::zip(items, outputs), permissions)
+		{
 			// Update the graph.
-			state.graph.lock().unwrap().update_object_local(
-				&item.id,
-				None,
-				output.as_ref().map(|object| object.stored.clone()),
-				output.as_ref().map(|object| object.metadata.clone()),
-				None,
-				None,
-			);
+			let arg = UpdateObjectLocalArg {
+				data: None,
+				id: &item.id,
+				marked: None,
+				metadata: output.as_ref().map(|object| object.metadata.clone()),
+				permissions,
+				requested: None,
+				stored: output.as_ref().map(|object| object.stored.clone()),
+			};
+			state.graph.lock().unwrap().update_object_local(arg);
+			let visible = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_object_local_visible(&item.id);
 
-			// If the object is stored, then send a stored message.
-			if output.as_ref().is_some_and(|object| object.stored.subtree) {
+			// If the object is visible, then send a stored message.
+			if visible.subtree {
 				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(
 					tg::sync::GetStoredObjectMessage {
 						id: item.id.clone(),
@@ -112,9 +123,8 @@ impl Session {
 					return Err(tg::error!(id = %item.id, "failed to find the object"));
 				}
 
-				// If the object's subtree is not stored, then enqueue the children.
-				let stored = output.as_ref().is_some_and(|object| object.stored.subtree);
-				if !stored {
+				// If the object's subtree is not visible, then enqueue the children.
+				if !visible.subtree {
 					// Get the object.
 					let bytes = self
 						.try_get_object_local(&item.id, false)
@@ -129,14 +139,16 @@ impl Session {
 					)?;
 
 					// Update the graph.
-					state.graph.lock().unwrap().update_object_local(
-						&item.id,
-						Some(&data),
-						None,
-						None,
-						None,
-						None,
-					);
+					let arg = UpdateObjectLocalArg {
+						data: Some(&data),
+						id: &item.id,
+						marked: None,
+						metadata: None,
+						permissions: None,
+						requested: None,
+						stored: None,
+					};
+					state.graph.lock().unwrap().update_object_local(arg);
 
 					// Enqueue the children.
 					Self::sync_get_enqueue_object_children(state, &item.id, &data, None);
@@ -168,32 +180,42 @@ impl Session {
 			.touch_processes(&ids, touched_at, self.server.config.process.time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get process metadata"))?;
+		let permissions = self.sync_get_authorize_processes(&ids, &outputs).await?;
 
-		for (item, output) in std::iter::zip(items, outputs) {
+		for ((item, output), permissions) in
+			std::iter::zip(std::iter::zip(items, outputs), permissions)
+		{
 			// Update the graph.
-			state.graph.lock().unwrap().update_process_local(
-				&item.id,
-				None,
-				output.as_ref().map(|p| p.stored.clone()),
-				output.as_ref().map(|p| p.metadata.clone()),
-				None,
-				None,
-			);
+			let arg = UpdateProcessLocalArg {
+				data: None,
+				id: &item.id,
+				marked: None,
+				metadata: output.as_ref().map(|p| p.metadata.clone()),
+				permissions,
+				requested: None,
+				stored: output.as_ref().map(|p| p.stored.clone()),
+			};
+			state.graph.lock().unwrap().update_process_local(arg);
+			let visible = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_process_local_visible(&item.id);
 
-			// If the process is partially stored, then send a stored message.
-			if let Some(stored) = output.as_ref().map(|p| &p.stored) {
+			// If the process is visible, then send a stored message.
+			if Graph::process_visible_any(&visible) {
 				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
 					tg::sync::GetStoredProcessMessage {
 						id: item.id.clone(),
-						node_command_stored: stored.node_command,
-						node_error_stored: stored.node_error,
-						node_log_stored: stored.node_log,
-						node_output_stored: stored.node_output,
-						subtree_command_stored: stored.subtree_command,
-						subtree_error_stored: stored.subtree_error,
-						subtree_log_stored: stored.subtree_log,
-						subtree_output_stored: stored.subtree_output,
-						subtree_stored: stored.subtree,
+						node_command_stored: visible.node_command,
+						node_error_stored: visible.node_error,
+						node_log_stored: visible.node_log,
+						node_output_stored: visible.node_output,
+						subtree_command_stored: visible.subtree_command,
+						subtree_error_stored: visible.subtree_error,
+						subtree_log_stored: visible.subtree_log,
+						subtree_output_stored: visible.subtree_output,
+						subtree_stored: visible.subtree,
 					},
 				));
 				state
@@ -205,9 +227,9 @@ impl Session {
 
 			if item.missing {
 				// If the process is not stored, then error.
-				let Some(process) = output else {
+				if output.is_none() {
 					return Err(tg::error!(id = %item.id, "failed to find the process"));
-				};
+				}
 
 				// Get the process.
 				let data = self
@@ -220,22 +242,19 @@ impl Session {
 					.data;
 
 				// Update the graph.
-				state.graph.lock().unwrap().update_process_local(
-					&item.id,
-					Some(&data),
-					None,
-					None,
-					None,
-					None,
-				);
+				let arg = UpdateProcessLocalArg {
+					data: Some(&data),
+					id: &item.id,
+					marked: None,
+					metadata: None,
+					permissions: None,
+					requested: None,
+					stored: None,
+				};
+				state.graph.lock().unwrap().update_process_local(arg);
 
 				// Enqueue the children.
-				Self::sync_get_enqueue_process_children(
-					state,
-					&item.id,
-					&data,
-					Some(&process.stored),
-				);
+				Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&visible));
 			}
 		}
 
@@ -256,14 +275,15 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
 		// Create the index args.
-		let (put_object_args, put_process_args) =
-			Self::sync_get_index_create_args(&mut graph.lock().unwrap())
-				.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
+		let (put_grant_args, put_object_args, put_process_args) = self
+			.sync_get_index_create_args(&mut graph.lock().unwrap())
+			.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
 
 		// Index the objects and processes.
 		self.server
 			.index
 			.batch(tangram_index::batch::Arg {
+				put_grants: put_grant_args,
 				put_objects: put_object_args,
 				put_processes: put_process_args,
 				..Default::default()
@@ -275,8 +295,10 @@ impl Session {
 	}
 
 	fn sync_get_index_create_args(
+		&self,
 		graph: &mut Graph,
 	) -> tg::Result<(
+		Vec<tangram_index::grant::put::Arg>,
 		Vec<tangram_index::object::put::Arg>,
 		Vec<tangram_index::process::put::Arg>,
 	)> {
@@ -290,7 +312,7 @@ impl Session {
 		let indices = sccs.into_iter().flatten().collect::<Vec<_>>();
 
 		// Set stored and metadata.
-		for index in indices {
+		for index in indices.iter().copied() {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
 				Node::Object(node) => {
@@ -872,6 +894,104 @@ impl Session {
 
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
+		// Create the grant args.
+		let mut put_grant_args = Vec::new();
+		let grant_principal = match self.context.principal.as_ref() {
+			Some(tg::Principal::Root) => None,
+			Some(principal) => Some(tg::grant::Principal::from(principal.clone())),
+			None => Some(tg::grant::Principal::Public),
+		};
+		if let Some(grant_principal) = grant_principal {
+			let object_expires_at = touched_at
+				+ self
+					.server
+					.config
+					.object
+					.grant_time_to_live
+					.as_secs()
+					.to_i64()
+					.unwrap();
+			let process_expires_at = touched_at
+				+ self
+					.server
+					.config
+					.process
+					.grant_time_to_live
+					.as_secs()
+					.to_i64()
+					.unwrap();
+			let mut object_covered = vec![false; graph.nodes.len()];
+			let mut process_covered =
+				vec![tg::grant::permission::process::Set::empty(); graph.nodes.len()];
+			for index in indices.iter().rev().copied() {
+				let (id, node) = graph.nodes.get_index(index).unwrap();
+				match node {
+					Node::Object(node) => {
+						let visible = node
+							.local_visible
+							.as_ref()
+							.is_some_and(|visible| visible.subtree);
+						let mut subtree = false;
+						if node.marked && !object_covered[index] {
+							let permission = if visible {
+								tg::grant::permission::object::Permission::Subtree
+							} else {
+								tg::grant::permission::object::Permission::Node
+							};
+							subtree = visible;
+							put_grant_args.push(tangram_index::grant::put::Arg {
+								created_at: touched_at,
+								creator: self.context.principal.clone(),
+								expires_at: Some(object_expires_at),
+								permissions: tg::grant::permission::Set::Object(
+									tg::grant::permission::object::Set::from_permission(permission),
+								),
+								principal: grant_principal.clone(),
+								resource: id.clone().unwrap_object().into(),
+							});
+						}
+						let covered = object_covered[index] || subtree;
+						if covered && let Some(children) = node.children.as_ref() {
+							for child in children {
+								object_covered[*child] = true;
+							}
+						}
+					},
+					Node::Process(node) => {
+						let visible = node.local_visible.clone().unwrap_or_default();
+						let mut permissions = if node.marked {
+							Self::sync_get_index_process_grant_permissions(&visible)
+						} else {
+							tg::grant::permission::process::Set::empty()
+						};
+						Self::sync_get_index_remove_process_permissions_covered_by_ancestors(
+							&mut permissions,
+							process_covered[index],
+						);
+						if !permissions.is_empty() {
+							put_grant_args.push(tangram_index::grant::put::Arg {
+								created_at: touched_at,
+								creator: self.context.principal.clone(),
+								expires_at: Some(process_expires_at),
+								permissions: tg::grant::permission::Set::Process(permissions),
+								principal: grant_principal.clone(),
+								resource: id.clone().unwrap_process().into(),
+							});
+						}
+						let subtree_permissions =
+							Self::sync_get_index_process_subtree_permissions(permissions);
+						let mut covered = process_covered[index];
+						covered.insert(subtree_permissions);
+						if let Some(children) = node.children.as_ref() {
+							for child in children {
+								process_covered[*child].insert(covered);
+							}
+						}
+					},
+				}
+			}
+		}
+
 		// Create the args.
 		let mut put_object_args = Vec::new();
 		let mut put_process_args = Vec::new();
@@ -1005,6 +1125,86 @@ impl Session {
 			}
 		}
 
-		Ok((put_object_args, put_process_args))
+		Ok((put_grant_args, put_object_args, put_process_args))
+	}
+
+	fn sync_get_index_process_grant_permissions(
+		visible: &tangram_index::process::Stored,
+	) -> tg::grant::permission::process::Set {
+		let mut permissions = tg::grant::permission::process::Set::empty();
+		if visible.subtree {
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE);
+		} else {
+			permissions.insert(tg::grant::permission::process::Set::NODE);
+		}
+		if visible.subtree_command {
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE_COMMAND);
+		} else if visible.node_command {
+			permissions.insert(tg::grant::permission::process::Set::NODE_COMMAND);
+		}
+		if visible.subtree_error {
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE_ERROR);
+		} else if visible.node_error {
+			permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
+		}
+		if visible.subtree_log {
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE_LOG);
+		} else if visible.node_log {
+			permissions.insert(tg::grant::permission::process::Set::NODE_LOG);
+		}
+		if visible.subtree_output {
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE_OUTPUT);
+		} else if visible.node_output {
+			permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
+		}
+		permissions
+	}
+
+	fn sync_get_index_remove_process_permissions_covered_by_ancestors(
+		permissions: &mut tg::grant::permission::process::Set,
+		covered: tg::grant::permission::process::Set,
+	) {
+		if covered.contains(tg::grant::permission::process::Set::SUBTREE) {
+			permissions.remove(tg::grant::permission::process::Set::NODE);
+			permissions.remove(tg::grant::permission::process::Set::SUBTREE);
+		}
+		if covered.contains(tg::grant::permission::process::Set::SUBTREE_COMMAND) {
+			permissions.remove(tg::grant::permission::process::Set::NODE_COMMAND);
+			permissions.remove(tg::grant::permission::process::Set::SUBTREE_COMMAND);
+		}
+		if covered.contains(tg::grant::permission::process::Set::SUBTREE_ERROR) {
+			permissions.remove(tg::grant::permission::process::Set::NODE_ERROR);
+			permissions.remove(tg::grant::permission::process::Set::SUBTREE_ERROR);
+		}
+		if covered.contains(tg::grant::permission::process::Set::SUBTREE_LOG) {
+			permissions.remove(tg::grant::permission::process::Set::NODE_LOG);
+			permissions.remove(tg::grant::permission::process::Set::SUBTREE_LOG);
+		}
+		if covered.contains(tg::grant::permission::process::Set::SUBTREE_OUTPUT) {
+			permissions.remove(tg::grant::permission::process::Set::NODE_OUTPUT);
+			permissions.remove(tg::grant::permission::process::Set::SUBTREE_OUTPUT);
+		}
+	}
+
+	fn sync_get_index_process_subtree_permissions(
+		permissions: tg::grant::permission::process::Set,
+	) -> tg::grant::permission::process::Set {
+		let mut subtree_permissions = tg::grant::permission::process::Set::empty();
+		if permissions.contains(tg::grant::permission::process::Set::SUBTREE) {
+			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE);
+		}
+		if permissions.contains(tg::grant::permission::process::Set::SUBTREE_COMMAND) {
+			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE_COMMAND);
+		}
+		if permissions.contains(tg::grant::permission::process::Set::SUBTREE_ERROR) {
+			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE_ERROR);
+		}
+		if permissions.contains(tg::grant::permission::process::Set::SUBTREE_LOG) {
+			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE_LOG);
+		}
+		if permissions.contains(tg::grant::permission::process::Set::SUBTREE_OUTPUT) {
+			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE_OUTPUT);
+		}
+		subtree_permissions
 	}
 }

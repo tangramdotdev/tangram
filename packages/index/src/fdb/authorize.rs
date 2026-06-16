@@ -107,10 +107,10 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
-		permissions: tg::grant::Set,
+		permissions: tg::grant::permission::Set,
 		requester: &Requester<'_>,
 		cache: &mut Cache,
-	) -> tg::Result<tg::grant::Set> {
+	) -> tg::Result<tg::grant::permission::Set> {
 		let mut found = permissions.empty_like();
 		for permission in permissions.iter() {
 			let authorized = Self::authorize_permission_with_transaction(
@@ -118,7 +118,7 @@ impl Index {
 			)
 			.await?;
 			if authorized {
-				found.insert(tg::grant::Set::from_permission(permission));
+				found.insert(tg::grant::permission::Set::from_permission(permission));
 				if found.contains(permissions) {
 					break;
 				}

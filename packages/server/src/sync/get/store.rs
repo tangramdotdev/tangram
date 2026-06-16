@@ -1,5 +1,12 @@
 use {
-	crate::{Session, database::Database, sync::get::State},
+	crate::{
+		Session,
+		database::Database,
+		sync::{
+			get::State,
+			graph::{UpdateObjectLocalArg, UpdateProcessLocalArg},
+		},
+	},
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
@@ -161,14 +168,16 @@ impl Session {
 			});
 
 			// Update the graph.
-			graph.update_object_local(
-				&item.id,
-				Some(&data),
-				None,
-				Some(metadata),
-				Some(true),
-				None,
-			);
+			let arg = UpdateObjectLocalArg {
+				data: Some(&data),
+				id: &item.id,
+				marked: Some(true),
+				metadata: Some(metadata),
+				permissions: None,
+				requested: None,
+				stored: None,
+			};
+			graph.update_object_local(arg);
 		}
 		drop(graph);
 
@@ -257,7 +266,16 @@ impl Session {
 		let mut graph = state.graph.lock().unwrap();
 		for (id, data, metadata) in &batch {
 			let metadata = metadata.clone();
-			graph.update_process_local(id, Some(data), None, metadata, Some(true), None);
+			let arg = UpdateProcessLocalArg {
+				data: Some(data),
+				id,
+				marked: Some(true),
+				metadata,
+				permissions: None,
+				requested: None,
+				stored: None,
+			};
+			graph.update_process_local(arg);
 		}
 		drop(graph);
 

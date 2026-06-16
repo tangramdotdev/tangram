@@ -16,6 +16,20 @@ impl Session {
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<tg::Principal> {
+		if matches!(
+			principal,
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+		) && self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.and_then(|runner| runner.remote.as_ref())
+			.is_some()
+		{
+			return Ok(tg::Principal::Runner);
+		}
+
 		let id = match principal {
 			tg::Principal::Process(id) => id.to_string(),
 			tg::Principal::Sandbox(id) => id.to_string(),

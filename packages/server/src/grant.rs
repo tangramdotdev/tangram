@@ -13,24 +13,41 @@ use {
 
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
-		// The resource is not found without read permission, so creating a grant does not reveal whether a resource the actor cannot see exists.
-		let permission = tg::grant::Permission::Read;
-		if self
-			.authorize(arg.resource.clone(), permission)
-			.await?
-			.is_none_or(|permissions| !permissions.contains(permission))
-		{
-			return Err(tg::error!("failed to find the resource"));
-		}
+		match &arg.resource {
+			tg::grant::Resource::Id(id)
+				if tg::object::Id::try_from(id.clone()).is_ok()
+					|| id.kind() == tg::id::Kind::Process =>
+			{
+				tangram_index::authorize::validate(id, arg.permissions)?;
+				if self
+					.authorize(arg.resource.clone(), arg.permissions)
+					.await?
+					.is_none_or(|permissions| !permissions.contains(arg.permissions))
+				{
+					return Err(tg::error!("failed to find the resource"));
+				}
+			},
+			_ => {
+				// The resource is not found without read permission, so creating a grant does not reveal whether a resource the actor cannot see exists.
+				let permission = tg::grant::Permission::Read;
+				if self
+					.authorize(arg.resource.clone(), permission)
+					.await?
+					.is_none_or(|permissions| !permissions.contains(permission))
+				{
+					return Err(tg::error!("failed to find the resource"));
+				}
 
-		// Creating a grant requires admin permission on the resource.
-		let permission = tg::grant::Permission::Admin;
-		if self
-			.authorize(arg.resource.clone(), permission)
-			.await?
-			.is_none_or(|permissions| !permissions.contains(permission))
-		{
-			return Err(tg::error!("unauthorized"));
+				// Creating a grant requires admin permission on the resource.
+				let permission = tg::grant::Permission::Admin;
+				if self
+					.authorize(arg.resource.clone(), permission)
+					.await?
+					.is_none_or(|permissions| !permissions.contains(permission))
+				{
+					return Err(tg::error!("unauthorized"));
+				}
+			},
 		}
 		let session = self.clone();
 		let (grant, batch) = self
@@ -123,7 +140,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			creator: tg::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::Set,
+			permissions: tg::grant::permission::Set,
 		}
 		let statement = formatdoc!(
 			"
@@ -247,7 +264,7 @@ impl Session {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::Set,
+			permissions: tg::grant::permission::Set,
 		}
 		let statement = formatdoc!(
 			"
@@ -355,7 +372,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			creator: tg::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::Set,
+			permissions: tg::grant::permission::Set,
 			#[tangram_database(as = "db::value::FromStr")]
 			principal: tg::grant::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -640,7 +657,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			creator: tg::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::Set,
+			permissions: tg::grant::permission::Set,
 			#[tangram_database(as = "db::value::FromStr")]
 			principal: tg::grant::Principal,
 		}
@@ -679,7 +696,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			creator: tg::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::Set,
+			permissions: tg::grant::permission::Set,
 			#[tangram_database(as = "db::value::FromStr")]
 			resource: tg::Id,
 		}

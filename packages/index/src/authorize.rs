@@ -2,13 +2,13 @@ use tangram_client::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub permissions: tg::grant::Set,
+	pub permissions: tg::grant::permission::Set,
 	pub resource: tg::grant::Resource,
 }
 
 #[derive(Clone, Debug)]
 pub struct Output {
-	pub permissions: tg::grant::Set,
+	pub permissions: tg::grant::permission::Set,
 }
 
 /// Validate that the permission is coherent with the resource kind.
@@ -34,7 +34,7 @@ pub fn validate_permission(resource: &tg::Id, permission: tg::grant::Permission)
 	Ok(())
 }
 
-pub fn validate(resource: &tg::Id, permissions: tg::grant::Set) -> tg::Result<()> {
+pub fn validate(resource: &tg::Id, permissions: tg::grant::permission::Set) -> tg::Result<()> {
 	for permission in permissions.iter() {
 		validate_permission(resource, permission)?;
 	}

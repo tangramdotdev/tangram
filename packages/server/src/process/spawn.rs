@@ -145,8 +145,8 @@ impl Session {
 		let host = command_
 			.host_with_handle(self)
 			.await
-			.ok()
-			.map(|host| host.to_string());
+			.map_err(|error| tg::error!(!error, "failed to get the command host"))?
+			.to_string();
 
 		// Determine if the process is cacheable.
 		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
@@ -178,7 +178,7 @@ impl Session {
 							&arg,
 							parent_sandbox.as_ref(),
 							cacheable,
-							host.as_deref(),
+							Some(host.as_str()),
 						)
 						.await
 				}
@@ -222,7 +222,7 @@ impl Session {
 						created_at: now,
 						creator: Some(principal.clone()),
 						expires_at: Some(expires_at),
-						permissions: tg::grant::Set::Process(
+						permissions: tg::grant::permission::Set::Process(
 							tg::grant::permission::process::Set::all(),
 						),
 						principal: principal.clone().into(),
@@ -526,7 +526,9 @@ impl Session {
 			created_at: now,
 			creator: Some(principal.clone()),
 			expires_at: Some(expires_at),
-			permissions: tg::grant::Set::Process(tg::grant::permission::process::Set::all()),
+			permissions: tg::grant::permission::Set::Process(
+				tg::grant::permission::process::Set::all(),
+			),
 			principal: principal.clone().into(),
 			resource: id.clone().into(),
 		}];
