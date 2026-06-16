@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Deleting a group that does not exist fails.
+# Getting a group that does not exist fails.
 
 let server = spawn --config { authentication: true }
 
@@ -11,6 +11,6 @@ def current_token [] {
 tg user login alice
 let alice = current_token
 
-let output = tg --token $alice group delete ghost | complete
-failure $output "deleting a nonexistent group should fail"
+let output = tg --token $alice group get ghost | complete
+failure $output "getting a nonexistent group should fail"
 assert ($output.stderr | str contains "failed to find the group") "the error should mention that the group was not found"

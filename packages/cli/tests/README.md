@@ -148,6 +148,25 @@ nu packages/cli/test.nu --offline
 The `spawn --busybox` helper calls `skip_if_offline` itself, so a test only
 needs an explicit call when it reaches the network some other way.
 
+### 10. Name principals `alice`, `bob`, `carol`, and reserve `eve` for the adversary
+
+In tests that log in users and exercise authorization, name ordinary
+cooperating principals `alice`, `bob`, `carol`, and so on. Reserve `eve` for the
+malicious principal — the one attempting to read information or escalate
+privileges they should not have. When a test demonstrates that an unauthorized
+read or a privilege escalation is denied, the denied actor is `eve`, and the
+intent comment frames the operation as one that must be rejected:
+
+```nushell
+let alice_user = tg user login alice | from json
+tg user login eve
+let eve = current_token
+
+# A user without read permission cannot get another user's record.
+let output = tg --token $eve user get $alice_user.id | complete
+failure $output "a user without read permission should not be able to get another user"
+```
+
 ## Non-scriptable surface
 
 Most `tg` subcommands are scriptable and have end-to-end tests here. A handful
