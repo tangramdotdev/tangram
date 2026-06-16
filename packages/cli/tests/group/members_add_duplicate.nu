@@ -4,17 +4,12 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
+let bob = tg login --verbose bob | from json
 
-tg user login alice
-let alice = current_token
-let bob_user = tg user login bob | from json
+tg --token $alice.token group create team
+tg --token $alice.token group members add team $bob.user.id
 
-tg --token $alice group create team
-tg --token $alice group members add team $bob_user.id
-
-let output = tg --token $alice group members add team $bob_user.id | complete
+let output = tg --token $alice.token group members add team $bob.user.id | complete
 failure $output "adding a member that already exists should fail"
 assert ($output.stderr | str contains "already") "the error should report that the membership already exists"

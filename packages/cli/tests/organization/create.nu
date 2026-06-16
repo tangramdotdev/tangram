@@ -4,21 +4,16 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
 
-tg user login alice
-let alice = current_token
-
-let organization = tg --token $alice organization create acme | from json
+let organization = tg --token $alice.token organization create acme | from json
 assert ($organization.id | str starts-with "org_") "create should return an organization id"
 assert ($organization.name == "acme") "the organization name should match the specifier"
 assert ($organization.specifier == "acme") "the organization specifier should match the input"
 
 # The creator can get the organization.
-let got = tg --token $alice organization get acme | from json
+let got = tg --token $alice.token organization get acme | from json
 assert ($got.id == $organization.id) "the created organization should be retrievable"
 
 # The creator has admin, so it can list the organization's grants.
-tg --token $alice grants list --resource acme
+tg --token $alice.token grants list --resource acme

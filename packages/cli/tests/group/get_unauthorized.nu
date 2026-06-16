@@ -4,17 +4,11 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
+let eve = tg login --verbose eve | from json
 
-tg user login alice
-let alice = current_token
-tg user login eve
-let eve = current_token
+tg --token $alice.token group create private
 
-tg --token $alice group create private
-
-let output = tg --token $eve group get private | complete
+let output = tg --token $eve.token group get private | complete
 failure $output "a user without read permission should not be able to get a private group"
 assert ($output.stderr | str contains "failed to find the group") "the private group should not be visible without read permission"

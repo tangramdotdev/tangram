@@ -4,14 +4,9 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
+tg --token $alice.token group create shared
 
-tg user login alice
-let alice = current_token
-tg --token $alice group create shared
-
-let output = tg user login shared | complete
+let output = tg login shared | complete
 failure $output "logging in with a specifier claimed by a group should be rejected"
 assert ($output.stderr | str contains "already in use") "the error should mention that the specifier is already in use"

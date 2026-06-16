@@ -4,16 +4,11 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
 
-tg user login alice
-let alice = current_token
+tg --token $alice.token group create team
+let other = tg --token $alice.token group create other | from json
+tg --token $alice.token group members add team $other.id
 
-tg --token $alice group create team
-let other = tg --token $alice group create other | from json
-tg --token $alice group members add team $other.id
-
-let members = tg --token $alice group members list team | from json
+let members = tg --token $alice.token group members list team | from json
 assert ($other.id in $members) "the added group should be listed as a member"

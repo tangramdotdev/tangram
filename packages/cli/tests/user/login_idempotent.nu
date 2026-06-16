@@ -4,14 +4,8 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let first = tg login --verbose alice | from json
+let second = tg login --verbose alice | from json
 
-let first = tg user login alice | from json
-let token1 = current_token
-let second = tg user login alice | from json
-let token2 = current_token
-
-assert ($first.id == $second.id) "logging in again should return the same user"
-assert ($token1 != $token2) "each login should issue a new token"
+assert ($first.user.id == $second.user.id) "logging in again should return the same user"
+assert ($first.token != $second.token) "each login should issue a new token"

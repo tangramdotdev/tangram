@@ -35,7 +35,7 @@ assert equal $org_team.specifier org/team
 let org_tag = tg tag get org/team/pkg | from json
 assert equal $org_tag.specifier org/team/pkg
 
-let user = tg login alice | from json
+let alice = tg login --verbose alice | from json
 tg tag alice/team/pkg $id
 
 let user_team = tg group get alice/team | from json

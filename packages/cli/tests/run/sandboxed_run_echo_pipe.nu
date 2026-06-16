@@ -20,5 +20,4 @@ $output.stdout | hexyl
 snapshot $output.stdout '
 	hello
 
-
 '

@@ -9,13 +9,8 @@ let server = spawn --config {
 	remotes: { root: { url: $root_remote.url } },
 }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
-
-tg user login alice
-let alice = current_token
-tg --token $alice remote put alice $alice_remote.url
+let alice = tg login --verbose alice | from json
+tg --token $alice.token remote put alice $alice_remote.url
 
 # Run a command that logs its process token and stays alive.
 let path = artifact {

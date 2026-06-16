@@ -4,6 +4,6 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-let output = tg user login "alice/bob" | complete
+let output = tg login "alice/bob" | complete
 failure $output "a multi-component user specifier should be rejected"
 assert ($output.stderr | str contains "invalid user specifier") "the error should mention an invalid user specifier"

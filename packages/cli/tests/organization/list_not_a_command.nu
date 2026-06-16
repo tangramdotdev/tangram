@@ -4,13 +4,8 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
 
-tg user login alice
-let alice = current_token
-
-let output = tg --token $alice organization list | complete
+let output = tg --token $alice.token organization list | complete
 failure $output "tg organization list should not be a command"
 assert ($output.stderr | str contains "unrecognized subcommand") "organization list should be rejected as an unknown subcommand"

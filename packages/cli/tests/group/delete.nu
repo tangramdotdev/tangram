@@ -4,16 +4,11 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
 
-tg user login alice
-let alice = current_token
+tg --token $alice.token group create leaf
+tg --token $alice.token group delete leaf
 
-tg --token $alice group create leaf
-tg --token $alice group delete leaf
-
-let output = tg --token $alice group get leaf | complete
+let output = tg --token $alice.token group get leaf | complete
 failure $output "the group should not exist after deletion"
 assert ($output.stderr | str contains "failed to find the group") "the deleted group should no longer be found"

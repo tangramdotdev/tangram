@@ -4,17 +4,12 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
 
-tg user login alice
-let alice = current_token
+let organization = tg --token $alice.token organization create acme | from json
 
-let organization = tg --token $alice organization create acme | from json
-
-let by_id = tg --token $alice organization get $organization.id | from json
+let by_id = tg --token $alice.token organization get $organization.id | from json
 assert ($by_id.id == $organization.id) "getting an organization by id should return that organization"
 
-let by_specifier = tg --token $alice organization get acme | from json
+let by_specifier = tg --token $alice.token organization get acme | from json
 assert ($by_specifier.id == $organization.id) "getting an organization by specifier should return that organization"

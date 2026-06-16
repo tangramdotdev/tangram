@@ -4,10 +4,10 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-let user = tg user login alice --email alice@example.com | from json
-assert ($user.emails == ["alice@example.com"]) "the email should be associated with the user"
+let alice = tg login --verbose alice --email alice@example.com | from json
+assert ($alice.user.emails == ["alice@example.com"]) "the email should be associated with the user"
 
 # Re-logging in with the same email returns the same user without duplicating the email.
-let again = tg user login alice --email alice@example.com | from json
-assert ($again.id == $user.id) "re-login should return the same user"
-assert ($again.emails == ["alice@example.com"]) "the email should not be duplicated"
+let again = tg login --verbose alice --email alice@example.com | from json
+assert ($again.user.id == $alice.user.id) "re-login should return the same user"
+assert ($again.user.emails == ["alice@example.com"]) "the email should not be duplicated"

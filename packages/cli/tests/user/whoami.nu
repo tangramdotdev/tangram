@@ -4,9 +4,9 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-let user = tg user login alice | from json
+let alice = tg login --verbose alice | from json
 let me = tg user whoami | from json
-assert ($me.id == $user.id) "whoami should return the logged-in user"
+assert ($me.id == $alice.user.id) "whoami should return the logged-in user"
 
 # An anonymous client has no current user.
 let config = mktemp

@@ -13,6 +13,10 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub parent: tg::Specifier,
 
+	/// Print the token and user.
+	#[arg(long)]
+	pub verbose: bool,
+
 	#[command(flatten)]
 	pub print: crate::print::Options,
 }
@@ -37,9 +41,13 @@ impl Cli {
 				.as_ref()
 				.is_some_and(tg::Location::is_remote)
 		{
-			self.write_token(output.token)?;
+			self.write_token(output.token.clone())?;
 		}
-		self.print_serde(output.user, args.print).await?;
+		if args.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			self.print_serde(output.user, args.print).await?;
+		}
 		Ok(())
 	}
 }

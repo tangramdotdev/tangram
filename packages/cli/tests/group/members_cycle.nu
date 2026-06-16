@@ -4,20 +4,15 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
+let alice = tg login --verbose alice | from json
 
-tg user login alice
-let alice = current_token
-
-let a = tg --token $alice group create a | from json
-let b = tg --token $alice group create b | from json
+let a = tg --token $alice.token group create a | from json
+let b = tg --token $alice.token group create b | from json
 
 # b is a member of a.
-tg --token $alice group members add a $b.id
+tg --token $alice.token group members add a $b.id
 
 # Adding a as a member of b would create a cycle.
-let output = tg --token $alice group members add b $a.id | complete
+let output = tg --token $alice.token group members add b $a.id | complete
 failure $output "adding a group to its own member should be rejected"
 assert ($output.stderr | str contains "membership cycle") "the error should mention a membership cycle"

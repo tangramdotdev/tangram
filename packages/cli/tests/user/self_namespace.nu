@@ -4,21 +4,16 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: true }
 
-def current_token [] {
-	open $env.TANGRAM_CONFIG | get token
-}
-
-let alice_user = tg user login alice | from json
-let alice = current_token
+let alice = tg login --verbose alice | from json
 
 let path = artifact 'hello'
-let id = tg --token $alice checkin $path
+let id = tg --token $alice.token checkin $path
 
 # Alice can publish a tag under her own username namespace.
-tg --token $alice tag alice/foo $id
-let tag = tg --token $alice tag get alice/foo | from json
+tg --token $alice.token tag alice/foo $id
+let tag = tg --token $alice.token tag get alice/foo | from json
 assert ($tag.specifier == "alice/foo") "the tag should live under alice's namespace"
-assert ($tag.parent == $alice_user.id) "the tag's parent should be alice's own user node"
+assert ($tag.parent == $alice.user.id) "the tag's parent should be alice's own user node"
 
 # Alice can also create a group under her own namespace.
-tg --token $alice group create alice/proj
+tg --token $alice.token group create alice/proj
