@@ -85,15 +85,7 @@ impl Session {
 				if tg::object::Id::try_from(id.clone()).is_ok()
 					|| id.kind() == tg::id::Kind::Process =>
 			{
-				// An object or process grant is self-permissioning, so revoking it requires only the permission being revoked, just as creating it does.
-				tangram_index::authorize::validate(id, arg.permissions)?;
-				if self
-					.authorize(arg.resource.clone(), arg.permissions)
-					.await?
-					.is_none_or(|permissions| !permissions.contains(arg.permissions))
-				{
-					return Ok(None);
-				}
+				// A grant on an object or process may be revoked only by its creator, which is enforced by the creator scoping in the transaction, so being able to read the resource confers no power to revoke another principal's grant.
 			},
 			_ => {
 				// Revoking a grant on a user, group, organization, or tag requires admin permission on the resource.
