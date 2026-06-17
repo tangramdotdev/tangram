@@ -2,11 +2,12 @@ use {
 	crate::fdb::Index,
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
+	futures::{StreamExt as _, TryStreamExt as _, stream},
 	std::collections::{HashMap, HashSet, VecDeque},
 	tangram_client::prelude::*,
 };
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Cache {
 	authorization: HashMap<(tg::Id, tg::grant::Permission), bool>,
 	resource_parents: HashMap<tg::Id, Option<tg::Id>>,
@@ -30,6 +31,28 @@ struct AuthorizationFrame {
 	resource: tg::Id,
 	permission: tg::grant::Permission,
 	dependencies: Option<Vec<(tg::Id, tg::grant::Permission)>>,
+}
+
+struct AuthorizationFrameEvaluation {
+	frame: AuthorizationFrame,
+	directly_authorized: bool,
+	dependencies: Vec<(tg::Id, tg::grant::Permission)>,
+	cache: Cache,
+}
+
+impl Cache {
+	fn merge(&mut self, other: Self) {
+		self.resource_parents.extend(other.resource_parents);
+		self.group_members.extend(other.group_members);
+		self.item_tags.extend(other.item_tags);
+		self.object_parents.extend(other.object_parents);
+		self.object_processes.extend(other.object_processes);
+		self.organization_members.extend(other.organization_members);
+		self.principal_contains_requester
+			.extend(other.principal_contains_requester);
+		self.process_parents.extend(other.process_parents);
+		self.resource_grants.extend(other.resource_grants);
+	}
 }
 
 impl<'a> Requester<'a> {
@@ -92,6 +115,7 @@ impl Index {
 			let permissions = Self::authorize_with_transaction(
 				&txn,
 				&self.subspace,
+				self.authorization_concurrency,
 				&id,
 				arg.permissions,
 				&requester,
@@ -106,6 +130,7 @@ impl Index {
 	async fn authorize_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
+		authorization_concurrency: usize,
 		resource: &tg::Id,
 		permissions: tg::grant::permission::Set,
 		requester: &Requester<'_>,
@@ -114,7 +139,13 @@ impl Index {
 		let mut found = permissions.empty_like();
 		for permission in permissions.iter() {
 			let authorized = Self::authorize_permission_with_transaction(
-				txn, subspace, resource, permission, requester, cache,
+				txn,
+				subspace,
+				authorization_concurrency,
+				resource,
+				permission,
+				requester,
+				cache,
 			)
 			.await?;
 			if authorized {
@@ -130,6 +161,7 @@ impl Index {
 	async fn authorize_permission_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
+		authorization_concurrency: usize,
 		resource: &tg::Id,
 		permission: tg::grant::Permission,
 		requester: &Requester<'_>,
@@ -183,68 +215,146 @@ impl Index {
 				continue;
 			}
 
-			let directly_authorized = Self::is_directly_authorized_with_transaction(
-				txn,
-				subspace,
-				&frame.resource,
-				frame.permission,
-				requester,
-				cache,
-			)
-			.await?;
-			if directly_authorized {
-				Self::finish_authorization(cache, &mut pending, key, true);
-				continue;
-			}
-
-			let dependencies = Self::get_authorization_dependencies_with_transaction(
-				txn,
-				subspace,
-				&frame.resource,
-				frame.permission,
-				cache,
-			)
-			.await?;
-			let mut authorized = false;
-			let mut has_unknown_dependency = false;
-			let mut dependencies_to_push = Vec::new();
-			for (dependency, dependency_permission) in &dependencies {
-				let dependency_key = (dependency.clone(), *dependency_permission);
-				match cache.authorization.get(&dependency_key).copied() {
-					Some(true) => {
-						authorized = true;
-						break;
-					},
-					Some(false) => {},
-					None => {
-						has_unknown_dependency = true;
-						if pending.insert(dependency_key) {
-							dependencies_to_push.push((dependency.clone(), *dependency_permission));
-						}
-					},
+			let mut frames = vec![frame];
+			while frames.len() < authorization_concurrency {
+				let Some(frame) = queue.pop_front() else {
+					break;
+				};
+				if frame.dependencies.is_some() {
+					queue.push_front(frame);
+					break;
 				}
+				let key = (frame.resource.clone(), frame.permission);
+				if cache.authorization.contains_key(&key) {
+					pending.remove(&key);
+					continue;
+				}
+				frames.push(frame);
 			}
 
-			if authorized || !has_unknown_dependency {
-				Self::finish_authorization(cache, &mut pending, key, authorized);
-				continue;
-			}
+			let evaluations = stream::iter(frames)
+				.map(|frame| {
+					let mut cache = cache.clone();
+					async move {
+						Self::evaluate_authorization_frame_with_transaction(
+							txn,
+							subspace,
+							authorization_concurrency,
+							frame,
+							requester,
+							&mut cache,
+						)
+						.await
+					}
+				})
+				.buffered(authorization_concurrency)
+				.try_collect::<Vec<_>>()
+				.await?;
 
-			queue.push_back(AuthorizationFrame {
-				resource: frame.resource,
-				permission: frame.permission,
-				dependencies: Some(dependencies),
-			});
-			for (dependency, dependency_permission) in dependencies_to_push {
-				queue.push_back(AuthorizationFrame {
-					resource: dependency,
-					permission: dependency_permission,
-					dependencies: None,
-				});
+			for mut evaluation in evaluations {
+				cache.merge(std::mem::take(&mut evaluation.cache));
+				Self::apply_authorization_frame_evaluation(
+					cache,
+					&mut pending,
+					&mut queue,
+					evaluation,
+				);
 			}
 		}
 
 		Ok(cache.authorization.get(&root).copied().unwrap_or(false))
+	}
+
+	async fn evaluate_authorization_frame_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		authorization_concurrency: usize,
+		frame: AuthorizationFrame,
+		requester: &Requester<'_>,
+		cache: &mut Cache,
+	) -> tg::Result<AuthorizationFrameEvaluation> {
+		let directly_authorized = Self::is_directly_authorized_with_transaction(
+			txn,
+			subspace,
+			&frame.resource,
+			frame.permission,
+			requester,
+			cache,
+		)
+		.await?;
+		let dependencies = if directly_authorized {
+			Vec::new()
+		} else {
+			Self::get_authorization_dependencies_with_transaction(
+				txn,
+				subspace,
+				authorization_concurrency,
+				&frame.resource,
+				frame.permission,
+				cache,
+			)
+			.await?
+		};
+		Ok(AuthorizationFrameEvaluation {
+			frame,
+			directly_authorized,
+			dependencies,
+			cache: std::mem::take(cache),
+		})
+	}
+
+	fn apply_authorization_frame_evaluation(
+		cache: &mut Cache,
+		pending: &mut HashSet<(tg::Id, tg::grant::Permission)>,
+		queue: &mut VecDeque<AuthorizationFrame>,
+		evaluation: AuthorizationFrameEvaluation,
+	) {
+		let key = (
+			evaluation.frame.resource.clone(),
+			evaluation.frame.permission,
+		);
+		if evaluation.directly_authorized {
+			Self::finish_authorization(cache, pending, key, true);
+			return;
+		}
+
+		let mut authorized = false;
+		let mut has_unknown_dependency = false;
+		let mut dependencies_to_push = Vec::new();
+		for (dependency, dependency_permission) in &evaluation.dependencies {
+			let dependency_key = (dependency.clone(), *dependency_permission);
+			match cache.authorization.get(&dependency_key).copied() {
+				Some(true) => {
+					authorized = true;
+					break;
+				},
+				Some(false) => {},
+				None => {
+					has_unknown_dependency = true;
+					if pending.insert(dependency_key) {
+						dependencies_to_push.push((dependency.clone(), *dependency_permission));
+					}
+				},
+			}
+		}
+
+		if authorized || !has_unknown_dependency {
+			Self::finish_authorization(cache, pending, key, authorized);
+			return;
+		}
+
+		queue.push_back(AuthorizationFrame {
+			resource: evaluation.frame.resource,
+			permission: evaluation.frame.permission,
+			dependencies: Some(evaluation.dependencies),
+		});
+		for (dependency, dependency_permission) in dependencies_to_push {
+			queue.push_back(AuthorizationFrame {
+				resource: dependency,
+				permission: dependency_permission,
+				dependencies: None,
+			});
+		}
 	}
 
 	fn finish_authorization(
@@ -295,6 +405,7 @@ impl Index {
 	async fn get_authorization_dependencies_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
+		authorization_concurrency: usize,
 		resource: &tg::Id,
 		permission: tg::grant::Permission,
 		cache: &mut Cache,
@@ -335,7 +446,12 @@ impl Index {
 				}
 				dependencies.extend(
 					Self::get_cached_item_tags_with_transaction(
-						txn, subspace, resource, permission, cache,
+						txn,
+						subspace,
+						authorization_concurrency,
+						resource,
+						permission,
+						cache,
 					)
 					.await?,
 				);
@@ -353,7 +469,12 @@ impl Index {
 				}
 				dependencies.extend(
 					Self::get_cached_item_tags_with_transaction(
-						txn, subspace, resource, permission, cache,
+						txn,
+						subspace,
+						authorization_concurrency,
+						resource,
+						permission,
+						cache,
 					)
 					.await?,
 				);
@@ -430,8 +551,8 @@ impl Index {
 		}
 		let root = group.clone();
 		let mut visited = HashSet::new();
-		let mut stack = vec![group.clone()];
-		while let Some(group) = stack.pop() {
+		let mut queue = VecDeque::from([group.clone()]);
+		while let Some(group) = queue.pop_front() {
 			if !visited.insert(group.clone()) {
 				continue;
 			}
@@ -456,7 +577,7 @@ impl Index {
 					return Ok(true);
 				}
 				if member.kind() == tg::id::Kind::Group {
-					stack.push(tg::group::Id::try_from(member)?);
+					queue.push_back(tg::group::Id::try_from(member)?);
 				}
 			}
 		}
@@ -563,6 +684,7 @@ impl Index {
 	async fn get_cached_item_tags_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
+		authorization_concurrency: usize,
 		item: &tg::Id,
 		permission: tg::grant::Permission,
 		cache: &mut Cache,
@@ -573,9 +695,17 @@ impl Index {
 		}
 		let item_bytes = item.to_bytes();
 		let tags = Self::get_item_tags_with_transaction(txn, subspace, item_bytes.as_ref()).await?;
+		let tags = stream::iter(tags)
+			.map(|tag| async move {
+				let value = Self::try_get_tag_with_transaction(txn, subspace, &tag).await?;
+				Ok::<_, tg::Error>((tag, value))
+			})
+			.buffered(authorization_concurrency)
+			.try_collect::<Vec<_>>()
+			.await?;
 		let mut parents = Vec::new();
-		for tag in tags {
-			let Some(value) = Self::try_get_tag_with_transaction(txn, subspace, &tag).await? else {
+		for (tag, value) in tags {
+			let Some(value) = value else {
 				continue;
 			};
 			if value

@@ -277,6 +277,8 @@ pub enum Index {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FdbIndex {
+	pub authorization_concurrency: usize,
+
 	pub cluster: PathBuf,
 
 	pub concurrency: usize,
@@ -1072,6 +1074,7 @@ impl Default for Index {
 impl Default for FdbIndex {
 	fn default() -> Self {
 		Self {
+			authorization_concurrency: 64,
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
 			concurrency: 256,
 			max_items_per_transaction: 8_000,

@@ -34,6 +34,7 @@ pub(super) use {
 };
 
 pub struct Index {
+	authorization_concurrency: usize,
 	database: Arc<fdb::Database>,
 	partition_total: u64,
 	subspace: fdbt::Subspace,
@@ -43,6 +44,7 @@ pub struct Index {
 }
 
 pub struct Options {
+	pub authorization_concurrency: usize,
 	pub cluster: std::path::PathBuf,
 	pub concurrency: usize,
 	pub max_items_per_transaction: usize,
@@ -78,6 +80,7 @@ impl Index {
 		};
 
 		let partition_total = options.partition_total;
+		let authorization_concurrency = options.authorization_concurrency.max(1);
 
 		let metrics = Metrics::new();
 
@@ -108,6 +111,7 @@ impl Index {
 		});
 
 		let index = Self {
+			authorization_concurrency,
 			database,
 			partition_total,
 			subspace,

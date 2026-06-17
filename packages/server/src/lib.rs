@@ -431,6 +431,7 @@ impl Server {
 				#[cfg(feature = "foundationdb")]
 				{
 					let options = tangram_index::fdb::Options {
+						authorization_concurrency: options.authorization_concurrency,
 						cluster: options.cluster.clone(),
 						concurrency: options.concurrency,
 						max_items_per_transaction: options.max_items_per_transaction,

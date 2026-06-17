@@ -474,8 +474,8 @@ impl Index {
 		}
 		let root = group.clone();
 		let mut visited = HashSet::new();
-		let mut stack = vec![group.clone()];
-		while let Some(group) = stack.pop() {
+		let mut queue = VecDeque::from([group.clone()]);
+		while let Some(group) = queue.pop_front() {
 			if !visited.insert(group.clone()) {
 				continue;
 			}
@@ -504,7 +504,7 @@ impl Index {
 					return Ok(true);
 				}
 				if member.kind() == tg::id::Kind::Group {
-					stack.push(tg::group::Id::try_from(member)?);
+					queue.push_back(tg::group::Id::try_from(member)?);
 				}
 			}
 		}
