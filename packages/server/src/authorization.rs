@@ -11,6 +11,11 @@ impl Session {
 	) -> tg::Result<Option<tg::grant::permission::Set>> {
 		let permissions = permissions.into();
 
+		// Authorize the root principal for all resources.
+		if matches!(self.context.principal, Some(tg::Principal::Root)) {
+			return Ok(Some(permissions));
+		}
+
 		// Authorize a sandbox for its own processes.
 		if let (
 			tg::grant::Resource::Id(id),
