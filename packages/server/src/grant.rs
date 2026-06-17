@@ -80,11 +80,22 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
-		let permission = tg::grant::Permission::Admin;
-		match self.authorize(arg.resource.clone(), permission).await? {
-			None => return Ok(None),
-			Some(permissions) if permissions.contains(permission) => (),
-			Some(_) => return Err(tg::error!("unauthorized")),
+		match &arg.resource {
+			tg::grant::Resource::Id(id)
+				if tg::object::Id::try_from(id.clone()).is_ok()
+					|| id.kind() == tg::id::Kind::Process =>
+			{
+				// A grant on an object or process may be revoked only by its creator, which is enforced by the creator scoping in the transaction, so being able to read the resource confers no power to revoke another principal's grant.
+			},
+			_ => {
+				// Revoking a grant on a user, group, organization, or tag requires admin permission on the resource.
+				let permission = tg::grant::Permission::Admin;
+				match self.authorize(arg.resource.clone(), permission).await? {
+					None => return Ok(None),
+					Some(permissions) if permissions.contains(permission) => (),
+					Some(_) => return Err(tg::error!("unauthorized")),
+				}
+			},
 		}
 		let session = self.clone();
 		let (output, batch) = self
