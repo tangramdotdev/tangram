@@ -437,28 +437,39 @@ impl Session {
 				.boxed_body());
 		};
 
-		// Validate the accept header.
-		match accept
+		// Create the response.
+		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => (),
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => {
+				let content_type = mime::APPLICATION_OCTET_STREAM;
+				let body = BoxBody::with_bytes(output.bytes);
+				(Some(content_type), body)
+			},
+			Some((mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let data = tg::object::Data::deserialize(id.kind(), output.bytes)
+					.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+				let body = serde_json::to_vec(&data)
+					.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
+				(Some(content_type), BoxBody::with_bytes(body))
+			},
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
-		}
+		};
 
-		// Build the response.
-		let mut response = http::Response::builder().header(
-			http::header::CONTENT_TYPE,
-			mime::APPLICATION_OCTET_STREAM.to_string(),
-		);
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
 		if let Some(metadata) = &output.metadata {
 			response = response
 				.header_json(tg::object::get::METADATA_HEADER, metadata)
 				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 		}
-		let response = response.bytes(output.bytes).unwrap().boxed_body();
+		let response = response.body(body).unwrap();
 
 		Ok(response)
 	}
