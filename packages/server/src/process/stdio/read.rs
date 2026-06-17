@@ -87,8 +87,7 @@ impl Session {
 			return Ok(None);
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
-		self.authorize_process_stdio_read(id, &output.data, &source)
-			.await?;
+		self.authorize_process_stdio_read(id, &source).await?;
 		let stream = match source {
 			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &streams).await?,
 			Source::Log(streams) => {
@@ -103,30 +102,10 @@ impl Session {
 	async fn authorize_process_stdio_read(
 		&self,
 		id: &tg::process::Id,
-		data: &tg::process::Data,
 		source: &Source,
 	) -> tg::Result<()> {
-		let streams = match source {
-			Source::Pipe(streams) => streams,
-
-			// A live process's log is the running process's stream, which the process node already covers, and the process node was authorized when getting the process. Once the process is finalized, its log becomes a blob object, so reading it requires authorization for that object. Authorizing the object resolves through every legitimate path the index models: a direct grant on the blob, the subtree of a parent object, the log aspect (node or subtree) of the owning process, or an item tag.
-			Source::Log(_) => {
-				if let Some(log) = &data.log {
-					let permission = tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Node,
-					);
-					if !self
-						.authorize(tg::object::Id::from(log.clone()), permission)
-						.await?
-						.is_some_and(|permissions| permissions.contains(permission))
-					{
-						return Err(tg::error!("unauthorized"));
-					}
-				}
-				return Ok(());
-			},
-
-			Source::Null => return Ok(()),
+		let Source::Pipe(streams) = source else {
+			return Ok(());
 		};
 		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
 		let output = streams
