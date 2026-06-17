@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	futures::{prelude::*, stream::BoxStream, stream::FuturesUnordered},
+	num::ToPrimitive as _,
 	std::{
 		ops::ControlFlow,
 		panic::AssertUnwindSafe,
@@ -393,7 +394,8 @@ impl Session {
 					future::try_join(push_future, pull_future).await?;
 
 				if push_completed && pull_completed {
-					let output = output.lock().unwrap().clone();
+					let mut output = output.lock().unwrap().clone();
+					output.items = session.create_sync_output_items(&arg)?;
 					Ok(ControlFlow::Break(output))
 				} else {
 					Ok(ControlFlow::Continue(tg::error!(
@@ -411,6 +413,79 @@ impl Session {
 		progress.finish("bytes");
 
 		Ok(output)
+	}
+
+	fn create_sync_output_items(
+		&self,
+		arg: &tg::push::Arg,
+	) -> tg::Result<Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>> {
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		arg.items
+			.iter()
+			.cloned()
+			.map(|item| {
+				let (id, permissions, expires_at) = match &item {
+					tg::Either::Left(object) => (
+						object.clone().into(),
+						vec![tg::grant::Permission::Object(
+							tg::grant::permission::object::Permission::Subtree,
+						)],
+						now + self
+							.server
+							.config
+							.object
+							.grant_time_to_live
+							.as_secs()
+							.to_i64()
+							.unwrap(),
+					),
+					tg::Either::Right(process) => {
+						let mut permissions = vec![tg::grant::Permission::Process(
+							tg::grant::permission::process::Permission::Subtree,
+						)];
+						if arg.commands {
+							permissions.push(tg::grant::Permission::Process(
+								tg::grant::permission::process::Permission::SubtreeCommand,
+							));
+						}
+						if arg.errors {
+							permissions.push(tg::grant::Permission::Process(
+								tg::grant::permission::process::Permission::SubtreeError,
+							));
+						}
+						if arg.logs {
+							permissions.push(tg::grant::Permission::Process(
+								tg::grant::permission::process::Permission::SubtreeLog,
+							));
+						}
+						if arg.outputs {
+							permissions.push(tg::grant::Permission::Process(
+								tg::grant::permission::process::Permission::SubtreeOutput,
+							));
+						}
+						(
+							process.clone().into(),
+							permissions,
+							now + self
+								.server
+								.config
+								.process
+								.grant_time_to_live
+								.as_secs()
+								.to_i64()
+								.unwrap(),
+						)
+					},
+				};
+				let token = self.create_token(id, permissions, expires_at)?;
+				let item = if let Some(token) = token {
+					tg::Either::Right(tg::WithToken { id: item, token })
+				} else {
+					tg::Either::Left(item)
+				};
+				Ok(item)
+			})
+			.collect()
 	}
 
 	pub(crate) async fn push_request(

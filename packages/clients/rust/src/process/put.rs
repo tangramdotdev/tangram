@@ -11,17 +11,24 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::Token>,
+}
+
 impl tg::Session {
 	pub async fn put_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::put::Output> {
 		let method = http::Method::PUT;
 		let uri = format!("/processes/{id}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.header(
 				http::header::CONTENT_TYPE,
 				mime::APPLICATION_JSON.to_string(),
@@ -42,6 +49,10 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		Ok(())
+		let output = response
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
+		Ok(output)
 	}
 }

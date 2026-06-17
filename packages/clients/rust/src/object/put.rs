@@ -17,12 +17,18 @@ pub struct Arg {
 	pub metadata: Option<tg::object::Metadata>,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::Token>,
+}
+
 impl tg::Session {
 	pub async fn put_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::object::put::Output> {
 		let method = http::Method::PUT;
 		let path = format!("/objects/{id}");
 		let uri = Uri::builder()
@@ -54,6 +60,10 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		Ok(())
+		let output = response
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
+		Ok(output)
 	}
 }

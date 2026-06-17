@@ -42,6 +42,12 @@ pub struct Object {
 	pub bytes: Bytes,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub objects: Vec<tg::MaybeWithToken<tg::object::Id>>,
+}
+
 impl Arg {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
@@ -69,13 +75,17 @@ impl Arg {
 }
 
 impl tg::Session {
-	pub async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+	pub async fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> tg::Result<tg::object::batch::Output> {
 		let method = http::Method::POST;
 		let uri = "/objects/batch";
 		let body = arg.serialize()?;
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.header(
 				http::header::CONTENT_TYPE,
 				mime::APPLICATION_OCTET_STREAM.to_string(),
@@ -95,6 +105,10 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		Ok(())
+		let output = response
+			.json()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
+		Ok(output)
 	}
 }

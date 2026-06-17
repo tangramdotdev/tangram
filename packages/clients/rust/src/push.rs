@@ -43,6 +43,9 @@ pub struct Arg {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub items: Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>,
+
 	pub skipped: Amounts,
 	pub transferred: Amounts,
 }

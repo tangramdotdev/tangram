@@ -4,6 +4,24 @@ use {
 };
 
 impl Session {
+	pub(crate) fn create_token(
+		&self,
+		id: tg::Id,
+		permissions: Vec<tg::grant::Permission>,
+		expires_at: i64,
+	) -> tg::Result<Option<tg::Token>> {
+		let Some(private_key) = self.server.tokens.private_key.as_ref() else {
+			return Ok(None);
+		};
+		let body = tg::token::Body {
+			expires_at,
+			id,
+			permissions,
+		};
+		let token = tg::Token::sign(body, private_key)?;
+		Ok(Some(token))
+	}
+
 	pub(crate) async fn authorize(
 		&self,
 		resource: tg::grant::Resource,

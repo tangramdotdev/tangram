@@ -45,6 +45,7 @@ pub use {
 		symlink::Handle as Symlink,
 		tag::Tag,
 		template::Template,
+		token::{MaybeWithToken, Token, WithToken},
 		user::User,
 		value::Value,
 	},
@@ -105,6 +106,7 @@ pub mod symlink;
 pub mod sync;
 pub mod tag;
 pub mod template;
+pub mod token;
 pub mod user;
 pub mod value;
 pub mod watch;

@@ -21,38 +21,34 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::put::Output> {
 		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
 			return Err(tg::error!("unauthorized"));
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;
 
-		match location {
+		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.put_process_local(id, arg).await?;
+				self.put_process_local(id, arg).await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => {
-				self.put_process_region(id, arg, region).await?;
-			},
+			}) => self.put_process_region(id, arg, region).await?,
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
-			}) => {
-				self.put_process_remote(id, arg, remote, region).await?;
-			},
-		}
+			}) => self.put_process_remote(id, arg, remote, region).await?,
+		};
 
-		Ok(())
+		Ok(output)
 	}
 
 	async fn put_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::put::Output> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let creator = self.context.principal.clone();
 
@@ -164,7 +160,15 @@ impl Session {
 			})
 			.detach();
 
-		Ok(())
+		let token = self.create_token(
+			id.clone().into(),
+			vec![tg::grant::Permission::Process(
+				tg::grant::permission::process::Permission::Node,
+			)],
+			grant_expires_at,
+		)?;
+
+		Ok(tg::process::put::Output { token })
 	}
 
 	async fn put_process_region(
@@ -172,7 +176,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 		region: String,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::put::Output> {
 		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
@@ -183,11 +187,11 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		client
+		let output = client
 			.put_process(id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to put the process"))?;
-		Ok(())
+		Ok(output)
 	}
 
 	async fn put_process_remote(
@@ -196,7 +200,7 @@ impl Session {
 		arg: tg::process::put::Arg,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::put::Output> {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
 		)?;
@@ -212,11 +216,11 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		client
+		let output = client
 			.put_process(id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to put the process"))?;
-		Ok(())
+		Ok(output)
 	}
 
 	pub(crate) async fn put_process_request(
@@ -242,7 +246,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Put the process.
-		self.put_process(&id, arg)
+		let output = self
+			.put_process(&id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 
@@ -251,13 +256,17 @@ impl Session {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			None | Some((mime::STAR, mime::STAR)) => (),
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => (),
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
 		}
 
-		let response = http::Response::builder().empty().unwrap().boxed_body();
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the response"))?
+			.unwrap()
+			.boxed_body();
 		Ok(response)
 	}
 }

@@ -939,6 +939,7 @@ impl Compiler {
 					name: None,
 					path: Some(path),
 					tag: None,
+					token: None,
 				}
 			};
 			let referent = tg::Referent { item, options };
@@ -1073,6 +1074,7 @@ impl Compiler {
 				name: None,
 				path,
 				tag: Some(tag),
+				token: None,
 			};
 			let referent = tg::Referent { item, options };
 			let module = tg::module::Data { kind, referent };

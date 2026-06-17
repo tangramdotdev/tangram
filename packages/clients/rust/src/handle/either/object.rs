@@ -31,7 +31,7 @@ where
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		match self {
 			tg::Either::Left(s) => s.put_object(id, arg).left_future(),
 			tg::Either::Right(s) => s.put_object(id, arg).right_future(),
@@ -41,7 +41,7 @@ where
 	fn post_object_batch(
 		&self,
 		arg: tg::object::batch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::object::batch::Output>> {
 		match self {
 			tg::Either::Left(s) => s.post_object_batch(arg).left_future(),
 			tg::Either::Right(s) => s.post_object_batch(arg).right_future(),

@@ -41,12 +41,12 @@ pub trait Object: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> + Send;
 
 	fn post_object_batch(
 		&self,
 		arg: tg::object::batch::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<tg::object::batch::Output>> + Send;
 
 	fn touch_object(
 		&self,
@@ -86,11 +86,18 @@ impl tg::handle::Object for tg::Client {
 		self.session(&self.context).try_get_object(id, arg).await
 	}
 
-	async fn put_object(&self, id: &tg::object::Id, arg: tg::object::put::Arg) -> tg::Result<()> {
+	async fn put_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> tg::Result<tg::object::put::Output> {
 		self.session(&self.context).put_object(id, arg).await
 	}
 
-	async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+	async fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> tg::Result<tg::object::batch::Output> {
 		self.session(&self.context).post_object_batch(arg).await
 	}
 

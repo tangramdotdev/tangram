@@ -25,6 +25,7 @@ insta = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }
+aws-lc-rs = { workspace = true }
 bitflags = { workspace = true }
 blake3 = { workspace = true }
 byte-unit = { workspace = true }

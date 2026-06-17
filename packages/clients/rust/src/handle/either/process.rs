@@ -66,7 +66,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::process::put::Output>> {
 		match self {
 			tg::Either::Left(s) => s.put_process(id, arg).left_future(),
 			tg::Either::Right(s) => s.put_process(id, arg).right_future(),

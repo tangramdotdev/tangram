@@ -82,7 +82,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<tg::process::put::Output>> + Send;
 
 	fn cancel_process(
 		&self,
@@ -323,7 +323,7 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::put::Output> {
 		self.session(&self.context).put_process(id, arg).await
 	}
 

@@ -3,6 +3,7 @@ use {
 	futures::{FutureExt as _, Stream, StreamExt as _},
 	indexmap::IndexMap,
 	indoc::indoc,
+	num::ToPrimitive as _,
 	std::{
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
@@ -200,7 +201,30 @@ impl Session {
 				};
 
 				// Create and send the output.
-				let options = tg::referent::Options::with_path(path);
+				let mut options = tg::referent::Options::with_path(path);
+				let now = time::OffsetDateTime::now_utc().unix_timestamp();
+				let expires_at = now
+					+ session
+						.server
+						.config
+						.object
+						.grant_time_to_live
+						.as_secs()
+						.to_i64()
+						.unwrap();
+				options.token = match session.create_token(
+					id.clone().into(),
+					vec![tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Subtree,
+					)],
+					expires_at,
+				) {
+					Ok(token) => token,
+					Err(error) => {
+						progress.error(error);
+						return;
+					},
+				};
 				let referent = tg::Referent { item: id, options };
 				let output = tg::checkin::Output { artifact: referent };
 				progress.output(output);
@@ -230,9 +254,9 @@ impl Session {
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the artifact id"))?;
 		if path.components().count() == 1 {
-			let output = tg::checkin::Output {
-				artifact: tg::Referent::with_item(id),
-			};
+			let mut artifact = tg::Referent::with_item(id);
+			artifact.options.token = self.create_artifact_token(&artifact.item)?;
+			let output = tg::checkin::Output { artifact };
 			return Ok(output);
 		}
 		let subpath = path.components().skip(1).collect::<PathBuf>();
@@ -246,9 +270,30 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the artifact from the cache"))?;
 		let id = artifact.id();
-		let referent = tg::Referent::with_item(id);
+		let mut referent = tg::Referent::with_item(id);
+		referent.options.token = self.create_artifact_token(&referent.item)?;
 		let output = tg::checkin::Output { artifact: referent };
 		Ok(output)
+	}
+
+	fn create_artifact_token(&self, id: &tg::artifact::Id) -> tg::Result<Option<tg::Token>> {
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let expires_at = now
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		self.create_token(
+			id.clone().into(),
+			vec![tg::grant::Permission::Object(
+				tg::grant::permission::object::Permission::Subtree,
+			)],
+			expires_at,
+		)
 	}
 
 	// Check in the artifact.

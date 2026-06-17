@@ -43,7 +43,7 @@ impl tg::handle::Process for Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::process::put::Output> {
 		self.put_process(id, arg).await
 	}
 

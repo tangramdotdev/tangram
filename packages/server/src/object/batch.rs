@@ -11,34 +11,36 @@ use {
 };
 
 impl Session {
-	pub async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+	pub async fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> tg::Result<tg::object::batch::Output> {
 		if arg.objects.is_empty() {
-			return Ok(());
+			return Ok(tg::object::batch::Output::default());
 		}
 
 		let location = self.server.location(arg.location.as_ref())?;
 
-		match location {
+		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.post_object_batch_local(arg).await?;
+				self.post_object_batch_local(arg).await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => {
-				self.post_object_batch_region(arg, region).await?;
-			},
+			}) => self.post_object_batch_region(arg, region).await?,
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
-			}) => {
-				self.post_object_batch_remote(arg, remote, region).await?;
-			},
-		}
+			}) => self.post_object_batch_remote(arg, remote, region).await?,
+		};
 
-		Ok(())
+		Ok(output)
 	}
 
-	async fn post_object_batch_local(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+	async fn post_object_batch_local(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> tg::Result<tg::object::batch::Output> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let grant_expires_at = now
 			+ self
@@ -138,14 +140,37 @@ impl Session {
 			})
 			.detach();
 
-		Ok(())
+		let objects = arg
+			.objects
+			.into_iter()
+			.map(|object| {
+				let token = self.create_token(
+					object.id.clone().into(),
+					vec![tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Node,
+					)],
+					grant_expires_at,
+				)?;
+				let object = if let Some(token) = token {
+					tg::Either::Right(tg::WithToken {
+						id: object.id,
+						token,
+					})
+				} else {
+					tg::Either::Left(object.id)
+				};
+				Ok::<_, tg::Error>(object)
+			})
+			.collect::<tg::Result<_>>()?;
+
+		Ok(tg::object::batch::Output { objects })
 	}
 
 	async fn post_object_batch_region(
 		&self,
 		arg: tg::object::batch::Arg,
 		region: String,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::object::batch::Output> {
 		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -156,10 +181,10 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		client.post_object_batch(arg).await.map_err(
+		let output = client.post_object_batch(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to post the object batch"),
 		)?;
-		Ok(())
+		Ok(output)
 	}
 
 	async fn post_object_batch_remote(
@@ -167,7 +192,7 @@ impl Session {
 		arg: tg::object::batch::Arg,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::object::batch::Output> {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
@@ -175,10 +200,10 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		client.post_object_batch(arg).await.map_err(
+		let output = client.post_object_batch(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to post the object batch"),
 		)?;
-		Ok(())
+		Ok(output)
 	}
 
 	pub(crate) async fn post_object_batch_request(
@@ -214,7 +239,8 @@ impl Session {
 		}
 
 		// Post the object batch.
-		self.post_object_batch(arg)
+		let output = self
+			.post_object_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to post the object batch"))?;
 
@@ -223,13 +249,17 @@ impl Session {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			None | Some((mime::STAR, mime::STAR)) => (),
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => (),
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
 		}
 
-		let response = http::Response::builder().empty().unwrap().boxed_body();
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the response"))?
+			.unwrap()
+			.boxed_body();
 
 		Ok(response)
 	}

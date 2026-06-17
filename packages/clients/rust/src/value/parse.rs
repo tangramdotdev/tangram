@@ -1422,6 +1422,7 @@ fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Opti
 		name,
 		path,
 		tag,
+		token: None,
 	})
 }
 

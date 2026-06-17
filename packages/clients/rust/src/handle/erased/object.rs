@@ -20,9 +20,12 @@ pub trait Object: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	) -> BoxFuture<'a, tg::Result<tg::object::put::Output>>;
 
-	fn post_object_batch(&self, arg: tg::object::batch::Arg) -> BoxFuture<'_, tg::Result<()>>;
+	fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::object::batch::Output>>;
 
 	fn try_touch_object<'a>(
 		&'a self,
@@ -55,11 +58,14 @@ where
 		&'a self,
 		id: &'a tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
+	) -> BoxFuture<'a, tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg).boxed()
 	}
 
-	fn post_object_batch(&self, arg: tg::object::batch::Arg) -> BoxFuture<'_, tg::Result<()>> {
+	fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::object::batch::Output>> {
 		self.post_object_batch(arg).boxed()
 	}
 

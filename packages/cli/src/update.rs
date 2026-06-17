@@ -395,6 +395,7 @@ pub(crate) fn format_referrer<T>(referrer: &tg::Referent<T>) -> String {
 		name,
 		path,
 		tag,
+		token: _,
 	} = referrer.options();
 	let mut name = name
 		.clone()

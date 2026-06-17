@@ -23,14 +23,14 @@ impl tg::handle::Object for Handle {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_object(id, arg)) }
 	}
 
 	fn post_object_batch(
 		&self,
 		arg: tg::object::batch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::object::batch::Output>> {
 		self.0.post_object_batch(arg)
 	}
 

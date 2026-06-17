@@ -19,7 +19,11 @@ impl tg::handle::Object for Server {
 		self.session(&self.context).try_get_object(id, arg).await
 	}
 
-	async fn put_object(&self, id: &tg::object::Id, arg: tg::object::put::Arg) -> tg::Result<()> {
+	async fn put_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> tg::Result<tg::object::put::Output> {
 		self.session(&self.context).put_object(id, arg).await
 	}
 
@@ -31,7 +35,10 @@ impl tg::handle::Object for Server {
 		self.session(&self.context).try_touch_object(id, arg).await
 	}
 
-	async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+	async fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> tg::Result<tg::object::batch::Output> {
 		self.session(&self.context).post_object_batch(arg).await
 	}
 }

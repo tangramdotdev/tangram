@@ -7,6 +7,7 @@ use {
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::{formatdoc, indoc},
 	std::{
+		collections::BTreeMap,
 		ops::{ControlFlow, Deref},
 		os::fd::AsRawFd as _,
 		path::PathBuf,
@@ -120,9 +121,15 @@ pub struct State {
 	sandboxes: self::sandbox::Map,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
+	pub tokens: Tokens,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
 	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
+}
+
+pub struct Tokens {
+	pub private_key: Option<tg::token::PrivateKey>,
+	pub public_keys: BTreeMap<String, tg::token::PublicKey>,
 }
 
 impl Owned {
@@ -650,6 +657,35 @@ impl Server {
 		// Create the watches.
 		let watches = DashMap::default();
 
+		// Create the token keys.
+		let private_key = match &config.authorization.tokens.private_key {
+			Some(config) => {
+				let bytes = tokio::fs::read(&config.path).await.map_err(
+					|error| tg::error!(!error, path = %config.path.display(), "failed to read the private key"),
+				)?;
+				Some(tg::token::PrivateKey::new(
+					config.name.clone(),
+					config.algorithm,
+					bytes,
+				))
+			},
+			None => None,
+		};
+		let mut public_keys = BTreeMap::new();
+		for config in &config.authorization.tokens.public_keys {
+			let bytes = tokio::fs::read(&config.path).await.map_err(
+				|error| tg::error!(!error, path = %config.path.display(), "failed to read the public key"),
+			)?;
+			let key = tg::token::PublicKey::new(config.name.clone(), config.algorithm, bytes);
+			if public_keys.insert(config.name.clone(), key).is_some() {
+				return Err(tg::error!(name = %config.name, "duplicate public key"));
+			}
+		}
+		let tokens = Tokens {
+			private_key,
+			public_keys,
+		};
+
 		// Create the server.
 		let server = Self(Arc::new(State {
 			cache_graph_tasks,
@@ -687,6 +723,7 @@ impl Server {
 			sandboxes,
 			tangram_path,
 			temps,
+			tokens,
 			version,
 			vfs,
 			watches,

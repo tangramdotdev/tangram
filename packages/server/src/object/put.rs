@@ -15,34 +15,30 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::object::put::Output> {
 		let location = self.server.location(arg.location.as_ref())?;
 
-		match location {
+		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.put_object_local(id, arg).await?;
+				self.put_object_local(id, arg).await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => {
-				self.put_object_region(id, arg, region).await?;
-			},
+			}) => self.put_object_region(id, arg, region).await?,
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
-			}) => {
-				self.put_object_remote(id, arg, remote, region).await?;
-			},
-		}
+			}) => self.put_object_remote(id, arg, remote, region).await?,
+		};
 
-		Ok(())
+		Ok(output)
 	}
 
 	async fn put_object_local(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::object::put::Output> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let grant_expires_at = now
 			+ self
@@ -144,7 +140,15 @@ impl Session {
 			})
 			.detach();
 
-		Ok(())
+		let token = self.create_token(
+			id.clone().into(),
+			vec![tg::grant::Permission::Object(
+				tg::grant::permission::object::Permission::Node,
+			)],
+			grant_expires_at,
+		)?;
+
+		Ok(tg::object::put::Output { token })
 	}
 
 	async fn put_object_region(
@@ -152,7 +156,7 @@ impl Session {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 		region: String,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::object::put::Output> {
 		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, %id, region = %region, "failed to get the region client"),
 		)?;
@@ -163,10 +167,10 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		client.put_object(id, arg).await.map_err(
+		let output = client.put_object(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, region = %region, "failed to put the object"),
 		)?;
-		Ok(())
+		Ok(output)
 	}
 
 	async fn put_object_remote(
@@ -175,7 +179,7 @@ impl Session {
 		arg: tg::object::put::Arg,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::object::put::Output> {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote, "failed to get the remote client"),
 		)?;
@@ -183,10 +187,10 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		client.put_object(id, arg).await.map_err(
+		let output = client.put_object(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote, "failed to put the object"),
 		)?;
-		Ok(())
+		Ok(output)
 	}
 
 	pub(crate) async fn put_object_request(
@@ -228,11 +232,16 @@ impl Session {
 		}
 
 		let arg = tg::object::put::Arg { bytes, ..arg };
-		self.put_object(&id, arg)
+		let output = self
+			.put_object(&id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 
-		let response = http::Response::builder().empty().unwrap().boxed_body();
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the response"))?
+			.unwrap()
+			.boxed_body();
 
 		Ok(response)
 	}

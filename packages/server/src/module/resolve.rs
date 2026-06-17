@@ -118,6 +118,7 @@ impl Session {
 			name: reference_options.name.clone(),
 			path: reference_options.path.clone(),
 			tag: reference_options.tag.clone(),
+			token: None,
 		};
 		let referent = tg::Referent { item, options };
 		Ok(referent)
@@ -195,6 +196,7 @@ impl Session {
 						name: dependency.0.name().map(ToOwned::to_owned),
 						path: Some(path),
 						tag: dependency.0.tag().cloned(),
+						token: dependency.0.token().cloned(),
 					};
 					tg::Referent {
 						item: edge,
@@ -480,6 +482,7 @@ impl Session {
 						name: options.name.clone(),
 						path: Some(path),
 						tag: options.tag.clone(),
+						token: options.token.clone(),
 					};
 					tg::Referent {
 						item: tg::module::data::Item::Edge(edge),

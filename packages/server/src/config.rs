@@ -18,6 +18,9 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 
 	#[serde(default, skip_serializing_if = "is_default")]
+	pub authorization: Authorization,
+
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: Checkin,
 
 	#[serde_as(as = "BoolOptionDefault")]
@@ -138,6 +141,42 @@ pub struct Oauth {
 	pub redirect_url: String,
 
 	pub token_url: String,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Authorization {
+	pub tokens: AuthorizationTokens,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuthorizationTokens {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub private_key: Option<AuthorizationPrivateKey>,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub public_keys: Vec<AuthorizationPublicKey>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizationPrivateKey {
+	pub algorithm: tg::token::Algorithm,
+
+	pub name: String,
+
+	pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizationPublicKey {
+	pub algorithm: tg::token::Algorithm,
+
+	pub name: String,
+
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -956,6 +995,7 @@ impl Default for Config {
 		Self {
 			advanced: Advanced::default(),
 			authentication: None,
+			authorization: Authorization::default(),
 			checkin: Checkin::default(),
 			cleaner: None,
 			database: Database::default(),

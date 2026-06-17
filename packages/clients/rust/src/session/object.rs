@@ -21,14 +21,14 @@ impl tg::handle::Object for tg::Session {
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
 		self.put_object(id, arg)
 	}
 
 	fn post_object_batch(
 		&self,
 		arg: tg::object::batch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<tg::object::batch::Output>> {
 		self.post_object_batch(arg)
 	}
 

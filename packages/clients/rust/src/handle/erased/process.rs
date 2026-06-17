@@ -35,7 +35,7 @@ pub trait Process: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	) -> BoxFuture<'a, tg::Result<tg::process::put::Output>>;
 
 	fn try_cancel_process<'a>(
 		&'a self,
@@ -166,7 +166,7 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::put::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
+	) -> BoxFuture<'a, tg::Result<tg::process::put::Output>> {
 		self.put_process(id, arg).boxed()
 	}
 
