@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Once a process is finalized its log becomes a blob object, so reading it requires the log aspect: process_node alone must not read it, but process_node plus process_subtree_log must.
+# Once a process is finalized its log becomes a blob object, so reading it requires authorization for that object rather than just the process node. The log aspect is one way to confer it: process_node alone must not read the finalized log, but process_node plus process_subtree_log must.
 
 let server = spawn --config { authentication: true }
 
@@ -15,7 +15,7 @@ tg --token $alice.token wait $process
 # Wait until the process is finalized, which sets its log object.
 wait_until { (tg --token $alice.token get $process | from json | get log) != null } "the process should finalize"
 
-# Eve with only the process node must not read the finalized log; the log is now an object that requires the log aspect.
+# Eve with only the process node must not read the finalized log; the log is now an object that the process node does not confer.
 tg --token $alice.token grant $eve.user.id process_node $process | ignore
 let node_only = tg --token $eve.token log $process | complete
 assert (not ($node_only.stdout | str contains "loghello")) ("process_node alone must not read a finalized log: " + ($node_only | to json))

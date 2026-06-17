@@ -109,14 +109,14 @@ impl Session {
 		let streams = match source {
 			Source::Pipe(streams) => streams,
 
-			// A live process's log is the running process's stream, which the process node already covers. Once finalized, the log is a blob object that additionally requires the log aspect, so the process node alone does not confer it.
+			// A live process's log is the running process's stream, which the process node already covers, and the process node was authorized when getting the process. Once the process is finalized, its log becomes a blob object, so reading it requires authorization for that object. Authorizing the object resolves through every legitimate path the index models: a direct grant on the blob, the subtree of a parent object, the log aspect (node or subtree) of the owning process, or an item tag.
 			Source::Log(_) => {
-				if data.log.is_some() {
-					let permission = tg::grant::Permission::Process(
-						tg::grant::permission::process::Permission::NodeLog,
+				if let Some(log) = &data.log {
+					let permission = tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Node,
 					);
 					if !self
-						.authorize(tg::grant::Resource::Id(id.clone().into()), permission)
+						.authorize(tg::object::Id::from(log.clone()), permission)
 						.await?
 						.is_some_and(|permissions| permissions.contains(permission))
 					{
