@@ -80,11 +80,30 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
-		let permission = tg::grant::Permission::Admin;
-		match self.authorize(arg.resource.clone(), permission).await? {
-			None => return Ok(None),
-			Some(permissions) if permissions.contains(permission) => (),
-			Some(_) => return Err(tg::error!("unauthorized")),
+		match &arg.resource {
+			tg::grant::Resource::Id(id)
+				if tg::object::Id::try_from(id.clone()).is_ok()
+					|| id.kind() == tg::id::Kind::Process =>
+			{
+				// An object or process grant is self-permissioning, so revoking it requires only the permission being revoked, just as creating it does.
+				tangram_index::authorize::validate(id, arg.permissions)?;
+				if self
+					.authorize(arg.resource.clone(), arg.permissions)
+					.await?
+					.is_none_or(|permissions| !permissions.contains(arg.permissions))
+				{
+					return Ok(None);
+				}
+			},
+			_ => {
+				// Revoking a grant on a user, group, organization, or tag requires admin permission on the resource.
+				let permission = tg::grant::Permission::Admin;
+				match self.authorize(arg.resource.clone(), permission).await? {
+					None => return Ok(None),
+					Some(permissions) if permissions.contains(permission) => (),
+					Some(_) => return Err(tg::error!("unauthorized")),
+				}
+			},
 		}
 		let session = self.clone();
 		let (output, batch) = self
