@@ -27,8 +27,8 @@ pub struct Token {
 )]
 pub struct Body {
 	pub expires_at: i64,
-	pub id: tg::Id,
 	pub permissions: Vec<tg::grant::Permission>,
+	pub resource: tg::grant::Resource,
 }
 
 #[derive(
@@ -226,14 +226,19 @@ impl Token {
 
 impl Body {
 	pub fn validate(&self) -> tg::Result<()> {
-		match self.id.kind() {
-			tg::id::Kind::Blob
-			| tg::id::Kind::Directory
-			| tg::id::Kind::File
-			| tg::id::Kind::Symlink
-			| tg::id::Kind::Graph
-			| tg::id::Kind::Command
-			| tg::id::Kind::Error => {
+		match &self.resource {
+			tg::grant::Resource::Id(id)
+				if matches!(
+					id.kind(),
+					tg::id::Kind::Blob
+						| tg::id::Kind::Directory
+						| tg::id::Kind::File
+						| tg::id::Kind::Symlink
+						| tg::id::Kind::Graph
+						| tg::id::Kind::Command
+						| tg::id::Kind::Error
+				) =>
+			{
 				if !self
 					.permissions
 					.iter()
@@ -242,7 +247,7 @@ impl Body {
 					return Err(tg::error!("invalid permissions"));
 				}
 			},
-			tg::id::Kind::Process => {
+			tg::grant::Resource::Id(id) if id.kind() == tg::id::Kind::Process => {
 				if !self
 					.permissions
 					.iter()
@@ -251,7 +256,7 @@ impl Body {
 					return Err(tg::error!("invalid permissions"));
 				}
 			},
-			_ => return Err(tg::error!("invalid id")),
+			_ => return Err(tg::error!("invalid resource")),
 		}
 		Ok(())
 	}
@@ -340,10 +345,10 @@ mod tests {
 		let public_key = tg::token::PublicKey::from_private_key(&private_key).unwrap();
 		let body = tg::token::Body {
 			expires_at: 20,
-			id: tg::Id::new_uuidv7(tg::id::Kind::File),
 			permissions: vec![tg::grant::Permission::Object(
 				tg::grant::permission::object::Permission::Subtree,
 			)],
+			resource: tg::grant::Resource::Id(tg::Id::new_uuidv7(tg::id::Kind::File)),
 		};
 		let token = tg::Token::sign(body.clone(), &private_key).unwrap();
 		let string = token.to_string();
@@ -365,10 +370,10 @@ mod tests {
 		let other_public_key = tg::token::PublicKey::from_private_key(&other_private_key).unwrap();
 		let body = tg::token::Body {
 			expires_at: 20,
-			id: tg::Id::new_uuidv7(tg::id::Kind::File),
 			permissions: vec![tg::grant::Permission::Object(
 				tg::grant::permission::object::Permission::Subtree,
 			)],
+			resource: tg::grant::Resource::Id(tg::Id::new_uuidv7(tg::id::Kind::File)),
 		};
 		let token = tg::Token::sign(body, &private_key).unwrap();
 
@@ -384,10 +389,10 @@ mod tests {
 		let public_key = tg::token::PublicKey::from_private_key(&private_key).unwrap();
 		let body = tg::token::Body {
 			expires_at: 20,
-			id: tg::Id::new_uuidv7(tg::id::Kind::Process),
 			permissions: vec![tg::grant::Permission::Process(
 				tg::grant::permission::process::Permission::SubtreeOutput,
 			)],
+			resource: tg::grant::Resource::Id(tg::Id::new_uuidv7(tg::id::Kind::Process)),
 		};
 		let token = tg::Token::sign(body, &private_key).unwrap();
 

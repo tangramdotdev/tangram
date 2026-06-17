@@ -34,7 +34,7 @@ impl Session {
 		organization: &tg::organization::Selector,
 	) -> tg::Result<Option<()>> {
 		match self
-			.authorize(organization.clone().into(), tg::grant::Permission::Admin)
+			.authorize(organization.clone(), tg::grant::Permission::Admin)
 			.await?
 		{
 			None => return Ok(None),

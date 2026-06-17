@@ -37,7 +37,7 @@ impl Session {
 		member: &tg::group::Member,
 	) -> tg::Result<Option<()>> {
 		let permission = tg::grant::Permission::Admin;
-		match self.authorize(group.clone().into(), permission).await? {
+		match self.authorize(group.clone(), permission).await? {
 			None => return Ok(None),
 			Some(permissions) if permissions.contains(permission) => (),
 			Some(_) => return Err(tg::error!("unauthorized")),

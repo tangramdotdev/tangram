@@ -145,7 +145,7 @@ impl Session {
 			.into_iter()
 			.map(|object| {
 				let token = self.create_token(
-					object.id.clone().into(),
+					tg::grant::Resource::Id(object.id.clone().into()),
 					vec![tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Node,
 					)],

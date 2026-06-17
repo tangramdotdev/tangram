@@ -28,7 +28,7 @@ impl Session {
 
 	async fn try_delete_group_local(&self, group: &tg::group::Selector) -> tg::Result<Option<()>> {
 		let permission = tg::grant::Permission::Admin;
-		match self.authorize(group.clone().into(), permission).await? {
+		match self.authorize(group.clone(), permission).await? {
 			None => return Ok(None),
 			Some(permissions) if permissions.contains(permission) => (),
 			Some(_) => return Err(tg::error!("unauthorized")),

@@ -424,9 +424,9 @@ impl Session {
 			.iter()
 			.cloned()
 			.map(|item| {
-				let (id, permissions, expires_at) = match &item {
+				let (resource, permissions, expires_at) = match &item {
 					tg::Either::Left(object) => (
-						object.clone().into(),
+						tg::grant::Resource::Id(object.clone().into()),
 						vec![tg::grant::Permission::Object(
 							tg::grant::permission::object::Permission::Subtree,
 						)],
@@ -464,7 +464,7 @@ impl Session {
 							));
 						}
 						(
-							process.clone().into(),
+							tg::grant::Resource::Id(process.clone().into()),
 							permissions,
 							now + self
 								.server
@@ -477,7 +477,7 @@ impl Session {
 						)
 					},
 				};
-				let token = self.create_token(id, permissions, expires_at)?;
+				let token = self.create_token(resource, permissions, expires_at)?;
 				let item = if let Some(token) = token {
 					tg::Either::Right(tg::WithToken { id: item, token })
 				} else {

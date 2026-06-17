@@ -213,7 +213,7 @@ impl Session {
 						.to_i64()
 						.unwrap();
 				options.token = match session.create_token(
-					id.clone().into(),
+					tg::grant::Resource::Id(id.clone().into()),
 					vec![tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Subtree,
 					)],
@@ -288,7 +288,7 @@ impl Session {
 				.to_i64()
 				.unwrap();
 		self.create_token(
-			id.clone().into(),
+			tg::grant::Resource::Id(id.clone().into()),
 			vec![tg::grant::Permission::Object(
 				tg::grant::permission::object::Permission::Subtree,
 			)],

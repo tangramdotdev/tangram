@@ -161,7 +161,7 @@ impl Session {
 			.detach();
 
 		let token = self.create_token(
-			id.clone().into(),
+			tg::grant::Resource::Id(id.clone().into()),
 			vec![tg::grant::Permission::Process(
 				tg::grant::permission::process::Permission::Node,
 			)],

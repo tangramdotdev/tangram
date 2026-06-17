@@ -31,9 +31,7 @@ impl Session {
 		organization: &tg::organization::Selector,
 	) -> tg::Result<Option<tg::Organization>> {
 		let permission = tg::grant::Permission::Read;
-		let authorized = self
-			.authorize(organization.clone().into(), permission)
-			.await?;
+		let authorized = self.authorize(organization.clone(), permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
