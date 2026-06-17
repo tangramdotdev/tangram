@@ -239,6 +239,13 @@ impl Session {
 impl Reader {
 	pub async fn new(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		session
+			.authorize(tg::object::Id::from(id.clone()), permission)
+			.await?
+			.filter(|permissions| permissions.contains(permission))
+			.ok_or_else(|| tg::error!(%id, "failed to get the object"))?;
 		let arg = crate::object::store::TryGetArg {
 			id: id.clone().into(),
 		};
