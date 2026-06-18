@@ -129,13 +129,8 @@ impl Session {
 			}
 		}
 
-		// A process confers read access on the whole subtree of its output, so the principal
-		// finishing the process must be able to read every object reachable from the output.
-		// Otherwise a process could leak a private object by naming it, or by nesting it in a
-		// directory it builds, as its output. An output produced by checking in files holds a
-		// subtree grant and so its whole subtree is readable, whereas an output set by id via the
-		// output xattr only holds a node grant on each object the process produced, so the subtree
-		// is verified by descending into the objects the process can read only at the node level.
+		// Ensure the principal finishing the process can read every object reachable from its
+		// output, so that a process cannot leak a private object by naming it as its output.
 		if exit == 0
 			&& let Some(data) = &output
 		{
@@ -265,10 +260,6 @@ impl Session {
 		Ok(Some(true))
 	}
 
-	/// Find an object reachable from a process output that the principal cannot read, if any. If
-	/// the principal holds a subtree grant on an object, then its whole subtree is readable and the
-	/// search does not descend into it. Otherwise the principal must hold a node grant on the
-	/// object, and the search descends into the object's children.
 	async fn find_unreadable_output_object(
 		&self,
 		roots: std::collections::BTreeSet<tg::object::Id>,
