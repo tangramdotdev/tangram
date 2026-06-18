@@ -247,7 +247,14 @@ impl Value {
 					.map(|(key, value)| (key.clone(), value.to_data()))
 					.collect(),
 			),
-			Self::Object(object) => Data::Object(object.id()),
+			Self::Object(object) => {
+				let id = object.id();
+				if let Some(token) = object.state().token() {
+					Data::Object(tg::Either::Right(tg::WithToken { id, token }))
+				} else {
+					Data::Object(tg::Either::Left(id))
+				}
+			},
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
 			Self::Template(template) => Data::Template(template.to_data()),
@@ -306,7 +313,14 @@ impl Value {
 					.map(|(key, value)| Ok::<_, tg::Error>((key, Self::try_from_data(value)?)))
 					.collect::<tg::Result<_>>()?,
 			),
-			Data::Object(id) => Self::Object(tg::object::Handle::with_id(id)),
+			Data::Object(object) => match object {
+				tg::Either::Left(id) => Self::Object(tg::object::Handle::with_id(id)),
+				tg::Either::Right(object) => {
+					let handle = tg::object::Handle::with_id(object.id);
+					handle.state().set_token(Some(object.token));
+					Self::Object(handle)
+				},
+			},
 			Data::Bytes(bytes) => Self::Bytes(bytes),
 			Data::Mutation(mutation) => Self::Mutation(tg::Mutation::try_from_data(mutation)?),
 			Data::Template(template) => Self::Template(tg::Template::try_from_data(template)?),

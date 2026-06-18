@@ -40,7 +40,7 @@ pub enum Data {
 	Map(BTreeMap<String, Data>),
 
 	#[tangram_serialize(id = 6)]
-	Object(tg::object::Id),
+	Object(tg::MaybeWithToken<tg::object::Id>),
 
 	#[tangram_serialize(id = 7)]
 	Bytes(Bytes),
@@ -110,10 +110,41 @@ impl Data {
 				}
 			},
 			Self::Object(object) => {
-				children.insert(object.clone());
+				children.insert(match object {
+					tg::Either::Left(id) => id.clone(),
+					tg::Either::Right(object) => object.id.clone(),
+				});
 			},
 			Self::Mutation(mutation) => mutation.children(children),
 			Self::Template(template) => template.children(children),
+		}
+	}
+
+	pub fn remove_tokens(&mut self) {
+		match self {
+			Self::Array(array) => {
+				for value in array {
+					value.remove_tokens();
+				}
+			},
+			Self::Map(map) => {
+				for value in map.values_mut() {
+					value.remove_tokens();
+				}
+			},
+			Self::Object(object) => {
+				if let tg::Either::Right(with_token) = object {
+					*object = tg::Either::Left(with_token.id.clone());
+				}
+			},
+			Self::Mutation(mutation) => mutation.remove_tokens(),
+			Self::Template(template) => template.remove_tokens(),
+			Self::Null
+			| Self::Bool(_)
+			| Self::Number(_)
+			| Self::String(_)
+			| Self::Bytes(_)
+			| Self::Placeholder(_) => {},
 		}
 	}
 

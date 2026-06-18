@@ -821,7 +821,13 @@ fn render_value_string(
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path
-				.join(artifact.to_string())
+				.join(
+					artifact
+						.clone()
+						.map_right(|artifact| artifact.id)
+						.into_inner()
+						.to_string(),
+				)
 				.to_str()
 				.unwrap()
 				.to_owned()

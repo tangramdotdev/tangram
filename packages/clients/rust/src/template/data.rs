@@ -34,25 +34,31 @@ pub enum Component {
 	#[tangram_serialize(id = 0)]
 	String(String),
 	#[tangram_serialize(id = 1)]
-	Artifact(tg::artifact::Id),
+	Artifact(tg::MaybeWithToken<tg::artifact::Id>),
 	#[tangram_serialize(id = 2)]
 	Placeholder(tg::placeholder::Data),
 }
 
+impl From<tg::artifact::Id> for Component {
+	fn from(value: tg::artifact::Id) -> Self {
+		Self::Artifact(tg::Either::Left(value))
+	}
+}
+
 impl From<tg::directory::Id> for Component {
 	fn from(value: tg::directory::Id) -> Self {
-		Self::Artifact(value.into())
+		Self::Artifact(tg::Either::Left(value.into()))
 	}
 }
 
 impl From<tg::file::Id> for Component {
 	fn from(value: tg::file::Id) -> Self {
-		Self::Artifact(value.into())
+		Self::Artifact(tg::Either::Left(value.into()))
 	}
 }
 
 impl From<tg::symlink::Id> for Component {
 	fn from(value: tg::symlink::Id) -> Self {
-		Self::Artifact(value.into())
+		Self::Artifact(tg::Either::Left(value.into()))
 	}
 }

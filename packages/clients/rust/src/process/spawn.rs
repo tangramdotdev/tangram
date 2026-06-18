@@ -1007,8 +1007,19 @@ fn render_value_string(
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
-		tg::value::Data::Object(object) if object.is_artifact() => {
-			let artifact: tg::artifact::Id = object.clone().try_into()?;
+		tg::value::Data::Object(object)
+			if object
+				.clone()
+				.map_right(|object| object.id)
+				.into_inner()
+				.is_artifact() =>
+		{
+			let artifact: tg::artifact::Id = object
+				.clone()
+				.map_right(|object| object.id)
+				.into_inner()
+				.try_into()
+				.unwrap();
 			Ok(artifacts
 				.get(&artifact)
 				.ok_or_else(|| tg::error!("failed to find the artifact path"))?
@@ -1018,7 +1029,12 @@ fn render_value_string(
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts
-				.get(artifact)
+				.get(
+					&artifact
+						.clone()
+						.map_right(|artifact| artifact.id)
+						.into_inner(),
+				)
 				.ok_or_else(|| tg::error!("failed to find the artifact path"))?
 				.to_string_lossy()
 				.into_owned()

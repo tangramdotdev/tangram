@@ -47,10 +47,13 @@ impl Session {
 	async fn put_process_local(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::put::Arg,
+		mut arg: tg::process::put::Arg,
 	) -> tg::Result<tg::process::put::Output> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let creator = self.context.principal.clone();
+		if let Some(output) = &mut arg.data.output {
+			output.remove_tokens();
+		}
 
 		// Insert the process into the process store.
 		match &self.server.process_store {

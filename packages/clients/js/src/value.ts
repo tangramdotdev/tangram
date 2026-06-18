@@ -49,7 +49,7 @@ export namespace Value {
 		} else if (value instanceof Array) {
 			return value.map(toData);
 		} else if (tg.Object.is(value)) {
-			return { kind: "object", value: value.id };
+			return { kind: "object", value: objectWithToken(value) };
 		} else if (value instanceof Uint8Array) {
 			return { kind: "bytes", value: tg.encoding.base64.encode(value) };
 		} else if (value instanceof tg.Mutation) {
@@ -88,7 +88,17 @@ export namespace Value {
 				]),
 			);
 		} else if (data.kind === "object") {
-			return tg.Object.withId(data.value);
+			let id =
+				typeof data.value === "object" &&
+				data.value !== null &&
+				"id" in data.value
+					? data.value.id
+					: data.value;
+			let object = tg.Object.withId(id);
+			if (typeof data.value !== "string") {
+				object.state.token = data.value.token;
+			}
+			return object;
 		} else if (data.kind === "bytes") {
 			return tg.encoding.base64.decode(data.value);
 		} else if (data.kind === "mutation") {
@@ -255,7 +265,7 @@ export namespace Value {
 		| string
 		| Array<tg.Value.Data>
 		| { kind: "map"; value: { [key: string]: tg.Value.Data } }
-		| { kind: "object"; value: tg.Object.Id }
+		| { kind: "object"; value: tg.Grant.MaybeWithToken<tg.Object.Id> }
 		| { kind: "bytes"; value: string }
 		| { kind: "mutation"; value: tg.Mutation.Data }
 		| { kind: "template"; value: tg.Template.Data }
@@ -275,13 +285,44 @@ export namespace Value {
 			} else if (data.kind === "map") {
 				return globalThis.Object.values(data.value).flatMap(children);
 			} else if (data.kind === "object") {
-				return [data.value];
+				return [
+					typeof data.value === "object" &&
+					data.value !== null &&
+					"id" in data.value
+						? data.value.id
+						: data.value,
+				];
 			} else if (data.kind === "mutation") {
 				return tg.Mutation.Data.children(data.value);
 			} else if (data.kind === "template") {
 				return tg.Template.Data.children(data.value);
 			} else {
 				return [];
+			}
+		};
+
+		export let removeTokens = (data: tg.Value.Data): void => {
+			if (data instanceof Array) {
+				for (let value of data) {
+					removeTokens(value);
+				}
+			} else if (typeof data === "object" && data !== null) {
+				if (data.kind === "map") {
+					for (let value of globalThis.Object.values(data.value)) {
+						removeTokens(value);
+					}
+				} else if (data.kind === "object") {
+					data.value =
+						typeof data.value === "object" &&
+						data.value !== null &&
+						"id" in data.value
+							? data.value.id
+							: data.value;
+				} else if (data.kind === "mutation") {
+					tg.Mutation.Data.removeTokens(data.value);
+				} else if (data.kind === "template") {
+					tg.Template.Data.removeTokens(data.value);
+				}
 			}
 		};
 	}

@@ -70,6 +70,15 @@ impl Artifact {
 		}
 	}
 
+	#[must_use]
+	pub fn state(&self) -> tg::object::State {
+		match self {
+			Self::Directory(directory) => directory.state().clone(),
+			Self::File(file) => file.state().clone(),
+			Self::Symlink(symlink) => symlink.state().clone(),
+		}
+	}
+
 	pub async fn object(&self) -> tg::Result<Object> {
 		let handle = tg::handle()?;
 		self.object_with_handle(handle).await

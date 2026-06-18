@@ -111,7 +111,15 @@ impl Template {
 		let data = Data::unrender(prefix, string)?;
 		let components = data.components.into_iter().map(|data| match data {
 			tg::template::data::Component::Artifact(id) => {
-				Component::Artifact(tg::Artifact::with_id(id))
+				let artifact = match id {
+					tg::Either::Left(id) => tg::Artifact::with_id(id),
+					tg::Either::Right(id) => {
+						let artifact = tg::Artifact::with_id(id.id);
+						artifact.state().set_token(Some(id.token));
+						artifact
+					},
+				};
+				Component::Artifact(artifact)
 			},
 			tg::template::data::Component::String(string) => Component::String(string),
 			tg::template::data::Component::Placeholder(data) => {
@@ -139,7 +147,21 @@ impl Data {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		for component in &self.components {
 			if let tg::template::data::Component::Artifact(id) = component {
-				children.insert(id.clone().into());
+				let id = match id {
+					tg::Either::Left(id) => id.clone(),
+					tg::Either::Right(id) => id.id.clone(),
+				};
+				children.insert(id.into());
+			}
+		}
+	}
+
+	pub fn remove_tokens(&mut self) {
+		for component in &mut self.components {
+			if let tg::template::data::Component::Artifact(artifact) = component
+				&& let tg::Either::Right(with_token) = artifact
+			{
+				*artifact = tg::Either::Left(with_token.id.clone());
 			}
 		}
 	}
@@ -188,10 +210,12 @@ impl Data {
 
 			// Get and parse the ID.
 			let id = captures.get(1).unwrap();
-			let id = id.as_str().parse().unwrap();
+			let id: tg::artifact::Id = id.as_str().parse().unwrap();
 
 			// Add an artifact component.
-			components.push(tg::template::data::Component::Artifact(id));
+			components.push(tg::template::data::Component::Artifact(tg::Either::Left(
+				id,
+			)));
 
 			// Advance the cursor to the end of the match.
 			i = match_.end();
@@ -214,7 +238,15 @@ impl Component {
 	pub fn to_data(&self) -> tg::template::data::Component {
 		match self {
 			Self::String(string) => tg::template::data::Component::String(string.clone()),
-			Self::Artifact(artifact) => tg::template::data::Component::Artifact(artifact.id()),
+			Self::Artifact(artifact) => {
+				let id = artifact.id();
+				let artifact = if let Some(token) = artifact.state().token() {
+					tg::Either::Right(tg::WithToken { id, token })
+				} else {
+					tg::Either::Left(id)
+				};
+				tg::template::data::Component::Artifact(artifact)
+			},
 			Self::Placeholder(placeholder) => {
 				tg::template::data::Component::Placeholder(placeholder.to_data())
 			},
@@ -259,7 +291,15 @@ impl TryFrom<tg::template::data::Component> for Component {
 		Ok(match data {
 			tg::template::data::Component::String(string) => Self::String(string),
 			tg::template::data::Component::Artifact(id) => {
-				Self::Artifact(tg::Artifact::with_id(id))
+				let artifact = match id {
+					tg::Either::Left(id) => tg::Artifact::with_id(id),
+					tg::Either::Right(id) => {
+						let artifact = tg::Artifact::with_id(id.id);
+						artifact.state().set_token(Some(id.token));
+						artifact
+					},
+				};
+				Self::Artifact(artifact)
 			},
 			tg::template::data::Component::Placeholder(data) => {
 				Self::Placeholder(tg::Placeholder::try_from_data(data)?)

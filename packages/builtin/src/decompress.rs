@@ -25,7 +25,7 @@ where
 		.ok_or_else(|| tg::error!("invalid number of arguments"))?;
 	let (blob, is_file) = match input {
 		tg::value::Data::Object(id) => {
-			let object = tg::Object::with_id(id.clone());
+			let object = tg::Object::with_id(id.clone().map_right(|object| object.id).into_inner());
 			match object {
 				tg::Object::Blob(blob) => (blob, false),
 				tg::Object::File(file) => (file.contents_with_handle(handle).await?, true),

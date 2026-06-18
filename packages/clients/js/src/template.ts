@@ -106,7 +106,12 @@ export class Template {
 						value: tg.Placeholder.toData(component),
 					};
 				} else {
-					return { kind: "artifact", value: component.id };
+					let id = component.id;
+					let token = component.state.token;
+					return {
+						kind: "artifact",
+						value: token === undefined ? id : { id, token },
+					};
 				}
 			}),
 		};
@@ -120,7 +125,17 @@ export class Template {
 				} else if (component.kind === "placeholder") {
 					return tg.Placeholder.fromData(component.value);
 				} else {
-					return tg.Artifact.withId(component.value);
+					let id =
+						typeof component.value === "object" &&
+						component.value !== null &&
+						"id" in component.value
+							? component.value.id
+							: component.value;
+					let artifact = tg.Artifact.withId(id);
+					if (typeof component.value !== "string") {
+						artifact.state.token = component.value.token;
+					}
+					return artifact;
 				}
 			}),
 		);
@@ -235,17 +250,39 @@ export namespace Template {
 	export namespace Data {
 		export type Component =
 			| { kind: "string"; value: string }
-			| { kind: "artifact"; value: tg.Artifact.Id }
+			| {
+					kind: "artifact";
+					value: tg.Grant.MaybeWithToken<tg.Artifact.Id>;
+			  }
 			| { kind: "placeholder"; value: tg.Placeholder.Data };
 
 		export let children = (data: tg.Template.Data): Array<tg.Object.Id> => {
 			return data.components.flatMap((component) => {
 				if (component.kind === "artifact") {
-					return [component.value];
+					return [
+						typeof component.value === "object" &&
+						component.value !== null &&
+						"id" in component.value
+							? component.value.id
+							: component.value,
+					];
 				} else {
 					return [];
 				}
 			});
+		};
+
+		export let removeTokens = (data: tg.Template.Data): void => {
+			for (let component of data.components) {
+				if (component.kind === "artifact") {
+					component.value =
+						typeof component.value === "object" &&
+						component.value !== null &&
+						"id" in component.value
+							? component.value.id
+							: component.value;
+				}
+			}
 		};
 	}
 

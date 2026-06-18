@@ -67,6 +67,26 @@ impl Data {
 		}
 	}
 
+	pub fn remove_tokens(&mut self) {
+		match self {
+			Self::Unset => {},
+			Self::Set { value } | Self::SetIfUnset { value } => value.remove_tokens(),
+			Self::Prepend { values } | Self::Append { values } => {
+				for value in values {
+					value.remove_tokens();
+				}
+			},
+			Self::Prefix { template, .. } | Self::Suffix { template, .. } => {
+				template.remove_tokens();
+			},
+			Self::Merge { value } => {
+				for value in value.values_mut() {
+					value.remove_tokens();
+				}
+			},
+		}
+	}
+
 	pub fn apply(&self, map: &mut tg::value::data::Map, key: &str) -> tg::Result<()> {
 		match (self, map.get_mut(key)) {
 			(Self::Unset, _) => {
@@ -100,14 +120,20 @@ impl Data {
 			) => {
 				let second = match value {
 					tg::value::Data::Template(template) => template.clone(),
-					tg::value::Data::Object(tg::object::Id::Directory(directory)) => {
-						tg::template::Data::with_components([directory.clone().into()])
-					},
-					tg::value::Data::Object(tg::object::Id::File(file)) => {
-						tg::template::Data::with_components([file.clone().into()])
-					},
-					tg::value::Data::Object(tg::object::Id::Symlink(symlink)) => {
-						tg::template::Data::with_components([symlink.clone().into()])
+					tg::value::Data::Object(object)
+						if object
+							.clone()
+							.map_right(|object| object.id)
+							.into_inner()
+							.is_artifact() =>
+					{
+						let id: tg::artifact::Id = object
+							.clone()
+							.map_right(|object| object.id)
+							.into_inner()
+							.try_into()
+							.unwrap();
+						tg::template::Data::with_components([id.into()])
 					},
 					tg::value::Data::String(string) => {
 						tg::template::Data::with_components([string.clone().into()])
@@ -146,14 +172,20 @@ impl Data {
 			) => {
 				let first = match value {
 					tg::value::Data::Template(template) => template.clone(),
-					tg::value::Data::Object(tg::object::Id::Directory(directory)) => {
-						tg::template::Data::with_components([directory.clone().into()])
-					},
-					tg::value::Data::Object(tg::object::Id::File(file)) => {
-						tg::template::Data::with_components([file.clone().into()])
-					},
-					tg::value::Data::Object(tg::object::Id::Symlink(symlink)) => {
-						tg::template::Data::with_components([symlink.clone().into()])
+					tg::value::Data::Object(object)
+						if object
+							.clone()
+							.map_right(|object| object.id)
+							.into_inner()
+							.is_artifact() =>
+					{
+						let id: tg::artifact::Id = object
+							.clone()
+							.map_right(|object| object.id)
+							.into_inner()
+							.try_into()
+							.unwrap();
+						tg::template::Data::with_components([id.into()])
 					},
 					tg::value::Data::String(string) => {
 						tg::template::Data::with_components([string.clone().into()])

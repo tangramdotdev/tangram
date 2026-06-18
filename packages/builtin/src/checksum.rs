@@ -25,7 +25,9 @@ where
 {
 	// Get the object.
 	let object = match args.first() {
-		Some(tg::value::Data::Object(id)) => tg::Object::with_id(id.clone()),
+		Some(tg::value::Data::Object(id)) => {
+			tg::Object::with_id(id.clone().map_right(|object| object.id).into_inner())
+		},
 		_ => return Err(tg::error!("expected an object")),
 	};
 

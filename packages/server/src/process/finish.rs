@@ -88,10 +88,13 @@ impl Session {
 	) -> tg::Result<Option<bool>> {
 		let tg::process::finish::Arg {
 			mut error,
-			output,
+			mut output,
 			mut exit,
 			..
 		} = arg;
+		if let Some(output) = &mut output {
+			output.remove_tokens();
+		}
 
 		// Get the process.
 		let Some(tg::process::get::Output { data, .. }) = self
