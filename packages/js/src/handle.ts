@@ -80,7 +80,9 @@ export let handle: tg.Handle = {
 		return syscall("handle_value_parse", value);
 	},
 
-	postObjectBatch(arg: tg.Handle.PostObjectBatchArg): Promise<void> {
+	postObjectBatch(
+		arg: tg.Handle.PostObjectBatchArg,
+	): Promise<tg.Handle.PostObjectBatchOutput> {
 		return syscall("handle_object_batch", arg);
 	},
 

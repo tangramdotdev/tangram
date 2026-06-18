@@ -121,6 +121,7 @@ impl Value {
 
 		// Store the objects.
 		let mut objects = Vec::with_capacity(unstored.len());
+		let mut states = Vec::with_capacity(unstored.len());
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
 				let data = object_.to_data();
@@ -129,7 +130,17 @@ impl Value {
 					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(data.kind(), &bytes);
 				object.state().set_id(id.clone());
-				objects.push(tg::object::batch::Object { id, bytes });
+				states.push(object.state());
+				let children = object_
+					.children()
+					.iter()
+					.map(Self::object_with_token)
+					.collect();
+				objects.push(tg::object::batch::Object {
+					id,
+					bytes,
+					children,
+				});
 			}
 		}
 		if !objects.is_empty() {
@@ -137,7 +148,8 @@ impl Value {
 				location: None,
 				objects,
 			};
-			handle.post_object_batch(arg).await?;
+			let output = handle.post_object_batch(arg).await?;
+			Self::apply_object_batch_output(&states, output)?;
 		}
 
 		// Mark all objects stored.
@@ -183,6 +195,7 @@ impl Value {
 
 		// Store the objects.
 		let mut objects = Vec::with_capacity(unstored.len());
+		let mut states = Vec::with_capacity(unstored.len());
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
 				let data = object_.to_data();
@@ -191,7 +204,17 @@ impl Value {
 					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(data.kind(), &bytes);
 				object.state().set_id(id.clone());
-				objects.push(tg::object::batch::Object { id, bytes });
+				states.push(object.state());
+				let children = object_
+					.children()
+					.iter()
+					.map(Self::object_with_token)
+					.collect();
+				objects.push(tg::object::batch::Object {
+					id,
+					bytes,
+					children,
+				});
 			}
 		}
 		if !objects.is_empty() {
@@ -199,7 +222,8 @@ impl Value {
 				location: location.map(Into::into),
 				objects,
 			};
-			handle.post_object_batch(arg).await?;
+			let output = handle.post_object_batch(arg).await?;
+			Self::apply_object_batch_output(&states, output)?;
 		}
 
 		// Mark all objects stored.
@@ -228,6 +252,40 @@ impl Value {
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
 			Self::Template(template) => Data::Template(template.to_data()),
 			Self::Placeholder(placeholder) => Data::Placeholder(placeholder.to_data()),
+		}
+	}
+
+	fn apply_object_batch_output(
+		states: &[tg::object::State],
+		output: tg::object::batch::Output,
+	) -> tg::Result<()> {
+		if states.len() != output.objects.len() {
+			return Err(tg::error!("invalid object batch output"));
+		}
+		for (state, object) in states.iter().zip(output.objects) {
+			match object {
+				tg::Either::Left(id) => {
+					if state.id() != id {
+						return Err(tg::error!("invalid object batch output"));
+					}
+				},
+				tg::Either::Right(object) => {
+					if state.id() != object.id {
+						return Err(tg::error!("invalid object batch output"));
+					}
+					state.set_token(Some(object.token));
+				},
+			}
+		}
+		Ok(())
+	}
+
+	fn object_with_token(object: &tg::Object) -> tg::MaybeWithToken<tg::object::Id> {
+		let id = object.id();
+		if let Some(token) = object.state().token() {
+			tg::Either::Right(tg::WithToken { id, token })
+		} else {
+			tg::Either::Left(id)
 		}
 	}
 

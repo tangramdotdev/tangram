@@ -64,7 +64,7 @@ pub struct Options {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::Token>,
+	pub token: Option<tg::grant::Token>,
 }
 
 impl<T> Referent<T> {
@@ -107,7 +107,7 @@ impl<T> Referent<T> {
 		self.options.tag.as_ref()
 	}
 
-	pub fn token(&self) -> Option<&tg::Token> {
+	pub fn token(&self) -> Option<&tg::grant::Token> {
 		self.options.token.as_ref()
 	}
 

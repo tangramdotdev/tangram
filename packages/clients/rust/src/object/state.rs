@@ -11,6 +11,7 @@ struct Inner {
 	id: Option<tg::object::Id>,
 	object: Option<tg::object::Object>,
 	stored: bool,
+	token: Option<tg::grant::Token>,
 }
 
 impl State {
@@ -19,7 +20,12 @@ impl State {
 		assert!(id.is_some() || object.is_some());
 		let object = object.map(Into::into);
 		let stored = id.is_some();
-		Self(Arc::new(RwLock::new(Inner { id, object, stored })))
+		Self(Arc::new(RwLock::new(Inner {
+			id,
+			object,
+			stored,
+			token: None,
+		})))
 	}
 
 	#[must_use]
@@ -28,6 +34,7 @@ impl State {
 			id: Some(id.into()),
 			object: None,
 			stored: true,
+			token: None,
 		})))
 	}
 
@@ -37,6 +44,7 @@ impl State {
 			id: None,
 			object: Some(object.into()),
 			stored: false,
+			token: None,
 		})))
 	}
 
@@ -83,8 +91,17 @@ impl State {
 		self.0.write().unwrap().stored = stored;
 	}
 
+	pub fn set_token(&self, token: Option<tg::grant::Token>) {
+		self.0.write().unwrap().token = token;
+	}
+
 	pub fn set_object(&self, object: impl Into<tg::object::Object>) {
 		self.0.write().unwrap().object.replace(object.into());
+	}
+
+	#[must_use]
+	pub fn token(&self) -> Option<tg::grant::Token> {
+		self.0.read().unwrap().token.clone()
 	}
 
 	#[must_use]

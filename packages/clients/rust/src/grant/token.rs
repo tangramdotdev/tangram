@@ -341,22 +341,22 @@ mod tests {
 	#[test]
 	fn token_round_trips_and_verifies() {
 		let private_key =
-			tg::token::PrivateKey::generate("default", tg::token::Algorithm::Ed25519).unwrap();
-		let public_key = tg::token::PublicKey::from_private_key(&private_key).unwrap();
-		let body = tg::token::Body {
+			tg::grant::PrivateKey::generate("default", tg::grant::Algorithm::Ed25519).unwrap();
+		let public_key = tg::grant::PublicKey::from_private_key(&private_key).unwrap();
+		let body = tg::grant::Body {
 			expires_at: 20,
 			permissions: vec![tg::grant::Permission::Object(
 				tg::grant::permission::object::Permission::Subtree,
 			)],
 			resource: tg::grant::Resource::Id(tg::Id::new_uuidv7(tg::id::Kind::File)),
 		};
-		let token = tg::Token::sign(body.clone(), &private_key).unwrap();
+		let token = tg::grant::Token::sign(body.clone(), &private_key).unwrap();
 		let string = token.to_string();
 
-		let parsed = string.parse::<tg::Token>().unwrap();
+		let parsed = string.parse::<tg::grant::Token>().unwrap();
 
 		assert_eq!(parsed.body, body);
-		assert_eq!(parsed.metadata.algorithm, tg::token::Algorithm::Ed25519);
+		assert_eq!(parsed.metadata.algorithm, tg::grant::Algorithm::Ed25519);
 		assert_eq!(parsed.metadata.key, "default");
 		parsed.verify_at(&public_key, 15).unwrap();
 	}
@@ -364,18 +364,18 @@ mod tests {
 	#[test]
 	fn token_rejects_an_invalid_signature() {
 		let private_key =
-			tg::token::PrivateKey::generate("default", tg::token::Algorithm::Ed25519).unwrap();
+			tg::grant::PrivateKey::generate("default", tg::grant::Algorithm::Ed25519).unwrap();
 		let other_private_key =
-			tg::token::PrivateKey::generate("default", tg::token::Algorithm::Ed25519).unwrap();
-		let other_public_key = tg::token::PublicKey::from_private_key(&other_private_key).unwrap();
-		let body = tg::token::Body {
+			tg::grant::PrivateKey::generate("default", tg::grant::Algorithm::Ed25519).unwrap();
+		let other_public_key = tg::grant::PublicKey::from_private_key(&other_private_key).unwrap();
+		let body = tg::grant::Body {
 			expires_at: 20,
 			permissions: vec![tg::grant::Permission::Object(
 				tg::grant::permission::object::Permission::Subtree,
 			)],
 			resource: tg::grant::Resource::Id(tg::Id::new_uuidv7(tg::id::Kind::File)),
 		};
-		let token = tg::Token::sign(body, &private_key).unwrap();
+		let token = tg::grant::Token::sign(body, &private_key).unwrap();
 
 		let error = token.verify_at(&other_public_key, 15).unwrap_err();
 
@@ -385,16 +385,16 @@ mod tests {
 	#[test]
 	fn token_rejects_an_expired_body() {
 		let private_key =
-			tg::token::PrivateKey::generate("default", tg::token::Algorithm::Ed25519).unwrap();
-		let public_key = tg::token::PublicKey::from_private_key(&private_key).unwrap();
-		let body = tg::token::Body {
+			tg::grant::PrivateKey::generate("default", tg::grant::Algorithm::Ed25519).unwrap();
+		let public_key = tg::grant::PublicKey::from_private_key(&private_key).unwrap();
+		let body = tg::grant::Body {
 			expires_at: 20,
 			permissions: vec![tg::grant::Permission::Process(
 				tg::grant::permission::process::Permission::SubtreeOutput,
 			)],
 			resource: tg::grant::Resource::Id(tg::Id::new_uuidv7(tg::id::Kind::Process)),
 		};
-		let token = tg::Token::sign(body, &private_key).unwrap();
+		let token = tg::grant::Token::sign(body, &private_key).unwrap();
 
 		let error = token.verify_at(&public_key, 21).unwrap_err();
 

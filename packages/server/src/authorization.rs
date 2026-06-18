@@ -9,16 +9,16 @@ impl Session {
 		resource: tg::grant::Resource,
 		permissions: Vec<tg::grant::Permission>,
 		expires_at: i64,
-	) -> tg::Result<Option<tg::Token>> {
+	) -> tg::Result<Option<tg::grant::Token>> {
 		let Some(private_key) = self.server.tokens.private_key.as_ref() else {
 			return Ok(None);
 		};
-		let body = tg::token::Body {
+		let body = tg::grant::Body {
 			expires_at,
 			permissions,
 			resource,
 		};
-		let token = tg::Token::sign(body, private_key)?;
+		let token = tg::grant::Token::sign(body, private_key)?;
 		Ok(Some(token))
 	}
 
@@ -86,11 +86,11 @@ impl Session {
 		Ok(output.map(|output| output.permissions))
 	}
 
-	fn authorize_token(
+	pub(crate) fn authorize_token(
 		&self,
 		resource: &tg::grant::Resource,
 		permissions: tg::grant::permission::Set,
-		token: &tg::Token,
+		token: &tg::grant::Token,
 	) -> bool {
 		if token.body.resource != *resource {
 			return false;
@@ -112,7 +112,7 @@ pub(crate) trait IntoResource {
 }
 
 pub(crate) trait IntoAuthorizationResource {
-	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::Token>);
+	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>);
 }
 
 impl IntoResource for tg::grant::Resource {
@@ -158,7 +158,7 @@ impl<T> IntoAuthorizationResource for T
 where
 	T: IntoResource,
 {
-	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::Token>) {
+	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>) {
 		(self.into_resource(), None)
 	}
 }
@@ -167,7 +167,7 @@ impl<T> IntoAuthorizationResource for tg::WithToken<T>
 where
 	T: IntoResource,
 {
-	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::Token>) {
+	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>) {
 		(self.id.into_resource(), Some(self.token))
 	}
 }
@@ -176,7 +176,7 @@ impl<T> IntoAuthorizationResource for tg::MaybeWithToken<T>
 where
 	T: IntoResource,
 {
-	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::Token>) {
+	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>) {
 		match self {
 			tg::Either::Left(resource) => (resource.into_resource(), None),
 			tg::Either::Right(resource) => resource.into_authorization_resource(),

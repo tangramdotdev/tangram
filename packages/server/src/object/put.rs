@@ -66,6 +66,21 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
+		let batch_objects = BTreeSet::new();
+		let batch_subtrees = BTreeSet::new();
+		let permission = if self
+			.object_children_are_subtree_authorized(
+				&children,
+				&arg.children,
+				&batch_subtrees,
+				&batch_objects,
+			)
+			.await?
+		{
+			tg::grant::permission::object::Permission::Subtree
+		} else {
+			tg::grant::permission::object::Permission::Node
+		};
 
 		let (node_solvable, node_solved) = match data {
 			tg::object::Data::File(file) => match file {
@@ -115,10 +130,7 @@ impl Session {
 					created_at: now,
 					creator: Some(principal.clone()),
 					expires_at: Some(grant_expires_at),
-					permissions: tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Node,
-					)
-					.into(),
+					permissions: tg::grant::Permission::Object(permission).into(),
 					principal: principal.into(),
 					resource: id.clone().into(),
 				});
@@ -140,15 +152,9 @@ impl Session {
 			})
 			.detach();
 
-		let token = self.create_token(
-			tg::grant::Resource::Id(id.clone().into()),
-			vec![tg::grant::Permission::Object(
-				tg::grant::permission::object::Permission::Node,
-			)],
-			grant_expires_at,
-		)?;
+		let object = self.object_output(id.clone(), permission, grant_expires_at)?;
 
-		Ok(tg::object::put::Output { token })
+		Ok(tg::object::put::Output { object })
 	}
 
 	async fn put_object_region(

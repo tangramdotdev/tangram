@@ -397,6 +397,7 @@ impl Session {
 			async move {
 				let arg = tg::object::put::Arg {
 					bytes: output.bytes.clone(),
+					children: Vec::new(),
 					location: None,
 					metadata: output.metadata.clone(),
 				};

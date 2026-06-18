@@ -110,7 +110,7 @@ declare global {
 	function syscall(
 		syscall: "handle_object_batch",
 		arg: tg.Handle.PostObjectBatchArg,
-	): Promise<void>;
+	): Promise<tg.Handle.PostObjectBatchOutput>;
 
 	function syscall(
 		syscall: "handle_object_get",

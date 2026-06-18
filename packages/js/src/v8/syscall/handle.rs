@@ -16,6 +16,8 @@ pub(super) struct ObjectBatchArg {
 
 #[derive(serde::Deserialize)]
 struct ObjectBatchObject {
+	#[serde(default)]
+	children: Vec<tg::MaybeWithToken<tg::object::Id>>,
 	data: tg::object::Data,
 	id: tg::object::Id,
 }
@@ -90,19 +92,23 @@ pub async fn checkout(state: Rc<State>, args: (Serde<tg::checkout::Arg>,)) -> tg
 	Ok(path)
 }
 
-pub async fn object_batch(state: Rc<State>, args: (Serde<ObjectBatchArg>,)) -> tg::Result<()> {
+pub async fn object_batch(
+	state: Rc<State>,
+	args: (Serde<ObjectBatchArg>,),
+) -> tg::Result<Serde<tg::object::batch::Output>> {
 	let (Serde(arg),) = args;
 	if arg.objects.is_empty() {
-		return Ok(());
+		return Ok(Serde(tg::object::batch::Output::default()));
 	}
 	let handle = state.handle.clone();
-	state
+	let output = state
 		.main_runtime_handle
 		.spawn(async move {
 			let mut batch_objects = Vec::with_capacity(arg.objects.len());
 			for object in arg.objects {
 				let bytes = object.data.serialize()?;
 				batch_objects.push(tg::object::batch::Object {
+					children: object.children,
 					id: object.id,
 					bytes,
 				});
@@ -111,13 +117,13 @@ pub async fn object_batch(state: Rc<State>, args: (Serde<ObjectBatchArg>,)) -> t
 				objects: batch_objects,
 				..Default::default()
 			};
-			handle.post_object_batch(arg).await?;
-			Ok::<_, tg::Error>(())
+			let output = handle.post_object_batch(arg).await?;
+			Ok::<_, tg::Error>(output)
 		})
 		.await
 		.unwrap()
 		.map_err(|error| tg::error!(!error, "failed to post object batch"))?;
-	Ok(())
+	Ok(Serde(output))
 }
 
 pub async fn object_get(

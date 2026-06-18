@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	num::ToPrimitive as _,
-	std::collections::BTreeSet,
+	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -70,10 +70,14 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 
-		// Create the index args.
+		// Deserialize the objects and create the index args.
+		let mut batch_objects = BTreeSet::new();
+		let mut object_children = BTreeMap::new();
+		let mut object_advisory_children = BTreeMap::new();
 		let mut put_object_args = Vec::with_capacity(arg.objects.len());
-		let mut put_grant_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
+			batch_objects.insert(object.id.clone());
+
 			// Deserialize the object.
 			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
@@ -81,6 +85,8 @@ impl Session {
 			// Get the children.
 			let mut children = BTreeSet::new();
 			data.children(&mut children);
+			object_children.insert(object.id.clone(), children.clone());
+			object_advisory_children.insert(object.id.clone(), object.children.clone());
 
 			// Create the metadata.
 			let metadata = tg::object::Metadata {
@@ -102,16 +108,49 @@ impl Session {
 			};
 
 			put_object_args.push(arg);
+		}
 
+		// Determine which objects can receive subtree grants.
+		let mut subtree_objects = BTreeSet::new();
+		loop {
+			let mut changed = false;
+			for object in &arg.objects {
+				if subtree_objects.contains(&object.id) {
+					continue;
+				}
+				let children = object_children.get(&object.id).unwrap();
+				let advisory_children = object_advisory_children.get(&object.id).unwrap();
+				if self
+					.object_children_are_subtree_authorized(
+						children,
+						advisory_children,
+						&subtree_objects,
+						&batch_objects,
+					)
+					.await?
+				{
+					subtree_objects.insert(object.id.clone());
+					changed = true;
+				}
+			}
+			if !changed {
+				break;
+			}
+		}
+
+		let mut put_grant_args = Vec::with_capacity(arg.objects.len());
+		for object in &arg.objects {
 			if let Some(principal) = &principal {
+				let permission = if subtree_objects.contains(&object.id) {
+					tg::grant::permission::object::Permission::Subtree
+				} else {
+					tg::grant::permission::object::Permission::Node
+				};
 				put_grant_args.push(tangram_index::grant::put::Arg {
 					created_at: now,
 					creator: Some(principal.clone()),
 					expires_at: Some(grant_expires_at),
-					permissions: tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Node,
-					)
-					.into(),
+					permissions: tg::grant::Permission::Object(permission).into(),
 					principal: principal.clone().into(),
 					resource: object.id.clone().into(),
 				});
@@ -144,22 +183,12 @@ impl Session {
 			.objects
 			.into_iter()
 			.map(|object| {
-				let token = self.create_token(
-					tg::grant::Resource::Id(object.id.clone().into()),
-					vec![tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Node,
-					)],
-					grant_expires_at,
-				)?;
-				let object = if let Some(token) = token {
-					tg::Either::Right(tg::WithToken {
-						id: object.id,
-						token,
-					})
+				let permission = if subtree_objects.contains(&object.id) {
+					tg::grant::permission::object::Permission::Subtree
 				} else {
-					tg::Either::Left(object.id)
+					tg::grant::permission::object::Permission::Node
 				};
-				Ok::<_, tg::Error>(object)
+				self.object_output(object.id, permission, grant_expires_at)
 			})
 			.collect::<tg::Result<_>>()?;
 

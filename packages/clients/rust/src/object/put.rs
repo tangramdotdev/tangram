@@ -10,6 +10,9 @@ pub struct Arg {
 	#[serde(skip)]
 	pub bytes: Bytes,
 
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub children: Vec<tg::MaybeWithToken<tg::object::Id>>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
@@ -17,10 +20,9 @@ pub struct Arg {
 	pub metadata: Option<tg::object::Metadata>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::Token>,
+	pub object: tg::MaybeWithToken<tg::object::Id>,
 }
 
 impl tg::Session {

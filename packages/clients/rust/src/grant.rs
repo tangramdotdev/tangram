@@ -1,6 +1,11 @@
 use crate::prelude::*;
 
-pub use {permission::Permission, principal::Principal, resource::Resource};
+pub use {
+	permission::Permission,
+	principal::Principal,
+	resource::Resource,
+	token::{Algorithm, Body, MaybeWithToken, Metadata, PrivateKey, PublicKey, Token, WithToken},
+};
 
 pub mod create;
 pub mod delete;
@@ -8,6 +13,7 @@ pub mod list;
 pub mod permission;
 pub mod principal;
 pub mod resource;
+pub mod token;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Grant {

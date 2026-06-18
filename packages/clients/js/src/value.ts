@@ -193,23 +193,59 @@ export namespace Value {
 
 		// Store the objects.
 		let objects = [];
+		let states = [];
 		for (let object of unstored) {
 			if (object.state.object === undefined) {
 				continue;
 			}
 			let data = tg.Object.Object.toData(object.state.object);
 			let id = tg.handle.objectId(data);
+			let children = tg.Object.Object.children(object.state.object).map(
+				objectWithToken,
+			);
 			object.state.id = id;
-			objects.push({ id, data });
+			states.push(object.state);
+			objects.push({ children, id, data });
 		}
 		if (objects.length !== 0) {
-			await tg.handle.postObjectBatch({ objects });
+			let output = await tg.handle.postObjectBatch({ objects });
+			applyObjectBatchOutput(states, output);
 		}
 
 		// Mark all objects stored.
 		for (let object of unstored) {
 			object.state.stored = true;
 		}
+	};
+
+	let applyObjectBatchOutput = (
+		states: Array<tg.Object.State>,
+		output: tg.Handle.PostObjectBatchOutput,
+	) => {
+		if (states.length !== output.objects.length) {
+			throw new Error("invalid object batch output");
+		}
+		for (let [index, item] of output.objects.entries()) {
+			let state = states[index]!;
+			if (typeof item === "string") {
+				if (state.id !== item) {
+					throw new Error("invalid object batch output");
+				}
+			} else {
+				if (state.id !== item.id) {
+					throw new Error("invalid object batch output");
+				}
+				state.token = item.token;
+			}
+		}
+	};
+
+	let objectWithToken = (
+		object: tg.Object,
+	): tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token } => {
+		let id = object.state.id;
+		let token = object.state.token;
+		return token === undefined ? id : { id, token };
 	};
 
 	export type Data =

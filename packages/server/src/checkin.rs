@@ -276,7 +276,7 @@ impl Session {
 		Ok(output)
 	}
 
-	fn create_artifact_token(&self, id: &tg::artifact::Id) -> tg::Result<Option<tg::Token>> {
+	fn create_artifact_token(&self, id: &tg::artifact::Id) -> tg::Result<Option<tg::grant::Token>> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let expires_at = now
 			+ self

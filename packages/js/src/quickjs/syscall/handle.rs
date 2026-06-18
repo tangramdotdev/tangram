@@ -20,6 +20,8 @@ pub(super) struct ObjectBatchArg {
 
 #[derive(serde::Deserialize)]
 struct ObjectBatchObject {
+	#[serde(default)]
+	children: Vec<tg::MaybeWithToken<tg::object::Id>>,
 	data: tg::object::Data,
 	id: tg::object::Id,
 }
@@ -105,14 +107,17 @@ pub async fn checkout(ctx: qjs::Ctx<'_>, arg: Serde<tg::checkout::Arg>) -> Resul
 	Result(result)
 }
 
-pub async fn object_batch(ctx: qjs::Ctx<'_>, arg: Serde<ObjectBatchArg>) -> Result<()> {
+pub async fn object_batch(
+	ctx: qjs::Ctx<'_>,
+	arg: Serde<ObjectBatchArg>,
+) -> Result<Serde<tg::object::batch::Output>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(arg) = arg;
 	let result = async {
 		if arg.objects.is_empty() {
-			return Ok(());
+			return Ok(tg::object::batch::Output::default());
 		}
-		state
+		let output = state
 			.main_runtime_handle
 			.spawn({
 				let handle = state.handle.clone();
@@ -121,6 +126,7 @@ pub async fn object_batch(ctx: qjs::Ctx<'_>, arg: Serde<ObjectBatchArg>) -> Resu
 					for object in arg.objects {
 						let bytes = object.data.serialize()?;
 						batch_objects.push(tg::object::batch::Object {
+							children: object.children,
 							id: object.id,
 							bytes,
 						});
@@ -129,17 +135,17 @@ pub async fn object_batch(ctx: qjs::Ctx<'_>, arg: Serde<ObjectBatchArg>) -> Resu
 						objects: batch_objects,
 						..Default::default()
 					};
-					handle.post_object_batch(arg).await?;
-					Ok::<_, tg::Error>(())
+					let output = handle.post_object_batch(arg).await?;
+					Ok::<_, tg::Error>(output)
 				}
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "the task panicked"))?
 			.map_err(|error| tg::error!(!error, "failed to post object batch"))?;
-		Ok(())
+		Ok(output)
 	}
 	.await;
-	Result(result)
+	Result(result.map(Serde))
 }
 
 pub async fn object_get(

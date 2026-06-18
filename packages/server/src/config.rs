@@ -162,7 +162,7 @@ pub struct AuthorizationTokens {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthorizationPrivateKey {
-	pub algorithm: tg::token::Algorithm,
+	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
 
@@ -172,7 +172,7 @@ pub struct AuthorizationPrivateKey {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthorizationPublicKey {
-	pub algorithm: tg::token::Algorithm,
+	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
 

@@ -160,14 +160,23 @@ export namespace Handle {
 
 	export type PostObjectBatchArg = {
 		objects: Array<{
+			children?: Array<
+				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
+			>;
 			id: tg.Object.Id;
 			data: tg.Object.Data;
 		}>;
 	};
 
+	export type PostObjectBatchOutput = {
+		objects: Array<tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }>;
+	};
+
 	export type Object = {
 		getObject(id: tg.Object.Id): Promise<tg.Object.Data>;
-		postObjectBatch(arg: PostObjectBatchArg): Promise<void>;
+		postObjectBatch(
+			arg: PostObjectBatchArg,
+		): Promise<tg.Handle.PostObjectBatchOutput>;
 	};
 
 	export type Process = {

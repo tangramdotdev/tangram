@@ -40,6 +40,10 @@ pub struct Object {
 	#[tangram_serialize(id = 1)]
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
+	pub children: Vec<tg::MaybeWithToken<tg::object::Id>>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

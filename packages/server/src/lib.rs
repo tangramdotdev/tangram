@@ -128,8 +128,8 @@ pub struct State {
 }
 
 pub struct Tokens {
-	pub private_key: Option<tg::token::PrivateKey>,
-	pub public_keys: BTreeMap<String, tg::token::PublicKey>,
+	pub private_key: Option<tg::grant::PrivateKey>,
+	pub public_keys: BTreeMap<String, tg::grant::PublicKey>,
 }
 
 impl Owned {
@@ -663,7 +663,7 @@ impl Server {
 				let bytes = tokio::fs::read(&config.path).await.map_err(
 					|error| tg::error!(!error, path = %config.path.display(), "failed to read the private key"),
 				)?;
-				Some(tg::token::PrivateKey::new(
+				Some(tg::grant::PrivateKey::new(
 					config.name.clone(),
 					config.algorithm,
 					bytes,
@@ -676,7 +676,7 @@ impl Server {
 			let bytes = tokio::fs::read(&config.path).await.map_err(
 				|error| tg::error!(!error, path = %config.path.display(), "failed to read the public key"),
 			)?;
-			let key = tg::token::PublicKey::new(config.name.clone(), config.algorithm, bytes);
+			let key = tg::grant::PublicKey::new(config.name.clone(), config.algorithm, bytes);
 			if public_keys.insert(config.name.clone(), key).is_some() {
 				return Err(tg::error!(name = %config.name, "duplicate public key"));
 			}

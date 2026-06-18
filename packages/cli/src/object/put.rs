@@ -64,6 +64,7 @@ impl Cli {
 			// Put the object.
 			let arg = tg::object::put::Arg {
 				bytes,
+				children: Vec::new(),
 				location,
 				metadata: None,
 			};

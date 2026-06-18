@@ -55,15 +55,18 @@ export namespace Object {
 		#id: tg.Object.Id | undefined;
 		#object: tg.Object.Object | undefined;
 		#stored: boolean;
+		#token: tg.Grant.Token | undefined;
 
 		constructor(arg: {
 			id?: tg.Object.Id | undefined;
 			object?: tg.Object.Object | undefined;
 			stored: boolean;
+			token?: tg.Grant.Token | undefined;
 		}) {
 			this.#id = arg.id;
 			this.#object = arg.object;
 			this.#stored = arg.stored;
+			this.#token = arg.token;
 		}
 
 		get id(): tg.Object.Id {
@@ -93,6 +96,14 @@ export namespace Object {
 
 		set stored(stored: boolean) {
 			this.#stored = stored;
+		}
+
+		get token(): tg.Grant.Token | undefined {
+			return this.#token;
+		}
+
+		set token(token: tg.Grant.Token | undefined) {
+			this.#token = token;
 		}
 
 		get kind(): tg.Object.Kind {

@@ -19,6 +19,7 @@ import { Directory, directory } from "./directory.ts";
 import { type Encoding, encoding, setEncoding } from "./encoding.ts";
 import { Error, error } from "./error.ts";
 import { File, file } from "./file.ts";
+import type { Grant } from "./grant.ts";
 import { Graph, graph } from "./graph.ts";
 import { type Handle, handle, setHandle } from "./handle.ts";
 import { type Host, host, setHost } from "./host.ts";
@@ -59,6 +60,7 @@ export type {
 	CompressionFormat,
 	Encoding,
 	Function,
+	Grant,
 	Handle,
 	Host,
 	MaybeMutation,
