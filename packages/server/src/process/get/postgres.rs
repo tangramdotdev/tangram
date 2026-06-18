@@ -121,6 +121,7 @@ impl Server {
 								})
 						} else {
 							s.parse()
+								.map(tg::Either::Left)
 								.map(tg::Either::Right)
 								.map_err(|error| tg::error!(!error, "failed to parse the error id"))
 						}
@@ -138,7 +139,7 @@ impl Server {
 					expected_checksum: row.expected_checksum,
 					finished_at: row.finished_at,
 					host: row.host,
-					log: row.log,
+					log: row.log.map(tg::Either::Left),
 					output: row.output,
 					retry: row.retry,
 					sandbox: row.sandbox,

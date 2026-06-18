@@ -18,8 +18,13 @@ impl Cli {
 	pub async fn command_process_output(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let locations = args.locations.get();
-		let process =
-			tg::Process::<tg::Value>::new(args.process.clone(), locations, None, None, None, None);
+		let process = tg::Process::<tg::Value>::new(
+			args.process.clone(),
+			tg::process::Options {
+				location: locations,
+				..Default::default()
+			},
+		);
 		let output = process.output_with_handle(&client).await.map_err(
 			|error| tg::error!(!error, id = %args.process, "failed to get the process output"),
 		)?;

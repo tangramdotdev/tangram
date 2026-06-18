@@ -43,7 +43,7 @@ impl From<tg::object::Id> for tg::tag::Item {
 
 impl From<tg::process::Id> for tg::tag::Item {
 	fn from(value: tg::process::Id) -> Self {
-		Self::Process(tg::Process::new(value, None, None, None, None, None))
+		Self::Process(tg::Process::new(value, tg::process::Options::default()))
 	}
 }
 

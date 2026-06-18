@@ -30,6 +30,7 @@ impl Session {
 		let (resource, token) = resource.into_authorization_resource();
 		let permissions = permissions.into();
 
+		// Authorize a token if there is one.
 		if let Some(token) = token
 			&& self.authorize_token(&resource, permissions, &token)
 		{

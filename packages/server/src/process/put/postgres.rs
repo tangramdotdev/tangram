@@ -101,7 +101,7 @@ impl Session {
 			);
 			errors.push(data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
-				tg::Either::Right(id) => id.to_string(),
+				tg::Either::Right(id) => id.clone().map_right(|id| id.id).into_inner().to_string(),
 			}));
 			error_codes.push(
 				data.error
@@ -119,7 +119,11 @@ impl Session {
 			hosts.push(data.host.clone());
 			ids.push(id.to_string());
 			lease_counts.push(0i64);
-			logs.push(data.log.as_ref().map(ToString::to_string));
+			logs.push(
+				data.log
+					.as_ref()
+					.map(|log| log.clone().map_right(|log| log.id).into_inner().to_string()),
+			);
 			outputs.push(
 				data.output
 					.as_ref()
@@ -273,7 +277,14 @@ impl Session {
 					child_processes.push(id.to_string());
 					child_positions.push(position.to_i64().unwrap());
 					child_cached.push(child.cached);
-					child_ids.push(child.process.to_string());
+					child_ids.push(
+						child
+							.process
+							.clone()
+							.map_right(|process| process.id)
+							.into_inner()
+							.to_string(),
+					);
 					child_options.push(serde_json::to_string(&child.options).unwrap());
 				}
 			}

@@ -163,7 +163,7 @@ impl Session {
 		for (id, data) in items {
 			let error_string = data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
-				tg::Either::Right(id) => id.to_string(),
+				tg::Either::Right(id) => id.clone().map_right(|id| id.id).into_inner().to_string(),
 			});
 			let error_code = data.error.as_ref().and_then(|e| match e {
 				tg::Either::Left(data) => data.code.map(|code| code.to_string()),
@@ -196,7 +196,11 @@ impl Session {
 				data.host,
 				id.to_string(),
 				0,
-				data.log.as_ref().map(ToString::to_string),
+				data.log.as_ref().map(|log| log
+					.clone()
+					.map_right(|log| log.id)
+					.into_inner()
+					.to_string()),
 				output_json,
 				data.retry,
 				data.sandbox.to_string(),
@@ -220,7 +224,12 @@ impl Session {
 						id.to_string(),
 						position.to_i64().unwrap(),
 						child.cached,
-						child.process.to_string(),
+						child
+							.process
+							.clone()
+							.map_right(|process| process.id)
+							.into_inner()
+							.to_string(),
 						serde_json::to_string(&child.options).unwrap(),
 					];
 					let result = children_statement

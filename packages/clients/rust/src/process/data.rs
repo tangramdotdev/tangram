@@ -37,7 +37,7 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	pub error: Option<tg::Either<tg::error::Data, tg::MaybeWithToken<tg::error::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
@@ -56,7 +56,7 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
-	pub log: Option<tg::blob::Id>,
+	pub log: Option<tg::MaybeWithToken<tg::blob::Id>>,
 
 	#[tangram_serialize(id = 11)]
 	pub sandbox: tg::sandbox::Id,
@@ -111,10 +111,39 @@ pub struct Child {
 	pub cached: bool,
 
 	#[tangram_serialize(id = 2)]
-	pub process: tg::process::Id,
+	pub process: tg::MaybeWithToken<tg::process::Id>,
 
 	#[tangram_serialize(id = 3)]
 	pub options: tg::referent::Options,
+}
+
+impl Data {
+	pub fn remove_tokens(&mut self) {
+		if let Some(children) = &mut self.children {
+			for child in children {
+				child.remove_tokens();
+			}
+		}
+		if let Some(tg::Either::Right(error)) = &mut self.error
+			&& let tg::Either::Right(error_with_token) = error
+		{
+			*error = tg::Either::Left(error_with_token.id.clone());
+		}
+		if let Some(tg::Either::Right(log)) = &self.log {
+			self.log = Some(tg::Either::Left(log.id.clone()));
+		}
+		if let Some(output) = &mut self.output {
+			output.remove_tokens();
+		}
+	}
+}
+
+impl Child {
+	pub fn remove_tokens(&mut self) {
+		if let tg::Either::Right(process) = &self.process {
+			self.process = tg::Either::Left(process.id.clone());
+		}
+	}
 }
 
 fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>

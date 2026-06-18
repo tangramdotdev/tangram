@@ -129,7 +129,7 @@ impl Session {
 				.into_iter()
 				.map(|child_row| tg::process::data::Child {
 					cached: child_row.cached,
-					process: child_row.child,
+					process: tg::Either::Left(child_row.child),
 					options: child_row.options.0,
 				})
 				.collect();
@@ -143,6 +143,7 @@ impl Session {
 							.map_err(|error| tg::error!(!error, "failed to deserialize the error"))
 					} else {
 						s.parse()
+							.map(tg::Either::Left)
 							.map(tg::Either::Right)
 							.map_err(|error| tg::error!(!error, "failed to parse the error id"))
 					}
@@ -160,7 +161,7 @@ impl Session {
 				expected_checksum: row.expected_checksum,
 				finished_at: row.finished_at,
 				host: row.host,
-				log: row.log,
+				log: row.log.map(tg::Either::Left),
 				output: row.output,
 				retry: row.retry,
 				sandbox: row.sandbox,

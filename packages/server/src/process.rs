@@ -179,6 +179,143 @@ impl Server {
 }
 
 impl Session {
+	pub(crate) fn process_permission_for_data(
+		&self,
+		data: &tg::process::Data,
+	) -> tg::grant::permission::process::Set {
+		let mut permissions = tg::grant::permission::process::Set::NODE;
+		if self.process_children_grant_subtree(data.children.as_deref().unwrap_or_default()) {
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE);
+		}
+		if self
+			.process_output_grants_subtree(data.output.as_ref())
+			.unwrap_or(true)
+		{
+			permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE_OUTPUT);
+		}
+		if self.process_error_grants_subtree(data.error.as_ref()) {
+			permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE_ERROR);
+		}
+		if self.process_log_grants_subtree(data.log.as_ref()) {
+			permissions.insert(tg::grant::permission::process::Set::NODE_LOG);
+			permissions.insert(tg::grant::permission::process::Set::SUBTREE_LOG);
+		}
+		permissions
+	}
+
+	fn process_children_grant_subtree(&self, children: &[tg::process::data::Child]) -> bool {
+		children
+			.iter()
+			.all(|child| self.process_token_grants_subtree(&child.process))
+	}
+
+	fn process_token_grants_subtree(&self, process: &tg::MaybeWithToken<tg::process::Id>) -> bool {
+		let tg::Either::Right(process) = process else {
+			return false;
+		};
+		let resource = tg::grant::Resource::Id(process.id.clone().into());
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Subtree);
+		self.authorize_token(&resource, permission.into(), &process.token)
+	}
+
+	fn process_output_grants_subtree(&self, output: Option<&tg::value::Data>) -> Option<bool> {
+		output.map(|output| self.value_data_tokens_grant_subtree(output))
+	}
+
+	fn process_error_grants_subtree(
+		&self,
+		error: Option<&tg::Either<tg::error::Data, tg::MaybeWithToken<tg::error::Id>>>,
+	) -> bool {
+		let Some(error) = error else {
+			return true;
+		};
+		match error {
+			tg::Either::Left(data) => {
+				let mut children = std::collections::BTreeSet::new();
+				data.children(&mut children);
+				children.is_empty()
+			},
+			tg::Either::Right(error) => self.object_token_grants_subtree_for_process(error),
+		}
+	}
+
+	fn process_log_grants_subtree(&self, log: Option<&tg::MaybeWithToken<tg::blob::Id>>) -> bool {
+		log.is_none_or(|log| self.object_token_grants_subtree_for_process(log))
+	}
+
+	fn value_data_tokens_grant_subtree(&self, data: &tg::value::Data) -> bool {
+		match data {
+			tg::value::Data::Array(array) => array
+				.iter()
+				.all(|value| self.value_data_tokens_grant_subtree(value)),
+			tg::value::Data::Map(map) => map
+				.values()
+				.all(|value| self.value_data_tokens_grant_subtree(value)),
+			tg::value::Data::Mutation(mutation) => {
+				self.mutation_data_tokens_grant_subtree(mutation)
+			},
+			tg::value::Data::Object(object) => self.object_token_grants_subtree_for_process(object),
+			tg::value::Data::Template(template) => {
+				self.template_data_tokens_grant_subtree(template)
+			},
+			tg::value::Data::Bool(_)
+			| tg::value::Data::Bytes(_)
+			| tg::value::Data::Null
+			| tg::value::Data::Number(_)
+			| tg::value::Data::Placeholder(_)
+			| tg::value::Data::String(_) => true,
+		}
+	}
+
+	fn mutation_data_tokens_grant_subtree(&self, data: &tg::mutation::Data) -> bool {
+		match data {
+			tg::mutation::Data::Append { values } | tg::mutation::Data::Prepend { values } => {
+				values
+					.iter()
+					.all(|value| self.value_data_tokens_grant_subtree(value))
+			},
+			tg::mutation::Data::Merge { value } => value
+				.values()
+				.all(|value| self.value_data_tokens_grant_subtree(value)),
+			tg::mutation::Data::Prefix { template, .. }
+			| tg::mutation::Data::Suffix { template, .. } => {
+				self.template_data_tokens_grant_subtree(template)
+			},
+			tg::mutation::Data::Set { value } | tg::mutation::Data::SetIfUnset { value } => {
+				self.value_data_tokens_grant_subtree(value)
+			},
+			tg::mutation::Data::Unset => true,
+		}
+	}
+
+	fn template_data_tokens_grant_subtree(&self, data: &tg::template::Data) -> bool {
+		data.components.iter().all(|component| match component {
+			tg::template::data::Component::Artifact(artifact) => {
+				self.object_token_grants_subtree_for_process(artifact)
+			},
+			tg::template::data::Component::Placeholder(_)
+			| tg::template::data::Component::String(_) => true,
+		})
+	}
+
+	fn object_token_grants_subtree_for_process<T>(&self, object: &tg::MaybeWithToken<T>) -> bool
+	where
+		T: Clone + Into<tg::Id>,
+	{
+		let tg::Either::Right(object) = object else {
+			return false;
+		};
+		let resource = tg::grant::Resource::Id(object.id.clone().into());
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		self.authorize_token(&resource, permission.into(), &object.token)
+	}
+}
+
+impl Session {
 	pub(crate) async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
 		// Get a database connection.
 		let mut connection = self

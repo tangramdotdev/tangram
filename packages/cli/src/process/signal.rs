@@ -19,11 +19,10 @@ impl Cli {
 		let client = self.client().await?;
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			args.location.get(),
-			None,
-			None,
-			None,
-			None,
+			tg::process::Options {
+				location: args.location.get(),
+				..Default::default()
+			},
 		);
 
 		// Signal the process.

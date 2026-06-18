@@ -479,6 +479,7 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task,
 			stdout,
 			task: None,
+			token: None,
 			wait: Mutex::new(wait),
 		});
 		let process = Self(inner, std::marker::PhantomData);
@@ -629,6 +630,7 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task: None,
 			stdout,
 			task: Some(task),
+			token: None,
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, std::marker::PhantomData);

@@ -204,7 +204,11 @@ impl Session {
 					.iter()
 					.map(|child| crate::sync::queue::ProcessItem {
 						parent: Some(item.id.clone()),
-						id: child.process.clone(),
+						id: child
+							.process
+							.clone()
+							.map_right(|process| process.id)
+							.into_inner(),
 						eager: item.eager,
 					});
 				state.queue.enqueue_processes(items);
@@ -244,7 +248,7 @@ impl Session {
 					tg::Either::Right(id) => {
 						let item = crate::sync::queue::ObjectItem {
 							parent: Some(tg::Either::Right(item.id.clone())),
-							id: id.clone().into(),
+							id: id.clone().map_right(|error| error.id).into_inner().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							eager: item.eager,
 						};
@@ -260,7 +264,7 @@ impl Session {
 			{
 				let item = crate::sync::queue::ObjectItem {
 					parent: Some(tg::Either::Right(item.id.clone())),
-					id: log.into(),
+					id: log.map_right(|log| log.id).into_inner().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					eager: item.eager,
 				};

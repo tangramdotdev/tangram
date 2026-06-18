@@ -130,11 +130,7 @@ impl Cli {
 					tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
 						tg::Either::Right(tg::Process::new(
 							id.clone().try_into()?,
-							None,
-							None,
-							None,
-							None,
-							None,
+							tg::process::Options::default(),
 						))
 					},
 					tg::get::Item::Id(id) => {

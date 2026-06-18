@@ -375,7 +375,11 @@ impl Session {
 			for child in children {
 				state.queue.enqueue_process(ProcessItem {
 					parent: Some(id.clone()),
-					id: child.process.clone(),
+					id: child
+						.process
+						.clone()
+						.map_right(|process| process.id)
+						.into_inner(),
 					eager: state.arg.eager,
 				});
 			}
@@ -413,7 +417,11 @@ impl Session {
 				tg::Either::Right(error) => {
 					let item = ObjectItem {
 						parent: Some(tg::Either::Right(id.clone())),
-						id: error.clone().into(),
+						id: error
+							.clone()
+							.map_right(|error| error.id)
+							.into_inner()
+							.into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
 						eager: state.arg.eager,
 					};
@@ -429,7 +437,7 @@ impl Session {
 		{
 			let item = ObjectItem {
 				parent: Some(tg::Either::Right(id.clone())),
-				id: log.into(),
+				id: log.map_right(|log| log.id).into_inner().into(),
 				kind: Some(crate::sync::queue::ObjectKind::Log),
 				eager: state.arg.eager,
 			};

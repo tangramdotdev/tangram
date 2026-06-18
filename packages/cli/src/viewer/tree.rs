@@ -1385,9 +1385,10 @@ impl Tree {
 						tg::Either::Left(object) => {
 							Item::Value(tg::Value::Object(tg::Object::with_id(object)))
 						},
-						tg::Either::Right(process) => {
-							Item::Process(tg::Process::new(process, None, None, None, None, None))
-						},
+						tg::Either::Right(process) => Item::Process(tg::Process::new(
+							process,
+							tg::process::Options::default(),
+						)),
 					};
 					(Some(tag.to_string()), tg::Referent { item, options })
 				},

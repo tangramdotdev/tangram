@@ -305,7 +305,7 @@ impl Session {
 			.into_iter()
 			.map(|row| tg::process::data::Child {
 				cached: row.cached,
-				process: row.child,
+				process: tg::Either::Left(row.child),
 				options: row.options,
 			})
 			.collect();

@@ -30,6 +30,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stdin: tg.Process.Stdio.Writer;
 	#stdioPromise: Promise<void> | undefined;
 	#stdout: tg.Process.Stdio.Reader;
+	#token: tg.Grant.Token | undefined;
 	#wait: tg.Process.Wait | undefined;
 
 	static build<
@@ -233,6 +234,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stdin = arg.stdin;
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
+		this.#token = arg.token;
 		this.#wait = arg.wait;
 		this.#stdin.setProcess(this);
 		this.#stdout.setProcess(this);
@@ -293,6 +295,14 @@ export class Process<O extends tg.Value = tg.Value> {
 	/** Get this process's location arg. */
 	get location(): tg.Location.Arg | undefined {
 		return this.#location;
+	}
+
+	get token(): tg.Grant.Token | undefined {
+		return this.#token;
+	}
+
+	set token(token: tg.Grant.Token | undefined) {
+		this.#token = token;
 	}
 
 	/** Get this process's command. */
@@ -803,6 +813,7 @@ export namespace Process {
 		stdin: tg.Process.Stdio.Writer;
 		stdioPromise?: Promise<void> | undefined;
 		stdout: tg.Process.Stdio.Reader;
+		token?: tg.Grant.Token | undefined;
 		wait?: tg.Process.Wait | undefined;
 	};
 
@@ -955,10 +966,11 @@ export namespace Process {
 			if (typeof process !== "string") {
 				throw new Error("expected a sandboxed process id");
 			}
+			let token = value.process.token;
 			return {
 				cached: value.cached,
 				options,
-				process,
+				process: token === undefined ? process : { id: process, token },
 			};
 		};
 
@@ -988,7 +1000,7 @@ export namespace Process {
 				cached: data.cached ?? false,
 				options,
 				process: new tg.Process({
-					id: data.process,
+					id: typeof data.process === "string" ? data.process : data.process.id,
 					location: undefined,
 					state: undefined,
 					stderr: new tg.Process.Stdio.Reader({
@@ -1000,6 +1012,8 @@ export namespace Process {
 					stdout: new tg.Process.Stdio.Reader({
 						stream: "stdout",
 					}),
+					token:
+						typeof data.process === "string" ? undefined : data.process.token,
 				}),
 			};
 		};
@@ -1027,7 +1041,7 @@ export namespace Process {
 				output.debug = value.debug;
 			}
 			if (value.error !== undefined) {
-				output.error = tg.Error.toData(value.error);
+				output.error = tg.Error.toDataOrId(value.error);
 			}
 			if (value.exit !== undefined) {
 				output.exit = value.exit;
@@ -1039,7 +1053,9 @@ export namespace Process {
 				output.finished_at = value.finishedAt;
 			}
 			if (value.log !== undefined) {
-				output.log = value.log.id;
+				let token = value.log.state.token;
+				output.log =
+					token === undefined ? value.log.id : { id: value.log.id, token };
 			}
 			if ("output" in value) {
 				output.output = tg.Value.toData(value.output);
@@ -1078,15 +1094,36 @@ export namespace Process {
 				debug: data.debug,
 				error:
 					data.error !== undefined
-						? typeof data.error === "string"
-							? tg.Error.withId(data.error)
+						? typeof data.error === "string" || "id" in data.error
+							? (() => {
+									let error =
+										typeof data.error === "string"
+											? tg.Error.withId(data.error)
+											: tg.Error.withId(data.error.id);
+									if (typeof data.error !== "string") {
+										error.state.token = data.error.token;
+									}
+									return error;
+								})()
 							: tg.Error.fromData(data.error)
 						: undefined,
 				exit: data.exit,
 				expectedChecksum: data.expected_checksum,
 				finishedAt: data.finished_at,
 				host: data.host,
-				log: data.log !== undefined ? tg.Blob.withId(data.log) : undefined,
+				log:
+					data.log !== undefined
+						? (() => {
+								let blob =
+									typeof data.log === "string"
+										? tg.Blob.withId(data.log)
+										: tg.Blob.withId(data.log.id);
+								if (typeof data.log !== "string") {
+									blob.state.token = data.log.token;
+								}
+								return blob;
+							})()
+						: undefined,
 				retry: data.retry ?? false,
 				sandbox: data.sandbox,
 				startedAt: data.started_at,
@@ -1146,12 +1183,12 @@ export namespace Process {
 		command: tg.Command.Id;
 		created_at: number;
 		debug?: tg.Process.Debug;
-		error?: tg.Error.Data | tg.Error.Id;
+		error?: tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id>;
 		exit?: number;
 		expected_checksum?: tg.Checksum;
 		finished_at?: number;
 		host: string;
-		log?: tg.Blob.Id;
+		log?: tg.Grant.MaybeWithToken<tg.Blob.Id>;
 		output?: tg.Value.Data;
 		retry?: boolean;
 		sandbox: string;
@@ -1167,7 +1204,31 @@ export namespace Process {
 		export type Child = {
 			cached?: boolean;
 			options: tg.Referent.Data.Options;
-			process: tg.Process.Id;
+			process: tg.Grant.MaybeWithToken<tg.Process.Id>;
+		};
+
+		export let removeTokens = (data: tg.Process.Data): tg.Process.Data => {
+			if (data.children !== undefined) {
+				for (let child of data.children) {
+					if (typeof child.process !== "string") {
+						child.process = child.process.id;
+					}
+				}
+			}
+			if (
+				data.error !== undefined &&
+				typeof data.error !== "string" &&
+				"id" in data.error
+			) {
+				data.error = data.error.id;
+			}
+			if (data.log !== undefined && typeof data.log !== "string") {
+				data.log = data.log.id;
+			}
+			if (data.output !== undefined) {
+				tg.Value.Data.removeTokens(data.output);
+			}
+			return data;
 		};
 	}
 

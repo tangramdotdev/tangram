@@ -51,9 +51,8 @@ impl Session {
 	) -> tg::Result<tg::process::put::Output> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let creator = self.context.principal.clone();
-		if let Some(output) = &mut arg.data.output {
-			output.remove_tokens();
-		}
+		let token_data = arg.data.clone();
+		arg.data.remove_tokens();
 
 		// Insert the process into the process store.
 		match &self.server.process_store {
@@ -84,7 +83,13 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the children to be set"))?
 			.iter()
-			.map(|child| child.process.clone())
+			.map(|child| {
+				child
+					.process
+					.clone()
+					.map_right(|process| process.id)
+					.into_inner()
+			})
 			.collect();
 		let error = arg.data.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => {
@@ -93,7 +98,7 @@ impl Session {
 				children.into_iter().collect::<Vec<_>>()
 			},
 			tg::Either::Right(id) => {
-				let id = id.clone().into();
+				let id = id.clone().map_right(|error| error.id).into_inner().into();
 				vec![id]
 			},
 		});
@@ -111,7 +116,12 @@ impl Session {
 			command: arg.data.command.clone().into(),
 			error: Some(error),
 			id: id.clone(),
-			log: Some(arg.data.log.clone().map(Into::into)),
+			log: Some(
+				arg.data
+					.log
+					.clone()
+					.map(|log| log.map_right(|log| log.id).into_inner().into()),
+			),
 			metadata: tg::process::Metadata::default(),
 			output: Some(output),
 			parent: None,
@@ -163,11 +173,13 @@ impl Session {
 			})
 			.detach();
 
+		let permission = self.process_permission_for_data(&token_data);
 		let token = self.create_token(
 			tg::grant::Resource::Id(id.clone().into()),
-			vec![tg::grant::Permission::Process(
-				tg::grant::permission::process::Permission::Node,
-			)],
+			permission
+				.iter()
+				.map(tg::grant::Permission::Process)
+				.collect(),
 			grant_expires_at,
 		)?;
 

@@ -462,11 +462,10 @@ impl Session {
 	) -> tg::Result<CreateProcessSessionOutput> {
 		let process = tg::Process::new(
 			id.clone(),
-			Some(location.clone().into()),
-			None,
-			None,
-			None,
-			None,
+			tg::process::Options {
+				location: Some(location.clone().into()),
+				..Default::default()
+			},
 		);
 		let token = match token {
 			Some(token) => token,

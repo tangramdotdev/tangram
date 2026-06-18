@@ -23,11 +23,10 @@ impl Cli {
 		let client = self.client().await?;
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			args.location.get(),
-			None,
-			None,
-			None,
-			None,
+			tg::process::Options {
+				location: args.location.get(),
+				..Default::default()
+			},
 		);
 		let [stream] = args.streams.as_slice() else {
 			return Err(tg::error!("expected exactly one stdio stream"));

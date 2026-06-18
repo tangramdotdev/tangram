@@ -251,7 +251,7 @@ impl Server {
 				children.into_iter().collect::<Vec<_>>()
 			},
 			tg::Either::Right(id) => {
-				let id = id.clone().into();
+				let id = id.clone().map_right(|id| id.id).into_inner().into();
 				vec![id]
 			},
 		});
@@ -268,14 +268,24 @@ impl Server {
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the children to be set"))?
 			.iter()
-			.map(|child| child.process.clone())
+			.map(|child| {
+				child
+					.process
+					.clone()
+					.map_right(|process| process.id)
+					.into_inner()
+			})
 			.collect();
 		let put_process_arg = tangram_index::process::put::Arg {
 			children: Some(children),
 			command: data.command.clone().into(),
 			error: Some(error),
 			id: id.clone(),
-			log: Some(data.log.clone().map(Into::into)),
+			log: Some(
+				data.log
+					.clone()
+					.map(|log| log.map_right(|log| log.id).into_inner().into()),
+			),
 			metadata: tg::process::Metadata::default(),
 			output: Some(output),
 			parent: None,

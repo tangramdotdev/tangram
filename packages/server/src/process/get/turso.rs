@@ -113,6 +113,7 @@ impl Server {
 						.map_err(|error| tg::error!(!error, %id, "failed to deserialize the error"))
 				} else {
 					s.parse()
+						.map(tg::Either::Left)
 						.map(tg::Either::Right)
 						.map_err(|error| tg::error!(!error, %id, "failed to parse the error id"))
 				}
@@ -190,7 +191,7 @@ impl Server {
 			let options = child_row.options.0;
 			children.push(tg::process::data::Child {
 				cached,
-				process,
+				process: tg::Either::Left(process),
 				options,
 			});
 		}
@@ -207,7 +208,7 @@ impl Server {
 			expected_checksum,
 			finished_at: row.finished_at,
 			host: row.host,
-			log,
+			log: log.map(tg::Either::Left),
 			output,
 			retry,
 			sandbox,

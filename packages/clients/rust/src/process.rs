@@ -70,7 +70,18 @@ pub struct Inner {
 	stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
 	task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
+	token: Option<tg::grant::Token>,
 	wait: Mutex<Option<Wait>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub cached: Option<bool>,
+	pub lease: Option<String>,
+	pub location: Option<tg::location::Arg>,
+	pub metadata: Option<Metadata>,
+	pub state: Option<State>,
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -123,14 +134,15 @@ pub struct SandboxCreateArg {
 
 impl<O> Process<O> {
 	#[must_use]
-	pub fn new(
-		id: Id,
-		location: Option<tg::location::Arg>,
-		metadata: Option<Metadata>,
-		state: Option<State>,
-		lease: Option<String>,
-		cached: Option<bool>,
-	) -> Self {
+	pub fn new(id: Id, options: tg::process::Options) -> Self {
+		let tg::process::Options {
+			cached,
+			lease,
+			location,
+			metadata,
+			state,
+			token,
+		} = options;
 		let location = Arc::new(RwLock::new(location));
 		let metadata = RwLock::new(metadata.map(Arc::new));
 		let state = RwLock::new(state.map(Arc::new));
@@ -149,6 +161,7 @@ impl<O> Process<O> {
 			stdio_task: None,
 			stdout,
 			task: None,
+			token,
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, PhantomData);
@@ -176,6 +189,11 @@ impl<O> Process<O> {
 	#[must_use]
 	pub fn state(&self) -> &RwLock<Option<Arc<State>>> {
 		&self.state
+	}
+
+	#[must_use]
+	pub fn token(&self) -> Option<tg::grant::Token> {
+		self.token.clone()
 	}
 
 	#[must_use]

@@ -66,11 +66,10 @@ impl Cli {
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			locations.clone(),
-			None,
-			None,
-			None,
-			None,
+			tg::process::Options {
+				location: locations.clone(),
+				..Default::default()
+			},
 		);
 		let streams = if args.streams.is_empty() {
 			vec![

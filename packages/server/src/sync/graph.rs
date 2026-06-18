@@ -273,7 +273,12 @@ impl Graph {
 				children
 					.iter()
 					.map(|child| {
-						let child_entry = self.nodes.entry(child.process.clone().into());
+						let child = child
+							.process
+							.clone()
+							.map_right(|process| process.id)
+							.into_inner();
+						let child_entry = self.nodes.entry(child.into());
 						let child_index = child_entry.index();
 						let child_node =
 							child_entry.or_insert_with(|| Node::Process(ProcessNode::default()));
@@ -312,9 +317,8 @@ impl Graph {
 						}
 					},
 					tg::Either::Right(error_id) => {
-						let error_entry = self
-							.nodes
-							.entry(tg::object::Id::from(error_id.clone()).into());
+						let error_id = error_id.clone().map_right(|error| error.id).into_inner();
+						let error_entry = self.nodes.entry(tg::object::Id::from(error_id).into());
 						let error_index = error_entry.index();
 						let error_node =
 							error_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
@@ -324,7 +328,11 @@ impl Graph {
 				}
 			}
 
-			if let Some(log) = data.log.clone() {
+			if let Some(log) = data
+				.log
+				.clone()
+				.map(|log| log.map_right(|log| log.id).into_inner())
+			{
 				let log_entry = self.nodes.entry(tg::object::Id::from(log).into());
 				let log_index = log_entry.index();
 				let log_node = log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));

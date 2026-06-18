@@ -19,11 +19,11 @@ impl Cli {
 		let client = self.client().await?;
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			args.location.get(),
-			None,
-			None,
-			Some(args.lease),
-			None,
+			tg::process::Options {
+				lease: Some(args.lease),
+				location: args.location.get(),
+				..Default::default()
+			},
 		);
 		process.cancel_with_handle(&client).await.map_err(
 			|error| tg::error!(!error, id = %process.id(), "failed to cancel the process"),

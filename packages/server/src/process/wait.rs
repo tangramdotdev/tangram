@@ -151,7 +151,9 @@ impl Session {
 				.exit
 				.ok_or_else(|| tg::error!("expected the exit to be set"))?;
 			let output = tg::process::wait::Output {
-				error: output.data.error,
+				error: output.data.error.map(|error| {
+					error.map_right(|error| error.map_right(|error| error.id).into_inner())
+				}),
 				exit,
 				output: output.data.output,
 			};

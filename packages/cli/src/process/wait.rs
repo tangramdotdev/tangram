@@ -20,11 +20,10 @@ impl Cli {
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			locations.clone(),
-			None,
-			None,
-			None,
-			None,
+			tg::process::Options {
+				location: locations.clone(),
+				..Default::default()
+			},
 		);
 		let arg = tg::process::wait::Arg {
 			lease: None,

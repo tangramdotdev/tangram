@@ -110,6 +110,17 @@ export class Error {
 		return tg.Error.Object.toData(object.value);
 	}
 
+	static toDataOrId(
+		value: tg.Error,
+	): tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id> {
+		if (value.state.stored) {
+			let id = value.state.id as tg.Error.Id;
+			let token = value.state.token;
+			return token === undefined ? id : { id, token };
+		}
+		return tg.Error.toData(value);
+	}
+
 	/** Expect that a value is a `tg.Error`. */
 	static expect(value: unknown): tg.Error {
 		tg.assert(value instanceof tg.Error);
