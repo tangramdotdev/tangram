@@ -488,6 +488,30 @@ impl Session {
 	) -> tg::Result<()> {
 		let (put_cache_entry_args, put_object_args) =
 			Self::write_index_args(blob, cache_pointer, touched_at);
+		let grant_expires_at = touched_at
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let put_grant =
+			self.context
+				.principal
+				.clone()
+				.map(|principal| tangram_index::grant::put::Arg {
+					created_at: touched_at,
+					creator: Some(principal.clone()),
+					expires_at: Some(grant_expires_at),
+					permissions: tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Node,
+					)
+					.into(),
+					principal: principal.into(),
+					resource: tg::object::Id::from(blob.id.clone()).into(),
+				});
 		self.server
 			.index_tasks
 			.spawn(|_| {
@@ -498,6 +522,7 @@ impl Session {
 						.index
 						.batch(tangram_index::batch::Arg {
 							put_cache_entries: put_cache_entry_args,
+							put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
 							put_objects: put_object_args,
 							..Default::default()
 						})
