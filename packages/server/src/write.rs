@@ -486,8 +486,22 @@ impl Session {
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let (put_cache_entry_args, put_object_args) =
-			Self::write_index_args(blob, cache_pointer, touched_at);
+		let grant_expires_at = touched_at
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let (put_cache_entry_args, put_object_args, put_grant_args) = Self::write_index_args(
+			blob,
+			cache_pointer,
+			touched_at,
+			self.context.principal.as_ref(),
+			grant_expires_at,
+		);
 		self.server
 			.index_tasks
 			.spawn(|_| {
@@ -498,6 +512,7 @@ impl Session {
 						.index
 						.batch(tangram_index::batch::Arg {
 							put_cache_entries: put_cache_entry_args,
+							put_grants: put_grant_args,
 							put_objects: put_object_args,
 							..Default::default()
 						})
@@ -515,9 +530,12 @@ impl Session {
 		blob: &Output,
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
+		principal: Option<&tg::Principal>,
+		grant_expires_at: i64,
 	) -> (
 		Vec<tangram_index::cache::put::Arg>,
 		Vec<tangram_index::object::put::Arg>,
+		Vec<tangram_index::grant::put::Arg>,
 	) {
 		// Collect the blobs in topological order.
 		let mut blobs = Vec::new();
@@ -558,7 +576,23 @@ impl Session {
 			vec![]
 		};
 
-		(put_cache_entry_args, put_object_args)
+		// Grant the principal subtree read access to the blob, since it produced the entire blob.
+		let put_grant_args = principal
+			.map(|principal| tangram_index::grant::put::Arg {
+				created_at: touched_at,
+				creator: Some(principal.clone()),
+				expires_at: Some(grant_expires_at),
+				permissions: tg::grant::Permission::Object(
+					tg::grant::permission::object::Permission::Subtree,
+				)
+				.into(),
+				principal: principal.clone().into(),
+				resource: tg::object::Id::from(blob.id.clone()).into(),
+			})
+			.into_iter()
+			.collect();
+
+		(put_cache_entry_args, put_object_args, put_grant_args)
 	}
 
 	pub(crate) async fn write_request(
