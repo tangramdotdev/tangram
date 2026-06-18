@@ -129,14 +129,31 @@ impl Session {
 			}
 		}
 
-		// Ensure the principal finishing the process can read every object reachable from its
-		// output, so that a process cannot leak a private object by naming it as its output.
+		// A process confers subtree read access on its output objects, so the principal finishing
+		// the process must hold subtree read access to each object it is naming as the output.
+		// Otherwise a process could leak a private object by naming it as its output.
 		if exit == 0
 			&& let Some(data) = &output
 		{
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 			let mut objects = std::collections::BTreeSet::new();
 			data.children(&mut objects);
-			if let Some(object) = self.find_unreadable_output_object(objects).await? {
+			let unauthorized = futures::future::try_join_all(objects.into_iter().map(|object| {
+				async move {
+					let resource = tg::grant::Resource::Id(object.clone().into());
+					let authorized = self
+						.authorize(resource, permission)
+						.await?
+						.is_some_and(|permissions| permissions.contains(permission));
+					Ok::<_, tg::Error>((!authorized).then_some(object))
+				}
+			}))
+			.await?
+			.into_iter()
+			.flatten()
+			.next();
+			if let Some(object) = unauthorized {
 				let data = tg::error::Data {
 					message: Some(format!(
 						"the process attempted to output an object it cannot read: {object}"
@@ -258,45 +275,6 @@ impl Session {
 		self.spawn_process_finish_tasks(&id);
 
 		Ok(Some(true))
-	}
-
-	async fn find_unreadable_output_object(
-		&self,
-		roots: std::collections::BTreeSet<tg::object::Id>,
-	) -> tg::Result<Option<tg::object::Id>> {
-		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-		let subtree =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let mut seen = std::collections::BTreeSet::new();
-		let mut stack = roots.into_iter().collect::<Vec<_>>();
-		while let Some(id) = stack.pop() {
-			if !seen.insert(id.clone()) {
-				continue;
-			}
-			let resource = tg::grant::Resource::Id(id.clone().into());
-			if self
-				.authorize(resource.clone(), subtree)
-				.await?
-				.is_some_and(|permissions| permissions.contains(subtree))
-			{
-				continue;
-			}
-			if !self
-				.authorize(resource, node)
-				.await?
-				.is_some_and(|permissions| permissions.contains(node))
-			{
-				return Ok(Some(id));
-			}
-			let mut children = std::collections::BTreeSet::new();
-			tg::Object::with_id(id.clone())
-				.data_with_handle(self)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to load the output object"))?
-				.children(&mut children);
-			stack.extend(children);
-		}
-		Ok(None)
 	}
 
 	pub(crate) async fn store_process_error(
