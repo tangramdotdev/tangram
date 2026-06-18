@@ -129,6 +129,46 @@ impl Session {
 			}
 		}
 
+		// A process confers read access on its output objects, so the principal finishing the
+		// process must be able to read every object it is naming as the output. Otherwise a process
+		// could leak a private object by naming it as its output: a process that produces an object
+		// stores it and is thereby granted read access, whereas a process that merely names an
+		// existing object by id stores nothing and holds no grant. The objects are authorized
+		// concurrently.
+		if exit == 0
+			&& let Some(data) = &output
+		{
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+			let mut objects = std::collections::BTreeSet::new();
+			data.children(&mut objects);
+			let unauthorized = futures::future::try_join_all(objects.into_iter().map(|object| {
+				async move {
+					let resource = tg::grant::Resource::Id(object.clone().into());
+					let authorized = self
+						.authorize(resource, permission)
+						.await?
+						.is_some_and(|permissions| permissions.contains(permission));
+					Ok::<_, tg::Error>((!authorized).then_some(object))
+				}
+			}))
+			.await?
+			.into_iter()
+			.flatten()
+			.next();
+			if let Some(object) = unauthorized {
+				let data = tg::error::Data {
+					message: Some(format!(
+						"the process attempted to output an object it cannot read: {object}"
+					)),
+					..Default::default()
+				};
+				error = Some(tg::Either::Left(data));
+				exit = 1;
+				output = None;
+			}
+		}
+
 		let error_code = match error.as_ref() {
 			Some(tg::Either::Left(data)) => data.code,
 			Some(tg::Either::Right(id)) => {
