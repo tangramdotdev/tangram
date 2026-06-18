@@ -92,9 +92,6 @@ impl Session {
 			mut exit,
 			..
 		} = arg;
-		if let Some(output) = &mut output {
-			output.remove_tokens();
-		}
 
 		// Get the process.
 		let Some(tg::process::get::Output { data, .. }) = self
@@ -104,6 +101,24 @@ impl Session {
 		else {
 			return Ok(None);
 		};
+
+		// Authorize the output objects before stripping the tokens from the output.
+		if let Some(output) = &output {
+			let mut children = Vec::new();
+			output.children_with_tokens(&mut children);
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let permissions = tg::grant::permission::Set::from_permission(permission);
+			let outputs = self
+				.authorize_batch(children.into_iter().map(|child| (child, permissions)))
+				.await?;
+			if outputs
+				.iter()
+				.any(|output| !output.is_some_and(|permissions| permissions.contains(permission)))
+			{
+				return Err(tg::error!("unauthorized"));
+			}
+		}
 
 		// Verify the checksum if one was provided.
 		if let Some(expected) = &data.expected_checksum
@@ -127,6 +142,10 @@ impl Session {
 				error = Some(tg::Either::Left(data));
 				exit = 1;
 			}
+		}
+
+		if let Some(output) = &mut output {
+			output.remove_tokens();
 		}
 
 		let error_code = match error.as_ref() {

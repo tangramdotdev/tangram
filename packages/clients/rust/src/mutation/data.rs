@@ -67,6 +67,28 @@ impl Data {
 		}
 	}
 
+	pub fn children_with_tokens(&self, children: &mut Vec<tg::MaybeWithToken<tg::object::Id>>) {
+		match self {
+			Self::Unset => (),
+			Self::Set { value } | Self::SetIfUnset { value } => {
+				value.children_with_tokens(children);
+			},
+			Self::Prepend { values } | Self::Append { values } => {
+				for value in values {
+					value.children_with_tokens(children);
+				}
+			},
+			Self::Prefix { template, .. } | Self::Suffix { template, .. } => {
+				template.children_with_tokens(children);
+			},
+			Self::Merge { value } => {
+				for value in value.values() {
+					value.children_with_tokens(children);
+				}
+			},
+		}
+	}
+
 	pub fn remove_tokens(&mut self) {
 		match self {
 			Self::Unset => {},

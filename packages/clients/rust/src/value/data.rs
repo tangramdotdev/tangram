@@ -120,6 +120,30 @@ impl Data {
 		}
 	}
 
+	pub fn children_with_tokens(&self, children: &mut Vec<tg::MaybeWithToken<tg::object::Id>>) {
+		match self {
+			Self::Null
+			| Self::Bool(_)
+			| Self::Number(_)
+			| Self::String(_)
+			| Self::Bytes(_)
+			| Self::Placeholder(_) => (),
+			Self::Array(array) => {
+				for value in array {
+					value.children_with_tokens(children);
+				}
+			},
+			Self::Map(map) => {
+				for value in map.values() {
+					value.children_with_tokens(children);
+				}
+			},
+			Self::Object(object) => children.push(object.clone()),
+			Self::Mutation(mutation) => mutation.children_with_tokens(children),
+			Self::Template(template) => template.children_with_tokens(children),
+		}
+	}
+
 	pub fn remove_tokens(&mut self) {
 		match self {
 			Self::Array(array) => {

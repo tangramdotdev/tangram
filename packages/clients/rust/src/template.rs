@@ -156,6 +156,21 @@ impl Data {
 		}
 	}
 
+	pub fn children_with_tokens(&self, children: &mut Vec<tg::MaybeWithToken<tg::object::Id>>) {
+		for component in &self.components {
+			if let tg::template::data::Component::Artifact(artifact) = component {
+				let object = match artifact {
+					tg::Either::Left(id) => tg::Either::Left(id.clone().into()),
+					tg::Either::Right(artifact) => tg::Either::Right(tg::WithToken {
+						id: artifact.id.clone().into(),
+						token: artifact.token.clone(),
+					}),
+				};
+				children.push(object);
+			}
+		}
+	}
+
 	pub fn remove_tokens(&mut self) {
 		for component in &mut self.components {
 			if let tg::template::data::Component::Artifact(artifact) = component

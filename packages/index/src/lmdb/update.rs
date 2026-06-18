@@ -32,6 +32,7 @@ pub(super) enum Source {
 struct ProcessGrantInputs<'a> {
 	resource: &'a tg::Id,
 	entries: &'a [crate::lmdb::grant::GrantEntry],
+	direct_entries: &'a [crate::lmdb::grant::GrantEntry],
 	child_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
 	command_object_entries: Option<&'a [crate::lmdb::grant::GrantEntry]>,
 	error_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
@@ -349,7 +350,14 @@ impl Index {
 	) -> tg::Result<bool> {
 		let resource = tg::Id::from(id.clone());
 		let children = Self::get_object_children_with_transaction(db, subspace, transaction, id)?;
-		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+		let entries = Self::get_effective_resource_grant_entries_for_principal_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			principal,
+		)?;
+		let direct_entries = Self::get_resource_grant_entries_for_principal_with_transaction(
 			db,
 			subspace,
 			transaction,
@@ -360,7 +368,7 @@ impl Index {
 			.iter()
 			.map(|child| {
 				let resource = tg::Id::from(child.clone());
-				Self::get_resource_grant_entries_for_principal_with_transaction(
+				Self::get_effective_resource_grant_entries_for_principal_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -372,7 +380,7 @@ impl Index {
 		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 		let subtree =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let explicit_subtree = entries
+		let explicit_subtree = direct_entries
 			.iter()
 			.filter(|entry| {
 				entry.permission == subtree
@@ -401,10 +409,46 @@ impl Index {
 			subspace,
 			transaction,
 			&resource,
-			&entries,
+			&direct_entries,
 			&expected,
 			&managed,
 		)
+	}
+
+	fn get_effective_resource_grant_entries_for_principal_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		resource: &tg::Id,
+		principal: &tg::grant::Principal,
+	) -> tg::Result<Vec<crate::lmdb::grant::GrantEntry>> {
+		let mut entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+			db,
+			subspace,
+			transaction,
+			resource,
+			principal,
+		)?;
+		if let tg::grant::Principal::Process(process) = principal {
+			let children =
+				Self::get_process_children_with_transaction(db, subspace, transaction, process)?;
+			for child in children {
+				let child_principal = tg::grant::Principal::Process(child);
+				let child_entries =
+					Self::get_resource_grant_entries_for_principal_with_transaction(
+						db,
+						subspace,
+						transaction,
+						resource,
+						&child_principal,
+					)?;
+				entries.extend(child_entries.into_iter().map(|mut entry| {
+					entry.principal = principal.clone();
+					entry
+				}));
+			}
+		}
+		Ok(entries)
 	}
 
 	fn reconcile_materialized_grants(
@@ -489,7 +533,7 @@ impl Index {
 			process_permission(tg::grant::permission::process::Permission::SubtreeOutput);
 
 		let explicit = input
-			.entries
+			.direct_entries
 			.iter()
 			.filter(|entry| entry.sources & crate::lmdb::grant::EXPLICIT_GRANT_SOURCE != 0)
 			.map(|entry| (entry.principal.clone(), entry.permission, entry.expires_at))
@@ -592,7 +636,7 @@ impl Index {
 			subspace,
 			transaction,
 			input.resource,
-			input.entries,
+			input.direct_entries,
 			&expected,
 			&managed,
 		)
@@ -674,7 +718,14 @@ impl Index {
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
 		let process = crate::process::Process::deserialize(bytes)?;
 		let resource = tg::Id::from(id.clone());
-		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+		let entries = Self::get_effective_resource_grant_entries_for_principal_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			principal,
+		)?;
+		let direct_entries = Self::get_resource_grant_entries_for_principal_with_transaction(
 			db,
 			subspace,
 			transaction,
@@ -686,7 +737,7 @@ impl Index {
 			.iter()
 			.map(|child| {
 				let resource = tg::Id::from(child.clone());
-				Self::get_resource_grant_entries_for_principal_with_transaction(
+				Self::get_effective_resource_grant_entries_for_principal_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -702,13 +753,14 @@ impl Index {
 		let mut output_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
 		for (object, kind) in objects {
 			let resource = tg::Id::from(object);
-			let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
-				db,
-				subspace,
-				transaction,
-				&resource,
-				principal,
-			)?;
+			let entries =
+				Self::get_effective_resource_grant_entries_for_principal_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&resource,
+					principal,
+				)?;
 			match kind {
 				crate::process::object::Kind::Command => {
 					command_object_entries = Some(entries);
@@ -731,6 +783,7 @@ impl Index {
 			&ProcessGrantInputs {
 				resource: &resource,
 				entries: &entries,
+				direct_entries: &direct_entries,
 				child_entries: &child_entries,
 				command_object_entries: command_object_entries.as_deref(),
 				error_object_entries: &error_object_entries,
@@ -1549,6 +1602,34 @@ impl Index {
 					)?;
 				}
 			},
+		}
+		Self::enqueue_process_principal_parents(db, subspace, transaction, id, kind, version)?;
+		Ok(())
+	}
+
+	fn enqueue_process_principal_parents(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: &Kind,
+		version: u64,
+	) -> tg::Result<()> {
+		let Kind::Grants(tg::grant::Principal::Process(process)) = kind else {
+			return Ok(());
+		};
+		let parents =
+			Self::get_process_parents_with_transaction(db, subspace, transaction, process)?;
+		for parent in parents {
+			Self::enqueue_update_with_kind(
+				db,
+				subspace,
+				transaction,
+				id.clone(),
+				Kind::Grants(tg::grant::Principal::Process(parent)),
+				Source::Propagate,
+				Some(version),
+			)?;
 		}
 		Ok(())
 	}

@@ -27,46 +27,78 @@ impl Session {
 		resource: impl IntoAuthorizationResource,
 		permissions: impl Into<tg::grant::permission::Set>,
 	) -> tg::Result<Option<tg::grant::permission::Set>> {
-		let (resource, token) = resource.into_authorization_resource();
-		let permissions = permissions.into();
+		let mut outputs = self
+			.authorize_batch([(resource, permissions.into())])
+			.await?;
+		Ok(outputs.pop().unwrap())
+	}
 
-		// Authorize a token if there is one.
-		if let Some(token) = token
-			&& self.authorize_token(&resource, permissions, &token)
-		{
-			return Ok(Some(permissions));
-		}
+	pub(crate) async fn authorize_batch<R, I>(
+		&self,
+		args: I,
+	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>>
+	where
+		R: IntoAuthorizationResource,
+		I: IntoIterator<Item = (R, tg::grant::permission::Set)>,
+	{
+		let mut outputs = Vec::new();
+		let mut index_args = Vec::new();
+		let mut index_positions = Vec::new();
 
-		// Authorize the root principal for all resources.
-		if matches!(self.context.principal, Some(tg::Principal::Root)) {
-			return Ok(Some(permissions));
-		}
+		for (position, (resource, permissions)) in args.into_iter().enumerate() {
+			let (resource, token) = resource.into_authorization_resource();
 
-		// Authorize a sandbox for its own processes.
-		if let (
-			tg::grant::Resource::Id(id),
-			tg::grant::permission::Set::Process(_),
-			Some(tg::Principal::Sandbox(sandbox)),
-		) = (&resource, permissions, self.context.principal.as_ref())
-			&& let Ok(process) = tg::process::Id::try_from(id.clone())
-			&& let Some(output) = self.server.try_get_process_local(&process, false).await?
-			&& output.data.sandbox == *sandbox
-		{
-			return Ok(Some(permissions));
+			// Authorize a token if there is one.
+			if let Some(token) = token
+				&& self.authorize_token(&resource, permissions, &token)
+			{
+				outputs.push(Some(permissions));
+				continue;
+			}
+
+			// Authorize the root principal for all resources.
+			if matches!(self.context.principal, Some(tg::Principal::Root)) {
+				outputs.push(Some(permissions));
+				continue;
+			}
+
+			// Authorize a sandbox for its own processes.
+			if let (
+				tg::grant::Resource::Id(id),
+				tg::grant::permission::Set::Process(_),
+				Some(tg::Principal::Sandbox(sandbox)),
+			) = (&resource, permissions, self.context.principal.as_ref())
+				&& let Ok(process) = tg::process::Id::try_from(id.clone())
+				&& let Some(output) = self.server.try_get_process_local(&process, false).await?
+				&& output.data.sandbox == *sandbox
+			{
+				outputs.push(Some(permissions));
+				continue;
+			}
+
+			outputs.push(None);
+			index_positions.push(position);
+			index_args.push(tangram_index::authorize::Arg {
+				permissions,
+				resource,
+			});
 		}
 
 		// Attempt to authorize.
-		if let Some(output) = self
+		let index_outputs = self
 			.server
 			.index
-			.authorize(
-				resource.clone(),
-				permissions,
-				self.context.principal.as_ref(),
-			)
-			.await? && !output.permissions.is_empty()
-		{
-			return Ok(Some(output.permissions));
+			.authorize_batch(&index_args, self.context.principal.as_ref())
+			.await?;
+		for (position, output) in std::iter::zip(&index_positions, index_outputs) {
+			if let Some(output) = output
+				&& !output.permissions.is_empty()
+			{
+				outputs[*position] = Some(output.permissions);
+			}
+		}
+		if index_args.is_empty() || outputs.iter().all(Option::is_some) {
+			return Ok(outputs);
 		}
 
 		// Index.
@@ -78,13 +110,18 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to index"))?;
 
 		// Attempt to authorize again.
-		let output = self
+		let index_outputs = self
 			.server
 			.index
-			.authorize(resource, permissions, self.context.principal.as_ref())
+			.authorize_batch(&index_args, self.context.principal.as_ref())
 			.await?;
+		for (position, output) in std::iter::zip(index_positions, index_outputs) {
+			if let Some(output) = output {
+				outputs[position] = Some(output.permissions);
+			}
+		}
 
-		Ok(output.map(|output| output.permissions))
+		Ok(outputs)
 	}
 
 	pub(crate) fn authorize_token(
