@@ -129,34 +129,19 @@ impl Session {
 			}
 		}
 
-		// A process confers read access on its output objects, so the principal finishing the
-		// process must be able to read every object it is naming as the output. Otherwise a process
-		// could leak a private object by naming it as its output: a process that produces an object
-		// stores it and is thereby granted read access, whereas a process that merely names an
-		// existing object by id stores nothing and holds no grant. The objects are authorized
-		// concurrently.
+		// A process confers read access on the whole subtree of its output, so the principal
+		// finishing the process must be able to read every object reachable from the output.
+		// Otherwise a process could leak a private object by naming it, or by nesting it in a
+		// directory it builds, as its output. An output produced by checking in files holds a
+		// subtree grant and so its whole subtree is readable, whereas an output set by id via the
+		// output xattr only holds a node grant on each object the process produced, so the subtree
+		// is verified by descending into the objects the process can read only at the node level.
 		if exit == 0
 			&& let Some(data) = &output
 		{
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 			let mut objects = std::collections::BTreeSet::new();
 			data.children(&mut objects);
-			let unauthorized = futures::future::try_join_all(objects.into_iter().map(|object| {
-				async move {
-					let resource = tg::grant::Resource::Id(object.clone().into());
-					let authorized = self
-						.authorize(resource, permission)
-						.await?
-						.is_some_and(|permissions| permissions.contains(permission));
-					Ok::<_, tg::Error>((!authorized).then_some(object))
-				}
-			}))
-			.await?
-			.into_iter()
-			.flatten()
-			.next();
-			if let Some(object) = unauthorized {
+			if let Some(object) = self.find_unreadable_output_object(objects).await? {
 				let data = tg::error::Data {
 					message: Some(format!(
 						"the process attempted to output an object it cannot read: {object}"
@@ -278,6 +263,49 @@ impl Session {
 		self.spawn_process_finish_tasks(&id);
 
 		Ok(Some(true))
+	}
+
+	/// Find an object reachable from a process output that the principal cannot read, if any. If
+	/// the principal holds a subtree grant on an object, then its whole subtree is readable and the
+	/// search does not descend into it. Otherwise the principal must hold a node grant on the
+	/// object, and the search descends into the object's children.
+	async fn find_unreadable_output_object(
+		&self,
+		roots: std::collections::BTreeSet<tg::object::Id>,
+	) -> tg::Result<Option<tg::object::Id>> {
+		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let mut seen = std::collections::BTreeSet::new();
+		let mut stack = roots.into_iter().collect::<Vec<_>>();
+		while let Some(id) = stack.pop() {
+			if !seen.insert(id.clone()) {
+				continue;
+			}
+			let resource = tg::grant::Resource::Id(id.clone().into());
+			if self
+				.authorize(resource.clone(), subtree)
+				.await?
+				.is_some_and(|permissions| permissions.contains(subtree))
+			{
+				continue;
+			}
+			if !self
+				.authorize(resource, node)
+				.await?
+				.is_some_and(|permissions| permissions.contains(node))
+			{
+				return Ok(Some(id));
+			}
+			let mut children = std::collections::BTreeSet::new();
+			tg::Object::with_id(id.clone())
+				.data_with_handle(self)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to load the output object"))?
+				.children(&mut children);
+			stack.extend(children);
+		}
+		Ok(None)
 	}
 
 	pub(crate) async fn store_process_error(
