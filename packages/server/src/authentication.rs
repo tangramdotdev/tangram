@@ -25,6 +25,12 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Process>> {
+		// A process running on a runner registers itself here so that it can authenticate to its
+		// location while its artifacts are checked out, before it is added to the sandbox.
+		if let Some(process) = self.server.process_auth.get(id) {
+			return Ok(Some(process.value().clone()));
+		}
+
 		if let Some(process) = self.server.sandboxes.iter().find_map(|sandbox| {
 			sandbox
 				.value()

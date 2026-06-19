@@ -41,6 +41,8 @@ impl Cli {
 		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
 		let arg = tg::sandbox::create::Arg {
 			cpu: args.arg.cpu,
+			enqueue: args.arg.enqueue,
+			host: None,
 			hostname: args.arg.hostname,
 			isolation: args.arg.isolation,
 			location: args.location.get(),

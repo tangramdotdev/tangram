@@ -124,6 +124,7 @@ pub enum SandboxArg {
 #[derive(Clone, Debug, Default)]
 pub struct SandboxCreateArg {
 	pub cpu: Option<u64>,
+	pub enqueue: bool,
 	pub hostname: Option<String>,
 	pub isolation: Option<tg::sandbox::Isolation>,
 	pub location: Option<tg::location::Arg>,

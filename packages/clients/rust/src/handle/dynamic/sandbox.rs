@@ -20,13 +20,6 @@ impl tg::handle::Sandbox for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_sandbox(id, arg)) }
 	}
 
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::queue::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_dequeue_sandbox(arg)) }
-	}
-
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -64,18 +57,6 @@ impl tg::handle::Sandbox for Handle {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
 				self.0.try_get_sandbox_status_stream(id, arg),
-			)
-		}
-	}
-
-	fn try_dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> {
-		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, _>>(
-				self.0.try_dequeue_sandbox_process(sandbox, arg),
 			)
 		}
 	}

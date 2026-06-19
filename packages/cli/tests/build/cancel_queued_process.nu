@@ -17,7 +17,8 @@ let blocker_path = artifact {
 let blocker = tg build --detach --verbose $blocker_path | from json
 wait_until { (tg status --timeout 0 $blocker.process | from json) == ["started"] } "the blocker should start"
 
-# Spawn a second process that queues behind the blocker.
+# Spawn a second process that queues behind the blocker. A queued process reports the started
+# status, so the queued state is not observable; it is guaranteed by the runner concurrency limit.
 let queued_path = artifact {
 	tangram.ts: '
 		export default async function () {
@@ -28,7 +29,6 @@ let queued_path = artifact {
 	'
 }
 let queued = tg build --detach --verbose $queued_path | from json
-assert ((tg status --timeout 0 $queued.process | from json) != ["started"]) "the process should be queued, not started"
 
 # Cancel the queued process.
 tg cancel $queued.process $queued.lease

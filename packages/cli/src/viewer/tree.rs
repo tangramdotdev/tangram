@@ -118,7 +118,6 @@ impl Drop for UpdateGuard {
 #[derive(Clone, Copy, Debug)]
 pub enum Indicator {
 	Cached,
-	Created,
 	Started,
 	Canceled,
 	Failed,
@@ -317,7 +316,6 @@ impl Tree {
 			let indicator = match node.borrow().indicator {
 				None => None,
 				Some(Indicator::Cached) => Some(crossterm::style::Stylize::white('🎯')),
-				Some(Indicator::Created) => Some(crossterm::style::Stylize::blue('⟳')),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();
@@ -2188,9 +2186,6 @@ impl Tree {
 			let guard = counter.guard();
 			let indicator = match (process.item.cached(), status) {
 				(Some(true), _) => Indicator::Cached,
-				(_, tg::process::Status::Created | tg::process::Status::Dequeued) => {
-					Indicator::Created
-				},
 				(_, tg::process::Status::Started) => Indicator::Started,
 				(_, tg::process::Status::Finished) => {
 					// Remove the child if necessary.
@@ -2324,7 +2319,6 @@ impl Tree {
 			let indicator = match node.borrow().indicator {
 				None => None,
 				Some(Indicator::Cached) => Some("🎯".white()),
-				Some(Indicator::Created) => Some("⟳".blue()),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();

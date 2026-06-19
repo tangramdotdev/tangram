@@ -401,6 +401,7 @@ impl Cli {
 				process: output.item().id().cloned(),
 				token: output.item().token(),
 				wait: output.item().wait_output(),
+				sandbox: None,
 			};
 			self.print_serde(output, args.print).await?;
 		} else {
@@ -852,6 +853,7 @@ impl Cli {
 				Some(tg::process::SandboxArg::Arg(
 					tg::process::SandboxCreateArg {
 						cpu: options.sandbox.arg.cpu,
+						enqueue: false,
 						hostname: options.sandbox.arg.hostname.clone(),
 						isolation: options.sandbox.arg.isolation,
 						location: None,

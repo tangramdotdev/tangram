@@ -77,6 +77,9 @@ pub struct Output {
 	pub process: tg::Either<u32, tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<tg::sandbox::create::Output>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<tg::grant::Token>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -317,6 +320,7 @@ impl<O: 'static> tg::Process<O> {
 					.location()
 					.and_then(|location| location.to_location()),
 				process: process.id().cloned(),
+				sandbox: None,
 				token: None,
 				wait: None,
 			};
@@ -1183,6 +1187,8 @@ fn normalize_sandbox(
 			}
 			let sandbox = tg::sandbox::create::Arg {
 				cpu,
+				enqueue: false,
+				host: None,
 				hostname: None,
 				isolation: None,
 				location: None,
@@ -1202,6 +1208,8 @@ fn normalize_sandbox_create_arg(
 ) -> tg::sandbox::create::Arg {
 	tg::sandbox::create::Arg {
 		cpu: sandbox.cpu,
+		enqueue: sandbox.enqueue,
+		host: None,
 		hostname: sandbox.hostname,
 		isolation: sandbox.isolation,
 		location: sandbox.location,
