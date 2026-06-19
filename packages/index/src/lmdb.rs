@@ -32,12 +32,19 @@ pub(super) use key::{Key, Kind};
 
 #[derive(Clone, Debug)]
 pub struct Config {
+	pub authorize: AuthorizeConfig,
 	pub map_size: usize,
 	pub max_items_per_transaction: usize,
 	pub path: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct AuthorizeConfig {
+	pub object_subtree: crate::authorize::ObjectSubtreeConfig,
+}
+
 pub struct Index {
+	config: AuthorizeConfig,
 	db: Db,
 	env: lmdb::Env,
 	sender_high: RequestSender,
@@ -110,6 +117,7 @@ impl Index {
 		});
 
 		Ok(Self {
+			config: config.authorize,
 			db,
 			env,
 			sender_high,

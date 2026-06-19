@@ -11,6 +11,21 @@ pub struct Output {
 	pub permissions: tg::grant::permission::Set,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct ObjectSubtreeConfig {
+	pub max_depth: usize,
+	pub max_objects: usize,
+}
+
+impl Default for ObjectSubtreeConfig {
+	fn default() -> Self {
+		Self {
+			max_depth: 16,
+			max_objects: 1024,
+		}
+	}
+}
+
 /// Validate that the permission is coherent with the resource kind.
 pub fn validate_permission(resource: &tg::Id, permission: tg::grant::Permission) -> tg::Result<()> {
 	let valid = match permission {

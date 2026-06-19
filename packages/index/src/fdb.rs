@@ -34,7 +34,7 @@ pub(super) use {
 };
 
 pub struct Index {
-	authorization_concurrency: usize,
+	config: AuthorizeConfig,
 	database: Arc<fdb::Database>,
 	partition_total: u64,
 	subspace: fdbt::Subspace,
@@ -44,12 +44,18 @@ pub struct Index {
 }
 
 pub struct Options {
-	pub authorization_concurrency: usize,
+	pub authorize: AuthorizeConfig,
 	pub cluster: std::path::PathBuf,
 	pub concurrency: usize,
 	pub max_items_per_transaction: usize,
 	pub partition_total: u64,
 	pub prefix: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct AuthorizeConfig {
+	pub concurrency: usize,
+	pub object_subtree: crate::authorize::ObjectSubtreeConfig,
 }
 
 struct TaskArg {
@@ -80,7 +86,10 @@ impl Index {
 		};
 
 		let partition_total = options.partition_total;
-		let authorization_concurrency = options.authorization_concurrency.max(1);
+		let config = AuthorizeConfig {
+			concurrency: options.authorize.concurrency.max(1),
+			object_subtree: options.authorize.object_subtree,
+		};
 
 		let metrics = Metrics::new();
 
@@ -111,7 +120,7 @@ impl Index {
 		});
 
 		let index = Self {
-			authorization_concurrency,
+			config,
 			database,
 			partition_total,
 			subspace,

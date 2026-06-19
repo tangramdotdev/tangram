@@ -437,8 +437,15 @@ impl Server {
 				}
 				#[cfg(feature = "foundationdb")]
 				{
+					let authorize = tangram_index::fdb::AuthorizeConfig {
+						concurrency: options.authorize.concurrency,
+						object_subtree: tangram_index::authorize::ObjectSubtreeConfig {
+							max_depth: options.authorize.object_subtree.max_depth,
+							max_objects: options.authorize.object_subtree.max_objects,
+						},
+					};
 					let options = tangram_index::fdb::Options {
-						authorization_concurrency: options.authorization_concurrency,
+						authorize,
 						cluster: options.cluster.clone(),
 						concurrency: options.concurrency,
 						max_items_per_transaction: options.max_items_per_transaction,
@@ -459,8 +466,15 @@ impl Server {
 				}
 				#[cfg(feature = "lmdb")]
 				{
+					let authorize = tangram_index::lmdb::AuthorizeConfig {
+						object_subtree: tangram_index::authorize::ObjectSubtreeConfig {
+							max_depth: options.authorize.object_subtree.max_depth,
+							max_objects: options.authorize.object_subtree.max_objects,
+						},
+					};
 					let path = directory.join(&options.path);
 					let config = tangram_index::lmdb::Config {
+						authorize,
 						map_size: options.map_size,
 						max_items_per_transaction: options.max_items_per_transaction,
 						path,

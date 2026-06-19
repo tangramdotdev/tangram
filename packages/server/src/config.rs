@@ -315,8 +315,30 @@ pub enum Index {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct FdbIndexAuthorize {
+	pub concurrency: usize,
+
+	pub object_subtree: IndexAuthorizeObjectSubtree,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LmdbIndexAuthorize {
+	pub object_subtree: IndexAuthorizeObjectSubtree,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct IndexAuthorizeObjectSubtree {
+	pub max_depth: usize,
+
+	pub max_objects: usize,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct FdbIndex {
-	pub authorization_concurrency: usize,
+	pub authorize: FdbIndexAuthorize,
 
 	pub cluster: PathBuf,
 
@@ -333,6 +355,8 @@ pub struct FdbIndex {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LmdbIndex {
+	pub authorize: LmdbIndexAuthorize,
+
 	pub map_size: usize,
 
 	pub max_items_per_transaction: usize,
@@ -1111,10 +1135,28 @@ impl Default for Index {
 	}
 }
 
+impl Default for IndexAuthorizeObjectSubtree {
+	fn default() -> Self {
+		Self {
+			max_depth: 16,
+			max_objects: 1024,
+		}
+	}
+}
+
+impl Default for FdbIndexAuthorize {
+	fn default() -> Self {
+		Self {
+			concurrency: 64,
+			object_subtree: IndexAuthorizeObjectSubtree::default(),
+		}
+	}
+}
+
 impl Default for FdbIndex {
 	fn default() -> Self {
 		Self {
-			authorization_concurrency: 64,
+			authorize: FdbIndexAuthorize::default(),
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
 			concurrency: 256,
 			max_items_per_transaction: 8_000,
@@ -1127,6 +1169,7 @@ impl Default for FdbIndex {
 impl Default for LmdbIndex {
 	fn default() -> Self {
 		Self {
+			authorize: LmdbIndexAuthorize::default(),
 			map_size: 1_099_511_627_776,
 			max_items_per_transaction: 8_000,
 			path: PathBuf::from("index"),

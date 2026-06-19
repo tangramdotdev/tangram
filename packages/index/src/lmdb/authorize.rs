@@ -1,6 +1,7 @@
 use {
 	crate::lmdb::{Db, Index},
 	foundationdb_tuple as fdbt, heed as lmdb,
+	num_traits::ToPrimitive as _,
 	std::collections::{HashMap, HashSet, VecDeque},
 	tangram_client::prelude::*,
 };
@@ -11,6 +12,7 @@ struct Cache {
 	resource_parents: HashMap<tg::Id, Option<tg::Id>>,
 	group_members: HashMap<tg::group::Id, Vec<tg::Id>>,
 	item_tags: HashMap<(tg::Id, tg::grant::Permission), Vec<(tg::Id, tg::grant::Permission)>>,
+	object_children: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_parents: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
 	organization_members: HashMap<tg::organization::Id, Vec<tg::Id>>,
@@ -29,6 +31,21 @@ struct AuthorizationFrame {
 	resource: tg::Id,
 	permission: tg::grant::Permission,
 	dependencies: Option<Vec<(tg::Id, tg::grant::Permission)>>,
+	subtree_unknown: bool,
+}
+
+struct SubtreeSearchBudget {
+	max_depth: usize,
+	remaining_objects: usize,
+}
+
+struct AuthorizationContext<'a, 'txn> {
+	db: &'a Db,
+	subspace: &'a fdbt::Subspace,
+	transaction: &'a lmdb::RoTxn<'txn>,
+	authorize: crate::lmdb::AuthorizeConfig,
+	requester: &'a Requester<'a>,
+	cache: &'a mut Cache,
 }
 
 impl<'a> Requester<'a> {
@@ -59,6 +76,7 @@ impl Index {
 		if args.is_empty() {
 			return Ok(Vec::new());
 		}
+		let config = self.config;
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
@@ -97,15 +115,16 @@ impl Index {
 						}));
 						continue;
 					}
-					let permissions = Self::authorize_with_transaction(
-						&db,
-						&subspace,
-						&transaction,
-						&id,
-						arg.permissions,
-						&requester,
-						&mut cache,
-					)?;
+					let mut context = AuthorizationContext {
+							db: &db,
+							subspace: &subspace,
+							transaction: &transaction,
+							authorize: config,
+							requester: &requester,
+							cache: &mut cache,
+						};
+					let permissions =
+						Self::authorize_with_transaction(&mut context, &id, arg.permissions)?;
 					outputs.push(Some(crate::authorize::Output { permissions }));
 				}
 				Ok(outputs)
@@ -116,25 +135,14 @@ impl Index {
 	}
 
 	fn authorize_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
+		context: &mut AuthorizationContext<'_, '_>,
 		resource: &tg::Id,
 		permissions: tg::grant::permission::Set,
-		requester: &Requester<'_>,
-		cache: &mut Cache,
 	) -> tg::Result<tg::grant::permission::Set> {
 		let mut found = permissions.empty_like();
 		for permission in permissions.iter() {
-			let authorized = Self::authorize_permission_with_transaction(
-				db,
-				subspace,
-				transaction,
-				resource,
-				permission,
-				requester,
-				cache,
-			)?;
+			let authorized =
+				Self::authorize_permission_with_transaction(context, resource, permission)?;
 			if authorized {
 				found.insert(tg::grant::permission::Set::from_permission(permission));
 				if found.contains(permissions) {
@@ -146,16 +154,34 @@ impl Index {
 	}
 
 	fn authorize_permission_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
+		context: &mut AuthorizationContext<'_, '_>,
 		resource: &tg::Id,
 		permission: tg::grant::Permission,
-		requester: &Requester<'_>,
-		cache: &mut Cache,
+	) -> tg::Result<bool> {
+		let mut object_subtree_budget = SubtreeSearchBudget {
+			max_depth: context.authorize.object_subtree.max_depth,
+			remaining_objects: context.authorize.object_subtree.max_objects,
+		};
+		Self::authorize_permission_with_transaction_inner(
+			context,
+			resource,
+			permission,
+			&mut object_subtree_budget,
+			&mut HashSet::new(),
+			0,
+		)
+	}
+
+	fn authorize_permission_with_transaction_inner(
+		context: &mut AuthorizationContext<'_, '_>,
+		resource: &tg::Id,
+		permission: tg::grant::Permission,
+		object_subtree_budget: &mut SubtreeSearchBudget,
+		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
+		depth: usize,
 	) -> tg::Result<bool> {
 		let root = (resource.clone(), permission);
-		if let Some(authorized) = cache.authorization.get(&root) {
+		if let Some(authorized) = context.cache.authorization.get(&root) {
 			return Ok(*authorized);
 		}
 
@@ -164,11 +190,12 @@ impl Index {
 			resource: resource.clone(),
 			permission,
 			dependencies: None,
+			subtree_unknown: false,
 		}]);
 
 		while let Some(frame) = queue.pop_front() {
 			let key = (frame.resource.clone(), frame.permission);
-			if cache.authorization.contains_key(&key) {
+			if context.cache.authorization.contains_key(&key) || unknown.contains(&key) {
 				pending.remove(&key);
 				continue;
 			}
@@ -176,65 +203,89 @@ impl Index {
 			if let Some(dependencies) = frame.dependencies {
 				let mut complete = true;
 				let mut authorized = false;
+				let mut has_unknown_dependency = false;
 				for (dependency, dependency_permission) in &dependencies {
-					match cache
-						.authorization
-						.get(&(dependency.clone(), *dependency_permission))
-						.copied()
-					{
+					let dependency_key = (dependency.clone(), *dependency_permission);
+					match context.cache.authorization.get(&dependency_key).copied() {
 						Some(true) => {
 							authorized = true;
 							break;
 						},
 						Some(false) => {},
+						None if unknown.contains(&dependency_key) => {
+							has_unknown_dependency = true;
+						},
 						None => complete = false,
 					}
 				}
 				if complete {
-					Self::finish_authorization(cache, &mut pending, key, authorized);
+					if authorized || !(frame.subtree_unknown || has_unknown_dependency) {
+						Self::finish_authorization(context.cache, &mut pending, key, authorized);
+					} else {
+						Self::finish_unknown_authorization(unknown, &mut pending, key);
+					}
 				} else {
 					queue.push_back(AuthorizationFrame {
 						resource: frame.resource,
 						permission: frame.permission,
 						dependencies: Some(dependencies),
+						subtree_unknown: frame.subtree_unknown,
 					});
 				}
 				continue;
 			}
 
 			let directly_authorized = Self::is_directly_authorized_with_transaction(
-				db,
-				subspace,
-				transaction,
+				context.db,
+				context.subspace,
+				context.transaction,
 				&frame.resource,
 				frame.permission,
-				requester,
-				cache,
+				context.requester,
+				context.cache,
 			)?;
 			if directly_authorized {
-				Self::finish_authorization(cache, &mut pending, key, true);
+				Self::finish_authorization(context.cache, &mut pending, key, true);
 				continue;
 			}
-
-			let dependencies = Self::get_authorization_dependencies_with_transaction(
-				db,
-				subspace,
-				transaction,
+			let subtree_unknown = match Self::authorize_with_object_subtree_search_with_transaction(
+				context,
 				&frame.resource,
 				frame.permission,
-				cache,
+				object_subtree_budget,
+				unknown,
+				depth,
+			)? {
+				Some(true) => {
+					Self::finish_authorization(context.cache, &mut pending, key, true);
+					continue;
+				},
+				Some(false) => false,
+				None => true,
+			};
+
+			let dependencies = Self::get_authorization_dependencies_with_transaction(
+				context.db,
+				context.subspace,
+				context.transaction,
+				&frame.resource,
+				frame.permission,
+				context.cache,
 			)?;
 			let mut authorized = false;
 			let mut has_unknown_dependency = false;
 			let mut dependencies_to_push = Vec::new();
 			for (dependency, dependency_permission) in &dependencies {
 				let dependency_key = (dependency.clone(), *dependency_permission);
-				match cache.authorization.get(&dependency_key).copied() {
+				match context.cache.authorization.get(&dependency_key).copied() {
 					Some(true) => {
 						authorized = true;
 						break;
 					},
 					Some(false) => {},
+					None if unknown.contains(&dependency_key) => {
+						has_unknown_dependency = true;
+					},
 					None => {
 						has_unknown_dependency = true;
 						if pending.insert(dependency_key) {
@@ -245,7 +296,11 @@ impl Index {
 			}
 
 			if authorized || !has_unknown_dependency {
-				Self::finish_authorization(cache, &mut pending, key, authorized);
+				Self::finish_authorization(context.cache, &mut pending, key, authorized);
+				continue;
+			}
+			if dependencies_to_push.is_empty() {
+				Self::finish_unknown_authorization(unknown, &mut pending, key);
 				continue;
 			}
 
@@ -253,17 +308,24 @@ impl Index {
 				resource: frame.resource,
 				permission: frame.permission,
 				dependencies: Some(dependencies),
+				subtree_unknown,
 			});
 			for (dependency, dependency_permission) in dependencies_to_push {
 				queue.push_back(AuthorizationFrame {
 					resource: dependency,
 					permission: dependency_permission,
 					dependencies: None,
+					subtree_unknown: false,
 				});
 			}
 		}
 
-		Ok(cache.authorization.get(&root).copied().unwrap_or(false))
+		Ok(context
+			.cache
+			.authorization
+			.get(&root)
+			.copied()
+			.unwrap_or(false))
 	}
 
 	fn finish_authorization(
@@ -274,6 +336,15 @@ impl Index {
 	) {
 		pending.remove(&key);
 		cache.authorization.insert(key, authorized);
+	}
+
+	fn finish_unknown_authorization(
+		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
+		pending: &mut HashSet<(tg::Id, tg::grant::Permission)>,
+		key: (tg::Id, tg::grant::Permission),
+	) {
+		pending.remove(&key);
+		unknown.insert(key);
 	}
 
 	fn is_directly_authorized_with_transaction(
@@ -313,6 +384,60 @@ impl Index {
 			}
 		}
 		Ok(false)
+	}
+
+	fn authorize_with_object_subtree_search_with_transaction(
+		context: &mut AuthorizationContext<'_, '_>,
+		resource: &tg::Id,
+		permission: tg::grant::Permission,
+		budget: &mut SubtreeSearchBudget,
+		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
+		depth: usize,
+	) -> tg::Result<Option<bool>> {
+		if permission
+			!= tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree)
+		{
+			return Ok(Some(false));
+		}
+		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+
+		let mut stack = Vec::from([(tg::object::Id::try_from(resource.clone())?, depth)]);
+		while let Some((object, depth)) = stack.pop() {
+			if depth > budget.max_depth || budget.remaining_objects == 0 {
+				return Ok(None);
+			}
+			budget.remaining_objects -= 1;
+
+			let resource = tg::Id::from(object.clone());
+			if !Self::authorize_permission_with_transaction_inner(
+				context, &resource, node, budget, unknown, depth,
+			)? {
+				if unknown.contains(&(resource, node)) {
+					return Ok(None);
+				}
+				return Ok(Some(false));
+			}
+
+			let children = Self::get_cached_object_children_limited_with_transaction(
+				context.db,
+				context.subspace,
+				context.transaction,
+				&object,
+				budget.remaining_objects + 1,
+				context.cache,
+			)?;
+			if children.len() > budget.remaining_objects {
+				return Ok(None);
+			}
+			if !children.is_empty() && depth == budget.max_depth {
+				return Ok(None);
+			}
+			for child in children {
+				stack.push((child, depth + 1));
+			}
+		}
+
+		Ok(Some(true))
 	}
 
 	fn get_authorization_dependencies_with_transaction(
@@ -411,6 +536,45 @@ impl Index {
 			},
 		}
 		Ok(dependencies)
+	}
+
+	fn get_cached_object_children_limited_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		object: &tg::object::Id,
+		limit: usize,
+		cache: &mut Cache,
+	) -> tg::Result<Vec<tg::object::Id>> {
+		if let Some(children) = cache.object_children.get(object) {
+			return Ok(children.iter().take(limit).cloned().collect());
+		}
+		let id_bytes = object.to_bytes();
+		let prefix = &(
+			crate::lmdb::Kind::ObjectChild.to_i32().unwrap(),
+			id_bytes.as_ref(),
+		);
+		let prefix = Self::pack(subspace, prefix);
+		let mut children = Vec::new();
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get object children"))?;
+		for entry in iter.take(limit) {
+			let (key, _) =
+				entry.map_err(|error| tg::error!(!error, "failed to read object child entry"))?;
+			let key = Self::unpack(subspace, key)?;
+			let crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectChild { child, .. }) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			children.push(child);
+		}
+		if children.len() < limit {
+			cache
+				.object_children
+				.insert(object.clone(), children.clone());
+		}
+		Ok(children)
 	}
 
 	fn principal_contains_requester_with_transaction(
