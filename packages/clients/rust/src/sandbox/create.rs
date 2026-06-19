@@ -3,6 +3,7 @@ use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::is_false,
 };
 
 #[serde_as]
@@ -10,6 +11,12 @@ use {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub enqueue: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub host: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
@@ -40,6 +47,9 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub id: tg::sandbox::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 impl tg::Session {

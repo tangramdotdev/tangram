@@ -72,6 +72,13 @@ pub struct Config {
 	#[serde(default = "default_runner", skip_serializing_if = "is_default_runner")]
 	pub runner: Option<Runner>,
 
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(
+		default = "default_scheduler",
+		skip_serializing_if = "is_default_scheduler"
+	)]
+	pub scheduler: Option<Scheduler>,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub sandbox: Sandbox,
 
@@ -706,6 +713,23 @@ pub enum JsEngine {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct Scheduler {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub control_ttl: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub create_sandbox_timeout: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub spawn_process_timeout: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub runner_ttl: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_finalizer")]
@@ -1077,6 +1101,7 @@ impl Default for Config {
 			regions: None,
 			remotes: None,
 			runner: Some(Runner::default()),
+			scheduler: Some(Scheduler::default()),
 			sandbox: Sandbox::default(),
 			sync: Sync::default(),
 			version: None,
@@ -1329,6 +1354,17 @@ impl Default for Runner {
 			heartbeat_interval: Duration::from_secs(1),
 			js: Js::default(),
 			remote: None,
+		}
+	}
+}
+
+impl Default for Scheduler {
+	fn default() -> Self {
+		Self {
+			control_ttl: Duration::from_mins(1),
+			create_sandbox_timeout: Duration::from_secs(10),
+			spawn_process_timeout: Duration::from_secs(10),
+			runner_ttl: Duration::from_secs(10),
 		}
 	}
 }
@@ -1702,6 +1738,11 @@ fn default_runner() -> Option<Runner> {
 }
 
 #[expect(clippy::unnecessary_wraps)]
+fn default_scheduler() -> Option<Scheduler> {
+	Some(Scheduler::default())
+}
+
+#[expect(clippy::unnecessary_wraps)]
 fn default_watch() -> Option<Watch> {
 	Some(Watch::default())
 }
@@ -1736,6 +1777,11 @@ fn is_default_indexer(value: &Option<Indexer>) -> bool {
 #[expect(clippy::ref_option)]
 fn is_default_runner(value: &Option<Runner>) -> bool {
 	is_serialized_default(value, default_runner())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_scheduler(value: &Option<Scheduler>) -> bool {
+	is_serialized_default(value, default_scheduler())
 }
 
 #[expect(clippy::ref_option)]

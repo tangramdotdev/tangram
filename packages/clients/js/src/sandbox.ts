@@ -43,6 +43,7 @@ export namespace Sandbox {
 
 	export type Arg = {
 		cpu?: number | undefined;
+		enqueue?: boolean | undefined;
 		hostname?: string | undefined;
 		isolation?: tg.Sandbox.Isolation | undefined;
 		location?: tg.Location.Arg | undefined;

@@ -26,16 +26,6 @@ where
 		}
 	}
 
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::queue::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_dequeue_sandbox(arg).left_future(),
-			tg::Either::Right(s) => s.try_dequeue_sandbox(arg).right_future(),
-		}
-	}
-
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -88,17 +78,6 @@ where
 				.try_get_sandbox_status_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
-		}
-	}
-
-	fn try_dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_dequeue_sandbox_process(sandbox, arg).left_future(),
-			tg::Either::Right(s) => s.try_dequeue_sandbox_process(sandbox, arg).right_future(),
 		}
 	}
 }

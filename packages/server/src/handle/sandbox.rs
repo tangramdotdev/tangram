@@ -16,13 +16,6 @@ impl tg::handle::Sandbox for Server {
 		self.session(&self.context).try_get_sandbox(id, arg).await
 	}
 
-	async fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		self.session(&self.context).try_dequeue_sandbox(arg).await
-	}
-
 	async fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -59,16 +52,6 @@ impl tg::handle::Sandbox for Server {
 	> {
 		self.session(&self.context)
 			.try_get_sandbox_status_stream(id, arg)
-			.await
-	}
-
-	async fn try_dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		self.session(&self.context)
-			.try_dequeue_sandbox_process(sandbox, arg)
 			.await
 	}
 }

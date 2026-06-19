@@ -46,6 +46,9 @@ pub struct Options {
 	#[arg(id = "sandbox.cpu", long = "cpu")]
 	pub cpu: Option<u64>,
 
+	#[arg(id = "sandbox.enqueue", long = "enqueue")]
+	pub enqueue: bool,
+
 	#[arg(id = "sandbox.hostname", long = "hostname")]
 	pub hostname: Option<String>,
 

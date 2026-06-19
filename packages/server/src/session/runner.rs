@@ -1,0 +1,18 @@
+use {
+	crate::Session,
+	futures::{Stream, stream::BoxStream},
+	tangram_client::prelude::*,
+};
+
+impl tg::handle::Runner for Session {
+	async fn get_runner_control_stream(
+		&self,
+		id: &tg::runner::Id,
+		arg: tg::runner::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::runner::control::InputEvent>>,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::runner::control::OutputEvent>> + Send + 'static>
+	{
+		self.get_runner_control_stream_with_context(id, arg, stream)
+			.await
+	}
+}

@@ -16,13 +16,6 @@ impl tg::handle::Sandbox for tg::Session {
 		self.try_get_sandbox(id, arg)
 	}
 
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::queue::Output>>> {
-		self.try_dequeue_sandbox(arg)
-	}
-
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -56,13 +49,5 @@ impl tg::handle::Sandbox for tg::Session {
 		>,
 	> {
 		self.try_get_sandbox_status_stream(id, arg)
-	}
-
-	fn try_dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> {
-		self.try_dequeue_sandbox_process(sandbox, arg)
 	}
 }

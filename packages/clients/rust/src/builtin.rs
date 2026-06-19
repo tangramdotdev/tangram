@@ -166,7 +166,7 @@ pub async fn checksum(
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Result<tg::Checksum> {
 	let handle = tg::handle()?;
-	checksum_with_handle(input, handle, algorithm).await
+	Box::pin(checksum_with_handle(input, handle, algorithm)).await
 }
 
 pub async fn checksum_with_handle<H>(
@@ -300,7 +300,7 @@ pub async fn download(
 	options: Option<DownloadOptions>,
 ) -> tg::Result<tg::Either<tg::Blob, tg::Artifact>> {
 	let handle = tg::handle()?;
-	download_with_handle(handle, url, checksum, options).await
+	Box::pin(download_with_handle(handle, url, checksum, options)).await
 }
 
 pub async fn download_with_handle<H>(

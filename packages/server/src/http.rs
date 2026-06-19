@@ -617,6 +617,9 @@ impl Server {
 			(http::Method::POST, ["processes", process, "signal"]) => {
 				session.try_signal_process_request(request, process).boxed()
 			},
+			(http::Method::POST, ["runner", id, "control"]) => session
+				.get_runner_control_stream_request(request, id)
+				.boxed(),
 			(http::Method::GET, ["processes", process, "status"]) => session
 				.try_get_process_status_stream_request(request, process)
 				.boxed(),
@@ -657,15 +660,9 @@ impl Server {
 			// Sandboxes.
 			(http::Method::POST, ["sandboxes"]) => session.create_sandbox_request(request).boxed(),
 			(http::Method::GET, ["sandboxes"]) => session.list_sandboxes_request(request).boxed(),
-			(http::Method::POST, ["sandboxes", "dequeue"]) => {
-				session.try_dequeue_sandbox_request(request).boxed()
-			},
 			(http::Method::GET, ["sandboxes", sandbox]) => {
 				session.try_get_sandbox_request(request, sandbox).boxed()
 			},
-			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => session
-				.try_dequeue_sandbox_process_request(request, sandbox)
-				.boxed(),
 			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => session
 				.try_destroy_sandbox_request(request, sandbox)
 				.boxed(),

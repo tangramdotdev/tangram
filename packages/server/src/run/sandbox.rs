@@ -28,8 +28,11 @@ struct CreateProcessSessionOutput {
 
 impl Server {
 	pub(crate) fn spawn_sandbox_task(&self, task: SpawnSandboxTaskArg) {
+		// Use `get_or_spawn` so that at most one task runs per sandbox id. If a task already exists,
+		// then the closure is not run, so this dispatch's `SpawnSandboxTaskArg` and its permit are
+		// dropped and the permit is released.
 		self.sandbox_tasks
-			.spawn(task.id.clone(), |_| {
+			.get_or_spawn(task.id.clone(), |_| {
 				let server = self.clone();
 				let id = task.id;
 				async move {
@@ -328,31 +331,52 @@ impl Session {
 		let mut timer = None;
 		let ttl = state.ttl;
 
-		// If the sandbox was created with a process, then start it. Otherwise, start the timer.
-		if let Some(process) = process {
-			let output = self
-				.create_process_session(
-					process,
-					&location,
-					id,
-					state.creator.clone(),
-					process_token,
-				)
-				.await?;
-			output.session.spawn_process_task(SpawnProcessTaskArg {
-				guest_url: &guest_url,
-				process: output.process,
-				process_token: output.process_token,
-				process_stopper: &process_stopper,
-				process_tasks: &mut process_tasks,
-				sandbox: &sandbox,
-			});
-		} else if let Some(ttl) = ttl {
-			timer.replace(tokio::time::sleep(ttl).boxed());
-		}
+		// Register a channel to receive the processes the scheduler dispatches to this sandbox, then
+		// register the sandbox's placement with the scheduler so processes can be routed to it.
+		let (process_sender, mut process_receiver) = tokio::sync::mpsc::channel(256);
+		self.server
+			.sandbox_process_senders
+			.insert(id.clone(), process_sender);
+		self.register_sandbox_with_scheduler(id).await;
 
-		// Start dequeueing a process.
-		let mut dequeue = self.dequeue_sandbox_process(id, &location).boxed();
+		// If the sandbox was created with a process, then start it. Otherwise, start the timer. A
+		// failure to start the process does not tear down the sandbox.
+		match process {
+			Some(process) => {
+				match self
+					.create_process_session(
+						process,
+						&location,
+						id,
+						state.creator.clone(),
+						process_token,
+					)
+					.await
+				{
+					Ok(output) => {
+						output.session.spawn_process_task(SpawnProcessTaskArg {
+							guest_url: &guest_url,
+							process: output.process,
+							process_token: output.process_token,
+							process_stopper: &process_stopper,
+							process_tasks: &mut process_tasks,
+							sandbox: &sandbox,
+						});
+					},
+					Err(error) => {
+						tracing::error!(error = %error.trace(), %id, "failed to start the process");
+						if let Some(ttl) = ttl {
+							timer.replace(tokio::time::sleep(ttl).boxed());
+						}
+					},
+				}
+			},
+			None => {
+				if let Some(ttl) = ttl {
+					timer.replace(tokio::time::sleep(ttl).boxed());
+				}
+			},
+		}
 
 		let mut destroy = false;
 		loop {
@@ -361,33 +385,55 @@ impl Session {
 				|timer| timer.as_mut().right_future(),
 			);
 			tokio::select! {
-				// If a process is dequeued, then start it and dequeue another.
-				output = &mut dequeue => {
-					let output = output.map_err(|error| tg::error!(!error, "failed to dequeue a process"))?;
+				// If a process is dispatched to the sandbox, then start it and report whether it
+				// started. A failure to start does not tear down the sandbox.
+				process = process_receiver.recv() => {
+					let Some((process, process_token, started)) = process else {
+						break;
+					};
 					timer.take();
-					let output = self
+					match self
 						.create_process_session(
-							output.process.clone(),
+							process,
 							&location,
 							id,
 							state.creator.clone(),
-							Some(output.token),
+							process_token,
 						)
-						.await?;
-					output.session.spawn_process_task(SpawnProcessTaskArg {
-						guest_url: &guest_url,
-						process: output.process,
-						process_token: output.process_token,
-						process_stopper: &process_stopper,
-						process_tasks: &mut process_tasks,
-						sandbox: &sandbox,
-					});
-					dequeue = self.dequeue_sandbox_process(id, &location).boxed();
+						.await
+					{
+						Ok(output) => {
+							output.session.spawn_process_task(SpawnProcessTaskArg {
+								guest_url: &guest_url,
+								process: output.process,
+								process_token: output.process_token,
+								process_stopper: &process_stopper,
+								process_tasks: &mut process_tasks,
+								sandbox: &sandbox,
+							});
+							started.send(true).ok();
+						},
+						Err(error) => {
+							tracing::error!(error = %error.trace(), %id, "failed to start the dispatched process");
+							started.send(false).ok();
+							if process_tasks.is_empty()
+								&& let Some(ttl) = ttl
+							{
+								timer.replace(tokio::time::sleep(ttl).boxed());
+							}
+						},
+					}
 				},
 
-				// If the sandbox is destroyed, then break.
+				// If the sandbox is destroyed or its status cannot be read, then break.
 				result = status.try_next() => {
-					let option = result.map_err(|error| tg::error!(!error, "failed to read the sandbox status"))?;
+					let option = match result {
+						Ok(option) => option,
+						Err(error) => {
+							tracing::error!(error = %error.trace(), %id, "failed to read the sandbox status");
+							break;
+						},
+					};
 					let Some(status) = option else {
 						break;
 					};
@@ -396,12 +442,18 @@ impl Session {
 					}
 				},
 
-				// If a process finishes and there are no processes, then start the timer.
+				// If a process finishes and there are no processes, then start the timer. A process
+				// task panic or failure is logged so that it does not tear down the sandbox.
 				output = process_tasks.join_next(), if !process_tasks.is_empty() => {
-					output
-						.unwrap()
-						.map_err(|error| tg::error!(!error, "a process task panicked"))?
-						.map_err(|error| tg::error!(!error, "a process task failed"))?;
+					match output.unwrap() {
+						Ok(Ok(())) => (),
+						Ok(Err(error)) => {
+							tracing::error!(error = %error.trace(), %id, "a process task failed");
+						},
+						Err(error) => {
+							tracing::error!(%error, %id, "a process task panicked");
+						},
+					}
 					if process_tasks.is_empty() && let Some(ttl) = ttl {
 						timer.replace(tokio::time::sleep(ttl).boxed());
 					}
@@ -415,8 +467,9 @@ impl Session {
 			}
 		}
 
-		// Drop the dequeue future.
-		drop(dequeue);
+		// Deregister the sandbox's process channel and its placement with the scheduler.
+		self.server.sandbox_process_senders.remove(id);
+		self.deregister_sandbox_with_scheduler(id).await;
 
 		// Destroy the sandbox.
 		if destroy {
@@ -550,24 +603,28 @@ impl Session {
 		Ok(())
 	}
 
-	async fn dequeue_sandbox_process(
-		&self,
-		id: &tg::sandbox::Id,
-		location: &tg::Location,
-	) -> tg::Result<tg::sandbox::process::queue::Output> {
-		loop {
-			let arg = tg::sandbox::process::queue::Arg {
-				location: Some(location.clone().into()),
-				timeout: None,
-			};
-			match self.try_dequeue_sandbox_process(id, arg).await {
-				Ok(Some(output)) => return Ok(output),
-				Ok(None) => (),
-				Err(error) => {
-					tracing::trace!(error = %error.trace(), sandbox = %id, ?location, "failed to dequeue a process");
-				},
-			}
-		}
+	async fn register_sandbox_with_scheduler(&self, id: &tg::sandbox::Id) {
+		let sender = self.server.runner_input.lock().unwrap().clone();
+		let Some(sender) = sender else {
+			return;
+		};
+		let event =
+			tg::runner::control::InputEvent::SandboxCreated(tg::runner::control::SandboxCreated {
+				request_id: String::new(),
+				id: id.clone(),
+				created: true,
+				runner: true,
+			});
+		sender.send(event).await.ok();
+	}
+
+	async fn deregister_sandbox_with_scheduler(&self, id: &tg::sandbox::Id) {
+		let sender = self.server.runner_input.lock().unwrap().clone();
+		let Some(sender) = sender else {
+			return;
+		};
+		let event = tg::runner::control::InputEvent::SandboxDestroyed(id.clone());
+		sender.send(event).await.ok();
 	}
 
 	async fn sandbox_heartbeat_task(
