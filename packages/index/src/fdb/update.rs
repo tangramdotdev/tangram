@@ -34,7 +34,6 @@ pub(super) enum Source {
 struct ProcessGrantInputs<'a> {
 	resource: &'a tg::Id,
 	entries: &'a [crate::fdb::grant::GrantEntry],
-	direct_entries: &'a [crate::fdb::grant::GrantEntry],
 	child_entries: &'a [Vec<crate::fdb::grant::GrantEntry>],
 	command_object_entries: Option<&'a [crate::fdb::grant::GrantEntry]>,
 	error_object_entries: &'a [Vec<crate::fdb::grant::GrantEntry>],
@@ -447,18 +446,14 @@ impl Index {
 	) -> tg::Result<bool> {
 		let resource = tg::Id::from(id.clone());
 		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
-		let entries = Self::get_effective_resource_grant_entries_for_principal_with_transaction(
-			txn, subspace, &resource, principal,
-		)
-		.await?;
-		let direct_entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
 			txn, subspace, &resource, principal,
 		)
 		.await?;
 		let child_entries = future::try_join_all(children.iter().map(|child| {
 			let resource = tg::Id::from(child.clone());
 			async move {
-				Self::get_effective_resource_grant_entries_for_principal_with_transaction(
+				Self::get_resource_grant_entries_for_principal_with_transaction(
 					txn, subspace, &resource, principal,
 				)
 				.await
@@ -468,7 +463,7 @@ impl Index {
 		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 		let subtree =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let explicit_subtree = direct_entries
+		let explicit_subtree = entries
 			.iter()
 			.filter(|entry| {
 				entry.permission == subtree
@@ -496,48 +491,12 @@ impl Index {
 			txn,
 			subspace,
 			&resource,
-			&direct_entries,
+			&entries,
 			&expected,
 			&managed,
 			partition_total,
 		)
 		.await
-	}
-
-	async fn get_effective_resource_grant_entries_for_principal_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		resource: &tg::Id,
-		principal: &tg::grant::Principal,
-	) -> tg::Result<Vec<crate::fdb::grant::GrantEntry>> {
-		let mut entries = Self::get_resource_grant_entries_for_principal_with_transaction(
-			txn, subspace, resource, principal,
-		)
-		.await?;
-		if let tg::grant::Principal::Process(process) = principal {
-			let children =
-				Self::get_process_children_with_transaction(txn, subspace, process).await?;
-			let inherited = future::try_join_all(children.into_iter().map(|child| {
-				let child_principal = tg::grant::Principal::Process(child);
-				async move {
-					Self::get_resource_grant_entries_for_principal_with_transaction(
-						txn,
-						subspace,
-						resource,
-						&child_principal,
-					)
-					.await
-				}
-			}))
-			.await?;
-			for child_entries in inherited {
-				entries.extend(child_entries.into_iter().map(|mut entry| {
-					entry.principal = principal.clone();
-					entry
-				}));
-			}
-		}
-		Ok(entries)
 	}
 
 	async fn reconcile_materialized_grants(
@@ -631,7 +590,7 @@ impl Index {
 		);
 
 		let explicit = input
-			.direct_entries
+			.entries
 			.iter()
 			.filter(|entry| entry.sources & crate::fdb::grant::EXPLICIT_GRANT_SOURCE != 0)
 			.map(|entry| (entry.principal.clone(), entry.permission, entry.expires_at))
@@ -733,7 +692,7 @@ impl Index {
 			txn,
 			subspace,
 			input.resource,
-			input.direct_entries,
+			input.entries,
 			&expected,
 			&managed,
 			partition_total,
@@ -757,11 +716,7 @@ impl Index {
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
 		let process = crate::process::Process::deserialize(&bytes)?;
 		let resource = tg::Id::from(id.clone());
-		let entries = Self::get_effective_resource_grant_entries_for_principal_with_transaction(
-			txn, subspace, &resource, principal,
-		)
-		.await?;
-		let direct_entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
 			txn, subspace, &resource, principal,
 		)
 		.await?;
@@ -769,7 +724,7 @@ impl Index {
 		let child_entries = future::try_join_all(children.iter().map(|child| {
 			let resource = tg::Id::from(child.clone());
 			async move {
-				Self::get_effective_resource_grant_entries_for_principal_with_transaction(
+				Self::get_resource_grant_entries_for_principal_with_transaction(
 					txn, subspace, &resource, principal,
 				)
 				.await
@@ -783,11 +738,10 @@ impl Index {
 		let mut output_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
 		for (object, kind) in objects {
 			let resource = tg::Id::from(object);
-			let entries =
-				Self::get_effective_resource_grant_entries_for_principal_with_transaction(
-					txn, subspace, &resource, principal,
-				)
-				.await?;
+			let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
+				txn, subspace, &resource, principal,
+			)
+			.await?;
 			match kind {
 				crate::process::object::Kind::Command => {
 					command_object_entries = Some(entries);
@@ -809,7 +763,6 @@ impl Index {
 			&ProcessGrantInputs {
 				resource: &resource,
 				entries: &entries,
-				direct_entries: &direct_entries,
 				child_entries: &child_entries,
 				command_object_entries: command_object_entries.as_deref(),
 				error_object_entries: &error_object_entries,
@@ -1692,34 +1645,6 @@ impl Index {
 					.await?;
 				}
 			},
-		}
-		Self::enqueue_process_principal_parents(txn, subspace, id, kind, version, partition_total)
-			.await?;
-		Ok(())
-	}
-
-	async fn enqueue_process_principal_parents(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		kind: &Kind,
-		version: &fdbt::Versionstamp,
-		partition_total: u64,
-	) -> tg::Result<()> {
-		let Kind::Grants(tg::grant::Principal::Process(process)) = kind else {
-			return Ok(());
-		};
-		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
-		for parent in parents {
-			Self::enqueue_update_propagate(
-				txn,
-				subspace,
-				id,
-				&Kind::Grants(tg::grant::Principal::Process(parent)),
-				version,
-				partition_total,
-			)
-			.await?;
 		}
 		Ok(())
 	}
