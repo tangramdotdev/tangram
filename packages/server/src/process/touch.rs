@@ -55,6 +55,15 @@ impl Session {
 	}
 
 	async fn try_touch_process_local(&self, id: &tg::process::Id) -> tg::Result<Option<()>> {
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		if !self
+			.authorize(id.clone(), permission)
+			.await?
+			.is_some_and(|permissions| permissions.contains(permission))
+		{
+			return Ok(None);
+		}
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let Some(_) = self
 			.server
