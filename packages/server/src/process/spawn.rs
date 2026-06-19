@@ -833,14 +833,34 @@ impl Session {
 					processes.error_code {isnt} 'cancellation' and
 					processes.error_code {isnt} 'heartbeat_expiration' and
 					processes.error_code {isnt} 'internal'
-				order by processes.created_at desc
-				limit 1;
+				order by processes.created_at desc;
 			"
 		);
 		let params = db::params![
 			arg.command.item.to_string(),
 			arg.checksum.as_ref().map(ToString::to_string),
 		];
+		let rows = {
+			let result = transaction
+				.query_all_into::<Row>(statement.into(), params)
+				.await;
+			crate::database::retry!(result, "failed to execute the statement")
+		};
+
+		// Take the most recent matching process the principal is authorized to read, so that a cache hit cannot confer read access to a process the principal cannot otherwise read.
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		let mut authorized = None;
+		for row in rows {
+			if self
+				.authorize(row.id.clone(), permission)
+				.await?
+				.is_some_and(|permissions| permissions.contains(permission))
+			{
+				authorized = Some(row);
+				break;
+			}
+		}
 		let Some(Row {
 			id,
 			error,
@@ -850,12 +870,7 @@ impl Session {
 			sandbox_status,
 			status,
 			stored_at,
-		}) = ({
-			let result = transaction
-				.query_optional_into::<Row>(statement.into(), params)
-				.await;
-			crate::database::retry!(result, "failed to execute the statement")
-		})
+		}) = authorized
 		else {
 			return Ok(ControlFlow::Break(None));
 		};
@@ -1073,11 +1088,31 @@ impl Session {
 					processes.error_code {is} 'checksum_mismatch' and
 					processes.actual_checksum is not null and
 					{checksum_prefix}
-				order by processes.created_at desc
-				limit 1;
+				order by processes.created_at desc;
 			"
 		);
 		let params = db::params![arg.command.item.to_string(), expected_checksum.to_string()];
+		let rows = {
+			let result = transaction
+				.query_all_into::<Row>(statement.into(), params)
+				.await;
+			crate::database::retry!(result, "failed to execute the statement")
+		};
+
+		// Take the most recent matching process the principal is authorized to read, so that reusing its output cannot confer read access to a process the principal cannot otherwise read.
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		let mut authorized = None;
+		for row in rows {
+			if self
+				.authorize(row.id.clone(), permission)
+				.await?
+				.is_some_and(|permissions| permissions.contains(permission))
+			{
+				authorized = Some(row);
+				break;
+			}
+		}
 		let Some(Row {
 			actual_checksum,
 			depth,
@@ -1087,12 +1122,7 @@ impl Session {
 			sandbox_status,
 			status: source_status,
 			stored_at: source_stored_at,
-		}) = ({
-			let result = transaction
-				.query_optional_into::<Row>(statement.into(), params)
-				.await;
-			crate::database::retry!(result, "failed to execute the statement")
-		})
+		}) = authorized
 		else {
 			return Ok(ControlFlow::Break(None));
 		};
