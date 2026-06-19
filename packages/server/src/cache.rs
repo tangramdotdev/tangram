@@ -54,6 +54,27 @@ impl Session {
 		if artifacts.is_empty() {
 			return Ok(stream::once(future::ok(tg::progress::Event::Output(()))).left_stream());
 		}
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let authorized = self
+			.authorize_batch(
+				artifacts
+					.iter()
+					.map(|artifact| {
+						(
+							artifact.clone(),
+							tg::grant::permission::Set::from_permission(permission),
+						)
+					})
+					.collect::<Vec<_>>(),
+			)
+			.await?;
+		if authorized
+			.into_iter()
+			.any(|output| !output.is_some_and(|permissions| permissions.contains(permission)))
+		{
+			return Err(tg::error!("failed to find the artifact"));
+		}
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
 			let session = self.clone();
