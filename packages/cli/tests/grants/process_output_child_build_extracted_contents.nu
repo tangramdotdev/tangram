@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			return tg.file(tg.build(f).then((file) => file.contents));
+			return tg.file(tg.build(f).then((file) => file.contents)).executable(true);
 		}
 		export function f() {
 			return tg.run`echo hello > $TANGRAM_OUTPUT`.then(tg.File.expect);
