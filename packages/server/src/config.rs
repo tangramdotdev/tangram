@@ -143,14 +143,20 @@ pub struct Oauth {
 	pub token_url: String,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Authorization {
-	pub tokens: AuthorizationTokens,
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(
+		default = "default_authorization_tokens",
+		skip_serializing_if = "is_default_authorization_tokens"
+	)]
+	pub tokens: Option<AuthorizationTokens>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthorizationTokens {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub private_key: Option<AuthorizationPrivateKey>,
@@ -159,24 +165,51 @@ pub struct AuthorizationTokens {
 	pub public_keys: Vec<AuthorizationPublicKey>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthorizationPrivateKey {
 	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
 
-	pub path: PathBuf,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthorizationPublicKey {
 	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
 
-	pub path: PathBuf,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+}
+
+impl Default for Authorization {
+	fn default() -> Self {
+		Self {
+			tokens: default_authorization_tokens(),
+		}
+	}
+}
+
+impl Default for AuthorizationTokens {
+	fn default() -> Self {
+		Self {
+			private_key: Some(AuthorizationPrivateKey {
+				algorithm: tg::grant::Algorithm::Ed25519,
+				name: "default".to_owned(),
+				path: None,
+			}),
+			public_keys: vec![AuthorizationPublicKey {
+				algorithm: tg::grant::Algorithm::Ed25519,
+				name: "default".to_owned(),
+				path: None,
+			}],
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1640,6 +1673,11 @@ fn sync_retry_default() -> Retry {
 }
 
 #[expect(clippy::unnecessary_wraps)]
+fn default_authorization_tokens() -> Option<AuthorizationTokens> {
+	Some(AuthorizationTokens::default())
+}
+
+#[expect(clippy::unnecessary_wraps)]
 fn default_http() -> Option<Http> {
 	Some(Http::default())
 }
@@ -1669,6 +1707,11 @@ where
 	T: Default + serde::Serialize,
 {
 	is_serialized_default(value, T::default())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_authorization_tokens(value: &Option<AuthorizationTokens>) -> bool {
+	is_serialized_default(value, default_authorization_tokens())
 }
 
 #[expect(clippy::ref_option)]

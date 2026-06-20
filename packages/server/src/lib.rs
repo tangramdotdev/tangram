@@ -672,27 +672,67 @@ impl Server {
 		let watches = DashMap::default();
 
 		// Create the token keys.
-		let private_key = match &config.authorization.tokens.private_key {
-			Some(config) => {
-				let bytes = tokio::fs::read(&config.path).await.map_err(
-					|error| tg::error!(!error, path = %config.path.display(), "failed to read the private key"),
-				)?;
-				Some(tg::grant::PrivateKey::new(
-					config.name.clone(),
-					config.algorithm,
-					bytes,
-				))
+		let private_key = match &config.authorization.tokens {
+			Some(tokens) => match &tokens.private_key {
+				Some(config) => {
+					let bytes = match &config.path {
+						Some(path) => match config.algorithm {
+							tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
+								|error| tg::error!(!error, path = %path.display(), "failed to read the private key"),
+							)?,
+						},
+						None => match config.algorithm {
+							tg::grant::Algorithm::Ed25519 => {
+								tg::grant::PrivateKey::generate(
+									config.name.clone(),
+									config.algorithm,
+								)?
+								.bytes
+							},
+						},
+					};
+					Some(tg::grant::PrivateKey::new(
+						config.name.clone(),
+						config.algorithm,
+						bytes,
+					))
+				},
+				None => None,
 			},
 			None => None,
 		};
 		let mut public_keys = BTreeMap::new();
-		for config in &config.authorization.tokens.public_keys {
-			let bytes = tokio::fs::read(&config.path).await.map_err(
-				|error| tg::error!(!error, path = %config.path.display(), "failed to read the public key"),
-			)?;
-			let key = tg::grant::PublicKey::new(config.name.clone(), config.algorithm, bytes);
-			if public_keys.insert(config.name.clone(), key).is_some() {
-				return Err(tg::error!(name = %config.name, "duplicate public key"));
+		if let Some(tokens) = &config.authorization.tokens {
+			for config in &tokens.public_keys {
+				let bytes = match &config.path {
+					Some(path) => match config.algorithm {
+						tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
+							|error| tg::error!(!error, path = %path.display(), "failed to read the public key"),
+						)?,
+					},
+					None => match config.algorithm {
+						tg::grant::Algorithm::Ed25519 => {
+							let matching_private_key = private_key.as_ref().filter(|private_key| {
+								private_key.name == config.name
+									&& private_key.algorithm == config.algorithm
+							});
+							let key = if let Some(private_key) = matching_private_key {
+								tg::grant::PublicKey::from_private_key(private_key)?
+							} else {
+								let private_key = tg::grant::PrivateKey::generate(
+									config.name.clone(),
+									config.algorithm,
+								)?;
+								tg::grant::PublicKey::from_private_key(&private_key)?
+							};
+							key.bytes
+						},
+					},
+				};
+				let key = tg::grant::PublicKey::new(config.name.clone(), config.algorithm, bytes);
+				if public_keys.insert(config.name.clone(), key).is_some() {
+					return Err(tg::error!(name = %config.name, "duplicate public key"));
+				}
 			}
 		}
 		let tokens = Tokens {

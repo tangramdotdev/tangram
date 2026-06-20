@@ -249,7 +249,7 @@ where
 			let object = object.unwrap_blob_ref();
 			self.blob_object(object)?;
 		} else {
-			self.color(state.id(), Color::Blue)?;
+			self.object_id(state)?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -284,7 +284,7 @@ where
 			let object = object.unwrap_directory_ref();
 			self.directory_object(object)?;
 		} else {
-			self.color(state.id(), Color::Blue)?;
+			self.object_id(state)?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -381,7 +381,7 @@ where
 			let object = object.unwrap_file_ref();
 			self.file_object(object)?;
 		} else {
-			self.color(state.id(), Color::Blue)?;
+			self.object_id(state)?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -448,7 +448,7 @@ where
 			let object = object.unwrap_symlink_ref();
 			self.symlink_object(object)?;
 		} else {
-			self.color(state.id(), Color::Blue)?;
+			self.object_id(state)?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -490,7 +490,7 @@ where
 			let object = object.unwrap_graph_ref();
 			self.graph_object(object)?;
 		} else {
-			self.color(state.id(), Color::Blue)?;
+			self.object_id(state)?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -573,7 +573,7 @@ where
 			let object = object.unwrap_command_ref();
 			self.command_object(object)?;
 		} else {
-			self.color(state.id(), Color::Blue)?;
+			self.object_id(state)?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -587,9 +587,18 @@ where
 			let object = object.unwrap_error_ref();
 			self.error_object(object)?;
 		} else {
-			self.color(state.id(), Color::Blue)?;
+			self.object_id(state)?;
 		}
 		self.depth -= 1;
+		Ok(())
+	}
+
+	fn object_id(&mut self, state: &tg::object::State) -> Result {
+		self.color(state.id(), Color::Blue)?;
+		if let Some(token) = state.token() {
+			write!(self.writer, "&token=")?;
+			self.color(token, Color::Blue)?;
+		}
 		Ok(())
 	}
 

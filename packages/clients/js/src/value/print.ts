@@ -75,7 +75,7 @@ export class Printer {
 		let state = value.state;
 		let object = state.object;
 		if (object === undefined) {
-			return this.id(state.id);
+			return this.objectId(state);
 		}
 		tg.assert(object.kind === "blob", "expected a blob object");
 		return this.blobObject(object.value);
@@ -85,7 +85,7 @@ export class Printer {
 		let state = value.state;
 		let object = state.object;
 		if (object === undefined) {
-			return this.id(state.id);
+			return this.objectId(state);
 		}
 		tg.assert(object.kind === "directory", "expected a directory object");
 		return this.directoryObject(object.value);
@@ -95,7 +95,7 @@ export class Printer {
 		let state = value.state;
 		let object = state.object;
 		if (object === undefined) {
-			return this.id(state.id);
+			return this.objectId(state);
 		}
 		tg.assert(object.kind === "file", "expected a file object");
 		return this.fileObject(object.value);
@@ -105,7 +105,7 @@ export class Printer {
 		let state = value.state;
 		let object = state.object;
 		if (object === undefined) {
-			return this.id(state.id);
+			return this.objectId(state);
 		}
 		tg.assert(object.kind === "symlink", "expected a symlink object");
 		return this.symlinkObject(object.value);
@@ -115,7 +115,7 @@ export class Printer {
 		let state = value.state;
 		let object = state.object;
 		if (object === undefined) {
-			return this.id(state.id);
+			return this.objectId(state);
 		}
 		tg.assert(object.kind === "graph", "expected a graph object");
 		return this.graphObject(object.value);
@@ -125,7 +125,7 @@ export class Printer {
 		let state = value.state;
 		let object = state.object;
 		if (object === undefined) {
-			return this.id(state.id);
+			return this.objectId(state);
 		}
 		tg.assert(object.kind === "command", "expected a command object");
 		return this.commandObject(object.value);
@@ -135,7 +135,7 @@ export class Printer {
 		let state = value.state;
 		let object = state.object;
 		if (object === undefined) {
-			return this.id(state.id);
+			return this.objectId(state);
 		}
 		tg.assert(object.kind === "error", "expected an error object");
 		return this.errorObject(object.value);
@@ -703,6 +703,14 @@ export class Printer {
 
 	private id(value: string): string {
 		return this.style(value, colors.blue);
+	}
+
+	private objectId(state: tg.Object.State): string {
+		let string = state.id;
+		if (state.token !== undefined) {
+			string += `&token=${state.token}`;
+		}
+		return this.id(string);
 	}
 
 	private bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

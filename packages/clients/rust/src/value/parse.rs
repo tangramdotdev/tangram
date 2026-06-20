@@ -195,8 +195,29 @@ fn object(input: &mut Input) -> ModalResult<tg::Object> {
 			("tg", whitespace, ".", whitespace),
 			alt((blob, directory, file, symlink, graph, command, error)),
 		),
-		id.verify_map(|id| id.try_into().map(tg::Object::with_id).ok()),
+		object_id_with_token,
 	))
+	.parse_next(input)
+}
+
+fn object_id_with_token(input: &mut Input) -> ModalResult<tg::Object> {
+	(id, opt(preceded("&token=", token)))
+		.verify_map(|(id, token)| {
+			let id = tg::object::Id::try_from(id).ok()?;
+			let object = tg::Object::with_id(id);
+			if let Some(token) = token {
+				object.state().set_token(Some(token));
+			}
+			Some(object)
+		})
+		.parse_next(input)
+}
+
+fn token(input: &mut Input) -> ModalResult<tg::grant::Token> {
+	take_while(1.., |c: char| {
+		!c.is_whitespace() && !matches!(c, ',' | ']' | '}' | ')')
+	})
+	.verify_map(|s: &str| s.parse().ok())
 	.parse_next(input)
 }
 
@@ -1754,6 +1775,31 @@ mod tests {
 		let mut input = super::Input::new(&string);
 		let value = super::id(&mut input).expect("failed to parse the sandbox id");
 		assert_eq!(value.kind(), crate::id::Kind::Sandbox);
+	}
+
+	// The value parser preserves object tokens in bare object ids.
+	#[test]
+	fn parse_object_id_with_token() {
+		let id = crate::object::Id::new(crate::object::Kind::File, &bytes::Bytes::new());
+		let private_key =
+			crate::grant::PrivateKey::generate("default", crate::grant::Algorithm::Ed25519)
+				.unwrap();
+		let body = crate::grant::Body {
+			expires_at: 20,
+			permissions: vec![crate::grant::Permission::Object(
+				crate::grant::permission::object::Permission::Subtree,
+			)],
+			resource: crate::grant::Resource::Id(id.clone().into()),
+		};
+		let token = crate::grant::Token::sign(body, &private_key).unwrap();
+		let tgon = format!("{id}&token={token}");
+
+		let value = super::parse(&tgon).unwrap();
+		assert_eq!(value.to_string(), tgon);
+		let object = value.try_unwrap_object().unwrap();
+
+		assert_eq!(object.id(), id);
+		assert_eq!(object.state().token(), Some(token));
 	}
 
 	// The value parser parses a large, realistic tgon document with nested mutations, templates, and placeholders.

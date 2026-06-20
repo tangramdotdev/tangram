@@ -342,7 +342,7 @@ impl Session {
 		};
 
 		// If the local process finishes before the cached lookup responds, then use the local process. If a cached process is found sooner, then spawn a task to cancel the local process and use the cached process.
-		let output = match future::select(pin!(local_future), pin!(cached_future)).await {
+		let mut output = match future::select(pin!(local_future), pin!(cached_future)).await {
 			future::Either::Left((result, cached_future)) => {
 				if let Some(wait) = result? {
 					let output = output.unwrap();
@@ -393,6 +393,13 @@ impl Session {
 				}
 			},
 		};
+		if matches!(
+			output.location,
+			Some(tg::Location::Local(tg::location::Local { region: None }))
+		) && let Some(wait) = &mut output.wait
+		{
+			self.add_tokens_to_wait_output(wait)?;
+		}
 
 		if let Some(parent) = &arg.parent {
 			let child = output.process.as_ref().unwrap_right();
