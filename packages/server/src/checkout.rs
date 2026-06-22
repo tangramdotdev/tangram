@@ -45,6 +45,18 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + use<>,
 	> {
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let authorized = self
+			.authorize(
+				arg.artifact.clone(),
+				tg::grant::permission::Set::from_permission(permission),
+			)
+			.await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Err(tg::error!("failed to find the artifact"));
+		}
+
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path)?;
 		}
