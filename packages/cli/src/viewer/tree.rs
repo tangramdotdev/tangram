@@ -2476,6 +2476,7 @@ impl Tree {
 									depth: Some(2),
 									indent: 0,
 									indentation: Some("  "),
+									tokens: false,
 								};
 								value.print(options)
 							},
@@ -2500,6 +2501,7 @@ impl Tree {
 									depth: Some(1),
 									indent: 0,
 									indentation: Some("  "),
+									tokens: false,
 								};
 								value.print(options)
 							},
@@ -2595,6 +2597,7 @@ impl Tree {
 						depth: Some(0),
 						indent: 0,
 						indentation: None,
+						tokens: false,
 					};
 					value.print(options)
 				}

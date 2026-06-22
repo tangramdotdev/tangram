@@ -170,6 +170,7 @@ impl Cli {
 			depth,
 			indent,
 			indentation,
+			tokens: false,
 		};
 		let output = value.print(options);
 		stdout

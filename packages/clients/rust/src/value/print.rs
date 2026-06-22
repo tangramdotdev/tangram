@@ -20,6 +20,7 @@ pub struct Options {
 	pub depth: Option<u64>,
 	pub indent: usize,
 	pub indentation: Option<&'static str>,
+	pub tokens: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -595,7 +596,9 @@ where
 
 	fn object_id(&mut self, state: &tg::object::State) -> Result {
 		self.color(state.id(), Color::Blue)?;
-		if let Some(token) = state.token() {
+		if self.options.tokens
+			&& let Some(token) = state.token()
+		{
 			write!(self.writer, "&token=")?;
 			self.color(token, Color::Blue)?;
 		}
