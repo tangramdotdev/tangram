@@ -245,6 +245,12 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
+		// Get the content type header.
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+
 		// Read the body.
 		let bytes = request
 			.bytes()
@@ -252,8 +258,20 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to read the request body"))?;
 
 		// Deserialize the arg.
-		let arg = tg::object::batch::Arg::deserialize(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?;
+		let arg = match content_type
+			.as_ref()
+			.map(|content_type| (content_type.type_(), content_type.subtype()))
+		{
+			Some((mime::APPLICATION, mime::JSON)) => serde_json::from_slice(&bytes)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?,
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => {
+				tg::object::batch::Arg::deserialize(bytes)
+					.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?
+			},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid content type"));
+			},
+		};
 
 		// Validate all object IDs match their bytes.
 		for object in &arg.objects {

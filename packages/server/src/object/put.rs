@@ -212,10 +212,36 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let bytes = request
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+		let body = request
 			.bytes()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the request body"))?;
+		let bytes = match content_type
+			.as_ref()
+			.map(|content_type| (content_type.type_(), content_type.subtype()))
+		{
+			Some((mime::APPLICATION, mime::JSON)) => {
+				let data = serde_json::from_slice::<tg::object::Data>(&body)
+					.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?;
+				if data.kind() != id.kind() {
+					return Err(tg::error!(
+						expected = %id.kind(),
+						actual = %data.kind(),
+						"invalid object kind"
+					));
+				}
+				data.serialize()
+					.map_err(|error| tg::error!(!error, "failed to serialize the object"))?
+			},
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => body,
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid content type"));
+			},
+		};
 
 		let actual = tg::object::Id::new(id.kind(), &bytes);
 		if id != actual {
