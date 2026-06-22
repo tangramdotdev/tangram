@@ -9,7 +9,7 @@ let eve = tg login --verbose eve | from json
 # Alice builds a private file (object).
 let path = artifact { tangram.ts: 'export default () => tg.file("topsecret")' }
 let process = tg --token $alice.token build --detach $path | str trim
-let file = (tg --token $alice.token wait $process | from json).output.value
+let file = (tg --token $alice.token wait $process | from json).output.value.id
 
 # Eve cannot read Alice's private object.
 let denied = tg --token $eve.token get $file | complete

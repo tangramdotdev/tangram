@@ -34,7 +34,7 @@ snapshot ($output.stderr | redact) '
 '
 
 # Touching an object with a process token is allowed.
-let id = tg put 'tg.file("object for token")' | str trim
+let id = tg --token $token put 'tg.file("object for token")' | str trim
 let output = tg --token $token object touch $id | complete
 success $output
 
