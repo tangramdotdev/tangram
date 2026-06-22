@@ -57,6 +57,15 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Node);
+		let authorized = self
+			.authorize(id.clone(), tg::grant::permission::Set::from_permission(permission))
+			.await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Ok(None);
+		}
+
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			cpu: Option<i64>,

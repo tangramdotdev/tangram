@@ -9,6 +9,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 };
 
 #[derive(Clone)]
@@ -94,6 +95,29 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
+
+		if let Some(principal) = self.context.principal.clone() {
+			let expires_at = now
+				+ i64::try_from(self.server.config.process.grant_time_to_live.as_secs()).unwrap();
+			let put_grants = vec![tangram_index::grant::put::Arg {
+				created_at: now,
+				creator: Some(principal.clone()),
+				expires_at: Some(expires_at),
+				permissions: tg::grant::permission::Set::Sandbox(
+					tg::grant::permission::sandbox::Set::all(),
+				),
+				principal: principal.into(),
+				resource: id.clone().into(),
+			}];
+			self.server
+				.index
+				.batch(tangram_index::batch::Arg {
+					put_grants,
+					..Default::default()
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the sandbox to the index"))?;
+		}
 
 		self.server.spawn_publish_sandbox_status_task(&id);
 		self.spawn_publish_sandboxes_created_message_task();

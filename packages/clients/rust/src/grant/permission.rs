@@ -2,6 +2,7 @@ use crate::prelude::*;
 
 pub mod object;
 pub mod process;
+pub mod sandbox;
 
 #[derive(
 	Clone,
@@ -31,6 +32,9 @@ pub enum Permission {
 
 	Read,
 
+	#[display("sandbox_{_0}")]
+	Sandbox(sandbox::Permission),
+
 	Write,
 }
 
@@ -48,6 +52,7 @@ pub enum Set {
 	Resource(ResourceSet),
 	Object(object::Set),
 	Process(process::Set),
+	Sandbox(sandbox::Set),
 }
 
 bitflags::bitflags! {
@@ -68,6 +73,7 @@ impl Permission {
 			| (Self::Read, Self::Read) => true,
 			(Self::Object(granted), Self::Object(needed)) => granted.implies(needed),
 			(Self::Process(granted), Self::Process(needed)) => granted.implies(needed),
+			(Self::Sandbox(granted), Self::Sandbox(needed)) => granted.implies(needed),
 			_ => false,
 		}
 	}
@@ -96,6 +102,9 @@ impl Set {
 			Permission::Process(permission) => {
 				Self::Process(process::Set::from_permission(permission))
 			},
+			Permission::Sandbox(permission) => {
+				Self::Sandbox(sandbox::Set::from_permission(permission))
+			},
 		}
 	}
 
@@ -106,6 +115,7 @@ impl Set {
 			(Self::Resource(this), Self::Resource(other)) => this.contains(other),
 			(Self::Object(this), Self::Object(other)) => this.contains(other),
 			(Self::Process(this), Self::Process(other)) => this.contains(other),
+			(Self::Sandbox(this), Self::Sandbox(other)) => this.contains(other),
 			_ => false,
 		}
 	}
@@ -116,6 +126,7 @@ impl Set {
 			Self::Resource(_) => Self::Resource(ResourceSet::empty()),
 			Self::Object(_) => Self::Object(object::Set::empty()),
 			Self::Process(_) => Self::Process(process::Set::empty()),
+			Self::Sandbox(_) => Self::Sandbox(sandbox::Set::empty()),
 		}
 	}
 
@@ -125,6 +136,7 @@ impl Set {
 			Self::Resource(permissions) => permissions.is_empty(),
 			Self::Object(permissions) => permissions.is_empty(),
 			Self::Process(permissions) => permissions.is_empty(),
+			Self::Sandbox(permissions) => permissions.is_empty(),
 		}
 	}
 
@@ -133,6 +145,7 @@ impl Set {
 			(Self::Resource(this), Self::Resource(other)) => this.insert(other),
 			(Self::Object(this), Self::Object(other)) => this.insert(other),
 			(Self::Process(this), Self::Process(other)) => this.insert(other),
+			(Self::Sandbox(this), Self::Sandbox(other)) => this.insert(other),
 			_ => {},
 		}
 	}
@@ -142,6 +155,7 @@ impl Set {
 			(Self::Resource(this), Self::Resource(other)) => this.remove(other),
 			(Self::Object(this), Self::Object(other)) => this.remove(other),
 			(Self::Process(this), Self::Process(other)) => this.remove(other),
+			(Self::Sandbox(this), Self::Sandbox(other)) => this.remove(other),
 			_ => {},
 		}
 	}
@@ -153,6 +167,7 @@ impl Set {
 			(Self::Resource(_), Self::Resource(_))
 				| (Self::Object(_), Self::Object(_))
 				| (Self::Process(_), Self::Process(_))
+				| (Self::Sandbox(_), Self::Sandbox(_))
 		)
 	}
 
@@ -203,6 +218,20 @@ impl Set {
 				Self::process_entry(permissions, process::Permission::SubtreeError),
 				Self::process_entry(permissions, process::Permission::SubtreeLog),
 				Self::process_entry(permissions, process::Permission::SubtreeOutput),
+			],
+			Self::Sandbox(permissions) => [
+				permissions
+					.contains(sandbox::Set::NODE)
+					.then_some(Permission::Sandbox(sandbox::Permission::Node)),
+				None,
+				None,
+				None,
+				None,
+				None,
+				None,
+				None,
+				None,
+				None,
 			],
 		};
 		entries.into_iter().flatten()
@@ -272,6 +301,12 @@ impl std::str::FromStr for Permission {
 				.map_err(|_| tg::error!("invalid grant permission"))?;
 			return Ok(Self::Process(permission));
 		}
+		if let Some(s) = s.strip_prefix("sandbox_") {
+			let permission = s
+				.parse()
+				.map_err(|_| tg::error!("invalid grant permission"))?;
+			return Ok(Self::Sandbox(permission));
+		}
 		match s {
 			"admin" => Ok(Self::Admin),
 			"read" => Ok(Self::Read),
@@ -283,7 +318,7 @@ impl std::str::FromStr for Permission {
 
 #[cfg(test)]
 mod tests {
-	use super::{Permission, object, process};
+	use super::{Permission, object, process, sandbox};
 
 	#[test]
 	fn display_from_str_round_trip() {
@@ -335,6 +370,10 @@ mod tests {
 			(
 				Permission::Process(process::Permission::SubtreeOutput),
 				"process_subtree_output",
+			),
+			(
+				Permission::Sandbox(sandbox::Permission::Node),
+				"sandbox_node",
 			),
 		];
 		for (permission, string) in permissions {

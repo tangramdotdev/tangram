@@ -33,6 +33,13 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<()> {
 		for arg in args {
+			if arg.resource.kind() == tg::id::Kind::Sandbox {
+				let id = tg::sandbox::Id::try_from(arg.resource.clone())
+					.map_err(|error| tg::error!(!error, "invalid sandbox id"))?;
+				let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id));
+				let key = Self::pack(subspace, &key);
+				txn.set(&key, &[]);
+			}
 			for permission in arg.permissions.iter() {
 				Self::put_grant_index_entry(
 					txn,
@@ -183,6 +190,7 @@ impl Index {
 			},
 			tg::grant::Permission::Admin
 			| tg::grant::Permission::Read
+			| tg::grant::Permission::Sandbox(_)
 			| tg::grant::Permission::Write => {},
 		}
 	}

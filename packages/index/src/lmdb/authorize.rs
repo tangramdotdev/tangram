@@ -569,6 +569,7 @@ impl Index {
 					dependencies.push((parent, permission));
 				}
 			},
+			tg::grant::Permission::Sandbox(_) => {},
 		}
 		Ok(dependencies)
 	}

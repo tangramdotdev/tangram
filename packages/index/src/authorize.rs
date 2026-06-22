@@ -43,6 +43,7 @@ pub fn validate_permission(resource: &tg::Id, permission: tg::grant::Permission)
 		},
 		tg::grant::Permission::Object(_) => tg::object::Id::try_from(resource.clone()).is_ok(),
 		tg::grant::Permission::Process(_) => resource.kind() == tg::id::Kind::Process,
+		tg::grant::Permission::Sandbox(_) => resource.kind() == tg::id::Kind::Sandbox,
 	};
 	if !valid {
 		return Err(tg::error!(%resource, %permission, "invalid permission for the resource"));

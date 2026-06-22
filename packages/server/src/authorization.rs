@@ -78,6 +78,18 @@ impl Session {
 				continue;
 			}
 
+			// Authorize a sandbox for itself.
+			if let (
+				tg::grant::Resource::Id(id),
+				tg::grant::permission::Set::Sandbox(_),
+				Some(tg::Principal::Sandbox(sandbox)),
+			) = (&resource, permissions, self.context.principal.as_ref())
+				&& tg::sandbox::Id::try_from(id.clone()).is_ok_and(|id| id == *sandbox)
+			{
+				outputs.push(Some(permissions));
+				continue;
+			}
+
 			outputs.push(None);
 			index_positions.push(position);
 			index_args.push(tangram_index::authorize::Arg {
@@ -182,6 +194,12 @@ impl IntoResource for tg::object::Id {
 }
 
 impl IntoResource for tg::process::Id {
+	fn into_resource(self) -> tg::grant::Resource {
+		tg::grant::Resource::Id(self.into())
+	}
+}
+
+impl IntoResource for tg::sandbox::Id {
 	fn into_resource(self) -> tg::grant::Resource {
 		tg::grant::Resource::Id(self.into())
 	}

@@ -30,6 +30,14 @@ impl Index {
 		args: &[crate::grant::put::Arg],
 	) -> tg::Result<()> {
 		for arg in args {
+			if arg.resource.kind() == tg::id::Kind::Sandbox {
+				let id = tg::sandbox::Id::try_from(arg.resource.clone())
+					.map_err(|error| tg::error!(!error, "invalid sandbox id"))?;
+				let key = Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(id));
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|error| tg::error!(!error, "failed to put the sandbox"))?;
+			}
 			for permission in arg.permissions.iter() {
 				Self::put_grant_index_entry(
 					db,
@@ -177,6 +185,7 @@ impl Index {
 			},
 			tg::grant::Permission::Admin
 			| tg::grant::Permission::Read
+			| tg::grant::Permission::Sandbox(_)
 			| tg::grant::Permission::Write => {},
 		}
 		Ok(())

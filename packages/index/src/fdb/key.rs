@@ -14,6 +14,7 @@ pub enum Key {
 	Object(crate::fdb::object::Key),
 	Organization(crate::fdb::organization::Key),
 	Process(crate::fdb::process::Key),
+	Sandbox(crate::fdb::sandbox::Key),
 	Tag(crate::fdb::tag::Key),
 	Update(crate::fdb::update::Key),
 	User(crate::fdb::user::Key),
@@ -54,6 +55,7 @@ pub enum Kind {
 	Node = 29,
 	Visibility = 30,
 	GrantExpiresAt = 31,
+	Sandbox = 32,
 }
 
 impl fdbt::TuplePack for Key {
@@ -73,6 +75,10 @@ impl fdbt::TuplePack for Key {
 
 			Key::Process(crate::fdb::process::Key::Process(id)) => {
 				(Kind::Process.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+			},
+
+			Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id)) => {
+				(Kind::Sandbox.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
 			Key::Tag(crate::fdb::tag::Key::Tag(id)) => {
@@ -398,6 +404,14 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let id = tg::process::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				Ok((input, Key::Process(crate::fdb::process::Key::Process(id))))
+			},
+
+			Kind::Sandbox => {
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((input, Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id))))
 			},
 
 			Kind::Tag => {
