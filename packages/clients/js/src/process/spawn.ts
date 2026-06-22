@@ -27,7 +27,7 @@ export let builder = (...args: any): any => {
 export let spawnArg = async (
 	...args: tg.Args<tg.Process.Arg>
 ): Promise<{
-	arg: tg.Handle.SpawnArg;
+	arg: tg.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
 	let sandbox = normalizeSandbox(await sandboxArg(...args));
@@ -125,7 +125,7 @@ export let spawnArg = async (
 		options: options,
 	};
 
-	let spawnArg: tg.Handle.SpawnArg = {
+	let spawnArg: tg.Spawn.Arg = {
 		cache_location: arg.cache_location,
 		checksum,
 		command: commandReferent,
@@ -201,7 +201,7 @@ let sandboxArg = async (
 };
 
 export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
-	arg: tg.Handle.SpawnArg,
+	arg: tg.Spawn.Arg,
 	options?: tg.Referent.Options,
 ): Promise<tg.Process<O>> => {
 	let prepared = await prepareUnsandboxedCommand(arg);
@@ -297,7 +297,7 @@ export let waitUnsandboxed = async (
 				}
 			}
 			if (wait.output === undefined) {
-				let artifact = await tg.handle.checkin({
+				let stream = await tg.client.checkin({
 					options: {
 						destructive: true,
 						deterministic: true,
@@ -309,7 +309,11 @@ export let waitUnsandboxed = async (
 					path: outputPath,
 					updates: [],
 				});
-				wait.output = tg.Artifact.withId(artifact);
+				let output = await tg.Progress.lastOutput(stream);
+				if (output === undefined) {
+					throw new Error("stream ended without output");
+				}
+				wait.output = tg.Artifact.withId(output.artifact.item);
 			}
 		}
 	} catch (error) {
@@ -332,7 +336,7 @@ export let waitUnsandboxed = async (
 };
 
 export let prepareUnsandboxedCommand = async (
-	arg: tg.Handle.SpawnArg,
+	arg: tg.Spawn.Arg,
 	outputPath?: string,
 ): Promise<tg.Process.PreparedUnsandboxedCommandOutput> => {
 	if (arg.tty !== undefined) {
@@ -378,7 +382,7 @@ export let prepareUnsandboxedCommand = async (
 };
 
 export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
-	arg: tg.Handle.SpawnArg,
+	arg: tg.Spawn.Arg,
 	options?: tg.Referent.Options,
 ): Promise<tg.Process<O>> => {
 	let noTty = arg.tty === false;
@@ -469,7 +473,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			arg.command.item = commandId;
 		}
 	}
-	let output = await tg.handle.spawnProcess({
+	let stream = await tg.client.spawnProcess({
 		...arg,
 		retry: arg.retry ?? false,
 		stderr: spawnStderr ?? "inherit",
@@ -477,6 +481,10 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		stdout: spawnStdout ?? "inherit",
 		tty,
 	});
+	let output = await tg.Progress.lastOutput(stream);
+	if (output === undefined) {
+		throw new Error("stream ended without output");
+	}
 	let wait =
 		output.wait !== undefined
 			? tg.Process.Wait.fromData(output.wait)
@@ -528,14 +536,18 @@ async function checkoutArtifacts(
 	}
 	let output = new Map<tg.Artifact.Id, string>();
 	for (let artifact of artifacts) {
-		let path = await tg.handle.checkout({
+		let stream = await tg.client.checkout({
 			artifact,
 			dependencies: true,
 			force: false,
 			lock: undefined,
 			path: undefined,
 		});
-		output.set(artifact, path);
+		let event = await tg.Progress.lastOutput(stream);
+		if (event === undefined) {
+			throw new Error("stream ended without output");
+		}
+		output.set(artifact, event.path);
 	}
 	return output;
 }
@@ -669,7 +681,7 @@ async function renderEnv(
 	]) {
 		delete rendered[key];
 	}
-	let arg = tg.handle.arg();
+	let arg = tg.client.arg();
 	rendered.TANGRAM_OUTPUT = outputPath;
 	if (arg.process !== undefined) {
 		rendered.TANGRAM_PROCESS = arg.process;
@@ -776,7 +788,7 @@ let normalizeSandbox = (
 		tg.Process.ArgObject,
 		"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
 	>,
-): Exclude<tg.Handle.SpawnArg["sandbox"], undefined> | undefined => {
+): Exclude<tg.Spawn.Arg["sandbox"], undefined> | undefined => {
 	let hasCpu = "cpu" in arg;
 	let cpu = arg.cpu;
 	let hasMemory = "memory" in arg;
@@ -807,7 +819,7 @@ let normalizeSandbox = (
 	if (sandbox === true) {
 		sandbox = {};
 	}
-	let output: tg.Handle.SandboxArg = {};
+	let output: tg.Sandbox.DataArg = {};
 	let sandboxNetwork: boolean | tg.Sandbox.Network | undefined;
 	if (isSandboxArg(sandbox)) {
 		if (sandbox.cpu !== undefined) {

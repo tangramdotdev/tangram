@@ -10,6 +10,41 @@ export type Object =
 	| tg.Error;
 
 export namespace Object {
+	export namespace Batch {
+		export type Object = {
+			children?: Array<
+				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
+			>;
+			id: tg.Object.Id;
+			data: tg.Object.Data;
+		};
+
+		export type Arg = {
+			location?: tg.Location.Arg | undefined;
+			objects: Array<tg.Object.Batch.Object>;
+		};
+
+		export type Output = {
+			objects: Array<
+				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
+			>;
+		};
+	}
+
+	export namespace Put {
+		export type Arg = {
+			children?: Array<
+				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
+			>;
+			data: tg.Object.Data;
+			location?: tg.Location.Arg | undefined;
+		};
+
+		export type Output = {
+			object: tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token };
+		};
+	}
+
 	export type Kind =
 		| "blob"
 		| "directory"
@@ -74,7 +109,7 @@ export namespace Object {
 				return this.#id;
 			}
 			let data = tg.Object.Object.toData(this.#object!);
-			this.#id = tg.handle.objectId(data);
+			this.#id = tg.client.objectId(data);
 			return this.#id;
 		}
 
@@ -115,7 +150,7 @@ export namespace Object {
 
 		async load(): Promise<tg.Object.Object> {
 			if (this.#object === undefined) {
-				let data = await tg.handle.getObject(this.#id!);
+				let data = await tg.client.getObject(this.#id!);
 				this.#object = tg.Object.Object.fromData(data);
 			}
 			return this.#object;

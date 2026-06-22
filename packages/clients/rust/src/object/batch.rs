@@ -26,12 +26,7 @@ pub struct Arg {
 
 #[serde_as]
 #[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
+	Clone, Debug, serde::Serialize, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub struct Object {
 	#[tangram_serialize(id = 0)]
@@ -75,6 +70,48 @@ impl Arg {
 				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
 			_ => Err(tg::error!("invalid format")),
 		}
+	}
+}
+
+impl<'de> serde::Deserialize<'de> for Object {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		#[serde_as]
+		#[derive(serde::Deserialize)]
+		struct Helper {
+			id: tg::object::Id,
+
+			#[serde_as(as = "Option<BytesBase64>")]
+			#[serde(default)]
+			bytes: Option<Bytes>,
+
+			#[serde(default)]
+			data: Option<tg::object::Data>,
+
+			#[serde(default)]
+			children: Vec<tg::MaybeWithToken<tg::object::Id>>,
+		}
+
+		let helper = Helper::deserialize(deserializer)?;
+		let bytes = match (helper.bytes, helper.data) {
+			(Some(bytes), None) => bytes,
+			(None, Some(data)) => {
+				if data.kind() != helper.id.kind() {
+					return Err(serde::de::Error::custom("invalid object kind"));
+				}
+				data.serialize().map_err(serde::de::Error::custom)?
+			},
+			(Some(_), Some(_)) | (None, None) => {
+				return Err(serde::de::Error::custom("expected bytes or data"));
+			},
+		};
+		Ok(Self {
+			id: helper.id,
+			bytes,
+			children: helper.children,
+		})
 	}
 }
 

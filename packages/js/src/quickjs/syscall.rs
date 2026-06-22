@@ -6,8 +6,8 @@ use {
 };
 
 mod encoding;
-mod handle;
 mod host;
+mod http2;
 
 struct Result<T>(tg::Result<T>);
 
@@ -39,47 +39,7 @@ pub fn syscall<'js>(
 		"encoding_utf8_encode" => qjs::Function::new(ctx.clone(), self::encoding::utf8_encode),
 		"encoding_yaml_decode" => qjs::Function::new(ctx.clone(), self::encoding::yaml_decode),
 		"encoding_yaml_encode" => qjs::Function::new(ctx.clone(), self::encoding::yaml_encode),
-		"handle_arg" => qjs::Function::new(ctx.clone(), self::handle::arg),
-		"handle_checkin" => qjs::Function::new(ctx.clone(), Async(self::handle::checkin)),
-		"handle_checksum" => qjs::Function::new(ctx.clone(), Async(self::handle::checksum)),
-		"handle_checkout" => qjs::Function::new(ctx.clone(), Async(self::handle::checkout)),
-		"handle_object_batch" => qjs::Function::new(ctx.clone(), Async(self::handle::object_batch)),
-		"handle_object_get" => qjs::Function::new(ctx.clone(), Async(self::handle::object_get)),
-		"handle_object_id" => qjs::Function::new(ctx.clone(), self::handle::object_id),
-		"handle_process_get" => qjs::Function::new(ctx.clone(), Async(self::handle::process_get)),
-		"handle_sandbox_get" => qjs::Function::new(ctx.clone(), Async(self::handle::sandbox_get)),
-		"handle_process_signal" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_signal))
-		},
-		"handle_process_spawn" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_spawn))
-		},
-		"handle_process_stdio_read_close" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_stdio_read_close))
-		},
-		"handle_process_stdio_read_open" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_stdio_read_open))
-		},
-		"handle_process_stdio_read_read" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_stdio_read_read))
-		},
-		"handle_process_stdio_write_close" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_stdio_write_close))
-		},
-		"handle_process_stdio_write_open" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_stdio_write_open))
-		},
-		"handle_process_stdio_write_write" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_stdio_write_write))
-		},
-		"handle_process_tty_size_put" => {
-			qjs::Function::new(ctx.clone(), Async(self::handle::process_tty_size_put))
-		},
-		"handle_process_wait" => qjs::Function::new(ctx.clone(), Async(self::handle::process_wait)),
-		"handle_read" => qjs::Function::new(ctx.clone(), Async(self::handle::read)),
-		"handle_value_parse" => qjs::Function::new(ctx.clone(), self::handle::value_parse),
-		"handle_value_stringify" => qjs::Function::new(ctx.clone(), self::handle::value_stringify),
-		"handle_write" => qjs::Function::new(ctx.clone(), Async(self::handle::write)),
+		"host_checksum" => qjs::Function::new(ctx.clone(), Async(self::host::checksum)),
 		"host_close" => qjs::Function::new(ctx.clone(), Async(self::host::close)),
 		"host_current" => qjs::Function::new(ctx.clone(), self::host::current),
 		"host_disable_raw_mode" => {
@@ -98,6 +58,7 @@ pub fn syscall<'js>(
 		"host_is_tty" => qjs::Function::new(ctx.clone(), self::host::is_tty),
 		"host_magic" => qjs::Function::new(ctx.clone(), self::host::magic),
 		"host_mkdtemp" => qjs::Function::new(ctx.clone(), Async(self::host::mkdtemp)),
+		"host_object_id" => qjs::Function::new(ctx.clone(), self::host::object_id),
 		"host_parallelism" => qjs::Function::new(ctx.clone(), self::host::parallelism),
 		"host_read" => qjs::Function::new(ctx.clone(), Async(self::host::read)),
 		"host_remove" => qjs::Function::new(ctx.clone(), Async(self::host::remove)),
@@ -116,9 +77,23 @@ pub fn syscall<'js>(
 		"host_stopper_close" => qjs::Function::new(ctx.clone(), Async(self::host::stopper_close)),
 		"host_stopper_open" => qjs::Function::new(ctx.clone(), Async(self::host::stopper_open)),
 		"host_stopper_stop" => qjs::Function::new(ctx.clone(), Async(self::host::stopper_stop)),
+		"host_value_parse" => qjs::Function::new(ctx.clone(), self::host::value_parse),
+		"host_value_stringify" => qjs::Function::new(ctx.clone(), self::host::value_stringify),
 		"host_wait" => qjs::Function::new(ctx.clone(), Async(self::host::wait)),
 		"host_write" => qjs::Function::new(ctx.clone(), Async(self::host::write)),
 		"host_write_sync" => qjs::Function::new(ctx.clone(), self::host::write_sync),
+		"http2_connect" => qjs::Function::new(ctx.clone(), Async(self::http2::connect)),
+		"http2_session_close" => qjs::Function::new(ctx.clone(), Async(self::http2::session_close)),
+		"http2_session_destroy" => {
+			qjs::Function::new(ctx.clone(), Async(self::http2::session_destroy))
+		},
+		"http2_session_request" => {
+			qjs::Function::new(ctx.clone(), Async(self::http2::session_request))
+		},
+		"http2_stream_close" => qjs::Function::new(ctx.clone(), Async(self::http2::stream_close)),
+		"http2_stream_end" => qjs::Function::new(ctx.clone(), Async(self::http2::stream_end)),
+		"http2_stream_read" => qjs::Function::new(ctx.clone(), Async(self::http2::stream_read)),
+		"http2_stream_write" => qjs::Function::new(ctx.clone(), Async(self::http2::stream_write)),
 		_ => {
 			return Err(qjs::Error::Io(std::io::Error::other(tg::error!(
 				"unknown syscall: {name}"

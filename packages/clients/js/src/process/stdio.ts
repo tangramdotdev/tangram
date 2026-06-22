@@ -18,6 +18,7 @@ export namespace Stdio {
 			position?: number | string | undefined;
 			size?: number | undefined;
 			streams: Array<tg.Process.Stdio.Stream>;
+			timeout?: number | undefined;
 		};
 
 		export type Event =
@@ -153,7 +154,7 @@ export namespace Stdio {
 				if (typeof this.#process.id !== "string") {
 					throw new Error("expected a sandboxed process id");
 				}
-				let input = await tg.handle.readProcessStdio(this.#process.id, {
+				let input = await tg.client.tryReadProcessStdio(this.#process.id, {
 					location: this.#process.location,
 					streams: [this.#stream],
 				});
@@ -268,15 +269,17 @@ export namespace Stdio {
 				if (typeof process.id !== "string") {
 					throw new Error("expected a sandboxed process id");
 				}
-				await tg.handle.writeProcessStdio(
-					process.id,
-					{
-						location,
-						streams: [stream],
-					},
-					(async function* () {
-						yield { kind: "end" };
-					})(),
+				await consumeWriteEvents(
+					await tg.client.writeProcessStdio(
+						process.id,
+						{
+							location,
+							streams: [stream],
+						},
+						(async function* () {
+							yield { kind: "end" };
+						})(),
+					),
 				);
 			}
 		}
@@ -310,21 +313,23 @@ export namespace Stdio {
 				await process!.load();
 				location = process!.location;
 			}
-			await tg.handle.writeProcessStdio(
-				process!.id,
-				{
-					location,
-					streams: [stream],
-				},
-				(async function* () {
-					yield {
-						kind: "chunk",
-						value: {
-							bytes: input,
-							stream,
-						},
-					};
-				})(),
+			await consumeWriteEvents(
+				await tg.client.writeProcessStdio(
+					process!.id,
+					{
+						location,
+						streams: [stream],
+					},
+					(async function* () {
+						yield {
+							kind: "chunk",
+							value: {
+								bytes: input,
+								stream,
+							},
+						};
+					})(),
+				),
 			);
 			return input.length;
 		}
@@ -457,13 +462,15 @@ async function stdinTask(
 				}
 				yield { kind: "end" };
 			})();
-		await tg.handle.writeProcessStdio(
-			id,
-			{
-				location,
-				streams: ["stdin"],
-			},
-			input,
+		await consumeWriteEvents(
+			await tg.client.writeProcessStdio(
+				id,
+				{
+					location,
+					streams: ["stdin"],
+				},
+				input,
+			),
 		);
 	} catch (error_) {
 		error = error_;
@@ -499,7 +506,7 @@ async function stdoutStderrTask(
 	if (streams.length === 0) {
 		return;
 	}
-	let iterator = await tg.handle.readProcessStdio(id, {
+	let iterator = await tg.client.tryReadProcessStdio(id, {
 		location,
 		streams,
 	});
@@ -525,9 +532,19 @@ async function sigwinchTask(
 		if (size === undefined) {
 			continue;
 		}
-		await tg.handle.setProcessTtySize(id, {
+		await tg.client.setProcessTtySize(id, {
 			location,
 			size,
 		});
+	}
+}
+
+async function consumeWriteEvents(
+	events: AsyncIterable<tg.Process.Stdio.Write.Event>,
+): Promise<void> {
+	for await (let event of events) {
+		if (event.kind === "end") {
+			break;
+		}
 	}
 }

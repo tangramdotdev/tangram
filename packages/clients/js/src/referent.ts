@@ -13,6 +13,7 @@ export namespace Referent {
 		name?: string | undefined;
 		path?: string | undefined;
 		tag?: tg.Tag | undefined;
+		token?: tg.Grant.Token | undefined;
 	};
 
 	export let toData = <T, U>(
@@ -38,6 +39,9 @@ export namespace Referent {
 		}
 		if (value.options?.tag !== undefined) {
 			options.tag = value.options.tag;
+		}
+		if (value.options?.token !== undefined) {
+			options.token = value.options.token;
 		}
 		return {
 			item,
@@ -70,6 +74,9 @@ export namespace Referent {
 		if (data.options?.tag !== undefined) {
 			options.tag = data.options.tag;
 		}
+		if (data.options?.token !== undefined) {
+			options.token = data.options.token;
+		}
 		return {
 			item,
 			options,
@@ -101,6 +108,9 @@ export namespace Referent {
 		}
 		if (value.options?.tag !== undefined) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
+		}
+		if (value.options?.token !== undefined) {
+			params.push(`token=${encodeURIComponent(value.options.token)}`);
 		}
 		if (params.length > 0) {
 			string += "?";
@@ -149,6 +159,10 @@ export namespace Referent {
 						options.tag = decodeURIComponent(value);
 						break;
 					}
+					case "token": {
+						options.token = decodeURIComponent(value);
+						break;
+					}
 					default: {
 						throw new Error("invalid key");
 					}
@@ -177,6 +191,7 @@ export namespace Referent {
 			name?: string;
 			path?: string;
 			tag?: tg.Tag;
+			token?: tg.Grant.Token;
 		};
 	}
 }

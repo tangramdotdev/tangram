@@ -27,7 +27,7 @@ export namespace Checksum {
 		algorithm: Checksum.Algorithm,
 	): Promise<Checksum> => {
 		if (typeof input === "string" || input instanceof Uint8Array) {
-			return tg.handle.checksum(input, algorithm);
+			return tg.host.checksum(input, algorithm);
 		} else if (input instanceof tg.Blob) {
 			let value = await tg.build({
 				args: [input, algorithm],

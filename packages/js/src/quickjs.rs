@@ -38,7 +38,6 @@ struct State {
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
-	stdio: crate::stdio::Stdio,
 }
 
 #[derive(Clone)]
@@ -109,7 +108,6 @@ impl Runtime {
 		let main_runtime_handle = arg.main_runtime_handle.clone();
 		let modules = RefCell::new(Vec::new());
 		let rejection = rejection.clone();
-		let stdio = crate::stdio::Stdio::new(arg.handle.clone(), arg.main_runtime_handle.clone());
 		let state = Rc::new(State {
 			arg,
 			global_source_map,
@@ -118,7 +116,6 @@ impl Runtime {
 			main_runtime_handle,
 			modules,
 			rejection,
-			stdio,
 		});
 
 		// Init.

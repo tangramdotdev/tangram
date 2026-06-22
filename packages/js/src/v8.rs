@@ -41,7 +41,6 @@ struct State {
 	modules: RefCell<Vec<Module>>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, self::promise::Output>>>,
 	rejection: RefCell<Option<tg::Error>>,
-	stdio: crate::stdio::Stdio,
 }
 
 #[derive(Clone, Debug)]
@@ -120,7 +119,6 @@ impl Runtime {
 		let modules = RefCell::new(Vec::new());
 		let promises = RefCell::new(FuturesUnordered::new());
 		let rejection = RefCell::new(None);
-		let stdio = crate::stdio::Stdio::new(arg.handle.clone(), arg.main_runtime_handle.clone());
 		let state = Rc::new(State {
 			global_source_map: Some(global_source_map),
 			handle,
@@ -130,7 +128,6 @@ impl Runtime {
 			arg,
 			promises,
 			rejection,
-			stdio,
 		});
 
 		// Init.

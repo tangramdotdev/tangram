@@ -1,6 +1,16 @@
-import type * as tg from "@tangramdotdev/client";
+import * as tg from "@tangramdotdev/client";
+import { http2 } from "./http2.ts";
 
 export let host: tg.Host = {
+	http2,
+
+	checksum(
+		input: string | Uint8Array,
+		algorithm: tg.Checksum.Algorithm,
+	): tg.Checksum {
+		return syscall("host_checksum", input, algorithm);
+	},
+
 	close(fd: number): Promise<void> {
 		return syscall("host_close", fd);
 	},
@@ -42,7 +52,36 @@ export let host: tg.Host = {
 	},
 
 	listenSignal(signal: tg.Host.Signal): tg.Host.SignalListener {
-		return listenSignal(signal);
+		let closed = false;
+		let tokenPromise = syscall("host_signal_open", signal);
+		return {
+			async close(): Promise<void> {
+				if (closed) {
+					return;
+				}
+				closed = true;
+				let token = await tokenPromise;
+				await syscall("host_signal_close", token);
+			},
+
+			async *[Symbol.asyncIterator](): AsyncIterator<void> {
+				let token = await tokenPromise;
+				try {
+					while (!closed) {
+						let value = await syscall("host_signal_read", token);
+						if (!value) {
+							break;
+						}
+						yield undefined;
+					}
+				} finally {
+					if (!closed) {
+						closed = true;
+						await syscall("host_signal_close", token);
+					}
+				}
+			},
+		};
 	},
 
 	magic(value: Function): tg.Command.Data.Executable {
@@ -53,8 +92,16 @@ export let host: tg.Host = {
 		return syscall("host_mkdtemp");
 	},
 
+	objectId(object: tg.Object.Data): tg.Object.Id {
+		return syscall("host_object_id", object);
+	},
+
 	get parallelism(): number {
 		return syscall("host_parallelism");
+	},
+
+	parseValue(value: string): tg.Value.Data {
+		return syscall("host_value_parse", value);
 	},
 
 	read(
@@ -71,6 +118,10 @@ export let host: tg.Host = {
 
 	signal(pid: number, signal: tg.Process.Signal): Promise<void> {
 		return syscall("host_signal", pid, signal);
+	},
+
+	stringifyValue(value: tg.Value.Data): string {
+		return syscall("host_value_stringify", value);
 	},
 
 	sleep(
@@ -111,36 +162,3 @@ export let host: tg.Host = {
 		syscall("host_write_sync", fd, bytes);
 	},
 };
-
-function listenSignal(signal: tg.Host.Signal): tg.Host.SignalListener {
-	let closed = false;
-	let tokenPromise = syscall("host_signal_open", signal);
-	return {
-		async close(): Promise<void> {
-			if (closed) {
-				return;
-			}
-			closed = true;
-			let token = await tokenPromise;
-			await syscall("host_signal_close", token);
-		},
-
-		async *[Symbol.asyncIterator](): AsyncIterator<void> {
-			let token = await tokenPromise;
-			try {
-				while (!closed) {
-					let value = await syscall("host_signal_read", token);
-					if (!value) {
-						break;
-					}
-					yield undefined;
-				}
-			} finally {
-				if (!closed) {
-					closed = true;
-					await syscall("host_signal_close", token);
-				}
-			}
-		},
-	};
-}

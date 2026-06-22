@@ -3,8 +3,8 @@
 use {super::State, std::rc::Rc, tangram_client::prelude::*};
 
 mod encoding;
-mod handle;
 mod host;
+mod http2;
 
 pub fn syscall<'s>(
 	scope: &mut v8::PinScope<'s, '_>,
@@ -28,41 +28,7 @@ pub fn syscall<'s>(
 		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
-		"handle_arg" => sync(scope, &args, self::handle::arg),
-		"handle_checkin" => async_(scope, &args, self::handle::checkin),
-		"handle_checksum" => async_(scope, &args, self::handle::checksum),
-		"handle_checkout" => async_(scope, &args, self::handle::checkout),
-		"handle_object_batch" => async_(scope, &args, self::handle::object_batch),
-		"handle_object_get" => async_(scope, &args, self::handle::object_get),
-		"handle_object_id" => sync(scope, &args, self::handle::object_id),
-		"handle_process_get" => async_(scope, &args, self::handle::process_get),
-		"handle_sandbox_get" => async_(scope, &args, self::handle::sandbox_get),
-		"handle_process_signal" => async_(scope, &args, self::handle::process_signal),
-		"handle_process_spawn" => async_(scope, &args, self::handle::process_spawn),
-		"handle_process_stdio_read_close" => {
-			async_(scope, &args, self::handle::process_stdio_read_close)
-		},
-		"handle_process_stdio_read_open" => {
-			async_(scope, &args, self::handle::process_stdio_read_open)
-		},
-		"handle_process_stdio_read_read" => {
-			async_(scope, &args, self::handle::process_stdio_read_read)
-		},
-		"handle_process_stdio_write_close" => {
-			async_(scope, &args, self::handle::process_stdio_write_close)
-		},
-		"handle_process_stdio_write_open" => {
-			async_(scope, &args, self::handle::process_stdio_write_open)
-		},
-		"handle_process_stdio_write_write" => {
-			async_(scope, &args, self::handle::process_stdio_write_write)
-		},
-		"handle_process_tty_size_put" => async_(scope, &args, self::handle::process_tty_size_put),
-		"handle_process_wait" => async_(scope, &args, self::handle::process_wait),
-		"handle_read" => async_(scope, &args, self::handle::read),
-		"handle_value_parse" => sync(scope, &args, self::handle::value_parse),
-		"handle_value_stringify" => sync(scope, &args, self::handle::value_stringify),
-		"handle_write" => async_(scope, &args, self::handle::write),
+		"host_checksum" => async_(scope, &args, self::host::checksum),
 		"host_close" => async_(scope, &args, self::host::close),
 		"host_current" => sync(scope, &args, self::host::current),
 		"host_disable_raw_mode" => async_(scope, &args, self::host::disable_raw_mode),
@@ -77,6 +43,7 @@ pub fn syscall<'s>(
 		"host_is_tty" => sync(scope, &args, self::host::is_tty),
 		"host_magic" => self::host::magic(scope, &args),
 		"host_mkdtemp" => async_(scope, &args, self::host::mkdtemp),
+		"host_object_id" => sync(scope, &args, self::host::object_id),
 		"host_parallelism" => sync(scope, &args, self::host::parallelism),
 		"host_read" => async_(scope, &args, self::host::read),
 		"host_remove" => async_(scope, &args, self::host::remove),
@@ -89,9 +56,19 @@ pub fn syscall<'s>(
 		"host_stopper_close" => async_(scope, &args, self::host::stopper_close),
 		"host_stopper_open" => async_(scope, &args, self::host::stopper_open),
 		"host_stopper_stop" => async_(scope, &args, self::host::stopper_stop),
+		"host_value_parse" => sync(scope, &args, self::host::value_parse),
+		"host_value_stringify" => sync(scope, &args, self::host::value_stringify),
 		"host_wait" => async_(scope, &args, self::host::wait),
 		"host_write" => async_(scope, &args, self::host::write),
 		"host_write_sync" => sync(scope, &args, self::host::write_sync),
+		"http2_connect" => async_(scope, &args, self::http2::connect),
+		"http2_session_close" => async_(scope, &args, self::http2::session_close),
+		"http2_session_destroy" => async_(scope, &args, self::http2::session_destroy),
+		"http2_session_request" => async_(scope, &args, self::http2::session_request),
+		"http2_stream_close" => async_(scope, &args, self::http2::stream_close),
+		"http2_stream_end" => async_(scope, &args, self::http2::stream_end),
+		"http2_stream_read" => async_(scope, &args, self::http2::stream_read),
+		"http2_stream_write" => async_(scope, &args, self::http2::stream_write),
 		_ => Err(tg::error!(%name, "unknown syscall")),
 	};
 

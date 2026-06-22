@@ -13,6 +13,7 @@ import {
 	extract,
 } from "./builtin.ts";
 import { Checksum, checksum } from "./checksum.ts";
+import { client } from "./client.ts";
 import { Command, command } from "./command.ts";
 import { Diagnostic } from "./diagnostic.ts";
 import { Directory, directory } from "./directory.ts";
@@ -21,8 +22,8 @@ import { Error, error } from "./error.ts";
 import { File, file } from "./file.ts";
 import type { Grant } from "./grant.ts";
 import { Graph, graph } from "./graph.ts";
-import { type Handle, handle, setHandle } from "./handle.ts";
 import { type Host, host, setHost } from "./host.ts";
+import { Request, Response, Uri } from "./http.ts";
 import { Location } from "./location.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
@@ -30,6 +31,7 @@ import { Object } from "./object.ts";
 import { path } from "./path.ts";
 import { output, Placeholder, placeholder } from "./placeholder.ts";
 import { Process, process, setProcess } from "./process.ts";
+import { Progress } from "./progress.ts";
 import type { Range } from "./range.ts";
 import type { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
@@ -61,7 +63,6 @@ export type {
 	Encoding,
 	Function,
 	Grant,
-	Handle,
 	Host,
 	MaybeMutation,
 	MaybeMutationMap,
@@ -79,6 +80,13 @@ export type {
 	UnresolvedArgs,
 	ValueOrMaybeMutationMap,
 };
+
+export type { Checkin } from "./client/checkin.ts";
+export type { Checkout } from "./client/checkout.ts";
+export type { Read } from "./client/read.ts";
+export type { Signal } from "./client/process/signal.ts";
+export type { Spawn } from "./client/process/spawn.ts";
+export type { Write } from "./client/write.ts";
 
 let build = Process.build;
 let exec = Process.exec;
@@ -102,10 +110,14 @@ export {
 	Object,
 	Placeholder,
 	Process,
+	Progress,
 	Referent,
+	Request,
+	Response,
 	Sandbox,
 	Symlink,
 	Template,
+	Uri,
 	Value,
 	archive,
 	assert,
@@ -113,6 +125,7 @@ export {
 	build,
 	bundle,
 	checksum,
+	client,
 	command,
 	compress,
 	decompress,
@@ -124,7 +137,6 @@ export {
 	extract,
 	file,
 	graph,
-	handle,
 	host,
 	mutation,
 	output,
@@ -134,7 +146,6 @@ export {
 	resolve,
 	run,
 	setEncoding,
-	setHandle,
 	setHost,
 	setProcess,
 	sleep,

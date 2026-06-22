@@ -1,6 +1,10 @@
 use {
 	super::Result,
-	crate::quickjs::{StateHandle, serde::Serde, types::Uint8Array},
+	crate::quickjs::{
+		StateHandle,
+		serde::Serde,
+		types::{Either, Uint8Array},
+	},
 	rquickjs as qjs,
 	tangram_client::prelude::*,
 };
@@ -8,6 +12,21 @@ use {
 pub async fn close(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(state.host.close(fd).await)
+}
+
+pub async fn checksum(
+	bytes: Either<String, Uint8Array>,
+	algorithm: Serde<tg::checksum::Algorithm>,
+) -> Result<Serde<tg::Checksum>> {
+	let bytes = match &bytes {
+		Either::Left(left) => left.as_bytes(),
+		Either::Right(right) => right.0.as_ref(),
+	};
+	let Serde(algorithm) = algorithm;
+	let mut writer = tg::checksum::Writer::new(algorithm);
+	writer.update(bytes);
+	let checksum = writer.finalize();
+	Result(Ok(Serde(checksum)))
 }
 
 pub fn current(ctx: qjs::Ctx<'_>) -> Result<Option<String>> {
@@ -123,8 +142,34 @@ pub async fn mkdtemp(ctx: qjs::Ctx<'_>) -> Result<String> {
 	Result(state.host.mkdtemp().await)
 }
 
+pub fn object_id(data: Serde<tg::object::Data>) -> Result<Serde<tg::object::Id>> {
+	let Serde(data) = data;
+	let result = (|| {
+		let bytes = data.serialize()?;
+		let id = tg::object::Id::new(data.kind(), &bytes);
+		Ok(id)
+	})();
+	Result(result.map(Serde))
+}
+
 pub fn parallelism(_ctx: qjs::Ctx<'_>) -> Result<usize> {
 	Result(Ok(crate::host::Host::parallelism()))
+}
+
+pub fn value_parse(_ctx: qjs::Ctx<'_>, value: String) -> Result<Serde<tg::value::Data>> {
+	let result = value
+		.parse::<tg::Value>()
+		.map(|value| Serde(value.to_data()))
+		.map_err(|error| tg::error!(!error, "failed to parse the value"));
+	Result(result)
+}
+
+pub fn value_stringify(_ctx: qjs::Ctx<'_>, value: Serde<tg::value::Data>) -> Result<String> {
+	let Serde(value) = value;
+	let result = tg::Value::try_from_data(value)
+		.map(|value| value.to_string())
+		.map_err(|error| tg::error!(!error, "failed to convert the value"));
+	Result(result)
 }
 
 pub async fn read(

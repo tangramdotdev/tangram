@@ -1,6 +1,5 @@
 import * as tg from "@tangramdotdev/client";
 import { encoding } from "./encoding.ts";
-import { handle } from "./handle.ts";
 import { host } from "./host.ts";
 import { error, log } from "./log.ts";
 import { start } from "./start.ts";
@@ -26,5 +25,4 @@ Object.defineProperty(globalThis, "init", { value: init });
 Object.defineProperty(globalThis, "start", { value: start });
 
 tg.setEncoding(encoding);
-tg.setHandle(handle);
 tg.setHost(host);

@@ -21,12 +21,12 @@ export type Value =
 export namespace Value {
 	/** Parse TGON to a value. */
 	export let parse = (value: string): tg.Value => {
-		return fromData(tg.handle.parseValue(value));
+		return fromData(tg.client.parseValue(value));
 	};
 
 	/** Serialize a value to TGON. */
 	export let stringify = (value: tg.Value): string => {
-		return tg.handle.stringifyValue(tg.Value.toData(value));
+		return tg.client.stringifyValue(tg.Value.toData(value));
 	};
 
 	export type PrintOptions = PrintOptions_;
@@ -209,7 +209,7 @@ export namespace Value {
 				continue;
 			}
 			let data = tg.Object.Object.toData(object.state.object);
-			let id = tg.handle.objectId(data);
+			let id = tg.client.objectId(data);
 			let children = tg.Object.Object.children(object.state.object).map(
 				objectWithToken,
 			);
@@ -218,7 +218,7 @@ export namespace Value {
 			objects.push({ children, id, data });
 		}
 		if (objects.length !== 0) {
-			let output = await tg.handle.postObjectBatch({ objects });
+			let output = await tg.client.postObjectBatch({ objects });
 			applyObjectBatchOutput(states, output);
 		}
 
@@ -230,7 +230,7 @@ export namespace Value {
 
 	let applyObjectBatchOutput = (
 		states: Array<tg.Object.State>,
-		output: tg.Handle.PostObjectBatchOutput,
+		output: tg.Object.Batch.Output,
 	) => {
 		if (states.length !== output.objects.length) {
 			throw new Error("invalid object batch output");

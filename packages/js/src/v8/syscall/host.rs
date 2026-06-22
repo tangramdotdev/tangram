@@ -11,6 +11,21 @@ pub async fn close(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
 	state.host.close(fd).await
 }
 
+pub async fn checksum(
+	_state: Rc<State>,
+	args: (tg::Either<String, Bytes>, Serde<tg::checksum::Algorithm>),
+) -> tg::Result<Serde<tg::Checksum>> {
+	let (bytes, Serde(algorithm)) = args;
+	let bytes = match &bytes {
+		tg::Either::Left(string) => string.as_bytes(),
+		tg::Either::Right(bytes) => bytes.as_ref(),
+	};
+	let mut writer = tg::checksum::Writer::new(algorithm);
+	writer.update(bytes);
+	let checksum = writer.finalize();
+	Ok(Serde(checksum))
+}
+
 pub fn current(
 	state: Rc<State>,
 	_scope: &mut v8::PinScope<'_, '_>,
@@ -132,12 +147,47 @@ pub async fn mkdtemp(state: Rc<State>, _args: (Option<String>,)) -> tg::Result<S
 	state.host.mkdtemp().await
 }
 
+pub fn object_id(
+	_state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	args: (Serde<tg::object::Data>,),
+) -> tg::Result<Serde<tg::object::Id>> {
+	let (Serde(data),) = args;
+	let bytes = data.serialize()?;
+	let id = tg::object::Id::new(data.kind(), &bytes);
+	Ok(Serde(id))
+}
+
 pub fn parallelism(
 	_state: Rc<State>,
 	_scope: &mut v8::PinScope<'_, '_>,
 	_args: (Option<String>,),
 ) -> tg::Result<usize> {
 	Ok(crate::host::Host::parallelism())
+}
+
+pub fn value_parse(
+	_state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	args: (String,),
+) -> tg::Result<Serde<tg::value::Data>> {
+	let (value,) = args;
+	let value = value
+		.parse::<tg::Value>()
+		.map_err(|error| tg::error!(!error, "failed to parse the value"))?;
+	Ok(Serde(value.to_data()))
+}
+
+pub fn value_stringify(
+	_state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	args: (Serde<tg::value::Data>,),
+) -> tg::Result<String> {
+	let (value,) = args;
+	let Serde(value) = value;
+	let value = tg::Value::try_from_data(value)
+		.map_err(|error| tg::error!(!error, "failed to convert the value"))?;
+	Ok(value.to_string())
 }
 
 pub async fn read(

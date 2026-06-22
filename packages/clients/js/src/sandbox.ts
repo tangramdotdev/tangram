@@ -3,6 +3,38 @@ import * as tg from "./index.ts";
 export namespace Sandbox {
 	export type Id = string;
 
+	export type DataArg = {
+		cpu?: number | undefined;
+		hostname?: string | undefined;
+		isolation?: tg.Sandbox.Isolation.Data | undefined;
+		location?: tg.Location.Arg | undefined;
+		memory?: number | undefined;
+		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
+		network?: tg.Sandbox.Network.Data | undefined;
+		ttl?: number | undefined;
+		user?: string | undefined;
+	};
+
+	export namespace Get {
+		export type Arg = {
+			location?: tg.Location.Arg | undefined;
+		};
+
+		export type Output = {
+			cpu?: number | undefined;
+			hostname?: string | undefined;
+			id: tg.Sandbox.Id;
+			isolation?: tg.Sandbox.Isolation.Data | undefined;
+			location?: tg.Location | undefined;
+			memory?: number | undefined;
+			mounts: Array<tg.Sandbox.Mount.Data>;
+			network?: tg.Sandbox.Network.Data | undefined;
+			status: tg.Sandbox.Status;
+			ttl?: number | undefined;
+			user?: string | undefined;
+		};
+	}
+
 	export namespace Id {
 		export let is = (value: unknown): value is tg.Sandbox.Id => {
 			return typeof value === "string" && value.startsWith("sbx_");

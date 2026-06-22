@@ -37,9 +37,17 @@ data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
+percent-encoding = { workspace = true }
 rquickjs = { workspace = true, optional = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -52,6 +60,8 @@ tangram_futures = { workspace = true }
 tangram_util = { workspace = true }
 tangram_v8 = { workspace = true, optional = true }
 tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
 uuid = { workspace = true }
