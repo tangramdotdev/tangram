@@ -466,7 +466,12 @@ async fn main() -> std::process::ExitCode {
 		return match result {
 			Ok(()) => cli.exit.unwrap_or_default(),
 			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_item(error));
+				let internal = Cli::read_config_with_path(cli.args.config.clone())
+					.await
+					.ok()
+					.flatten()
+					.is_some_and(|config| config.server.advanced.internal_error_locations);
+				Cli::print_error_basic(tg::Referent::with_item(error), internal);
 				std::process::ExitCode::FAILURE
 			},
 		};
@@ -501,7 +506,7 @@ async fn main() -> std::process::ExitCode {
 		Ok(config) => config,
 		Err(error) => {
 			Cli::print_error_message("an error occurred");
-			Cli::print_error_basic(tg::Referent::with_item(error));
+			Cli::print_error_basic(tg::Referent::with_item(error), false);
 			return std::process::ExitCode::FAILURE;
 		},
 	};

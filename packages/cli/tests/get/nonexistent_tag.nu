@@ -6,4 +6,11 @@ let server = spawn
 
 let output = tg get nonexistent-tag | complete
 failure $output
-assert ($output.stderr | str contains "failed to get the reference") "the error should mention the failed get"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the reference
+	   reference = nonexistent-tag
+	-> failed to get the reference
+	   reference = nonexistent-tag
+
+'

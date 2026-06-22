@@ -8,4 +8,9 @@ let blob = "hello, world!\n" | tg write
 
 let output = tg checksum --algorithm crc32 $blob | complete
 failure $output
-assert ($output.stderr | str contains "invalid value 'crc32'") "the error should mention the invalid algorithm value"
+snapshot ($output.stderr | redact) r#'
+	error: invalid value 'crc32' for '--algorithm <ALGORITHM>': Invalid `Algorithm` string representation
+	
+	For more information, try '--help'.
+
+'#

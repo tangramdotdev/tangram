@@ -79,11 +79,14 @@ let main_id = tg checkin $main_path
 let output = tg --no-quiet publish $main_path | complete
 success $output
 
-# Verify all packages are mentioned in stderr output.
-assert ($output.stderr | str contains "info tagged test-bottom/1.0.0") "test-bottom should be published."
-assert ($output.stderr | str contains "info tagged test-left/1.0.0") "test-left should be published."
-assert ($output.stderr | str contains "info tagged test-right/1.0.0") "test-right should be published."
-assert ($output.stderr | str contains "info tagged test-main/1.0.0") "test-main should be published."
+# Verify all packages are published.
+let tagged = $output.stderr | lines | where {|l| $l =~ 'info tagged'} | sort | str join "\n"
+snapshot ($tagged | normalize_ids) '
+	info tagged test-bottom/1.0.0 Object(tg::object::Id("dir_010000000000000000000000000000000000000000000000000000"))
+	info tagged test-left/1.0.0 Object(tg::object::Id("dir_011111111111111111111111111111111111111111111111111111"))
+	info tagged test-main/1.0.0 Object(tg::object::Id("dir_012222222222222222222222222222222222222222222222222222"))
+	info tagged test-right/1.0.0 Object(tg::object::Id("dir_013333333333333333333333333333333333333333333333333333"))
+'
 
 # Verify all four packages are tagged on remote.
 let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item.id

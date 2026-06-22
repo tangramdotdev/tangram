@@ -11,4 +11,8 @@ tg --token $alice.token group create private
 
 let output = tg --token $eve.token group get private | complete
 failure $output "a user without read permission should not be able to get a private group"
-assert ($output.stderr | str contains "failed to find the group") "the private group should not be visible without read permission"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the group
+
+'

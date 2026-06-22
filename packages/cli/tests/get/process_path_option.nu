@@ -11,4 +11,14 @@ let spawned = tg build --detach --verbose $path | from json
 
 let output = tg get $"($spawned.process)?path=foo" | complete
 failure $output
-assert ($output.stderr | str contains "cannot get path in process") "the error should mention the path option"
+snapshot ($output.stderr | redact $path) '
+	error an error occurred
+	-> failed to get the reference
+	   reference = <process>?path=foo
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to get the reference
+	   reference = <process>?path=foo
+	-> cannot get path in process
+
+'

@@ -8,4 +8,14 @@ let file = tg put 'tg.file("solo")' | str trim
 
 let output = tg get $"($file)?get=foo" | complete
 failure $output
-assert ($output.stderr | str contains "unexpected reference get option") "the error should mention the get option"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the reference
+	   reference = fil_01hywsaeq340a2qtmce8y2cxddkj8bshswktye8j3mvj6bgnqc3hk0?get=foo
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to get the reference
+	   reference = fil_01hywsaeq340a2qtmce8y2cxddkj8bshswktye8j3mvj6bgnqc3hk0?get=foo
+	-> unexpected reference get option
+
+'

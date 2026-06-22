@@ -31,7 +31,12 @@ for tag in $tags {
 # Empty pattern is not valid.
 let output = tg list --no-groups "" | complete
 failure $output "The command should reject an empty pattern."
-assert ($output.stderr | str contains "invalid specifier pattern") "The error should mention the invalid pattern."
+snapshot ($output.stderr | redact) r#'
+	error: invalid value '' for '[PATTERN]': invalid specifier pattern
+	
+	For more information, try '--help'.
+
+'#
 
 # List test.
 let output = tg list --no-groups "test"
@@ -40,7 +45,12 @@ snapshot --name "list_test" $output
 # Operators are not allowed in parent components.
 let output = tg list --no-groups "test/*/*" | complete
 failure $output "The command should reject operators in parent components."
-assert ($output.stderr | str contains "invalid parent") "The error should mention the parent."
+snapshot ($output.stderr | redact) r#'
+	error: invalid value 'test/*/*' for '[PATTERN]': invalid parent
+	
+	For more information, try '--help'.
+
+'#
 
 # List test/*
 let output = tg list --no-groups "test/*"
@@ -49,7 +59,12 @@ snapshot --name "list_test_star" $output
 # Operators are not allowed in parent components.
 let output = tg list --no-groups "test/=0.0.1/*" | complete
 failure $output "The command should reject operators in parent components."
-assert ($output.stderr | str contains "invalid parent") "The error should mention the parent."
+snapshot ($output.stderr | redact) r#'
+	error: invalid value 'test/=0.0.1/*' for '[PATTERN]': invalid parent
+	
+	For more information, try '--help'.
+
+'#
 
 # List test/=0.0.1
 let output = tg list --no-groups "test/=0.0.1"

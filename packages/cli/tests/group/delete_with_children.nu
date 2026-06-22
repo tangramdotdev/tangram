@@ -10,4 +10,14 @@ tg --token $alice.token group create parent/child
 
 let output = tg --token $alice.token group delete parent | complete
 failure $output "a group with children should not be deletable"
-assert ($output.stderr | str contains "cannot delete a group with children") "the error should mention that the group has children"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to delete the group
+	   group = parent
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> cannot delete a group with children
+	-> cannot delete a group with children
+
+'

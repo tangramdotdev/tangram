@@ -6,4 +6,9 @@ let server = spawn
 
 let output = tg put 'tg.bogus(((' | complete
 failure $output
-assert ($output.stderr | str contains "failed to parse the value") "the error should mention the value parse failure"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to parse the value
+	-> 
+
+'

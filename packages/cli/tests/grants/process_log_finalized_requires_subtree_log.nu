@@ -16,9 +16,12 @@ tg --token $alice.token index
 # Eve with only the process node must not read the finalized log; the log is now an object that the process node does not confer.
 tg --token $alice.token grant $eve.user.id process_node $process | ignore
 let node_only = tg --token $eve.token log $process | complete
-assert (not ($node_only.stdout | str contains "loghello")) ("process_node alone must not read a finalized log: " + ($node_only | to json))
+snapshot ($node_only.stdout | redact) ''
 
 # With process_subtree_log added, Eve can read the finalized log object.
 tg --token $alice.token grant $eve.user.id process_subtree_log $process | ignore
 let with_log = tg --token $eve.token log $process | complete
-assert ($with_log.stdout | str contains "loghello") ("process_node plus process_subtree_log should read the finalized log: " + ($with_log | to json))
+snapshot ($with_log.stdout | redact) '
+	loghello
+
+'

@@ -5,4 +5,7 @@ use ../../test.nu *
 let server = spawn
 
 let output = tg tree fil_010000000000000000000000000000000000000000000000000000 | complete
-assert ($output.stdout | str contains "failed to load the object") "the tree should render the load failure"
+snapshot ($output.stdout | redact | normalize_ids) '
+	? failed to load the object
+
+'

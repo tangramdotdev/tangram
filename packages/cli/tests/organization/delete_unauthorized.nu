@@ -17,4 +17,12 @@ tg --token $bob.token tag acme/foo $id
 # But write does not confer admin, so bob cannot delete the organization.
 let output = tg --token $bob.token organization delete acme | complete
 failure $output "a write user should not be able to delete the organization"
-assert ($output.stderr | str contains "unauthorized") "the error should mention that the request is unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to delete the organization
+	   organization = acme
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> unauthorized
+
+'

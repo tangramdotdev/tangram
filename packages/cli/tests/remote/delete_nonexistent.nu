@@ -6,4 +6,10 @@ let server = spawn
 
 let output = tg remote delete nonexistent | complete
 failure $output
-assert ($output.stderr | str contains 'failed to find the remote') "the error should mention the missing remote"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to delete the remote
+	   name = nonexistent
+	-> failed to find the remote
+
+'

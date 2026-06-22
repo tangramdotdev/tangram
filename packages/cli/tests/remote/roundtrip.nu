@@ -17,4 +17,9 @@ success $output
 
 let output = tg remote get upstream | complete
 failure $output
-assert ($output.stderr | str contains "failed to find the remote") "the remote should be gone after the delete"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the remote
+	   name = upstream
+
+'

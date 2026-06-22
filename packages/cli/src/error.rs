@@ -8,7 +8,7 @@ use {
 };
 
 impl Cli {
-	pub(crate) fn print_error_basic(error: tg::Referent<tg::Error>) {
+	pub(crate) fn print_error_basic(error: tg::Referent<tg::Error>, internal: bool) {
 		let mut stack = vec![error];
 
 		while let Some(error_referent) = stack.pop() {
@@ -39,7 +39,7 @@ impl Cli {
 				if let tg::error::File::Module(module) = &mut location.file {
 					module.referent.inherit(&error_referent);
 				}
-				Self::print_error_location_basic(&location);
+				Self::print_error_location_basic(&location, internal);
 			}
 
 			// Print the stack.
@@ -49,7 +49,7 @@ impl Cli {
 					if let tg::error::File::Module(module) = &mut location.file {
 						module.referent.inherit(&error_referent);
 					}
-					Self::print_error_location_basic(&location);
+					Self::print_error_location_basic(&location, internal);
 				}
 			}
 
@@ -89,15 +89,17 @@ impl Cli {
 		}
 	}
 
-	fn print_error_location_basic(location: &tg::error::Location) {
+	fn print_error_location_basic(location: &tg::error::Location, internal: bool) {
 		match &location.file {
 			tg::error::File::Internal(path) => {
-				eprintln!(
-					"   internal:{}:{}:{}",
-					path.display(),
-					location.range.start.line + 1,
-					location.range.start.character + 1
-				);
+				if internal {
+					eprintln!(
+						"   internal:{}:{}:{}",
+						path.display(),
+						location.range.start.line + 1,
+						location.range.start.character + 1
+					);
+				}
 			},
 			tg::error::File::Module(module) => {
 				Self::print_location_basic(module, &location.range);

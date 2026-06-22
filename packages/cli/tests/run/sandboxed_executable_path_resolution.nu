@@ -36,5 +36,19 @@ with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {
 
 	let parent_output = tg run $parent_path | complete
 	failure $parent_output
-	assert ($parent_output.stderr | str contains "failed to find the executable in PATH")
+	snapshot ($parent_output.stderr | redact $parent_path $parent_path_bin) '
+		error an error occurred
+		-> the process failed
+		   id = <process>
+		-> the child process failed
+		   id = <process>
+		-> failed to run the process
+		   process = <process>
+		-> failed to spawn the process in the sandbox
+		   id = <process>
+		-> failed to spawn
+		-> failed to find the executable in PATH
+		   executable = parent-only-sh
+
+	'
 }

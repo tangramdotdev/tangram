@@ -8,4 +8,10 @@ let path = artifact 'test'
 
 let output = tg watch delete $path | complete
 failure $output
-assert ($output.stderr | str contains 'failed to find the watch') "the error should mention the missing watch"
+snapshot ($output.stderr | redact $path) '
+	error an error occurred
+	-> failed to delete the watch
+	   path = <path>
+	-> failed to find the watch
+
+'

@@ -9,4 +9,13 @@ let bob = tg login --verbose bob | from json
 
 let output = tg --token $alice.token grant $bob.user.id read ghostgroup | complete
 failure $output "granting on a nonexistent resource should fail"
-assert ($output.stderr | str contains "failed to find the resource") "the error should mention that the resource was not found"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to create the grant
+	   principal = <user>
+	   resource = ghostgroup
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to find the resource
+
+'

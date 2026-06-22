@@ -37,14 +37,14 @@ $client = $links_output.session
 let links = $links_output.result
 assert (($links | length) == 1) "expected one document link"
 let link_uri = $links.0.target
-assert ($link_uri | str contains "/tags/dep/") "expected the document link target to use the tag path"
+snapshot ($link_uri | redact $server.directory | normalize_ids) 'file://<path>/tags/dep/tangram.ts'
 
 let locations_output = lsp wait_result $client 11
 $client = $locations_output.session
 let locations = $locations_output.result
 assert (($locations | length) > 0) "expected a definition location"
 let definition_uri = $locations.0.uri
-assert ($definition_uri | str contains "/tags/dep/") "expected the definition URI to use the tag path"
+snapshot ($definition_uri | redact $server.directory | normalize_ids) 'file://<path>/tags/dep/tangram.ts'
 
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the definition path to be materialized"

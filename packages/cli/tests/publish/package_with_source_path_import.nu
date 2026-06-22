@@ -100,6 +100,5 @@ assert equal $local_main_metadata $remote_main_metadata "Main metadata not synce
 # Verify that main package has dependency on dep by tag, not by local path.
 let main_object = tg get $published_main_id --blobs --depth=inf
 
-# The referent should have the "tag" key and NOT the "path" key.
-assert ($main_object | str contains '"tag"') "Main package's dependency referent should have a 'tag' field."
-assert not ($main_object | str contains '"path"') "Main package's dependency referent should not have a 'path' field."
+# The referent should use a tag, not a path.
+snapshot ($main_object | normalize_ids) 'tg.directory({"tangram.ts":tg.file({"contents":tg.blob("import dep from \"test-dep\" with { source: \"../dep\" };\n\nexport default () => `Main package using: ${dep()}`;\n\nexport let metadata = {\n\ttag: \"test-main/1.0.0\",\n};"),"dependencies":{"test-dep?source=../dep":{"item":tg.directory({"tangram.ts":tg.file({"contents":tg.blob("export default () => \"I am a source dependency!\";\n\nexport let metadata = {\n\ttag: \"test-dep/1.0.0\",\n};"),"module":"ts"})}),"options":{"id":"dir_010000000000000000000000000000000000000000000000000000","tag":"test-dep/1.0.0"}}},"module":"ts"})})'

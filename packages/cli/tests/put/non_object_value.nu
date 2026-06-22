@@ -6,4 +6,8 @@ let server = spawn
 
 let output = tg put '42' | complete
 failure $output
-assert ($output.stderr | str contains "expected an object value") "the error should mention the object requirement"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> expected an object value
+
+'

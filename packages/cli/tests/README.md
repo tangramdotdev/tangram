@@ -31,15 +31,41 @@ tight cluster of snapshots for that one behavior). Reuse the `spawn`,
 `test.nu`. When a file would test several independent behaviors, split it into
 one file per behavior.
 
-### 3. Always use long argument names
+### 3. Assert with inline snapshots, not `str contains`
 
-Spell out every flag with its long name: `tg build --detach --verbose`, never
-`tg build -dv`. This applies to `tg` commands, the harness helpers (`spawn
---name`, `snapshot --name`, `file --executable`), and Nushell built-ins
-(`save --force`, `str replace --all --regex`, `mktemp --directory`). External
-system commands (`bash -c`, `ln -s`) and shell code embedded in test artifacts
-keep their portable short flags, because long forms are not portable across
-platforms.
+Assert on output with an exact inline `snapshot`, never with `str contains`. A
+substring check only confirms a fragment appears somewhere; it silently passes
+over everything around it, so a regression that mangles the rest of the message
+goes unnoticed. A snapshot captures the whole normalized output, so it both
+documents the exact behavior and fails when anything drifts:
+
+```nushell
+# Not this:
+assert ($output.stderr | str contains 'the process is already finished') "…"
+
+# This — run with --accept to fill the body:
+snapshot ($output.stderr | redact $path) '
+	-> the process is already finished
+'
+```
+
+Normalize first with `redact` and `normalize_ids` (see the next convention) so
+the snapshot is stable. A check for the *absence* of a string becomes a snapshot
+of the whole output, which verifies the absence implicitly: if the output no
+longer contains the string, the snapshot will not either.
+
+When the output is genuinely non-deterministic in ordering or volume — for
+example the fan-out lines a parallel `publish` prints — do not fall back to
+`str contains`. Extract the lines that matter and sort them into a deterministic
+subset, then snapshot that:
+
+```nushell
+let tagged = $output.stderr | lines | where {|l| $l =~ 'info tagged'} | sort
+snapshot $tagged '…'
+```
+
+`str contains` is fine for non-assertion control flow, such as a `where` filter
+that selects lines. It is the *assertion* that must be a snapshot.
 
 ### 4. Normalize nondeterministic output before snapshotting
 

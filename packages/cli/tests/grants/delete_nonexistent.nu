@@ -11,4 +11,8 @@ tg --token $alice.token group create team
 
 let output = tg --token $alice.token grants delete $bob.user.id read team | complete
 failure $output "deleting a grant that does not exist should fail"
-assert ($output.stderr | str contains "failed to find the grant") "the error should mention that the grant was not found"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the grant
+
+'

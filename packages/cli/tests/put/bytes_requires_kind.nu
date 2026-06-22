@@ -6,4 +6,8 @@ let server = spawn
 
 let output = tg put --bytes "hello" | complete
 failure $output
-assert ($output.stderr | str contains "kind must be set when using --bytes") "the error should mention the kind flag"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> kind must be set when using --bytes
+
+'

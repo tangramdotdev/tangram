@@ -100,15 +100,12 @@ assert equal $local_main_metadata $remote_main_metadata "Main metadata not synce
 assert equal $local_dep_metadata $remote_dep_metadata "Dependency metadata not synced between local and remote."
 assert equal $local_transitive_metadata $remote_transitive_metadata "Transitive metadata not synced between local and remote."
 
-# Verify that all published packages were re-checked in without source dependencies.
-# The main package should have tag-based dependencies, not source dependencies.
+# Verify that all published packages were re-checked in with tag-based dependencies, not source paths.
 let main_object = tg get $main_id --blobs --depth=inf
-assert not ($main_object | str contains '"path"') "test-main should not have source dependencies after publishing."
+snapshot ($main_object | normalize_ids) 'tg.directory({"tangram.ts":tg.file({"contents":tg.blob("import dep from \"test-dep\" with { source: \"../dep\" };\n\nexport default () => `Main package using: ${dep()}`;\n\nexport let metadata = {\n\ttag: \"test-main/1.0.0\",\n};"),"dependencies":{"test-dep?source=../dep":{"item":tg.directory({"tangram.ts":tg.file({"contents":tg.blob("import transitive from \"test-transitive\" with { source: \"../transitive\" };\n\nexport default () => `Dependency using: ${transitive()}`;\n\nexport let metadata = {\n\ttag: \"test-dep/1.0.0\",\n};"),"dependencies":{"test-transitive?source=../transitive":{"item":tg.directory({"tangram.ts":tg.file({"contents":tg.blob("export default () => \"I am the transitive dependency!\";\n\nexport let metadata = {\n\ttag: \"test-transitive/1.0.0\",\n};"),"module":"ts"})}),"options":{"id":"dir_010000000000000000000000000000000000000000000000000000","tag":"test-transitive/1.0.0"}}},"module":"ts"})}),"options":{"id":"dir_011111111111111111111111111111111111111111111111111111","tag":"test-dep/1.0.0"}}},"module":"ts"})})'
 
-# The dep package should also have tag-based dependencies.
 let dep_object = tg get $dep_id --blobs --depth=inf
-assert not ($dep_object | str contains '"path"') "test-dep should not have source dependencies after publishing."
+snapshot ($dep_object | normalize_ids) 'tg.directory({"tangram.ts":tg.file({"contents":tg.blob("import transitive from \"test-transitive\" with { source: \"../transitive\" };\n\nexport default () => `Dependency using: ${transitive()}`;\n\nexport let metadata = {\n\ttag: \"test-dep/1.0.0\",\n};"),"dependencies":{"test-transitive?source=../transitive":{"item":tg.directory({"tangram.ts":tg.file({"contents":tg.blob("export default () => \"I am the transitive dependency!\";\n\nexport let metadata = {\n\ttag: \"test-transitive/1.0.0\",\n};"),"module":"ts"})}),"options":{"id":"dir_010000000000000000000000000000000000000000000000000000","tag":"test-transitive/1.0.0"}}},"module":"ts"})})'
 
-# The transitive package has no dependencies, but verify it does not have path fields.
 let transitive_object = tg get $transitive_id --blobs --depth=inf
-assert not ($transitive_object | str contains '"path"') "test-transitive should not have source dependencies after publishing."
+snapshot ($transitive_object | normalize_ids) 'tg.directory({"tangram.ts":tg.file({"contents":tg.blob("export default () => \"I am the transitive dependency!\";\n\nexport let metadata = {\n\ttag: \"test-transitive/1.0.0\",\n};"),"module":"ts"})})'

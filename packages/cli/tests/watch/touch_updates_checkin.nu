@@ -16,4 +16,11 @@ success $output
 let after = tg checkin $path --watch
 assert ($before != $after) "the checkin should produce a new id"
 let object = tg get $after --blobs --depth=inf --pretty
-assert ($object | str contains "two") "the checkin should reflect the modified contents"
+snapshot ($object | redact $path | normalize_ids) '
+	tg.directory({
+	  "tangram.ts": tg.file({
+	    "contents": tg.blob("export default () => \"two\";"),
+	    "module": "ts",
+	  }),
+	})
+'

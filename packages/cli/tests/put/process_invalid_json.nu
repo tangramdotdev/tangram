@@ -6,4 +6,9 @@ let server = spawn
 
 let output = tg put --id pcs_010000000000000000000000000000000000000000000000000000 "not json" | complete
 failure $output
-assert ($output.stderr | str contains "failed to deserialize the data") "the error should mention the deserialization failure"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to deserialize the data
+	-> expected ident at line 1 column 2
+
+'

@@ -12,4 +12,16 @@ tg wait $process
 
 let output = tg signal $process | complete
 failure $output
-assert ($output.stderr | str contains 'cannot signal cacheable processes') "the error should explain that cacheable processes cannot be signalled"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to signal the process
+	   id = <process>
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to post process signal
+	-> failed to signal the process
+	   id = <process>
+	-> cannot signal cacheable processes
+	   id = <process>
+
+'

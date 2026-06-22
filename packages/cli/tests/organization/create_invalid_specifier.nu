@@ -8,4 +8,14 @@ let alice = tg login --verbose alice | from json
 
 let output = tg --token $alice.token organization create acme/sub | complete
 failure $output "a multi-component organization specifier should be rejected"
-assert ($output.stderr | str contains "invalid organization specifier") "the error should mention an invalid organization specifier"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to create the organization
+	   specifier = acme/sub
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> invalid organization specifier
+	-> invalid organization specifier
+
+'

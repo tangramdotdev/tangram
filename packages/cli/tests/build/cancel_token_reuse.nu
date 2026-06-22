@@ -20,4 +20,19 @@ tg wait $process.process
 
 let output = tg cancel $process.process $process.lease | complete
 failure $output
-assert ($output.stderr | str contains 'the process is already finished') "the error should mention the finished process"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to cancel the process
+	   id = <process>
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to cancel the process
+	   id = <process>
+	-> failed to cancel the process
+	   id = <process>
+	-> failed to cancel the process
+	-> database error
+	-> the process is already finished
+	-> the process is already finished
+
+'

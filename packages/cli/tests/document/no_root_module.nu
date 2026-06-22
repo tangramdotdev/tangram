@@ -9,4 +9,9 @@ let dir = mktemp --directory
 
 let output = tg document $dir | complete
 failure $output
-assert ($output.stderr | str contains "failed to find a root module") "the error should mention the missing root module"
+snapshot ($output.stderr | redact $dir) '
+	error an error occurred
+	-> failed to find a root module
+	   directory = dir_01me3xkeh1893mtxbmxsqhv8kxsds7y2hayhwy3ecqrfxvpzy2pz8g
+
+'

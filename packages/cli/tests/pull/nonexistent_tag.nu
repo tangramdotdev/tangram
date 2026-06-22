@@ -9,4 +9,11 @@ let local = spawn --name local --config {
 
 let output = tg pull nonexistent/1.0.0 | complete
 failure $output
-assert ($output.stderr | str contains 'failed to get the reference') "the error should mention the failed reference"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the reference
+	   reference = nonexistent/1.0.0
+	-> failed to get the reference
+	   reference = nonexistent/1.0.0
+
+'

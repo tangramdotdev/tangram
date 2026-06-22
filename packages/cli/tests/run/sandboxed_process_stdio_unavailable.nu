@@ -8,7 +8,7 @@ def run [source: string] {
 	let path = artifact { tangram.ts: $source }
 	let output = tg run $path | complete
 	failure $output
-	$output.stderr
+	$output.stderr | redact $path
 }
 
 let stdin = run '
@@ -21,7 +21,20 @@ let stdin = run '
 		await process.stdin.write(input);
 	}
 '
-assert ($stdin | str contains "stdin is not available")
+snapshot ($stdin | redact | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> stdin is not available
+	   ╭─[<path>/tangram.ts:7:22]
+	 6 │     let input = tg.encoding.utf8.encode("hello");
+	 7 │     await process.stdin.write(input);
+	   ·                         ▲
+	   ·                         ╰── stdin is not available
+	 8 │ }
+	   ╰────
+
+'
 
 let stdout = run '
 	export default async function () {
@@ -32,7 +45,20 @@ let stdout = run '
 		await process.stdout.read();
 	}
 '
-assert ($stdout | str contains "stdout is not available")
+snapshot ($stdout | redact | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> stdout is not available
+	   ╭─[<path>/tangram.ts:6:23]
+	 5 │         .sandbox();
+	 6 │     await process.stdout.read();
+	   ·                          ▲
+	   ·                          ╰── stdout is not available
+	 7 │ }
+	   ╰────
+
+'
 
 let stderr = run '
 	export default async function () {
@@ -43,4 +69,17 @@ let stderr = run '
 		await process.stderr.read();
 	}
 '
-assert ($stderr | str contains "stderr is not available")
+snapshot ($stderr | redact | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> stderr is not available
+	   ╭─[<path>/tangram.ts:6:23]
+	 5 │         .sandbox();
+	 6 │     await process.stderr.read();
+	   ·                          ▲
+	   ·                          ╰── stderr is not available
+	 7 │ }
+	   ╰────
+
+'

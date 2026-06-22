@@ -18,4 +18,14 @@ wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
 
 let output = tg pull $id | complete
 failure $output
-assert ($output.stderr | str contains 'failed to sync') "the error should mention the failed sync"
+snapshot ($output.stderr | redact $remote.url $remote.directory | normalize_ids) '
+	error an error occurred
+	-> failed to create the push stream
+	-> failed to sync
+	   remote = default
+	-> failed to send the request
+	-> failed to resolve the socket path
+	   path = <path>/socket
+	-> No such file or directory (os error 2)
+
+'

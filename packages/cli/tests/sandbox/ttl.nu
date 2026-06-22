@@ -12,4 +12,9 @@ success $output
 wait_until { (tg sandbox get $id | complete | get exit_code) != 0 } --timeout 15sec "the sandbox should expire"
 let output = tg sandbox get $id | complete
 failure $output
-assert ($output.stderr | str contains "failed to find the sandbox") "the sandbox should be gone after its ttl"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the sandbox
+	   sandbox = <sandbox>
+
+'

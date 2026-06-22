@@ -11,4 +11,8 @@ tg --token $alice.token organization create acme
 
 let output = tg --token $alice.token organization members remove acme $bob.user.id | complete
 failure $output "removing a user that is not a member should fail"
-assert ($output.stderr | str contains "failed to find the organization member") "the error should mention that the organization member was not found"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the organization member
+
+'

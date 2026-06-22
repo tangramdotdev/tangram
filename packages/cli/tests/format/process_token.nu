@@ -23,7 +23,15 @@ let dir = mktemp --directory
 'export default   "x"' | save ($dir | path join tangram.ts)
 let output = tg --token $token format $dir | complete
 failure $output
-assert ($output.stderr | str contains 'unauthorized') "the format should be unauthorized"
+snapshot ($output.stderr | redact $dir) '
+	error an error occurred
+	-> failed to format
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to format
+	-> unauthorized
+
+'
 
 tg cancel $parent.process $parent.lease
 tg wait $parent.process

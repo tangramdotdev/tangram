@@ -6,4 +6,10 @@ let server = spawn
 
 let output = tg process children pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-assert ($output.stderr | str contains 'failed to get the process') "the error should mention the missing process"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the process children
+	   id = <process>
+	-> failed to get the process
+
+'

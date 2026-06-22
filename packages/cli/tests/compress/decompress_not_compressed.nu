@@ -11,4 +11,7 @@ let wait = tg wait $build.process | from json
 assert equal $wait.exit 1 "the decompress process should exit with code 1"
 
 let log = tg log $build.process | complete
-assert ($log.stderr | str contains "invalid compression format") "the process log should mention the invalid compression format"
+snapshot ($log.stderr | redact | normalize_ids) '
+	-> invalid compression format
+
+'

@@ -14,4 +14,13 @@ tg --token $alice.token grant $eve.user.id write team
 # Eve has write but not admin, so she cannot hand access to a third party.
 let output = tg --token $eve.token grant $carol.user.id read team | complete
 failure $output "a user without admin should not be able to grant"
-assert ($output.stderr | str contains "unauthorized") "the error should mention that the request is unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to create the grant
+	   principal = <user>
+	   resource = team
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> unauthorized
+
+'

@@ -6,4 +6,8 @@ let server = spawn
 
 let output = tg put --id pcs_010000000000000000000000000000000000000000000000000000 --kind blb "x" | complete
 failure $output
-assert ($output.stderr | str contains "invalid args") "the error should mention the invalid args"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> invalid args
+
+'

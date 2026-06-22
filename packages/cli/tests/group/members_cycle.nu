@@ -15,4 +15,15 @@ tg --token $alice.token group members add a $b.id
 # Adding a as a member of b would create a cycle.
 let output = tg --token $alice.token group members add b $a.id | complete
 failure $output "adding a group to its own member should be rejected"
-assert ($output.stderr | str contains "membership cycle") "the error should mention a membership cycle"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to add the group member
+	   group = b
+	   member = <group>
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> membership cycle
+	-> membership cycle
+
+'

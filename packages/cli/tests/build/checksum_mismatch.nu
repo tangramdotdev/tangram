@@ -10,4 +10,12 @@ let path = artifact {
 
 let output = tg build --checksum "sha256:0000000000000000000000000000000000000000000000000000000000000000" $path | complete
 failure $output
-assert ($output.stderr | str contains "checksum mismatch") "the error should mention the checksum mismatch"
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> checksum mismatch
+	   actual = sha256:4bc678d476f1906a0e3e5e84f9d02d34957f3913bd5e5eb35cd3efa28ff80f40
+	   expected = sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+'

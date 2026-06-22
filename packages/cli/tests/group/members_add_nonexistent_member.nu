@@ -14,4 +14,15 @@ tg --token $alice.token group delete disposable
 
 let output = tg --token $alice.token group members add team $gone.id | complete
 failure $output "adding a nonexistent member should fail"
-assert ($output.stderr | str contains "failed to find the member") "the error should mention that the member was not found"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to add the group member
+	   group = team
+	   member = <group>
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> failed to find the member
+	-> failed to find the member
+
+'

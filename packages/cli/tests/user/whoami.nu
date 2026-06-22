@@ -13,4 +13,8 @@ let config = mktemp
 {} | to json | save -f $config
 let output = with-env { TANGRAM_CONFIG: $config } { tg user whoami | complete }
 failure $output "an anonymous client should not be logged in"
-assert ($output.stderr | str contains "not logged in") "the error should mention not being logged in"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> not logged in
+
+'

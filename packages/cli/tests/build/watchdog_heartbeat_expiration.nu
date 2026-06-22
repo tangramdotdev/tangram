@@ -23,4 +23,10 @@ let path = artifact {
 # Start the build.
 let output = tg build ($path + '#foo') | complete
 failure $output
-assert ($output.stderr | str contains 'heartbeat expired') "the error should mention heartbeat expired"
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> heartbeat expired
+
+'

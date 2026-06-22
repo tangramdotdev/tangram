@@ -23,7 +23,17 @@ let dir = mktemp --directory
 'export default "x"' | save ($dir | path join tangram.ts)
 let output = tg --token $token check $dir | complete
 failure $output
-assert ($output.stderr | str contains 'unauthorized') "the check should be unauthorized"
+snapshot ($output.stderr | redact $dir) '
+	error an error occurred
+	-> failed to get the reference
+	   reference = <path>
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to get the reference
+	   reference = <path>
+	-> unauthorized
+
+'
 
 tg cancel $parent.process $parent.lease
 tg wait $parent.process

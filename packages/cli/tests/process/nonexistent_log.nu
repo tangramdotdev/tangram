@@ -6,4 +6,9 @@ let server = spawn
 
 let output = tg log pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-assert ($output.stderr | str contains 'failed to get the process stdio') "the error should mention the missing process stdio"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the process stdio
+	   id = <process>
+
+'

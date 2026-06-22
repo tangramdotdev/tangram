@@ -19,4 +19,10 @@ success $owner "the owner should read the process status."
 # Eve must not learn the status of a process she cannot see.
 let status = tg --token $eve.token process status $process | complete
 failure $status "Eve must not learn the status of a process she cannot see."
-assert ($status.stderr | str contains "failed to find the process") "the status should be masked as not found."
+snapshot ($status.stderr | redact) '
+	error an error occurred
+	-> failed to get the process status
+	   id = <process>
+	-> failed to find the process
+
+'

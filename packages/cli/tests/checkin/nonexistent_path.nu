@@ -6,4 +6,9 @@ let server = spawn
 
 let output = tg checkin /nonexistent/path/here | complete
 failure $output
-assert ($output.stderr | str contains "failed to canonicalize the path") "the error should mention the failed canonicalization"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to canonicalize the path
+	-> No such file or directory (os error 2)
+
+'

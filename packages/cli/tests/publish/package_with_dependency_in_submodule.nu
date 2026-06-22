@@ -53,8 +53,12 @@ let publish_count = $output.stderr | lines | where {|line| $line =~ "info tagged
 let expected_msg = $"Expected exactly 2 packages to be published, not internal submodules. Found ($publish_count) packages."
 assert equal $publish_count 2 $expected_msg
 
-# Verify that util.tg.ts is not treated as a separate package.
-assert not (($output.stderr | str contains "published") and ($output.stderr | str contains "util")) "Internal submodule 'util' should not be published as a separate package."
+# Verify exactly the package and its dependency are published, not the internal submodule.
+let tagged = $output.stderr | lines | where {|l| $l =~ 'info tagged'} | sort | str join "\n"
+snapshot ($tagged | normalize_ids) '
+	info tagged test-dep/1.0.0 Object(tg::object::Id("dir_010000000000000000000000000000000000000000000000000000"))
+	info tagged test-main/1.0.0 Object(tg::object::Id("dir_011111111111111111111111111111111111111111111111111111"))
+'
 
 # Extract published IDs from stderr.
 let extract_published_id = {|package_name: string|

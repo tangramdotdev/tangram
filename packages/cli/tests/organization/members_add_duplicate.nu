@@ -12,4 +12,15 @@ tg --token $alice.token organization members add acme $bob.user.id
 
 let output = tg --token $alice.token organization members add acme $bob.user.id | complete
 failure $output "adding a member that already exists should fail"
-assert ($output.stderr | str contains "already") "the error should report that the membership already exists"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to add the organization member
+	   member = <user>
+	   organization = acme
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> the member is already in the organization
+	-> the member is already in the organization
+
+'

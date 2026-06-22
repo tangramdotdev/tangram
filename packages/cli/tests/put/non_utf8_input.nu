@@ -6,4 +6,9 @@ let server = spawn
 
 let output = 0x[ff fe fd] | tg put | complete
 failure $output
-assert ($output.stderr | str contains "the input was not valid utf-8") "the error should mention the utf-8 requirement"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> the input was not valid utf-8
+	-> invalid utf-8 sequence of 1 bytes from index 0
+
+'

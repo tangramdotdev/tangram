@@ -18,7 +18,10 @@ let file = tg --url $source.url children $directory | from json | get 0
 
 let output = tg --url $source.url --no-quiet push --lazy $file | complete
 success $output "An anonymous push should succeed."
-assert ($output.stderr | str contains "transferred 0 processes, 2 objects") "The anonymous push should transfer the file and blob."
+snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped) \d+ processes'} | sort | str join "\n") '
+	info skipped 0 processes, 0 objects, 0 B
+	info transferred 0 processes, 2 objects, 51 B
+'
 
 tg --url $remote.url index
 
@@ -28,5 +31,7 @@ tg --url $source.url get --bytes $directory | tg --url $directory_source.url put
 # The later anonymous push relies on the public file subtree and transfers only the directory.
 let output = tg --url $directory_source.url --no-quiet push --lazy $directory | complete
 success $output "A later anonymous push should rely on the public file subtree."
-assert ($output.stderr | str contains "skipped 0 processes, 2 objects") "The later anonymous push should skip the public file and blob."
-assert ($output.stderr | str contains "transferred 0 processes, 1 objects") "The later anonymous push should transfer only the directory."
+snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped) \d+ processes'} | sort | str join "\n") '
+	info skipped 0 processes, 2 objects, 51 B
+	info transferred 0 processes, 1 objects, 60 B
+'

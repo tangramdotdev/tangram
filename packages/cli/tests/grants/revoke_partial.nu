@@ -19,4 +19,12 @@ assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "r
 tg --token $bob.token group get team
 let output = tg --token $bob.token group create team/bob-sub | complete
 failure $output "revoking write should remove the ability to create a subgroup"
-assert ($output.stderr | str contains "unauthorized") "the error should mention that the request is unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to create the group
+	   specifier = team/bob-sub
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> unauthorized
+
+'

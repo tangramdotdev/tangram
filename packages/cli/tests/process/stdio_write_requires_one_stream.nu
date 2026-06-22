@@ -6,4 +6,8 @@ let server = spawn
 
 let output = "data" | tg process stdio write pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-assert ($output.stderr | str contains 'expected exactly one stdio stream') "the error should require exactly one stdio stream"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> expected exactly one stdio stream
+
+'

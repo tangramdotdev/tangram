@@ -21,7 +21,15 @@ let token = tg log $parent.process | str trim
 # Cleaning with a process token is unauthorized.
 let output = tg --token $token clean | complete
 failure $output
-assert ($output.stderr | str contains 'unauthorized') "the clean should be unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to clean
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to start the clean task
+	-> unauthorized
+
+'
 
 tg cancel $parent.process $parent.lease
 tg wait $parent.process

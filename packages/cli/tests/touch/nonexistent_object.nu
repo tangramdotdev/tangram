@@ -6,4 +6,10 @@ let server = spawn
 
 let output = tg object touch fil_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-assert ($output.stderr | str contains 'failed to find the object') "the error should mention the missing object"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to touch the object
+	   id = fil_010000000000000000000000000000000000000000000000000000
+	-> failed to find the object
+
+'

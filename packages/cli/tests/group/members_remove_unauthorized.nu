@@ -18,4 +18,13 @@ tg --token $bob.token group create team/bob-sub
 # Write does not confer admin, so bob cannot remove another member.
 let output = tg --token $bob.token group members remove team $carol.user.id | complete
 failure $output "a member without admin should not be able to remove another member"
-assert ($output.stderr | str contains "unauthorized") "the error should mention that the request is unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to remove the group member
+	   group = team
+	   member = <user>
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> unauthorized
+
+'

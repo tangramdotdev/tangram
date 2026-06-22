@@ -20,7 +20,16 @@ tg tag put test $id1 | complete | success $in
 # Overwriting the tag with a different item requires --force.
 let output = tg tag put test $id2 | complete
 failure $output "The tag command should fail without --force."
-assert ($output.stderr | str contains "the tag already exists with a different item") "The error should mention that the tag already exists."
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to put the tag
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> the tag already exists with a different item
+	-> the tag already exists with a different item
+
+'
 
 let item = tg tag get test | from json | get item.id
 assert equal $item $id1 "The tag should still point to the original item."

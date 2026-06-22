@@ -30,5 +30,7 @@ tg --url $remote.url index
 # Bob's second push skips the whole subtree through his sync grant and transfers nothing.
 let output = tg --url $bob_local.url --no-quiet push --lazy $directory | complete
 success $output "Bob should push the directory again."
-assert ($output.stderr | str contains "skipped 0 processes, 3 objects") "The second push should skip the directory, file, and blob."
-assert ($output.stderr | str contains "transferred 0 processes, 0 objects") "The second push should transfer nothing."
+snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped) \d+ processes'} | sort | str join "\n") '
+	info skipped 0 processes, 3 objects, 109 B
+	info transferred 0 processes, 0 objects, 0 B
+'

@@ -21,7 +21,15 @@ let token = tg log $parent.process | str trim
 # Listing watches with a process token is unauthorized.
 let output = tg --token $token watch list | complete
 failure $output
-assert ($output.stderr | str contains 'unauthorized') "the list should be unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to list the watches
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to list the watches
+	-> unauthorized
+
+'
 
 tg cancel $parent.process $parent.lease
 tg wait $parent.process

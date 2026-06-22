@@ -9,4 +9,12 @@ let dir = mktemp --directory
 
 let output = tg check $dir | complete
 failure $output
-assert ($output.stderr | str contains "type checking failed") "the error should mention the failed type checking"
+snapshot ($output.stderr | redact $dir) '
+	error Expression expected.
+	   ╭─[<path>/tangram.ts:1:20]
+	 1 │ export default ((((
+	   ╰────
+	error an error occurred
+	-> type checking failed
+
+'

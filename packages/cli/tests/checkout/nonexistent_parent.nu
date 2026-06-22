@@ -14,4 +14,9 @@ let path = $dir | path join "nope" "child"
 
 let output = tg checkout $id $path | complete
 failure $output
-assert ($output.stderr | str contains "failed to canonicalize the path") "the error should mention the failed canonicalization"
+snapshot ($output.stderr | redact $path $dir) '
+	error an error occurred
+	-> failed to canonicalize the path
+	-> No such file or directory (os error 2)
+
+'

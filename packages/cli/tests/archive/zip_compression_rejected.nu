@@ -11,4 +11,7 @@ let wait = tg wait $build.process | from json
 assert equal $wait.exit 1 "the archive process should exit with code 1"
 
 let log = tg log $build.process | complete
-assert ($log.stderr | str contains "compression is not supported for zip archives") "the process log should mention that compression is not supported"
+snapshot ($log.stderr | redact) '
+	-> compression is not supported for zip archives
+
+'

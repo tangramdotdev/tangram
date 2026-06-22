@@ -24,4 +24,15 @@ wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
 
 let output = tg publish $path | complete
 failure $output
-assert ($output.stderr | str contains 'failed to') "the error should mention the failure"
+snapshot ($output.stderr | redact $path $remote.url $remote.directory) '
+	error an error occurred
+	-> failed to push items
+	-> failed to create the pull stream
+	-> failed to sync
+	   remote = default
+	-> failed to send the request
+	-> failed to resolve the socket path
+	   path = <path>/socket
+	-> No such file or directory (os error 2)
+
+'

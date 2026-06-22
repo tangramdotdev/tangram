@@ -16,4 +16,12 @@ tg --token $bob.token group create team/bob-sub
 # Write does not confer admin, so bob cannot delete the group.
 let output = tg --token $bob.token group delete team | complete
 failure $output "a member without admin should not be able to delete the group"
-assert ($output.stderr | str contains "unauthorized") "the error should mention that the request is unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to delete the group
+	   group = team
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> unauthorized
+
+'

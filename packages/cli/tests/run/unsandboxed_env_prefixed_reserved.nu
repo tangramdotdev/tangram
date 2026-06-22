@@ -14,4 +14,10 @@ let path = artifact {
 
 let output = tg run --env-string TANGRAM_ENV_FOO=5 $path | complete
 failure $output
-assert ($output.stderr | str contains "env vars prefixed with TANGRAM_ENV_ are reserved")
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> failed to spawn the process
+	-> env vars prefixed with TANGRAM_ENV_ are reserved
+	   key = TANGRAM_ENV_FOO
+
+'

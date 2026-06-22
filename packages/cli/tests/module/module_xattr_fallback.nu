@@ -12,4 +12,4 @@ let path = artifact {
 let id = tg checkin ($path | path join "foo.ts")
 let obj = tg object get $id
 
-assert ($obj | str contains '"module":"ts"') "xattr should be used when filename doesn't match"
+snapshot ($obj | redact $path | normalize_ids) 'tg.file({"contents":blb_010000000000000000000000000000000000000000000000000000,"module":"ts"})'

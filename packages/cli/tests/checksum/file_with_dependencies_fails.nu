@@ -11,4 +11,8 @@ let wait = tg wait $build.process | from json
 assert equal $wait.exit 1 "the checksum process should exit with code 1"
 
 let log = tg log $build.process | complete
-assert ($log.stderr | str contains "cannot checksum a file with dependencies") "the process log should mention the file with dependencies"
+snapshot ($log.stderr | redact) '
+	 0 B
+	-> cannot checksum a file with dependencies
+
+'

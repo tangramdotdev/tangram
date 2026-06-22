@@ -22,11 +22,19 @@ assert equal $listed.network.ports $get.network.ports
 
 let output = tg sandbox create --no-network --port 8080:80 | complete
 failure $output
-assert ($output.stderr | str contains 'ports require networking') "the error should mention networking"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> ports require networking
+
+'
 
 let output = tg sandbox create --network=host --port 8080:80 | complete
 failure $output
-assert ($output.stderr | str contains 'ports are not supported with host networking') "the error should mention host networking"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> ports are not supported with host networking
+
+'
 
 let path = artifact {
 	script: (file --executable '
@@ -38,6 +46,10 @@ let executable = tg checkin ($path | path join "script") | str trim
 
 let output = tg spawn $"--sandbox=($sandbox)" --port 8080:80 --executable $executable | complete
 failure $output
-assert ($output.stderr | str contains 'sandbox options are not supported for existing sandboxes') "the error should mention the existing sandbox"
+snapshot ($output.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> sandbox options are not supported for existing sandboxes
+
+'
 
 tg sandbox destroy $sandbox

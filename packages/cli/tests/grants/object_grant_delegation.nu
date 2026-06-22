@@ -33,4 +33,13 @@ success $output "Carol should read the file through Bob's delegated grant."
 # Eve holds only the node, so she cannot grant the subtree she does not hold.
 let escalation = tg --url $remote.url --token $eve.token grant $carol.user.id object_subtree $file | complete
 failure $escalation "a node grantee should not grant the subtree."
-assert ($escalation.stderr | str contains "failed to find the resource") "the subtree should be invisible to a node-only grantee."
+snapshot ($escalation.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> failed to create the grant
+	   principal = <user>
+	   resource = fil_010000000000000000000000000000000000000000000000000000
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to find the resource
+
+'

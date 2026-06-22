@@ -22,4 +22,13 @@ tg --url $remote.url index
 # Eve cannot see Alice's private file, so granting on it reports a missing resource rather than that it exists.
 let output = tg --url $remote.url --token $eve.token grant $bob.user.id object_subtree $file | complete
 failure $output "Eve should not grant a permission on a file she cannot see."
-assert ($output.stderr | str contains "failed to find the resource") "the invisible file should be reported as missing."
+snapshot ($output.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> failed to create the grant
+	   principal = <user>
+	   resource = fil_010000000000000000000000000000000000000000000000000000
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to find the resource
+
+'

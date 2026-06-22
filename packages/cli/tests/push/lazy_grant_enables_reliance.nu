@@ -34,5 +34,7 @@ tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $fil
 # Now Bob skips the granted file and blob and transfers only the directory.
 let output = tg --url $bob_local.url --no-quiet push --lazy $directory | complete
 success $output "Bob should rely on the granted file subtree."
-assert ($output.stderr | str contains "skipped 0 processes, 2 objects") "Bob should skip the granted file and blob."
-assert ($output.stderr | str contains "transferred 0 processes, 1 objects") "Bob should transfer only the directory."
+snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped) \d+ processes'} | sort | str join "\n") '
+	info skipped 0 processes, 2 objects, 50 B
+	info transferred 0 processes, 1 objects, 59 B
+'

@@ -29,4 +29,9 @@ assert (($list | where id == $create | is-empty))
 wait_until { (tg sandbox get $create | complete | get exit_code) != 0 } "the sandbox should be finalized"
 let output = tg sandbox get $create | complete
 failure $output "the sandbox should be finalized"
-assert ($output.stderr | str contains 'failed to find the sandbox') "the error should mention the missing sandbox"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the sandbox
+	   sandbox = <sandbox>
+
+'

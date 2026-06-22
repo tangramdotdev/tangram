@@ -16,4 +16,10 @@ let path = artifact {
 
 let output = tg publish $path | complete
 failure $output
-assert ($output.stderr | str contains "expected 'tag' to be a string") "the error should mention that the tag must be a string"
+snapshot ($output.stderr | redact $path) r#'
+	error an error occurred
+	-> failed to create publishing plan
+	-> expected 'tag' to be a string
+	   path = <path>/tangram.ts
+
+'#

@@ -6,4 +6,10 @@ let server = spawn
 
 let output = tg wait pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-assert ($output.stderr | str contains 'failed to find the process') "the error should mention the missing process"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to wait for the process
+	   id = <process>
+	-> failed to find the process
+
+'

@@ -6,9 +6,28 @@ let server = spawn
 
 let output = tg get /nonexistent/deeply/nested | complete
 failure $output
-assert ($output.stderr | str contains "failed to canonicalize the path") "the error should mention the canonicalization"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to canonicalize the path
+	-> No such file or directory (os error 2)
+
+'
 
 let tmp = mktemp --directory
 let output = tg get ($tmp | path join "nope") | complete
 failure $output
-assert ($output.stderr | str contains "failed to check in the path") "the error should mention the checkin"
+snapshot ($output.stderr | redact $tmp) '
+	error an error occurred
+	-> failed to get the reference
+	   reference = <path>/nope
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to get the reference
+	   reference = <path>/nope
+	-> failed to check in the path
+	-> failed to find the root path
+	-> failed to get the metadata
+	   path = <path>/nope
+	-> No such file or directory (os error 2)
+
+'

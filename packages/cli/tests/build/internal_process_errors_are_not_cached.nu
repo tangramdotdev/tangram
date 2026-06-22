@@ -24,7 +24,21 @@ failure $first_output
 let first_child = tg process children $first.process | from json | get 0.process
 let first_error = tg get $first_child | from json | get error
 let first_error_pretty = tg get $first_error --pretty
-assert ($first_error_pretty | str contains '"code": "internal"') "The error should have the internal code."
+snapshot ($first_error_pretty | redact $path | normalize_ids) '
+	tg.error({
+	  "code": "internal",
+	  "message": "failed to run the process",
+	  "source": tg.error({
+	    "message": "cannot run process with host",
+	    "values": {
+	      "host": "not-a-real-host",
+	    },
+	  }),
+	  "values": {
+	    "process": "<process>",
+	  },
+	})
+'
 
 let second = tg build --detach --verbose $"($path)#second" | from json
 let second_output = tg output $second.process | complete

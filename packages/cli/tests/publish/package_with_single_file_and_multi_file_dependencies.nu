@@ -77,9 +77,12 @@ let expected_msg = $"Expected 3 packages to be published but found ($publish_cou
 assert equal $publish_count 3 $expected_msg
 
 # Verify the correct packages are published.
-assert ($output.stderr | str contains "info tagged test-main/1.0.0") "test-main should be published."
-assert ($output.stderr | str contains "info tagged test-single-file/1.0.0") "test-single-file should be published."
-assert ($output.stderr | str contains "info tagged test-multi-file/1.0.0") "test-multi-file should be published."
+let tagged = $output.stderr | lines | where {|l| $l =~ 'info tagged'} | sort | str join "\n"
+snapshot ($tagged | normalize_ids) '
+	info tagged test-main/1.0.0 Object(tg::object::Id("dir_010000000000000000000000000000000000000000000000000000"))
+	info tagged test-multi-file/1.0.0 Object(tg::object::Id("dir_011111111111111111111111111111111111111111111111111111"))
+	info tagged test-single-file/1.0.0 Object(tg::object::Id("fil_010000000000000000000000000000000000000000000000000000"))
+'
 
 # Verify all packages are tagged on local.
 let local_main_tag = tg tag get test-main/1.0.0 | from json | get item.id

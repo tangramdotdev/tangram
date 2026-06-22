@@ -17,4 +17,31 @@ let path = artifact {
 cd $path
 let output = timeout 10s tg build | complete
 failure $output
-assert ($output.stderr | str contains "kaboom")
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> reject is not defined
+	   ╭─[./tangram.ts:3:10]
+	 2 │     let promise = new Promise(() => reject(new Error("kaboom")));
+	 3 │     promise.catch(() => {});
+	   ·             ▲
+	   ·             ╰── reject is not defined
+	 4 │     await new Promise(() => {});
+	   ╰────
+	   ╭─[./tangram.ts:2:16]
+	 1 │ export default async () => {
+	 2 │     let promise = new Promise(() => reject(new Error("kaboom")));
+	   ·                   ▲
+	   ·                   ╰── reject is not defined
+	 3 │     promise.catch(() => {});
+	   ╰────
+	   ╭─[./tangram.ts:2:34]
+	 1 │ export default async () => {
+	 2 │     let promise = new Promise(() => reject(new Error("kaboom")));
+	   ·                                     ▲
+	   ·                                     ╰── reject is not defined
+	 3 │     promise.catch(() => {});
+	   ╰────
+
+'

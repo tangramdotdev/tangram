@@ -14,4 +14,8 @@ let command = tg get $process | from json | get command
 
 let output = tg cache $command | complete
 failure $output
-assert ($output.stderr | str contains "expected an artifact") "the error should mention that an artifact was expected"
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> expected an artifact
+
+'

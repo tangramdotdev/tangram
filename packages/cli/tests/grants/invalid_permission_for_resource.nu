@@ -12,4 +12,15 @@ tg --token $alice.token group create team
 # An object permission cannot be attached to a group resource.
 let output = tg --token $alice.token grant $bob.user.id object_node team | complete
 failure $output "an object permission should not be grantable on a group"
-assert ($output.stderr | str contains "invalid permission for the resource") "the error should report that the permission is invalid for the resource"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to create the grant
+	   principal = <user>
+	   resource = team
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> invalid permission for the resource
+	-> invalid permission for the resource
+
+'

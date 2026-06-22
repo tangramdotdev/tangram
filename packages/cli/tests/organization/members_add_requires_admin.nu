@@ -14,4 +14,13 @@ tg --token $alice.token grant $eve.user.id write acme
 # Eve has write but not admin, so she cannot add an accomplice to the organization.
 let output = tg --token $eve.token organization members add acme $carol.user.id | complete
 failure $output "a write user should not be able to add a member"
-assert ($output.stderr | str contains "unauthorized") "the error should mention that the request is unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to add the organization member
+	   member = <user>
+	   organization = acme
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> unauthorized
+
+'

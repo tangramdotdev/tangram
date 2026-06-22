@@ -10,7 +10,17 @@ let fake = "fil_010000000000000000000000000000000000000000000000000000"
 
 let output = $bytes | tg object put $fake --bytes | complete
 failure $output
-assert ($output.stderr | str contains "invalid object id") "the error should mention the id mismatch"
+snapshot ($output.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> failed to put the object
+	   id = fil_010000000000000000000000000000000000000000000000000000
+	-> the request failed
+	   status = 400 Bad Request
+	-> invalid object id
+	   actual = fil_011111111111111111111111111111111111111111111111111111
+	   expected = fil_010000000000000000000000000000000000000000000000000000
+
+'
 
 let output = tg get $fake | complete
 failure $output

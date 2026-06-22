@@ -8,4 +8,11 @@ let path = ($env.TMPDIR? | default '/tmp') | path join 'checkout_nonexistent'
 
 let output = tg checkout dir_0000000000000000000000000000 $path | complete
 failure $output
-assert ($output.stderr | str contains 'failed to check out the artifact') "the error should mention the failed checkout"
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> failed to check out the artifact
+	   artifact = dir_0000000000000000000000000000
+	-> failed to get the item
+	-> failed to load the object
+
+'

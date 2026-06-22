@@ -6,8 +6,18 @@ let server = spawn
 
 let output = tg sandbox create --mount "::bad::" | complete
 failure $output
-assert ($output.stderr | str contains "expected an absolute path") "the error should mention the absolute path"
+snapshot ($output.stderr | redact) r#'
+	error: invalid value '::bad::' for '--mount <sandbox.mounts>': expected an absolute path
+	
+	For more information, try '--help'.
+
+'#
 
 let output = tg sandbox create --isolation warp | complete
 failure $output
-assert ($output.stderr | str contains "invalid isolation") "the error should mention the invalid isolation"
+snapshot ($output.stderr | redact) r#'
+	error: invalid value 'warp' for '--isolation <sandbox.isolation>': invalid isolation
+	
+	For more information, try '--help'.
+
+'#

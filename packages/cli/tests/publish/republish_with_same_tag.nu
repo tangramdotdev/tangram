@@ -43,7 +43,17 @@ let id2 = tg checkin $path2
 
 let output = tg publish $path2 | complete
 failure $output "The publish command should fail without --force."
-assert ($output.stderr | str contains "the tag already exists with a different item") "The error should mention that the tag already exists."
+snapshot ($output.stderr | redact $path1 $path2) '
+	error an error occurred
+	-> failed to put local tag
+	   tag = test-pkg/1.0.0
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> the tag already exists with a different item
+	-> the tag already exists with a different item
+
+'
 
 # Verify the tag still points to the first package on local.
 let local_tag2 = tg tag get test-pkg/1.0.0 | from json | get item.id

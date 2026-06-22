@@ -16,7 +16,12 @@ assert ($alice_object_metadata.subtree.size > $alice_object_metadata.node.size) 
 
 let output = tg --token $bob.token metadata $directory | complete
 failure $output "Bob should not be able to get Alice's object metadata without a grant."
-assert ($output.stderr | str contains "failed to find the object metadata") "The error should match the missing object metadata behavior."
+snapshot ($output.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> failed to find the object metadata
+	   id = dir_010000000000000000000000000000000000000000000000000000
+
+'
 
 let child = "pcs_00081061050r3gg28a1c60t3gf20"
 let parent = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
@@ -46,4 +51,9 @@ assert equal ($alice_process_metadata.node? | default {} | columns) [] "Alice sh
 
 let output = tg --token $bob.token metadata $parent | complete
 failure $output "Bob should not be able to get Alice's process metadata without a grant."
-assert ($output.stderr | str contains "failed to find the process metadata") "The error should match the missing process metadata behavior."
+snapshot ($output.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> failed to find the process metadata
+	   id = <process>
+
+'

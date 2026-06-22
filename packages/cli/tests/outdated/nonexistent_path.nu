@@ -6,4 +6,11 @@ let server = spawn
 
 let output = tg outdated /nonexistent/path/nowhere | complete
 failure $output
-assert ($output.stderr | str contains "failed to find the root") "the error should mention the root"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the root
+	-> failed to get the metadata
+	   path = /nonexistent/path/nowhere
+	-> No such file or directory (os error 2)
+
+'

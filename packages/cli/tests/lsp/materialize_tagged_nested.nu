@@ -39,12 +39,12 @@ let responses = lsp run [
 let links = lsp result $responses 10
 assert (($links | length) == 1) "expected one document link"
 let link_uri = $links.0.target
-assert ($link_uri | str contains "/tags/nested/tangram.ts") "expected the document link target to use the tag root path"
+snapshot ($link_uri | redact $server.directory | normalize_ids) 'file://<path>/tags/nested/tangram.ts'
 
 let locations = lsp result $responses 11
 assert (($locations | length) > 0) "expected a definition location"
 let definition_uri = $locations.0.uri
-assert ($definition_uri | str contains "/tags/nested/lib/utils.tg.ts") "expected the definition URI to use the nested tag path"
+snapshot ($definition_uri | redact $server.directory | normalize_ids) 'file://<path>/tags/nested/lib/utils.tg.ts'
 
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the nested definition path to be materialized"

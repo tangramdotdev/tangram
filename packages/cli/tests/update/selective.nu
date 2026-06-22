@@ -31,6 +31,9 @@ snapshot ($output.stdout | str trim) '
 '
 
 let lock = open ($root | path join tangram.lock)
-assert ($lock | str contains "a/1.1.0") "the named dependency should be updated"
-assert ($lock | str contains "b/1.0.0") "the other dependency should keep its version"
-assert (not ($lock | str contains "b/1.1.0")) "the other dependency should not be updated"
+let relevant = $lock | lines | where {|l| $l =~ '[ab]/[0-9]+\.[0-9]+\.[0-9]+' } | each {|l| $l | str trim } | sort
+snapshot $relevant '
+	            "tag": "a/1.1.0"
+	            "tag": "b/1.0.0"
+
+'

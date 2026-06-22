@@ -6,4 +6,9 @@ let server = spawn
 
 let output = tg object children fil_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-assert ($output.stderr | str contains 'failed to find the object') "the error should mention the missing object"
+snapshot ($output.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> failed to find the object
+	   id = fil_010000000000000000000000000000000000000000000000000000
+
+'

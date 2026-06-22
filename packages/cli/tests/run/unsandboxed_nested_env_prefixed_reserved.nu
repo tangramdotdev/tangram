@@ -16,4 +16,17 @@ let path = artifact {
 
 let output = tg run $path | complete
 failure $output
-assert ($output.stderr | str contains "env vars prefixed with TANGRAM_ENV_ are reserved")
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> env vars prefixed with TANGRAM_ENV_ are reserved
+	   ╭─[<path>/tangram.ts:2:9]
+	 1 │ export default async function () {
+	 2 │     return await tg.run(tg.file()).env({
+	   ·            ▲
+	   ·            ╰── env vars prefixed with TANGRAM_ENV_ are reserved
+	 3 │         TANGRAM_ENV_FOO: 5,
+	   ╰────
+
+'

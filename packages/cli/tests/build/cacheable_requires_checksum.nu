@@ -11,7 +11,12 @@ def assert_cacheable_error [source: string] {
 
 	let output = tg build $path | complete
 	failure $output
-	assert ($output.stderr | str contains "a build must be cacheable") "The error should mention cacheability."
+	let relevant = $output.stderr | lines | where {|l| $l =~ 'a build must be cacheable'} | sort | each {|l| $l | redact $path | normalize_ids }
+	snapshot $relevant '
+		   ·            ╰── a build must be cacheable
+		-> a build must be cacheable
+
+	'
 }
 
 assert_cacheable_error '
@@ -62,7 +67,19 @@ let checksum_path = artifact {
 
 let checksum_output = tg build $checksum_path | complete
 failure $checksum_output
-assert not ($checksum_output.stderr | str contains "a build must be cacheable") "A checksum should bypass the cacheability guard."
+snapshot ($checksum_output.stderr | redact $checksum_path | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> the syscall failed
+	   name = handle_process_spawn
+	-> failed to deserialize the args
+	-> failed to deserialize the first value
+	-> failed to deserialize the value from v8
+	-> invalid algorithm
+	-> invalid algorithm
+
+'
 
 let cli_path = artifact {
 	tangram.ts: '
@@ -72,4 +89,8 @@ let cli_path = artifact {
 
 let cli_output = tg build --network=true $cli_path | complete
 failure $cli_output
-assert ($cli_output.stderr | str contains "a build must be cacheable") "The CLI build command should enforce cacheability."
+snapshot ($cli_output.stderr | redact $cli_path | normalize_ids) '
+	error an error occurred
+	-> a build must be cacheable
+
+'

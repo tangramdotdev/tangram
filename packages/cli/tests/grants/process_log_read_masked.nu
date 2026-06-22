@@ -14,7 +14,10 @@ tg --token $alice.token wait $process
 
 # The owner can read the log.
 let owner = tg --token $alice.token log $process | complete
-assert ($owner.stdout | str contains "topsecret") ("the owner should read the log: " + ($owner | to json))
+snapshot ($owner.stdout | redact) '
+	topsecret
+
+'
 
 # Eve cannot read Alice's private process.
 let denied = tg --token $eve.token get $process | complete
@@ -22,4 +25,4 @@ failure $denied "Eve should not read Alice's private process."
 
 # Eve must not read the process's log either.
 let leaked = tg --token $eve.token log $process | complete
-assert (not ($leaked.stdout | str contains "topsecret")) ("Eve must not read the log of a process she cannot see: " + ($leaked | to json))
+snapshot ($leaked.stdout | redact) ''

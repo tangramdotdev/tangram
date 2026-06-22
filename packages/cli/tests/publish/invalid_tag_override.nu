@@ -16,4 +16,9 @@ let path = artifact {
 
 let output = tg publish --tag "@@@bad" $path | complete
 failure $output
-assert ($output.stderr | str contains "failed to parse the tag") "the error should mention the failed tag parse"
+snapshot ($output.stderr | redact $path) '
+	error an error occurred
+	-> failed to parse the tag
+	-> invalid specifier component
+
+'

@@ -4,8 +4,16 @@ use ../../test.nu *
 
 let output = tg id "not_an_id" | complete
 failure $output
-assert ($output.stderr | str contains "invalid id") "the error should mention the invalid id"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> invalid id
+
+'
 
 let output = "" | tg id | complete
 failure $output
-assert ($output.stderr | str contains "invalid id") "empty input should be rejected"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> invalid id
+
+'

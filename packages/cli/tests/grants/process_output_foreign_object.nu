@@ -25,4 +25,8 @@ tg --token $eve.token wait $eve_process
 # Eve must not gain read access to Alice's private file by naming it as her process output.
 let leaked = tg --token $eve.token get $file | complete
 failure $leaked "Eve must not read Alice's private file after naming it as her process output."
-assert ($leaked.stderr | str contains "failed to load the object") "the private file should remain masked."
+snapshot ($leaked.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> failed to load the object
+
+'

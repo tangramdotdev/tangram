@@ -18,7 +18,10 @@ wait_until { (tg --token $alice.token log $process | str trim | str length) > 0 
 # Eve with only the process node reads the live log, because it is the running process's stream the node covers.
 tg --token $alice.token grant $eve.user.id process_node $process | ignore
 let node_only = tg --token $eve.token log $process | complete
-assert ($node_only.stdout | str contains "loghello") ("process_node alone should read a running process's live log: " + ($node_only | to json))
+snapshot ($node_only.stdout | redact) '
+	loghello
+
+'
 
 # Clean up the running process.
 tg --token $alice.token cancel $process $started.lease

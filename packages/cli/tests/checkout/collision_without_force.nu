@@ -15,4 +15,10 @@ tg checkout $id $path
 
 let output = tg checkout $id $path | complete
 failure $output
-assert ($output.stderr | str contains "there is an existing file system object at the path") "the error should mention the existing file system object"
+snapshot ($output.stderr | redact $path $dir) '
+	error an error occurred
+	-> failed to check out the artifact
+	   artifact = fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60
+	-> there is an existing file system object at the path
+
+'

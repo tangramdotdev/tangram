@@ -12,7 +12,17 @@ let auth_enabled = spawn --config {
 
 let output = tg remote put default $alice_server.url | complete
 failure $output "An unauthenticated request should not be able to manage remotes."
-assert ($output.stderr | str contains "unauthenticated") "The error should mention that the request is unauthenticated."
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to put the remote
+	   name = default
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to put the remote
+	   name = default
+	-> unauthenticated
+
+'
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

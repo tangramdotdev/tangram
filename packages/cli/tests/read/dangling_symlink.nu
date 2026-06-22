@@ -8,4 +8,8 @@ let link = tg put 'tg.symlink({ "path": "nowhere" })' | str trim
 
 let output = tg read $link | complete
 failure $output
-assert ($output.stderr | str contains "cannot resolve a symlink with no artifact") "the error should mention the unresolvable symlink"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> cannot resolve a symlink with no artifact
+
+'

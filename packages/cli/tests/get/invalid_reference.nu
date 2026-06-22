@@ -6,4 +6,9 @@ let server = spawn
 
 let output = tg get 'not a reference' | complete
 failure $output
-assert ($output.stderr | str contains 'failed to parse the reference') "the error should mention the reference parse failure"
+snapshot ($output.stderr | redact) r#'
+	error: invalid value 'not a reference' for '<REFERENCE>': failed to parse the reference item
+	
+	For more information, try '--help'.
+
+'#

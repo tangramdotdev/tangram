@@ -8,4 +8,11 @@ let alice = tg login --verbose alice | from json
 
 let output = tg --token $alice.token organization list | complete
 failure $output "tg organization list should not be a command"
-assert ($output.stderr | str contains "unrecognized subcommand") "organization list should be rejected as an unknown subcommand"
+snapshot ($output.stderr | redact) r#'
+	error: unrecognized subcommand 'list'
+	
+	Usage: tg organization <COMMAND>
+	
+	For more information, try '--help'.
+
+'#

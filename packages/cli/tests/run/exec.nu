@@ -14,11 +14,11 @@ let path = artifact {
 
 let output = tg exec $path | complete
 success $output
-assert (($output.stdout | str trim) == "cli-exec")
+snapshot (($output.stdout | str trim) | redact $path) 'cli-exec'
 
 let output = tg process exec $path | complete
 success $output
-assert (($output.stdout | str trim) == "cli-exec")
+snapshot (($output.stdout | str trim) | redact $path) 'cli-exec'
 
 let js_path = artifact {
 	tangram.ts: '
@@ -31,8 +31,7 @@ let js_path = artifact {
 
 let output = tg run $js_path | complete
 success $output
-assert (($output.stdout | str trim) == "js-client-exec")
-assert (not ($output.stdout | str contains "unreachable"))
+snapshot (($output.stdout | str trim) | redact $path) 'js-client-exec'
 
 let js_output_path = artifact {
 	tangram.ts: '
@@ -54,8 +53,17 @@ assert ($output == { message: "js-client-exec-output" })
 
 let output = tg exec --sandbox $path | complete
 failure $output
-assert ($output.stderr | str contains "an exec must not be sandboxed")
+snapshot ($output.stderr | redact $path) '
+	error an error occurred
+	-> an exec must not be sandboxed
+
+'
 
 let output = tg exec --stdout pipe $path | complete
 failure $output
-assert ($output.stderr | str contains "stdio must be inherit or null for an exec")
+snapshot ($output.stderr | redact $path) '
+	error an error occurred
+	-> stdio must be inherit or null for an exec
+	   stream = stdout
+
+'

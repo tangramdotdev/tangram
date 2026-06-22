@@ -6,4 +6,13 @@ let server = spawn --config { authentication: true }
 
 let output = tg login "alice/bob" | complete
 failure $output "a multi-component user specifier should be rejected"
-assert ($output.stderr | str contains "invalid user specifier") "the error should mention an invalid user specifier"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to log in
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> database error
+	-> invalid user specifier
+	-> invalid user specifier
+
+'

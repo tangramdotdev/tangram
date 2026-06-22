@@ -6,4 +6,9 @@ let server = spawn
 
 let output = tg read fil_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-assert ($output.stderr | str contains "failed to load the object") "the error should mention the failed load"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get file contents
+	-> failed to load the object
+
+'

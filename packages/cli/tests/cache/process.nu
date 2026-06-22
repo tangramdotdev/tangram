@@ -12,4 +12,9 @@ tg wait $process
 
 let output = tg cache $process | complete
 failure $output
-assert ($output.stderr | str contains "expected an object ID") "the error should mention that an object id was expected"
+snapshot ($output.stderr | redact $path) '
+	error an error occurred
+	-> expected an object ID
+	   kind = pcs
+
+'

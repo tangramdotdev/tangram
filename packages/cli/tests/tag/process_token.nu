@@ -26,7 +26,15 @@ let token = tg log $parent.process | str trim
 # Getting a tag with a process token is unauthorized.
 let output = tg --token $token tag get test | complete
 failure $output
-assert ($output.stderr | str contains "unauthorized") "the tag get should be unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the tag
+	   tag = test
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> unauthorized
+
+'
 
 tg cancel $parent.process $parent.lease
 tg wait $parent.process

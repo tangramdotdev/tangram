@@ -13,4 +13,12 @@ let path = artifact {
 
 let output = tg build $path | complete
 failure $output
-assert not ($output.stderr | str contains "failed to load the error")
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> the child process failed
+	   id = <process>
+	-> the process exited with code 1
+
+'

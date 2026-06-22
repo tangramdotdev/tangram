@@ -8,4 +8,12 @@ let server = spawn
 
 let output = tg download "http://www.example.com" | complete
 failure $output
-assert ($output.stderr | str contains "checksum mismatch") "the download should fail because no checksum was provided"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> checksum mismatch
+	   actual = sha512:356a71a6fd7862385ab9884781f11be233c4ee6b9d380b4dffd428e75d2cc6d4d49139080f039f5a4792d20e558e1931b594b94a8efe4d2c2d0f6d147ee6f134
+	   expected = sha512:none
+
+'

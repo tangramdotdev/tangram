@@ -5,8 +5,13 @@ use ../../test.nu *
 let server = spawn
 
 let dir = mktemp --directory
-"plain text" | save ($dir | path join notes.txt)
+let notes = $dir | path join notes.txt
+"plain text" | save $notes
 
-let output = tg document ($dir | path join notes.txt) | complete
+let output = tg document $notes | complete
 failure $output
-assert ($output.stderr | str contains "expected a module path") "the error should mention the module path"
+snapshot ($output.stderr | redact $notes) '
+	error an error occurred
+	-> expected a module path
+
+'

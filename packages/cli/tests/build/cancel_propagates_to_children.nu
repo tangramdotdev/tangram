@@ -30,4 +30,10 @@ tg cancel $parent.process $parent.lease
 # The child is canceled.
 let output = tg output $child | complete
 failure $output
-assert ($output.stderr | str contains 'the process was canceled') "the error should mention the cancellation"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the process output
+	   id = <process>
+	-> the process was canceled
+
+'

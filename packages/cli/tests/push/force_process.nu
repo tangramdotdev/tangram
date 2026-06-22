@@ -26,7 +26,7 @@ tg wait $process_id
 # First push - should push the process.
 let output = tg --no-quiet push --commands --no-outputs $process_id | complete
 success $output
-assert ($output.stderr | str contains "transferred 1 processes") "expected the first push to transfer the process"
+snapshot ($output.stderr | lines | parse --regex '(?<m>transferred \d+ processes)' | get m | uniq | str join "\n") 'transferred 1 processes'
 
 # Index both sides.
 tg index
@@ -35,9 +35,9 @@ tg --url $remote.url index
 # Second push without force - should not transfer the indexed process.
 let output = tg --no-quiet push --commands --no-outputs $process_id | complete
 success $output
-assert ($output.stderr | str contains "transferred 0 processes") "expected the second push not to transfer the process"
+snapshot ($output.stderr | lines | parse --regex '(?<m>transferred \d+ processes)' | get m | uniq | str join "\n") 'transferred 0 processes'
 
 # Third push with force - should transfer the process again.
 let output = tg --no-quiet push --force --commands --no-outputs $process_id | complete
 success $output
-assert ($output.stderr | str contains "transferred 1 processes") "expected the forced push to transfer the process"
+snapshot ($output.stderr | lines | parse --regex '(?<m>transferred \d+ processes)' | get m | uniq | str join "\n") 'transferred 1 processes'

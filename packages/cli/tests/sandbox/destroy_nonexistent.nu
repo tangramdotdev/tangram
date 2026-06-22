@@ -6,4 +6,10 @@ let server = spawn
 
 let output = tg sandbox destroy sbx_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-assert ($output.stderr | str contains "failed to find the sandbox") "the error should mention the missing sandbox"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to destroy the sandbox
+	   sandbox = <sandbox>
+	-> failed to find the sandbox
+
+'

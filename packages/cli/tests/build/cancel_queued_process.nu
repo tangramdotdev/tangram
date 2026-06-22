@@ -34,7 +34,13 @@ assert ((tg status --timeout 0 $queued.process | from json) != ["started"]) "the
 tg cancel $queued.process $queued.lease
 let output = tg output $queued.process | complete
 failure $output
-assert ($output.stderr | str contains 'the process was canceled') "the error should mention the cancellation"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the process output
+	   id = <process>
+	-> the process was canceled
+
+'
 
 # The blocker is unaffected.
 assert equal (tg status --timeout 0 $blocker.process | from json) ["started"] "the blocker should still be running"

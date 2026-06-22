@@ -15,4 +15,10 @@ tg --token $alice.token wait $process
 # Eve must not be able to signal a process she cannot see, and the error must not reveal that it exists.
 let signaled = tg --token $eve.token process signal $process | complete
 failure $signaled ("Eve must not signal a process she cannot see: " + ($signaled | to json))
-assert ($signaled.stderr | str contains "failed to find the process") "the process should be masked as not found."
+snapshot ($signaled.stderr | redact) '
+	error an error occurred
+	-> failed to signal the process
+	   id = <process>
+	-> failed to find the process
+
+'

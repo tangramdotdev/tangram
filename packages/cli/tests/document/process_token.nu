@@ -26,7 +26,17 @@ let module = artifact {
 }
 let output = tg --token $token document $module | complete
 failure $output
-assert ($output.stderr | str contains 'unauthorized') "the document should be unauthorized"
+snapshot ($output.stderr | redact $module) '
+	error an error occurred
+	-> failed to get the reference
+	   reference = <path>
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to get the reference
+	   reference = <path>
+	-> unauthorized
+
+'
 
 tg cancel $parent.process $parent.lease
 tg wait $parent.process

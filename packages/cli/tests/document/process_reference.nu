@@ -14,4 +14,9 @@ tg wait $p.process
 
 let output = tg document $p.process | complete
 failure $output
-assert ($output.stderr | str contains "expected an object") "the error should mention the expected object"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> expected an object ID
+	   kind = pcs
+
+'

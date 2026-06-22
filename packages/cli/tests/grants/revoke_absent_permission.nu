@@ -13,7 +13,11 @@ tg --token $alice.token grant $bob.user.id read team
 # Revoking write, which was never granted, finds nothing to remove.
 let output = tg --token $alice.token revoke $bob.user.id write team | complete
 failure $output "revoking a permission that was never granted should fail"
-assert ($output.stderr | str contains "failed to find the grant") "the error should report that the grant was not found"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the grant
+
+'
 
 # The read grant is untouched, so bob can still read the group.
 let grants = tg --token $alice.token grants list --resource team | from json

@@ -16,4 +16,11 @@ let path = artifact {
 
 let output = tg run $path | complete
 failure $output
-assert ($output.stderr | str contains "failed to find the executable in PATH")
+snapshot ($output.stderr | redact $path | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
+	-> failed to find the executable in PATH
+	   executable = sh
+
+'

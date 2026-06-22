@@ -8,4 +8,8 @@ let path = artifact { tangram.ts: 'export default () => 42;' }
 
 let output = do --env { cd $path; tg outdated . } | complete
 failure $output
-assert ($output.stderr | str contains "missing lockfile") "the error should mention the missing lockfile"
+snapshot ($output.stderr | redact $path) '
+	error an error occurred
+	-> missing lockfile
+
+'

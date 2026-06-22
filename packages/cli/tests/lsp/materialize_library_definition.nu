@@ -26,7 +26,7 @@ let responses = lsp run [
 let locations = lsp result $responses 10
 assert (($locations | length) > 0) "expected a library definition location"
 let definition_uri = $locations.0.uri
-assert ($definition_uri | str contains "/tangram") "expected the definition URI to use the materialized library"
+snapshot ($definition_uri | split row '/' | last 2 | str join '/') 'tangram/directory.d.ts'
 
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the library definition path to be materialized"

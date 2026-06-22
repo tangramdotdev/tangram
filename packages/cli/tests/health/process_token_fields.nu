@@ -21,7 +21,15 @@ let token = tg log $parent.process | str trim
 # The full health is unauthorized for a process token.
 let output = tg --token $token health | complete
 failure $output
-assert ($output.stderr | str contains 'unauthorized') "the full health should be unauthorized"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to get the health
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to get the server health
+	-> unauthorized
+
+'
 
 # The diagnostics and version fields are allowed for a process token.
 let health = tg --token $token health --fields diagnostics,version | from json

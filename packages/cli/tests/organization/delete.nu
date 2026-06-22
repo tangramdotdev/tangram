@@ -11,4 +11,8 @@ tg --token $alice.token organization delete acme
 
 let output = tg --token $alice.token organization get acme | complete
 failure $output "the organization should not exist after deletion"
-assert ($output.stderr | str contains "failed to find the organization") "the deleted organization should no longer be found"
+snapshot ($output.stderr | redact) '
+	error an error occurred
+	-> failed to find the organization
+
+'

@@ -16,4 +16,10 @@ let path = artifact {
 
 let output = tg publish $path | complete
 failure $output
-assert ($output.stderr | str contains "metadata is missing the 'tag' field") "the error should mention the missing tag field"
+snapshot ($output.stderr | redact $path) r#'
+	error an error occurred
+	-> failed to create publishing plan
+	-> metadata is missing the 'tag' field
+	   path = <path>/tangram.ts
+
+'#
