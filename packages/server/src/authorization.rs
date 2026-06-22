@@ -47,14 +47,16 @@ impl Session {
 
 		for (position, (resource, permissions)) in args.into_iter().enumerate() {
 			let (resource, token) = resource.into_authorization_resource();
-
-			// Authorize a token if there is one.
-			if let Some(token) = token
-				&& self.authorize_token(&resource, permissions, &token)
-			{
-				outputs.push(Some(permissions));
-				continue;
-			}
+			let token = if let Some(token) = token {
+				// Authorize an exact token if there is one.
+				if self.authorize_token(&resource, permissions, &token) {
+					outputs.push(Some(permissions));
+					continue;
+				}
+				self.verify_token(&token).then_some(token.body)
+			} else {
+				None
+			};
 
 			// Authorize the root principal for all resources.
 			if matches!(self.context.principal, Some(tg::Principal::Root)) {
@@ -81,6 +83,7 @@ impl Session {
 			index_args.push(tangram_index::authorize::Arg {
 				permissions,
 				resource,
+				token,
 			});
 		}
 
@@ -133,15 +136,22 @@ impl Session {
 		if token.body.resource != *resource {
 			return false;
 		}
+		if !self.verify_token(token) {
+			return false;
+		}
+		permissions
+			.iter()
+			.all(|permission| token.body.grants(permission))
+	}
+
+	fn verify_token(&self, token: &tg::grant::Token) -> bool {
 		let Some(public_key) = self.server.tokens.public_keys.get(&token.metadata.key) else {
 			return false;
 		};
 		if token.verify(public_key).is_err() {
 			return false;
 		}
-		permissions
-			.iter()
-			.all(|permission| token.body.grants(permission))
+		true
 	}
 }
 

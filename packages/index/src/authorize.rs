@@ -4,6 +4,7 @@ use tangram_client::prelude::*;
 pub struct Arg {
 	pub permissions: tg::grant::permission::Set,
 	pub resource: tg::grant::Resource,
+	pub token: Option<tg::grant::Body>,
 }
 
 #[derive(Clone, Debug)]

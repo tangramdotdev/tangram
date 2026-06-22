@@ -49,13 +49,11 @@ pub struct Metadata {
 	PartialEq,
 	PartialOrd,
 	derive_more::Display,
-	derive_more::FromStr,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
-#[display(rename_all = "kebab-case")]
-#[from_str(rename_all = "kebab-case")]
 pub enum Algorithm {
+	#[display("ed25519")]
 	Ed25519,
 }
 
@@ -277,6 +275,17 @@ impl Body {
 	}
 }
 
+impl std::str::FromStr for Algorithm {
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
+		match value {
+			"ed25519" => Ok(Self::Ed25519),
+			_ => Err(tg::error!("invalid algorithm")),
+		}
+	}
+}
+
 impl std::fmt::Display for Token {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let body = serde_json::to_vec(&self.body)
@@ -337,6 +346,15 @@ impl std::str::FromStr for Token {
 #[cfg(test)]
 mod tests {
 	use crate as tg;
+
+	#[test]
+	fn algorithm_round_trips() {
+		assert_eq!(tg::grant::Algorithm::Ed25519.to_string(), "ed25519");
+		assert_eq!(
+			"ed25519".parse::<tg::grant::Algorithm>().unwrap(),
+			tg::grant::Algorithm::Ed25519,
+		);
+	}
 
 	#[test]
 	fn token_round_trips_and_verifies() {

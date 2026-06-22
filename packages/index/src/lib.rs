@@ -40,6 +40,7 @@ pub trait Index {
 		let arg = crate::authorize::Arg {
 			permissions,
 			resource,
+			token: None,
 		};
 		async move {
 			self.authorize_batch(&[arg], principal)

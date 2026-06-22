@@ -45,6 +45,7 @@ struct AuthorizationContext<'a, 'txn> {
 	transaction: &'a lmdb::RoTxn<'txn>,
 	authorize: crate::lmdb::AuthorizeConfig,
 	requester: &'a Requester<'a>,
+	token: Option<(tg::grant::Body, tg::Id)>,
 	cache: &'a mut Cache,
 }
 
@@ -115,14 +116,26 @@ impl Index {
 						}));
 						continue;
 					}
+					let token = if let Some(body) = arg.token {
+						Self::try_resolve_resource_with_transaction(
+							&db,
+							&subspace,
+							&transaction,
+							&body.resource,
+						)?
+						.map(|resource| (body, resource))
+					} else {
+						None
+					};
 					let mut context = AuthorizationContext {
-							db: &db,
-							subspace: &subspace,
-							transaction: &transaction,
-							authorize: config,
-							requester: &requester,
-							cache: &mut cache,
-						};
+						db: &db,
+						subspace: &subspace,
+						transaction: &transaction,
+						authorize: config,
+						requester: &requester,
+						token,
+						cache: &mut cache,
+					};
 					let permissions =
 						Self::authorize_with_transaction(&mut context, &id, arg.permissions)?;
 					outputs.push(Some(crate::authorize::Output { permissions }));
@@ -181,10 +194,13 @@ impl Index {
 		depth: usize,
 	) -> tg::Result<bool> {
 		let root = (resource.clone(), permission);
-		if let Some(authorized) = context.cache.authorization.get(&root) {
+		if !Self::is_authorized_by_token(context, resource, permission)
+			&& let Some(authorized) = context.cache.authorization.get(&root)
+		{
 			return Ok(*authorized);
 		}
 
+		let mut token_authorized = HashSet::new();
 		let mut pending = HashSet::from([root.clone()]);
 		let mut queue = VecDeque::from([AuthorizationFrame {
 			resource: resource.clone(),
@@ -195,6 +211,11 @@ impl Index {
 
 		while let Some(frame) = queue.pop_front() {
 			let key = (frame.resource.clone(), frame.permission);
+			if Self::is_authorized_by_token(context, &frame.resource, frame.permission) {
+				pending.remove(&key);
+				token_authorized.insert(key);
+				continue;
+			}
 			if context.cache.authorization.contains_key(&key) || unknown.contains(&key) {
 				pending.remove(&key);
 				continue;
@@ -206,6 +227,10 @@ impl Index {
 				let mut has_unknown_dependency = false;
 				for (dependency, dependency_permission) in &dependencies {
 					let dependency_key = (dependency.clone(), *dependency_permission);
+					if token_authorized.contains(&dependency_key) {
+						authorized = true;
+						break;
+					}
 					match context.cache.authorization.get(&dependency_key).copied() {
 						Some(true) => {
 							authorized = true;
@@ -236,13 +261,9 @@ impl Index {
 			}
 
 			let directly_authorized = Self::is_directly_authorized_with_transaction(
-				context.db,
-				context.subspace,
-				context.transaction,
+				context,
 				&frame.resource,
 				frame.permission,
-				context.requester,
-				context.cache,
 			)?;
 			if directly_authorized {
 				Self::finish_authorization(context.cache, &mut pending, key, true);
@@ -277,6 +298,10 @@ impl Index {
 			let mut dependencies_to_push = Vec::new();
 			for (dependency, dependency_permission) in &dependencies {
 				let dependency_key = (dependency.clone(), *dependency_permission);
+				if token_authorized.contains(&dependency_key) {
+					authorized = true;
+					break;
+				}
 				match context.cache.authorization.get(&dependency_key).copied() {
 					Some(true) => {
 						authorized = true;
@@ -320,12 +345,13 @@ impl Index {
 			}
 		}
 
-		Ok(context
-			.cache
-			.authorization
-			.get(&root)
-			.copied()
-			.unwrap_or(false))
+		Ok(token_authorized.contains(&root)
+			|| context
+				.cache
+				.authorization
+				.get(&root)
+				.copied()
+				.unwrap_or(false))
 	}
 
 	fn finish_authorization(
@@ -348,42 +374,51 @@ impl Index {
 	}
 
 	fn is_directly_authorized_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
+		context: &mut AuthorizationContext<'_, '_>,
 		resource: &tg::Id,
 		permission: tg::grant::Permission,
-		requester: &Requester<'_>,
-		cache: &mut Cache,
 	) -> tg::Result<bool> {
 		if let (Some(tg::Principal::Process(process)), tg::grant::Permission::Process(_)) =
-			(requester.principal, permission)
+			(context.requester.principal, permission)
 			&& tg::Id::from(process.clone()) == *resource
 		{
 			return Ok(true);
 		}
 
 		let grants = Self::get_cached_resource_grants_with_transaction(
-			db,
-			subspace,
-			transaction,
+			context.db,
+			context.subspace,
+			context.transaction,
 			resource,
-			cache,
+			context.cache,
 		)?;
 		for (granted_principal, granted_permission) in grants {
 			if granted_permission.implies(permission)
 				&& Self::principal_contains_requester_with_transaction(
-					db,
-					subspace,
-					transaction,
+					context.db,
+					context.subspace,
+					context.transaction,
 					&granted_principal,
-					requester,
-					cache,
+					context.requester,
+					context.cache,
 				)? {
 				return Ok(true);
 			}
 		}
 		Ok(false)
+	}
+
+	fn is_authorized_by_token(
+		context: &AuthorizationContext<'_, '_>,
+		resource: &tg::Id,
+		permission: tg::grant::Permission,
+	) -> bool {
+		context
+			.token
+			.as_ref()
+			.is_some_and(|(body, token_resource)| {
+				token_resource == resource && body.grants(permission)
+			})
 	}
 
 	fn authorize_with_object_subtree_search_with_transaction(

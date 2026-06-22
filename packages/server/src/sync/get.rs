@@ -195,6 +195,7 @@ impl Session {
 			args.push(tangram_index::authorize::Arg {
 				permissions,
 				resource: tg::grant::Resource::Id(tg::Id::from(id.clone())),
+				token: None,
 			});
 		}
 
@@ -234,6 +235,7 @@ impl Session {
 			args.push(tangram_index::authorize::Arg {
 				permissions,
 				resource: tg::grant::Resource::Id(tg::Id::from(id.clone())),
+				token: None,
 			});
 		}
 
