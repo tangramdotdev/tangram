@@ -60,21 +60,32 @@ impl Session {
 			ttl: Option<std::time::Duration>,
 			user: Option<String>,
 		}
+		let Some(principal) = self.context.principal.clone() else {
+			return Ok(Vec::new());
+		};
 		let connection = self
 			.server
 			.process_store
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		let p = connection.p();
+		let (creator_condition, params) = if matches!(principal, tg::Principal::Root) {
+			(String::new(), db::params![])
+		} else {
+			(
+				format!("and creator = {p}1"),
+				db::params![principal.to_string()],
+			)
+		};
 		let statement = formatdoc!(
 			r#"
 				select id, cpu, hostname, memory, mounts, network, status, ttl, "user" as user
 				from sandboxes
-				where status != 'destroyed'
+				where status != 'destroyed' {creator_condition}
 				order by created_at;
 			"#
 		);
-		let params = db::params![];
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await

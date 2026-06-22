@@ -60,7 +60,10 @@ impl Session {
 		let permission =
 			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Node);
 		let authorized = self
-			.authorize(id.clone(), tg::grant::permission::Set::from_permission(permission))
+			.authorize(
+				id.clone(),
+				tg::grant::permission::Set::from_permission(permission),
+			)
 			.await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
