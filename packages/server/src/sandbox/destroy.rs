@@ -84,6 +84,18 @@ impl Session {
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 		condition: Option<Condition>,
 	) -> tg::Result<Option<bool>> {
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Node);
+		let authorized = self
+			.authorize(
+				id.clone(),
+				tg::grant::permission::Set::from_permission(permission),
+			)
+			.await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Ok(None);
+		}
+
 		// Verify the sandbox is local.
 		if !self
 			.server

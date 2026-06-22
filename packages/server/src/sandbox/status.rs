@@ -77,6 +77,18 @@ impl Session {
 		stopper: Option<Stopper>,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Node);
+		let authorized = self
+			.authorize(
+				id.clone(),
+				tg::grant::permission::Set::from_permission(permission),
+			)
+			.await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Ok(None);
+		}
+
 		if !self
 			.server
 			.get_sandbox_exists_local(id)

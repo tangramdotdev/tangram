@@ -61,6 +61,18 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Node);
+		let authorized = self
+			.authorize(
+				id.clone(),
+				tg::grant::permission::Set::from_permission(permission),
+			)
+			.await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Ok(None);
+		}
+
 		let id = id.clone();
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
