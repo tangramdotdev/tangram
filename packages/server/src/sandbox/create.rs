@@ -28,7 +28,10 @@ impl Session {
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(
+			self.context.principal,
+			None | Some(tg::Principal::Process(_) | tg::Principal::Sandbox(_))
+		) {
 			return Err(tg::error!("unauthorized"));
 		}
 
