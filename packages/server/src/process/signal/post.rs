@@ -1,7 +1,9 @@
 use {
 	crate::Session,
 	futures::{StreamExt as _, stream::FuturesUnordered},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -61,6 +63,19 @@ impl Session {
 		else {
 			return Ok(None);
 		};
+
+		let authorized = match &self.context.principal {
+			Some(tg::Principal::Root) => true,
+			Some(principal) => self
+				.try_get_process_creator_local(id)
+				.await?
+				.is_some_and(|creator| creator == principal.to_string()),
+			None => false,
+		};
+		if !authorized {
+			return Ok(None);
+		}
+
 		let cacheable = output.data.cacheable;
 
 		// Check if the process is cacheable.
@@ -85,6 +100,36 @@ impl Session {
 		};
 
 		Ok(Some(()))
+	}
+
+	async fn try_get_process_creator_local(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<String>> {
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			creator: Option<String>,
+		}
+		let p = connection.p();
+		let statement = formatdoc!(
+			r"
+				select creator
+				from processes
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		let row = connection
+			.query_optional_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(row.and_then(|row| row.creator))
 	}
 
 	async fn try_post_process_signal_regions(
