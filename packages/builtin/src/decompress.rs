@@ -15,7 +15,7 @@ pub(crate) async fn decompress<H>(
 	_env: tg::value::data::Map,
 	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
-) -> tg::Result<crate::Output>
+) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
@@ -116,13 +116,6 @@ where
 		tg::File::with_contents(blob).into()
 	} else {
 		blob.into()
-	};
-
-	let output = crate::Output {
-		checksum: None,
-		error: None,
-		exit: 0,
-		output: Some(output),
 	};
 
 	Ok(output)

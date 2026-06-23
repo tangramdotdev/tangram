@@ -1,9 +1,9 @@
 use {
 	self::{
-		archive::archive, bundle::bundle, checksum::checksum, compress::compress,
-		decompress::decompress, download::download, extract::extract,
+		archive::archive, bundle::bundle, compress::compress, decompress::decompress,
+		download::download, extract::extract,
 	},
-	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture},
+	futures::{TryStreamExt as _, future::BoxFuture},
 	std::{path::Path, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 };
@@ -53,19 +53,41 @@ where
 		_ => return Err(tg::error!("expected the executable to be a path")),
 	};
 
-	let output = match name {
-		"archive" => archive(handle, args, cwd, env, executable, logger).boxed(),
-		"bundle" => bundle(handle, args, cwd, env, executable, logger).boxed(),
-		"checksum" => checksum(handle, args, cwd, env, executable, logger).boxed(),
-		"compress" => compress(handle, args, cwd, env, executable, logger).boxed(),
-		"decompress" => decompress(handle, args, cwd, env, executable, logger).boxed(),
-		"download" => download(handle, args, cwd, env, executable, logger, temp_path).boxed(),
-		"extract" => extract(handle, args, cwd, env, executable, logger, temp_path).boxed(),
+	// Run the builtin. Only download produces a checksum.
+	let mut checksum = None;
+	let result = match name {
+		"archive" => archive(handle, args, cwd, env, executable, logger).await,
+		"bundle" => bundle(handle, args, cwd, env, executable, logger).await,
+		"checksum" => self::checksum::checksum(handle, args, cwd, env, executable, logger).await,
+		"compress" => compress(handle, args, cwd, env, executable, logger).await,
+		"decompress" => decompress(handle, args, cwd, env, executable, logger).await,
+		"download" => download(handle, args, cwd, env, executable, logger, temp_path)
+			.await
+			.map(|(value, download_checksum)| {
+				checksum = download_checksum;
+				value
+			}),
+		"extract" => extract(handle, args, cwd, env, executable, logger, temp_path).await,
 		_ => {
 			return Err(tg::error!("invalid executable"));
 		},
-	}
-	.await?;
+	};
+
+	// An error from a builtin means the build failed, not that the builtin could not run, so record it in the output.
+	let output = match result {
+		Ok(value) => Output {
+			checksum,
+			error: None,
+			exit: 0,
+			output: Some(value),
+		},
+		Err(error) => Output {
+			checksum: None,
+			error: Some(error),
+			exit: 1,
+			output: None,
+		},
+	};
 
 	Ok(output)
 }

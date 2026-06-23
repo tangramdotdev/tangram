@@ -19,7 +19,7 @@ pub(crate) async fn archive<H>(
 	_env: tg::value::data::Map,
 	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
-) -> tg::Result<crate::Output>
+) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
@@ -107,13 +107,6 @@ where
 
 	let output = blob.into();
 
-	let output = crate::Output {
-		checksum: None,
-		error: None,
-		exit: 0,
-		output: Some(output),
-	};
-
 	Ok(output)
 }
 
@@ -179,7 +172,7 @@ where
 
 	// Join the futures.
 	let blob = match future::join(archive_future, blob_future).await {
-		(_, Ok(blob)) => blob,
+		(Ok(()), Ok(blob)) => blob,
 		(Err(error), _) | (_, Err(error)) => {
 			return Err(tg::error!(
 				!error,
@@ -309,7 +302,7 @@ where
 
 	// Join the futures.
 	let blob = match future::join(archive_future, blob_future).await {
-		(_, Ok(blob)) => blob,
+		(Ok(()), Ok(blob)) => blob,
 		(Err(error), _) | (_, Err(error)) => {
 			return Err(tg::error!(
 				!error,

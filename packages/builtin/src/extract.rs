@@ -24,7 +24,7 @@ pub(crate) async fn extract<H>(
 	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
 	temp_path: Option<&Path>,
-) -> tg::Result<crate::Output>
+) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
@@ -144,13 +144,6 @@ where
 	.await?;
 
 	let output = artifact.into();
-
-	let output = crate::Output {
-		checksum: None,
-		error: None,
-		exit: 0,
-		output: Some(output),
-	};
 
 	Ok(output)
 }
