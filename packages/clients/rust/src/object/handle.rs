@@ -65,6 +65,10 @@ impl Object {
 		}
 	}
 
+	pub(crate) fn inherit_token(&self, token: Option<tg::grant::Token>) {
+		self.state().inherit_token(token);
+	}
+
 	#[must_use]
 	pub fn id(&self) -> Id {
 		match self {

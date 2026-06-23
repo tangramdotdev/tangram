@@ -70,7 +70,7 @@ pub struct Inner {
 	stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
 	task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
-	token: Option<tg::grant::Token>,
+	token: RwLock<Option<tg::grant::Token>>,
 	wait: Mutex<Option<Wait>>,
 }
 
@@ -161,7 +161,7 @@ impl<O> Process<O> {
 			stdio_task: None,
 			stdout,
 			task: None,
-			token,
+			token: RwLock::new(token),
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, PhantomData);
@@ -193,7 +193,13 @@ impl<O> Process<O> {
 
 	#[must_use]
 	pub fn token(&self) -> Option<tg::grant::Token> {
-		self.token.clone()
+		self.token.read().unwrap().clone()
+	}
+
+	pub(crate) fn inherit_token(&self, token: Option<tg::grant::Token>) {
+		if self.token().is_none() {
+			*self.token.write().unwrap() = token;
+		}
 	}
 
 	#[must_use]
@@ -287,6 +293,8 @@ impl<O> Process<O> {
 			self.location.write().unwrap().replace(location.into());
 		}
 		let state = tg::process::State::try_from(output.data)?;
+		let token = self.token();
+		state.inherit_token(token.as_ref());
 		let state = Arc::new(state);
 		self.state.write().unwrap().replace(state.clone());
 		Ok(Some(state))
@@ -386,9 +394,14 @@ impl<O> Process<O> {
 				.wait()
 				.await
 				.map_err(|error| tg::error!(!error, "the task panicked"))??;
-			return output.try_into();
+			let wait: tg::process::Wait = output.try_into()?;
+			let token = self.token();
+			wait.inherit_token(token.as_ref());
+			return Ok(wait);
 		}
 		if let Some(wait) = self.wait.lock().unwrap().take() {
+			let token = self.token();
+			wait.inherit_token(token.as_ref());
 			return Ok(wait);
 		}
 		if arg.location.is_none() {
@@ -402,7 +415,9 @@ impl<O> Process<O> {
 				"waiting for an unsandboxed process is not supported"
 			));
 		};
-		let wait = handle.wait_process(id, arg).await?.try_into()?;
+		let wait: tg::process::Wait = handle.wait_process(id, arg).await?.try_into()?;
+		let token = self.token();
+		wait.inherit_token(token.as_ref());
 		Ok(wait)
 	}
 
@@ -427,6 +442,8 @@ impl<O> Process<O> {
 		};
 		let wait = self.wait_with_handle(handle, arg).await?;
 		let output = wait.into_output()?;
+		let token = self.token();
+		output.inherit_token(token.as_ref());
 		output
 			.try_into()
 			.map_err(|error| tg::error!(source = error, "failed to convert the process output"))

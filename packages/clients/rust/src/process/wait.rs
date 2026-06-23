@@ -119,6 +119,15 @@ impl tg::Session {
 }
 
 impl Wait {
+	pub(crate) fn inherit_token(&self, token: Option<&tg::grant::Token>) {
+		if let Some(error) = &self.error {
+			error.state().inherit_token(token.cloned());
+		}
+		if let Some(output) = &self.output {
+			output.inherit_token(token);
+		}
+	}
+
 	pub fn into_output(self) -> tg::Result<tg::Value> {
 		if let Some(error) = self.error {
 			return Err(error);

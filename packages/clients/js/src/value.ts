@@ -181,6 +181,15 @@ export namespace Value {
 		}
 	};
 
+	export let inheritToken = (
+		value: tg.Value,
+		token: tg.Grant.Token | undefined,
+	): void => {
+		for (let object of tg.Value.objects(value)) {
+			tg.Object.inheritToken(object, token);
+		}
+	};
+
 	export let store = async (value: tg.Value): Promise<void> => {
 		// Collect all unstored objects in reverse topological order.
 		let unstored = [];

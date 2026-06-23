@@ -203,6 +203,8 @@ impl Graph {
 			index,
 			kind: node.kind(),
 		});
+		artifact.inherit_token(self.state.token());
+
 		Ok(artifact)
 	}
 }

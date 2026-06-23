@@ -141,6 +141,12 @@ export namespace Object {
 			this.#token = token;
 		}
 
+		inheritToken(token: tg.Grant.Token | undefined): void {
+			if (this.#token === undefined) {
+				this.#token = token;
+			}
+		}
+
 		get kind(): tg.Object.Kind {
 			if (this.#object !== undefined) {
 				return this.#object.kind;
@@ -165,7 +171,13 @@ export namespace Object {
 		get children(): Promise<Array<tg.Object>> {
 			return (async () => {
 				await this.load();
-				return tg.Object.Object.children(this.#object!);
+				let children = tg.Object.Object.children(this.#object!);
+
+				for (let child of children) {
+					tg.Object.inheritToken(child, this.#token);
+				}
+
+				return children;
 			})();
 		}
 	}
@@ -343,6 +355,13 @@ export namespace Object {
 			value instanceof tg.Command ||
 			value instanceof tg.Error
 		);
+	};
+
+	export let inheritToken = (
+		object: tg.Object,
+		token: tg.Grant.Token | undefined,
+	): void => {
+		object.state.inheritToken(token);
 	};
 
 	/** Expect that a value is a `tg.Object`. */

@@ -79,6 +79,10 @@ impl Artifact {
 		}
 	}
 
+	pub(crate) fn inherit_token(&self, token: Option<tg::grant::Token>) {
+		self.state().inherit_token(token);
+	}
+
 	pub async fn object(&self) -> tg::Result<Object> {
 		let handle = tg::handle()?;
 		self.object_with_handle(handle).await
@@ -167,7 +171,14 @@ impl Artifact {
 		H: tg::Handle,
 	{
 		let object = self.load_with_handle(handle).await?;
-		Ok(object.children())
+		let children = object.children();
+		let token = self.state().token();
+
+		for child in &children {
+			child.inherit_token(token.clone());
+		}
+
+		Ok(children)
 	}
 
 	#[must_use]

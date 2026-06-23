@@ -285,25 +285,33 @@ export class Graph {
 		let nodes = await this.nodes;
 		let node = nodes[index];
 		tg.assert(node !== undefined, "invalid graph index");
+		let artifact: tg.Artifact;
 		switch (node.kind) {
 			case "directory": {
-				return tg.Directory.withObject({
+				artifact = tg.Directory.withObject({
 					graph: this,
 					index,
 					kind: "directory",
 				});
+				break;
 			}
 			case "file": {
-				return tg.File.withObject({ graph: this, index, kind: "file" });
+				artifact = tg.File.withObject({ graph: this, index, kind: "file" });
+				break;
 			}
 			case "symlink": {
-				return tg.Symlink.withObject({
+				artifact = tg.Symlink.withObject({
 					graph: this,
 					index,
 					kind: "symlink",
 				});
+				break;
 			}
 		}
+
+		tg.Object.inheritToken(artifact, this.#state.token);
+
+		return artifact;
 	}
 }
 

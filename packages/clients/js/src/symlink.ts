@@ -168,6 +168,7 @@ export class Symlink {
 	get artifact(): Promise<tg.Artifact | undefined> {
 		return (async () => {
 			let object = await this.object();
+			let artifact: tg.Artifact | undefined;
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined);
@@ -175,22 +176,30 @@ export class Symlink {
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "symlink");
 				if (typeof node.artifact === "number") {
-					return await graph.get(node.artifact);
+					artifact = await graph.get(node.artifact);
 				} else if (
 					typeof node.artifact === "object" &&
 					"index" in node.artifact
 				) {
-					return await (node.artifact.graph ?? graph).get(node.artifact.index);
+					artifact = await (node.artifact.graph ?? graph).get(
+						node.artifact.index,
+					);
+				} else {
+					artifact = node.artifact;
 				}
-				return node.artifact;
 			} else {
 				tg.assert(typeof object.artifact !== "number");
 				if (typeof object.artifact === "object" && "index" in object.artifact) {
 					tg.assert(object.artifact.graph !== undefined);
-					return await object.artifact.graph.get(object.artifact.index);
+					artifact = await object.artifact.graph.get(object.artifact.index);
+				} else {
+					artifact = object.artifact;
 				}
-				return object.artifact;
 			}
+			if (artifact !== undefined) {
+				tg.Object.inheritToken(artifact, this.#state.token);
+			}
+			return artifact;
 		})();
 	}
 

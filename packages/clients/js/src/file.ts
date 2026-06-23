@@ -172,6 +172,7 @@ export class File {
 	get contents(): Promise<tg.Blob> {
 		return (async () => {
 			let object = await this.object();
+			let contents: tg.Blob;
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined);
@@ -179,11 +180,15 @@ export class File {
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "file");
-				return node.contents;
+				contents = node.contents;
 			} else {
 				tg.assert(object.contents);
-				return object.contents;
+				contents = object.contents;
 			}
+
+			tg.Object.inheritToken(contents, this.#state.token);
+
+			return contents;
 		})();
 	}
 
@@ -220,6 +225,9 @@ export class File {
 								} else {
 									object = dependency.item;
 								}
+								if (object !== undefined) {
+									tg.Object.inheritToken(object, this.#state.token);
+								}
 								let value: tg.Referent<tg.Object | undefined> = {
 									item: object,
 									options: dependency.options,
@@ -247,6 +255,9 @@ export class File {
 									);
 								} else {
 									object = dependency.item;
+								}
+								if (object !== undefined) {
+									tg.Object.inheritToken(object, this.#state.token);
 								}
 								let value = {
 									item: object,

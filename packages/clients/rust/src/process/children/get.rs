@@ -83,6 +83,7 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
+		let token = self.token();
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
 				"getting the process children is not supported for unsandboxed processes"
@@ -91,15 +92,15 @@ impl<O> tg::Process<O> {
 		Ok(handle
 			.try_get_process_children(id, arg)
 			.await?
-			.map(|stream| {
+			.map(move |stream| {
 				stream
-					.map_ok(|chunk| {
-						stream::iter(
-							chunk
-								.data
-								.into_iter()
-								.map(tg::process::state::Child::try_from_data),
-						)
+					.map_ok(move |chunk| {
+						let token = token.clone();
+						stream::iter(chunk.data.into_iter().map(move |data| {
+							let child = tg::process::state::Child::try_from_data(data)?;
+							child.process.inherit_token(token.clone());
+							Ok(child)
+						}))
 					})
 					.try_flatten()
 					.boxed()

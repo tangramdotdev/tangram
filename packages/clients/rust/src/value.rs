@@ -80,6 +80,12 @@ impl Value {
 		}
 	}
 
+	pub(crate) fn inherit_token(&self, token: Option<&tg::grant::Token>) {
+		for object in self.objects() {
+			object.inherit_token(token.cloned());
+		}
+	}
+
 	pub async fn store(&self) -> tg::Result<()> {
 		let handle = tg::handle()?;
 		self.store_with_handle(handle).await

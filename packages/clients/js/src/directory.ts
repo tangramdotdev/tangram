@@ -307,11 +307,14 @@ export class Directory {
 				for (let [name, edge] of Object.entries(node.entries)) {
 					if (typeof edge === "number") {
 						let artifact = await graph.get(edge);
+						tg.Object.inheritToken(artifact, this.#state.token);
 						yield [name, artifact];
 					} else if ("index" in edge) {
 						let artifact = await (edge.graph ?? graph).get(edge.index);
+						tg.Object.inheritToken(artifact, this.#state.token);
 						yield [name, artifact];
 					} else {
+						tg.Object.inheritToken(edge, this.#state.token);
 						yield [name, edge];
 					}
 				}
@@ -332,8 +335,10 @@ export class Directory {
 				if (tg.Graph.Pointer.is(edge)) {
 					tg.assert(edge.graph !== undefined, "missing graph");
 					let artifact = await edge.graph.get(edge.index);
+					tg.Object.inheritToken(artifact, this.#state.token);
 					yield [name, artifact];
 				} else {
+					tg.Object.inheritToken(edge, this.#state.token);
 					yield [name, edge];
 				}
 			}

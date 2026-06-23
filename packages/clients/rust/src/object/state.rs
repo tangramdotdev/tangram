@@ -95,6 +95,12 @@ impl State {
 		self.0.write().unwrap().token = token;
 	}
 
+	pub fn inherit_token(&self, token: Option<tg::grant::Token>) {
+		if self.token().is_none() {
+			self.set_token(token);
+		}
+	}
+
 	pub fn set_object(&self, object: impl Into<tg::object::Object>) {
 		self.0.write().unwrap().object.replace(object.into());
 	}
@@ -212,6 +218,13 @@ impl State {
 		H: tg::Handle,
 	{
 		let object = self.load_with_handle(handle).await?;
-		Ok(object.children())
+		let children = object.children();
+		let token = self.token();
+
+		for child in &children {
+			child.inherit_token(token.clone());
+		}
+
+		Ok(children)
 	}
 }

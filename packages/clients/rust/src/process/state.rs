@@ -32,6 +32,24 @@ pub struct Child {
 }
 
 impl State {
+	pub(crate) fn inherit_token(&self, token: Option<&tg::grant::Token>) {
+		self.command.state().inherit_token(token.cloned());
+		if let Some(children) = &self.children {
+			for child in children {
+				child.process.inherit_token(token.cloned());
+			}
+		}
+		if let Some(error) = &self.error {
+			error.state().inherit_token(token.cloned());
+		}
+		if let Some(log) = &self.log {
+			log.state().inherit_token(token.cloned());
+		}
+		if let Some(output) = &self.output {
+			output.inherit_token(token);
+		}
+	}
+
 	#[must_use]
 	pub fn to_data(&self) -> tg::process::Data {
 		let actual_checksum = self.actual_checksum.clone();

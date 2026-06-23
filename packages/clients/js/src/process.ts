@@ -270,6 +270,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			this.#location = tg.Location.Arg.fromLocation(output.location);
 		}
 		this.#state = tg.Process.State.fromData(output.data);
+		tg.Process.State.inheritToken(this.#state, this.#token);
 	}
 
 	/** Reload the process's state. */
@@ -307,11 +308,21 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#token = token;
 	}
 
+	inheritToken(token: tg.Grant.Token | undefined): void {
+		if (this.#token === undefined) {
+			this.#token = token;
+		}
+	}
+
 	/** Get this process's command. */
 	get command(): Promise<tg.Command> {
 		return (async () => {
 			await this.load();
-			return this.#state!.command;
+			let command = this.#state!.command;
+
+			tg.Object.inheritToken(command, this.#token);
+
+			return command;
 		})();
 	}
 
@@ -445,11 +456,13 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.#stdioPromise;
 		}
 		if (this.#wait !== undefined) {
+			tg.Process.Wait.inheritToken(this.#wait, this.#token);
 			return this.#wait;
 		}
 		if (typeof this.#id === "number") {
 			tg.assert(this.#promise !== undefined);
 			let wait = await this.#promise;
+			tg.Process.Wait.inheritToken(wait, this.#token);
 			this.#wait = wait;
 			return wait;
 		}
@@ -462,6 +475,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (wait === undefined) {
 			throw new Error("failed to find the process");
 		}
+		tg.Process.Wait.inheritToken(wait, this.#token);
 		this.#wait = wait;
 		return wait;
 	}
@@ -526,6 +540,8 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 
 		let output = wait.output;
+
+		tg.Value.inheritToken(output, this.#token);
 
 		return output as O;
 	}
@@ -1046,6 +1062,25 @@ export namespace Process {
 	}
 
 	export namespace State {
+		export let inheritToken = (
+			state: State,
+			token: tg.Grant.Token | undefined,
+		): void => {
+			tg.Object.inheritToken(state.command, token);
+			for (let child of state.children ?? []) {
+				child.process.inheritToken(token);
+			}
+			if (state.error !== undefined) {
+				tg.Object.inheritToken(state.error, token);
+			}
+			if (state.log !== undefined) {
+				tg.Object.inheritToken(state.log, token);
+			}
+			if ("output" in state) {
+				tg.Value.inheritToken(state.output, token);
+			}
+		};
+
 		export let toData = (value: State): Data => {
 			let output: Data = {
 				command: value.command.id,
@@ -1290,6 +1325,18 @@ export namespace Process {
 				output.output = tg.Value.fromData(data.output);
 			}
 			return output;
+		};
+
+		export let inheritToken = (
+			wait: tg.Process.Wait,
+			token: tg.Grant.Token | undefined,
+		): void => {
+			if (wait.error !== undefined) {
+				tg.Object.inheritToken(wait.error, token);
+			}
+			if ("output" in wait) {
+				tg.Value.inheritToken(wait.output, token);
+			}
 		};
 
 		export let toData = (value: Wait): Data => {

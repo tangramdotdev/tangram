@@ -199,7 +199,7 @@ impl File {
 		H: tg::Handle,
 	{
 		let object = self.object_with_handle(handle).await?;
-		match object.as_ref() {
+		let contents = match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
@@ -212,10 +212,14 @@ impl File {
 					.try_unwrap_file_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				Ok(file.contents.clone())
+				file.contents.clone()
 			},
-			Object::Node(object) => Ok(object.contents.clone()),
-		}
+			Object::Node(object) => object.contents.clone(),
+		};
+
+		contents.state().inherit_token(self.state.token());
+
+		Ok(contents)
 	}
 
 	pub async fn dependencies(
@@ -233,6 +237,7 @@ impl File {
 		H: tg::Handle,
 	{
 		let object = self.object_with_handle(handle).await?;
+		let token = self.state.token();
 		let dependencies = match object.as_ref() {
 			Object::Pointer(pointer) => {
 				let graph = pointer.graph.as_ref().unwrap();
@@ -271,6 +276,7 @@ impl File {
 									));
 								},
 							};
+							object.inherit_token(token.clone());
 							Some(tg::file::Dependency(
 								dependency.0.clone().map(|_| Some(object)),
 							))
@@ -309,6 +315,7 @@ impl File {
 									));
 								},
 							};
+							object.inherit_token(token.clone());
 							Some(tg::file::Dependency(
 								dependency.0.clone().map(|_| Some(object)),
 							))
@@ -368,9 +375,14 @@ impl File {
 		};
 		let item = match dependency.0.item {
 			Some(tg::graph::Edge::Pointer(pointer)) => {
-				Some(tg::Artifact::with_pointer(pointer).into())
+				let object: tg::Object = tg::Artifact::with_pointer(pointer).into();
+				object.inherit_token(self.state.token());
+				Some(object)
 			},
-			Some(tg::graph::Edge::Object(object)) => Some(object),
+			Some(tg::graph::Edge::Object(object)) => {
+				object.inherit_token(self.state.token());
+				Some(object)
+			},
 			None => None,
 		};
 		Ok(Some(tg::file::Dependency(tg::Referent {

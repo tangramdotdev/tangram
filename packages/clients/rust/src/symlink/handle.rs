@@ -211,7 +211,7 @@ impl Symlink {
 		H: tg::Handle,
 	{
 		let object = self.object_with_handle(handle).await?;
-		match object.as_ref() {
+		let artifact = match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
@@ -238,7 +238,7 @@ impl Symlink {
 					},
 					tg::graph::Edge::Object(object) => object.clone(),
 				};
-				Ok(Some(artifact))
+				Some(artifact)
 			},
 			Object::Node(node) => {
 				let Some(artifact) = &node.artifact else {
@@ -255,9 +255,13 @@ impl Symlink {
 					},
 					tg::graph::Edge::Object(object) => object.clone(),
 				};
-				Ok(Some(artifact))
+				Some(artifact)
 			},
+		};
+		if let Some(artifact) = &artifact {
+			artifact.inherit_token(self.state.token());
 		}
+		Ok(artifact)
 	}
 
 	pub async fn path(&self) -> tg::Result<Option<PathBuf>> {
