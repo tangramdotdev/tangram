@@ -82,27 +82,43 @@ impl Session {
 
 		let outputs = std::iter::zip(ids, outputs)
 			.map(|(id, output)| async move {
-				if output.is_none() {
+				let Some(mut output) = output else {
 					return Ok::<_, tg::Error>(None);
-				}
+				};
 				let resource = tg::grant::Resource::Id(id.clone().into());
-				let permission = tg::grant::Permission::Process(
+				let requested =
+					tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
+				let Some(permissions) = self.authorize(resource, requested).await? else {
+					return Ok(None);
+				};
+
+				// Mask the process unless the requester can see the node.
+				if !permissions.contains(tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::Node,
-				);
-				if !self
-					.authorize(resource, permission)
-					.await?
-					.is_some_and(|permissions| permissions.contains(permission))
-				{
+				)) {
 					return Ok(None);
 				}
-				let mut output = output;
-				if let Some(output) = &mut output
-					&& let Some(metadata) = output.metadata.take()
-				{
+
+				// Mask the output unless the requester has the output permission.
+				if !permissions.contains(tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::NodeOutput,
+				)) {
+					output.data.output = None;
+				}
+
+				// Mask the error unless the requester has the error permission.
+				if !permissions.contains(tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::NodeError,
+				)) {
+					output.data.error = None;
+				}
+
+				// Mask the metadata.
+				if let Some(metadata) = output.metadata.take() {
 					output.metadata = self.mask_process_metadata(id, metadata).await?;
 				}
-				Ok::<_, tg::Error>(output)
+
+				Ok::<_, tg::Error>(Some(output))
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
