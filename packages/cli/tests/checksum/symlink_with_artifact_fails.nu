@@ -6,13 +6,12 @@ let server = spawn
 
 let dir = tg put 'tg.directory({ "link": tg.symlink({ "artifact": tg.file("target") }) })' | str trim
 
-let build = tg checksum --detach --verbose $dir | from json
-let wait = tg wait $build.process | from json
-assert equal $wait.exit 1 "the checksum process should exit with code 1"
-
-let log = tg log $build.process | complete
-snapshot ($log.stderr | redact) '
-	 0 B
+let output = tg checksum $dir | complete
+failure $output
+snapshot ($output.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
 	-> cannot checksum a symlink with an artifact
 
 '

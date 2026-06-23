@@ -1,17 +1,17 @@
 use ../../test.nu *
 
-# Decompressing a blob that is not compressed fails with an invalid compression format error in the process log.
+# Decompressing a blob that is not compressed fails with an invalid compression format error.
 
 let server = spawn
 
 let blob = "hello, world!\n" | tg write
 
-let build = tg decompress --detach --verbose $blob | from json
-let wait = tg wait $build.process | from json
-assert equal $wait.exit 1 "the decompress process should exit with code 1"
-
-let log = tg log $build.process | complete
-snapshot ($log.stderr | redact | normalize_ids) '
+let output = tg decompress $blob | complete
+failure $output
+snapshot ($output.stderr | redact | normalize_ids) '
+	error an error occurred
+	-> the process failed
+	   id = <process>
 	-> invalid compression format
 
 '

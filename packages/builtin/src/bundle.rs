@@ -13,7 +13,7 @@ pub(crate) async fn bundle<H>(
 	_env: tg::value::data::Map,
 	_executable: tg::command::data::Executable,
 	_logger: crate::Logger,
-) -> tg::Result<crate::Output>
+) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
@@ -34,12 +34,6 @@ where
 	// If there are no dependencies, then return the artifact.
 	if dependencies.is_empty() {
 		let output = artifact.into();
-		let output = crate::Output {
-			checksum: None,
-			error: None,
-			exit: 0,
-			output: Some(output),
-		};
 		return Ok(output);
 	}
 
@@ -86,13 +80,6 @@ where
 		.await?
 		.build();
 	let output = output.into();
-
-	let output = crate::Output {
-		checksum: None,
-		error: None,
-		exit: 0,
-		output: Some(output),
-	};
 
 	Ok(output)
 }

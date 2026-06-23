@@ -26,7 +26,7 @@ pub(crate) async fn download<H>(
 	_executable: tg::command::data::Executable,
 	logger: crate::Logger,
 	temp_path: Option<&Path>,
-) -> tg::Result<crate::Output>
+) -> tg::Result<(tg::Value, Option<tg::Checksum>)>
 where
 	H: tg::Handle,
 {
@@ -260,12 +260,5 @@ where
 		_ => artifact.into(),
 	};
 
-	let output = crate::Output {
-		checksum,
-		error: None,
-		exit: 0,
-		output: Some(output),
-	};
-
-	Ok(output)
+	Ok((output, checksum))
 }
