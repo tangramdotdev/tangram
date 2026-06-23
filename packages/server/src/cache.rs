@@ -54,48 +54,28 @@ impl Session {
 		if artifacts.is_empty() {
 			return Ok(stream::once(future::ok(tg::progress::Event::Output(()))).left_stream());
 		}
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let authorized = self
-			.authorize_batch(
-				artifacts
-					.iter()
-					.map(|artifact| {
-						(
-							artifact.clone(),
-							tg::grant::permission::Set::from_permission(permission),
-						)
-					})
-					.collect::<Vec<_>>(),
-			)
-			.await?;
-		if authorized
-			.into_iter()
-			.any(|output| !output.is_some_and(|permissions| permissions.contains(permission)))
-		{
-			return Err(tg::error!("failed to find the artifact"));
-		}
+
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
 			let session = self.clone();
 			let progress = progress.clone();
 			|_| async move {
-				// Ensure the artifact is stored.
+				// Ensure the artifacts are stored and authorized.
 				let result = session
-					.cache_ensure_stored(&artifacts, &progress)
+					.cache_ensure_stored_and_authorized(&artifacts, &progress)
 					.await
 					.map_err(|error| {
 						tg::error!(
 							!error,
 							?artifacts,
-							"failed to ensure the artifacts are stored"
+							"failed to ensure the artifacts are stored and authorized"
 						)
 					});
 				if let Err(error) = result {
 					tracing::warn!(error = %error.trace());
 					progress.log(
 						Some(tg::progress::Level::Warning),
-						"failed to ensure the artifacts are stored".into(),
+						"failed to ensure the artifacts are stored and authorized".into(),
 					);
 				}
 
@@ -149,16 +129,17 @@ impl Session {
 				}
 			}
 		});
+
 		let stream = progress.stream().attach(task).right_stream();
+
 		Ok(stream)
 	}
 
-	async fn cache_ensure_stored(
+	async fn cache_ensure_stored_and_authorized(
 		&self,
 		artifacts: &[tg::artifact::Id],
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
-		// Check if the artifacts' subtrees are stored.
 		let ids = artifacts
 			.iter()
 			.map(|id| id.clone().into())
@@ -171,7 +152,24 @@ impl Session {
 			.iter()
 			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
 		if stored {
-			return Ok(());
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let args = artifacts
+				.iter()
+				.map(|artifact| {
+					(
+						artifact.clone(),
+						tg::grant::permission::Set::from_permission(permission),
+					)
+				})
+				.collect::<Vec<_>>();
+			let authorized = self.authorize_batch(args).await?;
+			if authorized
+				.into_iter()
+				.all(|output| output.is_some_and(|permissions| permissions.contains(permission)))
+			{
+				return Ok(());
+			}
 		}
 
 		// Index.
@@ -188,7 +186,6 @@ impl Session {
 			progress.forward(Ok(event));
 		}
 
-		// Check if the artifacts' subtrees are stored.
 		let ids = artifacts
 			.iter()
 			.map(|id| id.clone().into())
@@ -198,11 +195,33 @@ impl Session {
 			.index
 			.try_get_objects(&ids)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to check if the artifacts are stored"))?
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to check if the artifacts are stored and authorized"
+				)
+			})?
 			.iter()
 			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
 		if stored {
-			return Ok(());
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let args = artifacts
+				.iter()
+				.map(|artifact| {
+					(
+						artifact.clone(),
+						tg::grant::permission::Set::from_permission(permission),
+					)
+				})
+				.collect::<Vec<_>>();
+			let authorized = self.authorize_batch(args).await?;
+			if authorized
+				.into_iter()
+				.all(|output| output.is_some_and(|permissions| permissions.contains(permission)))
+			{
+				return Ok(());
+			}
 		}
 
 		// Pull.

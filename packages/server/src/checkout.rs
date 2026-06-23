@@ -45,18 +45,6 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + use<>,
 	> {
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let authorized = self
-			.authorize(
-				arg.artifact.clone(),
-				tg::grant::permission::Set::from_permission(permission),
-			)
-			.await?;
-		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
-			return Err(tg::error!("failed to find the artifact"));
-		}
-
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path)?;
 		}
@@ -139,18 +127,18 @@ impl Session {
 			let arg = arg.clone();
 			let progress = progress.clone();
 			move |_| async move {
-				// Ensure the artifact is stored.
+				// Ensure the artifact is stored and authorized.
 				let result = session
-					.checkout_ensure_stored(&artifact, &progress)
+					.checkout_ensure_stored_and_authorized(&artifact, &progress)
 					.await
 					.map_err(
-						|error| tg::error!(!error, %artifact, "failed to ensure the artifact is stored"),
+						|error| tg::error!(!error, %artifact, "failed to ensure the artifact is stored and authorized"),
 					);
 				if let Err(error) = result {
 					tracing::warn!(error = %error.trace());
 					progress.log(
 						Some(tg::progress::Level::Warning),
-						"failed to ensure the artifact is stored".into(),
+						"failed to ensure the artifact is stored and authorized".into(),
 					);
 				}
 
@@ -216,24 +204,33 @@ impl Session {
 		Ok(stream)
 	}
 
-	pub(crate) async fn checkout_ensure_stored(
+	pub(crate) async fn checkout_ensure_stored_and_authorized(
 		&self,
 		artifact: &tg::artifact::Id,
 		progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<()> {
-		// Check if the artifact's subtree is stored.
 		let stored = self
 			.server
 			.index
 			.try_get_object(&artifact.clone().into())
 			.await
 			.map_err(
-				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored"),
+				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored and authorized"),
 			)?
 			.map(|object| object.stored)
 			.unwrap_or_default();
 		if stored.subtree {
-			return Ok(());
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let authorized = self
+				.authorize(
+					artifact.clone(),
+					tg::grant::permission::Set::from_permission(permission),
+				)
+				.await?;
+			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				return Ok(());
+			}
 		}
 
 		// Index.
@@ -250,19 +247,28 @@ impl Session {
 			progress.forward(Ok(event));
 		}
 
-		// Check if the artifact's subtree is stored.
 		let stored = self
 			.server
 			.index
 			.try_get_object(&artifact.clone().into())
 			.await
 			.map_err(
-				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored"),
+				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored and authorized"),
 			)?
 			.map(|object| object.stored)
 			.unwrap_or_default();
 		if stored.subtree {
-			return Ok(());
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let authorized = self
+				.authorize(
+					artifact.clone(),
+					tg::grant::permission::Set::from_permission(permission),
+				)
+				.await?;
+			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				return Ok(());
+			}
 		}
 
 		// Pull.
