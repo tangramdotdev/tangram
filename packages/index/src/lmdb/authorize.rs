@@ -104,7 +104,10 @@ impl Index {
 						outputs.push(None);
 						continue;
 					};
-					crate::authorize::validate(&id, arg.permissions)?;
+					if crate::authorize::validate(&id, arg.permissions).is_err() {
+						outputs.push(None);
+						continue;
+					}
 					if matches!(principal, tg::Principal::Root) {
 						outputs.push(Some(crate::authorize::Output {
 							permissions: arg.permissions,

@@ -127,6 +127,25 @@ impl Session {
 		Ok(outputs)
 	}
 
+	pub(crate) async fn authorize_owner(&self, owner: Option<&tg::Principal>) -> tg::Result<()> {
+		let Some(owner) = owner else {
+			return Ok(());
+		};
+		let authorized = match owner.to_id() {
+			Some(id) => {
+				let permission = Self::write_permission_for_resource(&id)?;
+				self.authorize(tg::grant::Resource::Id(id), permission)
+					.await?
+					.is_some_and(|permissions| permissions.contains(permission))
+			},
+			None => matches!(self.context.principal, tg::Principal::Root),
+		};
+		if !authorized {
+			return Err(tg::error!("unauthorized"));
+		}
+		Ok(())
+	}
+
 	pub(crate) fn authorize_token(
 		&self,
 		resource: &tg::grant::Resource,

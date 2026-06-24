@@ -58,6 +58,7 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
+		self.authorize_owner(arg.owner.as_ref()).await?;
 		arg = Self::normalize_sandbox_create_arg(arg)?;
 		let id = tg::sandbox::Id::new();
 		let creator = self.context.principal.clone();
