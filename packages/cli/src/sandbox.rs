@@ -46,6 +46,9 @@ pub struct Options {
 	#[arg(id = "sandbox.cpu", long = "cpu")]
 	pub cpu: Option<u64>,
 
+	#[arg(id = "sandbox.group", long = "group", conflicts_with_all = ["sandbox.organization", "sandbox.owner"])]
+	pub group: Option<tg::principal::Selector>,
+
 	#[arg(id = "sandbox.hostname", long = "hostname")]
 	pub hostname: Option<String>,
 
@@ -61,7 +64,10 @@ pub struct Options {
 	#[clap(flatten)]
 	pub network: Network,
 
-	#[arg(id = "sandbox.owner", long = "owner", visible_aliases = ["group", "organization"])]
+	#[arg(id = "sandbox.organization", long = "organization", conflicts_with_all = ["sandbox.group", "sandbox.owner"])]
+	pub organization: Option<tg::principal::Selector>,
+
+	#[arg(id = "sandbox.owner", long = "owner", conflicts_with_all = ["sandbox.group", "sandbox.organization"])]
 	pub owner: Option<tg::principal::Selector>,
 
 	#[arg(action = clap::ArgAction::Append, id = "sandbox.ports", long = "port", num_args = 1, short = 'p')]
@@ -96,6 +102,14 @@ pub struct Network {
 	no_network: bool,
 }
 
+/// The kind of principal an owner selector must resolve to.
+#[derive(Clone, Copy, Debug)]
+pub enum OwnerKind {
+	Any,
+	Group,
+	Organization,
+}
+
 impl Network {
 	pub fn with_network(network: tg::sandbox::Network) -> Self {
 		Self {
@@ -125,14 +139,32 @@ fn parse_network(s: &str) -> tg::Result<tg::sandbox::Network> {
 impl Options {
 	pub fn is_empty(&self) -> bool {
 		self.cpu.is_none()
+			&& self.group.is_none()
 			&& self.hostname.is_none()
 			&& self.isolation.is_none()
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.get().is_none()
+			&& self.organization.is_none()
 			&& self.owner.is_none()
 			&& self.ports.is_empty()
 			&& self.user.is_none()
+	}
+
+	/// Combine the owner, group, and organization options into a single selector and the
+	/// kind of principal it must resolve to.
+	pub fn owner_selector(&self) -> tg::Result<Option<(tg::principal::Selector, OwnerKind)>> {
+		match (&self.owner, &self.group, &self.organization) {
+			(None, None, None) => Ok(None),
+			(Some(owner), None, None) => Ok(Some((owner.clone(), OwnerKind::Any))),
+			(None, Some(group), None) => Ok(Some((group.clone(), OwnerKind::Group))),
+			(None, None, Some(organization)) => {
+				Ok(Some((organization.clone(), OwnerKind::Organization)))
+			},
+			_ => Err(tg::error!(
+				"only one of the owner, group, or organization options may be provided"
+			)),
+		}
 	}
 }
 
@@ -140,49 +172,83 @@ impl Cli {
 	pub async fn resolve_owner(
 		&self,
 		client: &tg::Client,
-		owner: Option<tg::principal::Selector>,
+		owner: Option<(tg::principal::Selector, OwnerKind)>,
 	) -> tg::Result<Option<tg::Principal>> {
-		let Some(owner) = owner else {
+		let Some((selector, kind)) = owner else {
 			return Ok(None);
 		};
-		let owner = match owner {
-			tg::principal::Selector::Principal(principal) => match principal {
-				tg::grant::Principal::Group(id) => tg::Principal::Group(id),
-				tg::grant::Principal::Organization(id) => tg::Principal::Organization(id),
-				tg::grant::Principal::Process(id) => tg::Principal::Process(id),
-				tg::grant::Principal::Public => {
-					return Err(tg::error!("invalid sandbox owner"));
-				},
-				tg::grant::Principal::Root => tg::Principal::Root,
-				tg::grant::Principal::Runner => tg::Principal::Runner,
-				tg::grant::Principal::Sandbox(id) => tg::Principal::Sandbox(id),
-				tg::grant::Principal::User(id) => tg::Principal::User(id),
+		let owner = match selector {
+			tg::principal::Selector::Principal(principal) => {
+				let principal = match principal {
+					tg::grant::Principal::Group(id) => tg::Principal::Group(id),
+					tg::grant::Principal::Organization(id) => tg::Principal::Organization(id),
+					tg::grant::Principal::Process(id) => tg::Principal::Process(id),
+					tg::grant::Principal::Public => {
+						return Err(tg::error!("invalid sandbox owner"));
+					},
+					tg::grant::Principal::Root => tg::Principal::Root,
+					tg::grant::Principal::Runner => tg::Principal::Runner,
+					tg::grant::Principal::Sandbox(id) => tg::Principal::Sandbox(id),
+					tg::grant::Principal::User(id) => tg::Principal::User(id),
+				};
+				match kind {
+					OwnerKind::Group if !matches!(principal, tg::Principal::Group(_)) => {
+						return Err(tg::error!("the owner is not a group"));
+					},
+					OwnerKind::Organization
+						if !matches!(principal, tg::Principal::Organization(_)) =>
+					{
+						return Err(tg::error!("the owner is not an organization"));
+					},
+					_ => {},
+				}
+				principal
 			},
-			tg::principal::Selector::Specifier(specifier) => {
-				let selector = tg::Selector::Specifier(specifier.clone());
-				if let Some(group) = client
-					.try_get_group(&selector, tg::group::get::Arg::default())
-					.await?
-				{
+			tg::principal::Selector::Specifier(specifier) => match kind {
+				OwnerKind::Group => {
+					let selector = tg::Selector::Specifier(specifier);
+					let group = client
+						.try_get_group(&selector, tg::group::get::Arg::default())
+						.await?
+						.ok_or_else(|| tg::error!("failed to resolve the owner as a group"))?;
 					tg::Principal::Group(group.id)
-				} else {
-					let selector = tg::Selector::Specifier(specifier.clone());
-					if let Some(organization) = client
+				},
+				OwnerKind::Organization => {
+					let selector = tg::Selector::Specifier(specifier);
+					let organization = client
 						.try_get_organization(&selector, tg::organization::get::Arg::default())
 						.await?
+						.ok_or_else(|| {
+							tg::error!("failed to resolve the owner as an organization")
+						})?;
+					tg::Principal::Organization(organization.id)
+				},
+				OwnerKind::Any => {
+					let selector = tg::Selector::Specifier(specifier.clone());
+					if let Some(group) = client
+						.try_get_group(&selector, tg::group::get::Arg::default())
+						.await?
 					{
-						tg::Principal::Organization(organization.id)
+						tg::Principal::Group(group.id)
 					} else {
-						let selector = tg::Selector::Specifier(specifier);
-						let Some(user) = client
-							.try_get_user(&selector, tg::user::get::Arg::default())
+						let selector = tg::Selector::Specifier(specifier.clone());
+						if let Some(organization) = client
+							.try_get_organization(&selector, tg::organization::get::Arg::default())
 							.await?
-						else {
-							return Err(tg::error!("failed to resolve the sandbox owner"));
-						};
-						tg::Principal::User(user.id)
+						{
+							tg::Principal::Organization(organization.id)
+						} else {
+							let selector = tg::Selector::Specifier(specifier);
+							let Some(user) = client
+								.try_get_user(&selector, tg::user::get::Arg::default())
+								.await?
+							else {
+								return Err(tg::error!("failed to resolve the sandbox owner"));
+							};
+							tg::Principal::User(user.id)
+						}
 					}
-				}
+				},
 			},
 		};
 		Ok(Some(owner))

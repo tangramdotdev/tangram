@@ -840,7 +840,7 @@ impl Cli {
 				Some(tg::process::SandboxArg::Id(id))
 			} else {
 				let owner = self
-					.resolve_owner(&client, options.sandbox.arg.owner.clone())
+					.resolve_owner(&client, options.sandbox.arg.owner_selector()?)
 					.await?;
 				Some(tg::process::SandboxArg::Arg(
 					tg::process::SandboxCreateArg {
