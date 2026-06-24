@@ -171,16 +171,12 @@ impl crate::Index for Index {
 	async fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
 		self.authorize_batch(args, principal).await
 	}
 
-	async fn visible(
-		&self,
-		ids: &[tg::Id],
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<Vec<bool>> {
+	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {
 		self.visible(ids, principal).await
 	}
 

@@ -26,14 +26,14 @@ pub trait Index {
 	fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::authorize::Output>>>> + Send;
 
 	fn authorize(
 		&self,
 		resource: tg::grant::Resource,
 		permissions: tg::grant::permission::Set,
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<Option<crate::authorize::Output>>> + Send
 	where
 		Self: Sync,
@@ -53,7 +53,7 @@ pub trait Index {
 	fn visible(
 		&self,
 		ids: &[tg::Id],
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
 
 	fn batch(&self, arg: crate::batch::Arg) -> impl Future<Output = tg::Result<()>> + Send;

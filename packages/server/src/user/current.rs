@@ -17,7 +17,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
 			tg::Location::Local(_) => {
-				let Some(tg::Principal::User(user)) = &self.context.principal else {
+				let tg::Principal::User(user) = &self.context.principal else {
 					return Ok(None);
 				};
 				let selector = tg::user::Selector::Id(user.clone());

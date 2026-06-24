@@ -9,7 +9,7 @@ impl Session {
 		&self,
 		_arg: tg::watch::list::Arg,
 	) -> tg::Result<tg::watch::list::Output> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let data = self

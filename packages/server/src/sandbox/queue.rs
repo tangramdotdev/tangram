@@ -30,7 +30,7 @@ impl Session {
 		arg: tg::sandbox::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
 		match &self.context.principal {
-			Some(tg::Principal::Root | tg::Principal::Runner) => (),
+			tg::Principal::Root | tg::Principal::Runner => (),
 			_ => return Err(tg::error!("unauthorized")),
 		}
 

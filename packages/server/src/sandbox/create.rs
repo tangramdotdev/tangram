@@ -29,7 +29,7 @@ impl Session {
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 
@@ -55,7 +55,7 @@ impl Session {
 		&self,
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		if self.context.principal.is_none() {
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
 		arg = Self::normalize_sandbox_create_arg(arg)?;
@@ -64,7 +64,7 @@ impl Session {
 		let owner = arg
 			.owner
 			.clone()
-			.or_else(|| creator.clone())
+			.or_else(|| Some(creator.clone()))
 			.filter(|owner| !matches!(owner, tg::Principal::Root));
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let isolation = self.server.resolve_sandbox_isolation()?;
@@ -90,7 +90,7 @@ impl Session {
 		let arg = CreateSandboxArg {
 			arg: arg.clone(),
 			cpu,
-			creator,
+			creator: Some(creator),
 			id: id.clone(),
 			memory,
 			now,

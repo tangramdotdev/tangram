@@ -43,19 +43,17 @@ impl Session {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		if self.context.principal.is_none() {
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
 
 		// If the authentication is from a process, then update the parent, location, and retry.
-		let authenticated_process = match self.context.principal.as_ref() {
-			Some(tg::Principal::Process(process)) => {
-				self.try_get_authenticated_process(process).await?
-			},
+		let authenticated_process = match &self.context.principal {
+			tg::Principal::Process(process) => self.try_get_authenticated_process(process).await?,
 			_ => None,
 		};
 		if let Some(process) = &authenticated_process
-			&& let Some(tg::Principal::Process(id)) = self.context.principal.as_ref()
+			&& let tg::Principal::Process(id) = &self.context.principal
 		{
 			arg.debug = process.debug.clone();
 			arg.parent = Some(id.clone());
@@ -198,7 +196,6 @@ impl Session {
 			let command = arg.command.item.clone();
 			let id = output.id.clone();
 			let parent = arg.parent.clone();
-			let principal = self.context.principal.clone();
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			let put_process_arg = tangram_index::process::put::Arg {
 				children: None,
@@ -213,33 +210,9 @@ impl Session {
 				stored: tangram_index::process::Stored::default(),
 				touched_at: now,
 			};
-			let put_grants = principal
-				.map(|principal| {
-					let expires_at = now
-						+ self
-							.server
-							.config
-							.process
-							.grant_time_to_live
-							.as_secs()
-							.to_i64()
-							.unwrap();
-					vec![tangram_index::grant::put::Arg {
-						created_at: now,
-						creator: Some(principal.clone()),
-						expires_at: Some(expires_at),
-						permissions: tg::grant::permission::Set::Process(
-							tg::grant::permission::process::Set::all(),
-						),
-						principal: principal.clone().into(),
-						resource: id.clone().into(),
-					}]
-				})
-				.unwrap_or_default();
 			self.server
 				.index
 				.batch(tangram_index::batch::Arg {
-					put_grants,
 					put_processes: vec![put_process_arg],
 					put_sandboxes: vec![tangram_index::sandbox::put::Arg {
 						id: output.sandbox.clone(),
@@ -249,11 +222,6 @@ impl Session {
 				})
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the process to the index"))?;
-		}
-		if let Some(output) = &output
-			&& output.cached
-		{
-			self.spawn_put_process_grants_to_index_task(&output.id);
 		}
 
 		// Wake the watchdog so depth-based limits are enforced promptly.
@@ -523,43 +491,6 @@ impl Session {
 			}
 		}
 		Err(tg::error!("expected an output"))
-	}
-
-	fn spawn_put_process_grants_to_index_task(&self, id: &tg::process::Id) {
-		let Some(principal) = self.context.principal.clone() else {
-			return;
-		};
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let expires_at = now
-			+ self
-				.server
-				.config
-				.process
-				.grant_time_to_live
-				.as_secs()
-				.to_i64()
-				.unwrap();
-		let put_grants = vec![tangram_index::grant::put::Arg {
-			created_at: now,
-			creator: Some(principal.clone()),
-			expires_at: Some(expires_at),
-			permissions: tg::grant::permission::Set::Process(
-				tg::grant::permission::process::Set::all(),
-			),
-			principal: principal.clone().into(),
-			resource: id.clone().into(),
-		}];
-		self.server
-			.index_tasks
-			.spawn(|_| {
-				let server = self.server.clone();
-				async move {
-					if let Err(error) = server.index.put_grants(&put_grants).await {
-						tracing::error!(error = %error.trace(), "failed to put process grants to index");
-					}
-				}
-			})
-			.detach();
 	}
 
 	async fn spawn_process_push_command(
@@ -884,7 +815,7 @@ impl Session {
 			if self
 				.server
 				.index
-				.authorize(resource, permission.into(), Some(&principal))
+				.authorize(resource, permission.into(), &principal)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to authorize the cached process"))?
 				.is_some_and(|output| output.permissions.contains(permission))
@@ -1143,7 +1074,7 @@ impl Session {
 			if self
 				.server
 				.index
-				.authorize(resource, permission.into(), Some(&principal))
+				.authorize(resource, permission.into(), &principal)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to authorize the cached process"))?
 				.is_some_and(|output| output.permissions.contains(permission))
@@ -1282,7 +1213,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))?,
 			),
 		};
-		let creator = self.context.principal.as_ref().map(ToString::to_string);
+		let creator = &Some(self.context.principal.to_string());
 		let params = db::params![
 			actual_checksum.to_string(),
 			true,
@@ -1482,7 +1413,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))?,
 			),
 		};
-		let creator = self.context.principal.as_ref().map(ToString::to_string);
+		let creator = &Some(self.context.principal.to_string());
 		let params = db::params![
 			cacheable,
 			arg.command.item.to_string(),
@@ -1551,7 +1482,7 @@ impl Session {
 	) -> tg::Result<ControlFlow<tg::sandbox::Id, database::Error>> {
 		let p = transaction.p();
 		let id = tg::sandbox::Id::new();
-		let creator = self.context.principal.as_ref().map(ToString::to_string);
+		let creator = &Some(self.context.principal.to_string());
 		let statement = formatdoc!(
 			r#"
 				insert into sandboxes (
@@ -1677,11 +1608,14 @@ impl Session {
 				},
 			}
 		}
-		let output = self
-			.context
-			.principal
-			.clone()
-			.filter(|owner| !matches!(owner, tg::Principal::Root));
+		let output = if matches!(
+			self.context.principal,
+			tg::Principal::Anonymous | tg::Principal::Root
+		) {
+			None
+		} else {
+			Some(self.context.principal.clone())
+		};
 		Ok(output)
 	}
 
@@ -1692,7 +1626,7 @@ impl Session {
 		owner: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		let permission = tg::grant::Permission::Write;
-		let authorized = if matches!(self.context.principal, Some(tg::Principal::Process(_)))
+		let authorized = if matches!(self.context.principal, tg::Principal::Process(_))
 			&& parent_sandbox.is_some_and(|parent_sandbox| parent_sandbox == sandbox)
 		{
 			let principal = owner.cloned().unwrap_or(tg::Principal::Root);
@@ -1701,7 +1635,7 @@ impl Session {
 				.authorize(
 					tg::grant::Resource::Id(sandbox.clone().into()),
 					permission.into(),
-					Some(&principal),
+					&principal,
 				)
 				.await
 				.map(|output| output.map(|output| output.permissions))

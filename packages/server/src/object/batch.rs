@@ -53,7 +53,8 @@ impl Session {
 				.unwrap();
 
 		// Store the objects.
-		let principal = self.context.principal.clone();
+		let principal = (!matches!(self.context.principal, tg::Principal::Anonymous))
+			.then(|| self.context.principal.clone());
 		let put_args: Vec<_> = arg
 			.objects
 			.iter()
@@ -151,7 +152,7 @@ impl Session {
 					creator: Some(principal.clone()),
 					expires_at: Some(grant_expires_at),
 					permissions: tg::grant::Permission::Object(permission).into(),
-					principal: principal.clone().into(),
+					principal: principal.try_to_grant_principal()?,
 					resource: object.id.clone().into(),
 				});
 			}

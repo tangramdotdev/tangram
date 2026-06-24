@@ -8,7 +8,7 @@ use {
 
 impl Session {
 	pub(crate) async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 

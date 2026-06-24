@@ -13,7 +13,7 @@ use {
 
 impl Session {
 	pub(crate) async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let location = self
@@ -27,7 +27,7 @@ impl Session {
 	}
 
 	async fn post_tag_batch_local(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
-		if self.context.principal.is_none() {
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
 		for item in &arg.tags {

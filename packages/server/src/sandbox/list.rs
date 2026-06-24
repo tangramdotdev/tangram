@@ -12,7 +12,7 @@ impl Session {
 		&self,
 		arg: tg::sandbox::list::Arg,
 	) -> tg::Result<tg::sandbox::list::Output> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 

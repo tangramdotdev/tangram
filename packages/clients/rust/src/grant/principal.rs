@@ -71,16 +71,17 @@ impl std::str::FromStr for Principal {
 	}
 }
 
-impl From<tg::Principal> for Principal {
-	fn from(value: tg::Principal) -> Self {
-		match value {
-			tg::Principal::Group(id) => Self::Group(id),
-			tg::Principal::Organization(id) => Self::Organization(id),
-			tg::Principal::Process(id) => Self::Process(id),
-			tg::Principal::Root => Self::Root,
-			tg::Principal::Runner => Self::Runner,
-			tg::Principal::Sandbox(id) => Self::Sandbox(id),
-			tg::Principal::User(id) => Self::User(id),
+impl Principal {
+	pub fn try_to_principal(&self) -> tg::Result<tg::Principal> {
+		match self {
+			Self::Group(id) => Ok(tg::Principal::Group(id.clone())),
+			Self::Organization(id) => Ok(tg::Principal::Organization(id.clone())),
+			Self::Process(id) => Ok(tg::Principal::Process(id.clone())),
+			Self::Public => Err(tg::error!("invalid principal")),
+			Self::Root => Ok(tg::Principal::Root),
+			Self::Runner => Ok(tg::Principal::Runner),
+			Self::Sandbox(id) => Ok(tg::Principal::Sandbox(id.clone())),
+			Self::User(id) => Ok(tg::Principal::User(id.clone())),
 		}
 	}
 }

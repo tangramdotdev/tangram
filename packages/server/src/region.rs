@@ -8,11 +8,8 @@ impl Session {
 		let _token = self
 			.context
 			.principal
-			.as_ref()
-			.and_then(|principal| match principal {
-				tg::Principal::Process(process) => Some(process.clone()),
-				_ => None,
-			});
+			.to_id()
+			.and_then(|id| tg::process::Id::try_from(id).ok());
 		let _client = self.server.get_region_client(region).await?;
 		todo!("propagate process authentication to regions")
 	}

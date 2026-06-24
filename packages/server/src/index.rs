@@ -37,7 +37,7 @@ impl index::Index for Index {
 	async fn authorize_batch(
 		&self,
 		args: &[index::authorize::Arg],
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> tg::Result<Vec<Option<index::authorize::Output>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -47,11 +47,7 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn visible(
-		&self,
-		ids: &[tg::Id],
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<Vec<bool>> {
+	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.visible(ids, principal).await,

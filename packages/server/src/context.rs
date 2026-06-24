@@ -3,7 +3,7 @@ use {tangram_client::prelude::*, tangram_futures::task::Stopper};
 #[derive(Clone, Debug)]
 pub struct Context {
 	pub id: Option<String>,
-	pub principal: Option<tg::Principal>,
+	pub principal: tg::Principal,
 	pub sandbox: bool,
 	pub stopper: Option<Stopper>,
 }
@@ -13,7 +13,7 @@ impl Context {
 	pub fn root() -> Self {
 		Self {
 			id: None,
-			principal: Some(tg::Principal::Root),
+			principal: tg::Principal::Root,
 			sandbox: false,
 			stopper: None,
 		}

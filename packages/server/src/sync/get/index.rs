@@ -896,10 +896,9 @@ impl Session {
 
 		// Create the grant args.
 		let mut put_grant_args = Vec::new();
-		let grant_principal = match self.context.principal.as_ref() {
-			Some(tg::Principal::Root) => None,
-			Some(principal) => Some(tg::grant::Principal::from(principal.clone())),
-			None => Some(tg::grant::Principal::Public),
+		let grant_principal = match &self.context.principal {
+			tg::Principal::Anonymous | tg::Principal::Root => None,
+			principal => Some(principal.try_to_grant_principal()?),
 		};
 		if let Some(grant_principal) = grant_principal {
 			let object_expires_at = touched_at
@@ -941,7 +940,7 @@ impl Session {
 							subtree = visible;
 							put_grant_args.push(tangram_index::grant::put::Arg {
 								created_at: touched_at,
-								creator: self.context.principal.clone(),
+								creator: Some(self.context.principal.clone()),
 								expires_at: Some(object_expires_at),
 								permissions: tg::grant::permission::Set::Object(
 									tg::grant::permission::object::Set::from_permission(permission),
@@ -971,7 +970,7 @@ impl Session {
 						if !permissions.is_empty() {
 							put_grant_args.push(tangram_index::grant::put::Arg {
 								created_at: touched_at,
-								creator: self.context.principal.clone(),
+								creator: Some(self.context.principal.clone()),
 								expires_at: Some(process_expires_at),
 								permissions: tg::grant::permission::Set::Process(permissions),
 								principal: grant_principal.clone(),

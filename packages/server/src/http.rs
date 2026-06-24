@@ -319,7 +319,7 @@ impl Server {
 				async move {
 					let context = Context {
 						id: None,
-						principal: None,
+						principal: tg::Principal::Anonymous,
 						sandbox,
 						stopper: Some(stopper),
 					};

@@ -7,9 +7,9 @@ let server = spawn --config { authentication: true }
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
-# Eve can list her own grants (she holds admin on herself from login).
+# Eve can list her own grants through inherent self-admin.
 let own = tg --token $eve.token grants list --principal $eve.user.id | from json
-assert (($own | length) > 0) "a user should be able to list their own grants"
+assert (($own | length) == 0) "a user should be able to list their own grants"
 
 # Eve cannot list Alice's grants without admin on Alice.
 let output = tg --token $eve.token grants list --principal $alice.user.id | complete

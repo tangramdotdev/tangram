@@ -31,24 +31,18 @@ impl Session {
 	}
 
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
-		let Some(sandbox) = self
-			.context
-			.principal
-			.as_ref()
-			.and_then(|principal| match principal {
-				tg::Principal::Process(process) => {
-					self.server.sandboxes.iter().find_map(|sandbox| {
-						sandbox
-							.value()
-							.processes()
-							.into_iter()
-							.any(|process_| process_.id() == process)
-							.then(|| sandbox.key().clone())
-					})
-				},
-				_ => None,
-			})
-		else {
+		let sandbox = match &self.context.principal {
+			tg::Principal::Process(process) => self.server.sandboxes.iter().find_map(|sandbox| {
+				sandbox
+					.value()
+					.processes()
+					.into_iter()
+					.any(|process_| process_.id() == process)
+					.then(|| sandbox.key().clone())
+			}),
+			_ => None,
+		};
+		let Some(sandbox) = sandbox else {
 			return Ok(path.to_owned());
 		};
 		let sandbox = self
@@ -63,24 +57,18 @@ impl Session {
 	}
 
 	pub(crate) fn guest_path_for_host_path(&self, path: &Path) -> tg::Result<PathBuf> {
-		let Some(sandbox) = self
-			.context
-			.principal
-			.as_ref()
-			.and_then(|principal| match principal {
-				tg::Principal::Process(process) => {
-					self.server.sandboxes.iter().find_map(|sandbox| {
-						sandbox
-							.value()
-							.processes()
-							.into_iter()
-							.any(|process_| process_.id() == process)
-							.then(|| sandbox.key().clone())
-					})
-				},
-				_ => None,
-			})
-		else {
+		let sandbox = match &self.context.principal {
+			tg::Principal::Process(process) => self.server.sandboxes.iter().find_map(|sandbox| {
+				sandbox
+					.value()
+					.processes()
+					.into_iter()
+					.any(|process_| process_.id() == process)
+					.then(|| sandbox.key().clone())
+			}),
+			_ => None,
+		};
+		let Some(sandbox) = sandbox else {
 			return Ok(path.to_owned());
 		};
 		let sandbox = self

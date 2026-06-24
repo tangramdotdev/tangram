@@ -138,11 +138,10 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the principal"))?;
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let creator = self
-			.context
-			.principal
-			.clone()
-			.unwrap_or_else(|| Self::default_grant_creator(&principal));
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
+			return Err(tg::error!("unauthorized"));
+		}
+		let creator = self.context.principal.clone();
 		let creator_string = creator.to_string();
 		let p = transaction.p();
 		#[derive(db::row::Deserialize)]
@@ -265,11 +264,10 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let creator = self
-			.context
-			.principal
-			.clone()
-			.unwrap_or_else(|| Self::default_grant_creator(&principal));
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
+			return Err(tg::error!("unauthorized"));
+		}
+		let creator = self.context.principal.clone();
 		let creator_string = creator.to_string();
 		let p = transaction.p();
 		#[derive(db::row::Deserialize)]
@@ -358,18 +356,6 @@ impl Session {
 			});
 		}
 		Ok(Some(()))
-	}
-
-	fn default_grant_creator(principal: &tg::grant::Principal) -> tg::Principal {
-		match principal {
-			tg::grant::Principal::Group(id) => tg::Principal::Group(id.clone()),
-			tg::grant::Principal::Organization(id) => tg::Principal::Organization(id.clone()),
-			tg::grant::Principal::Process(id) => tg::Principal::Process(id.clone()),
-			tg::grant::Principal::Public | tg::grant::Principal::Root => tg::Principal::Root,
-			tg::grant::Principal::Runner => tg::Principal::Runner,
-			tg::grant::Principal::Sandbox(id) => tg::Principal::Sandbox(id.clone()),
-			tg::grant::Principal::User(id) => tg::Principal::User(id.clone()),
-		}
 	}
 
 	pub(crate) async fn delete_node_grants_with_transaction(
@@ -488,7 +474,7 @@ impl Session {
 		if let tg::grant::Resource::Id(id) = &resource
 			&& (id.kind() == tg::id::Kind::Process || tg::object::Id::try_from(id.clone()).is_ok())
 		{
-			if !matches!(self.context.principal, Some(tg::Principal::Root)) {
+			if !matches!(self.context.principal, tg::Principal::Root) {
 				return Err(tg::error!("unauthorized"));
 			}
 			let mut connection = self
@@ -592,7 +578,7 @@ impl Session {
 			| tg::grant::Principal::Root
 			| tg::grant::Principal::Runner
 			| tg::grant::Principal::Sandbox(_) => {
-				if !matches!(self.context.principal, Some(tg::Principal::Root)) {
+				if !matches!(self.context.principal, tg::Principal::Root) {
 					return Err(tg::error!("unauthorized"));
 				}
 			},

@@ -206,7 +206,7 @@ impl Session {
 		let outputs = self
 			.server
 			.index
-			.authorize_batch(&args, self.context.principal.as_ref())
+			.authorize_batch(&args, &self.context.principal)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
 		for (index, output) in std::iter::zip(arg_indices, outputs) {
@@ -246,7 +246,7 @@ impl Session {
 		let outputs = self
 			.server
 			.index
-			.authorize_batch(&args, self.context.principal.as_ref())
+			.authorize_batch(&args, &self.context.principal)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
 		for (index, output) in std::iter::zip(arg_indices, outputs) {

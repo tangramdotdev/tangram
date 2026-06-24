@@ -19,12 +19,11 @@ impl Session {
 		&self,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		let Some(principal) = self.context.principal.as_ref() else {
-			return self.list_remotes_root().await;
-		};
+		let principal = &self.context.principal;
 		match principal {
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
 				match self.resolve_remote_principal(principal).await? {
+					tg::Principal::Anonymous => Err(tg::error!("unauthorized")),
 					tg::Principal::Root => self.list_remotes_root().await,
 					tg::Principal::Runner => self.list_remotes_runner().await,
 					tg::Principal::User(user) => self.list_remotes_user(&user).await,
@@ -36,6 +35,7 @@ impl Session {
 					},
 				}
 			},
+			tg::Principal::Anonymous => Err(tg::error!("unauthorized")),
 			tg::Principal::Root => self.list_remotes_root().await,
 			tg::Principal::Runner => self.list_remotes_runner().await,
 			tg::Principal::User(user) => self.list_remotes_user(user).await,

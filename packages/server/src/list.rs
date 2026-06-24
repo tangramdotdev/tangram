@@ -14,7 +14,7 @@ pub mod remote;
 impl Session {
 	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 
@@ -154,7 +154,7 @@ impl Session {
 		let visible = self
 			.server
 			.index
-			.visible(&ids, self.context.principal.as_ref())
+			.visible(&ids, &self.context.principal)
 			.await?;
 		let entries = entries
 			.into_iter()

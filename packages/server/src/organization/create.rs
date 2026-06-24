@@ -28,7 +28,7 @@ impl Session {
 		&self,
 		arg: tg::organization::create::Arg,
 	) -> tg::Result<tg::organization::create::Output> {
-		if self.context.principal.is_none() {
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let session = self.clone();
@@ -119,14 +119,13 @@ impl Session {
 				id: id.clone(),
 				specifier: node.specifier.clone(),
 			});
-		if let Some(principal) = self
-			.context
-			.principal
-			.as_ref()
-			.filter(|principal| !principal.is_root())
-		{
+		if !matches!(
+			self.context.principal,
+			tg::Principal::Anonymous | tg::Principal::Root
+		) {
+			let principal = &self.context.principal;
 			let arg = tg::grant::create::Arg {
-				principal: tg::grant::Principal::from(principal.clone()).into(),
+				principal: principal.try_to_grant_principal()?.into(),
 				permissions: tg::grant::Permission::Admin.into(),
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			};

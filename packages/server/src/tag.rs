@@ -86,7 +86,7 @@ impl Session {
 			),
 		};
 		// Root is always authorized, so it records the subtree variant of every aspect without consulting the index.
-		if matches!(self.context.principal, Some(tg::Principal::Root)) {
+		if matches!(self.context.principal, tg::Principal::Root) {
 			return Ok(aspects
 				.into_iter()
 				.map(tg::grant::Permission::subtree)

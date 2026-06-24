@@ -499,7 +499,8 @@ impl Session {
 			blob,
 			cache_pointer,
 			touched_at,
-			self.context.principal.as_ref(),
+			(!matches!(self.context.principal, tg::Principal::Anonymous))
+				.then_some(&self.context.principal),
 			grant_expires_at,
 		);
 		self.server
@@ -586,7 +587,9 @@ impl Session {
 					tg::grant::permission::object::Permission::Subtree,
 				)
 				.into(),
-				principal: principal.clone().into(),
+				principal: principal
+					.try_to_grant_principal()
+					.expect("expected the principal to be valid as a grant principal"),
 				resource: tg::object::Id::from(blob.id.clone()).into(),
 			})
 			.into_iter()

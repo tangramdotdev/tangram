@@ -9,9 +9,9 @@ impl Index {
 	pub async fn visible(
 		&self,
 		ids: &[tg::Id],
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> tg::Result<Vec<bool>> {
-		if matches!(principal, Some(tg::Principal::Root)) {
+		if matches!(principal, tg::Principal::Root) {
 			return Ok(vec![true; ids.len()]);
 		}
 		tokio::task::spawn_blocking({
@@ -19,7 +19,7 @@ impl Index {
 			let env = self.env.clone();
 			let subspace = self.subspace.clone();
 			let ids = ids.to_vec();
-			let principal = principal.cloned();
+			let principal = principal.clone();
 			move || {
 				let transaction = env
 					.read_txn()
@@ -28,7 +28,7 @@ impl Index {
 					&db,
 					&subspace,
 					&transaction,
-					principal.as_ref(),
+					&principal,
 				)?;
 				let mut output = Vec::with_capacity(ids.len());
 				for id in &ids {
@@ -58,18 +58,18 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::grant::Principal>> {
 		let mut principals = vec![tg::grant::Principal::Public];
-		let Some(principal) = principal else {
-			return Ok(principals);
-		};
-		principals.push(tg::grant::Principal::from(principal.clone()));
+		if !matches!(principal, tg::Principal::Anonymous) {
+			principals.push(principal.try_to_grant_principal()?);
+		}
 		let id = match principal {
 			tg::Principal::Group(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Organization(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::User(id) => Some(tg::Id::from(id.clone())),
-			tg::Principal::Process(_)
+			tg::Principal::Anonymous
+			| tg::Principal::Process(_)
 			| tg::Principal::Root
 			| tg::Principal::Runner
 			| tg::Principal::Sandbox(_) => None,

@@ -111,13 +111,6 @@ impl Session {
 				id: id.clone(),
 				specifier: node.specifier.clone(),
 			});
-			let arg = tg::grant::create::Arg {
-				principal: tg::grant::Principal::User(id.clone()).into(),
-				permissions: tg::grant::Permission::Admin.into(),
-				resource: tg::grant::Resource::Id(id.clone().into()),
-			};
-			self.create_grant_with_transaction(transaction, arg, batch)
-				.await?;
 			Self::user_from_node_with_transaction(transaction, node).await?
 		};
 		if let Some(email) = arg.email {

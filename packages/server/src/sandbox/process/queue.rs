@@ -23,7 +23,7 @@ impl Session {
 		arg: tg::sandbox::process::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		match &self.context.principal {
-			Some(tg::Principal::Sandbox(authentication)) if authentication == sandbox => (),
+			tg::Principal::Sandbox(authentication) if authentication == sandbox => (),
 			_ => return Err(tg::error!("unauthorized")),
 		}
 

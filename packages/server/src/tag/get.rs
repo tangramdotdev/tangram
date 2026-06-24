@@ -13,7 +13,7 @@ impl Session {
 		&self,
 		tag: &tg::tag::Selector,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let mut connection = self
@@ -36,10 +36,7 @@ impl Session {
 		let visible = self
 			.server
 			.index
-			.visible(
-				std::slice::from_ref(&node.id),
-				self.context.principal.as_ref(),
-			)
+			.visible(std::slice::from_ref(&node.id), &self.context.principal)
 			.await?
 			.pop()
 			.unwrap() || self

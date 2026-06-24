@@ -37,7 +37,7 @@ impl Server {
 						..server.context.clone()
 					};
 					let context = Context {
-						principal: Some(tg::Principal::Sandbox(id.clone())),
+						principal: tg::Principal::Sandbox(id.clone()),
 						..context
 					};
 					let session = server.session(&context);
@@ -486,7 +486,7 @@ impl Session {
 			));
 		}
 		let mut context = self.context.clone();
-		context.principal = Some(tg::Principal::Process(id));
+		context.principal = tg::Principal::Process(id);
 		let session = Session::new(self.server.clone(), context);
 		Ok(CreateProcessSessionOutput {
 			process,

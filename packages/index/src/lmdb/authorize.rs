@@ -24,8 +24,8 @@ struct Cache {
 }
 
 struct Requester<'a> {
-	principal: Option<&'a tg::Principal>,
-	principal_: Option<tg::grant::Principal>,
+	principal: &'a tg::Principal,
+	principal_: tg::grant::Principal,
 	id: Option<tg::Id>,
 }
 
@@ -52,16 +52,16 @@ struct AuthorizationContext<'a, 'txn> {
 }
 
 impl<'a> Requester<'a> {
-	fn new(principal: Option<&'a tg::Principal>) -> Self {
-		let principal_ = principal.cloned().map(tg::grant::Principal::from);
-		let id = principal.and_then(|principal| match principal {
+	fn new(principal: &'a tg::Principal) -> Self {
+		let principal_ = principal.to_grant_requester();
+		let id = match principal {
 			tg::Principal::Group(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Organization(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Process(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Sandbox(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::User(id) => Some(tg::Id::from(id.clone())),
-			tg::Principal::Root | tg::Principal::Runner => None,
-		});
+			tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner => None,
+		};
 		Self {
 			principal,
 			principal_,
@@ -74,7 +74,7 @@ impl Index {
 	pub async fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
-		principal: Option<&tg::Principal>,
+		principal: &tg::Principal,
 	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
 		if args.is_empty() {
 			return Ok(Vec::new());
@@ -85,12 +85,12 @@ impl Index {
 			let env = self.env.clone();
 			let subspace = self.subspace.clone();
 			let args = args.to_owned();
-			let principal = principal.cloned();
+			let principal = principal.clone();
 			move || {
 				let transaction = env
 					.read_txn()
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let requester = Requester::new(principal.as_ref());
+				let requester = Requester::new(&principal);
 				let mut cache = Cache::default();
 				let mut outputs = Vec::with_capacity(args.len());
 				for arg in args {
@@ -105,13 +105,13 @@ impl Index {
 						continue;
 					};
 					crate::authorize::validate(&id, arg.permissions)?;
-					if matches!(principal, Some(tg::Principal::Root)) {
+					if matches!(principal, tg::Principal::Root) {
 						outputs.push(Some(crate::authorize::Output {
 							permissions: arg.permissions,
 						}));
 						continue;
 					}
-					if matches!(principal, Some(tg::Principal::Process(ref process)) if tg::Id::from(process.clone()) == id)
+					if matches!(&principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == id)
 					{
 						outputs.push(Some(crate::authorize::Output {
 							permissions: arg.permissions,
@@ -380,14 +380,24 @@ impl Index {
 		resource: &tg::Id,
 		permission: tg::grant::Permission,
 	) -> tg::Result<bool> {
-		if let (Some(tg::Principal::Process(process)), tg::grant::Permission::Process(_)) =
+		if let (tg::Principal::Process(process), tg::grant::Permission::Process(_)) =
 			(context.requester.principal, permission)
 			&& tg::Id::from(process.clone()) == *resource
 		{
 			return Ok(true);
 		}
 		if let (
-			Some(tg::Principal::Sandbox(sandbox)),
+			tg::Principal::User(user),
+			tg::grant::Permission::Admin
+			| tg::grant::Permission::Read
+			| tg::grant::Permission::Write,
+		) = (context.requester.principal, permission)
+			&& tg::Id::from(user.clone()) == *resource
+		{
+			return Ok(true);
+		}
+		if let (
+			tg::Principal::Sandbox(sandbox),
 			tg::grant::Permission::Read | tg::grant::Permission::Write,
 		) = (context.requester.principal, permission)
 			&& tg::Id::from(sandbox.clone()) == *resource
@@ -407,7 +417,7 @@ impl Index {
 				&sandbox,
 				context.cache,
 			)? {
-				let owner = tg::grant::Principal::from(owner);
+				let owner = owner.try_to_grant_principal()?;
 				if Self::principal_contains_requester_with_transaction(
 					context.db,
 					context.subspace,
@@ -621,7 +631,9 @@ impl Index {
 							tg::Principal::Group(id) => Some(tg::Id::from(id)),
 							tg::Principal::Organization(id) => Some(tg::Id::from(id)),
 							tg::Principal::Process(id) => Some(tg::Id::from(id)),
-							tg::Principal::Root | tg::Principal::Runner => None,
+							tg::Principal::Anonymous
+							| tg::Principal::Root
+							| tg::Principal::Runner => None,
 							tg::Principal::Sandbox(id) => Some(tg::Id::from(id)),
 							tg::Principal::User(id) => Some(tg::Id::from(id)),
 						};
@@ -694,7 +706,7 @@ impl Index {
 		if principal == &tg::grant::Principal::Public {
 			return Ok(true);
 		}
-		if requester.principal_.as_ref() == Some(principal) {
+		if requester.principal_ == *principal {
 			return Ok(true);
 		}
 		if requester.id.is_none() {

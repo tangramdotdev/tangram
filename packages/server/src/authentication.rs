@@ -144,10 +144,7 @@ impl Session {
 		&self,
 		remote: &str,
 	) -> tg::Result<Option<String>> {
-		let Some(principal) = &self.context.principal else {
-			return Ok(None);
-		};
-		match principal {
+		match &self.context.principal {
 			tg::Principal::Process(process) => {
 				let Some(process) = self.try_get_authenticated_process(process).await? else {
 					return Ok(None);
@@ -169,7 +166,8 @@ impl Session {
 				};
 				Ok((location.name == remote).then_some(sandbox.token).flatten())
 			},
-			tg::Principal::Group(_)
+			tg::Principal::Anonymous
+			| tg::Principal::Group(_)
 			| tg::Principal::Organization(_)
 			| tg::Principal::Root
 			| tg::Principal::Runner
@@ -183,21 +181,21 @@ impl Server {
 		&self,
 		sandbox: bool,
 		token: Option<&str>,
-	) -> tg::Result<Option<tg::Principal>> {
+	) -> tg::Result<tg::Principal> {
 		if sandbox {
 			let Some(token) = token else {
-				return Ok(None);
+				return Ok(tg::Principal::Anonymous);
 			};
-			return self
+			return Ok(self
 				.authenticate_process(token)
-				.await
-				.map(|process| process.map(tg::Principal::Process));
+				.await?
+				.map_or(tg::Principal::Anonymous, tg::Principal::Process));
 		}
 
 		if let Some(token) = token {
 			match self.authenticate_process(token).await {
 				Ok(Some(process)) => {
-					return Ok(Some(tg::Principal::Process(process)));
+					return Ok(tg::Principal::Process(process));
 				},
 				Ok(None) => (),
 				Err(error) => {
@@ -207,7 +205,7 @@ impl Server {
 
 			match self.authenticate_runner(token).await {
 				Ok(true) => {
-					return Ok(Some(tg::Principal::Runner));
+					return Ok(tg::Principal::Runner);
 				},
 				Ok(false) => (),
 				Err(error) => {
@@ -217,7 +215,7 @@ impl Server {
 
 			match self.authenticate_sandbox(token).await {
 				Ok(Some(sandbox)) => {
-					return Ok(Some(tg::Principal::Sandbox(sandbox)));
+					return Ok(tg::Principal::Sandbox(sandbox));
 				},
 				Ok(None) => (),
 				Err(error) => {
@@ -227,7 +225,7 @@ impl Server {
 
 			match self.authenticate_user(token).await {
 				Ok(Some(user)) => {
-					return Ok(Some(tg::Principal::User(user.id)));
+					return Ok(tg::Principal::User(user.id));
 				},
 				Ok(None) => (),
 				Err(error) => {
@@ -237,10 +235,10 @@ impl Server {
 		}
 
 		if self.config().authentication.is_none() {
-			return Ok(Some(tg::Principal::Root));
+			return Ok(tg::Principal::Root);
 		}
 
-		Ok(None)
+		Ok(tg::Principal::Anonymous)
 	}
 
 	pub(crate) async fn authenticate_process(

@@ -15,7 +15,7 @@ use {
 
 impl Session {
 	pub(crate) async fn put_tag(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let location = self
@@ -29,7 +29,7 @@ impl Session {
 	}
 
 	async fn put_tag_local(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
-		if self.context.principal.is_none() {
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let authorized = self
@@ -234,8 +234,8 @@ impl Session {
 	}
 
 	pub(crate) fn write_user_grant_principal(&self) -> Option<tg::grant::Principal> {
-		match self.context.principal.as_ref() {
-			Some(tg::Principal::User(user)) => Some(tg::grant::Principal::User(user.clone())),
+		match &self.context.principal {
+			tg::Principal::User(user) => Some(tg::grant::Principal::User(user.clone())),
 			_ => None,
 		}
 	}

@@ -22,11 +22,7 @@ impl Session {
 		&self,
 		name: &str,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let principal = self
-			.context
-			.principal
-			.as_ref()
-			.ok_or_else(|| tg::error!("unauthenticated"))?;
+		let principal = &self.context.principal;
 		match principal {
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
 				match self.resolve_remote_principal(principal).await? {
@@ -36,11 +32,12 @@ impl Session {
 					tg::Principal::Group(_) | tg::Principal::Organization(_) => {
 						Err(tg::error!("unauthorized"))
 					},
-					tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-						Err(tg::error!("unauthorized"))
-					},
+					tg::Principal::Anonymous
+					| tg::Principal::Process(_)
+					| tg::Principal::Sandbox(_) => Err(tg::error!("unauthorized")),
 				}
 			},
+			tg::Principal::Anonymous => Err(tg::error!("unauthorized")),
 			tg::Principal::Root => self.try_get_remote_root(name).await,
 			tg::Principal::Runner => self.try_get_remote_runner(name).await,
 			tg::Principal::User(user) => self.try_get_remote_user(name, user).await,

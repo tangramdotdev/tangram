@@ -16,7 +16,7 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + use<>,
 	> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let stream = match reference.item() {
@@ -155,10 +155,7 @@ impl Session {
 		let visible = self
 			.server
 			.index
-			.visible(
-				std::slice::from_ref(&node.id),
-				self.context.principal.as_ref(),
-			)
+			.visible(std::slice::from_ref(&node.id), &self.context.principal)
 			.await?
 			.pop()
 			.unwrap() || self
@@ -207,10 +204,7 @@ impl Session {
 				let visible = self
 					.server
 					.index
-					.visible(
-						std::slice::from_ref(&node.id),
-						self.context.principal.as_ref(),
-					)
+					.visible(std::slice::from_ref(&node.id), &self.context.principal)
 					.await?
 					.pop()
 					.unwrap() || self

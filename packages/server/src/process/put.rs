@@ -22,7 +22,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<tg::process::put::Output> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 
@@ -50,7 +50,8 @@ impl Session {
 		mut arg: tg::process::put::Arg,
 	) -> tg::Result<tg::process::put::Output> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let creator = self.context.principal.clone();
+		let creator = (!matches!(self.context.principal, tg::Principal::Anonymous))
+			.then(|| self.context.principal.clone());
 		let token_data = arg.data.clone();
 		arg.data.remove_tokens();
 
@@ -138,11 +139,10 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let put_grant =
-			self.context
-				.principal
-				.clone()
-				.map(|principal| tangram_index::grant::put::Arg {
+		let put_grant = (!matches!(self.context.principal, tg::Principal::Anonymous))
+			.then(|| {
+				let principal = self.context.principal.clone();
+				Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
 					created_at: now,
 					creator: Some(principal.clone()),
 					expires_at: Some(grant_expires_at),
@@ -150,9 +150,11 @@ impl Session {
 						tg::grant::permission::process::Permission::Node,
 					)
 					.into(),
-					principal: principal.into(),
+					principal: principal.try_to_grant_principal()?,
 					resource: id.clone().into(),
-				});
+				})
+			})
+			.transpose()?;
 		self.server
 			.index_tasks
 			.spawn(|_| {

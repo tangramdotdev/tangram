@@ -14,6 +14,9 @@ use crate::prelude::*;
 	serde_with::SerializeDisplay,
 )]
 pub enum Principal {
+	#[display("anonymous")]
+	Anonymous,
+
 	#[display("{_0}")]
 	Group(tg::group::Id),
 
@@ -61,6 +64,9 @@ impl std::str::FromStr for Principal {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if s == "anonymous" {
+			return Ok(Self::Anonymous);
+		}
 		if let Ok(id) = s.parse::<tg::group::Id>() {
 			return Ok(Self::Group(id));
 		}
@@ -86,6 +92,47 @@ impl std::str::FromStr for Principal {
 	}
 }
 
+impl Principal {
+	#[must_use]
+	pub fn to_id(&self) -> Option<tg::Id> {
+		match self {
+			Self::Anonymous | Self::Root | Self::Runner => None,
+			Self::Group(id) => Some(id.clone().into()),
+			Self::Organization(id) => Some(id.clone().into()),
+			Self::Process(id) => Some(id.clone().into()),
+			Self::Sandbox(id) => Some(id.clone().into()),
+			Self::User(id) => Some(id.clone().into()),
+		}
+	}
+
+	#[must_use]
+	pub fn to_grant_requester(&self) -> tg::grant::Principal {
+		match self {
+			Self::Anonymous => tg::grant::Principal::Public,
+			Self::Group(id) => tg::grant::Principal::Group(id.clone()),
+			Self::Organization(id) => tg::grant::Principal::Organization(id.clone()),
+			Self::Process(id) => tg::grant::Principal::Process(id.clone()),
+			Self::Root => tg::grant::Principal::Root,
+			Self::Runner => tg::grant::Principal::Runner,
+			Self::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
+			Self::User(id) => tg::grant::Principal::User(id.clone()),
+		}
+	}
+
+	pub fn try_to_grant_principal(&self) -> tg::Result<tg::grant::Principal> {
+		match self {
+			Self::Anonymous => Err(tg::error!("invalid grant principal")),
+			Self::Group(id) => Ok(tg::grant::Principal::Group(id.clone())),
+			Self::Organization(id) => Ok(tg::grant::Principal::Organization(id.clone())),
+			Self::Process(id) => Ok(tg::grant::Principal::Process(id.clone())),
+			Self::Root => Ok(tg::grant::Principal::Root),
+			Self::Runner => Ok(tg::grant::Principal::Runner),
+			Self::Sandbox(id) => Ok(tg::grant::Principal::Sandbox(id.clone())),
+			Self::User(id) => Ok(tg::grant::Principal::User(id.clone())),
+		}
+	}
+}
+
 impl std::str::FromStr for Selector {
 	type Err = tg::Error;
 
@@ -100,7 +147,11 @@ impl std::str::FromStr for Selector {
 
 impl From<tg::Principal> for Selector {
 	fn from(value: tg::Principal) -> Self {
-		Self::Principal(value.into())
+		Self::Principal(
+			value
+				.try_to_grant_principal()
+				.expect("expected the principal to be valid as a grant principal"),
+		)
 	}
 }
 

@@ -20,7 +20,7 @@ impl Session {
 			}
 		}
 
-		if matches!(self.context.principal, Some(tg::Principal::Process(_)))
+		if matches!(self.context.principal, tg::Principal::Process(_))
 			&& fields.is_none_or(|fields| {
 				fields
 					.iter()

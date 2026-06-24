@@ -16,7 +16,7 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 

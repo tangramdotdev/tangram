@@ -12,15 +12,11 @@ use {
 
 impl Session {
 	pub(crate) async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
-		if matches!(self.context.principal, Some(tg::Principal::Process(_))) {
+		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		let principal = self
-			.context
-			.principal
-			.as_ref()
-			.ok_or_else(|| tg::error!("unauthenticated"))?;
+		let principal = &self.context.principal;
 		let user = match principal {
 			tg::Principal::Root => None,
 			tg::Principal::User(user) => Some(user),

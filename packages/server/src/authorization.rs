@@ -59,7 +59,7 @@ impl Session {
 			};
 
 			// Authorize the root principal for all resources.
-			if matches!(self.context.principal, Some(tg::Principal::Root)) {
+			if matches!(self.context.principal, tg::Principal::Root) {
 				outputs.push(Some(permissions));
 				continue;
 			}
@@ -68,8 +68,8 @@ impl Session {
 			if let (
 				tg::grant::Resource::Id(id),
 				tg::grant::permission::Set::Process(_),
-				Some(tg::Principal::Sandbox(sandbox)),
-			) = (&resource, permissions, self.context.principal.as_ref())
+				tg::Principal::Sandbox(sandbox),
+			) = (&resource, permissions, &self.context.principal)
 				&& let Ok(process) = tg::process::Id::try_from(id.clone())
 				&& let Some(output) = self.server.try_get_process_local(&process, false).await?
 				&& output.data.sandbox == *sandbox
@@ -91,7 +91,7 @@ impl Session {
 		let index_outputs = self
 			.server
 			.index
-			.authorize_batch(&index_args, self.context.principal.as_ref())
+			.authorize_batch(&index_args, &self.context.principal)
 			.await?;
 		for (position, output) in std::iter::zip(&index_positions, index_outputs) {
 			if let Some(output) = output
@@ -116,7 +116,7 @@ impl Session {
 		let index_outputs = self
 			.server
 			.index
-			.authorize_batch(&index_args, self.context.principal.as_ref())
+			.authorize_batch(&index_args, &self.context.principal)
 			.await?;
 		for (position, output) in std::iter::zip(index_positions, index_outputs) {
 			if let Some(output) = output {

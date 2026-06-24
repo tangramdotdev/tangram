@@ -19,7 +19,7 @@ impl Session {
 	) -> tg::Result<tg::process::list::Output> {
 		if matches!(
 			self.context.principal,
-			Some(tg::Principal::Process(_) | tg::Principal::Sandbox(_))
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
 		) {
 			return Err(tg::error!("unauthorized"));
 		}
@@ -35,7 +35,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current {
 				let local_outputs = self
-					.list_processes_local(principal.as_ref())
+					.list_processes_local(Some(&principal))
 					.await
 					.map_err(|error| tg::error!(!error, "failed to list local processes"))?;
 				output.data.extend(local_outputs);

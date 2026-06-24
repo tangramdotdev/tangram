@@ -114,8 +114,8 @@ impl Session {
 		match (stdin, output) {
 			(true, false) => {
 				if !matches!(
-					self.context.principal.as_ref(),
-					Some(tg::Principal::Process(process)) if process == id
+					&self.context.principal,
+					tg::Principal::Process(process) if process == id
 				) {
 					return Err(tg::error!("unauthorized"));
 				}
