@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => tg.file("touched");'
+	tangram.ts: 'export default function () { return tg.file("touched"); }'
 }
 let build = tg build --detach --verbose $path | from json
 tg wait $build.process

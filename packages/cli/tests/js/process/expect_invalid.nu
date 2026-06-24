@@ -6,14 +6,14 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			try {
 				tg.Process.expect({});
 				return "did not throw";
 			} catch (error) {
 				return error.message;
 			}
-		};
+		}
 	'
 }
 

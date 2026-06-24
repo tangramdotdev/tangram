@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => await tg.Template.join(":", "a", "b", "c");'
+	tangram.ts: 'export default async function () { return await tg.Template.join(":", "a", "b", "c"); }'
 }
 
 let output = tg build $path

@@ -6,13 +6,13 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => [
+		export default function () { return [
 			tg.Artifact.Id.is("dir_0"),
 			tg.Artifact.Id.is("fil_0"),
 			tg.Artifact.Id.is("sym_0"),
 			tg.Artifact.Id.is("cmd_0"),
 			tg.Artifact.Id.is(42),
-		];
+		]; }
 	'
 }
 

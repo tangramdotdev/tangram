@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => tg.encoding.hex.encode(tg.encoding.utf8.encode("Hello"));'
+	tangram.ts: 'export default function () { return tg.encoding.hex.encode(tg.encoding.utf8.encode("Hello")); }'
 }
 
 let output = tg build $path

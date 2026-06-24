@@ -8,11 +8,11 @@ let idle = tg health --fields processes | from json | get processes
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			while (true) {
 				await tg.sleep(1);
 			}
-		};
+		}
 	'
 }
 let build = tg build --detach --verbose $path | from json

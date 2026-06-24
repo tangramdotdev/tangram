@@ -7,7 +7,7 @@ let server = spawn
 # Check that using a tag dependency in the cache works.
 let a_path = artifact {
 	tangram.ts: '
-		export default () => "a";
+		export default function () { return "a"; }
 	'
 }
 tg tag a $a_path
@@ -30,12 +30,12 @@ snapshot $object '
 	      "a": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("export default () => \"a\";"),
+	            "contents": tg.blob("export default function () { return \"a\"; }"),
 	            "module": "ts",
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_01397yyk1pe2sv1ddct0f0aq0qtxjbjtw55t9d7vke752ezc8at4p0",
+	          "id": "dir_01pcwpzhv23bx2x95epjqdkvqt385etfwqqcz3w1g3va19nn9f9ktg",
 	          "tag": "a",
 	        },
 	      },

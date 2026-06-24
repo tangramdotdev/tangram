@@ -6,14 +6,14 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let process = await tg.spawn({
 				host: "builtin",
 				executable: "echo",
 				user: "nobody",
 			}).sandbox();
 			return await process.user;
-		};
+		}
 	'
 }
 

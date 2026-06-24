@@ -6,15 +6,15 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export const a = () => "a";
-		export const b = () => "b";
-		export const c = () => "c";
-		export default async () => {
+		export function a() { return "a"; }
+		export function b() { return "b"; }
+		export function c() { return "c"; }
+		export default async function () {
 			await tg.build(a).named("a");
 			await tg.build(b).named("b");
 			await tg.build(c).named("c");
 			return "done";
-		};
+		}
 	'
 }
 let build = tg build --detach --verbose $path | from json

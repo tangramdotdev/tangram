@@ -6,11 +6,11 @@ use ./process.nu test
 # Create some test content.
 let path = artifact {
 	tangram.ts: r#'
-		export default async () => {
+		export default async function () {
 			let a = await tg.build(x)
 			return 5
 		}
-		export let x = async () => {
+		export async function x() {
 			return tg.file("hello")
 		}
 	'#

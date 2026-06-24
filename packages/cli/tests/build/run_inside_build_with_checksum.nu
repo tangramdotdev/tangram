@@ -6,16 +6,16 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			return await inner();
 		}
 
-		export const throwError = async () => {
+		export async function throwError() {
 			await inner();
 			throw new Error("broken");
 		}
 
-		export const inner = async () => {
+		export async function inner() {
 			return await tg.run(tg`
 				echo "hello stdout"
 				echo "" > ${tg.output}

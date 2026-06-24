@@ -8,11 +8,11 @@ let path = artifact {
 	foo: {
 		tangram.ts: '
 			import bar from "bar" with { source: "../bar" };
-			export default () => tg.run(bar);
+			export default function () { return tg.run(bar); }
 		'
 	}
 	bar: {
-		tangram.ts: 'export default () => "Hello from bar";'
+		tangram.ts: 'export default function () { return "Hello from bar"; }'
 	}
 }
 

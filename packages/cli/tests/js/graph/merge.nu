@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let a = await tg.graph({
 				nodes: [
 					{ kind: "directory", entries: { "f": 1 } },
@@ -20,7 +20,7 @@ let path = artifact {
 				await ((await ((await merged.get(0)) as tg.Directory).get("f")) as tg.File).text,
 				await ((await merged.get(2)) as tg.File).text,
 			];
-		};
+		}
 	'
 }
 

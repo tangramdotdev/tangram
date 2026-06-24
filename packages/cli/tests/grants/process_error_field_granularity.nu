@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
 # Alice builds a private process that fails, so its error is stored as an object.
-let path = artifact { tangram.ts: 'export default () => { throw new Error("secreterror") }' }
+let path = artifact { tangram.ts: 'export default function () { throw new Error("secreterror") }' }
 let process = tg --token $alice.token build --detach $path | str trim
 tg --token $alice.token wait $process | complete
 tg --token $alice.token index

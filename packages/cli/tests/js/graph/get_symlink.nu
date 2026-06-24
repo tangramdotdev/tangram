@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let graph = await tg.graph({
 				nodes: [
 					{ kind: "symlink", artifact: 1, path: "p" },
@@ -15,7 +15,7 @@ let path = artifact {
 			});
 			let symlink = (await graph.get(0)) as tg.Symlink;
 			return [await symlink.path, await ((await symlink.artifact) as tg.File).text];
-		};
+		}
 	'
 }
 

@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn
 
-let path = artifact { tangram.ts: 'export default () => 42;' }
+let path = artifact { tangram.ts: 'export default function () { return 42; }' }
 
 let output = do --env { cd $path; tg outdated . } | complete
 failure $output

@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn
 
-let source = 'export default (): PromiseLike<tg.Directory> => tg.directory();'
+let source = 'export default function (): PromiseLike<tg.Directory> { return tg.directory(); }'
 
 # Directory tag.
 tg tag test-dir (artifact { tangram.ts: $source })

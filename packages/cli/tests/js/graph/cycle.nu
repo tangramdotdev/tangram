@@ -6,14 +6,14 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let graph = await tg.graph({
 				nodes: [{ kind: "directory", entries: { "self": 0 } }],
 			});
 			let directory = (await graph.get(0)) as tg.Directory;
 			let self = await directory.get("self");
 			return [self instanceof tg.Directory, self.id === directory.id];
-		};
+		}
 	'
 }
 

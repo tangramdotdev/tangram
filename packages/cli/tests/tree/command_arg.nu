@@ -5,15 +5,15 @@ let server = spawn
 let root = artifact {
 	tangram.ts: r#'
 		import { run } from "./a.tg.ts";
-		export const target = () => "hello";
-		export default async () => {
+		export function target() { return "hello"; }
+		export default async function () {
 			return await tg.build(run, target);
-		};
+		}
 	'#
 	"a.tg.ts": r#'
-		export const run = async (f) => {
+		export async function run(f) {
 			return await tg.build(f);
-		};
+		}
 	'#
 }
 

@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => tg.Graph.expect(await tg.graph({ nodes: [{ kind: "file", contents: "hello" }] })) instanceof tg.Graph;'
+	tangram.ts: 'export default async function () { return tg.Graph.expect(await tg.graph({ nodes: [{ kind: "file", contents: "hello" }] })) instanceof tg.Graph; }'
 }
 
 let output = tg build $path

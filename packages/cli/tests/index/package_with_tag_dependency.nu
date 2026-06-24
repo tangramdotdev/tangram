@@ -18,7 +18,7 @@ let other = spawn --cloud --name other
 # Tag a dependency on the local server.
 let dep_path = artifact {
 	tangram.ts: '
-		export default () => "dependency";
+		export default function () { return "dependency"; }
 	'
 }
 tg --url $local.url tag dep $dep_path
@@ -27,7 +27,7 @@ tg --url $local.url tag dep $dep_path
 let path = artifact {
 	tangram.ts: '
 		import dep from "dep";
-		export default () => dep();
+		export default function () { return dep(); }
 	'
 }
 
@@ -105,7 +105,7 @@ snapshot --name complete_metadata $complete_metadata '
 	  "subtree": {
 	    "count": 6,
 	    "depth": 5,
-	    "size": 401,
+	    "size": 435,
 	    "solvable": true,
 	    "solved": true,
 	  },

@@ -10,7 +10,7 @@ with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {
 
 	let sh_path = artifact {
 		tangram.ts: '
-			export default async () => {
+			export default async function () {
 				const process = await tg.spawn`echo hello`
 					.env(tg.Mutation.unset())
 					.stdout("pipe")
@@ -18,7 +18,7 @@ with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {
 				const output = await process.stdout.readAllToString();
 				await process.wait();
 				return output;
-			};
+			}
 		',
 	}
 
@@ -27,10 +27,10 @@ with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {
 
 	let parent_path = artifact {
 		tangram.ts: '
-			export default () => tg.run({
+			export default function () { return tg.run({
 				args: ["-c", "echo hello"],
 				executable: "parent-only-sh",
-			}).sandbox();
+			}).sandbox(); }
 		',
 	}
 

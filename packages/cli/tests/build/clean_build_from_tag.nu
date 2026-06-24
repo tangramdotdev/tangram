@@ -14,7 +14,7 @@ let local2 = spawn --name local_two --config {
 # Create a package with metadata for publishing.
 let path = artifact {
 	tangram.ts: '
-		export default () => tg.file("Hello from published package!");
+		export default function () { return tg.file("Hello from published package!"); }
 
 		export let metadata = {
 			tag: "test-pkg/1.0.0",

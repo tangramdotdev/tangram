@@ -6,15 +6,15 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export const child = async () => {
+		export async function child() {
 			while (true) {
 				await tg.sleep(1);
 			}
-		};
+		}
 
-		export default async () => {
+		export default async function () {
 			await tg.build(child);
-		};
+		}
 	'
 }
 

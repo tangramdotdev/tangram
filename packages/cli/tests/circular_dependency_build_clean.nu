@@ -10,13 +10,13 @@ let path = artifact {
 	foo: {
 		tangram.ts: '
 			import "../bar";
-			export default () => "hello from foo";
+			export default function () { return "hello from foo"; }
 		'
 	}
 	bar: {
 		tangram.ts: '
 			import "../foo";
-			export default () => "hello from bar";
+			export default function () { return "hello from bar"; }
 		'
 	}
 }

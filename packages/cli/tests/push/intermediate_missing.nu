@@ -14,7 +14,7 @@ def test [...args] {
 
 	let path = artifact {
 		tangram.ts: '
-			export default () => {
+			export default function () {
 				return tg.directory({
 					"hello": tg.file("Hello, World!")
 				})

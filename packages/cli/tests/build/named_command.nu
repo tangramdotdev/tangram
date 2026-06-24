@@ -6,8 +6,8 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export let five = () => 5;
-		export let six = () => 6;
+		export function five() { return 5; }
+		export function six() { return 6; }
 	'
 }
 

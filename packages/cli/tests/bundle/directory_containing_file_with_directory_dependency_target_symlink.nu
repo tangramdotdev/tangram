@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let dependency = tg.directory({
 				"dep": tg.file("dependency"),
 				"link": tg.symlink("dep"),
@@ -25,7 +25,7 @@ let path = artifact {
 				"link": tg.symlink("file"),
 			});
 			return tg.bundle(dir);
-		};
+		}
 	'
 }
 

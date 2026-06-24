@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => tg.Value.objects({ a: await tg.file("hi"), b: 1 });'
+	tangram.ts: 'export default async function () { return tg.Value.objects({ a: await tg.file("hi"), b: 1 }); }'
 }
 
 let output = tg build $path | normalize_ids

@@ -7,7 +7,7 @@ let server = spawn
 # Build a target that returns a directory.
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			return tg.directory({
 				"greeting.txt": "Hello, World!",
 				"data": tg.directory({
@@ -15,7 +15,7 @@ let path = artifact {
 				}),
 				"link": tg.symlink("greeting.txt"),
 			});
-		};
+		}
 	'
 }
 

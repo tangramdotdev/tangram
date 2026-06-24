@@ -8,14 +8,14 @@ let remote = spawn --cloud --name remote
 # Tag a dependency.
 let dep_path = artifact {
 	tangram.ts: '
-		export default () => "dependency";
+		export default function () { return "dependency"; }
 	'
 }
 tg --url $local.url tag dep $dep_path
 let path = artifact {
 	tangram.ts: '
 		import dep from "dep";
-		export default () => dep();
+		export default function () { return dep(); }
 	'
 }
 let id = tg --url $local.url checkin $path
@@ -31,7 +31,7 @@ snapshot --name metadata $metadata '
 	  "subtree": {
 	    "count": 6,
 	    "depth": 5,
-	    "size": 401,
+	    "size": 435,
 	    "solvable": true,
 	    "solved": true,
 	  },

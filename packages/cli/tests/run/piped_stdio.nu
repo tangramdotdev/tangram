@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = spawn
 let path = artifact {
 	tangram.ts: r#'
-		export default async () => {
+		export default async function () {
 			let alphabet = "abcdefghijklmnopqrstuvwxyz";
 			for (let i = 0; i < 26; i++) {
 				let s = "";
@@ -15,7 +15,7 @@ let path = artifact {
 				console.log('stdout', s);
                 console.error('stderr', s);
 			}
-		};
+		}
 	'#
 }
 let output = tg run $path | complete

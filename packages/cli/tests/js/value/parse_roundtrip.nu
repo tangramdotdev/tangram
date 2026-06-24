@@ -6,10 +6,10 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			let value = { a: 1, b: [true, "x"] };
 			return tg.Value.parse(tg.Value.stringify(value));
-		};
+		}
 	'
 }
 

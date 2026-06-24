@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => foo();
+		export default function () { return foo(); }
 	'
 }
 

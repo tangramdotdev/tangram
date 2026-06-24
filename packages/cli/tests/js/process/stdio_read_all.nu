@@ -6,12 +6,12 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let process = await tg.spawn`printf hi`.stdout("pipe").sandbox();
 			let bytes = await process.stdout.readAll();
 			await process.wait();
 			return [bytes.length, tg.encoding.utf8.decode(bytes)];
-		};
+		}
 	'
 }
 

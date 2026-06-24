@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => import.meta.module;'
+	tangram.ts: 'export default function () { return import.meta.module; }'
 }
 
 let output = tg build $path | normalize_ids

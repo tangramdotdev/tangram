@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => [tg.Value.isMap({ a: 1 }), tg.Value.isMap([1]), tg.Value.isMap(tg.encoding.utf8.encode("x"))];'
+	tangram.ts: 'export default function () { return [tg.Value.isMap({ a: 1 }), tg.Value.isMap([1]), tg.Value.isMap(tg.encoding.utf8.encode("x"))]; }'
 }
 
 let output = tg build $path

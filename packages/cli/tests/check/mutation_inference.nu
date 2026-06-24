@@ -6,14 +6,14 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			const template = tg`hello`;
 			const mutation = await tg.Mutation.setIfUnset(template);
 			const env: { FOO?: tg.MaybeMutation<tg.Template.Arg> } = {
 				FOO: mutation,
 			};
 			return env;
-		};
+		}
 	'
 }
 

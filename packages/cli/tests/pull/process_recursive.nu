@@ -8,11 +8,11 @@ tg remote put default $remote.url
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			await tg.build(x);
 			return tg.file("root output");
-		};
-		export let x = async () => tg.file("child output");
+		}
+		export async function x() { return tg.file("child output"); }
 	',
 }
 let process = tg --url $remote.url build --detach $path | str trim

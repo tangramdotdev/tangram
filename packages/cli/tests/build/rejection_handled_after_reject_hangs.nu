@@ -6,11 +6,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let promise = new Promise(() => reject(new Error("kaboom")));
 			promise.catch(() => {});
 			await new Promise(() => {});
-		};
+		}
 	'
 }
 
@@ -30,14 +30,14 @@ snapshot ($output.stderr | redact $path | normalize_ids) '
 	 4 │     await new Promise(() => {});
 	   ╰────
 	   ╭─[./tangram.ts:2:16]
-	 1 │ export default async () => {
+	 1 │ export default async function () {
 	 2 │     let promise = new Promise(() => reject(new Error("kaboom")));
 	   ·                   ▲
 	   ·                   ╰── reject is not defined
 	 3 │     promise.catch(() => {});
 	   ╰────
 	   ╭─[./tangram.ts:2:34]
-	 1 │ export default async () => {
+	 1 │ export default async function () {
 	 2 │     let promise = new Promise(() => reject(new Error("kaboom")));
 	   ·                                     ▲
 	   ·                                     ╰── reject is not defined

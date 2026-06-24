@@ -11,11 +11,11 @@ let local = spawn --name local --config {
 let path = artifact {
 	"main.tg.ts": '
 		import dep from "dep" with { source: "./dep.tg.ts" };
-		export default () => dep();
+		export default function () { return dep(); }
 		export const metadata = { tag: "main/1.0.0" };
 	'
 	"dep.tg.ts": '
-		export default () => tg.file("hello");
+		export default function () { return tg.file("hello"); }
 		export const metadata = { tag: "dep/1.0.0" };
 	'
 }

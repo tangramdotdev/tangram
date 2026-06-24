@@ -11,7 +11,7 @@ let local = spawn --name local --config {
 let shared_path = artifact {
 	dep: {
 		tangram.ts: '
-			export default () => "I am a source dependency!";
+			export default function () { return "I am a source dependency!"; }
 
 			export let metadata = {
 				tag: "test-dep/1.0.0",
@@ -22,7 +22,7 @@ let shared_path = artifact {
 		tangram.ts: '
 			import dep from "test-dep" with { source: "../dep" };
 
-			export default () => `Main package using: ${dep()}`;
+			export default function () { return `Main package using: ${dep()}`; }
 
 			export let metadata = {
 				tag: "test-main/1.0.0",
@@ -101,4 +101,4 @@ assert equal $local_main_metadata $remote_main_metadata "Main metadata not synce
 let main_object = tg get $published_main_id --blobs --depth=inf
 
 # The referent should use a tag, not a path.
-snapshot ($main_object | normalize_ids) 'tg.directory({"tangram.ts":tg.file({"contents":tg.blob("import dep from \"test-dep\" with { source: \"../dep\" };\n\nexport default () => `Main package using: ${dep()}`;\n\nexport let metadata = {\n\ttag: \"test-main/1.0.0\",\n};"),"dependencies":{"test-dep?source=../dep":{"item":tg.directory({"tangram.ts":tg.file({"contents":tg.blob("export default () => \"I am a source dependency!\";\n\nexport let metadata = {\n\ttag: \"test-dep/1.0.0\",\n};"),"module":"ts"})}),"options":{"id":"dir_010000000000000000000000000000000000000000000000000000","tag":"test-dep/1.0.0"}}},"module":"ts"})})'
+snapshot ($main_object | normalize_ids) 'tg.directory({"tangram.ts":tg.file({"contents":tg.blob("import dep from \"test-dep\" with { source: \"../dep\" };\n\nexport default function () { return `Main package using: ${dep()}`; }\n\nexport let metadata = {\n\ttag: \"test-main/1.0.0\",\n};"),"dependencies":{"test-dep?source=../dep":{"item":tg.directory({"tangram.ts":tg.file({"contents":tg.blob("export default function () { return \"I am a source dependency!\"; }\n\nexport let metadata = {\n\ttag: \"test-dep/1.0.0\",\n};"),"module":"ts"})}),"options":{"id":"dir_010000000000000000000000000000000000000000000000000000","tag":"test-dep/1.0.0"}}},"module":"ts"})})'

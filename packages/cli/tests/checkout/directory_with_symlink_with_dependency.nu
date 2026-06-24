@@ -8,7 +8,7 @@ let server = spawn
 
 let artifact = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			return tg.directory({
 				"foo": tg.symlink({artifact: tg.file("bar")})
 			})

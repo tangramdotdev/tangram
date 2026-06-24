@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => { throw tg.error("whoops"); };
+		export default function () { throw tg.error("whoops"); }
 	'
 }
 
@@ -20,10 +20,10 @@ snapshot $first_output '
 	-> the process failed
 	   id = <process>
 	-> whoops
-	   ╭─[./tangram.ts:1:33]
-	 1 │ export default () => { throw tg.error("whoops"); };
-	   ·                                 ▲
-	   ·                                 ╰── whoops
+	   ╭─[./tangram.ts:1:39]
+	 1 │ export default function () { throw tg.error("whoops"); }
+	   ·                                       ▲
+	   ·                                       ╰── whoops
 	   ╰────
 
 '

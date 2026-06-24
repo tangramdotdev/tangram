@@ -6,7 +6,7 @@ let server = spawn
 
 # Build a process so we can reference its command, which is a non-artifact object.
 let path = artifact {
-	tangram.ts: 'export default () => "hello";'
+	tangram.ts: 'export default function () { return "hello"; }'
 }
 let process = tg build --detach $path | str trim
 tg wait $process

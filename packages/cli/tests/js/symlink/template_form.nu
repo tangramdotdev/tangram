@@ -6,14 +6,14 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let directory = await tg.directory({ "sub": "deep" });
 			let symlink = await tg.symlink(await tg.template(directory, "/sub"));
 			return [
 				await symlink.path,
 				(await symlink.artifact) instanceof tg.Directory,
 			];
-		};
+		}
 	'
 }
 

@@ -15,7 +15,7 @@ success $output
 # Create some test content.
 let path = artifact {
 	tangram.ts: r#'
-		export default () => {
+		export default function () {
 			return tg.directory({
 				"hello.txt": tg.file("Hello, world!"),
 				"subdirectory": tg.directory({

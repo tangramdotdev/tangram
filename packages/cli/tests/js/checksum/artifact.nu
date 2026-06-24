@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => tg.checksum(await tg.file("hello"), "sha256");'
+	tangram.ts: 'export default async function () { return tg.checksum(await tg.file("hello"), "sha256"); }'
 }
 
 let output = tg build $path

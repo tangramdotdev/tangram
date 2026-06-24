@@ -8,7 +8,7 @@ let alice = tg --url $remote.url login --verbose alice | from json
 let eve = tg --url $remote.url login --verbose eve | from json
 
 # Alice builds a process on the remote whose stdout holds a secret. With the finalizer disabled the log is never compacted, so it stays live (data.log is null).
-let path = artifact { tangram.ts: 'export default () => { console.log("alicesecret"); }' }
+let path = artifact { tangram.ts: 'export default function () { console.log("alicesecret"); }' }
 let process = tg --url $remote.url --token $alice.token build --detach $path | str trim
 wait_until { (tg --url $remote.url --token $alice.token process status $process | from json | get 0) == "finished" } --timeout 30sec
 

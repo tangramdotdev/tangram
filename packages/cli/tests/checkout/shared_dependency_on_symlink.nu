@@ -8,7 +8,7 @@ let server = spawn
 
 let artifact = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let dependency = await tg.directory({
 				"file.txt": "contents",
 				"link": tg.symlink("file.txt"),

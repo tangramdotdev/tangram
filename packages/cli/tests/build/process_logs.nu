@@ -7,12 +7,12 @@ let local = spawn --name local
 
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			console.log("stdout line 1");
 			console.error("stderr line 1");
 			console.log("stdout line 2");
 			console.error("stderr line 2");
-		};
+		}
 	'
 }
 

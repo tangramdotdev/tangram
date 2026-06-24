@@ -43,10 +43,10 @@ assert (($output.stdout | str trim) == "hello joined")
 
 let builder = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			const script = tg.file("#!/bin/sh\necho \"built $1\"", { executable: true });
 			return tg.directory({ hello: script });
-		};
+		}
 	'
 }
 

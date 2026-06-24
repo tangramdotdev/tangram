@@ -7,7 +7,7 @@ let server = spawn
 let path = artifact {
 	tangram.ts: r#'
 		import file from "./hello.txt";
-		export default () => tg`
+		export default function () { return tg`
 			other_command
 
 			other_command
@@ -15,7 +15,7 @@ let path = artifact {
 			other_command
 
 			echo 'exec ${file} "$@"' >> script.sh
-		`;
+		`; }
 	'#,
 	hello.txt: 'Hello, World!',
 }

@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let object = {};
 			object.self = object;
 			try {
@@ -15,7 +15,7 @@ let path = artifact {
 			} catch (error) {
 				return error.message;
 			}
-		};
+		}
 	'
 }
 

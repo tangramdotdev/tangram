@@ -6,11 +6,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let graph = await tg.graph({ nodes: [{ kind: "file", contents: "hello" }] });
 			let file = await graph.get(0);
 			return await (file as tg.File).text;
-		};
+		}
 	'
 }
 

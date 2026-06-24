@@ -12,19 +12,19 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			return await Promise.all([
 				tg.build(parent, 1).named("a"),
 				tg.build(parent, 2).named("b"),
 			]);
-		};
-		export const parent = async (n: number) => {
+		}
+		export async function parent(n: number) {
 			return await tg.build(shared).named("shared");
-		};
-		export const shared = async () => {
+		}
+		export async function shared() {
 			await tg.sleep(0.1);
 			return 42;
-		};
+		}
 	'
 }
 

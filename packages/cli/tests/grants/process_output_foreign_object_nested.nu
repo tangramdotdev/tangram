@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
 # Alice builds a private file.
-let alice_path = artifact { tangram.ts: 'export default () => tg.file("topsecret")' }
+let alice_path = artifact { tangram.ts: 'export default function () { return tg.file("topsecret"); }' }
 let alice_process = tg --token $alice.token build --detach $alice_path | str trim
 let file = (tg --token $alice.token wait $alice_process | from json).output.value.id
 
@@ -17,7 +17,7 @@ let denied = tg --token $eve.token get $file | complete
 failure $denied "Eve should not read Alice's private file before the exploit."
 
 # Eve builds a process whose output is a directory that nests Alice's private file, referenced by id.
-let source = 'export default () => tg.directory({ "leak": tg.File.withId("FILE_ID") })' | str replace "FILE_ID" $file
+let source = 'export default function () { return tg.directory({ "leak": tg.File.withId("FILE_ID") }); }' | str replace "FILE_ID" $file
 let eve_path = artifact { tangram.ts: $source }
 let eve_process = tg --token $eve.token build --detach $eve_path | str trim
 tg --token $eve.token wait $eve_process

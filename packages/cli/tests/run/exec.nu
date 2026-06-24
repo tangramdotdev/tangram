@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			console.log("cli-exec");
 		}
 	',
@@ -22,7 +22,7 @@ snapshot (($output.stdout | str trim) | redact $path) 'cli-exec'
 
 let js_path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			await tg.exec("echo js-client-exec");
 			console.log("unreachable");
 		}
@@ -35,7 +35,7 @@ snapshot (($output.stdout | str trim) | redact $path) 'js-client-exec'
 
 let js_output_path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			await tg.exec(inner);
 			console.log("unreachable");
 		}

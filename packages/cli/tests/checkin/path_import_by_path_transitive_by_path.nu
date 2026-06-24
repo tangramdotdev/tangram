@@ -8,7 +8,7 @@ let server = spawn
 let path = artifact {
 	sibling: {
 		lib: {
-			utils.tg.ts: 'export const helper = () => "helper";'
+			utils.tg.ts: 'export function helper() { return "helper"; }'
 		}
 		tangram.ts: "import * as utils from ./lib/utils.tg.ts;"
 	}
@@ -40,7 +40,7 @@ snapshot $object '
 	            "dependencies": {
 	              "../sibling?get=lib/utils.tg.ts": {
 	                "item": tg.file({
-	                  "contents": tg.blob("export const helper = () => \"helper\";"),
+	                  "contents": tg.blob("export function helper() { return \"helper\"; }"),
 	                  "module": "ts",
 	                }),
 	                "options": {

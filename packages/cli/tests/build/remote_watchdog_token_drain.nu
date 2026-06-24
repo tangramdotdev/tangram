@@ -19,10 +19,10 @@ tg remote put default $remote.url
 # Shared build that takes time.
 let shared = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			await tg.sleep(3);
 			return tg.directory({ "result.txt": tg.file("shared result") });
-		};
+		}
 	'
 }
 
@@ -36,10 +36,10 @@ tg push --eager --outputs --recursive $shared_process
 let wrapper = mktemp --directory
 let wrapper_ts = [
 	$'import shared from "shared" with { source: "($shared)" };'
-	'export default async (name) => {'
+	'export default async function (name) {'
 	'	const dir = await tg.build(shared).then(tg.Directory.expect);'
 	'	return tg.directory({ [name]: dir });'
-	'};'
+	'}'
 ] | str join "\n"
 $wrapper_ts | save ($wrapper | path join "tangram.ts")
 
@@ -52,10 +52,10 @@ let outer = mktemp --directory
 let outer_ts = [
 	$'import wrap from "wrap" with { source: "($wrapper)" };'
 	''
-	'export default async () => {'
+	'export default async function () {'
 	('	const results = await Promise.all([' + $builds + ']);')
 	'	return tg.directory(Object.fromEntries(results.map((d, i) => [`r${i}`, d])));'
-	'};'
+	'}'
 ] | str join "\n"
 $outer_ts | save ($outer | path join "tangram.ts")
 

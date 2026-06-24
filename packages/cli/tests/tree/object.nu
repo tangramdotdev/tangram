@@ -5,15 +5,15 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => 42;'
+	tangram.ts: 'export default function () { return 42; }'
 }
 
 # Run tree command.
 tg tag root $path
 let output = tg tree root
 snapshot $output '
-	root: dir_01e80b1h9nb2eqddz8h6vbxj43wd8y1syjcbh02vkyt9vx7ez8dfjg
+	root: dir_01t88ctpttxnfrmwfs3avyx4ps6bqjz8qbf2ax9zjnvwka27c52z30
 	└╴entries: map
-	  └╴tangram.ts: fil_01sa3pyv7baf50x2ymmvy7p41zqnmmv8gp1fq5z3mq60ps8vcfxa30
-	    └╴contents: blb_01mdez7rn5622ncqxr3the1thtqwp9tv919f5xyaj021mbp0egfa40
+	  └╴tangram.ts: fil_01bmpbckej87pxfjz87zeaht4sjyx2jw4jh3yvdqnr57bzygvt791g
+	    └╴contents: blb_01kmkgpm0e193fjq5zxr1359x94gejpmx8d3q3ytge2v6tf49g1tw0
 '

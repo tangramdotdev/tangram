@@ -15,10 +15,10 @@ let archive = if $nu.os-info.name == "macos" {
 let url = $"https://github.com/tangramdotdev/bootstrap/releases/download/v2026.01.26/($archive)"
 
 let module = '
-	export default async () => {
+	export default async function () {
 		let result = await tg.download("URL_PLACEHOLDER", undefined, { mode: "decompress" });
 		return (result instanceof tg.File) && tg.Artifact.is(result);
-	};
+	}
 ' | str replace "URL_PLACEHOLDER" $url
 
 let path = artifact {

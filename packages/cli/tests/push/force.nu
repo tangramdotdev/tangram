@@ -15,7 +15,7 @@ success $output
 # Create a simple artifact.
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			return tg.file("Hello, World!")
 		}
 	'

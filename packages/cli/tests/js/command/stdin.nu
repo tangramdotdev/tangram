@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let command = await tg.command({
 				host: "builtin",
 				executable: "cat",
@@ -14,7 +14,7 @@ let path = artifact {
 			});
 			let stdin = await command.stdin;
 			return await stdin.text;
-		};
+		}
 	'
 }
 

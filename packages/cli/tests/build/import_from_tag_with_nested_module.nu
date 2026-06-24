@@ -9,15 +9,15 @@ let a_path = artifact {
 	tangram.ts: '
 		export { foo } from "./foo/foo.tg.ts";
 		export { bar } from "./bar.tg.ts";
-		export const baz = () => "baz";
+		export function baz() { return "baz"; }
 	'
 	bar.tg.ts: '
 		import * as b from "./tangram.ts";
-		export const bar = () => b.foo();
+		export function bar() { return b.foo(); }
 	'
 	foo: {
 		foo.tg.ts: '
-			export const foo = () => "foo";
+			export function foo() { return "foo"; }
 		'
 	}
 }
@@ -27,9 +27,9 @@ tg tag a $a_path
 let b_path = artifact {
 	tangram.ts: '
 		import * as a from "a";
-		export default async () => {
+		export default async function () {
 			return a.bar();
-		};
+		}
 	'
 }
 
@@ -38,9 +38,9 @@ tg build $b_path
 # Mutate b to call a.baz() instead.
 let new_tangram = '
 	import * as a from "a";
-	export default async () => {
+	export default async function () {
 		return a.baz();
-	};
+	}
 '
 $new_tangram | save --force ($b_path | path join 'tangram.ts')
 

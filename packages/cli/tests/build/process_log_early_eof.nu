@@ -6,11 +6,11 @@ let remote = spawn --name remote
 
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			for (let i = 0; i < 9900; i++) {
 				console.log(`Line ${i.toString().padStart(4, "0")}: ${"x".repeat(200)}`);
 			}
-		};
+		}
 	'
 }
 

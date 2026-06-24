@@ -7,17 +7,17 @@ let path = artifact {
 	tangram.ts: '
 		type Arg = { host?: string };
 
-		const build = async (...args: tg.Args<Arg>): Promise<tg.Directory> => {
+		async function build(...args: tg.Args<Arg>): Promise<tg.Directory> {
 			return tg.directory();
-		};
+		}
 
 		type EnvArg = tg.Command<Array<Arg>, tg.Directory> | tg.Directory;
 
-		const env = async (...args: tg.Args<EnvArg>) => tg.directory();
+		async function env(...args: tg.Args<EnvArg>) { return tg.directory(); }
 
-		export default async () => {
+		export default async function () {
 			return env(build);
-		};
+		}
 	'
 }
 

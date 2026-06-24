@@ -9,7 +9,7 @@ let local = spawn --name local --config {
 
 # Create a single-file package.
 let single_file_content = '
-	export default () => "I am a single-file package!";
+	export default function () { return "I am a single-file package!"; }
 
 	export let metadata = {
 		tag: "test-single-file/1.0.0",
@@ -29,18 +29,18 @@ let multi_file_path = artifact {
 		import { helper } from "./helper.tg.ts";
 		import { util } from "./subdir/util.tg.ts";
 
-		export default () => `Multi-file using: ${helper()} and ${util()}`;
+		export default function () { return `Multi-file using: ${helper()} and ${util()}`; }
 
 		export let metadata = {
 			tag: "test-multi-file/1.0.0",
 		};
 	',
 	"helper.tg.ts": '
-		export let helper = () => "helper function";
+		export function helper() { return "helper function"; }
 	',
 	subdir: {
 		"util.tg.ts": '
-			export let util = () => "util function";
+			export function util() { return "util function"; }
 		'
 	}
 }
@@ -54,7 +54,7 @@ let main_path = artifact {
 		import singleFile from "test-single-file";
 		import multiFile from "test-multi-file";
 
-		export default () => `Main using: ${singleFile()} and ${multiFile()}`;
+		export default function () { return `Main using: ${singleFile()} and ${multiFile()}`; }
 
 		export let metadata = {
 			tag: "test-main/1.0.0",

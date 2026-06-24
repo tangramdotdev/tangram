@@ -6,11 +6,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => tg.run({
+		export default function () { return tg.run({
 			args: ["-c", "echo hello"],
 			env: tg.Mutation.unset(),
 			executable: "sh",
-		});
+		}); }
 	',
 }
 

@@ -8,10 +8,10 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let blob = await tg.download("http://www.example.com", undefined, { mode: "raw" });
 			return (blob instanceof tg.Blob) && (await blob.length) > 0;
-		};
+		}
 	'
 }
 

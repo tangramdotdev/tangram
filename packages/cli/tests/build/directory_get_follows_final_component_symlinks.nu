@@ -7,11 +7,11 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		import directory from "./directory" with { type: "directory" };
-		export default async () => {
+		export default async function () {
 			let file = await directory.get("link");
 			tg.File.assert(file);
 			return file.text;
-		};
+		}
 	'
 	directory: (directory {
 		hello.txt: 'foo'

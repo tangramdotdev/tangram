@@ -7,7 +7,7 @@ let server = spawn
 # Create the transitive dependency (version 1).
 let transitive_1_0_0 = artifact {
 	tangram.ts: '
-		export default () => "transitive v1";
+		export default function () { return "transitive v1"; }
 	'
 }
 tg tag transitive/1.0.0 $transitive_1_0_0
@@ -16,7 +16,7 @@ tg index
 let dep_1_0_0 = artifact {
 	tangram.ts: '
 		import transitive from "transitive/^1.0";
-		export default () => transitive();
+		export default function () { return transitive(); }
 	'
 }
 tg tag dep/1.0.0 $dep_1_0_0
@@ -24,7 +24,7 @@ tg index
 # Create a dependency that will be removed in the next version.
 let removed = artifact {
 	tangram.ts: '
-		export default () => "removed";
+		export default function () { return "removed"; }
 	'
 }
 tg tag removed/1.0.0 $removed
@@ -34,7 +34,7 @@ let old_root = artifact {
 	tangram.ts: '
 		import dep from "dep/^1.0";
 		import removed from "removed/^1";
-		export default () => dep();
+		export default function () { return dep(); }
 	'
 }
 
@@ -44,7 +44,7 @@ tg checkin $old_root
 # Create updated versions.
 let transitive_1_1_0 = artifact {
 	tangram.ts: '
-		export default () => "transitive v2";
+		export default function () { return "transitive v2"; }
 	'
 }
 tg tag transitive/1.1.0 $transitive_1_1_0
@@ -53,7 +53,7 @@ tg index
 # Create a new dependency that will be added.
 let added_path = artifact {
 	tangram.ts: '
-		export default () => "added";
+		export default function () { return "added"; }
 	'
 }
 tg tag added/1.0.0 $added_path
@@ -63,7 +63,7 @@ let dep_1_1_0 = artifact {
 	tangram.ts: '
 		import transitive from "transitive/^1.0";
 		import added from "added/^1";
-		export default () => transitive();
+		export default function () { return transitive(); }
 	'
 }
 tg tag dep/1.1.0 $dep_1_1_0
@@ -74,7 +74,7 @@ let new_root = artifact {
 	tangram.ts: '
 		import dep from "dep/^1.0";
 		import added from "added/^1";
-		export default () => dep();
+		export default function () { return dep(); }
 	'
 }
 

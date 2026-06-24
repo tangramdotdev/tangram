@@ -6,10 +6,10 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let error = tg.error("boom", { code: "E1", values: { a: "b" } });
 			return { message: await error.message, code: await error.code, values: await error.values };
-		};
+		}
 	'
 }
 

@@ -7,7 +7,7 @@ let server = spawn --config { authentication: true }
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
-let path = artifact { tangram.ts: 'export default () => tg.file("cachedsecret")' }
+let path = artifact { tangram.ts: 'export default function () { return tg.file("cachedsecret"); }' }
 
 # Alice builds the cacheable process for the first time, so it is not a cache hit. The cached field is omitted from the output when false, so default it.
 let alice_build = tg --token $alice.token build --detach --verbose $path | from json

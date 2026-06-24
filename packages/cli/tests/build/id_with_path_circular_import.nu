@@ -7,12 +7,12 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		import * as file from "./file.tg.ts";
-		export default () => file.a();
+		export default function () { return file.a(); }
 	',
 	file.tg.ts: '
 		import root from "./tangram.ts";
-		export default () => root();
-		export let a = () => 42;	
+		export default function () { return root(); }
+		export function a() { return 42; }	
 	',
 }
 let id = tg checkin $path

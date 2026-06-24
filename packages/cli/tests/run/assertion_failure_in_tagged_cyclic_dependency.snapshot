@@ -2,28 +2,28 @@ error an error occurred
 -> the process failed
    id = <process>
 -> failure in foo
-   ╭─[./tangram.ts:2:22]
+   ╭─[./tangram.ts:2:37]
  1 │ import foo from "foo";
- 2 │ export default () => foo();
-   ·                      ▲
-   ·                      ╰── failure in foo
+ 2 │ export default function () { return foo(); }
+   ·                                     ▲
+   ·                                     ╰── failure in foo
    ╰────
-   ╭─[foo:tangram.ts:2:22]
+   ╭─[foo:tangram.ts:2:37]
  1 │ import bar from "../bar";
- 2 │ export default () => bar();
-   ·                      ▲
-   ·                      ╰── failure in foo
- 3 │ export const failure = () => tg.assert(false, "failure in foo");
+ 2 │ export default function () { return bar(); }
+   ·                                     ▲
+   ·                                     ╰── failure in foo
+ 3 │ export function failure() { return tg.assert(false, "failure in foo"); }
    ╰────
-   ╭─[foo:../bar/tangram.ts:2:22]
+   ╭─[foo:../bar/tangram.ts:2:37]
  1 │ import { failure } from "../foo";
- 2 │ export default () => failure();
-   ·                      ▲
-   ·                      ╰── failure in foo
+ 2 │ export default function () { return failure(); }
+   ·                                     ▲
+   ·                                     ╰── failure in foo
    ╰────
-   ╭─[foo:../foo/tangram.ts:3:33]
- 2 │ export default () => bar();
- 3 │ export const failure = () => tg.assert(false, "failure in foo");
-   ·                                 ▲
-   ·                                 ╰── failure in foo
+   ╭─[foo:../foo/tangram.ts:3:39]
+ 2 │ export default function () { return bar(); }
+ 3 │ export function failure() { return tg.assert(false, "failure in foo"); }
+   ·                                       ▲
+   ·                                       ╰── failure in foo
    ╰────

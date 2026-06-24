@@ -7,7 +7,7 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		/** Greets the caller. */
-		export let greet = () => "hi";
+		export function greet() { return "hi"; }
 	'
 }
 

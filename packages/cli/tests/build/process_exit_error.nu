@@ -7,7 +7,7 @@ let server = spawn --busybox
 let path = artifact {
 	tangram.ts: '
 		import busybox from "busybox";
-		export default () => tg.build`exit 1`.env(tg.build(busybox));
+		export default function () { return tg.build`exit 1`.env(tg.build(busybox)); }
 	'
 }
 

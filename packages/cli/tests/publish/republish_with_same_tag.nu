@@ -10,7 +10,7 @@ let local = spawn --name local --config {
 # Create and publish the first package.
 let path1 = artifact {
 	tangram.ts: '
-		export default () => "Hello, World!";
+		export default function () { return "Hello, World!"; }
 
 		export let metadata = {
 			tag: "test-pkg/1.0.0",
@@ -31,7 +31,7 @@ assert equal $remote_tag1 $id1 "Remote tag should point to first package."
 # Create and publish a second package with the same metadata tag but different content.
 let path2 = artifact {
 	tangram.ts: '
-		export default () => "Goodbye, World!";
+		export default function () { return "Goodbye, World!"; }
 
 		export let metadata = {
 			tag: "test-pkg/1.0.0",

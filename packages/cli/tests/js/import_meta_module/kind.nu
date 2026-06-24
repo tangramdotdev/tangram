@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => import.meta.module.kind;'
+	tangram.ts: 'export default function () { return import.meta.module.kind; }'
 }
 
 let output = tg build $path

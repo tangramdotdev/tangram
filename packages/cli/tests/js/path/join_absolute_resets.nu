@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => tg.path.join("a", "/b");'
+	tangram.ts: 'export default function () { return tg.path.join("a", "/b"); }'
 }
 
 let output = tg build $path

@@ -6,12 +6,12 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let directory = await tg.directory({ "a.txt": "alpha", "b.txt": "beta" });
 			let archived = await tg.archive(directory, "tar", "gz");
 			let extracted = (await tg.extract(archived)) as tg.Directory;
 			return await ((await extracted.get("b.txt")) as tg.File).text;
-		};
+		}
 	'
 }
 

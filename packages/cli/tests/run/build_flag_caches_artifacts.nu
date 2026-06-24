@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			const script = tg.file(
 				"#!/bin/sh\necho \"Hello from cached artifact\"",
 				{ executable: true },
@@ -15,7 +15,7 @@ let path = artifact {
 				bin: tg.directory({ run: script }),
 			});
 			return tg.command`${dir}/bin/run`;
-		};
+		}
 	'
 }
 

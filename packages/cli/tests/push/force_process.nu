@@ -15,7 +15,7 @@ success $output
 # Create a simple process.
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			return 5
 		}
 	'

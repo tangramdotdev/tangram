@@ -6,9 +6,9 @@ use ./process.nu test
 # Create a module that throws an error.
 let path = artifact {
 	tangram.ts: r#'
-		export default () => {
+		export default function () {
 			throw tg.error("whoops");
-		};
+		}
 	'#
 }
 

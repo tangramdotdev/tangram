@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => [tg.Checksum.is("sha256:2cf24dba"), tg.Checksum.is("notachecksum"), tg.Checksum.is("md5:abc"), tg.Checksum.is(42)];'
+	tangram.ts: 'export default function () { return [tg.Checksum.is("sha256:2cf24dba"), tg.Checksum.is("notachecksum"), tg.Checksum.is("md5:abc"), tg.Checksum.is(42)]; }'
 }
 
 let output = tg build $path

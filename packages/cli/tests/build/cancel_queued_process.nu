@@ -7,11 +7,11 @@ let server = spawn --config { runner: { concurrency: 1 } }
 # Occupy the single runner slot.
 let blocker_path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			while (true) {
 				await tg.sleep(1);
 			}
-		};
+		}
 	'
 }
 let blocker = tg build --detach --verbose $blocker_path | from json
@@ -20,11 +20,11 @@ wait_until { (tg status --timeout 0 $blocker.process | from json) == ["started"]
 # Spawn a second process that queues behind the blocker.
 let queued_path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			while (true) {
 				await tg.sleep(0.9);
 			}
-		};
+		}
 	'
 }
 let queued = tg build --detach --verbose $queued_path | from json

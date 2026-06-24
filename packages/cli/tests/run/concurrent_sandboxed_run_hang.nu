@@ -9,11 +9,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let a = tg.run`echo a > ${tg.output}`.sandbox();
 			let b = tg.run`echo b > ${tg.output}`.sandbox();
 			return await Promise.all([a, b]);
-		};
+		}
 	',
 }
 

@@ -13,7 +13,7 @@ let source = spawn --name source
 
 # Create and build a simple artifact on the source server.
 let path = artifact {
-	tangram.ts: 'export default () => tg.file("test content");'
+	tangram.ts: 'export default function () { return tg.file("test content"); }'
 }
 let id = tg --url $source.url build $path
 

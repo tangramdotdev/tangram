@@ -6,10 +6,10 @@ let remote = spawn --name remote
 
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			console.log("Line 000 content here");
 			console.log("Line 001 content here");
-		};
+		}
 	'
 }
 

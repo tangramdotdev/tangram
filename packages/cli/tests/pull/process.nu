@@ -7,7 +7,7 @@ let local = spawn --name local
 tg remote put default $remote.url
 
 let path = artifact {
-	tangram.ts: 'export default async () => tg.file("from remote build");',
+	tangram.ts: 'export default async function () { return tg.file("from remote build"); }',
 }
 let process = tg --url $remote.url build --detach $path | str trim
 tg --url $remote.url wait $process

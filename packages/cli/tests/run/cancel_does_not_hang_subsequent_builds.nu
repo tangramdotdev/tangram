@@ -15,10 +15,10 @@ let server = spawn --config {
 
 let long = artifact {
 	tangram.ts: '
-		export default async (tag: string) => {
+		export default async function (tag: string) {
 			await tg.run`sleep 60; echo ${tag}`.sandbox();
 			return "done";
-		};
+		}
 	',
 }
 
@@ -29,7 +29,7 @@ for i in 0..20 {
 
 let short = artifact {
 	tangram.ts: '
-		export default () => "hello";
+		export default function () { return "hello"; }
 	',
 }
 

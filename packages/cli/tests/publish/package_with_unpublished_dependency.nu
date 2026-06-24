@@ -10,7 +10,7 @@ let local = spawn --name local --config {
 # Create a dependency package but do not publish it yet.
 let dep_path = artifact {
 	tangram.ts: '
-		export default () => "I am a dependency!";
+		export default function () { return "I am a dependency!"; }
 
 		export let metadata = {
 			tag: "test-dep/1.0.0",
@@ -28,7 +28,7 @@ let main_path = artifact {
 	tangram.ts: '
 		import dep from "test-dep";
 
-		export default () => `Main package using: ${dep()}`;
+		export default function () { return `Main package using: ${dep()}`; }
 
 		export let metadata = {
 			tag: "test-main/1.0.0",

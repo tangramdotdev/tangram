@@ -6,7 +6,7 @@ let server = spawn --config { write: { cache_pointers: false } }
 
 let path = artifact {
 	tangram.ts: r#'
-		export default () => {
+		export default function () {
 			return tg.directory({
 				graph: tg.graph({
 					nodes: [

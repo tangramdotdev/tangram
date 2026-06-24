@@ -33,8 +33,8 @@ let local = spawn --name local --config $config
 
 let path = artifact {
 	tangram.ts: '
-		export default () => tg.build(child);
-		export const child = () => 42;
+		export default function () { return tg.build(child); }
+		export function child() { return 42; }
 	'
 };
 

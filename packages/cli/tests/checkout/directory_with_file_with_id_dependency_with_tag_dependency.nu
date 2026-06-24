@@ -8,7 +8,7 @@ let server = spawn
 
 let artifact = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let dependency = await tg.file("bar", { dependencies: { baz: tg.file("baz") } });
 			return tg.directory({
 				"foo": tg.file({

@@ -10,7 +10,7 @@ let local = spawn --name local --config {
 # Create the bottom package (D) - no dependencies.
 let bottom_path = artifact {
 	tangram.ts: '
-		export default () => "I am the bottom of the diamond!";
+		export default function () { return "I am the bottom of the diamond!"; }
 
 		export let metadata = {
 			tag: "test-bottom/1.0.0",
@@ -28,7 +28,7 @@ let left_path = artifact {
 	tangram.ts: '
 		import bottom from "test-bottom";
 
-		export default () => `Left using: ${bottom()}`;
+		export default function () { return `Left using: ${bottom()}`; }
 
 		export let metadata = {
 			tag: "test-left/1.0.0",
@@ -46,7 +46,7 @@ let right_path = artifact {
 	tangram.ts: '
 		import bottom from "test-bottom";
 
-		export default () => `Right using: ${bottom()}`;
+		export default function () { return `Right using: ${bottom()}`; }
 
 		export let metadata = {
 			tag: "test-right/1.0.0",
@@ -66,7 +66,7 @@ let main_path = artifact {
 		import right from "test-right";
 		import bottom from "test-bottom";
 
-		export default () => `Main using: ${left()}, ${right()}, and ${bottom()}`;
+		export default function () { return `Main using: ${left()}, ${right()}, and ${bottom()}`; }
 
 		export let metadata = {
 			tag: "test-main/1.0.0",

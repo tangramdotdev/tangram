@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: '
 		import foo from "./foo.txt";
 		import bar from "./bar.txt";
-		export default () => tg`${foo} ${bar}`;
+		export default function () { return tg`${foo} ${bar}`; }
 	'
 	foo.txt: 'foo'
 	bar.txt: 'bar'

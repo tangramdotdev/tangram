@@ -6,7 +6,7 @@ let local = spawn --name local
 
 let path = artifact {
 	tangram.ts: r#'
-		export default () => {};
+		export default function () {}
 	'#
 }
 let id = tg build --detach $path | str trim

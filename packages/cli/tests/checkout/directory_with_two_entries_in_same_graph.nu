@@ -8,7 +8,7 @@ let server = spawn
 
 let artifact = artifact {
 	tangram.ts: r#'
-		export default () => {
+		export default function () {
 			let baz = tg.file("hello, world!");
 			let graph = tg.graph({
 				nodes: [

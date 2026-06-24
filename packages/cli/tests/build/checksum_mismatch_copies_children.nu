@@ -6,24 +6,24 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export const child = () => "child";
+		export function child() { return "child"; }
 
-		export const root = async () => {
+		export async function root() {
 			await tg.build(child).named("child");
 			return "root";
-		};
+		}
 
-		export const first = async () => {
+		export async function first() {
 			return await tg.build(root)
 				.checksum("sha256:0000000000000000000000000000000000000000000000000000000000000000")
 				.named("root");
-		};
+		}
 
-		export const second = async () => {
+		export async function second() {
 			return await tg.build(root)
 				.checksum("sha256:1111111111111111111111111111111111111111111111111111111111111111")
 				.named("root");
-		};
+		}
 	',
 }
 

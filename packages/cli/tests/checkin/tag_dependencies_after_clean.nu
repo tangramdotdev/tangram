@@ -7,7 +7,7 @@ let remote = spawn --name remote
 # Tag the referent on the remote server.
 let referent_path = artifact {
 	tangram.ts: '
-		export default () => "foo";
+		export default function () { return "foo"; }
 	'
 }
 tg --url $remote.url tag foo $referent_path
@@ -21,7 +21,7 @@ let local = spawn --name local --config {
 let referrer_path = artifact {
 	tangram.ts: '
 		import foo from "foo";
-		export default () => foo();
+		export default function () { return foo(); }
 	'
 }
 

@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let process = await tg.spawn`read line; echo "got:$line"`.stdin("pipe").stdout("pipe").sandbox();
 			let [, text] = await Promise.all([
 				process.stdin.writeAll(tg.encoding.utf8.encode("hello\n")),
@@ -14,7 +14,7 @@ let path = artifact {
 			]);
 			await process.wait();
 			return text;
-		};
+		}
 	'
 }
 

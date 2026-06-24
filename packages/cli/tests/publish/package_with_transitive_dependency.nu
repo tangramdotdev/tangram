@@ -10,7 +10,7 @@ let local = spawn --name local --config {
 # Create the transitive dependency (C) - no dependencies.
 let transitive_path = artifact {
 	tangram.ts: '
-		export default () => "I am the transitive dependency!";
+		export default function () { return "I am the transitive dependency!"; }
 
 		export let metadata = {
 			tag: "test-transitive/1.0.0",
@@ -28,7 +28,7 @@ let dep_path = artifact {
 	tangram.ts: '
 		import transitive from "test-transitive";
 
-		export default () => `Dependency using: ${transitive()}`;
+		export default function () { return `Dependency using: ${transitive()}`; }
 
 		export let metadata = {
 			tag: "test-dep/1.0.0",
@@ -46,7 +46,7 @@ let main_path = artifact {
 	tangram.ts: '
 		import dep from "test-dep";
 
-		export default () => `Main package using: ${dep()}`;
+		export default function () { return `Main package using: ${dep()}`; }
 
 		export let metadata = {
 			tag: "test-main/1.0.0",

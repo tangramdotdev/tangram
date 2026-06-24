@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => "Hello, World!";
+		export default function () { return "Hello, World!"; }
 
 		export let metadata = {
 			tag: "dry-pkg/1.0.0",

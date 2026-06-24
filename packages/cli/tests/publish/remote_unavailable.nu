@@ -9,7 +9,7 @@ let local = spawn --name local --config {
 
 let path = artifact {
 	tangram.ts: '
-		export default () => "Hello, World!";
+		export default function () { return "Hello, World!"; }
 
 		export let metadata = {
 			tag: "test-pkg/1.0.0",

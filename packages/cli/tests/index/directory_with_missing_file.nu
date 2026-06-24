@@ -17,7 +17,7 @@ let other = spawn --cloud --name other
 
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			return tg.directory({
 				"hello.txt": tg.file("Hello, World!")
 			})

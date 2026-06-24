@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export let a = () => tg.file("a");'
+	tangram.ts: 'export function a() { return tg.file("a"); }'
 }
 
 # Build the export.

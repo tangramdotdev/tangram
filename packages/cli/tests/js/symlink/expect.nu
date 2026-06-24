@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => tg.Symlink.expect(await tg.symlink("a/b")) instanceof tg.Symlink;'
+	tangram.ts: 'export default async function () { return tg.Symlink.expect(await tg.symlink("a/b")) instanceof tg.Symlink; }'
 }
 
 let output = tg build $path

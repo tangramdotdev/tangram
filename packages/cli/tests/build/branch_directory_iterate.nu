@@ -16,14 +16,14 @@ let server = spawn --config {
 let path = artifact {
 	tangram.ts: '
 		import directory from "./data" with { type: "directory" };
-		export default async () => {
+		export default async function () {
 			let entries: Array<string> = [];
 			for await (let [name, _artifact] of directory) {
 				entries.push(name);
 			}
 			entries.sort();
 			return entries.join(",");
-		};
+		}
 	'
 	data: {
 		a.txt: 'File A'

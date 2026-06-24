@@ -45,8 +45,8 @@ impl Cli {
 					import * as autobuild from "{autobuild_reference}";
 					import * as std from "std";
 					import source from "." with {{ type: "directory" }};
-					export default () => autobuild.build({{ env: env(), source }});
-					export const env = () => std.env(autobuild.env({{ source }}));
+					export default function () {{ return autobuild.build({{ env: env(), source }}); }}
+					export function env() {{ return std.env(autobuild.env({{ source }})); }}
 				"#,
 			),
 		));

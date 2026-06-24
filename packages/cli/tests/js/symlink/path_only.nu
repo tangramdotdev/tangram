@@ -6,10 +6,10 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let symlink = await tg.symlink("a/b");
 			return [await symlink.path, (await symlink.artifact) === undefined];
-		};
+		}
 	'
 }
 
