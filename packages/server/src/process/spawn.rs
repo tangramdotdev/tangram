@@ -808,22 +808,26 @@ impl Session {
 		// Authorize.
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		let mut authorized = None;
 		let principal = owner.cloned().unwrap_or(tg::Principal::Root);
-		for row in rows {
-			let resource = tg::grant::Resource::Id(row.id.clone().into());
-			if self
-				.server
-				.index
-				.authorize(resource, permission.into(), &principal)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to authorize the cached process"))?
+		let authorizations = rows
+			.iter()
+			.map(|row| tangram_index::authorize::Arg {
+				permissions: permission.into(),
+				resource: tg::grant::Resource::Id(row.id.clone().into()),
+				token: None,
+			})
+			.collect::<Vec<_>>();
+		let authorizations = self
+			.server
+			.index
+			.authorize_batch(&authorizations, &principal)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the cached processes"))?;
+		let authorized = std::iter::zip(rows, authorizations).find_map(|(row, authorization)| {
+			authorization
 				.is_some_and(|output| output.permissions.contains(permission))
-			{
-				authorized = Some(row);
-				break;
-			}
-		}
+				.then_some(row)
+		});
 		let Some(Row {
 			id,
 			error,
@@ -1067,22 +1071,26 @@ impl Session {
 		// Authorize.
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		let mut authorized = None;
 		let principal = owner.cloned().unwrap_or(tg::Principal::Root);
-		for row in rows {
-			let resource = tg::grant::Resource::Id(row.id.clone().into());
-			if self
-				.server
-				.index
-				.authorize(resource, permission.into(), &principal)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to authorize the cached process"))?
+		let authorizations = rows
+			.iter()
+			.map(|row| tangram_index::authorize::Arg {
+				permissions: permission.into(),
+				resource: tg::grant::Resource::Id(row.id.clone().into()),
+				token: None,
+			})
+			.collect::<Vec<_>>();
+		let authorizations = self
+			.server
+			.index
+			.authorize_batch(&authorizations, &principal)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the cached processes"))?;
+		let authorized = std::iter::zip(rows, authorizations).find_map(|(row, authorization)| {
+			authorization
 				.is_some_and(|output| output.permissions.contains(permission))
-			{
-				authorized = Some(row);
-				break;
-			}
-		}
+				.then_some(row)
+		});
 		let Some(Row {
 			actual_checksum,
 			depth,
