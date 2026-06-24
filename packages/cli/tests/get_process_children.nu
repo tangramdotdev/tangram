@@ -31,6 +31,7 @@ let children = tg process children $process.process | from json
 
 let foo = $children | get 0 | update process 'PROCESS'
 snapshot $foo '
+	cached: true
 	options: name: foo
 	process: PROCESS
 
