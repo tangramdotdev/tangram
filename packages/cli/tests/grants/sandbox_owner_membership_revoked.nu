@@ -12,7 +12,7 @@ tg --token $alice.token group create team
 tg --token $alice.token group members add team $bob.user.id
 
 let team = tg --token $bob.token group get team | from json
-let sandbox = tg --token $bob.token sandbox create --owner team --no-network | str trim
+let sandbox = tg --token $bob.token sandbox create --group team --no-network | str trim
 
 let data = tg --token $bob.token sandbox get $sandbox | from json
 assert equal $data.owner $team.id "the sandbox should be owned by the team"

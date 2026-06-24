@@ -19,7 +19,7 @@ let private = tg --token $bob.token build --detach $private_path | str trim
 tg --token $bob.token wait $private | complete | ignore
 
 let team_path = artifact { tangram.ts: 'export default function () { return tg.file("group-visibility-team"); }' }
-let process = tg --token $bob.token build --detach --owner team $team_path | str trim
+let process = tg --token $bob.token build --detach --group team $team_path | str trim
 tg --token $bob.token wait $process | complete | ignore
 
 # Carol, a member, can read the team-owned process but not Bob's private process; Eve, an outsider, can read neither.

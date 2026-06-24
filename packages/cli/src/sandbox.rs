@@ -61,7 +61,7 @@ pub struct Options {
 	#[clap(flatten)]
 	pub network: Network,
 
-	#[arg(id = "sandbox.owner", long = "owner")]
+	#[arg(id = "sandbox.owner", long = "owner", visible_aliases = ["group", "organization"])]
 	pub owner: Option<tg::principal::Selector>,
 
 	#[arg(action = clap::ArgAction::Append, id = "sandbox.ports", long = "port", num_args = 1, short = 'p')]

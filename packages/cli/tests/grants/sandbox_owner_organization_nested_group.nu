@@ -14,7 +14,7 @@ tg --token $alice.token group members add team $bob.user.id
 let team = tg --token $alice.token group get team | from json
 tg --token $alice.token organization members add acme $team.id
 
-let sandbox = tg --token $alice.token sandbox create --owner acme --no-network | str trim
+let sandbox = tg --token $alice.token sandbox create --organization acme --no-network | str trim
 
 # Bob is a member of the team, and the team belongs to the organization, so he reaches the organization-owned sandbox transitively.
 success (tg --token $bob.token sandbox get $sandbox | complete) "a member of a group in the organization should reach the organization-owned sandbox"
