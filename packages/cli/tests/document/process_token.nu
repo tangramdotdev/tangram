@@ -21,7 +21,7 @@ let token = tg log $parent.process | str trim
 # Documenting with a process token is unauthorized.
 let module = artifact {
 	tangram.ts: '
-		export default () => "x";
+		export default function () { return "x"; }
 	'
 }
 let output = tg --token $token document $module | complete

@@ -8,7 +8,7 @@ let server = spawn
 let inner_root = artifact {
 	sibling: {
 		lib: {
-			utils.tg.ts: 'export const helper = () => "helper";'
+			utils.tg.ts: 'export function helper() { return "helper"; }'
 		}
 		tangram.ts: "import * as utils from ./lib/utils.tg.ts;"
 	}
@@ -34,16 +34,16 @@ let object = tg object get --blobs --depth=inf --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": tg.blob("import * as inner from \"dir_01zypehfmdr6szhj3kqpvebwgknjc202yhv21j9h1j5zsjp8e6kjhg\";"),
+	    "contents": tg.blob("import * as inner from \"dir_01y4e3v62knfrjq5dxhfp5gtk7em0jy6mfq55x88nbt3yjtmb099tg\";"),
 	    "dependencies": {
-	      "dir_01zypehfmdr6szhj3kqpvebwgknjc202yhv21j9h1j5zsjp8e6kjhg": {
+	      "dir_01y4e3v62knfrjq5dxhfp5gtk7em0jy6mfq55x88nbt3yjtmb099tg": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("import { helper } from \"../sibling\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
 	              "../sibling?get=lib/utils.tg.ts": {
 	                "item": tg.file({
-	                  "contents": tg.blob("export const helper = () => \"helper\";"),
+	                  "contents": tg.blob("export function helper() { return \"helper\"; }"),
 	                  "module": "ts",
 	                }),
 	                "options": {

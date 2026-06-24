@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
 # Alice starts a long-running process that logs a secret and then sleeps, so it stays unfinalized.
-let path = artifact { tangram.ts: 'export default async () => { console.log("loghello"); await tg.sleep(60) }' }
+let path = artifact { tangram.ts: 'export default async function () { console.log("loghello"); await tg.sleep(60) }' }
 let started = tg --token $alice.token build --detach --verbose $path | from json
 let process = $started.process
 

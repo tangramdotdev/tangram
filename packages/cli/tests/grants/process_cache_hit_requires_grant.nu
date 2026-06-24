@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
 # Alice builds a cacheable process.
-let path = artifact { tangram.ts: 'export default () => tg.file("cachedsecret")' }
+let path = artifact { tangram.ts: 'export default function () { return tg.file("cachedsecret"); }' }
 let alice_process = tg --token $alice.token build --detach $path | str trim
 tg --token $alice.token wait $alice_process | complete
 

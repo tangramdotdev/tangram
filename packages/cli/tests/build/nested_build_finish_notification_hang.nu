@@ -11,15 +11,15 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export const inner = async (...args) => {
+		export async function inner(...args) {
 			let id = args[0]?.id ?? "0";
 			return tg.run`echo "done ${id}" > ${tg.output}`.network(true);
-		};
-		export default async () => {
+		}
+		export default async function () {
 			return Promise.all(
 				Array.from({ length: 4 }, (_, i) => tg.build(inner, { id: String(i) }))
 			);
-		};
+		}
 	'
 }
 

@@ -8,7 +8,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => 42;'
+	tangram.ts: 'export default async function () { return 42; }'
 }
 
 let file_uri = $"file://($path | path join 'tangram.ts' | path expand)"
@@ -21,7 +21,7 @@ def lsp_msg [content: string] {
 # Generate many hover requests to keep TypeScript V8 isolate busy.
 let init = (lsp_msg '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"capabilities":{},"rootUri":null}}')
 let initialized = (lsp_msg '{"jsonrpc":"2.0","method":"initialized","params":{}}')
-let did_open = (lsp_msg $'{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"($file_uri)","languageId":"tangram-typescript","version":1,"text":"export default async () => 42;\\n"}}}')
+let did_open = (lsp_msg $'{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"($file_uri)","languageId":"tangram-typescript","version":1,"text":"export default async function () { return 42; }\\n"}}}')
 let hovers = 1..500 | each { |i|
 	lsp_msg $'{"jsonrpc":"2.0","id":($i + 10),"method":"textDocument/hover","params":{"textDocument":{"uri":"($file_uri)"},"position":{"line":0,"character":($i mod 30)}}}'
 } | str join ''

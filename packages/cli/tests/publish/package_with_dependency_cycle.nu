@@ -12,8 +12,8 @@ let shared_path = artifact {
 	a: {
 		tangram.ts: '
 			import b from "test-b" with { source: "../b" };
-			export default () => `A using: ${b()}`;
-			export let greeting = () => "Hello from A";
+			export default function () { return `A using: ${b()}`; }
+			export function greeting() { return "Hello from A"; }
 			export let metadata = {
 				tag: "test-a/1.0.0",
 			};
@@ -22,7 +22,7 @@ let shared_path = artifact {
 	b: {
 		tangram.ts: '
 			import * as a from "test-a" with { source: "../a" };
-			export default () => `B using: ${a.greeting()}`;
+			export default function () { return `B using: ${a.greeting()}`; }
 			export let metadata = {
 				tag: "test-b/1.0.0",
 			};

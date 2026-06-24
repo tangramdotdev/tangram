@@ -9,7 +9,7 @@ let local = spawn --name local --config {
 
 # Create a single file (not a directory).
 let file_content = '
-	export default () => "I am a single-file package!";
+	export default function () { return "I am a single-file package!"; }
 
 	export let metadata = {
 		tag: "test-single-file/1.0.0",

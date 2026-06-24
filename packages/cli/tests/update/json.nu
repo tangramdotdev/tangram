@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn
 
-let a1 = artifact { tangram.ts: 'export default () => "a1";' }
+let a1 = artifact { tangram.ts: 'export default function () { return "a1"; }' }
 tg tag a/1.0.0 $a1
 
 let root = artifact {
@@ -12,7 +12,7 @@ let root = artifact {
 }
 tg checkin $root
 
-let a2 = artifact { tangram.ts: 'export default () => "a2";' }
+let a2 = artifact { tangram.ts: 'export default function () { return "a2"; }' }
 tg tag a/1.1.0 $a2
 tg index
 

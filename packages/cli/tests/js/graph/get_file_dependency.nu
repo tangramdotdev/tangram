@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let graph = await tg.graph({
 				nodes: [
 					{ kind: "file", contents: "main", dependencies: { "./dep": 1 } },
@@ -16,7 +16,7 @@ let path = artifact {
 			let file = (await graph.get(0)) as tg.File;
 			let dependencies = await file.dependencies;
 			return await dependencies["./dep"].item.text;
-		};
+		}
 	'
 }
 

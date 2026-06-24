@@ -6,12 +6,12 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => tg`
+		export default function () { return tg`
 			function foo() {
 				echo "Hello, World!"
 
 			}
-		`;
+		`; }
 	'
 }
 

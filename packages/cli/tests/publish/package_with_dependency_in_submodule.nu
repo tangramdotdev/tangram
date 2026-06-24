@@ -12,7 +12,7 @@ let local = spawn --name local --config {
 let shared_path = artifact {
 	dep: {
 		tangram.ts: '
-			export default () => "I am a dependency!";
+			export default function () { return "I am a dependency!"; }
 
 			export let metadata = {
 				tag: "test-dep/1.0.0",
@@ -23,7 +23,7 @@ let shared_path = artifact {
 		tangram.ts: '
 			import { helper } from "./helper.tg.ts";
 
-			export default () => `Main using: ${helper()}`;
+			export default function () { return `Main using: ${helper()}`; }
 
 			export let metadata = {
 				tag: "test-main/1.0.0",
@@ -33,10 +33,10 @@ let shared_path = artifact {
 			import dep from "test-dep" with { source: "../dep" };
 			import { util } from "./util.tg.ts";
 
-			export let helper = () => `helper with ${dep()} and ${util()}`;
+			export function helper() { return `helper with ${dep()} and ${util()}`; }
 		',
 		util.tg.ts: '
-			export let util = () => "util function";
+			export function util() { return "util function"; }
 		'
 	}
 }

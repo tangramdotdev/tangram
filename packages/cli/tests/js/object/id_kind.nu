@@ -6,10 +6,9 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () =>
-			["blb_0", "dir_0", "fil_0", "sym_0", "gph_0", "cmd_0", "err_0"].map(
+		export default function () { return ["blb_0", "dir_0", "fil_0", "sym_0", "gph_0", "cmd_0", "err_0"].map(
 				tg.Object.Id.kind,
-			);
+			); }
 	'
 }
 

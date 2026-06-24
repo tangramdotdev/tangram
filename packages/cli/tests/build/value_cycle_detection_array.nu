@@ -6,11 +6,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			let x = [];
 			x[0] = x;
 			return x;
-		};
+		}
 	'
 }
 

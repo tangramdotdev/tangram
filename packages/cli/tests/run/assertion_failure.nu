@@ -7,10 +7,10 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		import foo from "./foo.tg.ts";
-		export default () => foo();
+		export default function () { return foo(); }
 	',
 	foo.tg.ts: '
-		export default () => tg.assert(false);
+		export default function () { return tg.assert(false); }
 	',
 }
 

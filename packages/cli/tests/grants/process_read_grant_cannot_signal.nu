@@ -7,7 +7,7 @@ let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
 # Alice runs a long-running, non-cacheable process (signalling rejects cacheable processes).
-let path = artifact { tangram.ts: 'export default async () => { await tg.sleep(30); return "done"; }' }
+let path = artifact { tangram.ts: 'export default async function () { await tg.sleep(30); return "done"; }' }
 let process = tg --token $alice.token run --network=true --detach $path | str trim
 
 # Without any grant, Eve cannot see or signal the process; it is masked as not found.

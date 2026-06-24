@@ -34,12 +34,12 @@ let local = spawn --name local --config {
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			for (let i = 0; i < 16; i++) {
 				console.log(`log line ${i}`);
 				await tg.sleep(0.250);
 			}
-		};
+		}
 	'
 }
 

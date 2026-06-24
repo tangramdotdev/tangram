@@ -10,7 +10,7 @@ let local = spawn --name local --config {
 # Tag the old version of checkin/a on the remote.
 let checkin_old_path = artifact {
 	tangram.ts: '
-		export default () => "checkin/a/1.0.0";
+		export default function () { return "checkin/a/1.0.0"; }
 	'
 }
 tg --url $remote.url tag checkin/a/1.0.0 $checkin_old_path
@@ -19,7 +19,7 @@ tg --url $remote.url tag checkin/a/1.0.0 $checkin_old_path
 let checkin_package_path = artifact {
 	tangram.ts: '
 		import a from "checkin/a/^1";
-		export default () => tg.run(a);
+		export default function () { return tg.run(a); }
 	'
 }
 
@@ -34,7 +34,7 @@ assert ($checkin_initial_tag == "checkin/a/1.0.0") "the initial lock should reso
 # Tag a new version on the remote.
 let checkin_new_path = artifact {
 	tangram.ts: '
-		export default () => "checkin/a/1.1.0";
+		export default function () { return "checkin/a/1.1.0"; }
 	'
 }
 tg --url $remote.url tag checkin/a/1.1.0 $checkin_new_path
@@ -54,7 +54,7 @@ assert ($checkin_fresh_tag == "checkin/a/1.1.0") "with ttl 0, checkin should byp
 # Tag the old version of update/a on the remote.
 let update_old_path = artifact {
 	tangram.ts: '
-		export default () => "update/a/1.0.0";
+		export default function () { return "update/a/1.0.0"; }
 	'
 }
 tg --url $remote.url tag update/a/1.0.0 $update_old_path
@@ -63,7 +63,7 @@ tg --url $remote.url tag update/a/1.0.0 $update_old_path
 let update_package_path = artifact {
 	tangram.ts: '
 		import a from "update/a/^1";
-		export default () => tg.run(a);
+		export default function () { return tg.run(a); }
 	'
 }
 
@@ -78,7 +78,7 @@ assert ($update_initial_tag == "update/a/1.0.0") "the initial lock should resolv
 # Tag a new version on the remote.
 let update_new_path = artifact {
 	tangram.ts: '
-		export default () => "update/a/1.1.0";
+		export default function () { return "update/a/1.1.0"; }
 	'
 }
 tg --url $remote.url tag update/a/1.1.0 $update_new_path

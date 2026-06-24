@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => "Hello, World!";
+		export default function () { return "Hello, World!"; }
 	'
 }
 let process = tg build --detach --verbose $path | from json

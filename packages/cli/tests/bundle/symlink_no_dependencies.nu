@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => tg.symlink("target");'
+	tangram.ts: 'export default function () { return tg.symlink("target"); }'
 }
 let id = tg build $path | str trim
 

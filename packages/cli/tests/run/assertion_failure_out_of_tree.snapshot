@@ -4,8 +4,8 @@ error an error occurred
 -> the child process failed
    id = <process>
 -> failed assertion
-   ╭─[./bar/tangram.ts:1:25]
- 1 │ export default () => tg.assert(false);
-   ·                         ▲
-   ·                         ╰── failed assertion
+   ╭─[./bar/tangram.ts:1:40]
+ 1 │ export default function () { return tg.assert(false); }
+   ·                                        ▲
+   ·                                        ╰── failed assertion
    ╰────

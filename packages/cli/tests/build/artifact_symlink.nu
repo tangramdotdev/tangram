@@ -7,10 +7,10 @@ let server = spawn --busybox
 let path = artifact {
 	tangram.ts: '
 		import busybox from "busybox";
-		export default async () => {
+		export default async function () {
 			const file = tg.file("hello from artifact");
 			return await tg.build`mkdir -m 755 ${tg.output} && ln -s ${file} ${tg.output}/link`.env(tg.build(busybox));
-		};
+		}
 	'
 }
 

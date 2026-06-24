@@ -6,11 +6,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let map = { k: "hello" };
 			await (await tg.Mutation.suffix("world", " ")).apply(map, "k");
 			return map.k.components;
-		};
+		}
 	'
 }
 

@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let directory = await tg.directory({ "a": "alpha" });
 			try {
 				await directory.get("nope");
@@ -14,7 +14,7 @@ let path = artifact {
 			} catch (error) {
 				return error.message;
 			}
-		};
+		}
 	'
 }
 

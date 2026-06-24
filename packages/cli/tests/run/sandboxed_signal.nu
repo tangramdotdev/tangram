@@ -6,10 +6,10 @@ let server = spawn
 let mount = artifact {}
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			await tg.sleep(10);
 			return 42;
-		};
+		}
 	'
 }
 let output = tg spawn --sandbox --mount $"($mount):/target" --verbose $path | from json

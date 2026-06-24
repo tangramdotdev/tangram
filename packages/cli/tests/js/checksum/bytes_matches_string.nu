@@ -6,11 +6,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let fromString = await tg.checksum("hello", "sha256");
 			let fromBytes = await tg.checksum(tg.encoding.utf8.encode("hello"), "sha256");
 			return fromString === fromBytes;
-		};
+		}
 	'
 }
 

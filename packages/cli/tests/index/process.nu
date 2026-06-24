@@ -8,7 +8,7 @@ tg remote put default $remote.url
 
 let path = artifact {
 	tangram.ts: r#'
-		export default () => {};
+		export default function () {}
 	'#
 }
 let id = tg build --detach $path | str trim

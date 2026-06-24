@@ -6,7 +6,7 @@ let server = spawn
 
 # Create and tag the foo dependency.
 let foo_path = artifact {
-	tangram.ts: 'export default () => tg.file("foo");'
+	tangram.ts: 'export default function () { return tg.file("foo"); }'
 }
 tg tag foo/1.0.0 $foo_path
 
@@ -14,7 +14,7 @@ tg tag foo/1.0.0 $foo_path
 let artifact = artifact {
 	tangram.ts: '
 		import foo from "foo/*";
-		export default () => tg.directory({ foo: foo() });
+		export default function () { return tg.directory({ foo: foo() }); }
 	'
 }
 let id = tg build $artifact

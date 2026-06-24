@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => tg.resolve({ k: Promise.resolve("v") });'
+	tangram.ts: 'export default async function () { return tg.resolve({ k: Promise.resolve("v") }); }'
 }
 
 let output = tg build $path

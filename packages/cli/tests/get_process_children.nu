@@ -6,14 +6,14 @@ use ../test.nu *
 let server = spawn
 let path = artifact {
 	tangram.ts: r#'
-		export const foo = () => "foo";
-		export const bar = () => "bar";
-		export default async () => {
+		export function foo() { return "foo"; }
+		export function bar() { return "bar"; }
+		export default async function () {
 			return [
 				await tg.build(foo).named("foo"),
 				await tg.build(bar).named("bar")
 			]
-		};
+		}
 	'#
 }
 let output = tg build $"($path)#foo" | complete

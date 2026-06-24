@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => tg.Value.print({ a: 1, b: [2, 3] }, { indentation: "  " });'
+	tangram.ts: 'export default function () { return tg.Value.print({ a: 1, b: [2, 3] }, { indentation: "  " }); }'
 }
 
 let output = tg build $path

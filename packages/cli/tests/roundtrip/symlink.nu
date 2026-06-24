@@ -6,7 +6,7 @@ let server = spawn
 
 let artifact = artifact {
 	tangram.ts: '
-		export default () => tg.symlink("target");
+		export default function () { return tg.symlink("target"); }
 	'
 }
 let id = tg build $artifact

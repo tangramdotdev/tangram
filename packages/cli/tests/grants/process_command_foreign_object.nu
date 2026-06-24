@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
 # Alice builds a private process and keeps its command private.
-let alice_path = artifact { tangram.ts: 'export default () => "alicesecret"' }
+let alice_path = artifact { tangram.ts: 'export default function () { return "alicesecret"; }' }
 let alice_process = tg --token $alice.token build --detach $alice_path | str trim
 tg --token $alice.token wait $alice_process
 let command = (tg --token $alice.token get $alice_process | from json).command
@@ -18,7 +18,7 @@ let denied = tg --token $eve.token get $command | complete
 failure $denied "Eve should not read Alice's command before the exploit."
 
 # Eve builds a process that references Alice's command by id.
-let source = 'export default () => tg.build(tg.Command.withId("CMD_ID"))' | str replace "CMD_ID" $command
+let source = 'export default function () { return tg.build(tg.Command.withId("CMD_ID")); }' | str replace "CMD_ID" $command
 let eve_path = artifact { tangram.ts: $source }
 let eve_process = tg --token $eve.token build --detach $eve_path | str trim
 tg --token $eve.token wait $eve_process

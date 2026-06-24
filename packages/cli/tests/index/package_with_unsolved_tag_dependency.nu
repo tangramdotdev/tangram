@@ -17,7 +17,7 @@ let other = spawn --cloud --name other
 let path = artifact {
 	tangram.ts: '
 		import dep from "dep";
-		export default () => dep();
+		export default function () { return dep(); }
 	'
 }
 
@@ -92,7 +92,7 @@ snapshot --name complete_metadata $complete_metadata '
 	  "subtree": {
 	    "count": 3,
 	    "depth": 3,
-	    "size": 169,
+	    "size": 186,
 	    "solvable": true,
 	    "solved": false,
 	  },

@@ -6,15 +6,15 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export const shared = () => tg.file("shared_output");
-		export const first = async () => {
+		export function shared() { return tg.file("shared_output"); }
+		export async function first() {
 			await tg.build(shared).named("s");
 			return "first";
-		};
-		export const second = async () => {
+		}
+		export async function second() {
 			await tg.build(shared).named("s");
 			return "second";
-		};
+		}
 	',
 }
 

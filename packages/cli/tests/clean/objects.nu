@@ -6,25 +6,25 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export let a = () => tg.directory({
+		export function a() { return tg.directory({
 			"b": tg.build(b),
 			"c": tg.build(c),
 			"d": tg.build(d),
 			"e": tg.build(e),
-		});
-		export let b = () => tg.directory({
+		}); }
+		export function b() { return tg.directory({
 			"f": tg.build(f),
-		});
-		export let c = () => tg.directory({
+		}); }
+		export function c() { return tg.directory({
 			"g": tg.build(g),
-		});
-		export let d = () => tg.directory({
+		}); }
+		export function d() { return tg.directory({
 			"h": tg.build(h),
-		});
-		export let e = () => tg.file("e");
-		export let f = () => tg.file("f");
-		export let g = () => tg.file("g");
-		export let h = () => tg.file("h");
+		}); }
+		export function e() { return tg.file("e"); }
+		export function f() { return tg.file("f"); }
+		export function g() { return tg.file("g"); }
+		export function h() { return tg.file("h"); }
 	'
 }
 

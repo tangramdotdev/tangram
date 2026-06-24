@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => tg.Command.expect(await tg.command({ host: "builtin", executable: "echo" })) instanceof tg.Command;'
+	tangram.ts: 'export default async function () { return tg.Command.expect(await tg.command({ host: "builtin", executable: "echo" })) instanceof tg.Command; }'
 }
 
 let output = tg build $path

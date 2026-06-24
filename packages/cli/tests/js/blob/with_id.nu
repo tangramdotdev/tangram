@@ -6,10 +6,10 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let blob = await tg.blob("hello");
 			return tg.Blob.withId(blob.id).id === blob.id;
-		};
+		}
 	'
 }
 

@@ -15,7 +15,7 @@ def test [...args] {
 	# Create a module that spawns multiple child processes.
 	let path = artifact {
 		tangram.ts: '
-			export default async () => {
+			export default async function () {
 				const results = [];
 				for (let i = 0; i < 10; i++) {
 					const result = await tg.build(makeFile, i);
@@ -24,7 +24,7 @@ def test [...args] {
 				return tg.directory(Object.fromEntries(results.map((r, i) => [`file_${i}`, r])));
 			}
 
-			export const makeFile = (i: number) => {
+			export function makeFile(i: number) {
 				return tg.file(`Content for file number ${i}. This is some text.`);
 			}
 		'

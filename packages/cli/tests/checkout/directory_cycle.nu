@@ -8,7 +8,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: r#'
-		export default () => {
+		export default function () {
 			return tg.directory({
 				graph: tg.graph({
 					nodes: [

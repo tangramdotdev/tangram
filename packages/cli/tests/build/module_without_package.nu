@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	foo.tg.ts: '
-		export default () => "Hello, World!";
+		export default function () { return "Hello, World!"; }
 	'
 }
 

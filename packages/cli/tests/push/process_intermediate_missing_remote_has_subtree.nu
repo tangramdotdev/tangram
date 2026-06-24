@@ -16,22 +16,22 @@ def test [...args] {
 	# A calls B, B calls C, C calls D, D returns a file.
 	let path = artifact {
 		tangram.ts: '
-			export default async () => {
+			export default async function () {
 				// Process A - calls B.
 				return await tg.build(processB);
 			}
 
-			export const processB = async () => {
+			export async function processB() {
 				// Process B - calls C.
 				return await tg.build(processC);
 			}
 
-			export const processC = async () => {
+			export async function processC() {
 				// Process C - calls D.
 				return await tg.build(processD);
 			}
 
-			export const processD = async () => {
+			export async function processD() {
 				// Process D - returns a file.
 				return tg.file("Hello from process D!");
 			}

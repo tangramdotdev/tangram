@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => tg.Value.toData(await tg.Mutation.set("v"));'
+	tangram.ts: 'export default async function () { return tg.Value.toData(await tg.Mutation.set("v")); }'
 }
 
 let output = tg build $path

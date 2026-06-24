@@ -25,7 +25,7 @@ failure $denied "Eve should not have the subtree for Alice's private file before
 let eve_local = spawn --name eve-local --config {
 	remotes: { default: { url: $remote.url, token: $eve.token } },
 }
-let source = 'export default () => tg.File.withId("FILE_ID")' | str replace "FILE_ID" $file
+let source = 'export default function () { return tg.File.withId("FILE_ID"); }' | str replace "FILE_ID" $file
 let eve_path = artifact { tangram.ts: $source }
 let eve_process = tg --url $eve_local.url build --detach $eve_path | str trim
 tg --url $eve_local.url wait $eve_process | complete

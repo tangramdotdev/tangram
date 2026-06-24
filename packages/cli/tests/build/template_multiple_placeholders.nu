@@ -9,9 +9,9 @@ let path = artifact {
 		import file1 from "./hello.txt";
 		import file2 from "./hello.txt";
 		import file3 from "./hello.txt";
-		export default () => tg`
+		export default function () { return tg`
 			cat\t${file1}\t${file1}
-		`;
+		`; }
 	'
 	hello.txt: 'Hello, World!'
 }

@@ -7,7 +7,7 @@ let remote = spawn --cloud --name remote
 
 let path = artifact {
 	tangram.ts: '
-		export default () => "hello";
+		export default function () { return "hello"; }
 	'
 }
 let id = tg --url $local.url checkin $path
@@ -23,7 +23,7 @@ snapshot --name metadata $metadata '
 	  "subtree": {
 	    "count": 3,
 	    "depth": 3,
-	    "size": 139,
+	    "size": 156,
 	    "solvable": false,
 	    "solved": true,
 	  },

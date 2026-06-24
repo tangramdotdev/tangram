@@ -10,18 +10,16 @@ let server = spawn --busybox
 let path = artifact {
 	tangram.ts: '
 		import busybox from "busybox";
-		export let a = () =>
-			tg.run`
+		export function a() { return tg.run`
 				mkdir -p ${tg.output}/sub && printf hello > ${tg.output}/sub/msg
 			`
 				.env({ VARIANT: "a" })
-				.env(tg.build(busybox));
-		export let b = () =>
-			tg.run`
+				.env(tg.build(busybox)); }
+		export function b() { return tg.run`
 				mkdir -p ${tg.output}/sub && printf hello > ${tg.output}/sub/msg
 			`
 				.env({ VARIANT: "b" })
-				.env(tg.build(busybox));
+				.env(tg.build(busybox)); }
 	',
 }
 

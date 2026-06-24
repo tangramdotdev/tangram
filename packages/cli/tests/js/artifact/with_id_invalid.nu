@@ -6,14 +6,14 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			try {
 				tg.Artifact.withId("cmd_01");
 				return "did not throw";
 			} catch (error) {
 				return error.message;
 			}
-		};
+		}
 	'
 }
 

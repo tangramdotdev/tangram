@@ -8,7 +8,7 @@ let server = spawn
 
 let artifact = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			let graph = tg.graph({
 				nodes: [{
 					kind: "file",
@@ -17,7 +17,7 @@ let artifact = artifact {
 				}],
 			});
 			return tg.file({ graph, index: 0, kind: "file" });
-		};
+		}
 	'
 }
 let id = tg build $artifact

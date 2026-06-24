@@ -20,48 +20,48 @@ def assert_cacheable_error [source: string] {
 }
 
 assert_cacheable_error '
-	export default async () => {
+	export default async function () {
 		return await tg.build(() => tg.file("Hello, World!")).network();
-	};
+	}
 '
 
 assert_cacheable_error '
-	export default async () => {
+	export default async function () {
 		return await tg.build`true`.mount({ source: "/tmp", target: "/work" });
-	};
+	}
 '
 
 assert_cacheable_error '
-	export default async () => {
+	export default async function () {
 		return await tg.build`true`.stdin("pipe");
-	};
+	}
 '
 
 assert_cacheable_error '
-	export default async () => {
+	export default async function () {
 		return await tg.build`true`.stdout("inherit");
-	};
+	}
 '
 
 assert_cacheable_error '
-	export default async () => {
+	export default async function () {
 		return await tg.build`true`.stderr("inherit");
-	};
+	}
 '
 
 assert_cacheable_error '
-	export default async () => {
+	export default async function () {
 		return await tg.build`true`.tty(true);
-	};
+	}
 '
 
 let checksum_path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			return await tg.build(() => tg.file("Hello, World!"))
 				.network(true)
 				.checksum("none");
-		};
+		}
 	',
 }
 
@@ -78,7 +78,7 @@ snapshot ($checksum_output.stderr | redact $checksum_path | normalize_ids) '
 
 let cli_path = artifact {
 	tangram.ts: '
-		export default () => tg.file("Hello, World!");
+		export default function () { return tg.file("Hello, World!"); }
 	',
 }
 

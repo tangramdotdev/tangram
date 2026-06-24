@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default () => tg.Template.raw`\n\tHello, World!\n`;
+		export default function () { return tg.Template.raw`\n\tHello, World!\n`; }
 	'
 }
 

@@ -8,14 +8,14 @@ let path = artifact {
 	foo: {
 		tangram.ts: '
 			import bar from "../bar";
-			export default () => tg.build(bar);
-			export let greeting = () => "foo";
+			export default function () { return tg.build(bar); }
+			export function greeting() { return "foo"; }
 		'
 	}
 	bar: {
 		tangram.ts: '
 			import * as foo from "../foo";
-			export default () => tg.build(foo.greeting);
+			export default function () { return tg.build(foo.greeting); }
 		'
 	}
 }

@@ -6,10 +6,10 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let mutation = await tg.Mutation.set("v");
 			return tg.Mutation.expect(mutation).inner.kind;
-		};
+		}
 	'
 }
 

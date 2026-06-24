@@ -6,7 +6,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	"foo.tg.ts": (file --xattrs { "user.tangram.module": "js" } "export default () => 'test'")
+	"foo.tg.ts": (file --xattrs { "user.tangram.module": "js" } "export default function () { return 'test'; }")
 }
 
 let id = tg checkin ($path | path join "foo.tg.ts")

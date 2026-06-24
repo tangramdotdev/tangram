@@ -40,7 +40,7 @@ let local = spawn --name local --config $config
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let children = [];
 			for (let i = 0; i < 8; i++) {
 				let process = tg.build(child, i);
@@ -48,10 +48,10 @@ let path = artifact {
 			}
 			return Promise.all(children);
 		}
-		export const child = async (n: number) => {
+		export async function child(n: number) {
 			await tg.sleep(0.5);
 			return n;
-		};
+		}
 	'
 };
 

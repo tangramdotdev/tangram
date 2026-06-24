@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = spawn
 let path = artifact {
 	tangram.ts: r#'
-		export default async () => {
+		export default async function () {
 			let alphabet = "abcdefghijklmnopqrstuvwxyz";
 			for (let i = 0; i < 26; i++) {
 				let s = "";
@@ -17,7 +17,7 @@ let path = artifact {
 			while(true) {
 				await tg.sleep(100);
 			}
-		};
+		}
 	'#
 }
 let process = tg build --detach --verbose $path | from json

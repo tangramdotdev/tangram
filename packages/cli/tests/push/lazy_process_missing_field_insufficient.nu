@@ -17,11 +17,11 @@ let bob_local = spawn --name bob-local --config {
 # Alice builds a parent process that calls a child, and pushes the whole tree privately to the remote. A push includes outputs by default, so the command, log, and output subtrees all become resident.
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			return await tg.build(child)
 		}
 
-		export const child = () => {
+		export function child() {
 			return tg.file("hello")
 		}
 	'

@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
 let sandbox = tg --token $alice.token sandbox create --no-network | str trim
-let path = artifact { tangram.ts: 'export default () => tg.file("spawn-into-existing")' }
+let path = artifact { tangram.ts: 'export default function () { return tg.file("spawn-into-existing"); }' }
 
 # Eve cannot write Alice's sandbox, so she must not spawn a process into it.
 failure (tg --token $eve.token run $"--sandbox=($sandbox)" $path | complete) "Eve must not spawn a process into a sandbox she cannot write"

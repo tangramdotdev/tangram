@@ -9,7 +9,7 @@ let path = artifact {
 		tangram.ts: 'import * as bar from "../bar";'
 	}
 	bar: {
-		tangram.ts: 'export default () => "bar";'
+		tangram.ts: 'export default function () { return "bar"; }'
 	}
 }
 let id = tg checkin --destructive $path --ignore=false
@@ -20,7 +20,7 @@ snapshot $object '
 	tg.directory({
 	  "bar": tg.directory({
 	    "tangram.ts": tg.file({
-	      "contents": tg.blob("export default () => \"bar\";"),
+	      "contents": tg.blob("export default function () { return \"bar\"; }"),
 	      "module": "ts",
 	    }),
 	  }),
@@ -31,7 +31,7 @@ snapshot $object '
 	        "../bar": {
 	          "item": tg.directory({
 	            "tangram.ts": tg.file({
-	              "contents": tg.blob("export default () => \"bar\";"),
+	              "contents": tg.blob("export default function () { return \"bar\"; }"),
 	              "module": "ts",
 	            }),
 	          }),

@@ -6,14 +6,14 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		const inner = () => tg.build({
+		function inner() { return tg.build({
 			args: ["-c", "true"],
 			executable: "sh",
 			host: "not-a-real-host",
-		}).named("inner");
+		}).named("inner"); }
 
-		export const first = async () => await inner();
-		export const second = async () => await inner();
+		export async function first() { return await inner(); }
+		export async function second() { return await inner(); }
 	',
 }
 

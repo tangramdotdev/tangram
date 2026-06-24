@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-    file.tg.ts: r#'export default () => "hello, world!"'#
+    file.tg.ts: r#'export default function () { return "hello, world!"; }'#
 };
 
 let id = tg checkin ($path + '/file.tg.ts')

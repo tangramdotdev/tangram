@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default async () => { await tg.sleep(1); return 42; };',
+	tangram.ts: 'export default async function () { await tg.sleep(1); return 42; }',
 }
 let process = tg build --detach $path | str trim
 

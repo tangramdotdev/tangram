@@ -7,7 +7,7 @@ let server = spawn
 # Create a directory with nested structure.
 let path = artifact {
 	tangram.ts: r#'
-        export default () => {
+        export default function () {
             return tg.graph({
                 nodes: [
                     {

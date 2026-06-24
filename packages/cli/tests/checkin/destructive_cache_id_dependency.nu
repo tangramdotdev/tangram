@@ -12,7 +12,7 @@ let server = spawn --name 'local' --config {
 }
 
 let dep_path = artifact {
-	tangram.ts: 'export default () => "dep";'
+	tangram.ts: 'export default function () { return "dep"; }'
 }
 let dep_id = tg checkin --destructive --ignore=false $dep_path
 tg index
@@ -29,12 +29,12 @@ let object = tg object get --blobs --depth=inf --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": tg.blob("import dep from \"dir_01eg1hz5n9tvjmzbsvxgwegxa5jnx10pgpx47k99b9z200v7kqdm7g\";"),
+	    "contents": tg.blob("import dep from \"dir_016ctc43914rtbp4e8jcbezmrrmxw3kckj976ypm7ss0sna1awsykg\";"),
 	    "dependencies": {
-	      "dir_01eg1hz5n9tvjmzbsvxgwegxa5jnx10pgpx47k99b9z200v7kqdm7g": {
+	      "dir_016ctc43914rtbp4e8jcbezmrrmxw3kckj976ypm7ss0sna1awsykg": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("export default () => \"dep\";"),
+	            "contents": tg.blob("export default function () { return \"dep\"; }"),
 	            "module": "ts",
 	          }),
 	        }),

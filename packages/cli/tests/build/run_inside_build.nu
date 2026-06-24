@@ -6,11 +6,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export const outer = async () => {
+		export async function outer() {
 			return tg.build(inner);
 		}
 
-		export const inner = async () => {
+		export async function inner() {
 			tg.run(tg`
 				echo "hello stdout"
 				echo "" > ${tg.output}

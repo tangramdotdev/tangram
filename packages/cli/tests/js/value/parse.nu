@@ -5,7 +5,7 @@ use ../../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => tg.Value.parse("{\"a\":1,\"b\":[true,\"x\"]}");'
+	tangram.ts: 'export default function () { return tg.Value.parse("{\"a\":1,\"b\":[true,\"x\"]}"); }'
 }
 
 let output = tg build $path

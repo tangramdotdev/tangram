@@ -13,14 +13,14 @@ let server = spawn --config {
 # Many short-lived sandboxed children.
 let parent = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			const children = [];
 			for (let i = 0; i < 256; i++) {
 				children.push(tg.run`true ${i.toString()}`.sandbox());
 			}
 			await Promise.allSettled(children);
 			return "done";
-		};
+		}
 	',
 }
 

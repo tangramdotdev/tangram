@@ -5,11 +5,11 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-	tangram.ts: 'export default () => "one";'
+	tangram.ts: 'export default function () { return "one"; }'
 }
 let before = tg checkin $path --watch
 
-'export default () => "two";' | save --force ($path | path join tangram.ts)
+'export default function () { return "two"; }' | save --force ($path | path join tangram.ts)
 let output = tg watch touch $path ($path | path join tangram.ts) | complete
 success $output
 
@@ -19,7 +19,7 @@ let object = tg get $after --blobs --depth=inf --pretty
 snapshot ($object | redact $path | normalize_ids) '
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": tg.blob("export default () => \"two\";"),
+	    "contents": tg.blob("export default function () { return \"two\"; }"),
 	    "module": "ts",
 	  }),
 	})

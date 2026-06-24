@@ -36,7 +36,7 @@ let unsolved_path = artifact {
 	a.tg.ts: '
 		import * as a from "a/*";
 		import "./b.tg.ts";
-		export default () => "unsolvable";
+		export default function () { return "unsolvable"; }
 	'
 	b.tg.ts: '
     	import * as b from "b/*";
@@ -66,7 +66,7 @@ snapshot --name metadata $metadata '
 	  "subtree": {
 	    "count": 13,
 	    "depth": 7,
-	    "size": 1245,
+	    "size": 1262,
 	    "solvable": true,
 	    "solved": false,
 	  },

@@ -6,7 +6,7 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let formats: Array<tg.CompressionFormat> = ["bz2", "gz", "xz", "zst"];
 			let results = [];
 			for (let format of formats) {
@@ -16,7 +16,7 @@ let path = artifact {
 				results.push(await decompressed.text);
 			}
 			return results;
-		};
+		}
 	'
 }
 

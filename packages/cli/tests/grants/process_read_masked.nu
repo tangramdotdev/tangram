@@ -14,7 +14,7 @@ let alice_local = spawn --name alice-local --config {
 # Alice builds a private process and pushes it to the remote.
 let path = artifact {
 	tangram.ts: '
-		export default () => {
+		export default function () {
 			return 5
 		}
 	'

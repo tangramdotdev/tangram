@@ -7,14 +7,14 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			await Promise.race([
 				tg.sleep(0),
 				f(),
 			]);
-		};
+		}
 
-		let f = async () => {
+		async function f() {
 			await tg.sleep(100);
 			console.log("after sleep");
 		}

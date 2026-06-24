@@ -7,9 +7,9 @@ let server = spawn
 # Create a directory with nested structure and tag it.
 let dep_path = artifact {
 	lib: {
-		utils.tg.ts: 'export const helper = () => "helper";'
+		utils.tg.ts: 'export function helper() { return "helper"; }'
 	}
-	tangram.ts: 'export default () => "root";'
+	tangram.ts: 'export default function () { return "root"; }'
 }
 tg tag my-lib $dep_path
 
@@ -31,11 +31,11 @@ snapshot $object '
 	    "dependencies": {
 	      "my-lib?get=lib/utils.tg.ts": {
 	        "item": tg.file({
-	          "contents": tg.blob("export const helper = () => \"helper\";"),
+	          "contents": tg.blob("export function helper() { return \"helper\"; }"),
 	          "module": "ts",
 	        }),
 	        "options": {
-	          "id": "dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0",
+	          "id": "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0",
 	          "path": "lib/utils.tg.ts",
 	          "tag": "my-lib",
 	        },

@@ -6,12 +6,12 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			let blob = await tg.blob("contents");
 			let compressed = await tg.compress(blob, "gz");
 			let decompressed = await tg.decompress(compressed, "gz");
 			return blob.text;
-		};
+		}
 	'
 }
 

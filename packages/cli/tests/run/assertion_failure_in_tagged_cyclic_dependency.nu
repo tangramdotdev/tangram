@@ -8,14 +8,14 @@ let foo = artifact {
 	foo: {
 		tangram.ts: '
 			import bar from "../bar";
-			export default () => bar();
-			export const failure = () => tg.assert(false, "failure in foo");
+			export default function () { return bar(); }
+			export function failure() { return tg.assert(false, "failure in foo"); }
 		'
 	}
 	bar: {
 		tangram.ts: '
 			import { failure } from "../foo";
-			export default () => failure();
+			export default function () { return failure(); }
 		'
 	}
 }
@@ -24,7 +24,7 @@ tg tag foo ($foo | path join 'foo')
 let path = artifact {
 	tangram.ts: '
 		import foo from "foo";
-		export default () => foo();
+		export default function () { return foo(); }
 	'
 }
 

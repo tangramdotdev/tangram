@@ -6,11 +6,11 @@ let server = spawn
 
 let path = artifact {
 	tangram.ts: '
-		export default async () => {
+		export default async function () {
 			while (true) {
 				await tg.sleep(1);
 			}
-		};
+		}
 	'
 }
 let process = tg build --detach --verbose $path | from json

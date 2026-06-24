@@ -8,13 +8,12 @@ let path = artifact {
 	foo: {
 		tangram.ts: '
 			import foo from "../bar";
-			export default () => foo();
+			export default function () { return foo(); }
 		'
 	}
 	bar: {
 		tangram.ts: '
-			export default () => tg.assert(false, "error")
-		'
+			export default function () { return tg.assert(false, "error"); }'
 	}
 }
 

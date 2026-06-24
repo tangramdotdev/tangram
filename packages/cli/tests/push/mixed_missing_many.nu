@@ -15,7 +15,7 @@ def test [...args] {
 	# Create a directory with many files to increase object count.
 	let path = artifact {
 		tangram.ts: '
-			export default () => {
+			export default function () {
 				const files = {};
 				for (let i = 0; i < 50; i++) {
 					files[`file_${i.toString().padStart(3, "0")}.txt`] = tg.file(`Content for file number ${i}. This is some text to make the blob larger.`);

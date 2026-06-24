@@ -8,7 +8,7 @@ let server = spawn
 let foo_path = artifact {
 	tangram.ts: '
 		import bar from "bar";
-		export default () => bar();
+		export default function () { return bar(); }
 	'
 }
 let tag_output = tg tag --no-solve foo $foo_path | complete
@@ -18,7 +18,7 @@ success $tag_output "the tag command should succeed with --no-solve"
 let path = artifact {
 	tangram.ts: '
 		import foo from "foo";
-		export default () => foo();
+		export default function () { return foo(); }
 	'
 }
 

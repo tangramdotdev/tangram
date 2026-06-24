@@ -2,14 +2,14 @@ error an error occurred
 -> the process failed
    id = <process>
 -> failed assertion
-   ╭─[./tangram.ts:2:22]
+   ╭─[./tangram.ts:2:37]
  1 │ import foo from "./foo.tg.ts";
- 2 │ export default () => foo();
-   ·                      ▲
-   ·                      ╰── failed assertion
+ 2 │ export default function () { return foo(); }
+   ·                                     ▲
+   ·                                     ╰── failed assertion
    ╰────
-   ╭─[./foo.tg.ts:1:25]
- 1 │ export default () => tg.assert(false);
-   ·                         ▲
-   ·                         ╰── failed assertion
+   ╭─[./foo.tg.ts:1:40]
+ 1 │ export default function () { return tg.assert(false); }
+   ·                                        ▲
+   ·                                        ╰── failed assertion
    ╰────

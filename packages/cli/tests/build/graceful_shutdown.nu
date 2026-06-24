@@ -30,7 +30,7 @@ let local = spawn --name local --config $config
 
 let path = artifact {
 	tangram.ts: r#'
-		export default async () => {
+		export default async function () {
 			let alphabet = "abcdefghijklmnopqrstuvwxyz";
 			for (let i = 0; i < 26; i++) {
 				let s = "";
@@ -41,7 +41,7 @@ let path = artifact {
 				console.error('stderr', s);
 				await tg.sleep(0.1)
 			}
-		};
+		}
 	'#
 }
 

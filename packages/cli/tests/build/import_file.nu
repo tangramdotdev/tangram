@@ -7,7 +7,7 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		import file from "./hello.txt";
-		export default () => file.text;
+		export default function () { return file.text; }
 	'
 	hello.txt: 'Hello, World!'
 }
