@@ -30,20 +30,13 @@ impl Default for ObjectSubtreeConfig {
 /// Validate that the permission is coherent with the resource kind.
 pub fn validate_permission(resource: &tg::Id, permission: tg::grant::Permission) -> tg::Result<()> {
 	let valid = match permission {
-		tg::grant::Permission::Admin
-		| tg::grant::Permission::Read
-		| tg::grant::Permission::Write => {
-			matches!(
-				resource.kind(),
-				tg::id::Kind::User
-					| tg::id::Kind::Group
-					| tg::id::Kind::Organization
-					| tg::id::Kind::Sandbox
-					| tg::id::Kind::Tag
-			)
-		},
+		tg::grant::Permission::Group(_) => resource.kind() == tg::id::Kind::Group,
 		tg::grant::Permission::Object(_) => tg::object::Id::try_from(resource.clone()).is_ok(),
+		tg::grant::Permission::Organization(_) => resource.kind() == tg::id::Kind::Organization,
 		tg::grant::Permission::Process(_) => resource.kind() == tg::id::Kind::Process,
+		tg::grant::Permission::Sandbox(_) => resource.kind() == tg::id::Kind::Sandbox,
+		tg::grant::Permission::Tag(_) => resource.kind() == tg::id::Kind::Tag,
+		tg::grant::Permission::User(_) => resource.kind() == tg::id::Kind::User,
 	};
 	if !valid {
 		return Err(tg::error!(%resource, %permission, "invalid permission for the resource"));

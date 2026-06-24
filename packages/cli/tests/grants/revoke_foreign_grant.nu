@@ -25,5 +25,5 @@ snapshot ($output.stderr | redact) '
 
 # Carol's grant survives, so Bob retains the write access she conferred.
 let grants = tg --token $alice.token grants list --resource team | from json
-assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "write" }) "Carol's grant should survive Alice's failed revoke"
+assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "group_write" }) "Carol's grant should survive Alice's failed revoke"
 tg --token $bob.token group create team/bob-sub

@@ -42,10 +42,14 @@ impl Session {
 			.unwrap() || self
 			.authorize(
 				tg::grant::Resource::Id(node.id.clone()),
-				tg::grant::Permission::Read,
+				tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read),
 			)
 			.await?
-			.is_some_and(|permissions| permissions.contains(tg::grant::Permission::Read));
+			.is_some_and(|permissions| {
+				permissions.contains(tg::grant::Permission::Tag(
+					tg::grant::permission::tag::Permission::Read,
+				))
+			});
 		if !visible {
 			return Ok(None);
 		}

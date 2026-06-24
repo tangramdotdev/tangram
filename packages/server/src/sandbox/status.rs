@@ -77,7 +77,8 @@ impl Session {
 		stopper: Option<Stopper>,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
-		let permission = tg::grant::Permission::Read;
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
 		let authorized = self.authorize(id.clone(), permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);

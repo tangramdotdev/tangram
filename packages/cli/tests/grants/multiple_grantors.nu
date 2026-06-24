@@ -15,8 +15,8 @@ tg --token $alice.token grant $bob.user.id read team
 tg --token $carol.token grant $bob.user.id write team
 
 let grants = tg --token $alice.token grants list --resource team | from json
-assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "read" }) "Alice's grant should be listed"
-assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "write" }) "Carol's grant should be listed"
+assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "group_read" }) "Alice's grant should be listed"
+assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "group_write" }) "Carol's grant should be listed"
 
 tg --token $bob.token group get team
 tg --token $alice.token revoke $bob.user.id read team

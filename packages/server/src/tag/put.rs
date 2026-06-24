@@ -32,15 +32,16 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let authorized = self
-			.authorize(
-				tg::grant::Resource::Specifier(arg.specifier.clone()),
-				tg::grant::Permission::Write,
-			)
-			.await?;
-		if authorized.is_some_and(|permissions| !permissions.contains(tg::grant::Permission::Write))
-		{
-			return Err(tg::error!("unauthorized"));
+		if let Some(permission) = self.write_permission_for_specifier(&arg.specifier).await? {
+			let authorized = self
+				.authorize(
+					tg::grant::Resource::Specifier(arg.specifier.clone()),
+					permission,
+				)
+				.await?;
+			if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
+				return Err(tg::error!("unauthorized"));
+			}
 		}
 		let permissions = self.recorded_tag_permissions(&arg.item).await?;
 		let session = self.clone();
@@ -177,7 +178,10 @@ impl Session {
 			if arg.public {
 				let arg = tg::grant::create::Arg {
 					principal: tg::grant::Principal::Public.into(),
-					permissions: tg::grant::Permission::Read.into(),
+					permissions: tg::Either::Left(
+						tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read)
+							.into(),
+					),
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
@@ -186,7 +190,10 @@ impl Session {
 			if let Some(principal) = self.write_user_grant_principal() {
 				let arg = tg::grant::create::Arg {
 					principal: principal.into(),
-					permissions: tg::grant::Permission::Admin.into(),
+					permissions: tg::Either::Left(
+						tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Admin)
+							.into(),
+					),
 					resource: tg::grant::Resource::Id(id.clone().into()),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
@@ -238,6 +245,32 @@ impl Session {
 			tg::Principal::User(user) => Some(tg::grant::Principal::User(user.clone())),
 			_ => None,
 		}
+	}
+
+	pub(crate) async fn write_permission_for_specifier(
+		&self,
+		specifier: &tg::Specifier,
+	) -> tg::Result<Option<tg::grant::Permission>> {
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
+		prefixes.reverse();
+		for prefix in prefixes {
+			if let Some(node) =
+				Self::try_get_node_by_specifier_with_transaction(&transaction, &prefix).await?
+			{
+				return Self::write_permission_for_resource(&node.id).map(Some);
+			}
+		}
+		Ok(None)
 	}
 }
 

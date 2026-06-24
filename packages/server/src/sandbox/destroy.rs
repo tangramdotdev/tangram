@@ -84,7 +84,8 @@ impl Session {
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 		condition: Option<Condition>,
 	) -> tg::Result<Option<bool>> {
-		let permission = tg::grant::Permission::Write;
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
 		let authorized = self.authorize(id.clone(), permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);

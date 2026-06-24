@@ -21,5 +21,5 @@ snapshot ($output.stderr | redact) '
 
 # The read grant is untouched, so bob can still read the group.
 let grants = tg --token $alice.token grants list --resource team | from json
-assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "read" }) "the read grant should survive the failed revoke"
+assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "group_read" }) "the read grant should survive the failed revoke"
 tg --token $bob.token group get team

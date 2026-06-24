@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 2)]
-	pub permissions: tg::grant::permission::Set,
+	pub permissions: tg::Either<tg::grant::permission::Set, String>,
 
 	#[arg(index = 1)]
 	pub principal: tg::principal::Selector,
@@ -19,7 +19,7 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::grant::delete::Arg {
 			principal: args.principal.clone(),
-			permissions: args.permissions,
+			permissions: args.permissions.clone(),
 			resource: args.resource.clone(),
 		};
 		client

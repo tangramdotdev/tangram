@@ -57,7 +57,8 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		let permission = tg::grant::Permission::Read;
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
 		let authorized = self.authorize(id.clone(), permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);

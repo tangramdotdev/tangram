@@ -386,19 +386,18 @@ impl Index {
 		{
 			return Ok(true);
 		}
-		if let (
-			tg::Principal::User(user),
-			tg::grant::Permission::Admin
-			| tg::grant::Permission::Read
-			| tg::grant::Permission::Write,
-		) = (context.requester.principal, permission)
+		if let (tg::Principal::User(user), tg::grant::Permission::User(_)) =
+			(context.requester.principal, permission)
 			&& tg::Id::from(user.clone()) == *resource
 		{
 			return Ok(true);
 		}
 		if let (
 			tg::Principal::Sandbox(sandbox),
-			tg::grant::Permission::Read | tg::grant::Permission::Write,
+			tg::grant::Permission::Sandbox(
+				tg::grant::permission::sandbox::Permission::Read
+				| tg::grant::permission::sandbox::Permission::Write,
+			),
 		) = (context.requester.principal, permission)
 			&& tg::Id::from(sandbox.clone()) == *resource
 		{
@@ -406,7 +405,10 @@ impl Index {
 		}
 		if matches!(
 			permission,
-			tg::grant::Permission::Read | tg::grant::Permission::Write
+			tg::grant::Permission::Sandbox(
+				tg::grant::permission::sandbox::Permission::Read
+					| tg::grant::permission::sandbox::Permission::Write
+			)
 		) && resource.kind() == tg::id::Kind::Sandbox
 		{
 			let sandbox = tg::sandbox::Id::try_from(resource.clone())?;
@@ -588,7 +590,12 @@ impl Index {
 					&process,
 					cache,
 				)? {
-					dependencies.push((sandbox.into(), tg::grant::Permission::Read));
+					dependencies.push((
+						sandbox.into(),
+						tg::grant::Permission::Sandbox(
+							tg::grant::permission::sandbox::Permission::Read,
+						),
+					));
 				}
 				let process_parents = Self::get_cached_process_parents_with_transaction(
 					db,
@@ -611,12 +618,17 @@ impl Index {
 					cache,
 				)?);
 			},
-			tg::grant::Permission::Admin
-			| tg::grant::Permission::Read
-			| tg::grant::Permission::Write => {
+			tg::grant::Permission::Group(_)
+			| tg::grant::Permission::Organization(_)
+			| tg::grant::Permission::Sandbox(_)
+			| tg::grant::Permission::Tag(_)
+			| tg::grant::Permission::User(_) => {
 				if matches!(
 					permission,
-					tg::grant::Permission::Read | tg::grant::Permission::Write
+					tg::grant::Permission::Sandbox(
+						tg::grant::permission::sandbox::Permission::Read
+							| tg::grant::permission::sandbox::Permission::Write
+					)
 				) && resource.kind() == tg::id::Kind::Sandbox
 				{
 					let sandbox = tg::sandbox::Id::try_from(resource.clone())?;
@@ -638,7 +650,10 @@ impl Index {
 							tg::Principal::User(id) => Some(tg::Id::from(id)),
 						};
 						if let Some(owner) = owner {
-							dependencies.push((owner, tg::grant::Permission::Write));
+							dependencies.push((
+								owner.clone(),
+								Self::write_permission_for_resource(&owner)?,
+							));
 						}
 					}
 				}
@@ -927,11 +942,35 @@ impl Index {
 				.iter()
 				.any(|tag_permission| tag_permission.implies(permission))
 			{
-				parents.push((tag.into(), tg::grant::Permission::Read));
+				parents.push((
+					tag.into(),
+					tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read),
+				));
 			}
 		}
 		cache.item_tags.insert(key, parents.clone());
 		Ok(parents)
+	}
+
+	fn write_permission_for_resource(resource: &tg::Id) -> tg::Result<tg::grant::Permission> {
+		match resource.kind() {
+			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
+				tg::grant::permission::group::Permission::Write,
+			)),
+			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
+				tg::grant::permission::organization::Permission::Write,
+			)),
+			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
+				tg::grant::permission::sandbox::Permission::Write,
+			)),
+			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
+				tg::grant::permission::tag::Permission::Write,
+			)),
+			tg::id::Kind::User => Ok(tg::grant::Permission::User(
+				tg::grant::permission::user::Permission::Write,
+			)),
+			_ => Err(tg::error!("invalid resource")),
+		}
 	}
 
 	fn get_cached_object_parents_with_transaction(

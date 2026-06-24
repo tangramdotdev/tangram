@@ -175,9 +175,11 @@ impl Index {
 					)?;
 				}
 			},
-			tg::grant::Permission::Admin
-			| tg::grant::Permission::Read
-			| tg::grant::Permission::Write => {},
+			tg::grant::Permission::Group(_)
+			| tg::grant::Permission::Organization(_)
+			| tg::grant::Permission::Sandbox(_)
+			| tg::grant::Permission::Tag(_)
+			| tg::grant::Permission::User(_) => {},
 		}
 		Ok(())
 	}

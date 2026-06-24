@@ -33,12 +33,12 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 	) -> tg::Result<Option<()>> {
-		match self
-			.authorize(organization.clone(), tg::grant::Permission::Admin)
-			.await?
-		{
+		let permission = tg::grant::Permission::Organization(
+			tg::grant::permission::organization::Permission::Admin,
+		);
+		match self.authorize(organization.clone(), permission).await? {
 			None => return Ok(None),
-			Some(permissions) if permissions.contains(tg::grant::Permission::Admin) => (),
+			Some(permissions) if permissions.contains(permission) => (),
 			Some(_) => return Err(tg::error!("unauthorized")),
 		}
 		let session = self.clone();

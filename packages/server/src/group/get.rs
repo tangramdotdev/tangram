@@ -27,7 +27,8 @@ impl Session {
 		&self,
 		group: &tg::group::Selector,
 	) -> tg::Result<Option<tg::Group>> {
-		let permission = tg::grant::Permission::Read;
+		let permission =
+			tg::grant::Permission::Group(tg::grant::permission::group::Permission::Read);
 		let authorized = self.authorize(group.clone(), permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);

@@ -144,10 +144,12 @@ impl Session {
 		}
 		if !arg.pattern.is_empty() && !arg.pattern.contains_operators() {
 			let resource = tg::grant::Resource::Specifier(arg.pattern.to_specifier());
-			let permission = tg::grant::Permission::Read;
-			let authorized = self.authorize(resource, permission).await?;
-			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
-				return Ok(entries.into_iter().map(|(_, entry)| entry).collect());
+			if let Ok(id) = self.resolve_resource(&resource).await {
+				let permission = Self::read_permission_for_resource(&id)?;
+				let authorized = self.authorize(resource, permission).await?;
+				if authorized.is_some_and(|permissions| permissions.contains(permission)) {
+					return Ok(entries.into_iter().map(|(_, entry)| entry).collect());
+				}
 			}
 		}
 		let ids = entries.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();

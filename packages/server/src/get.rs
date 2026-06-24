@@ -152,6 +152,7 @@ impl Session {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		};
+		let permission = Self::read_permission_for_resource(&node.id)?;
 		let visible = self
 			.server
 			.index
@@ -159,12 +160,9 @@ impl Session {
 			.await?
 			.pop()
 			.unwrap() || self
-			.authorize(
-				tg::grant::Resource::Id(node.id.clone()),
-				tg::grant::Permission::Read,
-			)
+			.authorize(tg::grant::Resource::Id(node.id.clone()), permission)
 			.await?
-			.is_some_and(|permissions| permissions.contains(tg::grant::Permission::Read));
+			.is_some_and(|permissions| permissions.contains(permission));
 		if !visible {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
@@ -201,6 +199,7 @@ impl Session {
 			if let Some(node) =
 				Self::try_get_node_by_specifier_with_transaction(&transaction, &specifier).await?
 			{
+				let permission = Self::read_permission_for_resource(&node.id)?;
 				let visible = self
 					.server
 					.index
@@ -208,12 +207,9 @@ impl Session {
 					.await?
 					.pop()
 					.unwrap() || self
-					.authorize(
-						tg::grant::Resource::Id(node.id.clone()),
-						tg::grant::Permission::Read,
-					)
+					.authorize(tg::grant::Resource::Id(node.id.clone()), permission)
 					.await?
-					.is_some_and(|permissions| permissions.contains(tg::grant::Permission::Read));
+					.is_some_and(|permissions| permissions.contains(permission));
 				if !visible {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok(stream.boxed());

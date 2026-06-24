@@ -106,7 +106,8 @@ impl Session {
 				})
 			})
 			.collect::<tg::Result<Vec<tg::sandbox::list::Item>>>()?;
-		let permission = tg::grant::Permission::Read;
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
 		let authorizations = data
 			.iter()
 			.map(|item| {

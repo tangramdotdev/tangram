@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A malformed permission set is rejected before it reaches the server.
+# A malformed permission set is rejected.
 
 let server = spawn --config { authentication: true }
 
@@ -13,9 +13,13 @@ tg --token $alice.token group create team
 let mixed = tg --token $alice.token grant $bob.user.id read,object_node team | complete
 failure $mixed "mixing permission kinds in a set should be rejected"
 snapshot ($mixed.stderr | redact) r#'
-	error: invalid value 'read,object_node' for '<PERMISSIONS>': invalid grant permissions
-	
-	For more information, try '--help'.
+	error an error occurred
+	-> failed to create the grant
+	   principal = <user>
+	   resource = team
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> invalid grant permissions
 
 '#
 
@@ -23,8 +27,12 @@ snapshot ($mixed.stderr | redact) r#'
 let unknown = tg --token $alice.token grant $bob.user.id frobnicate team | complete
 failure $unknown "an unknown permission should be rejected"
 snapshot ($unknown.stderr | redact) r#'
-	error: invalid value 'frobnicate' for '<PERMISSIONS>': invalid grant permission
-	
-	For more information, try '--help'.
+	error an error occurred
+	-> failed to create the grant
+	   principal = <user>
+	   resource = team
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> invalid grant permission
 
 '#

@@ -1,7 +1,12 @@
 use crate::prelude::*;
 
+pub mod group;
 pub mod object;
+pub mod organization;
 pub mod process;
+pub mod sandbox;
+pub mod tag;
+pub mod user;
 
 #[derive(
 	Clone,
@@ -21,17 +26,26 @@ pub mod process;
 #[display(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Permission {
-	Admin,
+	#[display("group_{_0}")]
+	Group(group::Permission),
 
 	#[display("object_{_0}")]
 	Object(object::Permission),
 
+	#[display("organization_{_0}")]
+	Organization(organization::Permission),
+
 	#[display("process_{_0}")]
 	Process(process::Permission),
 
-	Read,
+	#[display("sandbox_{_0}")]
+	Sandbox(sandbox::Permission),
 
-	Write,
+	#[display("tag_{_0}")]
+	Tag(tag::Permission),
+
+	#[display("user_{_0}")]
+	User(user::Permission),
 }
 
 #[derive(
@@ -45,29 +59,86 @@ pub enum Permission {
 	serde_with::SerializeDisplay,
 )]
 pub enum Set {
-	Resource(ResourceSet),
+	Group(group::Set),
 	Object(object::Set),
+	Organization(organization::Set),
 	Process(process::Set),
-}
-
-bitflags::bitflags! {
-	#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-	pub struct ResourceSet: u8 {
-		const READ = 1 << 0;
-		const WRITE = 1 << 1;
-		const ADMIN = 1 << 2;
-	}
+	Sandbox(sandbox::Set),
+	Tag(tag::Set),
+	User(user::Set),
 }
 
 impl Permission {
+	pub fn parse_for_kind(kind: tg::grant::resource::Kind, s: &str) -> tg::Result<Self> {
+		match kind {
+			tg::grant::resource::Kind::Group => {
+				let permission = s
+					.parse()
+					.map_err(|_| tg::error!("invalid grant permission"))?;
+				Ok(Self::Group(permission))
+			},
+			tg::grant::resource::Kind::Object => {
+				let permission = s
+					.parse()
+					.map_err(|_| tg::error!("invalid grant permission"))?;
+				Ok(Self::Object(permission))
+			},
+			tg::grant::resource::Kind::Organization => {
+				let permission = s
+					.parse()
+					.map_err(|_| tg::error!("invalid grant permission"))?;
+				Ok(Self::Organization(permission))
+			},
+			tg::grant::resource::Kind::Process => {
+				let permission = s
+					.parse()
+					.map_err(|_| tg::error!("invalid grant permission"))?;
+				Ok(Self::Process(permission))
+			},
+			tg::grant::resource::Kind::Sandbox => {
+				let permission = s
+					.parse()
+					.map_err(|_| tg::error!("invalid grant permission"))?;
+				Ok(Self::Sandbox(permission))
+			},
+			tg::grant::resource::Kind::Tag => {
+				let permission = s
+					.parse()
+					.map_err(|_| tg::error!("invalid grant permission"))?;
+				Ok(Self::Tag(permission))
+			},
+			tg::grant::resource::Kind::User => {
+				let permission = s
+					.parse()
+					.map_err(|_| tg::error!("invalid grant permission"))?;
+				Ok(Self::User(permission))
+			},
+		}
+	}
+
+	#[must_use]
+	pub fn kind(self) -> tg::grant::resource::Kind {
+		match self {
+			Self::Group(_) => tg::grant::resource::Kind::Group,
+			Self::Object(_) => tg::grant::resource::Kind::Object,
+			Self::Organization(_) => tg::grant::resource::Kind::Organization,
+			Self::Process(_) => tg::grant::resource::Kind::Process,
+			Self::Sandbox(_) => tg::grant::resource::Kind::Sandbox,
+			Self::Tag(_) => tg::grant::resource::Kind::Tag,
+			Self::User(_) => tg::grant::resource::Kind::User,
+		}
+	}
+
 	#[must_use]
 	pub fn implies(self, needed: Self) -> bool {
 		match (self, needed) {
-			(Self::Admin, Self::Admin | Self::Write | Self::Read)
-			| (Self::Write, Self::Write | Self::Read)
-			| (Self::Read, Self::Read) => true,
+			(Self::Group(granted), Self::Group(needed)) => granted.implies(needed),
 			(Self::Object(granted), Self::Object(needed)) => granted.implies(needed),
+			(Self::Organization(granted), Self::Organization(needed)) => granted.implies(needed),
 			(Self::Process(granted), Self::Process(needed)) => granted.implies(needed),
+			(Self::Sandbox(granted), Self::Sandbox(needed)) => granted.implies(needed),
+			(Self::Tag(granted), Self::Tag(needed)) => granted.implies(needed),
+			(Self::User(granted), Self::User(needed)) => granted.implies(needed),
 			_ => false,
 		}
 	}
@@ -84,18 +155,43 @@ impl Permission {
 }
 
 impl Set {
+	pub fn parse_for_kind(kind: tg::grant::resource::Kind, s: &str) -> tg::Result<Self> {
+		let mut permissions: Option<Self> = None;
+		for part in s.split(',') {
+			if part.is_empty() {
+				return Err(tg::error!("invalid grant permissions"));
+			}
+			let permission = part
+				.parse::<Permission>()
+				.or_else(|_| Permission::parse_for_kind(kind, part))?;
+			let next = Self::from_permission(permission);
+			match &mut permissions {
+				Some(permissions) if permissions.kind() == next.kind() => permissions.insert(next),
+				Some(_) => return Err(tg::error!("invalid grant permissions")),
+				None => permissions = Some(next),
+			}
+		}
+		permissions.ok_or_else(|| tg::error!("invalid grant permissions"))
+	}
+
 	#[must_use]
 	pub fn from_permission(permission: Permission) -> Self {
 		match permission {
-			Permission::Admin => Self::Resource(ResourceSet::ADMIN),
-			Permission::Read => Self::Resource(ResourceSet::READ),
-			Permission::Write => Self::Resource(ResourceSet::WRITE),
+			Permission::Group(permission) => Self::Group(group::Set::from_permission(permission)),
 			Permission::Object(permission) => {
 				Self::Object(object::Set::from_permission(permission))
+			},
+			Permission::Organization(permission) => {
+				Self::Organization(organization::Set::from_permission(permission))
 			},
 			Permission::Process(permission) => {
 				Self::Process(process::Set::from_permission(permission))
 			},
+			Permission::Sandbox(permission) => {
+				Self::Sandbox(sandbox::Set::from_permission(permission))
+			},
+			Permission::Tag(permission) => Self::Tag(tag::Set::from_permission(permission)),
+			Permission::User(permission) => Self::User(user::Set::from_permission(permission)),
 		}
 	}
 
@@ -103,79 +199,97 @@ impl Set {
 	pub fn contains(self, other: impl Into<Self>) -> bool {
 		let other = other.into();
 		match (self, other) {
-			(Self::Resource(this), Self::Resource(other)) => this.contains(other),
+			(Self::Group(this), Self::Group(other)) => this.contains(other),
 			(Self::Object(this), Self::Object(other)) => this.contains(other),
+			(Self::Organization(this), Self::Organization(other)) => this.contains(other),
 			(Self::Process(this), Self::Process(other)) => this.contains(other),
+			(Self::Sandbox(this), Self::Sandbox(other)) => this.contains(other),
+			(Self::Tag(this), Self::Tag(other)) => this.contains(other),
+			(Self::User(this), Self::User(other)) => this.contains(other),
 			_ => false,
 		}
 	}
 
 	#[must_use]
-	pub fn empty_like(self) -> Self {
+	pub fn kind(self) -> tg::grant::resource::Kind {
 		match self {
-			Self::Resource(_) => Self::Resource(ResourceSet::empty()),
-			Self::Object(_) => Self::Object(object::Set::empty()),
-			Self::Process(_) => Self::Process(process::Set::empty()),
+			Self::Group(_) => tg::grant::resource::Kind::Group,
+			Self::Object(_) => tg::grant::resource::Kind::Object,
+			Self::Organization(_) => tg::grant::resource::Kind::Organization,
+			Self::Process(_) => tg::grant::resource::Kind::Process,
+			Self::Sandbox(_) => tg::grant::resource::Kind::Sandbox,
+			Self::Tag(_) => tg::grant::resource::Kind::Tag,
+			Self::User(_) => tg::grant::resource::Kind::User,
+		}
+	}
+
+	#[must_use]
+	pub fn empty_like(self) -> Self {
+		Self::empty_for_kind(self.kind())
+	}
+
+	#[must_use]
+	pub fn empty_for_kind(kind: tg::grant::resource::Kind) -> Self {
+		match kind {
+			tg::grant::resource::Kind::Group => Self::Group(group::Set::empty()),
+			tg::grant::resource::Kind::Object => Self::Object(object::Set::empty()),
+			tg::grant::resource::Kind::Organization => {
+				Self::Organization(organization::Set::empty())
+			},
+			tg::grant::resource::Kind::Process => Self::Process(process::Set::empty()),
+			tg::grant::resource::Kind::Sandbox => Self::Sandbox(sandbox::Set::empty()),
+			tg::grant::resource::Kind::Tag => Self::Tag(tag::Set::empty()),
+			tg::grant::resource::Kind::User => Self::User(user::Set::empty()),
 		}
 	}
 
 	#[must_use]
 	pub fn is_empty(self) -> bool {
 		match self {
-			Self::Resource(permissions) => permissions.is_empty(),
+			Self::Group(permissions) => permissions.is_empty(),
 			Self::Object(permissions) => permissions.is_empty(),
+			Self::Organization(permissions) => permissions.is_empty(),
 			Self::Process(permissions) => permissions.is_empty(),
+			Self::Sandbox(permissions) => permissions.is_empty(),
+			Self::Tag(permissions) => permissions.is_empty(),
+			Self::User(permissions) => permissions.is_empty(),
 		}
 	}
 
 	pub fn insert(&mut self, other: Self) {
 		match (self, other) {
-			(Self::Resource(this), Self::Resource(other)) => this.insert(other),
+			(Self::Group(this), Self::Group(other)) => this.insert(other),
 			(Self::Object(this), Self::Object(other)) => this.insert(other),
+			(Self::Organization(this), Self::Organization(other)) => this.insert(other),
 			(Self::Process(this), Self::Process(other)) => this.insert(other),
+			(Self::Sandbox(this), Self::Sandbox(other)) => this.insert(other),
+			(Self::Tag(this), Self::Tag(other)) => this.insert(other),
+			(Self::User(this), Self::User(other)) => this.insert(other),
 			_ => {},
 		}
 	}
 
 	pub fn remove(&mut self, other: Self) {
 		match (self, other) {
-			(Self::Resource(this), Self::Resource(other)) => this.remove(other),
+			(Self::Group(this), Self::Group(other)) => this.remove(other),
 			(Self::Object(this), Self::Object(other)) => this.remove(other),
+			(Self::Organization(this), Self::Organization(other)) => this.remove(other),
 			(Self::Process(this), Self::Process(other)) => this.remove(other),
+			(Self::Sandbox(this), Self::Sandbox(other)) => this.remove(other),
+			(Self::Tag(this), Self::Tag(other)) => this.remove(other),
+			(Self::User(this), Self::User(other)) => this.remove(other),
 			_ => {},
 		}
 	}
 
 	#[must_use]
 	pub fn same_kind(self, other: Self) -> bool {
-		matches!(
-			(self, other),
-			(Self::Resource(_), Self::Resource(_))
-				| (Self::Object(_), Self::Object(_))
-				| (Self::Process(_), Self::Process(_))
-		)
+		self.kind() == other.kind()
 	}
 
 	pub fn iter(self) -> impl Iterator<Item = Permission> {
 		let entries = match self {
-			Self::Resource(permissions) => [
-				permissions
-					.contains(ResourceSet::READ)
-					.then_some(Permission::Read),
-				permissions
-					.contains(ResourceSet::WRITE)
-					.then_some(Permission::Write),
-				permissions
-					.contains(ResourceSet::ADMIN)
-					.then_some(Permission::Admin),
-				None,
-				None,
-				None,
-				None,
-				None,
-				None,
-				None,
-			],
+			Self::Group(permissions) => Self::group_entries(permissions),
 			Self::Object(permissions) => [
 				permissions
 					.contains(object::Set::NODE)
@@ -192,6 +306,7 @@ impl Set {
 				None,
 				None,
 			],
+			Self::Organization(permissions) => Self::organization_entries(permissions),
 			Self::Process(permissions) => [
 				Self::process_entry(permissions, process::Permission::Node),
 				Self::process_entry(permissions, process::Permission::NodeCommand),
@@ -204,8 +319,56 @@ impl Set {
 				Self::process_entry(permissions, process::Permission::SubtreeLog),
 				Self::process_entry(permissions, process::Permission::SubtreeOutput),
 			],
+			Self::Sandbox(permissions) => Self::sandbox_entries(permissions),
+			Self::Tag(permissions) => Self::tag_entries(permissions),
+			Self::User(permissions) => Self::user_entries(permissions),
 		};
 		entries.into_iter().flatten()
+	}
+
+	fn group_entries(permissions: group::Set) -> [Option<Permission>; 10] {
+		[
+			Self::group_entry(permissions, group::Permission::Read),
+			Self::group_entry(permissions, group::Permission::Write),
+			Self::group_entry(permissions, group::Permission::Admin),
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+		]
+	}
+
+	fn group_entry(permissions: group::Set, permission: group::Permission) -> Option<Permission> {
+		permissions
+			.contains(group::Set::from_permission(permission))
+			.then_some(Permission::Group(permission))
+	}
+
+	fn organization_entries(permissions: organization::Set) -> [Option<Permission>; 10] {
+		[
+			Self::organization_entry(permissions, organization::Permission::Read),
+			Self::organization_entry(permissions, organization::Permission::Write),
+			Self::organization_entry(permissions, organization::Permission::Admin),
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+		]
+	}
+
+	fn organization_entry(
+		permissions: organization::Set,
+		permission: organization::Permission,
+	) -> Option<Permission> {
+		permissions
+			.contains(organization::Set::from_permission(permission))
+			.then_some(Permission::Organization(permission))
 	}
 
 	fn process_entry(
@@ -215,6 +378,72 @@ impl Set {
 		permissions
 			.contains(process::Set::from_permission(permission))
 			.then_some(Permission::Process(permission))
+	}
+
+	fn sandbox_entries(permissions: sandbox::Set) -> [Option<Permission>; 10] {
+		[
+			Self::sandbox_entry(permissions, sandbox::Permission::Read),
+			Self::sandbox_entry(permissions, sandbox::Permission::Write),
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+		]
+	}
+
+	fn sandbox_entry(
+		permissions: sandbox::Set,
+		permission: sandbox::Permission,
+	) -> Option<Permission> {
+		permissions
+			.contains(sandbox::Set::from_permission(permission))
+			.then_some(Permission::Sandbox(permission))
+	}
+
+	fn tag_entries(permissions: tag::Set) -> [Option<Permission>; 10] {
+		[
+			Self::tag_entry(permissions, tag::Permission::Read),
+			Self::tag_entry(permissions, tag::Permission::Write),
+			Self::tag_entry(permissions, tag::Permission::Admin),
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+		]
+	}
+
+	fn tag_entry(permissions: tag::Set, permission: tag::Permission) -> Option<Permission> {
+		permissions
+			.contains(tag::Set::from_permission(permission))
+			.then_some(Permission::Tag(permission))
+	}
+
+	fn user_entries(permissions: user::Set) -> [Option<Permission>; 10] {
+		[
+			Self::user_entry(permissions, user::Permission::Read),
+			Self::user_entry(permissions, user::Permission::Write),
+			Self::user_entry(permissions, user::Permission::Admin),
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+		]
+	}
+
+	fn user_entry(permissions: user::Set, permission: user::Permission) -> Option<Permission> {
+		permissions
+			.contains(user::Set::from_permission(permission))
+			.then_some(Permission::User(permission))
 	}
 }
 
@@ -260,11 +489,23 @@ impl std::str::FromStr for Permission {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if let Some(s) = s.strip_prefix("group_") {
+			let permission = s
+				.parse()
+				.map_err(|_| tg::error!("invalid grant permission"))?;
+			return Ok(Self::Group(permission));
+		}
 		if let Some(s) = s.strip_prefix("object_") {
 			let permission = s
 				.parse()
 				.map_err(|_| tg::error!("invalid grant permission"))?;
 			return Ok(Self::Object(permission));
+		}
+		if let Some(s) = s.strip_prefix("organization_") {
+			let permission = s
+				.parse()
+				.map_err(|_| tg::error!("invalid grant permission"))?;
+			return Ok(Self::Organization(permission));
 		}
 		if let Some(s) = s.strip_prefix("process_") {
 			let permission = s
@@ -272,29 +513,55 @@ impl std::str::FromStr for Permission {
 				.map_err(|_| tg::error!("invalid grant permission"))?;
 			return Ok(Self::Process(permission));
 		}
-		match s {
-			"admin" => Ok(Self::Admin),
-			"read" => Ok(Self::Read),
-			"write" => Ok(Self::Write),
-			_ => Err(tg::error!("invalid grant permission")),
+		if let Some(s) = s.strip_prefix("sandbox_") {
+			let permission = s
+				.parse()
+				.map_err(|_| tg::error!("invalid grant permission"))?;
+			return Ok(Self::Sandbox(permission));
 		}
+		if let Some(s) = s.strip_prefix("tag_") {
+			let permission = s
+				.parse()
+				.map_err(|_| tg::error!("invalid grant permission"))?;
+			return Ok(Self::Tag(permission));
+		}
+		if let Some(s) = s.strip_prefix("user_") {
+			let permission = s
+				.parse()
+				.map_err(|_| tg::error!("invalid grant permission"))?;
+			return Ok(Self::User(permission));
+		}
+		Err(tg::error!("invalid grant permission"))
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use super::{Permission, object, process};
+	use super::{Permission, group, object, organization, process, sandbox, tag, user};
+	use crate as tg;
 
 	#[test]
 	fn display_from_str_round_trip() {
 		let permissions = [
-			(Permission::Admin, "admin"),
-			(Permission::Read, "read"),
-			(Permission::Write, "write"),
+			(Permission::Group(group::Permission::Admin), "group_admin"),
+			(Permission::Group(group::Permission::Read), "group_read"),
+			(Permission::Group(group::Permission::Write), "group_write"),
 			(Permission::Object(object::Permission::Node), "object_node"),
 			(
 				Permission::Object(object::Permission::Subtree),
 				"object_subtree",
+			),
+			(
+				Permission::Organization(organization::Permission::Admin),
+				"organization_admin",
+			),
+			(
+				Permission::Organization(organization::Permission::Read),
+				"organization_read",
+			),
+			(
+				Permission::Organization(organization::Permission::Write),
+				"organization_write",
 			),
 			(
 				Permission::Process(process::Permission::Node),
@@ -336,6 +603,20 @@ mod tests {
 				Permission::Process(process::Permission::SubtreeOutput),
 				"process_subtree_output",
 			),
+			(
+				Permission::Sandbox(sandbox::Permission::Read),
+				"sandbox_read",
+			),
+			(
+				Permission::Sandbox(sandbox::Permission::Write),
+				"sandbox_write",
+			),
+			(Permission::Tag(tag::Permission::Admin), "tag_admin"),
+			(Permission::Tag(tag::Permission::Read), "tag_read"),
+			(Permission::Tag(tag::Permission::Write), "tag_write"),
+			(Permission::User(user::Permission::Admin), "user_admin"),
+			(Permission::User(user::Permission::Read), "user_read"),
+			(Permission::User(user::Permission::Write), "user_write"),
 		];
 		for (permission, string) in permissions {
 			assert_eq!(permission.to_string(), string);
@@ -345,11 +626,26 @@ mod tests {
 
 	#[test]
 	fn implies() {
-		assert!(Permission::Admin.implies(Permission::Read));
-		assert!(Permission::Admin.implies(Permission::Write));
-		assert!(Permission::Write.implies(Permission::Read));
-		assert!(!Permission::Read.implies(Permission::Write));
-		assert!(!Permission::Write.implies(Permission::Admin));
+		assert!(
+			Permission::Group(group::Permission::Admin)
+				.implies(Permission::Group(group::Permission::Read))
+		);
+		assert!(
+			Permission::Group(group::Permission::Admin)
+				.implies(Permission::Group(group::Permission::Write))
+		);
+		assert!(
+			Permission::Group(group::Permission::Write)
+				.implies(Permission::Group(group::Permission::Read))
+		);
+		assert!(
+			!Permission::Group(group::Permission::Read)
+				.implies(Permission::Group(group::Permission::Write))
+		);
+		assert!(
+			!Permission::Group(group::Permission::Write)
+				.implies(Permission::Group(group::Permission::Admin))
+		);
 		assert!(
 			Permission::Object(object::Permission::Subtree)
 				.implies(Permission::Object(object::Permission::Node))
@@ -370,7 +666,28 @@ mod tests {
 			!Permission::Process(process::Permission::Subtree)
 				.implies(Permission::Process(process::Permission::NodeOutput))
 		);
-		assert!(!Permission::Read.implies(Permission::Object(object::Permission::Node)));
-		assert!(!Permission::Admin.implies(Permission::Process(process::Permission::Node)));
+		assert!(
+			!Permission::Group(group::Permission::Read)
+				.implies(Permission::Object(object::Permission::Node))
+		);
+		assert!(
+			!Permission::Group(group::Permission::Admin)
+				.implies(Permission::Process(process::Permission::Node))
+		);
+	}
+
+	#[test]
+	fn parse_for_kind() {
+		assert_eq!(
+			super::Set::parse_for_kind(tg::grant::resource::Kind::Group, "read,write").unwrap(),
+			super::Set::Group({
+				let mut set = super::group::Set::empty();
+				set.insert(super::group::Set::READ);
+				set.insert(super::group::Set::WRITE);
+				set
+			})
+		);
+
+		assert!(super::Set::parse_for_kind(tg::grant::resource::Kind::Sandbox, "admin").is_err());
 	}
 }

@@ -31,16 +31,16 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 		for item in &arg.tags {
-			let authorized = self
-				.authorize(
-					tg::grant::Resource::Specifier(item.specifier.clone()),
-					tg::grant::Permission::Write,
-				)
-				.await?;
-			if authorized
-				.is_some_and(|permissions| !permissions.contains(tg::grant::Permission::Write))
-			{
-				return Err(tg::error!("unauthorized"));
+			if let Some(permission) = self.write_permission_for_specifier(&item.specifier).await? {
+				let authorized = self
+					.authorize(
+						tg::grant::Resource::Specifier(item.specifier.clone()),
+						permission,
+					)
+					.await?;
+				if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
+					return Err(tg::error!("unauthorized"));
+				}
 			}
 		}
 		let mut permissions = Vec::with_capacity(arg.tags.len());

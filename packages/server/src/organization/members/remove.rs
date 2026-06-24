@@ -39,7 +39,9 @@ impl Session {
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
 	) -> tg::Result<Option<()>> {
-		let permission = tg::grant::Permission::Admin;
+		let permission = tg::grant::Permission::Organization(
+			tg::grant::permission::organization::Permission::Admin,
+		);
 		match self.authorize(organization.clone(), permission).await? {
 			None => return Ok(None),
 			Some(permissions) if permissions.contains(permission) => (),
@@ -139,7 +141,12 @@ impl Session {
 		};
 		let arg = tg::grant::delete::Arg {
 			principal: principal.into(),
-			permissions: tg::grant::Permission::Write.into(),
+			permissions: tg::Either::Left(
+				tg::grant::Permission::Organization(
+					tg::grant::permission::organization::Permission::Write,
+				)
+				.into(),
+			),
 			resource: tg::grant::Resource::Id(organization.id.clone()),
 		};
 		self.delete_grant_with_transaction(transaction, arg, batch)

@@ -1633,7 +1633,8 @@ impl Session {
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		owner: Option<&tg::Principal>,
 	) -> tg::Result<()> {
-		let permission = tg::grant::Permission::Write;
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
 		let authorized = if matches!(self.context.principal, tg::Principal::Process(_))
 			&& parent_sandbox.is_some_and(|parent_sandbox| parent_sandbox == sandbox)
 		{

@@ -13,7 +13,7 @@ tg --token $alice.token grant $bob.user.id read,write team
 # Revoking only write leaves read on the grant record.
 tg --token $alice.token revoke $bob.user.id write team
 let grants = tg --token $alice.token grants list --resource team | from json
-assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "read" }) "the grant should retain read after revoking write"
+assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "group_read" }) "the grant should retain read after revoking write"
 
 # Bob keeps read access but loses the write operation of creating a subgroup.
 tg --token $bob.token group get team

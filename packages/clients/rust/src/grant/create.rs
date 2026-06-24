@@ -6,7 +6,7 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub principal: tg::principal::Selector,
-	pub permissions: tg::grant::permission::Set,
+	pub permissions: tg::Either<tg::grant::permission::Set, String>,
 	pub resource: tg::grant::Resource,
 }
 

@@ -88,12 +88,14 @@ impl Session {
 			let authorized = self
 				.authorize(
 					tg::grant::Resource::Id(tag.id.clone().into()),
-					tg::grant::Permission::Write,
+					tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write),
 				)
 				.await?;
-			if !authorized
-				.is_some_and(|permissions| permissions.contains(tg::grant::Permission::Write))
-			{
+			if !authorized.is_some_and(|permissions| {
+				permissions.contains(tg::grant::Permission::Tag(
+					tg::grant::permission::tag::Permission::Write,
+				))
+			}) {
 				return Err(tg::error!("unauthorized"));
 			}
 		}

@@ -13,25 +13,26 @@ use {
 
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
-		match &arg.resource {
-			tg::grant::Resource::Id(id)
-				if tg::object::Id::try_from(id.clone()).is_ok()
-					|| id.kind() == tg::id::Kind::Process =>
+		let resource = self.resolve_resource(&arg.resource).await?;
+		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
+		match &resource {
+			id if tg::object::Id::try_from(id.clone()).is_ok()
+				|| id.kind() == tg::id::Kind::Process =>
 			{
-				tangram_index::authorize::validate(id, arg.permissions)?;
+				tangram_index::authorize::validate(id, permissions)?;
 				if self
-					.authorize(arg.resource.clone(), arg.permissions)
+					.authorize(tg::grant::Resource::Id(resource.clone()), permissions)
 					.await?
-					.is_none_or(|permissions| !permissions.contains(arg.permissions))
+					.is_none_or(|authorized| !authorized.contains(permissions))
 				{
 					return Err(tg::error!("failed to find the resource"));
 				}
 			},
 			_ => {
 				// The resource is not found without read permission, so creating a grant does not reveal whether a resource the actor cannot see exists.
-				let permission = tg::grant::Permission::Read;
+				let permission = Self::read_permission_for_resource(&resource)?;
 				if self
-					.authorize(arg.resource.clone(), permission)
+					.authorize(tg::grant::Resource::Id(resource.clone()), permission)
 					.await?
 					.is_none_or(|permissions| !permissions.contains(permission))
 				{
@@ -39,9 +40,9 @@ impl Session {
 				}
 
 				// Creating a grant requires admin permission on the resource.
-				let permission = tg::grant::Permission::Admin;
+				let permission = Self::admin_permission_for_resource(&resource)?;
 				if self
-					.authorize(arg.resource.clone(), permission)
+					.authorize(tg::grant::Resource::Id(resource.clone()), permission)
 					.await?
 					.is_none_or(|permissions| !permissions.contains(permission))
 				{
@@ -54,9 +55,10 @@ impl Session {
 			.server
 			.database
 			.run(|transaction| {
-				let arg = arg.clone();
+				let mut arg = arg.clone();
 				let session = session.clone();
 				async move {
+					arg.permissions = tg::Either::Left(permissions);
 					let mut batch = tangram_index::batch::Arg::default();
 					let (grant, inserted) = session
 						.create_grant_with_transaction(transaction, arg, &mut batch)
@@ -80,17 +82,21 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
-		match &arg.resource {
-			tg::grant::Resource::Id(id)
-				if tg::object::Id::try_from(id.clone()).is_ok()
-					|| id.kind() == tg::id::Kind::Process =>
+		let resource = self.resolve_resource(&arg.resource).await?;
+		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
+		match &resource {
+			id if tg::object::Id::try_from(id.clone()).is_ok()
+				|| id.kind() == tg::id::Kind::Process =>
 			{
 				// A grant on an object or process may be revoked only by its creator, which is enforced by the creator scoping in the transaction, so being able to read the resource confers no power to revoke another principal's grant.
 			},
 			_ => {
 				// Revoking a grant on a user, group, organization, or tag requires admin permission on the resource.
-				let permission = tg::grant::Permission::Admin;
-				match self.authorize(arg.resource.clone(), permission).await? {
+				let permission = Self::admin_permission_for_resource(&resource)?;
+				match self
+					.authorize(tg::grant::Resource::Id(resource.clone()), permission)
+					.await?
+				{
 					None => return Ok(None),
 					Some(permissions) if permissions.contains(permission) => (),
 					Some(_) => return Err(tg::error!("unauthorized")),
@@ -102,9 +108,10 @@ impl Session {
 			.server
 			.database
 			.run(|transaction| {
-				let arg = arg.clone();
+				let mut arg = arg.clone();
 				let session = session.clone();
 				async move {
+					arg.permissions = tg::Either::Left(permissions);
 					let mut batch = tangram_index::batch::Arg::default();
 					let output = session
 						.delete_grant_with_transaction(transaction, arg, &mut batch)
@@ -133,7 +140,8 @@ impl Session {
 		let resource = Self::resolve_resource_with_transaction(transaction, &arg.resource)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
-		tangram_index::authorize::validate(&resource, arg.permissions)?;
+		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
+		tangram_index::authorize::validate(&resource, permissions)?;
 		let principal = Self::resolve_principal_with_transaction(transaction, &arg.principal)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the principal"))?;
@@ -171,14 +179,14 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let (created_at, output_creator, permissions, changed) = if let Some(row) = row {
-			let mut permissions = row.permissions;
-			permissions.insert(arg.permissions);
-			if permissions == row.permissions {
+			let mut updated_permissions = row.permissions;
+			updated_permissions.insert(permissions);
+			if updated_permissions == row.permissions {
 				return Ok((
 					tg::Grant {
 						created_at: row.created_at,
 						creator: Some(row.creator),
-						permissions,
+						permissions: updated_permissions,
 						principal,
 						resource,
 					},
@@ -198,13 +206,13 @@ impl Session {
 					db::params![
 						resource.to_string(),
 						principal.to_string(),
-						permissions.to_string(),
+						updated_permissions.to_string(),
 						creator_string.clone()
 					],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			(row.created_at, Some(row.creator), permissions, true)
+			(row.created_at, Some(row.creator), updated_permissions, true)
 		} else {
 			let statement = formatdoc!(
 				"
@@ -218,14 +226,14 @@ impl Session {
 					db::params![
 						resource.to_string(),
 						principal.to_string(),
-						arg.permissions.to_string(),
+						permissions.to_string(),
 						created_at,
 						creator_string
 					],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			(created_at, Some(creator.clone()), arg.permissions, true)
+			(created_at, Some(creator.clone()), permissions, true)
 		};
 		batch.put_grants.push(tangram_index::grant::put::Arg {
 			created_at,
@@ -258,7 +266,8 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		tangram_index::authorize::validate(&resource, arg.permissions)?;
+		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
+		tangram_index::authorize::validate(&resource, permissions)?;
 		let Some(principal) =
 			Self::resolve_principal_with_transaction(transaction, &arg.principal).await?
 		else {
@@ -297,7 +306,7 @@ impl Session {
 			return Ok(None);
 		};
 		let mut remaining = row.permissions;
-		remaining.remove(arg.permissions);
+		remaining.remove(permissions);
 		if remaining == row.permissions {
 			return Ok(None);
 		}
@@ -342,7 +351,7 @@ impl Session {
 		}
 		let mut deleted = row.permissions.empty_like();
 		for permission in row.permissions.iter() {
-			if arg.permissions.contains(permission) {
+			if permissions.contains(permission) {
 				deleted.insert(permission.into());
 			}
 		}
@@ -356,6 +365,108 @@ impl Session {
 			});
 		}
 		Ok(Some(()))
+	}
+
+	pub(crate) async fn resolve_resource(
+		&self,
+		resource: &tg::grant::Resource,
+	) -> tg::Result<tg::Id> {
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		Self::resolve_resource_with_transaction(&transaction, resource)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the resource"))
+	}
+
+	fn normalize_grant_permissions(
+		resource: &tg::Id,
+		permissions: tg::Either<tg::grant::permission::Set, String>,
+	) -> tg::Result<tg::grant::permission::Set> {
+		match permissions {
+			tg::Either::Left(permissions) => Ok(permissions),
+			tg::Either::Right(permissions) => {
+				let kind = tg::grant::resource::Kind::from_id_kind(resource.kind())
+					.ok_or_else(|| tg::error!("invalid resource"))?;
+				tg::grant::permission::Set::parse_for_kind(kind, &permissions)
+			},
+		}
+	}
+
+	pub(crate) fn read_permission_for_resource(
+		resource: &tg::Id,
+	) -> tg::Result<tg::grant::Permission> {
+		match resource.kind() {
+			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
+				tg::grant::permission::group::Permission::Read,
+			)),
+			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
+				tg::grant::permission::organization::Permission::Read,
+			)),
+			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
+				tg::grant::permission::sandbox::Permission::Read,
+			)),
+			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
+				tg::grant::permission::tag::Permission::Read,
+			)),
+			tg::id::Kind::User => Ok(tg::grant::Permission::User(
+				tg::grant::permission::user::Permission::Read,
+			)),
+			_ => Err(tg::error!("invalid resource")),
+		}
+	}
+
+	pub(crate) fn admin_permission_for_resource(
+		resource: &tg::Id,
+	) -> tg::Result<tg::grant::Permission> {
+		match resource.kind() {
+			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
+				tg::grant::permission::group::Permission::Admin,
+			)),
+			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
+				tg::grant::permission::organization::Permission::Admin,
+			)),
+			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
+				tg::grant::permission::sandbox::Permission::Write,
+			)),
+			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
+				tg::grant::permission::tag::Permission::Admin,
+			)),
+			tg::id::Kind::User => Ok(tg::grant::Permission::User(
+				tg::grant::permission::user::Permission::Admin,
+			)),
+			_ => Err(tg::error!("invalid resource")),
+		}
+	}
+
+	pub(crate) fn write_permission_for_resource(
+		resource: &tg::Id,
+	) -> tg::Result<tg::grant::Permission> {
+		match resource.kind() {
+			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
+				tg::grant::permission::group::Permission::Write,
+			)),
+			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
+				tg::grant::permission::organization::Permission::Write,
+			)),
+			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
+				tg::grant::permission::sandbox::Permission::Write,
+			)),
+			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
+				tg::grant::permission::tag::Permission::Write,
+			)),
+			tg::id::Kind::User => Ok(tg::grant::Permission::User(
+				tg::grant::permission::user::Permission::Write,
+			)),
+			_ => Err(tg::error!("invalid resource")),
+		}
 	}
 
 	pub(crate) async fn delete_node_grants_with_transaction(
@@ -491,7 +602,8 @@ impl Session {
 			return Ok(Some(tg::grant::list::Output { data }));
 		}
 		// Listing the grants on a node requires admin permission, and the node is not found without read permission.
-		let read = tg::grant::Permission::Read;
+		let id = self.resolve_resource(&resource).await?;
+		let read = Self::read_permission_for_resource(&id)?;
 		if !self
 			.authorize(resource.clone(), read)
 			.await?
@@ -499,7 +611,7 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		let admin = tg::grant::Permission::Admin;
+		let admin = Self::admin_permission_for_resource(&id)?;
 		if !self
 			.authorize(resource.clone(), admin)
 			.await?
@@ -517,10 +629,6 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(id) = Self::resolve_resource_with_transaction(&transaction, &resource).await?
-		else {
-			return Ok(None);
-		};
 		let data = Self::list_resource_grants_with_transaction(&transaction, &id).await?;
 		Ok(Some(tg::grant::list::Output { data }))
 	}
@@ -555,7 +663,7 @@ impl Session {
 					tg::grant::Principal::User(id) => id.clone().into(),
 					_ => unreachable!(),
 				};
-				let read = tg::grant::Permission::Read;
+				let read = Self::read_permission_for_resource(&id)?;
 				if !self
 					.authorize(tg::grant::Resource::Id(id.clone()), read)
 					.await?
@@ -563,7 +671,7 @@ impl Session {
 				{
 					return Ok(None);
 				}
-				let admin = tg::grant::Permission::Admin;
+				let admin = Self::admin_permission_for_resource(&id)?;
 				if !self
 					.authorize(tg::grant::Resource::Id(id), admin)
 					.await?

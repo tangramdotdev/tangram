@@ -31,7 +31,7 @@ impl Session {
 	}
 
 	async fn try_get_user_local(&self, user: &tg::user::Selector) -> tg::Result<Option<tg::User>> {
-		let permission = tg::grant::Permission::Read;
+		let permission = tg::grant::Permission::User(tg::grant::permission::user::Permission::Read);
 		let authorized = self.authorize(user.clone(), permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
