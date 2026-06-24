@@ -71,13 +71,8 @@ snapshot ($checksum_output.stderr | redact $checksum_path | normalize_ids) '
 	error an error occurred
 	-> the process failed
 	   id = <process>
-	-> the syscall failed
-	   name = handle_process_spawn
-	-> failed to deserialize the args
-	-> failed to deserialize the first value
-	-> failed to deserialize the value from v8
-	-> invalid algorithm
-	-> invalid algorithm
+	-> failed to deserialize the request body
+	-> invalid algorithm at line 1 column 18
 
 '
 
