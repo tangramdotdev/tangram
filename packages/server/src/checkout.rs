@@ -136,10 +136,8 @@ impl Session {
 					);
 				if let Err(error) = result {
 					tracing::warn!(error = %error.trace());
-					progress.log(
-						Some(tg::progress::Level::Warning),
-						"failed to ensure the artifact is stored and authorized".into(),
-					);
+					progress.error(error);
+					return;
 				}
 
 				progress.spinner("checkout", "checkout");
@@ -289,9 +287,34 @@ impl Session {
 			progress.forward(Ok(event));
 		}
 
+		let stored = self
+			.server
+			.index
+			.try_get_object(&artifact.clone().into())
+			.await
+			.map_err(
+				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored and authorized"),
+			)?
+			.map(|object| object.stored)
+			.unwrap_or_default();
+		if stored.subtree {
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let authorized = self
+				.authorize(
+					artifact.clone(),
+					tg::grant::permission::Set::from_permission(permission),
+				)
+				.await?;
+			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				progress.finish_all();
+				return Ok(());
+			}
+		}
+
 		progress.finish_all();
 
-		Ok(())
+		Err(tg::error!("failed to find the artifact"))
 	}
 
 	async fn checkout_task(
