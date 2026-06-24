@@ -1110,6 +1110,7 @@ impl Session {
 							metadata,
 							output: Some((!output.is_empty()).then_some(output)),
 							parent: None,
+							sandbox: None,
 							stored,
 							touched_at,
 						};

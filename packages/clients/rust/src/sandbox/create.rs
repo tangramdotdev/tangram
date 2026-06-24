@@ -30,6 +30,9 @@ pub struct Arg {
 	pub network: Option<tg::sandbox::Network>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub owner: Option<tg::Principal>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub ttl: Option<Duration>,
 

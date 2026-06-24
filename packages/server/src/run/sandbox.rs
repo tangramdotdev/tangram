@@ -269,6 +269,7 @@ impl Session {
 			mounts,
 			network,
 			nice: self.server.config.sandbox.nice,
+			owner: state.owner.clone(),
 			path: temp.path().to_owned(),
 			rootfs_path,
 			tangram_path: self.server.tangram_path.clone(),

@@ -18,6 +18,7 @@ pub(super) enum Request {
 	PutOrganizationMembers(Vec<crate::organization::member::put::Arg>),
 	PutOrganizations(Vec<crate::organization::put::Arg>),
 	PutProcesses(Vec<crate::process::put::Arg>),
+	PutSandboxes(Vec<crate::sandbox::put::Arg>),
 	PutTags(Vec<crate::tag::put::Arg>),
 	PutUsers(Vec<crate::user::put::Arg>),
 	TouchCacheEntries(TouchCacheEntries),
@@ -77,6 +78,7 @@ pub(super) enum Item {
 	PutOrganization(crate::organization::put::Arg),
 	PutOrganizationMember(crate::organization::member::put::Arg),
 	PutProcess(crate::process::put::Arg),
+	PutSandbox(crate::sandbox::put::Arg),
 	PutTag(crate::tag::put::Arg),
 	PutUser(crate::user::put::Arg),
 	TouchCacheEntry(tg::artifact::Id),
@@ -106,6 +108,7 @@ pub(super) enum Kind {
 	PutOrganizationMembers,
 	PutOrganizations,
 	PutProcesses,
+	PutSandboxes,
 	PutTags,
 	PutUsers,
 	TouchCacheEntries {

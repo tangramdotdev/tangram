@@ -28,7 +28,12 @@ impl Session {
 					tg::Principal::Root => self.list_remotes_root().await,
 					tg::Principal::Runner => self.list_remotes_runner().await,
 					tg::Principal::User(user) => self.list_remotes_user(&user).await,
-					_ => unreachable!(),
+					tg::Principal::Group(_) | tg::Principal::Organization(_) => {
+						Err(tg::error!("unauthorized"))
+					},
+					tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
+						Err(tg::error!("unauthorized"))
+					},
 				}
 			},
 			tg::Principal::Root => self.list_remotes_root().await,

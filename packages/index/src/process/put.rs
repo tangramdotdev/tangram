@@ -10,6 +10,7 @@ pub struct Arg {
 	pub metadata: tg::process::Metadata,
 	pub output: Option<Option<Vec<tg::object::Id>>>,
 	pub parent: Option<tg::process::Id>,
+	pub sandbox: Option<tg::sandbox::Id>,
 	pub stored: Stored,
 	pub touched_at: i64,
 }

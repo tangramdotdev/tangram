@@ -14,6 +14,7 @@ pub mod group;
 pub mod object;
 pub mod organization;
 pub mod process;
+pub mod sandbox;
 pub mod tag;
 pub mod user;
 

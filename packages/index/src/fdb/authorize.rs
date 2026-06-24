@@ -20,7 +20,9 @@ struct Cache {
 	organization_members: HashMap<tg::organization::Id, Vec<tg::Id>>,
 	principal_contains_requester: HashMap<tg::grant::Principal, bool>,
 	process_parents: HashMap<tg::process::Id, Vec<tg::process::Id>>,
+	process_sandboxes: HashMap<tg::process::Id, Option<tg::sandbox::Id>>,
 	resource_grants: HashMap<tg::Id, Vec<(tg::grant::Principal, tg::grant::Permission)>>,
+	sandbox_owners: HashMap<tg::sandbox::Id, Option<tg::Principal>>,
 }
 
 struct Requester<'a> {
@@ -77,7 +79,9 @@ impl Cache {
 		self.principal_contains_requester
 			.extend(other.principal_contains_requester);
 		self.process_parents.extend(other.process_parents);
+		self.process_sandboxes.extend(other.process_sandboxes);
 		self.resource_grants.extend(other.resource_grants);
+		self.sandbox_owners.extend(other.sandbox_owners);
 	}
 }
 
@@ -486,6 +490,42 @@ impl Index {
 		{
 			return Ok(true);
 		}
+		if let (
+			Some(tg::Principal::Sandbox(sandbox)),
+			tg::grant::Permission::Read | tg::grant::Permission::Write,
+		) = (context.requester.principal, permission)
+			&& tg::Id::from(sandbox.clone()) == *resource
+		{
+			return Ok(true);
+		}
+		if matches!(
+			permission,
+			tg::grant::Permission::Read | tg::grant::Permission::Write
+		) && resource.kind() == tg::id::Kind::Sandbox
+		{
+			let sandbox = tg::sandbox::Id::try_from(resource.clone())?;
+			if let Some(owner) = Self::get_cached_sandbox_owner_with_transaction(
+				context.txn,
+				context.subspace,
+				&sandbox,
+				cache,
+			)
+			.await?
+			{
+				let owner = tg::grant::Principal::from(owner);
+				if Self::principal_contains_requester_with_transaction(
+					context.txn,
+					context.subspace,
+					&owner,
+					context.requester,
+					cache,
+				)
+				.await?
+				{
+					return Ok(true);
+				}
+			}
+		}
 
 		let grants = Self::get_cached_resource_grants_with_transaction(
 			context.txn,
@@ -645,6 +685,13 @@ impl Index {
 			},
 			tg::grant::Permission::Process(process_permission) => {
 				let process = tg::process::Id::try_from(resource.clone())?;
+				if let Some(sandbox) = Self::get_cached_process_sandbox_with_transaction(
+					txn, subspace, &process, cache,
+				)
+				.await?
+				{
+					dependencies.push((sandbox.into(), tg::grant::Permission::Read));
+				}
 				let process_parents = Self::get_cached_process_parents_with_transaction(
 					txn, subspace, &process, cache,
 				)
@@ -669,6 +716,30 @@ impl Index {
 			tg::grant::Permission::Admin
 			| tg::grant::Permission::Read
 			| tg::grant::Permission::Write => {
+				if matches!(
+					permission,
+					tg::grant::Permission::Read | tg::grant::Permission::Write
+				) && resource.kind() == tg::id::Kind::Sandbox
+				{
+					let sandbox = tg::sandbox::Id::try_from(resource.clone())?;
+					if let Some(owner) = Self::get_cached_sandbox_owner_with_transaction(
+						txn, subspace, &sandbox, cache,
+					)
+					.await?
+					{
+						let owner = match owner {
+							tg::Principal::Group(id) => Some(tg::Id::from(id)),
+							tg::Principal::Organization(id) => Some(tg::Id::from(id)),
+							tg::Principal::Process(id) => Some(tg::Id::from(id)),
+							tg::Principal::Root | tg::Principal::Runner => None,
+							tg::Principal::Sandbox(id) => Some(tg::Id::from(id)),
+							tg::Principal::User(id) => Some(tg::Id::from(id)),
+						};
+						if let Some(owner) = owner {
+							dependencies.push((owner, tg::grant::Permission::Write));
+						}
+					}
+				}
 				if let Some(parent) = Self::get_cached_resource_parent_with_transaction(
 					txn, subspace, resource, cache,
 				)
@@ -992,6 +1063,56 @@ impl Index {
 			.process_parents
 			.insert(process.clone(), parents.clone());
 		Ok(parents)
+	}
+
+	async fn get_cached_process_sandbox_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		process: &tg::process::Id,
+		cache: &mut Cache,
+	) -> tg::Result<Option<tg::sandbox::Id>> {
+		if let Some(sandbox) = cache.process_sandboxes.get(process) {
+			return Ok(sandbox.clone());
+		}
+		let sandbox = Self::try_get_process_with_transaction(txn, subspace, process)
+			.await?
+			.and_then(|process| process.sandbox);
+		cache
+			.process_sandboxes
+			.insert(process.clone(), sandbox.clone());
+		Ok(sandbox)
+	}
+
+	async fn get_cached_sandbox_owner_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		sandbox: &tg::sandbox::Id,
+		cache: &mut Cache,
+	) -> tg::Result<Option<tg::Principal>> {
+		if let Some(owner) = cache.sandbox_owners.get(sandbox) {
+			return Ok(owner.clone());
+		}
+		let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(sandbox.clone()));
+		let key = Self::pack(subspace, &key);
+		let owner =
+			txn.get(&key, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
+				.map(|bytes| {
+					let string = std::str::from_utf8(&bytes)
+						.map_err(|error| tg::error!(!error, "failed to parse the sandbox owner"))?;
+					if string.is_empty() {
+						Ok(None)
+					} else {
+						string.parse().map(Some).map_err(|error| {
+							tg::error!(!error, "failed to parse the sandbox owner")
+						})
+					}
+				})
+				.transpose()?
+				.flatten();
+		cache.sandbox_owners.insert(sandbox.clone(), owner.clone());
+		Ok(owner)
 	}
 
 	async fn get_cached_group_members_with_transaction(

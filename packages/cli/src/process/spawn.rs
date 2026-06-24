@@ -831,16 +831,18 @@ impl Cli {
 			});
 		}
 		let sandbox = if sandboxed {
-			match options.sandbox.get() {
-				Some(tg::Either::Right(id)) => {
-					if has_sandbox_arg {
-						return Err(tg::error!(
-							"sandbox options are not supported for existing sandboxes"
-						));
-					}
-					Some(tg::process::SandboxArg::Id(id))
-				},
-				_ => Some(tg::process::SandboxArg::Arg(
+			if let Some(tg::Either::Right(id)) = options.sandbox.get() {
+				if has_sandbox_arg {
+					return Err(tg::error!(
+						"sandbox options are not supported for existing sandboxes"
+					));
+				}
+				Some(tg::process::SandboxArg::Id(id))
+			} else {
+				let owner = self
+					.resolve_owner(&client, options.sandbox.arg.owner.clone())
+					.await?;
+				Some(tg::process::SandboxArg::Arg(
 					tg::process::SandboxCreateArg {
 						cpu: options.sandbox.arg.cpu,
 						hostname: options.sandbox.arg.hostname.clone(),
@@ -849,10 +851,11 @@ impl Cli {
 						memory: options.sandbox.arg.memory,
 						mounts,
 						network,
+						owner,
 						ttl: Some(options.sandbox.ttl.get()),
 						user: options.sandbox.arg.user.clone(),
 					},
-				)),
+				))
 			}
 		} else {
 			None

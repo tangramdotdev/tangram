@@ -61,6 +61,9 @@ pub struct Options {
 	#[clap(flatten)]
 	pub network: Network,
 
+	#[arg(id = "sandbox.owner", long = "owner")]
+	pub owner: Option<tg::principal::Selector>,
+
 	#[arg(action = clap::ArgAction::Append, id = "sandbox.ports", long = "port", num_args = 1, short = 'p')]
 	pub ports: Vec<tg::sandbox::Port>,
 
@@ -127,12 +130,64 @@ impl Options {
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.get().is_none()
+			&& self.owner.is_none()
 			&& self.ports.is_empty()
 			&& self.user.is_none()
 	}
 }
 
 impl Cli {
+	pub async fn resolve_owner(
+		&self,
+		client: &tg::Client,
+		owner: Option<tg::principal::Selector>,
+	) -> tg::Result<Option<tg::Principal>> {
+		let Some(owner) = owner else {
+			return Ok(None);
+		};
+		let owner = match owner {
+			tg::principal::Selector::Principal(principal) => match principal {
+				tg::grant::Principal::Group(id) => tg::Principal::Group(id),
+				tg::grant::Principal::Organization(id) => tg::Principal::Organization(id),
+				tg::grant::Principal::Process(id) => tg::Principal::Process(id),
+				tg::grant::Principal::Public => {
+					return Err(tg::error!("invalid sandbox owner"));
+				},
+				tg::grant::Principal::Root => tg::Principal::Root,
+				tg::grant::Principal::Runner => tg::Principal::Runner,
+				tg::grant::Principal::Sandbox(id) => tg::Principal::Sandbox(id),
+				tg::grant::Principal::User(id) => tg::Principal::User(id),
+			},
+			tg::principal::Selector::Specifier(specifier) => {
+				let selector = tg::Selector::Specifier(specifier.clone());
+				if let Some(group) = client
+					.try_get_group(&selector, tg::group::get::Arg::default())
+					.await?
+				{
+					tg::Principal::Group(group.id)
+				} else {
+					let selector = tg::Selector::Specifier(specifier.clone());
+					if let Some(organization) = client
+						.try_get_organization(&selector, tg::organization::get::Arg::default())
+						.await?
+					{
+						tg::Principal::Organization(organization.id)
+					} else {
+						let selector = tg::Selector::Specifier(specifier);
+						let Some(user) = client
+							.try_get_user(&selector, tg::user::get::Arg::default())
+							.await?
+						else {
+							return Err(tg::error!("failed to resolve the sandbox owner"));
+						};
+						tg::Principal::User(user.id)
+					}
+				}
+			},
+		};
+		Ok(Some(owner))
+	}
+
 	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			#[cfg(target_os = "linux")]

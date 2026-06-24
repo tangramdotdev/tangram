@@ -1108,10 +1108,11 @@ fn normalize_sandbox(
 	let mounts = arg.mounts.clone();
 	let ports = arg.ports.clone();
 	let has_network = arg.network.is_some();
+	let has_owner = arg.owner.is_some();
 	let has_ports = !ports.is_empty();
 	let network = normalize_network(arg.network.clone(), ports.clone())?;
 	let has_sandbox_fields =
-		has_cpu || has_memory || !mounts.is_empty() || has_network || has_ports;
+		has_cpu || has_memory || !mounts.is_empty() || has_network || has_owner || has_ports;
 	match arg.sandbox.clone() {
 		Some(tg::process::SandboxArg::Bool(true)) => {
 			let mut sandbox = tg::process::SandboxCreateArg::default();
@@ -1126,6 +1127,9 @@ fn normalize_sandbox(
 			}
 			if has_network || has_ports {
 				sandbox.network = network.clone();
+			}
+			if let Some(owner) = arg.owner.clone() {
+				sandbox.owner = Some(owner);
 			}
 			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
@@ -1145,13 +1149,16 @@ fn normalize_sandbox(
 			} else if has_ports {
 				sandbox.network = normalize_network(sandbox.network, ports)?;
 			}
+			if let Some(owner) = arg.owner.clone() {
+				sandbox.owner = Some(owner);
+			}
 			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
 		Some(tg::process::SandboxArg::Id(sandbox)) => {
 			if has_sandbox_fields {
 				return Err(tg::error!(
-					"cpu, memory, mounts, network, and ports are not supported for existing sandboxes"
+					"cpu, memory, mounts, network, owner, and ports are not supported for existing sandboxes"
 				));
 			}
 			Ok(Some(tg::Either::Right(sandbox)))
@@ -1168,6 +1175,7 @@ fn normalize_sandbox(
 				memory,
 				mounts,
 				network,
+				owner: arg.owner.clone(),
 				ttl: Some(Duration::ZERO),
 				user: None,
 			};
@@ -1187,6 +1195,7 @@ fn normalize_sandbox_create_arg(
 		memory: sandbox.memory,
 		mounts: sandbox.mounts,
 		network: sandbox.network,
+		owner: sandbox.owner,
 		ttl: sandbox.ttl.unwrap_or(Some(Duration::ZERO)),
 		user: sandbox.user,
 	}

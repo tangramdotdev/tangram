@@ -54,6 +54,8 @@ impl Session {
 			mounts: Option<Vec<tg::sandbox::Mount>>,
 			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Network>>")]
 			network: Option<tg::sandbox::Network>,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			owner: Option<tg::Principal>,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
 			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
@@ -68,7 +70,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let statement = formatdoc!(
 			r#"
-				select id, cpu, hostname, memory, mounts, network, status, ttl, "user" as user
+				select id, cpu, hostname, memory, mounts, network, owner, status, ttl, "user" as user
 				from sandboxes
 				where status != 'destroyed'
 				order by created_at;
@@ -97,12 +99,31 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?,
 					mounts: row.mounts.unwrap_or_default(),
 					network: row.network,
+					owner: Some(row.owner.unwrap_or(tg::Principal::Root)),
 					status: row.status,
 					ttl: row.ttl,
 					user: row.user,
 				})
 			})
-			.collect::<tg::Result<_>>()?;
+			.collect::<tg::Result<Vec<tg::sandbox::list::Item>>>()?;
+		let permission = tg::grant::Permission::Read;
+		let authorizations = data
+			.iter()
+			.map(|item| {
+				(
+					tg::grant::Resource::Id(tg::Id::from(item.id.clone())),
+					permission.into(),
+				)
+			})
+			.collect::<Vec<_>>();
+		let authorizations = self.authorize_batch(authorizations).await?;
+		let data = std::iter::zip(data, authorizations)
+			.filter_map(|(item, permissions)| {
+				permissions
+					.is_some_and(|permissions| permissions.contains(permission))
+					.then_some(item)
+			})
+			.collect();
 		Ok(data)
 	}
 

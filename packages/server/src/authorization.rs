@@ -187,6 +187,12 @@ impl IntoResource for tg::process::Id {
 	}
 }
 
+impl IntoResource for tg::sandbox::Id {
+	fn into_resource(self) -> tg::grant::Resource {
+		tg::grant::Resource::Id(self.into())
+	}
+}
+
 impl IntoResource for tg::artifact::Id {
 	fn into_resource(self) -> tg::grant::Resource {
 		tg::grant::Resource::Id(tg::object::Id::from(self).into())

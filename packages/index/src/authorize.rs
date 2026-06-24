@@ -38,6 +38,7 @@ pub fn validate_permission(resource: &tg::Id, permission: tg::grant::Permission)
 				tg::id::Kind::User
 					| tg::id::Kind::Group
 					| tg::id::Kind::Organization
+					| tg::id::Kind::Sandbox
 					| tg::id::Kind::Tag
 			)
 		},

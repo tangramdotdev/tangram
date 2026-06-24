@@ -33,6 +33,10 @@ impl Index {
 			self.enqueue_batch_request(Request::PutProcesses(arg.put_processes))
 				.await?;
 		}
+		if !arg.put_sandboxes.is_empty() {
+			self.enqueue_batch_request(Request::PutSandboxes(arg.put_sandboxes))
+				.await?;
+		}
 		self.put_tags(&arg.put_tags).await?;
 		self.put_users(&arg.put_users).await?;
 		self.put_grants(&arg.put_grants).await?;

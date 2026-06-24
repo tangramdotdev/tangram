@@ -42,9 +42,16 @@ impl Index {
 			metadata.merge(&existing.metadata);
 		}
 
+		let sandbox = arg.sandbox.clone().or_else(|| {
+			existing
+				.as_ref()
+				.and_then(|existing| existing.sandbox.clone())
+		});
+
 		let value = crate::process::Process {
 			metadata,
 			reference_count: 0,
+			sandbox,
 			set,
 			stored,
 			touched_at,

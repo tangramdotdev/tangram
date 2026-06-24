@@ -125,6 +125,7 @@ impl Session {
 			metadata: tg::process::Metadata::default(),
 			output: Some(output),
 			parent: None,
+			sandbox: Some(arg.data.sandbox.clone()),
 			stored: tangram_index::process::Stored::default(),
 			touched_at: now,
 		};

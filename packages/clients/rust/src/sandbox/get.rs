@@ -41,6 +41,9 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub network: Option<tg::sandbox::Network>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub owner: Option<tg::Principal>,
+
 	pub status: tg::sandbox::Status,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

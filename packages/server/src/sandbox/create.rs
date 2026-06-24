@@ -9,6 +9,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 };
 
 #[derive(Clone)]
@@ -19,6 +20,7 @@ struct CreateSandboxArg {
 	id: tg::sandbox::Id,
 	memory: Option<i64>,
 	now: i64,
+	owner: Option<tg::Principal>,
 	ttl: Option<std::time::Duration>,
 }
 
@@ -53,9 +55,17 @@ impl Session {
 		&self,
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
+		if self.context.principal.is_none() {
+			return Err(tg::error!("unauthorized"));
+		}
 		arg = Self::normalize_sandbox_create_arg(arg)?;
 		let id = tg::sandbox::Id::new();
 		let creator = self.context.principal.clone();
+		let owner = arg
+			.owner
+			.clone()
+			.or_else(|| creator.clone())
+			.filter(|owner| !matches!(owner, tg::Principal::Root));
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let isolation = self.server.resolve_sandbox_isolation()?;
 		Server::validate_sandbox_resources(
@@ -84,6 +94,7 @@ impl Session {
 			id: id.clone(),
 			memory,
 			now,
+			owner: owner.clone(),
 			ttl,
 		};
 		self.server
@@ -94,6 +105,18 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
+
+		self.server
+			.index
+			.batch(tangram_index::batch::Arg {
+				put_sandboxes: vec![tangram_index::sandbox::put::Arg {
+					id: id.clone(),
+					owner: owner.clone(),
+				}],
+				..Default::default()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the sandbox to the index"))?;
 
 		self.server.spawn_publish_sandbox_status_task(&id);
 		self.spawn_publish_sandboxes_created_message_task();
@@ -120,6 +143,7 @@ impl Session {
 					memory,
 					mounts,
 					network,
+					owner,
 					status,
 					ttl,
 					"user"
@@ -136,7 +160,8 @@ impl Session {
 					{p}9,
 					{p}10,
 					{p}11,
-					{p}12
+					{p}12,
+					{p}13
 				);
 			"#
 		);
@@ -150,6 +175,7 @@ impl Session {
 			arg.memory,
 			(!arg.arg.mounts.is_empty()).then_some(db::value::Json(arg.arg.mounts)),
 			arg.arg.network.map(db::value::Json),
+			arg.owner.as_ref().map(ToString::to_string),
 			tg::sandbox::Status::Created.to_string(),
 			db::value::DurationSeconds(arg.ttl),
 			arg.arg.user,

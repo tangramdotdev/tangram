@@ -19,6 +19,9 @@ pub struct Process {
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_default")]
 	pub set: Set,
 
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<tg::sandbox::Id>,
+
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub stored: Stored,
 

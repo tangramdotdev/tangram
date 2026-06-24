@@ -93,6 +93,7 @@ pub struct Arg {
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<Network>,
 	pub nice: u8,
+	pub owner: Option<tg::Principal>,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
@@ -550,6 +551,11 @@ impl Sandbox {
 	#[must_use]
 	pub fn location(&self) -> &tg::Location {
 		&self.0.arg.location
+	}
+
+	#[must_use]
+	pub fn owner(&self) -> Option<&tg::Principal> {
+		self.0.arg.owner.as_ref()
 	}
 
 	#[must_use]

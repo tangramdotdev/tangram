@@ -49,6 +49,7 @@ impl Index {
 			tg::id::Kind::Process => {
 				Key::Process(crate::lmdb::process::Key::Process(id.clone().try_into()?))
 			},
+			tg::id::Kind::Sandbox => return Ok(Some(id.clone())),
 			_ => {
 				let Ok(object) = tg::object::Id::try_from(id.clone()) else {
 					return Ok(None);

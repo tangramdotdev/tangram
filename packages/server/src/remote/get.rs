@@ -33,7 +33,12 @@ impl Session {
 					tg::Principal::Root => self.try_get_remote_root(name).await,
 					tg::Principal::Runner => self.try_get_remote_runner(name).await,
 					tg::Principal::User(user) => self.try_get_remote_user(name, &user).await,
-					_ => unreachable!(),
+					tg::Principal::Group(_) | tg::Principal::Organization(_) => {
+						Err(tg::error!("unauthorized"))
+					},
+					tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
+						Err(tg::error!("unauthorized"))
+					},
 				}
 			},
 			tg::Principal::Root => self.try_get_remote_root(name).await,

@@ -215,6 +215,7 @@ impl Index {
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
 			| Request::PutProcesses(_)
+			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
 			| Request::PutUsers(_) => Response::Unit,
 			Request::TouchCacheEntries(_) => Response::CacheEntries(Vec::new()),
@@ -308,6 +309,10 @@ impl Index {
 			Request::PutProcesses(args) => {
 				let items = args.into_iter().map(Item::PutProcess).collect();
 				(items, Kind::PutProcesses)
+			},
+			Request::PutSandboxes(args) => {
+				let items = args.into_iter().map(Item::PutSandbox).collect();
+				(items, Kind::PutSandboxes)
 			},
 			Request::PutTags(tags) => {
 				let items = tags.into_iter().map(Item::PutTag).collect();
@@ -542,6 +547,16 @@ impl Index {
 					.collect();
 				Request::PutProcesses(args)
 			},
+			Kind::PutSandboxes => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutSandbox(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutSandboxes(args)
+			},
 			Kind::PutTags => {
 				let tags = items
 					.into_iter()
@@ -674,6 +689,7 @@ impl Index {
 					| Request::PutOrganizationMembers(_)
 					| Request::PutOrganizations(_)
 					| Request::PutProcesses(_)
+					| Request::PutSandboxes(_)
 					| Request::PutTags(_)
 					| Request::PutUsers(_)
 					| Request::Update(_)
@@ -852,6 +868,10 @@ impl Index {
 			},
 			Request::PutProcesses(args) => {
 				Self::task_put_processes(txn, subspace, args, partition_total).await?;
+				Ok(Response::Unit)
+			},
+			Request::PutSandboxes(args) => {
+				Self::task_put_sandboxes(txn, subspace, args).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutTags(args) => Self::task_put_tags(txn, subspace, args, partition_total)

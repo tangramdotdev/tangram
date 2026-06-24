@@ -102,6 +102,7 @@ pub struct Arg {
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub name: Option<String>,
 	pub network: Option<tg::sandbox::Network>,
+	pub owner: Option<tg::Principal>,
 	pub ports: Vec<tg::sandbox::Port>,
 	pub retry: bool,
 	pub sandbox: Option<tg::process::SandboxArg>,
@@ -128,6 +129,7 @@ pub struct SandboxCreateArg {
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<tg::sandbox::Network>,
+	pub owner: Option<tg::Principal>,
 	pub ttl: Option<Option<Duration>>,
 	pub user: Option<String>,
 }

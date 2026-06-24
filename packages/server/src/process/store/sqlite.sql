@@ -10,6 +10,7 @@ create table sandboxes (
 	memory integer,
 	mounts text,
 	network text,
+	owner text,
 	started_at integer,
 	status text not null,
 	ttl integer,

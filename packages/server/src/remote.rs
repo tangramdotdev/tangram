@@ -16,23 +16,28 @@ impl Session {
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<tg::Principal> {
-		if matches!(
-			principal,
-			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
-		) && self
-			.server
-			.config
-			.runner
-			.as_ref()
-			.and_then(|runner| runner.remote.as_ref())
-			.is_some()
-		{
-			return Ok(tg::Principal::Runner);
-		}
-
-		let id = match principal {
-			tg::Principal::Process(id) => id.to_string(),
-			tg::Principal::Sandbox(id) => id.to_string(),
+		let (statement, id) = match principal {
+			tg::Principal::Process(id) => {
+				let statement = formatdoc!(
+					"
+						select sandboxes.owner
+						from processes
+						join sandboxes on sandboxes.id = processes.sandbox
+						where processes.id = {{p}}1;
+					"
+				);
+				(statement, id.to_string())
+			},
+			tg::Principal::Sandbox(id) => {
+				let statement = formatdoc!(
+					"
+						select owner
+						from sandboxes
+						where id = {{p}}1;
+					"
+				);
+				(statement, id.to_string())
+			},
 			_ => return Ok(principal.clone()),
 		};
 		let connection = self
@@ -42,53 +47,20 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				with recursive creators(principal) as (
-					select creator from (
-						select creator
-						from processes
-						where id = {p}1
-
-						union
-
-						select creator
-						from sandboxes
-						where id = {p}1
-					) anchors
-
-					union
-
-					select edges.creator
-					from creators
-					join (
-						select id, creator
-						from processes
-
-						union
-
-						select id, creator
-						from sandboxes
-					) edges on edges.id = creators.principal
-				)
-				select principal
-				from creators
-				where principal in ('root', 'runner') or principal like 'usr_%'
-				limit 1;
-			"
-		);
+		let statement = statement.replace("{p}", p);
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			owner: Option<tg::Principal>,
+		}
 		let principal = connection
-			.query_optional_value_into::<String>(statement.into(), db::params![id])
+			.query_optional_into::<Row>(statement.into(), db::params![id])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.ok_or_else(|| tg::error!("failed to resolve the principal creator"))?;
-		let principal = principal
-			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the principal creator"))?;
-		match principal {
-			tg::Principal::Root | tg::Principal::Runner | tg::Principal::User(_) => Ok(principal),
-			_ => Err(tg::error!("failed to resolve the principal creator")),
-		}
+			.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?
+			.owner
+			.unwrap_or(tg::Principal::Root);
+		Ok(principal)
 	}
 
 	pub async fn get_remote_session(&self, remote: &str) -> tg::Result<tg::Session> {

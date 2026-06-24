@@ -27,6 +27,7 @@ struct LocalOutput {
 	cached: bool,
 	id: tg::process::Id,
 	lease: Option<String>,
+	owner: Option<tg::Principal>,
 	#[debug(ignore)]
 	permit: Option<crate::sandbox::Permit>,
 	sandbox: tg::sandbox::Id,
@@ -42,6 +43,10 @@ impl Session {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
+		if self.context.principal.is_none() {
+			return Err(tg::error!("unauthorized"));
+		}
+
 		// If the authentication is from a process, then update the parent, location, and retry.
 		let authenticated_process = match self.context.principal.as_ref() {
 			Some(tg::Principal::Process(process)) => {
@@ -204,6 +209,7 @@ impl Session {
 				metadata: tg::process::Metadata::default(),
 				output: None,
 				parent,
+				sandbox: Some(output.sandbox.clone()),
 				stored: tangram_index::process::Stored::default(),
 				touched_at: now,
 			};
@@ -235,6 +241,10 @@ impl Session {
 				.batch(tangram_index::batch::Arg {
 					put_grants,
 					put_processes: vec![put_process_arg],
+					put_sandboxes: vec![tangram_index::sandbox::put::Arg {
+						id: output.sandbox.clone(),
+						owner: output.owner.clone(),
+					}],
 					..Default::default()
 				})
 				.await
@@ -714,9 +724,13 @@ impl Session {
 		host: Option<&str>,
 	) -> tg::Result<ControlFlow<Option<LocalOutput>, database::Error>> {
 		let mut output = None;
+		let owner = self
+			.resolve_spawn_sandbox_owner_with_transaction(transaction, arg, parent_sandbox)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the sandbox owner"))?;
 		if cacheable && matches!(arg.cached, None | Some(true)) {
 			let result = self
-				.try_get_cached_process_local(transaction, arg)
+				.try_get_cached_process_local(transaction, arg, owner.as_ref())
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get a cached local process"))?;
 			output = match result {
@@ -727,7 +741,12 @@ impl Session {
 				tracing::trace!(?output, "got cached local process");
 			} else if let Some(host) = host {
 				let result = self
-					.try_get_cached_process_with_mismatched_checksum_local(transaction, arg, host)
+					.try_get_cached_process_with_mismatched_checksum_local(
+						transaction,
+						arg,
+						host,
+						owner.as_ref(),
+					)
 					.await
 					.map_err(|error| {
 						tg::error!(
@@ -750,7 +769,7 @@ impl Session {
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = match self
-				.create_local_process(transaction, arg, parent_sandbox, cacheable, host)
+				.create_local_process(transaction, arg, parent_sandbox, cacheable, host, owner)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create a local process"))?
 			{
@@ -772,6 +791,7 @@ impl Session {
 		&self,
 		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
+		owner: Option<&tg::Principal>,
 	) -> tg::Result<ControlFlow<Option<LocalOutput>, database::Error>> {
 		let p = transaction.p();
 
@@ -854,15 +874,20 @@ impl Session {
 			crate::database::retry!(result, "failed to execute the statement")
 		};
 
-		// Take the most recent matching process the principal is authorized to read, so that a cache hit cannot confer read access to a process the principal cannot otherwise read.
+		// Authorize.
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
 		let mut authorized = None;
+		let principal = owner.cloned().unwrap_or(tg::Principal::Root);
 		for row in rows {
+			let resource = tg::grant::Resource::Id(row.id.clone().into());
 			if self
-				.authorize(row.id.clone(), permission)
-				.await?
-				.is_some_and(|permissions| permissions.contains(permission))
+				.server
+				.index
+				.authorize(resource, permission.into(), Some(&principal))
+				.await
+				.map_err(|error| tg::error!(!error, "failed to authorize the cached process"))?
+				.is_some_and(|output| output.permissions.contains(permission))
 			{
 				authorized = Some(row);
 				break;
@@ -1003,6 +1028,7 @@ impl Session {
 			cached: true,
 			id: id.clone(),
 			lease,
+			owner: owner.cloned(),
 			permit: None,
 			sandbox,
 			sandbox_status,
@@ -1016,6 +1042,7 @@ impl Session {
 		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
 		host: &str,
+		owner: Option<&tg::Principal>,
 	) -> tg::Result<ControlFlow<Option<LocalOutput>, database::Error>> {
 		let p = transaction.p();
 
@@ -1106,15 +1133,20 @@ impl Session {
 			crate::database::retry!(result, "failed to execute the statement")
 		};
 
-		// Take the most recent matching process the principal is authorized to read, so that reusing its output cannot confer read access to a process the principal cannot otherwise read.
+		// Authorize.
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
 		let mut authorized = None;
+		let principal = owner.cloned().unwrap_or(tg::Principal::Root);
 		for row in rows {
+			let resource = tg::grant::Resource::Id(row.id.clone().into());
 			if self
-				.authorize(row.id.clone(), permission)
-				.await?
-				.is_some_and(|permissions| permissions.contains(permission))
+				.server
+				.index
+				.authorize(resource, permission.into(), Some(&principal))
+				.await
+				.map_err(|error| tg::error!(!error, "failed to authorize the cached process"))?
+				.is_some_and(|output| output.permissions.contains(permission))
 			{
 				authorized = Some(row);
 				break;
@@ -1308,6 +1340,7 @@ impl Session {
 			cached: true,
 			id,
 			lease: None,
+			owner: owner.cloned(),
 			permit: None,
 			sandbox,
 			sandbox_status,
@@ -1327,6 +1360,7 @@ impl Session {
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
 		host: &str,
+		owner: Option<tg::Principal>,
 	) -> tg::Result<ControlFlow<LocalOutput, database::Error>> {
 		let p = transaction.p();
 
@@ -1349,7 +1383,12 @@ impl Session {
 				};
 				let sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
 				let sandbox = match self
-					.create_local_sandbox_with_transaction(transaction, &sandbox_arg, status)
+					.create_local_sandbox_with_transaction(
+						transaction,
+						&sandbox_arg,
+						status,
+						owner.as_ref(),
+					)
 					.await?
 				{
 					ControlFlow::Break(sandbox) => sandbox,
@@ -1374,6 +1413,8 @@ impl Session {
 				if status.is_destroyed() {
 					return Err(tg::error!("the sandbox is destroyed"));
 				}
+				self.authorize_sandbox_spawn(sandbox, parent_sandbox.as_ref(), owner.as_ref())
+					.await?;
 				(sandbox.clone(), status, None)
 			},
 		};
@@ -1492,6 +1533,7 @@ impl Session {
 			cached: false,
 			id,
 			lease: Some(lease),
+			owner,
 			permit,
 			sandbox,
 			sandbox_status: Some(sandbox_status),
@@ -1505,6 +1547,7 @@ impl Session {
 		transaction: &database::Transaction<'_>,
 		arg: &tg::sandbox::create::Arg,
 		status: tg::sandbox::Status,
+		owner: Option<&tg::Principal>,
 	) -> tg::Result<ControlFlow<tg::sandbox::Id, database::Error>> {
 		let p = transaction.p();
 		let id = tg::sandbox::Id::new();
@@ -1522,6 +1565,7 @@ impl Session {
 					memory,
 					mounts,
 					network,
+					owner,
 					started_at,
 					status,
 					ttl,
@@ -1541,7 +1585,8 @@ impl Session {
 					{p}11,
 					{p}12,
 					{p}13,
-					{p}14
+					{p}14,
+					{p}15
 				);
 			"#
 		);
@@ -1579,6 +1624,7 @@ impl Session {
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network.clone().map(db::value::Json),
+			owner.map(ToString::to_string),
 			started_at,
 			status.to_string(),
 			db::value::DurationSeconds(ttl),
@@ -1587,6 +1633,88 @@ impl Session {
 		let result = transaction.execute(statement.into(), params).await;
 		crate::database::retry!(result, "failed to execute the statement");
 		Ok(ControlFlow::Break(id))
+	}
+
+	async fn resolve_spawn_sandbox_owner_with_transaction(
+		&self,
+		transaction: &database::Transaction<'_>,
+		arg: &tg::process::spawn::Arg,
+		parent_sandbox: Option<&tg::sandbox::Id>,
+	) -> tg::Result<Option<tg::Principal>> {
+		let owner = match arg.sandbox.as_ref() {
+			Some(tg::Either::Left(sandbox)) => sandbox.owner.clone(),
+			Some(tg::Either::Right(sandbox)) => {
+				if let Some(sandbox) = self.server.sandboxes.get(sandbox) {
+					return Ok(sandbox.owner().cloned());
+				}
+				let owner = match Self::try_get_sandbox_owner_with_transaction(transaction, sandbox)
+					.await?
+				{
+					ControlFlow::Break(Some(owner)) => owner,
+					ControlFlow::Break(None) => {
+						return Err(tg::error!("failed to find the sandbox"));
+					},
+					ControlFlow::Continue(error) => {
+						return Err(tg::error!(!error, "failed to get the sandbox owner"));
+					},
+				};
+				return Ok(owner);
+			},
+			None => None,
+		};
+		if let Some(owner) = owner {
+			return Ok(Some(owner).filter(|owner| !matches!(owner, tg::Principal::Root)));
+		}
+		if let Some(parent_sandbox) = parent_sandbox {
+			if let Some(sandbox) = self.server.sandboxes.get(parent_sandbox) {
+				return Ok(sandbox.owner().cloned());
+			}
+			match Self::try_get_sandbox_owner_with_transaction(transaction, parent_sandbox).await? {
+				ControlFlow::Break(Some(owner)) => return Ok(owner),
+				ControlFlow::Break(None) => {},
+				ControlFlow::Continue(error) => {
+					return Err(tg::error!(!error, "failed to get the parent sandbox owner"));
+				},
+			}
+		}
+		let output = self
+			.context
+			.principal
+			.clone()
+			.filter(|owner| !matches!(owner, tg::Principal::Root));
+		Ok(output)
+	}
+
+	async fn authorize_sandbox_spawn(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		parent_sandbox: Option<&tg::sandbox::Id>,
+		owner: Option<&tg::Principal>,
+	) -> tg::Result<()> {
+		let permission = tg::grant::Permission::Write;
+		let authorized = if matches!(self.context.principal, Some(tg::Principal::Process(_)))
+			&& parent_sandbox.is_some_and(|parent_sandbox| parent_sandbox == sandbox)
+		{
+			let principal = owner.cloned().unwrap_or(tg::Principal::Root);
+			self.server
+				.index
+				.authorize(
+					tg::grant::Resource::Id(sandbox.clone().into()),
+					permission.into(),
+					Some(&principal),
+				)
+				.await
+				.map(|output| output.map(|output| output.permissions))
+				.map_err(|error| tg::error!(!error, "failed to authorize the sandbox"))?
+		} else {
+			self.authorize(sandbox.clone(), permission)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to authorize the sandbox"))?
+		};
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Err(tg::error!("unauthorized"));
+		}
+		Ok(())
 	}
 
 	async fn try_get_sandbox_with_transaction(
@@ -1613,6 +1741,31 @@ impl Session {
 			.await;
 		let row = crate::database::retry!(result, "failed to execute the statement");
 		Ok(ControlFlow::Break(row.map(|row| row.status)))
+	}
+
+	async fn try_get_sandbox_owner_with_transaction(
+		transaction: &database::Transaction<'_>,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<ControlFlow<Option<Option<tg::Principal>>, database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select owner
+				from sandboxes
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			owner: Option<tg::Principal>,
+		}
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), params)
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(row.map(|row| row.owner)))
 	}
 
 	fn try_acquire_sandbox_permit(

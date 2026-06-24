@@ -238,6 +238,7 @@ impl Session {
 					metadata: tg::process::Metadata::default(),
 					output: Some(output),
 					parent: None,
+					sandbox: None,
 					stored: tangram_index::process::Stored::default(),
 					touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
 				};

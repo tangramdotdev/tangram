@@ -57,6 +57,12 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		let permission = tg::grant::Permission::Read;
+		let authorized = self.authorize(id.clone(), permission).await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Ok(None);
+		}
+
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			cpu: Option<i64>,
@@ -70,6 +76,8 @@ impl Session {
 			mounts: Option<Vec<tg::sandbox::Mount>>,
 			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Network>>")]
 			network: Option<tg::sandbox::Network>,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			owner: Option<tg::Principal>,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
 			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
@@ -93,6 +101,7 @@ impl Session {
 					memory,
 					mounts,
 					network,
+					owner,
 					status,
 					ttl,
 					"user" as user
@@ -132,6 +141,7 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?,
 					mounts: row.mounts.unwrap_or_default(),
 					network: row.network,
+					owner: Some(row.owner.unwrap_or(tg::Principal::Root)),
 					status: row.status,
 					ttl: row.ttl,
 					user: row.user,
