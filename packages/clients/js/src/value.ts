@@ -71,7 +71,9 @@ export namespace Value {
 	};
 
 	export let fromData = (data: tg.Value.Data): tg.Value => {
-		if (
+		if (data === null) {
+			return undefined;
+		} else if (
 			typeof data === "undefined" ||
 			typeof data === "boolean" ||
 			typeof data === "number" ||
@@ -268,6 +270,7 @@ export namespace Value {
 	};
 
 	export type Data =
+		| null
 		| undefined
 		| boolean
 		| number
@@ -283,6 +286,7 @@ export namespace Value {
 	export namespace Data {
 		export let children = (data: tg.Value.Data): Array<tg.Object.Id> => {
 			if (
+				data === null ||
 				typeof data === "undefined" ||
 				typeof data === "boolean" ||
 				typeof data === "number" ||
