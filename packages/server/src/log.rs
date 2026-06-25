@@ -256,6 +256,14 @@ impl Session {
 				index,
 			})
 		} else {
+			// Authorize.
+			let permission =
+				tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeLog);
+			let authorized = self.authorize(id.clone(), permission).await?;
+			if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				return Err(tg::error!("unauthorized"));
+			}
+
 			Inner::Store(StoreInner {
 				session: self.clone(),
 				process: id.clone(),
