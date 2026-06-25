@@ -1309,7 +1309,7 @@ export def normalize_ids [value?: string, --prefixes: list<string> = [blb cmd di
 		$output = ($output | str replace --all $id $replacement)
 	}
 
-	$output = ($output | str replace --all --regex '([?&]token=)[A-Za-z0-9._~+/=-]+' '${1}<token>')
+	$output = ($output | str replace --all --regex '([?&]token=|"token":\s*")[A-Za-z0-9._~+/=-]+' '${1}<token>')
 
 	$output
 }

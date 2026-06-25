@@ -71,12 +71,20 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		// Verify the process is local.
+		// Verify the process exists.
 		if !self
 			.get_process_exists_local(id)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check if the process exists"))?
 		{
+			return Ok(None);
+		}
+
+		// Authorize the process.
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		let authorized = self.authorize(id.clone(), permission).await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
 

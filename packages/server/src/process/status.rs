@@ -33,13 +33,22 @@ impl Session {
 		if let Some(local) = &locations.local {
 			let stopper = self.context.stopper.clone();
 			if local.current
-				&& let Some(status) = self
-					.try_get_process_status_stream_local(id, stopper, arg.timeout)
-					.await
-					.map_err(
-						|error| tg::error!(!error, %id, "failed to get the process status stream"),
-					)? {
-				return Ok(Some(status));
+				&& self.get_process_exists_local(id).await.map_err(
+					|error| tg::error!(!error, %id, "failed to check if the process exists"),
+				)? {
+				let permission = tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::Node,
+				);
+				let authorized = self.authorize(id.clone(), permission).await?;
+				if authorized.is_some_and(|permissions| permissions.contains(permission)) {
+					let status = self
+						.create_process_status_stream_local(id, stopper, arg.timeout)
+						.await
+						.map_err(
+							|error| tg::error!(!error, %id, "failed to get the process status stream"),
+						)?;
+					return Ok(Some(status));
+				}
 			}
 
 			if let Some(status) = self
@@ -70,7 +79,7 @@ impl Session {
 		stopper: Option<Stopper>,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
-		// Verify the process is local.
+		// Verify the process exists.
 		if !self
 			.get_process_exists_local(id)
 			.await
@@ -79,6 +88,18 @@ impl Session {
 			return Ok(None);
 		}
 
+		Ok(Some(
+			self.create_process_status_stream_local(id, stopper, timeout)
+				.await?,
+		))
+	}
+
+	pub(crate) async fn create_process_status_stream_local(
+		&self,
+		id: &tg::process::Id,
+		stopper: Option<Stopper>,
+		timeout: Option<Duration>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::status::Event>>> {
 		// Create the wakeups stream.
 		let wakeups = if timeout == Some(Duration::ZERO) {
 			None
@@ -119,7 +140,7 @@ impl Session {
 
 		let stream = ReceiverStream::new(receiver).attach(task).boxed();
 
-		Ok(Some(stream))
+		Ok(stream)
 	}
 
 	async fn try_get_process_status_stream_local_task(

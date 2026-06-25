@@ -406,8 +406,9 @@ impl Session {
 			output.location,
 			Some(tg::Location::Local(tg::location::Local { region: None }))
 		) && let Some(wait) = &mut output.wait
+			&& let Some(output) = &mut wait.output
 		{
-			self.add_tokens_to_wait_output(wait)?;
+			self.add_tokens_to_value_data(output)?;
 		}
 
 		if let Some(parent) = &arg.parent {
