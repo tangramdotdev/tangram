@@ -7,6 +7,7 @@ import {
 /** The union of all types that can be used as the input or output of Tangram commands. */
 export type Value =
 	| undefined
+	| null
 	| boolean
 	| number
 	| string
@@ -39,8 +40,9 @@ export namespace Value {
 	};
 
 	export let toData = (value: Value): Data => {
-		if (
-			typeof value === "undefined" ||
+		if (value === undefined || value === null) {
+			return null;
+		} else if (
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string"
@@ -74,7 +76,6 @@ export namespace Value {
 		if (data === null) {
 			return undefined;
 		} else if (
-			typeof data === "undefined" ||
 			typeof data === "boolean" ||
 			typeof data === "number" ||
 			typeof data === "string"
@@ -118,6 +119,7 @@ export namespace Value {
 	export let is = (value: unknown): value is Value => {
 		return (
 			value === undefined ||
+			value === null ||
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string" ||
@@ -271,7 +273,6 @@ export namespace Value {
 
 	export type Data =
 		| null
-		| undefined
 		| boolean
 		| number
 		| string
@@ -287,7 +288,6 @@ export namespace Value {
 		export let children = (data: tg.Value.Data): Array<tg.Object.Id> => {
 			if (
 				data === null ||
-				typeof data === "undefined" ||
 				typeof data === "boolean" ||
 				typeof data === "number" ||
 				typeof data === "string"
