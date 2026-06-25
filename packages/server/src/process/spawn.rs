@@ -229,6 +229,39 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to put the process to the index"))?;
 		}
 
+		// On a cache hit the child process already exists in the index, but the
+		// index does not record the new parent. Add the parent edge so that the
+		// parent is authorized to wait on the reused child via its subtree.
+		if let Some(output) = &output
+			&& output.cached
+			&& let Some(parent) = arg.parent.clone()
+		{
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let put_process_arg = tangram_index::process::put::Arg {
+				children: None,
+				command: arg.command.item.clone().into(),
+				error: None,
+				id: output.id.clone(),
+				log: None,
+				metadata: tg::process::Metadata::default(),
+				output: None,
+				parent: Some(parent),
+				sandbox: Some(output.sandbox.clone()),
+				stored: tangram_index::process::Stored::default(),
+				touched_at: now,
+			};
+			self.server
+				.index
+				.batch(tangram_index::batch::Arg {
+					put_processes: vec![put_process_arg],
+					..Default::default()
+				})
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to put the process parent to the index")
+				})?;
+		}
+
 		// Wake the watchdog so depth-based limits are enforced promptly.
 		if output
 			.as_ref()
