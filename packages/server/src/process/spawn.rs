@@ -36,6 +36,16 @@ struct LocalOutput {
 	wait: Option<tg::process::wait::Output>,
 }
 
+struct AddProcessChildArg<'a> {
+	cached: bool,
+	child: &'a tg::process::Id,
+	command: &'a tg::command::Id,
+	lease: Option<&'a String>,
+	options: &'a tg::referent::Options,
+	parent: &'a tg::process::Id,
+	sandbox: Option<&'a tg::sandbox::Id>,
+}
+
 impl Session {
 	pub async fn try_spawn_process(
 		&self,
@@ -195,12 +205,15 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
-		if let Some(output) = &output
+		// Index the process if necessary.
+		let local_output = output
+			.as_ref()
+			.map(|output| (output.id.clone(), output.sandbox.clone()));
+		let index_batch_arg = if let Some(output) = &output
 			&& !output.cached
 		{
 			let command = arg.command.item.clone();
 			let id = output.id.clone();
-			let parent = arg.parent.clone();
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			let put_process_arg = tangram_index::process::put::Arg {
 				children: None,
@@ -210,23 +223,36 @@ impl Session {
 				log: None,
 				metadata: tg::process::Metadata::default(),
 				output: None,
-				parent,
+				parent: None,
 				sandbox: Some(output.sandbox.clone()),
 				stored: tangram_index::process::Stored::default(),
 				touched_at: now,
 			};
+			let put_sandbox_arg = tangram_index::sandbox::put::Arg {
+				id: output.sandbox.clone(),
+				owner: output.owner.clone(),
+			};
+			Some(tangram_index::batch::Arg {
+				put_processes: vec![put_process_arg],
+				put_sandboxes: vec![put_sandbox_arg],
+				..Default::default()
+			})
+		} else {
+			None
+		};
+		if let Some(index_batch_arg) = index_batch_arg {
 			self.server
-				.index
-				.batch(tangram_index::batch::Arg {
-					put_processes: vec![put_process_arg],
-					put_sandboxes: vec![tangram_index::sandbox::put::Arg {
-						id: output.sandbox.clone(),
-						owner: output.owner.clone(),
-					}],
-					..Default::default()
+				.index_tasks
+				.spawn(|_| {
+					let server = self.server.clone();
+					async move {
+						let result = server.index.batch(index_batch_arg).await;
+						if let Err(error) = result {
+							tracing::error!(error = %error.trace(), "failed to put process to index");
+						}
+					}
 				})
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the process to the index"))?;
+				.detach();
 		}
 
 		// Wake the watchdog so depth-based limits are enforced promptly.
@@ -386,13 +412,18 @@ impl Session {
 
 		if let Some(parent) = &arg.parent {
 			let child = output.process.as_ref().unwrap_right();
-			self.add_process_child(
-				parent,
-				output.cached,
+			let sandbox = local_output
+				.as_ref()
+				.and_then(|(id, sandbox)| (id == child).then(|| sandbox.clone()));
+			self.add_process_child(AddProcessChildArg {
+				cached: output.cached,
 				child,
-				&arg.command.options,
-				output.lease.as_ref(),
-			)
+				command: &arg.command.item,
+				lease: output.lease.as_ref(),
+				options: &arg.command.options,
+				parent,
+				sandbox: sandbox.as_ref(),
+			})
 			.await
 			.map_err(
 				|error| tg::error!(!error, %parent, child = %output.process, "failed to add the process as a child"),
@@ -1827,18 +1858,13 @@ impl Session {
 		Ok(result)
 	}
 
-	async fn add_process_child(
-		&self,
-		parent: &tg::process::Id,
-		cached: bool,
-		child: &tg::process::Id,
-		options: &tg::referent::Options,
-		lease: Option<&String>,
-	) -> tg::Result<()> {
-		let child = child.clone();
-		let lease = lease.cloned();
-		let options = options.clone();
-		let parent = parent.clone();
+	async fn add_process_child(&self, arg: AddProcessChildArg<'_>) -> tg::Result<()> {
+		let child = arg.child.clone();
+		let command = arg.command.clone();
+		let lease = arg.lease.cloned();
+		let options = arg.options.clone();
+		let parent = arg.parent.clone();
+		let sandbox = arg.sandbox.cloned();
 		let session = self.clone();
 		self.server
 			.process_store
@@ -1853,7 +1879,7 @@ impl Session {
 						.add_process_child_with_transaction(
 							transaction,
 							&parent,
-							cached,
+							arg.cached,
 							&child,
 							&options,
 							lease.as_ref(),
@@ -1866,6 +1892,9 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, %parent, %child, "failed to add the process as a child"),
 			)?;
+
+		// Publish the child index task.
+		self.spawn_process_child_index_task(&parent, &child, &command, sandbox.as_ref());
 
 		// Publish the child message.
 		self.spawn_publish_process_child_message_task(&parent);
@@ -2058,6 +2087,44 @@ impl Session {
 		}
 
 		Ok(ControlFlow::Break(()))
+	}
+
+	fn spawn_process_child_index_task(
+		&self,
+		parent: &tg::process::Id,
+		child: &tg::process::Id,
+		command: &tg::command::Id,
+		sandbox: Option<&tg::sandbox::Id>,
+	) {
+		let arg = tangram_index::process::put::Arg {
+			children: None,
+			command: command.clone().into(),
+			error: None,
+			id: child.clone(),
+			log: None,
+			metadata: tg::process::Metadata::default(),
+			output: None,
+			parent: Some(parent.clone()),
+			sandbox: sandbox.cloned(),
+			stored: tangram_index::process::Stored::default(),
+			touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+		};
+		let arg = tangram_index::batch::Arg {
+			put_processes: vec![arg],
+			..Default::default()
+		};
+		self.server
+			.index_tasks
+			.spawn(|_| {
+				let server = self.server.clone();
+				async move {
+					let result = server.index.batch(arg).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), "failed to put process to index");
+					}
+				}
+			})
+			.detach();
 	}
 
 	fn spawn_publish_process_child_message_task(&self, parent: &tg::process::Id) {
