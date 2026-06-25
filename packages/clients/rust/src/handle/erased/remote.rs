@@ -12,6 +12,7 @@ pub trait Remote: Send + Sync + 'static {
 	fn try_get_remote<'a>(
 		&'a self,
 		name: &'a str,
+		arg: tg::remote::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>>;
 
 	fn put_remote<'a>(
@@ -20,7 +21,11 @@ pub trait Remote: Send + Sync + 'static {
 		arg: tg::remote::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn try_delete_remote<'a>(&'a self, name: &'a str) -> BoxFuture<'a, tg::Result<Option<()>>>;
+	fn delete_remote<'a>(
+		&'a self,
+		name: &'a str,
+		arg: tg::remote::delete::Arg,
+	) -> BoxFuture<'a, tg::Result<()>>;
 }
 
 impl<T> Remote for T
@@ -37,8 +42,9 @@ where
 	fn try_get_remote<'a>(
 		&'a self,
 		name: &'a str,
+		arg: tg::remote::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::remote::get::Output>>> {
-		self.try_get_remote(name).boxed()
+		self.try_get_remote(name, arg).boxed()
 	}
 
 	fn put_remote<'a>(
@@ -49,7 +55,11 @@ where
 		self.put_remote(name, arg).boxed()
 	}
 
-	fn try_delete_remote<'a>(&'a self, name: &'a str) -> BoxFuture<'a, tg::Result<Option<()>>> {
-		self.try_delete_remote(name).boxed()
+	fn delete_remote<'a>(
+		&'a self,
+		name: &'a str,
+		arg: tg::remote::delete::Arg,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.delete_remote(name, arg).boxed()
 	}
 }

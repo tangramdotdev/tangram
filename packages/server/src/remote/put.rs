@@ -12,31 +12,34 @@ use {
 
 impl Session {
 	pub(crate) async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
+			return Err(tg::error!("unauthenticated"));
+		}
+		if matches!(
+			self.context.principal,
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+		) {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		let principal = &self.context.principal;
-		let user = match principal {
-			tg::Principal::Root => None,
-			tg::Principal::User(user) => Some(user),
-			_ => {
-				return Err(tg::error!("unauthorized"));
-			},
-		};
-
 		let name = name.to_owned();
+		let principal = self.resolve_remote_arg_principal(arg.principal).await?;
 		let url = arg.url.to_string();
-		let user = user.map(ToString::to_string);
+		let principal = principal.as_ref().map(ToString::to_string);
 		self.server
 			.database
 			.run(|transaction| {
 				let name = name.clone();
 				let url = url.clone();
-				let user = user.clone();
+				let principal = principal.clone();
 				async move {
-					Self::put_remote_with_transaction(transaction, &name, user.as_deref(), &url)
-						.await
+					Self::put_remote_with_transaction(
+						transaction,
+						&name,
+						principal.as_deref(),
+						&url,
+					)
+					.await
 				}
 				.boxed()
 			})
@@ -49,31 +52,31 @@ impl Session {
 	async fn put_remote_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		name: &str,
-		user: Option<&str>,
+		principal: Option<&str>,
 		url: &str,
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
-			r#"
+			r"
 				update remotes
 				set url = {p}3
 				where name = {p}1 and (
-					("user" is null and {p}2 is null) or
-					"user" = {p}2
+					(principal is null and {p}2 is null) or
+					principal = {p}2
 				);
-			"#,
+			",
 		);
-		let params = db::params![name, user, url];
+		let params = db::params![name, principal, url];
 		let result = transaction.execute(statement.into(), params).await;
 		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n == 0 {
 			let statement = formatdoc!(
-				r#"
-					insert into remotes (name, "user", url)
+				r"
+					insert into remotes (name, principal, url)
 					values ({p}1, {p}2, {p}3);
-				"#,
+				",
 			);
-			let params = db::params![name, user, url];
+			let params = db::params![name, principal, url];
 			let result = transaction.execute(statement.into(), params).await;
 			crate::database::retry!(result, "failed to execute the statement");
 		}

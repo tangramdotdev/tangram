@@ -18,10 +18,11 @@ where
 	fn try_get_remote(
 		&self,
 		name: &str,
+		arg: tg::remote::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.try_get_remote(name).left_future(),
-			tg::Either::Right(s) => s.try_get_remote(name).right_future(),
+			tg::Either::Left(s) => s.try_get_remote(name, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_remote(name, arg).right_future(),
 		}
 	}
 
@@ -36,10 +37,14 @@ where
 		}
 	}
 
-	fn try_delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<Option<()>>> {
+	fn delete_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.try_delete_remote(name).left_future(),
-			tg::Either::Right(s) => s.try_delete_remote(name).right_future(),
+			tg::Either::Left(s) => s.delete_remote(name, arg).left_future(),
+			tg::Either::Right(s) => s.delete_remote(name, arg).right_future(),
 		}
 	}
 }

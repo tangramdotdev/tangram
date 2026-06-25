@@ -2,7 +2,7 @@ use {
 	super::Output,
 	crate::Session,
 	bytes::Bytes,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::Path,
@@ -151,6 +151,7 @@ impl Session {
 				stopper,
 				token: process_token,
 			})
+			.boxed()
 			.await;
 
 		// Notify the control task that the sandbox process has exited.
@@ -674,6 +675,7 @@ impl Session {
 			}
 			Ok(output)
 		}
+		.boxed()
 		.await;
 
 		// Drop the sender so that the i/o tasks observe that the sandbox process will never be spawned if it has not been.

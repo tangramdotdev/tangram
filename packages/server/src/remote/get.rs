@@ -21,33 +21,42 @@ impl Session {
 	pub(crate) async fn try_get_remote(
 		&self,
 		name: &str,
+		arg: tg::remote::get::Arg,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let principal = &self.context.principal;
-		match principal {
-			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-				match self.resolve_remote_principal(principal).await? {
-					tg::Principal::Root => self.try_get_remote_root(name).await,
-					tg::Principal::Runner => self.try_get_remote_runner(name).await,
-					tg::Principal::User(user) => self.try_get_remote_user(name, &user).await,
-					tg::Principal::Group(_) | tg::Principal::Organization(_) => {
-						Err(tg::error!("unauthorized"))
-					},
-					tg::Principal::Anonymous
-					| tg::Principal::Process(_)
-					| tg::Principal::Sandbox(_) => Err(tg::error!("unauthorized")),
-				}
-			},
-			tg::Principal::Anonymous => Err(tg::error!("unauthorized")),
-			tg::Principal::Root => self.try_get_remote_root(name).await,
-			tg::Principal::Runner => self.try_get_remote_runner(name).await,
-			tg::Principal::User(user) => self.try_get_remote_user(name, user).await,
-			tg::Principal::Group(_) | tg::Principal::Organization(_) => {
-				Err(tg::error!("unauthorized"))
-			},
+		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner) {
+			return self.try_get_remote_runner(name).await;
 		}
+		let principal = match self
+			.resolve_remote_arg_principal(arg.principal.clone())
+			.await
+		{
+			Ok(principal) => principal,
+			Err(_error)
+				if arg.principal.is_none()
+					&& matches!(
+						self.context.principal,
+						tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+					) && self
+					.server
+					.config
+					.runner
+					.as_ref()
+					.and_then(|runner| runner.remote.as_deref())
+					.is_some_and(|remote| remote == name) =>
+			{
+				return self.try_get_remote_runner(name).await;
+			},
+			Err(error) => return Err(error),
+		};
+		self.try_get_remote_for_principal(name, principal.as_ref())
+			.await
 	}
 
-	async fn try_get_remote_root(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
+	async fn try_get_remote_for_principal(
+		&self,
+		name: &str,
+		principal: Option<&tg::grant::Principal>,
+	) -> tg::Result<Option<tg::remote::get::Output>> {
 		let connection = self
 			.server
 			.database
@@ -56,13 +65,17 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			r#"
+			r"
 				select name, token, url
 				from remotes
-				where name = {p}1 and "user" is null;
-			"#,
+				where name = {p}1 and (
+					(principal is null and {p}2 is null) or
+					principal = {p}2
+				);
+			",
 		);
-		let params = db::params![name];
+		let principal = principal.map(ToString::to_string);
+		let params = db::params![name, principal];
 		let row = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
@@ -96,45 +109,13 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			r#"
+			r"
 				select name, token, url
 				from remotes
-				where name = {p}1 and name = {p}2 and "user" is null;
-			"#,
+				where name = {p}1 and name = {p}2 and principal is null;
+			",
 		);
 		let params = db::params![name, remote];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let output = row.map(|row| tg::remote::get::Output {
-			name: row.name,
-			token: row.token,
-			url: row.url,
-		});
-		Ok(output)
-	}
-
-	async fn try_get_remote_user(
-		&self,
-		name: &str,
-		user: &tg::user::Id,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select name, token, url
-				from remotes
-				where name = {p}1 and "user" = {p}2;
-			"#,
-		);
-		let params = db::params![name, user.to_string()];
 		let row = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
@@ -157,10 +138,15 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the remote.
 		let Some(output) = self
-			.try_get_remote(name)
+			.try_get_remote(name, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %name, "failed to get the remote"))?
 		else {

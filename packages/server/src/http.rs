@@ -651,7 +651,7 @@ impl Server {
 				session.put_remote_request(request, name).boxed()
 			},
 			(http::Method::DELETE, ["remotes", name]) => {
-				session.try_delete_remote_request(request, name).boxed()
+				session.delete_remote_request(request, name).boxed()
 			},
 
 			// Sandboxes.

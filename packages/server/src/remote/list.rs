@@ -17,51 +17,59 @@ struct Row {
 impl Session {
 	pub(crate) async fn list_remotes(
 		&self,
-		_arg: tg::remote::list::Arg,
+		arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		let principal = &self.context.principal;
-		match principal {
-			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-				match self.resolve_remote_principal(principal).await? {
-					tg::Principal::Anonymous => Err(tg::error!("unauthorized")),
-					tg::Principal::Root => self.list_remotes_root().await,
-					tg::Principal::Runner => self.list_remotes_runner().await,
-					tg::Principal::User(user) => self.list_remotes_user(&user).await,
-					tg::Principal::Group(_) | tg::Principal::Organization(_) => {
-						Err(tg::error!("unauthorized"))
-					},
-					tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-						Err(tg::error!("unauthorized"))
-					},
-				}
-			},
-			tg::Principal::Anonymous => Err(tg::error!("unauthorized")),
-			tg::Principal::Root => self.list_remotes_root().await,
-			tg::Principal::Runner => self.list_remotes_runner().await,
-			tg::Principal::User(user) => self.list_remotes_user(user).await,
-			tg::Principal::Group(_) | tg::Principal::Organization(_) => {
-				Err(tg::error!("unauthorized"))
-			},
+		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner) {
+			return self.list_remotes_runner().await;
 		}
+		let principal = match self
+			.resolve_remote_arg_principal(arg.principal.clone())
+			.await
+		{
+			Ok(principal) => principal,
+			Err(_error)
+				if arg.principal.is_none()
+					&& matches!(
+						self.context.principal,
+						tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+					) && self
+					.server
+					.config
+					.runner
+					.as_ref()
+					.and_then(|runner| runner.remote.as_deref())
+					.is_some() =>
+			{
+				return self.list_remotes_runner().await;
+			},
+			Err(error) => return Err(error),
+		};
+		self.list_remotes_for_principal(principal.as_ref()).await
 	}
 
-	async fn list_remotes_root(&self) -> tg::Result<tg::remote::list::Output> {
+	async fn list_remotes_for_principal(
+		&self,
+		principal: Option<&tg::grant::Principal>,
+	) -> tg::Result<tg::remote::list::Output> {
 		let connection = self
 			.server
 			.database
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
 		let statement = indoc!(
-			r#"
+			r"
 				select name, url
 				from remotes
-				where "user" is null
+				where (principal is null and {p}1 is null) or principal = {p}1
 				order by name;
-			"#,
+			",
 		);
+		let statement = statement.replace("{p}", p);
+		let principal = principal.map(ToString::to_string);
 		let rows = connection
-			.query_all_into::<Row>(statement.into(), db::params![])
+			.query_all_into::<Row>(statement.into(), db::params![principal])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let data = rows
@@ -94,47 +102,14 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			r#"
+			r"
 				select name, url
 				from remotes
-				where name = {p}1 and "user" is null
+				where name = {p}1 and principal is null
 				order by name;
-			"#,
+			",
 		);
 		let params = db::params![remote];
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let data = rows
-			.into_iter()
-			.map(|row| tg::remote::get::Output {
-				name: row.name,
-				token: None,
-				url: row.url,
-			})
-			.collect();
-		let output = tg::remote::list::Output { data };
-		Ok(output)
-	}
-
-	async fn list_remotes_user(&self, user: &tg::user::Id) -> tg::Result<tg::remote::list::Output> {
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select name, url
-				from remotes
-				where "user" = {p}1
-				order by name;
-			"#,
-		);
-		let params = db::params![user.to_string()];
 		let rows = connection
 			.query_all_into::<Row>(statement.into(), params)
 			.await

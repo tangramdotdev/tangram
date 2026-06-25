@@ -4,6 +4,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long)]
+	pub principal: Option<tg::principal::Selector>,
+
 	#[command(flatten)]
 	pub print: crate::print::Options,
 }
@@ -11,7 +14,9 @@ pub struct Args {
 impl Cli {
 	pub async fn command_remote_list(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let arg = tg::remote::list::Arg::default();
+		let arg = tg::remote::list::Arg {
+			principal: args.principal,
+		};
 		let output = client
 			.list_remotes(arg)
 			.await

@@ -7,6 +7,9 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub name: String,
 
+	#[arg(long)]
+	pub principal: Option<tg::principal::Selector>,
+
 	#[arg(index = 2)]
 	pub url: Uri,
 }
@@ -16,7 +19,10 @@ impl Cli {
 		let client = self.client().await?;
 		let name = args.name;
 		let url = args.url;
-		let arg = tg::remote::put::Arg { url };
+		let arg = tg::remote::put::Arg {
+			principal: args.principal,
+			url,
+		};
 		client
 			.put_remote(&name, arg)
 			.await

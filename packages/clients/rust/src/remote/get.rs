@@ -4,6 +4,12 @@ use {
 	tangram_uri::Uri,
 };
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub principal: Option<tg::principal::Selector>,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub name: String,
@@ -15,10 +21,19 @@ pub struct Output {
 }
 
 impl tg::Session {
-	pub async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
+	pub async fn try_get_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::get::Arg,
+	) -> tg::Result<Option<tg::remote::get::Output>> {
 		let method = http::Method::GET;
 		let path = format!("/remotes/{name}");
-		let uri = Uri::builder().path(&path).build().unwrap();
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())

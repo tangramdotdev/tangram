@@ -63,6 +63,13 @@ impl Session {
 		};
 		let cacheable = output.data.cacheable;
 
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Write);
+		let authorized = self.authorize(id.clone(), permission).await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Ok(None);
+		}
+
 		// Check if the process is cacheable.
 		if cacheable {
 			return Err(tg::error!(%id, "cannot signal cacheable processes"));

@@ -189,7 +189,16 @@ impl Session {
 			.iter()
 			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
 		match (stdin, output) {
-			(_, false) => Ok(()),
+			(_, false) => {
+				let permission = tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::Write,
+				);
+				let authorized = self.authorize(id.clone(), permission).await?;
+				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+					return Err(tg::error!("unauthorized"));
+				}
+				Ok(())
+			},
 			(false, true) => {
 				if !matches!(
 					&self.context.principal,

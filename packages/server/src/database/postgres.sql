@@ -104,10 +104,10 @@ create table list_cache (
 create unique index list_cache_arg_index on list_cache (arg);
 
 create table remotes (
-	"user" text,
+	principal text,
 	name text not null,
 	url text not null,
 	token text
 );
 
-create unique index remotes_user_name_index on remotes (coalesce("user", ''), name);
+create unique index remotes_principal_name_index on remotes (coalesce(principal, ''), name);

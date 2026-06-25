@@ -11,8 +11,9 @@ impl tg::handle::Remote for Handle {
 	fn try_get_remote(
 		&self,
 		name: &str,
+		arg: tg::remote::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::remote::get::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_remote(name)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_remote(name, arg)) }
 	}
 
 	fn put_remote(
@@ -23,7 +24,11 @@ impl tg::handle::Remote for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_remote(name, arg)) }
 	}
 
-	fn try_delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<Option<()>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_delete_remote(name)) }
+	fn delete_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.delete_remote(name, arg)) }
 	}
 }

@@ -28,9 +28,10 @@ let parent = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
 let process_data = {
 	command: "cmd_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0",
 	created_at: 0,
+	finished_at: 0,
 	host: "test",
 	sandbox: "sbx_00041061050r3gg28a1c60t3gf20",
-	status: "created",
+	status: "finished",
 }
 
 tg --token $alice.token process put $child ($process_data | merge { children: [] } | to json)

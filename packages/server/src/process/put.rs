@@ -49,6 +49,8 @@ impl Session {
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
 	) -> tg::Result<tg::process::put::Output> {
+		Self::validate_process_data(&arg.data)?;
+
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let creator = (!matches!(self.context.principal, tg::Principal::Anonymous))
 			.then(|| self.context.principal.clone());
@@ -210,6 +212,13 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to put the process"))?;
 		Ok(output)
+	}
+
+	pub(crate) fn validate_process_data(data: &tg::process::Data) -> tg::Result<()> {
+		if data.status != tg::process::Status::Finished {
+			return Err(tg::error!("expected a finished process"));
+		}
+		Ok(())
 	}
 
 	async fn put_process_remote(

@@ -305,6 +305,7 @@ impl Set {
 				None,
 				None,
 				None,
+				None,
 			],
 			Self::Organization(permissions) => Self::organization_entries(permissions),
 			Self::Process(permissions) => [
@@ -318,6 +319,7 @@ impl Set {
 				Self::process_entry(permissions, process::Permission::SubtreeError),
 				Self::process_entry(permissions, process::Permission::SubtreeLog),
 				Self::process_entry(permissions, process::Permission::SubtreeOutput),
+				Self::process_entry(permissions, process::Permission::Write),
 			],
 			Self::Sandbox(permissions) => Self::sandbox_entries(permissions),
 			Self::Tag(permissions) => Self::tag_entries(permissions),
@@ -326,11 +328,12 @@ impl Set {
 		entries.into_iter().flatten()
 	}
 
-	fn group_entries(permissions: group::Set) -> [Option<Permission>; 10] {
+	fn group_entries(permissions: group::Set) -> [Option<Permission>; 11] {
 		[
 			Self::group_entry(permissions, group::Permission::Read),
 			Self::group_entry(permissions, group::Permission::Write),
 			Self::group_entry(permissions, group::Permission::Admin),
+			None,
 			None,
 			None,
 			None,
@@ -347,11 +350,12 @@ impl Set {
 			.then_some(Permission::Group(permission))
 	}
 
-	fn organization_entries(permissions: organization::Set) -> [Option<Permission>; 10] {
+	fn organization_entries(permissions: organization::Set) -> [Option<Permission>; 11] {
 		[
 			Self::organization_entry(permissions, organization::Permission::Read),
 			Self::organization_entry(permissions, organization::Permission::Write),
 			Self::organization_entry(permissions, organization::Permission::Admin),
+			None,
 			None,
 			None,
 			None,
@@ -380,10 +384,11 @@ impl Set {
 			.then_some(Permission::Process(permission))
 	}
 
-	fn sandbox_entries(permissions: sandbox::Set) -> [Option<Permission>; 10] {
+	fn sandbox_entries(permissions: sandbox::Set) -> [Option<Permission>; 11] {
 		[
 			Self::sandbox_entry(permissions, sandbox::Permission::Read),
 			Self::sandbox_entry(permissions, sandbox::Permission::Write),
+			None,
 			None,
 			None,
 			None,
@@ -404,11 +409,12 @@ impl Set {
 			.then_some(Permission::Sandbox(permission))
 	}
 
-	fn tag_entries(permissions: tag::Set) -> [Option<Permission>; 10] {
+	fn tag_entries(permissions: tag::Set) -> [Option<Permission>; 11] {
 		[
 			Self::tag_entry(permissions, tag::Permission::Read),
 			Self::tag_entry(permissions, tag::Permission::Write),
 			Self::tag_entry(permissions, tag::Permission::Admin),
+			None,
 			None,
 			None,
 			None,
@@ -425,11 +431,12 @@ impl Set {
 			.then_some(Permission::Tag(permission))
 	}
 
-	fn user_entries(permissions: user::Set) -> [Option<Permission>; 10] {
+	fn user_entries(permissions: user::Set) -> [Option<Permission>; 11] {
 		[
 			Self::user_entry(permissions, user::Permission::Read),
 			Self::user_entry(permissions, user::Permission::Write),
 			Self::user_entry(permissions, user::Permission::Admin),
+			None,
 			None,
 			None,
 			None,
@@ -604,6 +611,10 @@ mod tests {
 				"process_subtree_output",
 			),
 			(
+				Permission::Process(process::Permission::Write),
+				"process_write",
+			),
+			(
 				Permission::Sandbox(sandbox::Permission::Read),
 				"sandbox_read",
 			),
@@ -665,6 +676,18 @@ mod tests {
 		assert!(
 			!Permission::Process(process::Permission::Subtree)
 				.implies(Permission::Process(process::Permission::NodeOutput))
+		);
+		assert!(
+			Permission::Process(process::Permission::Write)
+				.implies(Permission::Process(process::Permission::Write))
+		);
+		assert!(
+			Permission::Process(process::Permission::Write)
+				.implies(Permission::Process(process::Permission::Node))
+		);
+		assert!(
+			!Permission::Process(process::Permission::Subtree)
+				.implies(Permission::Process(process::Permission::Write))
 		);
 		assert!(
 			!Permission::Group(group::Permission::Read)

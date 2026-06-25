@@ -11,30 +11,44 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
+	pub(crate) async fn delete_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::delete::Arg,
+	) -> tg::Result<()> {
+		let deleted = self.delete_remote_inner(name, arg).await?;
+		if !deleted {
+			return Err(tg::error!("failed to find the remote"));
+		}
+		Ok(())
+	}
+
+	async fn delete_remote_inner(
+		&self,
+		name: &str,
+		arg: tg::remote::delete::Arg,
+	) -> tg::Result<bool> {
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
+			return Err(tg::error!("unauthenticated"));
+		}
+		if matches!(
+			self.context.principal,
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+		) {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		let principal = &self.context.principal;
-		let user = match principal {
-			tg::Principal::Root => None,
-			tg::Principal::User(user) => Some(user),
-			_ => {
-				return Err(tg::error!("unauthorized"));
-			},
-		};
-
 		let name = name.to_owned();
-		let user = user.map(ToString::to_string);
+		let principal = self.resolve_remote_arg_principal(arg.principal).await?;
+		let principal = principal.as_ref().map(ToString::to_string);
 		let n = self
 			.server
 			.database
 			.run(|transaction| {
 				let name = name.clone();
-				let user = user.clone();
+				let principal = principal.clone();
 				async move {
-					Self::try_delete_remote_with_transaction(transaction, &name, user.as_deref())
+					Self::delete_remote_with_transaction(transaction, &name, principal.as_deref())
 						.await
 				}
 				.boxed()
@@ -42,35 +56,31 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete the remote"))?;
 
-		if n == 0 {
-			return Ok(None);
-		}
-
-		Ok(Some(()))
+		Ok(n != 0)
 	}
 
-	async fn try_delete_remote_with_transaction(
+	async fn delete_remote_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		name: &str,
-		user: Option<&str>,
+		principal: Option<&str>,
 	) -> tg::Result<ControlFlow<u64, crate::database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
-			r#"
+			r"
 				delete from remotes
 				where name = {p}1 and (
-					("user" is null and {p}2 is null) or
-					"user" = {p}2
+					(principal is null and {p}2 is null) or
+					principal = {p}2
 				);
-			"#,
+			",
 		);
-		let params = db::params![name, user];
+		let params = db::params![name, principal];
 		let result = transaction.execute(statement.into(), params).await;
 		let n = crate::database::retry!(result, "failed to execute the statement");
 		Ok(ControlFlow::Break(n))
 	}
 
-	pub(crate) async fn try_delete_remote_request(
+	pub(crate) async fn delete_remote_request(
 		&self,
 		request: http::Request<BoxBody>,
 		name: &str,
@@ -80,19 +90,24 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Delete the remote.
-		let Some(()) = self
-			.try_delete_remote(name)
+		let deleted = self
+			.delete_remote_inner(name, arg)
 			.await
-			.map_err(|error| tg::error!(!error, %name, "failed to delete the remote"))?
-		else {
+			.map_err(|error| tg::error!(!error, %name, "failed to delete the remote"))?;
+		if !deleted {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
 				.boxed_body());
-		};
+		}
 
 		// Create the response.
 		match accept

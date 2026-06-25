@@ -1372,11 +1372,11 @@ impl Server {
 			token: Option<String>,
 		}
 		let statement = indoc!(
-			r#"
+			r"
 				select name, token
 				from remotes
-				where "user" is null;
-			"#,
+				where principal is null;
+			",
 		);
 		let result = transaction
 			.query_all_into::<RemoteTokenRow>(statement.into(), db::params![])
@@ -1386,20 +1386,20 @@ impl Server {
 			.map(|row| (row.name, row.token))
 			.collect::<std::collections::BTreeMap<_, _>>();
 		let statement = indoc!(
-			r#"
+			r"
 				delete from remotes
-				where "user" is null;
-			"#,
+				where principal is null;
+			",
 		);
 		let result = transaction.execute(statement.into(), db::params![]).await;
 		crate::database::retry!(result, "failed to delete the remotes");
 		for (name, remote) in remotes {
 			let p = transaction.p();
 			let statement = formatdoc!(
-				r#"
-					insert into remotes (name, "user", url, token)
+				r"
+					insert into remotes (name, principal, url, token)
 					values ({p}1, null, {p}2, {p}3);
-				"#,
+				",
 			);
 			let token = remote
 				.token

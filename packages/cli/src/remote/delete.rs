@@ -6,12 +6,18 @@ use {crate::Cli, tangram_client::prelude::*};
 pub struct Args {
 	#[arg(index = 1)]
 	pub name: String,
+
+	#[arg(long)]
+	pub principal: Option<tg::principal::Selector>,
 }
 
 impl Cli {
 	pub async fn command_remote_delete(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		client.delete_remote(&args.name).await.map_err(
+		let arg = tg::remote::delete::Arg {
+			principal: args.principal,
+		};
+		client.delete_remote(&args.name, arg).await.map_err(
 			|error| tg::error!(!error, name = %args.name, "failed to delete the remote"),
 		)?;
 		Ok(())

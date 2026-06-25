@@ -705,11 +705,15 @@ impl Index {
 				)
 				.await?
 				{
+					let sandbox_permission = match process_permission {
+						tg::grant::permission::process::Permission::Write => {
+							tg::grant::permission::sandbox::Permission::Write
+						},
+						_ => tg::grant::permission::sandbox::Permission::Read,
+					};
 					dependencies.push((
 						sandbox.into(),
-						tg::grant::Permission::Sandbox(
-							tg::grant::permission::sandbox::Permission::Read,
-						),
+						tg::grant::Permission::Sandbox(sandbox_permission),
 					));
 				}
 				let process_parents = Self::get_cached_process_parents_with_transaction(

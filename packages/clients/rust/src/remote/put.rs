@@ -6,6 +6,9 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub principal: Option<tg::principal::Selector>,
+
 	pub url: Uri,
 }
 

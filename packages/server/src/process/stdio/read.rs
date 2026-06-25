@@ -121,7 +121,16 @@ impl Session {
 				}
 				Ok(())
 			},
-			(false, _) => Ok(()),
+			(false, _) => {
+				let permission = tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::Write,
+				);
+				let authorized = self.authorize(id.clone(), permission).await?;
+				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+					return Err(tg::error!("unauthorized"));
+				}
+				Ok(())
+			},
 			(true, true) => Err(tg::error!(
 				"cannot read stdin and stdout or stderr in a single request"
 			)),

@@ -25,6 +25,7 @@ pub enum Permission {
 	SubtreeError,
 	SubtreeLog,
 	SubtreeOutput,
+	Write,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -41,6 +42,7 @@ impl Set {
 	pub const SUBTREE_ERROR: Self = Self(1 << 7);
 	pub const SUBTREE_LOG: Self = Self(1 << 8);
 	pub const SUBTREE_OUTPUT: Self = Self(1 << 9);
+	pub const WRITE: Self = Self(1 << 10);
 }
 
 impl Permission {
@@ -52,12 +54,15 @@ impl Permission {
 			Self::NodeError | Self::SubtreeError => Self::SubtreeError,
 			Self::NodeLog | Self::SubtreeLog => Self::SubtreeLog,
 			Self::NodeOutput | Self::SubtreeOutput => Self::SubtreeOutput,
+			Self::Write => Self::Write,
 		}
 	}
 
 	#[must_use]
 	pub fn implies(self, needed: Self) -> bool {
-		self == needed || self == needed.to_subtree()
+		self == needed
+			|| self == needed.to_subtree()
+			|| matches!((self, needed), (Self::Write, Self::Node))
 	}
 }
 
@@ -74,7 +79,8 @@ impl Set {
 				| Self::SUBTREE_COMMAND.0
 				| Self::SUBTREE_ERROR.0
 				| Self::SUBTREE_LOG.0
-				| Self::SUBTREE_OUTPUT.0,
+				| Self::SUBTREE_OUTPUT.0
+				| Self::WRITE.0,
 		)
 	}
 
@@ -96,6 +102,7 @@ impl Set {
 			Permission::SubtreeError => Self::SUBTREE_ERROR,
 			Permission::SubtreeLog => Self::SUBTREE_LOG,
 			Permission::SubtreeOutput => Self::SUBTREE_OUTPUT,
+			Permission::Write => Self::WRITE,
 		}
 	}
 
@@ -132,6 +139,7 @@ impl Set {
 				.then_some(Permission::SubtreeLog),
 			self.contains(Self::SUBTREE_OUTPUT)
 				.then_some(Permission::SubtreeOutput),
+			self.contains(Self::WRITE).then_some(Permission::Write),
 		]
 		.into_iter()
 		.flatten()

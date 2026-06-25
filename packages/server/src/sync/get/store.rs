@@ -234,6 +234,7 @@ impl Session {
 				let data = serde_json::from_slice(&item.bytes).map_err(|error| {
 					tg::error!(!error, "failed to deserialize the process data")
 				})?;
+				Self::validate_process_data(&data)?;
 				Ok((item.id, data, item.metadata))
 			})
 			.collect::<tg::Result<_>>()?;
