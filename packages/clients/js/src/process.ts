@@ -143,7 +143,10 @@ export class Process<O extends tg.Value = tg.Value> {
 					arg instanceof tg.Template
 				) {
 					let host = tg.host.current;
-					let executable = tg.process.env.SHELL ?? "sh";
+					let executable =
+						typeof tg.process.env.SHELL === "string"
+							? tg.process.env.SHELL
+							: "sh";
 					return {
 						args: ["-c", arg],
 						executable,

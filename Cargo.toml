@@ -91,8 +91,8 @@ fastcdc = { version = "4", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
 fnv = "1"
-foundationdb = { version = "0.10", features = ["fdb-7_3", "embedded-fdb-include"] }
-foundationdb-tuple = "0.10"
+foundationdb = { version = "0.11", features = ["fdb-7_3", "embedded-fdb-include"] }
+foundationdb-tuple = "0.11"
 futures = "0.3"
 glob = "0.3"
 globset = "0.4"
@@ -109,7 +109,7 @@ indexmap = "2"
 indoc = "2"
 insta = { version = "1", features = ["filters", "json", "redactions", "yaml"] }
 io-uring = "0.7"
-itertools = "0.14"
+itertools = "0.15"
 libc = "0.2"
 liblzma = { version = "0.4", features = ["static"] }
 log = "0.4"
