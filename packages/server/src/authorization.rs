@@ -146,45 +146,6 @@ impl Session {
 		Ok(())
 	}
 
-	// Determine whether the requester may read the process's log.
-	pub(crate) async fn process_log_read_authorized(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<bool> {
-		// Authorize the root principal.
-		if matches!(self.context.principal, tg::Principal::Root) {
-			return Ok(true);
-		}
-
-		// Authorize a sandbox for its own process.
-		if let tg::Principal::Sandbox(sandbox) = &self.context.principal
-			&& let Some(output) = self.server.try_get_process_local(id, false).await?
-			&& output.data.sandbox == *sandbox
-		{
-			return Ok(true);
-		}
-
-		// Authorize against the index without forcing a reindex.
-		let permission =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeLog);
-		let arg = tangram_index::authorize::Arg {
-			permissions: permission.into(),
-			resource: tg::grant::Resource::Id(id.clone().into()),
-			token: None,
-		};
-		let outputs = self
-			.server
-			.index
-			.authorize_batch(std::slice::from_ref(&arg), &self.context.principal)
-			.await?;
-		let authorized = outputs
-			.into_iter()
-			.next()
-			.flatten()
-			.is_some_and(|output| output.permissions.contains(permission));
-		Ok(authorized)
-	}
-
 	pub(crate) fn authorize_token(
 		&self,
 		resource: &tg::grant::Resource,

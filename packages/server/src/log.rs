@@ -256,11 +256,14 @@ impl Session {
 				index,
 			})
 		} else {
-			// A live log is read directly from the store, so authorize it here; a compacted log
-			// is authorized by Reader::new above.
-			if !self.process_log_read_authorized(id).await? {
-				return Err(tg::error!(%id, "failed to get the log"));
+			// Authorize.
+			let permission =
+				tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeLog);
+			let authorized = self.authorize(id.clone(), permission).await?;
+			if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				return Err(tg::error!("unauthorized"));
 			}
+
 			Inner::Store(StoreInner {
 				session: self.clone(),
 				process: id.clone(),
