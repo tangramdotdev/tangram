@@ -83,7 +83,6 @@ impl Session {
 			status: tg::sandbox::Status,
 			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
 			ttl: Option<std::time::Duration>,
-			user: Option<String>,
 		}
 		let connection = self
 			.server
@@ -93,7 +92,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
-			r#"
+			r"
 				select
 					cpu,
 					creator,
@@ -104,11 +103,10 @@ impl Session {
 					network,
 					owner,
 					status,
-					ttl,
-					"user" as user
+					ttl
 				from sandboxes
 				where id = {p}1;
-			"#
+			"
 		);
 		let params = db::params![id.to_string()];
 		let row = connection
@@ -145,7 +143,6 @@ impl Session {
 					owner: Some(row.owner.unwrap_or(tg::Principal::Root)),
 					status: row.status,
 					ttl: row.ttl,
-					user: row.user,
 				})
 			})
 			.transpose()?;

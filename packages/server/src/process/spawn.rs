@@ -1497,7 +1497,7 @@ impl Session {
 		let id = tg::sandbox::Id::new();
 		let creator = &Some(self.context.principal.to_string());
 		let statement = formatdoc!(
-			r#"
+			r"
 				insert into sandboxes (
 					id,
 					cpu,
@@ -1512,8 +1512,7 @@ impl Session {
 					owner,
 					started_at,
 					status,
-					ttl,
-					"user"
+					ttl
 				)
 				values (
 					{p}1,
@@ -1529,10 +1528,9 @@ impl Session {
 					{p}11,
 					{p}12,
 					{p}13,
-					{p}14,
-					{p}15
+					{p}14
 				);
-			"#
+			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let heartbeat_at = (status == tg::sandbox::Status::Started).then_some(now);
@@ -1543,7 +1541,6 @@ impl Session {
 			arg.cpu,
 			arg.memory,
 			arg.hostname.as_deref(),
-			arg.user.as_deref(),
 		)?;
 		let cpu = arg
 			.cpu
@@ -1572,7 +1569,6 @@ impl Session {
 			started_at,
 			status.to_string(),
 			db::value::DurationSeconds(ttl),
-			arg.user.clone(),
 		];
 		let result = transaction.execute(statement.into(), params).await;
 		crate::database::retry!(result, "failed to execute the statement");

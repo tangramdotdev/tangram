@@ -14,7 +14,7 @@ tg --token $alice.token group members add team $carol.user.id
 
 # Bob builds a process whose sandbox is owned by the team; the process record's visibility follows the team-owned sandbox.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("revoked-visibility-team"); }' }
-let process = tg --token $bob.token build --detach --owner team $path | str trim
+let process = tg --token $bob.token build --detach --group team $path | str trim
 tg --token $bob.token wait $process | complete | ignore
 
 # Carol, a member, can read the team-owned process.

@@ -11,7 +11,7 @@ let carol = tg login --verbose carol | from json
 tg --token $alice.token group create team
 tg --token $alice.token group members add team $bob.user.id
 
-let sandbox = tg --token $bob.token sandbox create --owner team --no-network | str trim
+let sandbox = tg --token $bob.token sandbox create --group team --no-network | str trim
 
 # Carol is not yet a member, so she cannot access the team-owned sandbox.
 failure (tg --token $carol.token sandbox get $sandbox | complete) "Carol must not get the sandbox before joining the team"

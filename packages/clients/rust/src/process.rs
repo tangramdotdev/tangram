@@ -131,7 +131,6 @@ pub struct SandboxCreateArg {
 	pub network: Option<tg::sandbox::Network>,
 	pub owner: Option<tg::Principal>,
 	pub ttl: Option<Option<Duration>>,
-	pub user: Option<String>,
 }
 
 impl<O> Process<O> {

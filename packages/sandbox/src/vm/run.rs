@@ -78,7 +78,6 @@ pub struct Arg {
 	pub snapshot_memory: u64,
 	pub tangram_path: PathBuf,
 	pub url: tangram_uri::Uri,
-	pub user: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -199,7 +198,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	}
 
 	tracing::trace!("sandbox directory: {}", arg.path.display());
-	let user = resolve_user(arg.user.as_deref())?;
+	let user = resolve_user(None)?;
 	prepare_sandbox_directory(&arg.path)?;
 	prepare_etc_files(&arg.path, &user)?;
 

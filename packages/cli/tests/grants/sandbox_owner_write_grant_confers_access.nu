@@ -11,7 +11,7 @@ let dave = tg login --verbose dave | from json
 
 tg --token $alice.token group create team
 tg --token $alice.token grant $bob.user.id write team
-let sandbox = tg --token $bob.token sandbox create --owner team --no-network | str trim
+let sandbox = tg --token $bob.token sandbox create --group team --no-network | str trim
 
 # A write grant on the owner confers access.
 tg --token $alice.token grant $carol.user.id write team
