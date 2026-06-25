@@ -256,6 +256,11 @@ impl Session {
 				index,
 			})
 		} else {
+			// A live log is read directly from the store, so authorize it here; a compacted log
+			// is authorized by Reader::new above.
+			if !self.process_log_read_authorized(id).await? {
+				return Err(tg::error!(%id, "failed to get the log"));
+			}
 			Inner::Store(StoreInner {
 				session: self.clone(),
 				process: id.clone(),

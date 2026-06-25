@@ -158,8 +158,12 @@ impl Session {
 				continue;
 			};
 
-			// Compact the log if needed before sending the process data.
-			if state.arg.logs && output.data.log.is_none() {
+			// Compact the log if needed before sending the process data, but only for a caller
+			// authorized to read it, since compaction grants the caller the log blob.
+			if state.arg.logs
+				&& output.data.log.is_none()
+				&& self.process_log_read_authorized(&item.id).await?
+			{
 				self.compact_process_log(&item.id).boxed().await.map_err(
 					|error| tg::error!(!error, process = %item.id, "failed to compact the log"),
 				)?;
