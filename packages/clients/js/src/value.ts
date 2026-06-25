@@ -39,8 +39,9 @@ export namespace Value {
 	};
 
 	export let toData = (value: Value): Data => {
-		if (
-			typeof value === "undefined" ||
+		if (value === undefined) {
+			return null;
+		} else if (
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string"
