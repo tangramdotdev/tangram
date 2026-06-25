@@ -352,18 +352,7 @@ impl Session {
 		// Drop the database connection.
 		drop(connection);
 
-		// Authorize.
-		let resource = tg::grant::Resource::Id(id.clone().into());
-		let permission =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		let authorized = self
-			.authorize(resource, permission)
-			.await?
-			.is_some_and(|permissions| permissions.contains(permission));
-
-		let output = exists && authorized;
-
-		Ok(output)
+		Ok(exists)
 	}
 }
 

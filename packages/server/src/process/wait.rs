@@ -5,7 +5,6 @@ use {
 		future::{self, BoxFuture},
 		stream::{self, FuturesUnordered},
 	},
-	num::ToPrimitive as _,
 	std::sync::{
 		Arc,
 		atomic::{AtomicBool, Ordering},
@@ -115,16 +114,36 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let session = self.clone();
-		let id = id.clone();
-		let Some(stream) = session
-			.try_get_process_status_stream_local(&id, None, None)
+		// Verify the process exists.
+		if !self
+			.get_process_exists_local(id)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process status stream"))?
-			.map(futures::StreamExt::boxed)
-		else {
+			.map_err(|error| tg::error!(!error, %id, "failed to check if the process exists"))?
+		{
+			return Ok(None);
+		}
+
+		// Authorize.
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		let mut permissions = tg::grant::permission::process::Set::NODE;
+		permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
+		let permissions = tg::grant::permission::Set::Process(permissions);
+		let Some(permissions) = self.authorize(resource, permissions).await? else {
 			return Ok(None);
 		};
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		if !permissions.contains(permission) {
+			return Ok(None);
+		}
+
+		let stream = self
+			.create_process_status_stream_local(id, None, None)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process status stream"))?;
+		let session = self.clone();
+		let id = id.clone();
+		let stream = stream.boxed();
 		let future = async move {
 			let stream = stream
 				.take_while(|event| {
@@ -158,145 +177,18 @@ impl Session {
 				exit,
 				output: process.data.output,
 			};
-			if session.process_output_authorized(&id).await? {
-				session.add_tokens_to_wait_output(&mut output)?;
+			let permission = tg::grant::Permission::Process(
+				tg::grant::permission::process::Permission::NodeOutput,
+			);
+			if permissions.contains(permission)
+				&& let Some(output) = &mut output.output
+			{
+				session.add_tokens_to_value_data(output)?;
 			}
 			Ok(Some(output))
 		};
+
 		Ok(Some(future.boxed()))
-	}
-
-	pub(crate) fn add_tokens_to_wait_output(
-		&self,
-		output: &mut tg::process::wait::Output,
-	) -> tg::Result<()> {
-		if let Some(output) = &mut output.output {
-			self.add_tokens_to_value_data(output)?;
-		}
-		Ok(())
-	}
-
-	// Determine whether the requester may receive an entitlement token for the process output.
-	async fn process_output_authorized(&self, id: &tg::process::Id) -> tg::Result<bool> {
-		let resource = tg::grant::Resource::Id(id.clone().into());
-		let requested =
-			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
-		let Some(permissions) = self.authorize(resource, requested).await? else {
-			return Ok(false);
-		};
-		let output =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeOutput);
-		Ok(permissions.contains(output))
-	}
-
-	fn add_tokens_to_value_data(&self, data: &mut tg::value::Data) -> tg::Result<()> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let expires_at = now
-			+ self
-				.server
-				.config
-				.object
-				.grant_time_to_live
-				.as_secs()
-				.to_i64()
-				.unwrap();
-		self.add_tokens_to_value_data_with_expires_at(data, expires_at)
-	}
-
-	fn add_tokens_to_value_data_with_expires_at(
-		&self,
-		data: &mut tg::value::Data,
-		expires_at: i64,
-	) -> tg::Result<()> {
-		match data {
-			tg::value::Data::Array(array) => {
-				for value in array {
-					self.add_tokens_to_value_data_with_expires_at(value, expires_at)?;
-				}
-			},
-			tg::value::Data::Map(map) => {
-				for value in map.values_mut() {
-					self.add_tokens_to_value_data_with_expires_at(value, expires_at)?;
-				}
-			},
-			tg::value::Data::Object(object) => {
-				let id = object.clone().map_right(|object| object.id).into_inner();
-				*object = self.object_output(
-					id,
-					tg::grant::permission::object::Permission::Subtree,
-					expires_at,
-				)?;
-			},
-			tg::value::Data::Mutation(mutation) => {
-				self.add_tokens_to_mutation_data(mutation, expires_at)?;
-			},
-			tg::value::Data::Template(template) => {
-				self.add_tokens_to_template_data(template, expires_at)?;
-			},
-			tg::value::Data::Bool(_)
-			| tg::value::Data::Bytes(_)
-			| tg::value::Data::Null
-			| tg::value::Data::Number(_)
-			| tg::value::Data::Placeholder(_)
-			| tg::value::Data::String(_) => {},
-		}
-		Ok(())
-	}
-
-	fn add_tokens_to_mutation_data(
-		&self,
-		data: &mut tg::mutation::Data,
-		expires_at: i64,
-	) -> tg::Result<()> {
-		match data {
-			tg::mutation::Data::Unset => {},
-			tg::mutation::Data::Set { value } | tg::mutation::Data::SetIfUnset { value } => {
-				self.add_tokens_to_value_data_with_expires_at(value, expires_at)?;
-			},
-			tg::mutation::Data::Prepend { values } | tg::mutation::Data::Append { values } => {
-				for value in values {
-					self.add_tokens_to_value_data_with_expires_at(value, expires_at)?;
-				}
-			},
-			tg::mutation::Data::Prefix { template, .. }
-			| tg::mutation::Data::Suffix { template, .. } => {
-				self.add_tokens_to_template_data(template, expires_at)?;
-			},
-			tg::mutation::Data::Merge { value } => {
-				for value in value.values_mut() {
-					self.add_tokens_to_value_data_with_expires_at(value, expires_at)?;
-				}
-			},
-		}
-		Ok(())
-	}
-
-	fn add_tokens_to_template_data(
-		&self,
-		data: &mut tg::template::Data,
-		expires_at: i64,
-	) -> tg::Result<()> {
-		for component in &mut data.components {
-			if let tg::template::data::Component::Artifact(artifact) = component {
-				let id = artifact
-					.clone()
-					.map_right(|artifact| artifact.id)
-					.into_inner();
-				let object = self.object_output(
-					id.clone().into(),
-					tg::grant::permission::object::Permission::Subtree,
-					expires_at,
-				)?;
-				*artifact = match object {
-					tg::Either::Left(_) => tg::Either::Left(id),
-					tg::Either::Right(object) => tg::Either::Right(tg::WithToken {
-						id,
-						token: object.token,
-					}),
-				};
-			}
-		}
-		Ok(())
 	}
 
 	async fn try_wait_process_regions(
