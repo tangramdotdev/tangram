@@ -1,12 +1,12 @@
 import * as tg from "../../index.ts";
 import { Request, Uri, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
-import { tryGetProcess } from "./get.ts";
 
 export namespace Wait {
 	export type Arg = {
 		lease: string | undefined;
 		location?: tg.Location.Arg | undefined;
+		token?: tg.Grant.Token | undefined;
 	};
 }
 
@@ -40,10 +40,6 @@ export async function tryWaitProcessPromise(
 	id: tg.Process.Id,
 	arg: tg.Process.Wait.Arg,
 ): Promise<(() => Promise<tg.Process.Wait | undefined>) | undefined> {
-	let found = await tryGetProcess(client, id, { location: arg.location });
-	if (found === undefined) {
-		return undefined;
-	}
 	return async () => {
 		return await waitProcessLoop(client, id, arg);
 	};

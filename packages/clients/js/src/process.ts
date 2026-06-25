@@ -472,6 +472,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		let arg: tg.Process.Wait.Arg = {
 			lease: this.#lease,
 			location: this.#location,
+			token: this.#token,
 		};
 		let promise = await tg.client.waitProcessPromise(this.#id, arg);
 		let wait = await promise();
@@ -1306,6 +1307,7 @@ export namespace Process {
 		export type Arg = {
 			lease: string | undefined;
 			location?: tg.Location.Arg | undefined;
+			token?: tg.Grant.Token | undefined;
 		};
 
 		export type Data = {

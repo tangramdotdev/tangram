@@ -411,6 +411,9 @@ impl<O> Process<O> {
 		if arg.lease.is_none() {
 			arg.lease = self.lease().cloned();
 		}
+		if arg.token.is_none() {
+			arg.token = self.token();
+		}
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
 				"waiting for an unsandboxed process is not supported"
@@ -440,6 +443,7 @@ impl<O> Process<O> {
 		let arg = tg::process::wait::Arg {
 			lease: self.lease().cloned(),
 			location: self.location(),
+			token: self.token(),
 		};
 		let wait = self.wait_with_handle(handle, arg).await?;
 		let output = wait.into_output()?;
