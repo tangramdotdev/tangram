@@ -287,6 +287,20 @@ impl Session {
 			progress.forward(Ok(event));
 		}
 
+		// Index.
+		let stream = self
+			.index()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream
+			.try_next()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
+		{
+			progress.forward(Ok(event));
+		}
+
 		let stored = self
 			.server
 			.index
