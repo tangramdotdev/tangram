@@ -158,7 +158,9 @@ impl Session {
 				exit,
 				output: process.data.output,
 			};
-			session.add_tokens_to_wait_output(&mut output)?;
+			if session.process_output_authorized(&id).await? {
+				session.add_tokens_to_wait_output(&mut output)?;
+			}
 			Ok(Some(output))
 		};
 		Ok(Some(future.boxed()))
@@ -172,6 +174,19 @@ impl Session {
 			self.add_tokens_to_value_data(output)?;
 		}
 		Ok(())
+	}
+
+	// Determine whether the requester may receive an entitlement token for the process output.
+	async fn process_output_authorized(&self, id: &tg::process::Id) -> tg::Result<bool> {
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		let requested =
+			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
+		let Some(permissions) = self.authorize(resource, requested).await? else {
+			return Ok(false);
+		};
+		let output =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeOutput);
+		Ok(permissions.contains(output))
 	}
 
 	fn add_tokens_to_value_data(&self, data: &mut tg::value::Data) -> tg::Result<()> {
