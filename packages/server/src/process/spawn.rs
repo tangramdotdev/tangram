@@ -164,6 +164,11 @@ impl Session {
 			&& arg.stderr.is_log()
 			&& tty.is_none();
 
+		// Authorize assigning the sandbox owner.
+		if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
+			self.authorize_owner(sandbox.owner.as_ref()).await?;
+		}
+
 		// Get or create a local process in the process store.
 		let session = self.clone();
 		let mut output = self
