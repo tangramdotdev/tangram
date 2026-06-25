@@ -49,9 +49,6 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub ttl: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub user: Option<String>,
 }
 
 impl tg::Session {

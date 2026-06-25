@@ -102,9 +102,6 @@ pub(crate) fn spawn(
 	if let Some(memory) = arg.memory {
 		command.arg("--memory").arg(memory.to_string());
 	}
-	if let Some(user) = &arg.user {
-		command.arg("--user").arg(user);
-	}
 	for mount in &arg.mounts {
 		command.arg("--mount").arg(mount.to_string());
 	}

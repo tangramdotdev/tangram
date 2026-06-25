@@ -60,7 +60,6 @@ impl Session {
 			status: tg::sandbox::Status,
 			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
 			ttl: Option<std::time::Duration>,
-			user: Option<String>,
 		}
 		let connection = self
 			.server
@@ -69,12 +68,12 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
 		let statement = formatdoc!(
-			r#"
-				select id, cpu, hostname, memory, mounts, network, owner, status, ttl, "user" as user
+			r"
+				select id, cpu, hostname, memory, mounts, network, owner, status, ttl
 				from sandboxes
 				where status != 'destroyed'
 				order by created_at;
-			"#
+			"
 		);
 		let params = db::params![];
 		let rows = connection
@@ -102,7 +101,6 @@ impl Session {
 					owner: Some(row.owner.unwrap_or(tg::Principal::Root)),
 					status: row.status,
 					ttl: row.ttl,
-					user: row.user,
 				})
 			})
 			.collect::<tg::Result<Vec<tg::sandbox::list::Item>>>()?;

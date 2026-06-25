@@ -275,7 +275,6 @@ impl Session {
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
 			token: token.clone(),
-			user: state.user.clone(),
 		};
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await

@@ -57,7 +57,7 @@ pub(crate) async fn spawn(
 		_ => None,
 	};
 	prepare_sandbox_directory(&arg.path)?;
-	let user = prepare_etc_files(&arg.path, network.as_deref(), arg.user.as_deref(), &arg.dns)?;
+	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
 	let upper_path = Sandbox::host_upper_path_from_root(&arg.path);
 	for mount in &arg.mounts {
 		crate::container::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
@@ -274,10 +274,9 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 fn prepare_etc_files(
 	sandbox_path: &Path,
 	network: Option<&crate::network::Network>,
-	user: Option<&str>,
 	dns: &[Ipv4Addr],
 ) -> tg::Result<User> {
-	let user = resolve_user(user)?;
+	let user = resolve_user(None)?;
 	let passwd = render_passwd(&user);
 	std::fs::write(Sandbox::host_passwd_path_from_root(sandbox_path), passwd)
 		.map_err(|error| tg::error!(!error, "failed to write /etc/passwd"))?;

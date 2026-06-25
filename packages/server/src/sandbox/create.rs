@@ -73,7 +73,6 @@ impl Session {
 			arg.cpu,
 			arg.memory,
 			arg.hostname.as_deref(),
-			arg.user.as_deref(),
 		)?;
 		let cpu = arg
 			.cpu
@@ -132,7 +131,7 @@ impl Session {
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
-			r#"
+			r"
 				insert into sandboxes (
 					id,
 					cpu,
@@ -145,8 +144,7 @@ impl Session {
 					network,
 					owner,
 					status,
-					ttl,
-					"user"
+					ttl
 				)
 				values (
 					{p}1,
@@ -160,10 +158,9 @@ impl Session {
 					{p}9,
 					{p}10,
 					{p}11,
-					{p}12,
-					{p}13
+					{p}12
 				);
-			"#
+			"
 		);
 		let params = db::params![
 			arg.id.to_string(),
@@ -178,7 +175,6 @@ impl Session {
 			arg.owner.as_ref().map(ToString::to_string),
 			tg::sandbox::Status::Created.to_string(),
 			db::value::DurationSeconds(arg.ttl),
-			arg.arg.user,
 		];
 		let result = transaction.execute(statement.into(), params).await;
 		crate::database::retry!(result, "failed to execute the statement");

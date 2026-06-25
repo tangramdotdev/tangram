@@ -38,7 +38,7 @@ impl Cli {
 		let client = self.client().await?;
 		let ports = args.arg.ports;
 		let network = crate::sandbox::normalize_network(&args.arg.network, ports)?;
-		let owner = self.resolve_owner(&client, args.arg.owner).await?;
+		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
 		let arg = tg::sandbox::create::Arg {
 			cpu: args.arg.cpu,
 			hostname: args.arg.hostname,
@@ -49,7 +49,6 @@ impl Cli {
 			network,
 			owner,
 			ttl: args.ttl.get(),
-			user: args.arg.user,
 		};
 		let output = client
 			.create_sandbox(arg)

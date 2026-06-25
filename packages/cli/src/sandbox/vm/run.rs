@@ -84,9 +84,6 @@ pub struct Args {
 
 	#[arg(long)]
 	pub url: tangram_uri::Uri,
-
-	#[arg(long)]
-	pub user: Option<String>,
 }
 
 impl Cli {
@@ -118,7 +115,6 @@ impl Cli {
 			snapshot_memory: args.snapshot_memory,
 			tangram_path: args.tangram_path,
 			url: args.url,
-			user: args.user,
 		};
 		tangram_sandbox::vm::run::run(&arg)
 	}

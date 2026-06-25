@@ -13,8 +13,7 @@ create table sandboxes (
 	owner text,
 	started_at integer,
 	status text not null,
-	ttl integer,
-	"user" text
+	ttl integer
 );
 
 create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';

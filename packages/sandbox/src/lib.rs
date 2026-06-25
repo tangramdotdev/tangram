@@ -99,7 +99,6 @@ pub struct Arg {
 	pub tangram_path: PathBuf,
 	pub tangram_socket_path: Option<PathBuf>,
 	pub token: Option<String>,
-	pub user: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, derive_more::Display, derive_more::FromStr)]
@@ -687,17 +686,10 @@ fn validate_resources(
 }
 
 fn validate_options(arg: &Arg) -> tg::Result<()> {
-	if matches!(arg.isolation, Isolation::Seatbelt(_)) {
-		if arg.hostname.is_some() {
-			return Err(tg::error!(
-				"setting a hostname is not supported with seatbelt isolation"
-			));
-		}
-		if arg.user.is_some() {
-			return Err(tg::error!(
-				"setting a user is not supported with seatbelt isolation"
-			));
-		}
+	if matches!(arg.isolation, Isolation::Seatbelt(_)) && arg.hostname.is_some() {
+		return Err(tg::error!(
+			"setting a hostname is not supported with seatbelt isolation"
+		));
 	}
 	Ok(())
 }
