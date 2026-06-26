@@ -2,9 +2,9 @@ use ../../test.nu *
 
 # Groups and organizations can be remote principals, and process tokens use the sandbox owner's remotes.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
 let team_remote = spawn --name team-remote
 let org_remote = spawn --name org-remote
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json
