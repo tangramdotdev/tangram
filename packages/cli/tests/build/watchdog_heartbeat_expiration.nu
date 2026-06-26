@@ -2,11 +2,14 @@ use ../../test.nu *
 
 # The watchdog fails a long-running build whose heartbeat expires under a short time-to-live and reports a heartbeat expired error.
 
-# Configure watchdog with short TTL and fast interval.
+# Configure the runner to stop refreshing the sandbox heartbeat during the build, and configure the watchdog with a short whole-second TTL and a fast interval.
 let server = spawn --config {
+	runner: {
+		heartbeat_interval: 60
+	}
 	watchdog: {
-		ttl: 0.1
 		interval: 0.1
+		ttl: 1
 	}
 }
 
@@ -14,7 +17,7 @@ let server = spawn --config {
 let path = artifact {
 	tangram.ts: '
 		export async function foo() {
-			await tg.sleep(2);
+			await tg.sleep(4);
 			return "done";
 		}
 	'
