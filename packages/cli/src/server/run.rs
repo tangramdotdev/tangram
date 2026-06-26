@@ -5,9 +5,10 @@ use {
 		io::Write as _,
 		os::fd::{FromRawFd as _, RawFd},
 		path::PathBuf,
+		time::Duration,
 	},
 	tangram_client::prelude::*,
-	tangram_server::Shared as Server,
+	tangram_server::Owned as Server,
 	tangram_uri::Uri,
 };
 
@@ -95,8 +96,7 @@ impl Cli {
 			// Start the server.
 			let server: Server = Box::pin(tangram_server::Server::start(config))
 				.await
-				.map_err(|error| tg::error!(!error, "failed to start the server"))?
-				.into();
+				.map_err(|error| tg::error!(!error, "failed to start the server"))?;
 
 			if let Some(ready_fd) = ready_fd {
 				let ready_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ready_fd) };
@@ -109,20 +109,40 @@ impl Cli {
 					.map_err(|error| tg::error!(!error, "failed to flush the ready signal"))?;
 			}
 
-			// Spawn a task to stop the server on the first interrupt signal and exit the process on the second.
-			tokio::spawn({
-				let server = server.clone();
-				async move {
-					tokio::signal::ctrl_c().await.unwrap();
-					server.stop();
-					drop(server);
-					tokio::signal::ctrl_c().await.unwrap();
-					std::process::exit(130);
-				}
-			});
+			let mut interrupt =
+				tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
+			let mut terminate =
+				tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
 
-			// Wait for the server.
-			server.wait().await.unwrap();
+			let shutdown = tokio::select! {
+				result = server.wait() => {
+					result.unwrap();
+					false
+				},
+				_ = interrupt.recv() => {
+					server.stop();
+					true
+				},
+				_ = terminate.recv() => {
+					server.stop();
+					true
+				},
+			};
+
+			if shutdown {
+				tokio::select! {
+					result = server.wait() => {
+						result.unwrap();
+					},
+					_ = interrupt.recv() => {
+						std::process::exit(130);
+					},
+					_ = terminate.recv() => {
+						std::process::exit(130);
+					}
+				}
+			}
+			drop(server);
 
 			Ok::<_, tg::Error>(())
 		};
@@ -136,7 +156,7 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
 			let task: tokio::task::JoinHandle<tg::Result<()>> = runtime.spawn(future);
 			let result = task.await;
-			runtime.shutdown_background();
+			runtime.shutdown_timeout(Duration::from_secs(5));
 			result.map_err(|error| tg::error!(!error, "the server runtime task panicked"))??;
 		}
 
