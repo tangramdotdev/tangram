@@ -48,7 +48,10 @@ use {
 		time::Duration,
 	},
 	tangram_futures::task::Stopper,
-	tokio::net::{TcpListener, TcpStream},
+	tokio::{
+		net::{TcpListener, TcpStream},
+		process::Child,
+	},
 };
 
 mod provider;
@@ -64,6 +67,7 @@ pub struct Server<P>(Arc<State<P>>);
 pub struct State<P> {
 	client_index: AtomicU64,
 	clients: DashMap<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>,
+	dns_sd: Mutex<Option<Child>>,
 	host: String,
 	path: PathBuf,
 	port: u16,
@@ -103,6 +107,7 @@ where
 		let server = Self(Arc::new(State {
 			client_index: AtomicU64::new(0),
 			clients: DashMap::default(),
+			dns_sd: Mutex::new(None),
 			host: host.to_owned(),
 			path: path.to_owned(),
 			port,
@@ -116,6 +121,10 @@ where
 
 		// Unmount.
 		unmount(&server.path).await.ok();
+
+		// Advertise the mount on macOS.
+		let dns_sd = Self::spawn_dns_sd(&server.host, server.port)?;
+		*server.0.dns_sd.lock().unwrap() = dns_sd;
 
 		// Mount.
 		Self::mount(&server.path, &server.host, server.port).await?;
@@ -134,9 +143,11 @@ where
 			}
 		});
 
+		let shutdown_server = server.clone();
 		let shutdown = async move {
 			request_handler_task.stop();
 			request_handler_task.wait().await.unwrap();
+			shutdown_server.stop_dns_sd().await;
 		};
 
 		// Spawn the task.
@@ -156,6 +167,40 @@ where
 	pub async fn wait(&self) {
 		let task = self.task.lock().unwrap().clone().unwrap();
 		task.wait().await.unwrap();
+	}
+
+	#[cfg(target_os = "macos")]
+	fn spawn_dns_sd(host: &str, port: u16) -> Result<Option<Child>, std::io::Error> {
+		let mut command = tokio::process::Command::new("dns-sd");
+		command
+			.args([
+				"-P",
+				host,
+				"_nfs._tcp",
+				"local",
+				&port.to_string(),
+				host,
+				"::1",
+				"path=/",
+			])
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
+			.kill_on_drop(true);
+		let child = command.spawn()?;
+		Ok(Some(child))
+	}
+
+	#[cfg(not(target_os = "macos"))]
+	fn spawn_dns_sd(_host: &str, _port: u16) -> Result<Option<Child>, std::io::Error> {
+		Ok(None)
+	}
+
+	async fn stop_dns_sd(&self) {
+		let child = self.0.dns_sd.lock().unwrap().take();
+		if let Some(mut child) = child {
+			child.start_kill().ok();
+			child.wait().await.ok();
+		}
 	}
 
 	async fn request_handler_task(

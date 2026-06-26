@@ -8,7 +8,6 @@ pub enum Kind {
 	Nfs,
 }
 
-#[derive(Clone)]
 pub enum Server {
 	#[cfg(target_os = "linux")]
 	Fuse(vfs::fuse::Server<Provider>),
@@ -68,21 +67,6 @@ impl Server {
 			Kind::Nfs => {
 				let port = 8476;
 				let host = if cfg!(target_os = "macos") {
-					tokio::process::Command::new("dns-sd")
-						.args([
-							"-P",
-							"Tangram",
-							"_nfs._tcp",
-							"local",
-							&port.to_string(),
-							"Tangram",
-							"::1",
-							"path=/",
-						])
-						.stdout(std::process::Stdio::null())
-						.stderr(std::process::Stdio::null())
-						.spawn()
-						.map_err(|error| tg::error!(!error, "failed to spawn dns-sd"))?;
 					"Tangram"
 				} else {
 					"localhost"
