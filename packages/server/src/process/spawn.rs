@@ -318,7 +318,13 @@ impl Session {
 					process_token,
 				));
 			} else {
-				schedule = Some((sandbox, output.id.clone(), None, sandbox_token, process_token));
+				schedule = Some((
+					sandbox,
+					output.id.clone(),
+					None,
+					sandbox_token,
+					process_token,
+				));
 			}
 		}
 
