@@ -276,15 +276,13 @@ impl Session {
 				..Default::default()
 			})
 			.await
-			.map_err(|error| tg::error!(!error, %artifact, "failed to start the pull"))?;
-		progress.spinner("pull", "pull");
-		let mut stream = pin!(stream);
-		while let Some(event) = stream
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the next pull event"))?
-		{
-			progress.forward(Ok(event));
+			.ok();
+		if let Some(stream) = stream {
+			progress.spinner("pull", "pull");
+			let mut stream = pin!(stream);
+			while let Some(event) = stream.try_next().await.ok().flatten() {
+				progress.forward(Ok(event));
+			}
 		}
 
 		// Index.

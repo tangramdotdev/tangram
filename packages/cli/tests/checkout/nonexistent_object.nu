@@ -12,7 +12,8 @@ snapshot ($output.stderr | redact $path | normalize_ids) '
 	error an error occurred
 	-> failed to check out the artifact
 	   artifact = dir_0000000000000000000000000000
-	-> failed to get the item
-	-> failed to load the object
+	-> failed to ensure the artifact is stored and authorized
+	   artifact = dir_0000000000000000000000000000
+	-> failed to find the artifact
 
 '
