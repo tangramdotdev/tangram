@@ -248,8 +248,7 @@ export class ClientHttp2Stream extends EventEmitter {
 		} catch (error) {
 			this.emit("error", error);
 		} finally {
-			this.#closed = true;
-			this.emit("close");
+			this.#emitClose();
 		}
 	}
 
@@ -262,6 +261,14 @@ export class ClientHttp2Stream extends EventEmitter {
 			.then((token) => syscall("http2_stream_close", token))
 			.catch(() => undefined)
 			.finally(() => this.emit("close"));
+	}
+
+	#emitClose() {
+		if (this.#closed) {
+			return;
+		}
+		this.#closed = true;
+		this.emit("close");
 	}
 }
 

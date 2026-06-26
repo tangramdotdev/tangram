@@ -37,7 +37,7 @@ struct State {
 	global_source_map: Option<SourceMap>,
 	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
-	http2: crate::http2::Registry,
+	http2: crate::http2::Http2,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, self::promise::Output>>>,
@@ -116,7 +116,7 @@ impl Runtime {
 		let global_source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
 		let handle = arg.handle.clone();
 		let host = crate::host::Host::default();
-		let http2 = crate::http2::Registry::default();
+		let http2 = crate::http2::Http2::default();
 		let main_runtime_handle = arg.main_runtime_handle.clone();
 		let modules = RefCell::new(Vec::new());
 		let promises = RefCell::new(FuturesUnordered::new());

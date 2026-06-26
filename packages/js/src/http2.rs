@@ -22,7 +22,7 @@ type BodyFrame = Result<http_body::Frame<Bytes>, std::io::Error>;
 type RequestBody = StreamBody<ReceiverStream<BodyFrame>>;
 
 #[derive(Default)]
-pub(crate) struct Registry {
+pub(crate) struct Http2 {
 	next: AtomicUsize,
 	sessions: DashMap<usize, Arc<Session>>,
 	streams: DashMap<usize, Arc<Stream>>,
@@ -36,6 +36,7 @@ struct Session {
 }
 
 struct Stream {
+	event_tx: mpsc::Sender<StreamEvent>,
 	events: Mutex<mpsc::Receiver<StreamEvent>>,
 	request: Mutex<Option<mpsc::Sender<BodyFrame>>>,
 	session: usize,
@@ -65,7 +66,7 @@ pub enum StreamEvent {
 	Trailers { headers: Vec<(String, String)> },
 }
 
-impl Registry {
+impl Http2 {
 	fn token(&self) -> usize {
 		self.next.fetch_add(1, Ordering::Relaxed) + 1
 	}
@@ -165,19 +166,20 @@ impl Registry {
 		let request = build_request(&session_value, headers, ReceiverStream::new(request_rx))?;
 		let token = self.token();
 		let stream = Arc::new(Stream {
+			event_tx,
 			events: Mutex::new(event_rx),
 			request: Mutex::new((!options.end_stream).then_some(request_tx)),
 			session,
 			token,
 		});
 		session_value.streams.insert(token, ());
-		self.streams.insert(token, stream);
+		self.streams.insert(token, stream.clone());
 
-		if options.end_stream {
-			self.drop_stream_request(token).await;
-		}
-
-		tokio::spawn(send_request(session_value, request, event_tx));
+		tokio::spawn(send_request(
+			session_value,
+			request,
+			stream.event_tx.clone(),
+		));
 
 		Ok(token)
 	}
@@ -219,9 +221,9 @@ impl Registry {
 	}
 
 	pub(crate) async fn stream_close(&self, stream: usize) -> tg::Result<()> {
-		self.drop_stream_request(stream).await;
 		if let Some((_token, stream)) = self.streams.remove(&stream) {
 			self.remove_stream_from_session(&stream);
+			stream.close().await;
 		}
 		Ok(())
 	}
@@ -244,19 +246,11 @@ impl Registry {
 			.map(|stream| *stream.key())
 			.collect::<Vec<_>>();
 		for stream in streams {
-			self.streams.remove(&stream);
+			if let Some((_token, stream)) = self.streams.remove(&stream) {
+				stream.close().await;
+			}
 		}
 		Ok(())
-	}
-
-	async fn drop_stream_request(&self, stream: usize) {
-		let stream = self
-			.streams
-			.get(&stream)
-			.map(|stream| stream.value().clone());
-		if let Some(stream) = stream {
-			stream.request.lock().await.take();
-		}
 	}
 
 	fn remove_stream_from_session(&self, stream: &Stream) {
@@ -267,6 +261,13 @@ impl Registry {
 		if let Some(session) = session {
 			session.streams.remove(&stream.token);
 		}
+	}
+}
+
+impl Stream {
+	async fn close(&self) {
+		self.request.lock().await.take();
+		self.event_tx.try_send(StreamEvent::Close).ok();
 	}
 }
 
