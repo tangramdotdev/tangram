@@ -1109,8 +1109,14 @@ export def --env spawn [
 			export default env;
 		';
 		$source | save ($path | path join 'tangram.ts')
-		tg check $path
-		tg -c ($config_path) tag 'busybox' $path
+		if ($config.authentication? | default false) {
+			let user = tg -c ($config_path) login --verbose busyboxer | from json
+			tg -c ($config_path) --token ($user.token) tag 'busybox' $path
+			tg -c ($config_path) --token ($user.token) grant public tag_read 'busybox'
+		} else {
+			tg check $path
+			tg -c ($config_path) tag 'busybox' $path
+		}
 		rm -rf $path
 	}
 
