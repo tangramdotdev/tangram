@@ -897,7 +897,8 @@ impl Session {
 		// Create the grant args.
 		let mut put_grant_args = Vec::new();
 		let grant_principal = match &self.context.principal {
-			tg::Principal::Anonymous | tg::Principal::Root => None,
+			tg::Principal::Root => None,
+			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
 			principal => Some(principal.try_to_grant_principal()?),
 		};
 		if let Some(grant_principal) = grant_principal {
