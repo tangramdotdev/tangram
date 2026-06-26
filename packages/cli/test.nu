@@ -182,7 +182,21 @@ def main [
 
 		def spawn [test: record] {
 			job spawn {
-				let result = run_test $test $options
+				let start = date now
+				let result = try {
+					run_test $test $options
+				} catch { |error|
+					{
+						duration: ((date now) - $start),
+						name: $test.name,
+						output: {
+							exit_code: 1,
+							stdout: '',
+							stderr: ($error | get msg | default ($error | to nuon)),
+						},
+						temp_path: '',
+					}
+				}
 				$result | merge { seq: $test.seq, round: $test.round } | job send 0
 			}
 		}
@@ -1024,7 +1038,7 @@ export def --env spawn [
 
 	# Create a path for server readiness signaling.
 	let ready_path = ($config_path | path dirname | path join 'ready')
-	mkfifo $ready_path
+	touch $ready_path
 	let server_exit_directory_path = (($env.TMPDIR? | default ($config_path | path dirname)) | path join $server_exit_directory_name)
 	try { mkdir $server_exit_directory_path }
 
@@ -1052,7 +1066,7 @@ export def --env spawn [
 	# Wait for the server to be ready.
 	let ready_timeout = 30sec
 	let ready_timeout_secs = $ready_timeout | into int | $in / 1_000_000_000
-	let ready_output = (open /dev/null | timeout $ready_timeout_secs bash -c 'od -An -t u1 -N1 "$1"' _ $ready_path | complete)
+	let ready_output = (open /dev/null | timeout $ready_timeout_secs bash -c 'while [ ! -s "$1" ]; do sleep 0.05; done; od -An -t u1 -N1 "$1"' _ $ready_path | complete)
 	rm -f $ready_path
 	let ready_byte = ($ready_output.stdout | str trim)
 	if $ready_output.exit_code != 0 {
@@ -1338,7 +1352,7 @@ def remove_temp_directory [path: string] {
 	}
 	force_unmount_vfs $path
 	try { chmod -R u+rwx $path }
-	rm -rf $path
+	try { rm -rf $path }
 }
 
 def force_unmount_vfs [path: string] {
