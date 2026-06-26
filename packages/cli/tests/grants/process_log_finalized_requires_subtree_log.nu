@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Once a process is finalized its log becomes a blob object, so reading it requires a grant on that object rather than just the process node: process_node alone must not read the finalized log, but process_node plus process_subtree_log must.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

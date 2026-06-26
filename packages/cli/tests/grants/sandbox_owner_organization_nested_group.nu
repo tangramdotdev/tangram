@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A member of a group that belongs to an organization can access an organization-owned sandbox, and loses access when the group is removed from the organization.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

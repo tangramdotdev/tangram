@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Touching a process must require read access: a principal that cannot read a process must not be able to touch it. An unreadable process should be masked as not found, otherwise touch is an existence oracle and lets any principal keep arbitrary processes alive against garbage collection.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 

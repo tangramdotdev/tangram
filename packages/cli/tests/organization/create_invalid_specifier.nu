@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An organization is flat, so a multi-component specifier is rejected.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 

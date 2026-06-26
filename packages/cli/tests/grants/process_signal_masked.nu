@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A principal without a grant cannot signal another principal's private process; the process is masked as not found rather than reporting that it exists.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

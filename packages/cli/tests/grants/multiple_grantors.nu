@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Separate grantors can grant overlapping permissions to the same principal on the same resource.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

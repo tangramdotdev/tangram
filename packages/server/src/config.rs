@@ -122,12 +122,21 @@ pub struct Authentication {
 	pub providers: AuthenticationProviders,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationProviders {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub github: Option<Oauth>,
+
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub insecure: Option<Insecure>,
 }
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Insecure {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]

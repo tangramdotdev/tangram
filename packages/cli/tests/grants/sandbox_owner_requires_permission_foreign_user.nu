@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Creating a sandbox owned by another user requires write on that user, so an unrelated user must not assign them as owner.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

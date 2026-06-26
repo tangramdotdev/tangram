@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process's status is masked from a principal without a grant, so knowing the process id is not an existence or liveness oracle.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

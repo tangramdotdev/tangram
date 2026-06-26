@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Revoking the write grant on the owning group removes a non-member's access to the group-owned sandbox.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

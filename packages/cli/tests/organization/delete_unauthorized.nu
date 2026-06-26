@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Write on an organization does not confer admin, so a write user cannot delete it.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

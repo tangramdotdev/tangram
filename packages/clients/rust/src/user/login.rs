@@ -12,12 +12,33 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub provider: Option<Provider>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub token: String,
 	pub user: tg::User,
+}
+
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+	Insecure,
 }
 
 impl tg::Session {

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The --organization owner alias resolves only an organization; a group or a user is rejected.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

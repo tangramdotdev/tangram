@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A group with children cannot be deleted.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 

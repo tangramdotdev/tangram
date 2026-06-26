@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A user can build a package that depends on busybox under authentication.
 
-let server = spawn --busybox --config { authentication: true }
+let server = spawn --busybox --config { authentication: { providers: { insecure: true } } }
 let alice = tg login --verbose alice | from json
 
 let path = artifact {

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Creating a nested group auto-creates its ancestor groups.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 

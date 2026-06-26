@@ -13,6 +13,9 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub parent: tg::Specifier,
 
+	#[arg(long)]
+	pub provider: Option<tg::user::login::Provider>,
+
 	/// Print the token and user.
 	#[arg(long)]
 	pub verbose: bool,
@@ -29,6 +32,7 @@ impl Cli {
 			parent: args.parent,
 			email: args.email,
 			location: location.clone().map(Into::into),
+			provider: args.provider,
 		};
 		let output = client
 			.login_user(arg)

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process subtree grant covering each transferred field lets the grantee rely on a private child process subtree the remote already holds.
 
-let remote = spawn --cloud --name remote --config { authentication: true }
+let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let bob = tg --url $remote.url login --verbose bob | from json

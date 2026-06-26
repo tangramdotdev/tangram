@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The public process put API rejects unfinished process data.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 let alice = tg login --verbose alice | from json
 
 let process = "pcs_00081061050r3gg28a1c60t3gf20"

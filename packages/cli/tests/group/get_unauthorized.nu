@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A private group is not visible to a user without read permission.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

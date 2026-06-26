@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Attempting to grant on a resource the actor cannot see does not reveal whether it exists.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

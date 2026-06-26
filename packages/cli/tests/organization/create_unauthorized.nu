@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An anonymous client cannot create an organization.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let config = mktemp
 {} | to json | save -f $config

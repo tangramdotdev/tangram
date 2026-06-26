@@ -39,6 +39,7 @@ impl Session {
 		&self,
 		arg: tg::user::login::Arg,
 	) -> tg::Result<tg::user::login::Output> {
+		let provider = self.resolve_login_provider(arg.provider)?;
 		let session = self.clone();
 		let (output, batch) = self
 			.server
@@ -48,9 +49,13 @@ impl Session {
 				let session = session.clone();
 				async move {
 					let mut batch = tangram_index::batch::Arg::default();
-					let output = session
-						.login_user_with_transaction(transaction, arg, &mut batch)
-						.await?;
+					let output = match provider {
+						tg::user::login::Provider::Insecure => {
+							session
+								.login_user_insecure_with_transaction(transaction, arg, &mut batch)
+								.await?
+						},
+					};
 					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
 				}
 				.boxed()
@@ -66,7 +71,28 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn login_user_with_transaction(
+	fn resolve_login_provider(
+		&self,
+		provider: Option<tg::user::login::Provider>,
+	) -> tg::Result<tg::user::login::Provider> {
+		let authentication = self.server.config().authentication.as_ref();
+		let insecure = authentication
+			.is_some_and(|authentication| authentication.providers.insecure.is_some());
+		if let Some(provider) = provider {
+			match provider {
+				tg::user::login::Provider::Insecure if insecure => Ok(provider),
+				tg::user::login::Provider::Insecure => Err(tg::error!(
+					"the requested authentication provider is not available"
+				)),
+			}
+		} else if insecure {
+			Ok(tg::user::login::Provider::Insecure)
+		} else {
+			Err(tg::error!("no authentication providers are configured"))
+		}
+	}
+
+	async fn login_user_insecure_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::user::login::Arg,

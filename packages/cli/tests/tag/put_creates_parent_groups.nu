@@ -1,6 +1,8 @@
 use ../../test.nu *
 
-let server = spawn
+let server = spawn --config { authentication: { providers: { insecure: true } } }
+
+let alice = tg login --verbose alice | from json
 
 let path = artifact "test"
 let id = tg checkin $path
@@ -35,7 +37,6 @@ assert equal $org_team.specifier org/team
 let org_tag = tg tag get org/team/pkg | from json
 assert equal $org_tag.specifier org/team/pkg
 
-let alice = tg login --verbose alice | from json
 tg tag alice/team/pkg $id
 
 let user_team = tg group get alice/team | from json

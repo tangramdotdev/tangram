@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Cross-owner reuse of an identical deterministic command is a known authorization gap. A process built by one owner should be reusable by another owner that builds the same deterministic command, because the output is a pure function of the command and is therefore reproducible. Today the second owner re-executes the command instead of reusing the cached result. The reuse must not confer read access to the first owner's process record (see process_cache_hit_requires_grant.nu); the second owner should receive the reproducible output in a fresh process, so this test asserts a cache hit while keeping the two processes distinct.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

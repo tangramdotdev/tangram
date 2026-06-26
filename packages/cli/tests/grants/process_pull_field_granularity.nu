@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A field-scoped process grant must not let a reader pull a different field through sync. Alice grants Eve the process subtree and its output, but not the command; pulling the process with its command must not ship the command object.
 
-let remote = spawn --cloud --name remote --config { authentication: true }
+let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let eve = tg --url $remote.url login --verbose eve | from json

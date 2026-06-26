@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An admin can add a member to an organization, and the member is listed.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

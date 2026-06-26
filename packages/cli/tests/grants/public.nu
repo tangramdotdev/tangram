@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A public read grant makes a resource readable by an anonymous client.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 

@@ -5,7 +5,7 @@ use ../../test.nu *
 let root_remote = spawn --name root-remote
 let alice_remote = spawn --name alice-remote
 let server = spawn --config {
-	authentication: true,
+	authentication: { providers: { insecure: true } },
 	remotes: { root: { url: $root_remote.url } },
 }
 

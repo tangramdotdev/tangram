@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An adversary cannot escalate by granting herself a permission on a resource she does not administer.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

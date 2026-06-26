@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Creating a sandbox requires authentication when the server enforces it.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let denied = tg sandbox create --no-network | complete
 failure $denied "an unauthenticated principal must not create a sandbox"

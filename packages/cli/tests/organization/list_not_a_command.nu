@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Entities are listed with tg list by specifier, so there is no tg organization list subcommand, just as there is none for groups.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 

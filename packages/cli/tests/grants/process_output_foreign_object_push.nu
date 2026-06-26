@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Pushing a process that names a foreign object as its output must not leak the object on the remote: the remote's sync grant creation must not confer the subtree of an output the pusher cannot access.
 
-let remote = spawn --cloud --name remote --config { authentication: true }
+let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let eve = tg --url $remote.url login --verbose eve | from json

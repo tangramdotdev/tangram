@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # whoami returns the logged-in user and reports not-logged-in for an anonymous client.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let me = tg user whoami | from json

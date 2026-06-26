@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process cannot leak a private object by nesting it in its output: building a directory that references tg.File.withId of a file the builder cannot read must not grant the builder read access to that file.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

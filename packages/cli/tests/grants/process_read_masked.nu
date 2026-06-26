@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A private process is masked as not found until its owner grants the reader the subtree.
 
-let remote = spawn --cloud --name remote --config { authentication: true }
+let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let eve = tg --url $remote.url login --verbose eve | from json

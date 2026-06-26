@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A malformed permission set is rejected.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

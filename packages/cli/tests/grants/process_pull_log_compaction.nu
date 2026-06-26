@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Pulling a process with its logs must not let a node-only reader obtain a live log. When the log is not yet compacted, the sync send path compacts it on demand by writing it as a blob; that write runs as the caller and grants her the blob, so a reader holding only the process node (not the log) gains the log content. The remote's finalizer is disabled so the log stays live, reproducing the window that exists transiently between a process finishing and being finalized (and that a running process is in throughout).
 
-let remote = spawn --cloud --name remote --config { authentication: true, process: { finalizer: false } }
+let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } }, process: { finalizer: false } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let eve = tg --url $remote.url login --verbose eve | from json

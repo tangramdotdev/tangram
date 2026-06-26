@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Granting process_node to a principal should not allow that prinicipal to singal the process.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 

@@ -6,7 +6,7 @@ let root_remote = spawn --name root-remote
 let alice_server = spawn --name alice-remote
 let bob_server = spawn --name bob-remote
 let auth_enabled = spawn --config {
-	authentication: true,
+	authentication: { providers: { insecure: true } },
 	remotes: { default: { url: $root_remote.url } },
 } --name auth-enabled
 

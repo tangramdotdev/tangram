@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Caching an artifact must require its subtree: a principal without an artifact's subtree must not be able to cache it. An artifact the principal cannot access should be masked as not found.
 
-let server = spawn --config { authentication: true }
+let server = spawn --config { authentication: { providers: { insecure: true } } }
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
