@@ -512,6 +512,23 @@ impl Scheduler {
 			}
 			for sandbox in runner.sandboxes {
 				self.sandboxes.remove(&sandbox);
+
+				// Destroy the sandbox with a heartbeat expiration error so that its processes finish.
+				let server = self.server.clone();
+				tokio::spawn(async move {
+					let session = server.session(&server.context);
+					let error = tg::error::Data {
+						code: Some(tg::error::Code::HeartbeatExpiration),
+						message: Some("heartbeat expired".to_owned()),
+						..Default::default()
+					};
+					let result = session
+						.try_destroy_sandbox_local(&sandbox, Some(tg::Either::Left(error)), None)
+						.await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), %sandbox, "failed to destroy the sandbox after the runner was lost");
+					}
+				});
 			}
 		}
 	}

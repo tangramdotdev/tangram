@@ -207,7 +207,11 @@ impl Server {
 								Some(sender) => {
 									let (started, result) = tokio::sync::oneshot::channel();
 									sender
-										.send((event.id.clone(), event.process_token.clone(), started))
+										.send((
+											event.id.clone(),
+											event.process_token.clone(),
+											started,
+										))
 										.await
 										.is_ok() && result.await.unwrap_or(false)
 								},
