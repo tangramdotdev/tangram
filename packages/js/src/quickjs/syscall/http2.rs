@@ -1,50 +1,70 @@
 use {
 	super::Result,
-	crate::quickjs::{serde::Serde, types::Uint8Array},
+	crate::quickjs::{StateHandle, serde::Serde, types::Uint8Array},
+	rquickjs as qjs,
 };
 
 pub async fn connect(
+	ctx: qjs::Ctx<'_>,
 	authority: String,
 	options: Serde<crate::http2::ConnectOptions>,
 ) -> Result<usize> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(options) = options;
-	Result(crate::http2::connect(authority, options).await)
+	Result(state.http2.connect(authority, options).await)
 }
 
 pub async fn session_request(
+	ctx: qjs::Ctx<'_>,
 	session: usize,
 	headers: Serde<Vec<(String, String)>>,
 	options: Serde<crate::http2::RequestOptions>,
 ) -> Result<usize> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(headers) = headers;
 	let Serde(options) = options;
-	Result(crate::http2::session_request(session, headers, options).await)
+	Result(state.http2.session_request(session, headers, options).await)
 }
 
-pub async fn stream_write(stream: usize, bytes: Uint8Array) -> Result<()> {
-	Result(crate::http2::stream_write(stream, bytes.into()).await)
+pub async fn stream_write(ctx: qjs::Ctx<'_>, stream: usize, bytes: Uint8Array) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.http2.stream_write(stream, bytes.into()).await)
 }
 
-pub async fn stream_end(stream: usize, bytes: Option<Uint8Array>) -> Result<()> {
-	Result(crate::http2::stream_end(stream, bytes.map(Into::into)).await)
+pub async fn stream_end(ctx: qjs::Ctx<'_>, stream: usize, bytes: Option<Uint8Array>) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.http2.stream_end(stream, bytes.map(Into::into)).await)
 }
 
-pub async fn stream_read(stream: usize) -> Result<Option<Serde<crate::http2::StreamEvent>>> {
+pub async fn stream_read(
+	ctx: qjs::Ctx<'_>,
+	stream: usize,
+) -> Result<Option<Serde<crate::http2::StreamEvent>>> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(
-		crate::http2::stream_read(stream)
+		state
+			.http2
+			.stream_read(stream)
 			.await
 			.map(|event| event.map(Serde)),
 	)
 }
 
-pub async fn stream_close(stream: usize) -> Result<()> {
-	Result(crate::http2::stream_close(stream).await)
+pub async fn stream_close(ctx: qjs::Ctx<'_>, stream: usize) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.http2.stream_close(stream).await)
 }
 
-pub async fn session_close(session: usize) -> Result<()> {
-	Result(crate::http2::session_close(session).await)
+pub async fn session_close(ctx: qjs::Ctx<'_>, session: usize) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.http2.session_close(session).await)
 }
 
-pub async fn session_destroy(session: usize, error: Option<String>) -> Result<()> {
-	Result(crate::http2::session_destroy(session, error).await)
+pub async fn session_destroy(
+	ctx: qjs::Ctx<'_>,
+	session: usize,
+	error: Option<String>,
+) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.http2.session_destroy(session, error).await)
 }

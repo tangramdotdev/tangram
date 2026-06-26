@@ -168,22 +168,34 @@ export class ClientHttp2Stream extends EventEmitter {
 	}
 
 	write(bytes: string | Uint8Array) {
-		this.#ready
-			.then((token) => syscall("http2_stream_write", token, toBytes(bytes)))
-			.catch((error) => this.emit("error", error));
+		this.#ready = this.#ready
+			.then(async (token) => {
+				await syscall("http2_stream_write", token, toBytes(bytes));
+				return token;
+			})
+			.catch((error) => {
+				this.emit("error", error);
+				throw error;
+			});
+		this.#ready.catch(() => undefined);
 		return true;
 	}
 
 	end(bytes?: string | Uint8Array) {
-		this.#ready
-			.then((token) =>
-				syscall(
+		this.#ready = this.#ready
+			.then(async (token) => {
+				await syscall(
 					"http2_stream_end",
 					token,
 					bytes === undefined ? undefined : toBytes(bytes),
-				),
-			)
-			.catch((error) => this.emit("error", error));
+				);
+				return token;
+			})
+			.catch((error) => {
+				this.emit("error", error);
+				throw error;
+			});
+		this.#ready.catch(() => undefined);
 		return this;
 	}
 

@@ -274,6 +274,7 @@ export class Client {
 				let stream = session.request(headers, {
 					endStream: body === undefined,
 				});
+				let response = Response.fromStream(stream);
 				if (body !== undefined) {
 					(async () => {
 						for await (let chunk of body) {
@@ -288,7 +289,7 @@ export class Client {
 						);
 					});
 				}
-				return await Response.fromStream(stream);
+				return await response;
 			} catch (error_) {
 				error = error_;
 				this.#disconnect(session);

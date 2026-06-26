@@ -8,7 +8,7 @@ use {
 	std::{
 		path::{Path, PathBuf},
 		sync::{
-			Arc, LazyLock,
+			Arc,
 			atomic::{AtomicUsize, Ordering},
 		},
 		time::Duration,
@@ -21,10 +21,8 @@ use {
 type BodyFrame = Result<http_body::Frame<Bytes>, std::io::Error>;
 type RequestBody = StreamBody<ReceiverStream<BodyFrame>>;
 
-static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::default);
-
 #[derive(Default)]
-struct Registry {
+pub(crate) struct Registry {
 	next: AtomicUsize,
 	sessions: DashMap<usize, Arc<Session>>,
 	streams: DashMap<usize, Arc<Stream>>,
@@ -71,90 +69,205 @@ impl Registry {
 	fn token(&self) -> usize {
 		self.next.fetch_add(1, Ordering::Relaxed) + 1
 	}
-}
 
-impl Drop for Stream {
-	fn drop(&mut self) {
-		if let Some(session) = REGISTRY.sessions.get(&self.session) {
-			session.streams.remove(&self.token);
-		}
-	}
-}
-
-pub async fn connect(authority: String, options: ConnectOptions) -> tg::Result<usize> {
-	if let Some(path) = authority.strip_prefix("http+unix://") {
-		let path = unix_path_from_str(path)?;
-		let stream = connect_unix(&path).await?;
-		let sender = handshake(stream).await?;
-		return Ok(insert_session(
-			"localhost".to_owned(),
-			"http".to_owned(),
-			sender,
-		));
-	}
-
-	let uri = authority
-		.parse::<http::Uri>()
-		.map_err(|error| tg::error!(!error, "invalid authority"))?;
-	let scheme = uri
-		.scheme_str()
-		.ok_or_else(|| tg::error!("missing a URL scheme"))?;
-	let (authority, scheme, sender) = match scheme {
-		"http" | "https" => {
-			let host = uri.host().ok_or_else(|| tg::error!("missing a URL host"))?;
-			let port = options
-				.port
-				.or_else(|| uri.port_u16())
-				.or(match scheme {
-					"http" => Some(80),
-					"https" => Some(443),
-					_ => None,
-				})
-				.ok_or_else(|| tg::error!("unsupported URL scheme"))?;
-			let authority = if uri.port_u16().is_some() {
-				uri.authority()
-					.ok_or_else(|| tg::error!("missing a URL authority"))?
-					.as_str()
-					.to_owned()
-			} else {
-				host.to_owned()
-			};
-			let stream = connect_tcp(host, port).await?;
-			let sender = if scheme == "https" {
-				let stream = connect_tls(host, stream).await?;
-				verify_alpn_protocol(&stream)?;
-				handshake(stream).await?
-			} else {
-				handshake(stream).await?
-			};
-			(authority, scheme.to_owned(), sender)
-		},
-		"http+unix" => {
-			let path = unix_path(&uri)?;
+	pub(crate) async fn connect(
+		&self,
+		authority: String,
+		options: ConnectOptions,
+	) -> tg::Result<usize> {
+		if let Some(path) = authority.strip_prefix("http+unix://") {
+			let path = unix_path_from_str(path)?;
 			let stream = connect_unix(&path).await?;
 			let sender = handshake(stream).await?;
-			("localhost".to_owned(), "http".to_owned(), sender)
-		},
-		_ => return Err(tg::error!("unsupported URL scheme")),
-	};
+			return Ok(self.insert_session("localhost".to_owned(), "http".to_owned(), sender));
+		}
 
-	Ok(insert_session(authority, scheme, sender))
-}
+		let uri = authority
+			.parse::<http::Uri>()
+			.map_err(|error| tg::error!(!error, "invalid authority"))?;
+		let scheme = uri
+			.scheme_str()
+			.ok_or_else(|| tg::error!("missing a URL scheme"))?;
+		let (authority, scheme, sender) = match scheme {
+			"http" | "https" => {
+				let host = uri.host().ok_or_else(|| tg::error!("missing a URL host"))?;
+				let port = options
+					.port
+					.or_else(|| uri.port_u16())
+					.or(match scheme {
+						"http" => Some(80),
+						"https" => Some(443),
+						_ => None,
+					})
+					.ok_or_else(|| tg::error!("unsupported URL scheme"))?;
+				let authority = if uri.port_u16().is_some() {
+					uri.authority()
+						.ok_or_else(|| tg::error!("missing a URL authority"))?
+						.as_str()
+						.to_owned()
+				} else {
+					host.to_owned()
+				};
+				let stream = connect_tcp(host, port).await?;
+				let sender = if scheme == "https" {
+					let stream = connect_tls(host, stream).await?;
+					verify_alpn_protocol(&stream)?;
+					handshake(stream).await?
+				} else {
+					handshake(stream).await?
+				};
+				(authority, scheme.to_owned(), sender)
+			},
+			"http+unix" => {
+				let path = unix_path(&uri)?;
+				let stream = connect_unix(&path).await?;
+				let sender = handshake(stream).await?;
+				("localhost".to_owned(), "http".to_owned(), sender)
+			},
+			_ => return Err(tg::error!("unsupported URL scheme")),
+		};
 
-fn insert_session(
-	authority: String,
-	scheme: String,
-	sender: hyper::client::conn::http2::SendRequest<RequestBody>,
-) -> usize {
-	let token = REGISTRY.token();
-	let session = Session {
-		authority,
-		scheme,
-		sender,
-		streams: DashMap::new(),
-	};
-	REGISTRY.sessions.insert(token, Arc::new(session));
-	token
+		Ok(self.insert_session(authority, scheme, sender))
+	}
+
+	fn insert_session(
+		&self,
+		authority: String,
+		scheme: String,
+		sender: hyper::client::conn::http2::SendRequest<RequestBody>,
+	) -> usize {
+		let token = self.token();
+		let session = Session {
+			authority,
+			scheme,
+			sender,
+			streams: DashMap::new(),
+		};
+		self.sessions.insert(token, Arc::new(session));
+		token
+	}
+
+	pub(crate) async fn session_request(
+		&self,
+		session: usize,
+		headers: Vec<(String, String)>,
+		options: RequestOptions,
+	) -> tg::Result<usize> {
+		let session_ref = self
+			.sessions
+			.get(&session)
+			.ok_or_else(|| tg::error!("invalid HTTP/2 session"))?;
+		let session_value = session_ref.value().clone();
+		drop(session_ref);
+
+		let (request_tx, request_rx) = mpsc::channel(16);
+		let (event_tx, event_rx) = mpsc::channel(16);
+		let request = build_request(&session_value, headers, ReceiverStream::new(request_rx))?;
+		let token = self.token();
+		let stream = Arc::new(Stream {
+			events: Mutex::new(event_rx),
+			request: Mutex::new((!options.end_stream).then_some(request_tx)),
+			session,
+			token,
+		});
+		session_value.streams.insert(token, ());
+		self.streams.insert(token, stream);
+
+		if options.end_stream {
+			self.drop_stream_request(token).await;
+		}
+
+		tokio::spawn(send_request(session_value, request, event_tx));
+
+		Ok(token)
+	}
+
+	pub(crate) async fn stream_write(&self, stream: usize, bytes: Bytes) -> tg::Result<()> {
+		let stream = self
+			.streams
+			.get(&stream)
+			.ok_or_else(|| tg::error!("invalid HTTP/2 stream"))?
+			.value()
+			.clone();
+		let request = stream.request.lock().await;
+		send_request_body_frame(request.as_ref(), bytes).await
+	}
+
+	pub(crate) async fn stream_end(&self, stream: usize, bytes: Option<Bytes>) -> tg::Result<()> {
+		let stream = self
+			.streams
+			.get(&stream)
+			.ok_or_else(|| tg::error!("invalid HTTP/2 stream"))?
+			.value()
+			.clone();
+		let mut request = stream.request.lock().await;
+		if let Some(bytes) = bytes {
+			send_request_body_frame(request.as_ref(), bytes).await?;
+		}
+		request.take();
+		Ok(())
+	}
+
+	pub(crate) async fn stream_read(&self, stream: usize) -> tg::Result<Option<StreamEvent>> {
+		let stream = self
+			.streams
+			.get(&stream)
+			.ok_or_else(|| tg::error!("invalid HTTP/2 stream"))?
+			.value()
+			.clone();
+		Ok(stream.events.lock().await.recv().await)
+	}
+
+	pub(crate) async fn stream_close(&self, stream: usize) -> tg::Result<()> {
+		self.drop_stream_request(stream).await;
+		if let Some((_token, stream)) = self.streams.remove(&stream) {
+			self.remove_stream_from_session(&stream);
+		}
+		Ok(())
+	}
+
+	pub(crate) async fn session_close(&self, session: usize) -> tg::Result<()> {
+		self.session_destroy(session, None).await
+	}
+
+	pub(crate) async fn session_destroy(
+		&self,
+		session: usize,
+		_error: Option<String>,
+	) -> tg::Result<()> {
+		let Some((_token, session)) = self.sessions.remove(&session) else {
+			return Ok(());
+		};
+		let streams = session
+			.streams
+			.iter()
+			.map(|stream| *stream.key())
+			.collect::<Vec<_>>();
+		for stream in streams {
+			self.streams.remove(&stream);
+		}
+		Ok(())
+	}
+
+	async fn drop_stream_request(&self, stream: usize) {
+		let stream = self
+			.streams
+			.get(&stream)
+			.map(|stream| stream.value().clone());
+		if let Some(stream) = stream {
+			stream.request.lock().await.take();
+		}
+	}
+
+	fn remove_stream_from_session(&self, stream: &Stream) {
+		let session = self
+			.sessions
+			.get(&stream.session)
+			.map(|session| session.value().clone());
+		if let Some(session) = session {
+			session.streams.remove(&stream.token);
+		}
+	}
 }
 
 async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
@@ -218,100 +331,6 @@ fn unix_path_from_str(path: &str) -> tg::Result<PathBuf> {
 		return Err(tg::error!("missing a Unix socket path"));
 	}
 	Ok(PathBuf::from(path.as_ref()))
-}
-
-pub async fn session_request(
-	session: usize,
-	headers: Vec<(String, String)>,
-	options: RequestOptions,
-) -> tg::Result<usize> {
-	let session_ref = REGISTRY
-		.sessions
-		.get(&session)
-		.ok_or_else(|| tg::error!("invalid HTTP/2 session"))?;
-	let session_value = session_ref.value().clone();
-	drop(session_ref);
-
-	let (request_tx, request_rx) = mpsc::channel(16);
-	let (event_tx, event_rx) = mpsc::channel(16);
-	let request = build_request(&session_value, headers, ReceiverStream::new(request_rx))?;
-	let token = REGISTRY.token();
-	let stream = Arc::new(Stream {
-		events: Mutex::new(event_rx),
-		request: Mutex::new((!options.end_stream).then_some(request_tx)),
-		session,
-		token,
-	});
-	session_value.streams.insert(token, ());
-	REGISTRY.streams.insert(token, stream);
-
-	if options.end_stream {
-		drop_stream_request(token).await;
-	}
-
-	tokio::spawn(send_request(session_value, request, event_tx));
-
-	Ok(token)
-}
-
-pub async fn stream_write(stream: usize, bytes: Bytes) -> tg::Result<()> {
-	let stream = REGISTRY
-		.streams
-		.get(&stream)
-		.ok_or_else(|| tg::error!("invalid HTTP/2 stream"))?
-		.value()
-		.clone();
-	let request = stream.request.lock().await;
-	let Some(sender) = request.as_ref() else {
-		return Err(tg::error!("the HTTP/2 stream request body is closed"));
-	};
-	sender
-		.send(Ok(http_body::Frame::data(bytes)))
-		.await
-		.map_err(|_| tg::error!("the HTTP/2 stream request body is closed"))
-}
-
-pub async fn stream_end(stream: usize, bytes: Option<Bytes>) -> tg::Result<()> {
-	if let Some(bytes) = bytes {
-		stream_write(stream, bytes).await?;
-	}
-	drop_stream_request(stream).await;
-	Ok(())
-}
-
-pub async fn stream_read(stream: usize) -> tg::Result<Option<StreamEvent>> {
-	let stream = REGISTRY
-		.streams
-		.get(&stream)
-		.ok_or_else(|| tg::error!("invalid HTTP/2 stream"))?
-		.value()
-		.clone();
-	Ok(stream.events.lock().await.recv().await)
-}
-
-pub async fn stream_close(stream: usize) -> tg::Result<()> {
-	drop_stream_request(stream).await;
-	REGISTRY.streams.remove(&stream);
-	Ok(())
-}
-
-pub async fn session_close(session: usize) -> tg::Result<()> {
-	session_destroy(session, None).await
-}
-
-pub async fn session_destroy(session: usize, _error: Option<String>) -> tg::Result<()> {
-	let Some((_token, session)) = REGISTRY.sessions.remove(&session) else {
-		return Ok(());
-	};
-	let streams = session
-		.streams
-		.iter()
-		.map(|stream| *stream.key())
-		.collect::<Vec<_>>();
-	for stream in streams {
-		REGISTRY.streams.remove(&stream);
-	}
-	Ok(())
 }
 
 async fn handshake<S>(stream: S) -> tg::Result<hyper::client::conn::http2::SendRequest<RequestBody>>
@@ -475,8 +494,15 @@ fn headers_to_vec(headers: &http::HeaderMap) -> Vec<(String, String)> {
 		.collect()
 }
 
-async fn drop_stream_request(stream: usize) {
-	if let Some(stream) = REGISTRY.streams.get(&stream) {
-		stream.request.lock().await.take();
-	}
+async fn send_request_body_frame(
+	sender: Option<&mpsc::Sender<BodyFrame>>,
+	bytes: Bytes,
+) -> tg::Result<()> {
+	let Some(sender) = sender else {
+		return Err(tg::error!("the HTTP/2 stream request body is closed"));
+	};
+	sender
+		.send(Ok(http_body::Frame::data(bytes)))
+		.await
+		.map_err(|_| tg::error!("the HTTP/2 stream request body is closed"))
 }

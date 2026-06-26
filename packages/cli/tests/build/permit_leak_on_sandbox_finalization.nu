@@ -9,6 +9,7 @@ use ../../test.nu *
 # Regression test for 23a72a86.
 
 let server = spawn --config {
+	index: { map_size: 104_857_600 },
 	tokio_single_threaded: false,
 	runner: { concurrency: 8 }
 }
