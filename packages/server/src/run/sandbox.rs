@@ -5,6 +5,7 @@ use {
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
+	tangram_index::prelude::*,
 	tokio::task::JoinSet,
 };
 
@@ -485,13 +486,68 @@ impl Session {
 			));
 		}
 		let mut context = self.context.clone();
-		context.principal = tg::Principal::Process(id);
+		context.principal = tg::Principal::Process(id.clone());
 		let session = Session::new(self.server.clone(), context);
+		session
+			.spawn_grant_process_command_task(&process, &id, location)
+			.await?;
 		Ok(CreateProcessSessionOutput {
 			process,
 			process_token: token,
 			session,
 		})
+	}
+
+	async fn spawn_grant_process_command_task(
+		&self,
+		process: &tg::Process,
+		id: &tg::process::Id,
+		location: &tg::Location,
+	) -> tg::Result<()> {
+		if !location.is_remote() {
+			return Ok(());
+		}
+
+		let command = process
+			.command_with_handle(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
+
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
+			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = now + time_to_live;
+		let principal = tg::grant::Principal::Process(id.clone());
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let permissions = tg::grant::permission::Set::from_permission(permission);
+		let put_grant = tangram_index::grant::put::Arg {
+			created_at: now,
+			creator: Some(tg::Principal::Process(id.clone())),
+			expires_at: Some(expires_at),
+			permissions,
+			principal,
+			resource: command.id().into(),
+		};
+
+		self.server
+			.index_tasks
+			.spawn(|_| {
+				let server = self.server.clone();
+				async move {
+					let arg = tangram_index::batch::Arg {
+						put_grants: vec![put_grant],
+						..Default::default()
+					};
+					let result = server.index.batch(arg).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), "failed to grant the process command");
+					}
+				}
+			})
+			.detach();
+
+		Ok(())
 	}
 
 	async fn dequeue_sandbox_process(
