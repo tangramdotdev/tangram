@@ -42,6 +42,9 @@ pub struct Arg {
 	pub parent: Option<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub public: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -216,6 +219,7 @@ where
 		debug: normalize_debug(arg.debug),
 		location: arg.location,
 		parent: None,
+		public: arg.public,
 		retry: arg.retry,
 		sandbox,
 		stderr,

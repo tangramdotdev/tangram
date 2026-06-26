@@ -431,6 +431,13 @@ impl Session {
 			)?;
 		}
 
+		// Make the process public if requested.
+		if arg.public
+			&& let tg::Either::Right(id) = &output.process
+		{
+			self.make_process_public(id).await?;
+		}
+
 		Ok(Some(output))
 	}
 
