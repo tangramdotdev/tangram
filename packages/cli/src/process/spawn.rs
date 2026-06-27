@@ -111,6 +111,10 @@ pub struct Options {
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
+	/// Grant public read on the process so its result is reusable by anyone.
+	#[arg(id = "spawn.public", long = "public")]
+	pub public: bool,
+
 	/// Whether to retry failed processes.
 	#[arg(id = "spawn.retry", long = "retry")]
 	pub retry: bool,
@@ -905,6 +909,7 @@ impl Cli {
 			host: Some(command.host.clone()),
 			location: location.clone(),
 			name: None,
+			public: options.public,
 			retry: options.retry,
 			sandbox,
 			stderr: options.stderr.unwrap_or_default(),

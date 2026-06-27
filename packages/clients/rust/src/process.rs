@@ -104,6 +104,7 @@ pub struct Arg {
 	pub network: Option<tg::sandbox::Network>,
 	pub owner: Option<tg::Principal>,
 	pub ports: Vec<tg::sandbox::Port>,
+	pub public: bool,
 	pub retry: bool,
 	pub sandbox: Option<tg::process::SandboxArg>,
 	pub stderr: tg::process::Stdio,
