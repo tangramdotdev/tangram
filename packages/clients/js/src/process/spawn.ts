@@ -519,6 +519,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			unavailable: !provideStdout,
 			stream: "stdout",
 		}),
+		token: output.token,
 		wait,
 	});
 	return process;

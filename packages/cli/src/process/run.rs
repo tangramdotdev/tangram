@@ -158,7 +158,8 @@ impl Cli {
 						.location()
 						.and_then(|location| location.to_location()),
 					process: process.item().id().cloned(),
-					wait: None,
+					token: process.item().token(),
+					wait: process.item().wait_output(),
 				};
 				let value = serde_json::to_value(output)
 					.map_err(|error| tg::error!(!error, "failed to serialize the output"))?

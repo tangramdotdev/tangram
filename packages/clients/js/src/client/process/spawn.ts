@@ -23,6 +23,7 @@ export namespace Spawn {
 		lease: string | undefined;
 		location: tg.Location | undefined;
 		process: tg.Process.Id;
+		token?: tg.Grant.Token | undefined;
 		wait: tg.Process.Wait.Data | undefined;
 	};
 }

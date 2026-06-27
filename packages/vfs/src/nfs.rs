@@ -123,7 +123,10 @@ where
 		unmount(&server.path).await.ok();
 
 		// Advertise the mount on macOS.
+		#[cfg(target_os = "macos")]
 		let dns_sd = Self::spawn_dns_sd(&server.host, server.port)?;
+		#[cfg(not(target_os = "macos"))]
+		let dns_sd = Self::spawn_dns_sd(&server.host, server.port);
 		*server.0.dns_sd.lock().unwrap() = dns_sd;
 
 		// Mount.
@@ -191,8 +194,8 @@ where
 	}
 
 	#[cfg(not(target_os = "macos"))]
-	fn spawn_dns_sd(_host: &str, _port: u16) -> Result<Option<Child>, std::io::Error> {
-		Ok(None)
+	fn spawn_dns_sd(_host: &str, _port: u16) -> Option<Child> {
+		None
 	}
 
 	async fn stop_dns_sd(&self) {

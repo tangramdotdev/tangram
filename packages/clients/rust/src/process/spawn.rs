@@ -77,6 +77,9 @@ pub struct Output {
 	pub process: tg::Either<u32, tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub wait: Option<tg::process::wait::Output>,
 }
 
@@ -310,6 +313,7 @@ impl<O: 'static> tg::Process<O> {
 					.location()
 					.and_then(|location| location.to_location()),
 				process: process.id().cloned(),
+				token: None,
 				wait: None,
 			};
 			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
@@ -483,7 +487,7 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task,
 			stdout,
 			task: None,
-			token: RwLock::new(None),
+			token: RwLock::new(output.token),
 			wait: Mutex::new(wait),
 		});
 		let process = Self(inner, std::marker::PhantomData);

@@ -399,7 +399,8 @@ impl Cli {
 					.location()
 					.and_then(|location| location.to_location()),
 				process: output.item().id().cloned(),
-				wait: None,
+				token: output.item().token(),
+				wait: output.item().wait_output(),
 			};
 			self.print_serde(output, args.print).await?;
 		} else {

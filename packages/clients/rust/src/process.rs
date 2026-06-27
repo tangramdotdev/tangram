@@ -198,6 +198,11 @@ impl<O> Process<O> {
 		self.token.read().unwrap().clone()
 	}
 
+	#[must_use]
+	pub fn wait_output(&self) -> Option<tg::process::wait::Output> {
+		self.wait.lock().unwrap().as_ref().map(Wait::to_data)
+	}
+
 	pub(crate) fn inherit_token(&self, token: Option<tg::grant::Token>) {
 		if self.token().is_none() {
 			*self.token.write().unwrap() = token;

@@ -33,6 +33,8 @@ struct LocalOutput {
 	sandbox: tg::sandbox::Id,
 	sandbox_status: Option<tg::sandbox::Status>,
 	status: tg::process::Status,
+	#[debug(ignore)]
+	token: Option<tg::grant::Token>,
 	wait: Option<tg::process::wait::Output>,
 }
 
@@ -300,18 +302,20 @@ impl Session {
 		// Create a future that will await the local process if there is one.
 		let local_future = {
 			let id = output.as_ref().map(|output| output.id.clone());
+			let token = output.as_ref().and_then(|output| output.token.clone());
 			let wait = output.as_ref().and_then(|output| output.wait.clone());
 			async {
 				if finished {
 					return Ok::<_, tg::Error>(wait);
 				}
 				if let Some(id) = id {
-					let wait = self
-						.wait_process(&id, tg::process::wait::Arg::default())
-						.await
-						.map_err(
-							|error| tg::error!(!error, %id, "failed to wait for the process"),
-						)?;
+					let arg = tg::process::wait::Arg {
+						token,
+						..Default::default()
+					};
+					let wait = self.wait_process(&id, arg).await.map_err(
+						|error| tg::error!(!error, %id, "failed to wait for the process"),
+					)?;
 					Ok(Some(wait))
 				} else {
 					Ok(None)
@@ -360,6 +364,7 @@ impl Session {
 						lease: output.lease,
 						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: tg::Either::Right(output.id),
+						token: output.token,
 						wait: Some(wait),
 					}
 				} else {
@@ -397,6 +402,7 @@ impl Session {
 						lease: output.lease,
 						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: tg::Either::Right(output.id),
+						token: output.token,
 						wait: output.wait,
 					}
 				}
@@ -486,6 +492,32 @@ impl Session {
 			.await?;
 		}
 		Ok(())
+	}
+
+	fn create_process_wait_token(
+		&self,
+		id: &tg::process::Id,
+		now: i64,
+	) -> tg::Result<Option<tg::grant::Token>> {
+		let expires_at = now
+			+ self
+				.server
+				.config
+				.process
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		self.create_token(
+			tg::grant::Resource::Id(id.clone().into()),
+			vec![
+				tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node),
+				tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::NodeOutput,
+				),
+			],
+			expires_at,
+		)
 	}
 
 	async fn try_spawn_process_region(
@@ -940,6 +972,7 @@ impl Session {
 		}
 
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let token = self.create_process_wait_token(&id, now)?;
 		let tti = self
 			.server
 			.config
@@ -1059,6 +1092,7 @@ impl Session {
 			sandbox,
 			sandbox_status,
 			status,
+			token,
 			wait,
 		})))
 	}
@@ -1235,6 +1269,7 @@ impl Session {
 
 		// Create an ID.
 		let id = tg::process::Id::new();
+		let token = self.create_process_wait_token(&id, now)?;
 
 		let status = tg::process::Status::Finished;
 
@@ -1375,6 +1410,7 @@ impl Session {
 			sandbox,
 			sandbox_status,
 			status,
+			token,
 			wait: Some(tg::process::wait::Output {
 				error: error.as_ref().map(tg::Error::to_data_or_id),
 				exit,
@@ -1502,6 +1538,7 @@ impl Session {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let token = self.create_process_wait_token(&id, now)?;
 		let started_at = (status == tg::process::Status::Dequeued).then_some(now);
 		let tty = match arg.tty.as_ref() {
 			None => None,
@@ -1568,6 +1605,7 @@ impl Session {
 			sandbox,
 			sandbox_status: Some(sandbox_status),
 			status,
+			token,
 			wait: None,
 		}))
 	}
