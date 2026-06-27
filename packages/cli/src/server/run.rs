@@ -93,10 +93,23 @@ impl Cli {
 		let ready_fd = args.ready_fd;
 
 		let future = async move {
+			let mut interrupt =
+				tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
+			let mut terminate =
+				tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+
 			// Start the server.
-			let server: Server = Box::pin(tangram_server::Server::start(config))
-				.await
-				.map_err(|error| tg::error!(!error, "failed to start the server"))?;
+			let server: Server = tokio::select! {
+				result = tangram_server::Server::start(config).boxed() => {
+					result.map_err(|error| tg::error!(!error, "failed to start the server"))?
+				},
+				_ = interrupt.recv() => {
+					return Ok::<_, tg::Error>(());
+				},
+				_ = terminate.recv() => {
+					return Ok::<_, tg::Error>(());
+				},
+			};
 
 			if let Some(ready_fd) = ready_fd {
 				let ready_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ready_fd) };
@@ -108,11 +121,6 @@ impl Cli {
 					.flush()
 					.map_err(|error| tg::error!(!error, "failed to flush the ready signal"))?;
 			}
-
-			let mut interrupt =
-				tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
-			let mut terminate =
-				tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
 
 			let shutdown = tokio::select! {
 				result = server.wait() => {
@@ -150,14 +158,17 @@ impl Cli {
 		if tokio_single_threaded {
 			future.boxed().await?;
 		} else {
-			let runtime = tokio::runtime::Builder::new_multi_thread()
-				.enable_all()
-				.build()
-				.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
-			let task: tokio::task::JoinHandle<tg::Result<()>> = runtime.spawn(future);
-			let result = task.await;
-			runtime.shutdown_timeout(Duration::from_secs(5));
-			result.map_err(|error| tg::error!(!error, "the server runtime task panicked"))??;
+			tokio::task::spawn_blocking(move || {
+				let runtime = tokio::runtime::Builder::new_multi_thread()
+					.enable_all()
+					.build()
+					.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
+				let result = runtime.block_on(future);
+				runtime.shutdown_timeout(Duration::from_secs(5));
+				result
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "the server runtime task panicked"))??;
 		}
 
 		Ok(())
