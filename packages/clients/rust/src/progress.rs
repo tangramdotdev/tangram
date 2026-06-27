@@ -5,6 +5,7 @@ use {
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
 	std::{fmt::Write as _, path::Path, pin::pin, time::Duration},
+	tangram_futures::stream::TryExt as _,
 	tokio::io::AsyncReadExt as _,
 };
 
@@ -244,6 +245,20 @@ pub async fn write_progress_stream<H, T>(
 where
 	H: tg::Handle,
 {
+	if std::env::var("TANGRAM_QUIET")
+		.ok()
+		.and_then(|value| value.parse().ok())
+		.unwrap_or(false)
+	{
+		let stream = pin!(stream);
+		let output = stream
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
+		return Ok(output);
+	}
+
 	let mut state = State {
 		handle: handle.clone(),
 		indicators: IndexMap::new(),

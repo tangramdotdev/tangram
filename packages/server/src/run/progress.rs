@@ -25,7 +25,11 @@ impl Session {
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
-		let stderr = process.load_with_handle(self).await?.stderr.clone();
+		let state = process.load_with_handle(self).await?;
+		if self.progress_is_quiet(&state.command).await? {
+			return self.write_progress_stream_to_null(stream).await;
+		}
+		let stderr = state.stderr.clone();
 		let output = match stderr {
 			tg::process::Stdio::Log => self.write_progress_stream_to_log(progress, stream).await?,
 			tg::process::Stdio::Null => self.write_progress_stream_to_null(stream).await?,
@@ -37,6 +41,19 @@ impl Session {
 			},
 		};
 		Ok(output)
+	}
+
+	async fn progress_is_quiet(&self, command: &tg::Command) -> tg::Result<bool> {
+		let command = command
+			.load_with_handle(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to load the command"))?;
+		let quiet = match command.env.get("TANGRAM_QUIET") {
+			Some(tg::Value::Bool(value)) => *value,
+			Some(tg::Value::String(value)) => value.parse().unwrap_or(false),
+			_ => false,
+		};
+		Ok(quiet)
 	}
 
 	async fn write_progress_stream_to_null<T>(
