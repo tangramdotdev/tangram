@@ -106,6 +106,7 @@ pub struct State {
 	path: PathBuf,
 	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	remote_object_put_tasks: tangram_futures::task::Set<()>,
 	remote_list_tasks: self::list::remote::Tasks,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_container_root: PathBuf,
@@ -557,6 +558,9 @@ impl Server {
 		// Create the object get tasks.
 		let object_get_tasks = tangram_futures::task::Map::default();
 
+		// Create the remote object put tasks.
+		let remote_object_put_tasks = tangram_futures::task::Set::default();
+
 		// Create the remote clients.
 		let remote_clients = DashMap::default();
 
@@ -762,6 +766,7 @@ impl Server {
 			path,
 			process_store,
 			regions,
+			remote_object_put_tasks,
 			remote_list_tasks,
 			remote_clients,
 			sandbox_container_root,
@@ -813,13 +818,13 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
 		}
 
-		// // Destroy unfinished sandboxes if single process mode is enabled.
-		// if server.config().advanced.single_process {
-		// 	let result = server.destroy_unfinished_sandboxes().await;
-		// 	if let Err(error) = result {
-		// 		tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
-		// 	}
-		// }
+		// Destroy unfinished sandboxes if single process mode is enabled.
+		if server.config().advanced.single_process {
+			let result = server.destroy_unfinished_sandboxes().await;
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), "failed to destroy unfinished sandboxes");
+			}
+		}
 
 		// Set the remotes if specified in the config.
 		if let Some(remotes) = &server.config.remotes {
@@ -1174,56 +1179,61 @@ impl Server {
 					tracing::trace!("watchdog task");
 				}
 
-				// // Remove the watches.
-				// server.watches.clear();
+				// Remove the watches.
+				server.watches.clear();
 
-				// // Abort the checkin tasks.
-				// server.checkin_tasks.abort_all();
-				// let results = server.checkin_tasks.wait().await;
-				// for result in results {
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "a checkin task panicked");
-				// 	}
-				// }
-				// tracing::trace!("checkin tasks");
+				// Abort the checkin tasks.
+				server.checkin_tasks.abort_all();
+				let results = server.checkin_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a checkin task panicked");
+					}
+				}
+				tracing::trace!("checkin tasks");
 
-				// // Abort the cache graph tasks.
-				// server.cache_graph_tasks.abort_all();
-				// let results = server.cache_graph_tasks.wait().await;
-				// for result in results {
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "a cache graph task failed");
-				// 	}
-				// }
-				// tracing::trace!("cache graph tasks");
+				// Abort the cache graph tasks.
+				server.cache_graph_tasks.abort_all();
+				let results = server.cache_graph_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a cache graph task failed");
+					}
+				}
+				tracing::trace!("cache graph tasks");
 
-				// // Abort the cache tasks.
-				// server.cache_tasks.abort_all();
-				// let results = server.cache_tasks.wait().await;
-				// for result in results {
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "a cache task panicked");
-				// 	}
-				// }
-				// tracing::trace!("cache tasks");
+				// Abort the cache tasks.
+				server.cache_tasks.abort_all();
+				let results = server.cache_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a cache task panicked");
+					}
+				}
+				tracing::trace!("cache tasks");
 
-				// // Abort the object get tasks.
-				// server.object_get_tasks.abort_all();
-				// let results = server.object_get_tasks.wait().await;
-				// for result in results {
-				// 	if let Err(error) = result
-				// 		&& !error.is_cancelled()
-				// 	{
-				// 		tracing::error!(?error, "an object get task panicked");
-				// 	}
-				// }
-				// tracing::trace!("object get tasks");
+				// Abort the object get tasks.
+				server.object_get_tasks.abort_all();
+				let results = server.object_get_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "an object get task panicked");
+					}
+				}
+				tracing::trace!("object get tasks");
+
+				// Abort the remote object put tasks.
+				server.remote_object_put_tasks.abort_all();
+				server.remote_object_put_tasks.wait().await;
+				tracing::trace!("remote object put tasks");
 
 				// Abort the remote list tasks.
 				server.remote_list_tasks.abort_all();
@@ -1298,36 +1308,36 @@ impl Server {
 		Ok(owned)
 	}
 
-	// async fn destroy_unfinished_sandboxes(&self) -> tg::Result<()> {
-	// 	let session = self.session(&self.context);
-	// 	let outputs = session
-	// 		.list_sandboxes_local()
-	// 		.await
-	// 		.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
-	// 	outputs
-	// 		.into_iter()
-	// 		.map(|output| {
-	// 			let session = session.clone();
-	// 			async move {
-	// 				let error = tg::error::Data {
-	// 					code: Some(tg::error::Code::HeartbeatExpiration),
-	// 					message: Some("heartbeat expired".into()),
-	// 					..Default::default()
-	// 				};
-	// 				let error = Some(tg::Either::Left(error));
-	// 				if let Err(error) = session
-	// 					.try_destroy_sandbox_local(&output.id, error, None)
-	// 					.await
-	// 				{
-	// 					tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
-	// 				}
-	// 			}
-	// 		})
-	// 		.collect::<FuturesUnordered<_>>()
-	// 		.collect::<()>()
-	// 		.await;
-	// 	Ok(())
-	// }
+	async fn destroy_unfinished_sandboxes(&self) -> tg::Result<()> {
+		let session = self.session(&self.context);
+		let outputs = session
+			.list_sandboxes_local()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
+		outputs
+			.into_iter()
+			.map(|output| {
+				let session = session.clone();
+				async move {
+					let error = tg::error::Data {
+						code: Some(tg::error::Code::HeartbeatExpiration),
+						message: Some("heartbeat expired".into()),
+						..Default::default()
+					};
+					let error = Some(tg::Either::Left(error));
+					if let Err(error) = session
+						.try_destroy_sandbox_local(&output.id, error, None)
+						.await
+					{
+						tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
+					}
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<()>()
+			.await;
+		Ok(())
+	}
 
 	#[must_use]
 	pub fn arg(&self) -> tg::Arg {
@@ -1495,6 +1505,7 @@ impl Drop for Owned {
 		self.library.lock().unwrap().take();
 		self.sandbox_tasks.abort_all();
 		self.object_get_tasks.abort_all();
+		self.remote_object_put_tasks.abort_all();
 		self.remote_list_tasks.abort_all();
 		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();

@@ -216,7 +216,7 @@ impl Session {
 			return Ok(None);
 		};
 
-		self.spawn_put_object_task(id, &output);
+		self.spawn_remote_object_put_task(id, &output);
 
 		Ok(Some(output))
 	}
@@ -268,7 +268,7 @@ impl Session {
 			return Ok(None);
 		};
 
-		self.spawn_put_object_task(id, &output);
+		self.spawn_remote_object_put_task(id, &output);
 
 		Ok(Some(output))
 	}
@@ -389,22 +389,27 @@ impl Session {
 		}
 	}
 
-	fn spawn_put_object_task(&self, id: &tg::object::Id, output: &tg::object::get::Output) {
-		tokio::spawn({
-			let session = self.clone();
-			let id = id.clone();
-			let output = output.clone();
-			async move {
-				let arg = tg::object::put::Arg {
-					bytes: output.bytes.clone(),
-					children: Vec::new(),
-					location: None,
-					metadata: output.metadata.clone(),
-				};
-				session.put_object(&id, arg).await?;
-				Ok::<_, tg::Error>(())
-			}
-		});
+	fn spawn_remote_object_put_task(&self, id: &tg::object::Id, output: &tg::object::get::Output) {
+		self.server
+			.remote_object_put_tasks
+			.spawn(|_| {
+				let session = self.clone();
+				let id = id.clone();
+				let output = output.clone();
+				async move {
+					let arg = tg::object::put::Arg {
+						bytes: output.bytes.clone(),
+						children: Vec::new(),
+						location: None,
+						metadata: output.metadata.clone(),
+					};
+					let result = session.put_object(&id, arg).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), "failed to put the remote object");
+					}
+				}
+			})
+			.detach();
 	}
 	pub(crate) async fn try_get_object_request(
 		&self,

@@ -466,6 +466,11 @@ impl Session {
 			}
 		}
 
+		// Wait for remote object put tasks to enqueue their index tasks.
+		progress.spinner("tasks", "waiting for tasks");
+		self.server.remote_object_put_tasks.wait().await;
+		progress.finish("tasks");
+
 		// Wait for outstanding index tasks to finish.
 		progress.spinner("tasks", "waiting for tasks");
 		self.server.index_tasks.wait().await;
