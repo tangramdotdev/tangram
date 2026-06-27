@@ -22,6 +22,8 @@ impl Index {
 			touched_at,
 		});
 		self.sender_high
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver

@@ -17,7 +17,8 @@ pub struct Config {
 pub struct Store {
 	db: Db,
 	env: lmdb::Env,
-	sender: RequestSender,
+	handle: Option<std::thread::JoinHandle<()>>,
+	sender: Option<RequestSender>,
 }
 
 pub type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
@@ -85,12 +86,17 @@ impl Store {
 
 		// Create the thread.
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
-		std::thread::spawn({
+		let handle = std::thread::spawn({
 			let env = env.clone();
 			move || Self::task(&env, &db, receiver)
 		});
 
-		Ok(Self { db, env, sender })
+		Ok(Self {
+			db,
+			env,
+			handle: Some(handle),
+			sender: Some(sender),
+		})
 	}
 
 	#[must_use]
@@ -286,6 +292,15 @@ impl Store {
 		}
 
 		Ok(())
+	}
+}
+
+impl Drop for Store {
+	fn drop(&mut self) {
+		drop(self.sender.take());
+		if let Some(handle) = self.handle.take() {
+			handle.join().ok();
+		}
 	}
 }
 
@@ -562,6 +577,8 @@ impl crate::Store for Store {
 			timestamp: arg.timestamp,
 		});
 		self.sender
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
@@ -574,6 +591,8 @@ impl crate::Store for Store {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Delete(Delete { id: arg.process });
 		self.sender
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;

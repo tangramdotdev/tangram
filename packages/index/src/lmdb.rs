@@ -48,9 +48,10 @@ pub struct Index {
 	config: AuthorizeConfig,
 	db: Db,
 	env: lmdb::Env,
-	sender_high: RequestSender,
-	sender_medium: RequestSender,
-	sender_low: RequestSender,
+	handle: Option<std::thread::JoinHandle<()>>,
+	sender_high: Option<RequestSender>,
+	sender_medium: Option<RequestSender>,
+	sender_low: Option<RequestSender>,
 	subspace: fdbt::Subspace,
 }
 
@@ -100,7 +101,7 @@ impl Index {
 
 		let subspace = fdbt::Subspace::all();
 
-		std::thread::spawn({
+		let handle = std::thread::spawn({
 			let env = env.clone();
 			let subspace = subspace.clone();
 			let max_items_per_transaction = config.max_items_per_transaction;
@@ -121,9 +122,10 @@ impl Index {
 			config: config.authorize,
 			db,
 			env,
-			sender_high,
-			sender_medium,
-			sender_low,
+			handle: Some(handle),
+			sender_high: Some(sender_high),
+			sender_medium: Some(sender_medium),
+			sender_low: Some(sender_low),
 			subspace,
 		})
 	}
@@ -164,6 +166,17 @@ impl Index {
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 		Ok(())
+	}
+}
+
+impl Drop for Index {
+	fn drop(&mut self) {
+		drop(self.sender_high.take());
+		drop(self.sender_medium.take());
+		drop(self.sender_low.take());
+		if let Some(handle) = self.handle.take() {
+			handle.join().ok();
+		}
 	}
 }
 

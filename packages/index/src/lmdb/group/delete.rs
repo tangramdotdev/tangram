@@ -12,6 +12,8 @@ impl Index {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::DeleteGroups(ids.to_vec());
 		self.sender_high
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver
@@ -30,6 +32,8 @@ impl Index {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::DeleteGroupMembers(args.to_vec());
 		self.sender_high
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver

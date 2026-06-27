@@ -26,6 +26,8 @@ impl Store {
 			stored_at: arg.stored_at,
 		});
 		self.sender
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to send the request"))?;
@@ -50,6 +52,8 @@ impl Store {
 				.collect(),
 		);
 		self.sender
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;

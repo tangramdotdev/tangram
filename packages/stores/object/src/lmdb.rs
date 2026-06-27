@@ -20,7 +20,8 @@ pub struct Config {
 pub struct Store {
 	db: Db,
 	env: lmdb::Env,
-	sender: RequestSender,
+	handle: Option<std::thread::JoinHandle<()>>,
+	sender: Option<RequestSender>,
 }
 
 pub type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
@@ -84,12 +85,17 @@ impl Store {
 
 		// Create the thread.
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
-		std::thread::spawn({
+		let handle = std::thread::spawn({
 			let env = env.clone();
 			move || Self::task(&env, &db, receiver)
 		});
 
-		Ok(Self { db, env, sender })
+		Ok(Self {
+			db,
+			env,
+			handle: Some(handle),
+			sender: Some(sender),
+		})
 	}
 
 	#[must_use]
@@ -100,6 +106,15 @@ impl Store {
 	#[must_use]
 	pub fn env(&self) -> &lmdb::Env {
 		&self.env
+	}
+}
+
+impl Drop for Store {
+	fn drop(&mut self) {
+		drop(self.sender.take());
+		if let Some(handle) = self.handle.take() {
+			handle.join().ok();
+		}
 	}
 }
 

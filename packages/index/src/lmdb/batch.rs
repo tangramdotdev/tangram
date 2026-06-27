@@ -46,6 +46,8 @@ impl Index {
 	async fn enqueue_batch_request(&self, request: Request) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		self.sender_medium
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		receiver

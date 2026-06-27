@@ -111,6 +111,8 @@ impl Index {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Update(crate::lmdb::Update { batch_size });
 		self.sender_low
+			.as_ref()
+			.unwrap()
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		let response = receiver
