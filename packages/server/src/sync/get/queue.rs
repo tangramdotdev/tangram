@@ -10,7 +10,6 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -73,18 +72,19 @@ impl Session {
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
-		// Touch the objects and get stored and metadata.
+		// Authorize and touch the objects, then get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let outputs = if state.arg.force {
-			vec![None; ids.len()]
+		let (outputs, permissions) = if state.arg.force {
+			(vec![None; ids.len()], vec![None; ids.len()])
 		} else {
-			self.server
-				.index
-				.touch_objects(&ids, touched_at, self.server.config.object.time_to_touch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to touch the objects"))?
+			self.sync_get_touch_authorized_objects(
+				&ids,
+				touched_at,
+				self.server.config.object.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?
 		};
-		let permissions = self.sync_get_authorize_objects(&ids, &outputs).await?;
 
 		// Handle each item and output.
 		for ((item, output), permissions) in
@@ -217,18 +217,20 @@ impl Session {
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
-		// Touch the processes and get stored and metadata.
+		// Authorize and touch the processes, then get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let outputs = if state.arg.force {
-			vec![None; ids.len()]
+		let (outputs, permissions) = if state.arg.force {
+			(vec![None; ids.len()], vec![None; ids.len()])
 		} else {
-			self.server
-				.index
-				.touch_processes(&ids, touched_at, self.server.config.process.time_to_touch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to touch the processes"))?
+			self.sync_get_touch_authorized_processes(
+				&ids,
+				&state.arg,
+				touched_at,
+				self.server.config.process.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?
 		};
-		let permissions = self.sync_get_authorize_processes(&ids, &outputs).await?;
 
 		// Handle each item and output.
 		for ((item, output), permissions) in

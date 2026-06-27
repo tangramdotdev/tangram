@@ -180,64 +180,113 @@ impl Session {
 	async fn sync_get_authorize_objects(
 		&self,
 		ids: &[tg::object::Id],
-		objects: &[Option<tangram_index::object::Object>],
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
-		let mut arg_indices = Vec::new();
-		let mut args = Vec::new();
-		for (index, (id, object)) in std::iter::zip(ids, objects).enumerate() {
-			let Some(object) = object else {
-				continue;
-			};
-			let Some(permissions) = Graph::object_permissions_for_stored(&object.stored) else {
-				continue;
-			};
-			arg_indices.push(index);
-			args.push(tangram_index::authorize::Arg {
-				permissions,
-				resource: tg::grant::Resource::Id(tg::Id::from(id.clone())),
-				token: None,
-			});
-		}
+		let permissions = Self::sync_get_object_permissions();
+		self.sync_get_authorize(ids.iter().cloned().map(tg::Id::from), permissions)
+			.await
+	}
 
-		let mut permissions = vec![None; ids.len()];
-		if args.is_empty() {
-			return Ok(permissions);
+	async fn sync_get_touch_authorized_objects(
+		&self,
+		ids: &[tg::object::Id],
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<(
+		Vec<Option<tangram_index::object::Object>>,
+		Vec<Option<tg::grant::permission::Set>>,
+	)> {
+		let mut permissions = self.sync_get_authorize_objects(ids).await?;
+		let mut touch_indices = Vec::new();
+		let mut touch_ids = Vec::new();
+		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
+			if permissions.is_some() {
+				touch_indices.push(index);
+				touch_ids.push(id.clone());
+			}
 		}
-		let outputs = self
+		let touched = self
 			.server
 			.index
-			.authorize_batch(&args, &self.context.principal)
+			.touch_objects(&touch_ids, touched_at, time_to_touch)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
-		for (index, output) in std::iter::zip(arg_indices, outputs) {
-			permissions[index] = output
-				.map(|output| output.permissions)
-				.filter(|permissions| !permissions.is_empty());
+			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
+		let mut outputs = vec![None; ids.len()];
+		for (index, output) in std::iter::zip(touch_indices, touched) {
+			if output.is_none() {
+				permissions[index] = None;
+			}
+			outputs[index] = output;
 		}
-		Ok(permissions)
+		Ok((outputs, permissions))
+	}
+
+	fn sync_get_object_permissions() -> tg::grant::permission::Set {
+		tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
+			tg::grant::permission::object::Permission::Subtree,
+		))
 	}
 
 	async fn sync_get_authorize_processes(
 		&self,
 		ids: &[tg::process::Id],
-		processes: &[Option<tangram_index::process::Process>],
+		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
-		let mut arg_indices = Vec::new();
-		let mut args = Vec::new();
-		for (index, (id, process)) in std::iter::zip(ids, processes).enumerate() {
-			let Some(process) = process else {
-				continue;
-			};
-			let Some(permissions) = Graph::process_permissions_for_stored(&process.stored) else {
-				continue;
-			};
-			arg_indices.push(index);
-			args.push(tangram_index::authorize::Arg {
-				permissions,
-				resource: tg::grant::Resource::Id(tg::Id::from(id.clone())),
-				token: None,
-			});
+		let Some(permissions) = Self::sync_get_process_permissions(arg) else {
+			return Ok(vec![None; ids.len()]);
+		};
+		self.sync_get_authorize(ids.iter().cloned().map(tg::Id::from), permissions)
+			.await
+	}
+
+	async fn sync_get_touch_authorized_processes(
+		&self,
+		ids: &[tg::process::Id],
+		arg: &tg::sync::Arg,
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<(
+		Vec<Option<tangram_index::process::Process>>,
+		Vec<Option<tg::grant::permission::Set>>,
+	)> {
+		let mut permissions = self.sync_get_authorize_processes(ids, arg).await?;
+		let mut touch_indices = Vec::new();
+		let mut touch_ids = Vec::new();
+		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
+			if permissions.is_some() {
+				touch_indices.push(index);
+				touch_ids.push(id.clone());
+			}
 		}
+		let touched = self
+			.server
+			.index
+			.touch_processes(&touch_ids, touched_at, time_to_touch)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+		let mut outputs = vec![None; ids.len()];
+		for (index, output) in std::iter::zip(touch_indices, touched) {
+			if output.is_none() {
+				permissions[index] = None;
+			}
+			outputs[index] = output;
+		}
+		Ok((outputs, permissions))
+	}
+
+	async fn sync_get_authorize(
+		&self,
+		ids: impl IntoIterator<Item = tg::Id>,
+		required: tg::grant::permission::Set,
+	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
+		let ids = ids.into_iter().collect::<Vec<_>>();
+		let args = ids
+			.iter()
+			.map(|id| tangram_index::authorize::Arg {
+				resource: tg::grant::Resource::Id(id.clone()),
+				permissions: required,
+				token: None,
+			})
+			.collect::<Vec<_>>();
 
 		let mut permissions = vec![None; ids.len()];
 		if args.is_empty() {
@@ -248,12 +297,51 @@ impl Session {
 			.index
 			.authorize_batch(&args, &self.context.principal)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
-		for (index, output) in std::iter::zip(arg_indices, outputs) {
-			permissions[index] = output
+			.map_err(|error| tg::error!(!error, "failed to authorize the sync items"))?;
+		for (permissions, output) in std::iter::zip(&mut permissions, outputs) {
+			*permissions = output
 				.map(|output| output.permissions)
-				.filter(|permissions| !permissions.is_empty());
+				.filter(|permissions| permissions.contains(required));
 		}
 		Ok(permissions)
+	}
+
+	fn sync_get_process_permissions(arg: &tg::sync::Arg) -> Option<tg::grant::permission::Set> {
+		let mut permissions =
+			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::empty());
+		let mut insert = |permission| {
+			permissions.insert(tg::grant::permission::Set::from_permission(
+				tg::grant::Permission::Process(permission),
+			));
+		};
+		if arg.recursive {
+			insert(tg::grant::permission::process::Permission::Subtree);
+			if arg.commands {
+				insert(tg::grant::permission::process::Permission::SubtreeCommand);
+			}
+			if arg.errors {
+				insert(tg::grant::permission::process::Permission::SubtreeError);
+			}
+			if arg.logs {
+				insert(tg::grant::permission::process::Permission::SubtreeLog);
+			}
+			if arg.outputs {
+				insert(tg::grant::permission::process::Permission::SubtreeOutput);
+			}
+		} else {
+			if arg.commands {
+				insert(tg::grant::permission::process::Permission::NodeCommand);
+			}
+			if arg.errors {
+				insert(tg::grant::permission::process::Permission::NodeError);
+			}
+			if arg.logs {
+				insert(tg::grant::permission::process::Permission::NodeLog);
+			}
+			if arg.outputs {
+				insert(tg::grant::permission::process::Permission::NodeOutput);
+			}
+		}
+		(!permissions.is_empty()).then_some(permissions)
 	}
 }
