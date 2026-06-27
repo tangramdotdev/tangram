@@ -96,6 +96,31 @@ export def run [messages: list<string>] {
 	parse_output $output.stdout
 }
 
+export def run_background [messages: list<string>] {
+	job spawn --description lsp {
+		let lsp_job_id = job id
+		let shutdown_id = 999_998
+		let input = (
+			$messages
+			| append (request $shutdown_id "shutdown" null)
+			| append (notification "exit" null)
+			| str join ""
+		)
+		let output = $input | tg lsp | complete
+		{
+			exit_code: $output.exit_code,
+			stderr: $output.stderr,
+		} | job send --tag $lsp_job_id 0
+	}
+}
+
+export def wait_background [job: int, --timeout: duration = 5sec] {
+	let output = job recv --tag $job --timeout $timeout
+	if $output.exit_code != 0 {
+		error make { msg: $"lsp exited with code ($output.exit_code): ($output.stderr)" }
+	}
+}
+
 export def start [] {
 	let directory = mktemp --directory
 	let input = $directory | path join "input"

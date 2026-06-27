@@ -5,6 +5,7 @@ use std/util 'path add'
 export use std assert
 
 const repository_path = path self '../../'
+const harness_path = path self
 const server_exit_directory_name = 'server_jobs'
 
 def main [
@@ -52,9 +53,12 @@ def main [
 	}
 	# Clean up leftover test resources if requested.
 	if $clean {
-		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
-			remove_temp_directory $entry.name
-			print -e $"removed ($entry.name)"
+		let test_temp_paths = ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir | get name
+		let lmdb_sysv_keys = lmdb_sysv_keys_for_test_dirs $test_temp_paths
+
+		for path in $test_temp_paths {
+			remove_temp_directory $path
+			print -e $"removed ($path)"
 		}
 
 		let preserved_dbs = ['postgres', 'template0', 'template1', 'processes']
@@ -81,6 +85,20 @@ def main [
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 		try { fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
+
+		let tangram_processes = count_tangram_processes
+		if $tangram_processes > 0 {
+			clean_tangram_processes
+		}
+		let remaining_tangram_processes = count_tangram_processes
+		print -e $"cleaned tangram processes: ($tangram_processes - $remaining_tangram_processes)"
+
+		let lmdb_sysv_semaphores = count_lmdb_sysv_semaphores $lmdb_sysv_keys
+		if $lmdb_sysv_semaphores > 0 {
+			clean_lmdb_sysv_semaphores $lmdb_sysv_keys
+		}
+		let remaining_lmdb_sysv_semaphores = count_lmdb_sysv_semaphores $lmdb_sysv_keys
+		print -e $"cleaned lmdb sysv semaphores: ($lmdb_sysv_semaphores - $remaining_lmdb_sysv_semaphores)"
 
 		return
 	}
@@ -114,7 +132,7 @@ def main [
 		$filters | each { '(' + $in + ')' } | str join '|'
 	}
 	let tests_path = ($repository_path | path join 'packages/cli/tests')
-	let tests = fd -e nu -p $filter $tests_path | lines | where { |path|
+	let tests = fd -e nu -p $filter $tests_path | lines | sort | where { |path|
 		not (($path | path relative-to $tests_path) | str starts-with 'lib/')
 	} | each { |path|
 		{
@@ -488,13 +506,18 @@ def run_test [test: record, options: record] {
 		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
 		TMPDIR: $temp_path,
 	} {
-		let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
+		let command = [
+			$'use ($harness_path) cleanup_background_jobs'
+			'$env.config.display_errors.exit_code = true;'
+			$'source ($test.path);'
+			$'cleanup_background_jobs ($temp_path);'
+		] | str join "\n"
 		if $options.no_capture {
-			open /dev/null | timeout $timeout nu -c $command o+e> /dev/stderr
+			open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e> /dev/stderr
 			let exit_code = $env.LAST_EXIT_CODE
 			{ exit_code: $exit_code, stdout: '', stderr: '' }
 		} else {
-			let output = open /dev/null | timeout $timeout nu -c $command o+e>| complete
+			let output = open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e>| complete
 			{
 				exit_code: $output.exit_code,
 				stdout: '',
@@ -530,20 +553,7 @@ def run_test [test: record, options: record] {
 		clean_databases $id
 	}
 
-	# Kill any background jobs started by the test, such as server and LSP processes.
-	for job in (job list | where { ($in.description? | default '') in ['server', 'lsp'] }) {
-		let exit_path = server_exit_path $temp_path $job.id
-		for pid in ($job.pids? | default []) {
-			if (($job.description? | default '') == 'lsp') {
-				try { ^bash -c 'kill -KILL -- -"$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true' _ $pid }
-			} else {
-				try { ^kill -KILL $pid }
-			}
-		}
-		if not (wait_for_server_exit $exit_path) {
-			try { job kill $job.id }
-		}
-	}
+	cleanup_background_jobs $temp_path
 
 	# Clean up the temp directory.
 	if not $options.preserve_temps {
@@ -1043,21 +1053,21 @@ export def --env spawn [
 	try { mkdir $server_exit_directory_path }
 
 	# Spawn the server.
-	job spawn -d server {
+	let server_job = job spawn -d server {
 		let server_job_id = job id
 		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
 		do -i {
 			bash -c $"
 				PARENT_PID=$PPID
 				SELF_PID=$$
-				\(
-					while kill -0 $PARENT_PID 2>/dev/null; do
-						sleep 1
-					done
-					kill -9 -$SELF_PID
-				\) &
+					\(
+						while kill -0 $PARENT_PID 2>/dev/null; do
+							sleep 0.05
+						done
+						kill -TERM -$SELF_PID 2>/dev/null || true
+					\) &
 				exec 3>\"($ready_path)\"
-				tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
+				exec tangram -c \"($config_path)\" -d \"($directory_path)\" -u \"($url)\" serve --ready-fd 3
 			" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
 		}
 		'' | save -f $exit_path
@@ -1070,11 +1080,13 @@ export def --env spawn [
 	rm -f $ready_path
 	let ready_byte = ($ready_output.stdout | str trim)
 	if $ready_output.exit_code != 0 {
+		stop_server_job $server_job
 		error make {
 			msg: $"the server did not signal readiness within ($ready_timeout)"
 		}
 	}
 	if $ready_byte != '0' {
+		stop_server_job $server_job
 		error make {
 			msg: (
 				if ($ready_byte | is-empty) {
@@ -1336,6 +1348,191 @@ export def normalize_ids [value?: string, --prefixes: list<string> = [blb cmd di
 
 def server_exit_path [temp_path: string, job_id: int] {
 	$temp_path | path join $server_exit_directory_name | path join $'($job_id).exit'
+}
+
+def count_tangram_processes [] {
+	tangram_process_pids_list | length
+}
+
+def tangram_process_pids_list [] {
+	let output = (^bash -c (tangram_process_pids) | complete)
+	if $output.exit_code != 0 {
+		return []
+	}
+	$output.stdout | lines | str trim | where { not ($in | is-empty) }
+}
+
+def lmdb_sysv_keys_for_test_dirs [paths: list] {
+	let lockfiles = $paths | each { |path|
+		[
+			(glob ($path | path join '**/index-lock')),
+			(glob ($path | path join '**/logs-lock')),
+			(glob ($path | path join '**/objects-lock')),
+		] | flatten
+	} | flatten | uniq
+	if ($lockfiles | is-empty) {
+		return []
+	}
+	let output = (
+		^/usr/bin/perl -MIPC::SysV=ftok -e 'for my $path (@ARGV) { my $key = ftok($path, ord("M")); printf "0x%08x\n", $key if defined($key) && $key != -1; }' ...$lockfiles | complete
+	)
+	if $output.exit_code != 0 {
+		return []
+	}
+	$output.stdout | lines | where { not ($in | is-empty) } | uniq
+}
+
+def count_lmdb_sysv_semaphores [keys: list] {
+	if ($keys | is-empty) {
+		return 0
+	}
+	let output = (^ipcs -s | complete)
+	if $output.exit_code != 0 {
+		return 0
+	}
+	let user = $env.USER? | default ''
+	$output.stdout | lines | skip 3 | where { |line|
+		let columns = $line | split row --regex '\s+' | where { $in != '' }
+		($columns | length) >= 5 and ($columns | get 2) in $keys and (($user | is-empty) or (($columns | get 4) == $user))
+	} | length
+}
+
+def process_supervisor [] {
+	'
+	set -m
+	parent_pid=$1
+	shift
+
+	"$@" &
+	child=$!
+
+	child_done() {
+		stat=$(ps -o stat= -p "$child" 2>/dev/null | tr -d " ")
+		case "$stat" in
+			""|Z*) return 0 ;;
+			*) return 1 ;;
+		esac
+	}
+
+	terminate_child() {
+		kill -TERM -- -"$child" 2>/dev/null || true
+		kill -TERM "$child" 2>/dev/null || true
+		for _ in $(seq 1 100); do
+			if child_done; then
+				return
+			fi
+			sleep 0.05
+		done
+		kill -KILL "$child" 2>/dev/null || true
+	}
+
+	(
+		while kill -0 "$parent_pid" 2>/dev/null && ! child_done; do
+			sleep 0.05
+		done
+		if ! child_done; then
+			terminate_child
+		fi
+	) &
+	watcher=$!
+
+	trap "terminate_child" TERM INT HUP
+
+	wait "$child"
+	status=$?
+
+	trap - TERM INT HUP
+	kill "$watcher" 2>/dev/null || true
+	wait "$watcher" 2>/dev/null || true
+	exit "$status"
+'
+}
+
+def clean_tangram_processes [] {
+	let pids = tangram_process_pids_list
+	if ($pids | is-empty) {
+		return
+	}
+	for pid in $pids {
+		try { ^bash -c 'kill -TERM -- -"$1" 2>/dev/null || true; kill -TERM "$1" 2>/dev/null || true' _ $pid }
+	}
+	for _ in 1..100 {
+		let remaining = $pids | where { |pid|
+			(^bash -c 'kill -0 "$1" 2>/dev/null' _ $pid | complete).exit_code == 0
+		}
+		if ($remaining | is-empty) {
+			return
+		}
+		sleep 50ms
+	}
+	for pid in $pids {
+		try { ^bash -c 'kill -KILL -- -"$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true' _ $pid }
+	}
+}
+
+def tangram_process_pids [] {
+	'
+		ps -axo pid=,command= | while read -r pid command; do
+			if [ -z "$pid" ] || [ -z "$command" ]; then
+				continue
+			fi
+			executable=${command%% *}
+			case "$(basename "$executable" 2>/dev/null)" in
+				tangram|tg) ;;
+				*) continue ;;
+			esac
+			path=$(realpath "$executable" 2>/dev/null || true)
+			if [ "$(basename "$path" 2>/dev/null)" = "tangram" ]; then
+				printf "%s\n" "$pid"
+			fi
+		done
+	'
+}
+
+def clean_lmdb_sysv_semaphores [keys: list] {
+	if ($keys | is-empty) {
+		return
+	}
+	let user = $env.USER? | default ''
+	let output = (^ipcs -s | complete)
+	if $output.exit_code != 0 {
+		return
+	}
+	let semaphore_ids = $output.stdout | lines | skip 3 | where { |line|
+		let columns = $line | split row --regex '\s+' | where { $in != '' }
+		($columns | length) >= 5 and ($columns | get 2) in $keys and (($user | is-empty) or (($columns | get 4) == $user))
+	} | each { |line|
+		$line | split row --regex '\s+' | where { $in != '' } | get 1
+	}
+	for id in $semaphore_ids {
+		try { ^ipcrm -s $id }
+	}
+}
+
+export def cleanup_background_jobs [temp_path: string] {
+	# Kill any background jobs started by the test, such as server and LSP processes.
+	for job in (job list | where { ($in.description? | default '') == 'lsp' }) {
+		for pid in ($job.pids? | default []) {
+			try { ^bash -c 'kill -KILL -- -"$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true' _ $pid }
+		}
+		try { job kill $job.id }
+	}
+
+	for job in (job list | where { ($in.description? | default '') == 'server' }) {
+		let exit_path = server_exit_path $temp_path $job.id
+		stop_server_job $job.id
+		if not (wait_for_server_exit $exit_path) {
+			try { job kill $job.id }
+		}
+	}
+}
+
+def stop_server_job [job_id: int] {
+	for job in (job list | where id == $job_id) {
+		for pid in ($job.pids? | default []) {
+			try { ^bash -c 'children=$(pgrep -P "$1" 2>/dev/null || true); kill -TERM "$1" 2>/dev/null || true; for child in $children; do kill -TERM "$child" 2>/dev/null || true; done' _ $pid }
+		}
+	}
 }
 
 def wait_for_server_exit [path: string] {
