@@ -33,8 +33,21 @@ impl Session {
 				return Ok(false);
 			};
 			let child = advisory_children.get(child).unwrap().clone();
-			if !self.object_token_grants_subtree(child) {
-				return Ok(false);
+			if !self.object_token_grants_subtree(child.clone()) {
+				if !matches!(child, tg::Either::Right(_)) {
+					return Ok(false);
+				}
+				let permission = tg::grant::Permission::Object(
+					tg::grant::permission::object::Permission::Subtree,
+				);
+				let permissions = tg::grant::permission::Set::from_permission(permission);
+				let authorized = self
+					.authorize(child, permissions)
+					.await?
+					.is_some_and(|permissions| permissions.contains(permission));
+				if !authorized {
+					return Ok(false);
+				}
 			}
 		}
 		Ok(true)

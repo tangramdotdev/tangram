@@ -4,7 +4,6 @@ use ../../test.nu *
 # subtree token) in a new directory output must authorize as subtree. The object-batch
 # advisory check rejects the ancestor token, downgrading the output to a node-only grant
 # that then fails finish once its subtree exceeds the search budget (depth here).
-# Minimal offline analog of std's darwin toolchain overlay reusing `await raw.entries`.
 
 let server = spawn
 
