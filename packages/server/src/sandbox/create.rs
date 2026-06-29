@@ -156,14 +156,14 @@ impl Session {
 		let mut delay = std::time::Duration::from_millis(10);
 		let max_delay = std::time::Duration::from_secs(1);
 		loop {
-			let request_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
+			let message_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 
 			// Subscribe to the response subject before publishing so that the response is not missed.
 			let response = self
 				.server
 				.messenger
-				.subscribe::<crate::scheduler::SchedulerResponse>(format!(
-					"scheduler.create-sandbox.{request_id}"
+				.subscribe::<crate::scheduler::Response>(format!(
+					"scheduler.create-sandbox.{message_id}"
 				))
 				.await
 				.map_err(|source| {
@@ -172,16 +172,15 @@ impl Session {
 			let mut response = pin!(response);
 
 			// Create the request.
-			let request = crate::scheduler::SchedulerRequest::CreateSandbox(
-				crate::scheduler::CreateSandboxRequest {
-					request_id: request_id.clone(),
-					id: id.clone(),
+			let request =
+				crate::scheduler::Request::CreateSandbox(crate::scheduler::CreateSandboxRequest {
+					id: message_id.clone(),
+					sandbox: id.clone(),
 					arg: arg.clone(),
 					process: process.cloned(),
 					token: token.clone(),
 					process_token: process_token.clone(),
-				},
-			);
+				});
 
 			// Publish the request and wait for the response.
 			let options = tangram_futures::retry::Options {
@@ -197,8 +196,7 @@ impl Session {
 							.map_err(|source| {
 								tg::error!(!source, "failed to receive the scheduler response")
 							})?;
-						let crate::scheduler::SchedulerResponse::CreateSandbox(response) =
-							message.payload
+						let crate::scheduler::Response::CreateSandbox(response) = message.payload
 						else {
 							return Err(tg::error!("expected a create sandbox response"));
 						};
@@ -220,9 +218,7 @@ impl Session {
 			};
 
 			// Acknowledge the response so that the scheduler can release its cached response.
-			let ack = crate::scheduler::SchedulerRequest::Ack(crate::scheduler::SchedulerAck {
-				request_id,
-			});
+			let ack = crate::scheduler::Request::Ack(crate::scheduler::Ack { id: message_id });
 			self.server
 				.messenger
 				.publish("scheduler".to_owned(), ack)
@@ -260,14 +256,14 @@ impl Session {
 		let mut delay = std::time::Duration::from_millis(10);
 		let max_delay = std::time::Duration::from_secs(1);
 		loop {
-			let request_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
+			let message_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 
 			// Subscribe to the response subject before publishing so that the response is not missed.
 			let response = self
 				.server
 				.messenger
-				.subscribe::<crate::scheduler::SchedulerResponse>(format!(
-					"scheduler.spawn-process.{request_id}"
+				.subscribe::<crate::scheduler::Response>(format!(
+					"scheduler.spawn-process.{message_id}"
 				))
 				.await
 				.map_err(|source| {
@@ -276,14 +272,13 @@ impl Session {
 			let mut response = pin!(response);
 
 			// Create the request.
-			let request = crate::scheduler::SchedulerRequest::SpawnProcess(
-				crate::scheduler::SpawnProcessRequest {
-					request_id: request_id.clone(),
+			let request =
+				crate::scheduler::Request::SpawnProcess(crate::scheduler::SpawnProcessRequest {
+					id: message_id.clone(),
 					sandbox: sandbox.clone(),
-					id: process.clone(),
+					process: process.clone(),
 					process_token: process_token.clone(),
-				},
-			);
+				});
 
 			// Publish the request and wait for the response.
 			let options = tangram_futures::retry::Options {
@@ -299,8 +294,7 @@ impl Session {
 							.map_err(|source| {
 								tg::error!(!source, "failed to receive the scheduler response")
 							})?;
-						let crate::scheduler::SchedulerResponse::SpawnProcess(response) =
-							message.payload
+						let crate::scheduler::Response::SpawnProcess(response) = message.payload
 						else {
 							return Err(tg::error!("expected a spawn process response"));
 						};
@@ -322,9 +316,7 @@ impl Session {
 			};
 
 			// Acknowledge the response so that the scheduler can release its cached response.
-			let ack = crate::scheduler::SchedulerRequest::Ack(crate::scheduler::SchedulerAck {
-				request_id,
-			});
+			let ack = crate::scheduler::Request::Ack(crate::scheduler::Ack { id: message_id });
 			self.server
 				.messenger
 				.publish("scheduler".to_owned(), ack)

@@ -8,6 +8,7 @@ use {
 	tangram_messenger::prelude::*,
 };
 
+pub mod control;
 pub mod create;
 pub mod destroy;
 pub mod finalize;
@@ -29,18 +30,6 @@ pub struct Permit(
 );
 
 pub type Tasks = tangram_futures::task::Map<tg::sandbox::Id, (), (), tg::id::BuildHasher>;
-
-// Each dispatched process carries a oneshot to report back whether it actually started, so the
-// runner acks the scheduler only after the sandbox has started the process.
-pub type ProcessSenders = DashMap<
-	tg::sandbox::Id,
-	tokio::sync::mpsc::Sender<(
-		tg::process::Id,
-		Option<String>,
-		tokio::sync::oneshot::Sender<bool>,
-	)>,
-	tg::id::BuildHasher,
->;
 
 impl Session {
 	pub(super) fn create_sandbox_token_string() -> String {

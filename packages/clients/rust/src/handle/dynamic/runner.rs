@@ -9,10 +9,10 @@ impl tg::handle::Runner for Handle {
 		&self,
 		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::runner::control::InputEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::runner::control::OutputEvent>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
 		>,
 	> {
 		unsafe {

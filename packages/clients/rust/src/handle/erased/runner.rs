@@ -8,8 +8,8 @@ pub trait Runner: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::runner::Id,
 		arg: tg::runner::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::runner::control::InputEvent>>,
-	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::runner::control::OutputEvent>>>>;
+		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>>>;
 }
 
 impl<T> Runner for T
@@ -20,8 +20,8 @@ where
 		&'a self,
 		id: &'a tg::runner::Id,
 		arg: tg::runner::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::runner::control::InputEvent>>,
-	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::runner::control::OutputEvent>>>>
+		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>>>
 	{
 		self.get_runner_control_stream(id, arg, stream)
 			.map_ok(futures::StreamExt::boxed)

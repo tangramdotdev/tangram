@@ -1,4 +1,7 @@
-use {crate::prelude::*, futures::FutureExt as _};
+use {
+	crate::prelude::*,
+	futures::{FutureExt as _, TryFutureExt as _, stream::BoxStream},
+};
 
 impl<L, R> tg::handle::Sandbox for tg::Either<L, R>
 where
@@ -77,6 +80,30 @@ where
 			tg::Either::Right(s) => s
 				.try_get_sandbox_status_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
+	fn get_sandbox_control_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
+			+ Send
+			+ 'static,
+		>,
+	> {
+		match self {
+			tg::Either::Left(s) => s
+				.get_sandbox_control_stream(id, arg, stream)
+				.map_ok(futures::StreamExt::left_stream)
+				.left_future(),
+			tg::Either::Right(s) => s
+				.get_sandbox_control_stream(id, arg, stream)
+				.map_ok(futures::StreamExt::right_stream)
 				.right_future(),
 		}
 	}

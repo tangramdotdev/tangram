@@ -102,7 +102,7 @@ impl<'a> Requester<'a> {
 			tg::Principal::Process(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Sandbox(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::User(id) => Some(tg::Id::from(id.clone())),
-			tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner => None,
+			tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner(_) => None,
 		};
 		Self {
 			principal,
@@ -803,7 +803,7 @@ impl Index {
 							tg::Principal::Process(id) => Some(tg::Id::from(id)),
 							tg::Principal::Anonymous
 							| tg::Principal::Root
-							| tg::Principal::Runner => None,
+							| tg::Principal::Runner(_) => None,
 							tg::Principal::Sandbox(id) => Some(tg::Id::from(id)),
 							tg::Principal::User(id) => Some(tg::Id::from(id)),
 						};

@@ -676,6 +676,9 @@ impl Server {
 			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => session
 				.try_destroy_sandbox_request(request, sandbox)
 				.boxed(),
+			(http::Method::POST, ["sandboxes", sandbox, "control"]) => session
+				.get_sandbox_control_stream_request(request, sandbox)
+				.boxed(),
 			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => session
 				.try_heartbeat_sandbox_request(request, sandbox)
 				.boxed(),

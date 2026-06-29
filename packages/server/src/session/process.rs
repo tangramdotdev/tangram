@@ -59,9 +59,11 @@ impl tg::handle::Process for Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+		>,
 	> {
 		self.try_get_process_control_stream_with_context(id, arg, stream)
 			.await

@@ -76,10 +76,12 @@ impl Session {
 		}
 
 		// Send the control request.
-		let request =
-			tg::process::control::RequestKind::Signal(tg::process::control::SignalRequest {
+		let request = tg::process::control::ServerRequest::Signal(
+			tg::process::control::SignalServerRequest {
+				id: String::new(),
 				signal,
-			});
+			},
+		);
 		let max_retries = tangram_futures::retry::Options::default().max_retries;
 		let Some(response) = self
 			.try_send_process_control_request(id, request, max_retries)
@@ -87,7 +89,7 @@ impl Session {
 		else {
 			return Ok(Some(()));
 		};
-		let tg::process::control::ResponseKind::Signal = response.kind else {
+		let tg::process::control::ClientResponse::Signal(_) = response else {
 			return Err(tg::error!("expected a signal response"));
 		};
 

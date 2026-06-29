@@ -342,11 +342,13 @@ impl Session {
 				return Ok(());
 			}
 
-			let request =
-				tg::process::control::RequestKind::Read(tg::process::control::ReadRequest {
+			let request = tg::process::control::ServerRequest::Read(
+				tg::process::control::ReadServerRequest {
+					id: String::new(),
 					stream,
 					length: READ_CHUNK_SIZE,
-				});
+				},
+			);
 			let Some(response) = self
 				.try_send_process_control_request(id, request, u64::MAX)
 				.await?
@@ -354,7 +356,7 @@ impl Session {
 				// A clean end must come only from an empty read response, so surface an abandoned request as an error.
 				return Err(tg::error!("timed out reading process stdio"));
 			};
-			let tg::process::control::ResponseKind::Read(response) = response.kind else {
+			let tg::process::control::ClientResponse::Read(response) = response else {
 				return Err(tg::error!("expected a read response"));
 			};
 

@@ -57,7 +57,10 @@ impl Session {
 
 		// Send the control request.
 		let request =
-			tg::process::control::RequestKind::Tty(tg::process::control::TtyRequest { size });
+			tg::process::control::ServerRequest::Tty(tg::process::control::TtyServerRequest {
+				id: String::new(),
+				size,
+			});
 		let max_retries = tangram_futures::retry::Options::default().max_retries;
 		let Some(response) = self
 			.try_send_process_control_request(id, request, max_retries)
@@ -65,7 +68,7 @@ impl Session {
 		else {
 			return Ok(Some(()));
 		};
-		let tg::process::control::ResponseKind::Tty = response.kind else {
+		let tg::process::control::ClientResponse::Tty(_) = response else {
 			return Err(tg::error!("expected a tty response"));
 		};
 

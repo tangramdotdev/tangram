@@ -60,4 +60,23 @@ impl tg::handle::Sandbox for Handle {
 			)
 		}
 	}
+
+	fn get_sandbox_control_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
+			+ Send
+			+ 'static,
+		>,
+	> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<BoxStream<_>>>>(
+				self.0.get_sandbox_control_stream(id, arg, stream),
+			)
+		}
+	}
 }

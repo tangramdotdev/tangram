@@ -45,7 +45,7 @@ let path = artifact {
 	'#
 }
 
-let id = tg --url $local.url build --remote --detach $path
+let id = tg --url $local.url build --remote --detach -e TANGRAM_QUIET=1 $path
 tg --url $remote.url server restart
 let output = tg --url $local.url wait $id
 let stdout = tg --url $local.url log $id --stream=stdout

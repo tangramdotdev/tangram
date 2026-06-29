@@ -37,6 +37,16 @@ pub trait Sandbox: Send + Sync + 'static {
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>;
+
+	fn get_sandbox_control_stream<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>>,
+	>;
 }
 
 impl<T> Sandbox for T
@@ -94,5 +104,19 @@ where
 				.map(futures::StreamExt::boxed))
 		}
 		.boxed()
+	}
+
+	fn get_sandbox_control_stream<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>>,
+	> {
+		self.get_sandbox_control_stream(id, arg, stream)
+			.map_ok(futures::StreamExt::boxed)
+			.boxed()
 	}
 }

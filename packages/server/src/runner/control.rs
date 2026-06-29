@@ -8,13 +8,17 @@ use {
 	tangram_messenger::Messenger as _,
 };
 
+pub(crate) struct RunnerControlClientMessage(pub(crate) tg::runner::control::ClientMessage);
+
+pub(crate) struct RunnerControlServerMessage(pub(crate) tg::runner::control::ServerMessage);
+
 impl Session {
 	pub(crate) async fn get_runner_control_stream_with_context(
 		&self,
 		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::runner::control::InputEvent>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::OutputEvent>>> {
+		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
 		let location = self.server.location(arg.location.as_ref())?;
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => (),
@@ -57,15 +61,18 @@ impl Session {
 			},
 		}
 
-		// Subscribe to the output stream before notifying the scheduler so that no event dispatched
+		// Subscribe to the server message stream before notifying the scheduler so that no message dispatched
 		// to this runner is missed in the window before the subscription is established.
-		let output = self
+		let server_messages = self
 			.server
 			.messenger
-			.subscribe::<crate::scheduler::OutputMessage>(format!("runners.{id}.output"))
+			.subscribe::<RunnerControlServerMessage>(format!("runners.{id}.server"))
 			.await
 			.map_err(|source| {
-				tg::error!(!source, "failed to subscribe to the runner control stream")
+				tg::error!(
+					!source,
+					"failed to subscribe to the runner server message stream"
+				)
 			})?;
 
 		// Subscribe to the acknowledgement subject before notifying the scheduler so that the acknowledgement is not missed.
@@ -106,29 +113,29 @@ impl Session {
 						)
 						.await
 						.map_err(|source| {
-							tg::error!(!source, "failed to publish the listen event")
+							tg::error!(!source, "failed to publish the listen message")
 						})?;
 				},
 			}
 		}
 
-		// spawn a task to drain input requests
+		// Spawn a task to forward client messages to the scheduler.
 		let task = Task::spawn({
 			let server = self.server.clone();
 			let id = id.clone();
 			async move |_| {
 				{
 					let mut stream = pin!(stream);
-					while let Some(event) = stream.try_next().await? {
+					while let Some(message) = stream.try_next().await? {
 						server
 							.messenger
 							.publish(
-								format!("runners.{id}.input"),
-								crate::scheduler::InputMessage(event),
+								format!("runners.{id}.client"),
+								RunnerControlClientMessage(message),
 							)
 							.await
 							.map_err(|source| {
-								tg::error!(!source, "failed to publish the input event")
+								tg::error!(!source, "failed to publish the runner client message")
 							})?;
 					}
 					Ok::<_, tg::Error>(())
@@ -137,10 +144,10 @@ impl Session {
 			}
 		});
 
-		// End the stream when the server stops, without an end event, so the runner retries while the server restarts.
-		let stream = output
+		// End the stream when the server stops, without an end message, so the runner retries while the server restarts.
+		let stream = server_messages
 			.map_ok(|message| message.payload.0)
-			.map_err(|source| tg::error!(!source, "failed to get the message"))
+			.map_err(|source| tg::error!(!source, "failed to get a runner server message"))
 			.attach(task)
 			.with_stopper(self.context.stopper.clone());
 		Ok(stream)
@@ -171,6 +178,19 @@ impl Session {
 			.parse::<tg::runner::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the runner id"))?;
 
+		match &self.context.principal {
+			tg::Principal::Runner(runner) if runner == &id => (),
+			tg::Principal::Runner(runner) => {
+				return Err(tg::error!(
+					runner = %runner,
+					id = %id,
+					"invalid runner"
+				));
+			},
+			tg::Principal::Root if self.server.config().authentication.is_none() => (),
+			_ => return Err(tg::error!("unauthorized")),
+		}
+
 		// Parse the arg.
 		let arg = request
 			.query_params()
@@ -178,10 +198,10 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
-		// Create the input stream.
+		// Create the client message stream.
 		let stream = request
 			.sse()
-			.map_err(|error| tg::error!(!error, "failed to read an event"))
+			.map_err(|error| tg::error!(!error, "failed to read a message"))
 			.and_then(|event| {
 				future::ready(
 					if event.event.as_deref().is_some_and(|event| event == "error") {
@@ -195,7 +215,7 @@ impl Session {
 			})
 			.boxed();
 
-		// Get the output stream.
+		// Get the server message stream.
 		let stream = self
 			.get_runner_control_stream_with_context(&id, arg, stream)
 			.await?;
@@ -215,5 +235,39 @@ impl Session {
 			.unwrap();
 
 		Ok(response)
+	}
+}
+
+impl tangram_messenger::Payload for RunnerControlClientMessage {
+	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error>
+	where
+		Self: Sized,
+	{
+		let message =
+			serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)?;
+		Ok(Self(message))
+	}
+
+	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
+		let message =
+			serde_json::to_vec(&self.0).map_err(tangram_messenger::Error::serialization)?;
+		Ok(message.into())
+	}
+}
+
+impl tangram_messenger::Payload for RunnerControlServerMessage {
+	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error>
+	where
+		Self: Sized,
+	{
+		let message =
+			serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)?;
+		Ok(Self(message))
+	}
+
+	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
+		let message =
+			serde_json::to_vec(&self.0).map_err(tangram_messenger::Error::serialization)?;
+		Ok(message.into())
 	}
 }

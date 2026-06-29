@@ -8,10 +8,10 @@ pub trait Runner: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::runner::control::InputEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::runner::control::OutputEvent>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
 		>,
 	> + Send;
 }
@@ -21,9 +21,10 @@ impl tg::handle::Runner for tg::Client {
 		&self,
 		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::runner::control::InputEvent>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::runner::control::OutputEvent>> + Send + 'static>
-	{
+		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
+	> {
 		self.session(&self.context)
 			.get_runner_control_stream(id, arg, stream)
 			.await

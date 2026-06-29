@@ -1,4 +1,8 @@
-use {crate::Server, futures::Stream, tangram_client::prelude::*};
+use {
+	crate::Server,
+	futures::{Stream, stream::BoxStream},
+	tangram_client::prelude::*,
+};
 
 impl tg::handle::Sandbox for Server {
 	async fn create_sandbox(
@@ -52,6 +56,19 @@ impl tg::handle::Sandbox for Server {
 	> {
 		self.session(&self.context)
 			.try_get_sandbox_status_stream(id, arg)
+			.await
+	}
+
+	async fn get_sandbox_control_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+	> {
+		self.session(&self.context)
+			.get_sandbox_control_stream_with_context(id, arg, stream)
 			.await
 	}
 }

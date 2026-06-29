@@ -1,4 +1,7 @@
-use {crate::prelude::*, futures::Stream};
+use {
+	crate::prelude::*,
+	futures::{Stream, stream::BoxStream},
+};
 
 pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 	fn create_sandbox(
@@ -76,6 +79,17 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 		>,
 	> + Send;
+
+	fn get_sandbox_control_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+		>,
+	> + Send;
 }
 
 impl tg::handle::Sandbox for tg::Client {
@@ -130,6 +144,19 @@ impl tg::handle::Sandbox for tg::Client {
 	> {
 		self.session(&self.context)
 			.try_get_sandbox_status_stream(id, arg)
+			.await
+	}
+
+	async fn get_sandbox_control_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+	> {
+		self.session(&self.context)
+			.get_sandbox_control_stream(id, arg, stream)
 			.await
 	}
 }

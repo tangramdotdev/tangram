@@ -1,8 +1,9 @@
 use {
 	super::process::SpawnProcessTaskArg,
 	crate::{Context, Server, Session, temp::Temp},
-	futures::{FutureExt as _, TryStreamExt as _, future},
-	std::{pin::pin, sync::Arc},
+	dashmap::DashMap,
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future},
+	std::{pin::pin, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tangram_index::prelude::*,
@@ -26,13 +27,16 @@ struct CreateProcessSessionOutput {
 	session: Session,
 }
 
+#[derive(Clone, Debug)]
+enum CachedSandboxResponse {
+	Pending,
+	Ready(tg::sandbox::control::SpawnProcessClientResponse),
+}
+
 impl Server {
 	pub(crate) fn spawn_sandbox_task(&self, task: SpawnSandboxTaskArg) {
-		// Use `get_or_spawn` so that at most one task runs per sandbox id. If a task already exists,
-		// then the closure is not run, so this dispatch's `SpawnSandboxTaskArg` and its permit are
-		// dropped and the permit is released.
 		self.sandbox_tasks
-			.get_or_spawn(task.id.clone(), |_| {
+			.spawn(task.id.clone(), |_| {
 				let server = self.clone();
 				let id = task.id;
 				async move {
@@ -331,13 +335,31 @@ impl Session {
 		let mut timer = None;
 		let ttl = state.ttl;
 
-		// Register a channel to receive the processes the scheduler dispatches to this sandbox, then
-		// register the sandbox's placement with the scheduler so processes can be routed to it.
-		let (process_sender, mut process_receiver) = tokio::sync::mpsc::channel(256);
-		self.server
-			.sandbox_process_senders
-			.insert(id.clone(), process_sender);
+		// Connect to the sandbox control stream before registering the sandbox's placement so
+		// processes can be routed to it.
+		let (input, input_receiver) =
+			tokio::sync::mpsc::channel::<tg::sandbox::control::ClientMessage>(256);
+		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
+			.map(Ok)
+			.boxed();
+		let arg = tg::sandbox::control::Arg {
+			location: Some(location.clone().into()),
+		};
+		let control = self
+			.get_sandbox_control_stream_all(id, arg, input_stream)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to connect to the sandbox control stream"),
+			)?;
+		let mut control = pin!(control);
 		self.register_sandbox_with_scheduler(id).await;
+		let control_ttl = self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.map_or(Duration::from_mins(1), |runner| runner.control_ttl);
+		let responses: Arc<DashMap<String, CachedSandboxResponse>> = Arc::new(DashMap::new());
 
 		// If the sandbox was created with a process, then start it. Otherwise, start the timer. A
 		// failure to start the process does not tear down the sandbox.
@@ -387,18 +409,57 @@ impl Session {
 			tokio::select! {
 				// If a process is dispatched to the sandbox, then start it and report whether it
 				// started. A failure to start does not tear down the sandbox.
-				process = process_receiver.recv() => {
-					let Some((process, process_token, started)) = process else {
+				message = control.try_next() => {
+					let message = message
+						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
+					let Some(message) = message else {
 						break;
 					};
+					let request = match message {
+						tg::sandbox::control::ServerMessage::Request(request) => request,
+						tg::sandbox::control::ServerMessage::Ack(ack) => {
+								responses.insert(ack.id.clone(), CachedSandboxResponse::Pending);
+								tokio::spawn({
+									let responses = responses.clone();
+									async move {
+										tokio::time::sleep(control_ttl).await;
+										responses.remove(&ack.id);
+									}
+								});
+								continue;
+						}
+					};
+					let request_id = request.id().to_owned();
+
+					// Duplicate; resend the cached response, or drop if in flight or acked.
+					let cached = responses
+						.get(&request_id)
+						.map(|entry| entry.value().clone());
+						if let Some(cached) = cached {
+							if let CachedSandboxResponse::Ready(response) = cached {
+								input
+									.send(tg::sandbox::control::ClientMessage::Response(
+										tg::sandbox::control::ClientResponse::SpawnProcess(response),
+									))
+									.await
+									.ok();
+							}
+						continue;
+					}
+
+					// Mark in flight so duplicates are dropped until the response is ready.
+					responses.insert(request_id.clone(), CachedSandboxResponse::Pending);
+
+					let tg::sandbox::control::ServerRequest::SpawnProcess(request) = request;
+
 					timer.take();
 					match self
 						.create_process_session(
-							process,
+							request.process.clone(),
 							&location,
 							id,
 							state.creator.clone(),
-							process_token,
+							request.process_token.clone(),
 						)
 						.await
 					{
@@ -411,11 +472,33 @@ impl Session {
 								process_tasks: &mut process_tasks,
 								sandbox: &sandbox,
 							});
-							started.send(true).ok();
+							let response = tg::sandbox::control::SpawnProcessClientResponse {
+								id: request_id.clone(),
+								process: request.process,
+								spawned: true,
+							};
+							responses.insert(request_id, CachedSandboxResponse::Ready(response.clone()));
+							input
+								.send(tg::sandbox::control::ClientMessage::Response(
+									tg::sandbox::control::ClientResponse::SpawnProcess(response),
+								))
+								.await
+								.ok();
 						},
 						Err(error) => {
 							tracing::error!(error = %error.trace(), %id, "failed to start the dispatched process");
-							started.send(false).ok();
+							let response = tg::sandbox::control::SpawnProcessClientResponse {
+								id: request_id.clone(),
+								process: request.process,
+								spawned: false,
+							};
+							responses.insert(request_id, CachedSandboxResponse::Ready(response.clone()));
+							input
+								.send(tg::sandbox::control::ClientMessage::Response(
+									tg::sandbox::control::ClientResponse::SpawnProcess(response),
+								))
+								.await
+								.ok();
 							if process_tasks.is_empty()
 								&& let Some(ttl) = ttl
 							{
@@ -467,8 +550,7 @@ impl Session {
 			}
 		}
 
-		// Deregister the sandbox's process channel and its placement with the scheduler.
-		self.server.sandbox_process_senders.remove(id);
+		// Deregister the sandbox's placement with the scheduler.
 		self.deregister_sandbox_with_scheduler(id).await;
 
 		// Destroy the sandbox.
@@ -604,27 +686,56 @@ impl Session {
 	}
 
 	async fn register_sandbox_with_scheduler(&self, id: &tg::sandbox::Id) {
+		let message_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
+		let message = tg::runner::control::ClientMessage::Notification(
+			tg::runner::control::ClientNotification::SandboxCreated(
+				tg::runner::control::SandboxCreatedClientNotification {
+					id: message_id.clone(),
+					sandbox: id.clone(),
+				},
+			),
+		);
+		self.server
+			.runner_lifecycle_messages
+			.insert(message_id, message.clone());
 		let sender = self.server.runner_input.lock().unwrap().clone();
-		let Some(sender) = sender else {
-			return;
-		};
-		let event =
-			tg::runner::control::InputEvent::SandboxCreated(tg::runner::control::SandboxCreated {
-				request_id: String::new(),
-				id: id.clone(),
-				created: true,
-				runner: true,
-			});
-		sender.send(event).await.ok();
+		if let Some(sender) = sender {
+			sender.send(message).await.ok();
+		}
 	}
 
 	async fn deregister_sandbox_with_scheduler(&self, id: &tg::sandbox::Id) {
+		let created = self
+			.server
+			.runner_lifecycle_messages
+			.iter()
+			.filter_map(|entry| match entry.value() {
+				tg::runner::control::ClientMessage::Notification(
+					tg::runner::control::ClientNotification::SandboxCreated(message),
+				) if message.sandbox == *id => Some(entry.key().clone()),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		for message in created {
+			self.server.runner_lifecycle_messages.remove(&message);
+		}
+
+		let message_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
+		let message = tg::runner::control::ClientMessage::Notification(
+			tg::runner::control::ClientNotification::SandboxDestroyed(
+				tg::runner::control::SandboxDestroyedClientNotification {
+					id: message_id.clone(),
+					sandbox: id.clone(),
+				},
+			),
+		);
+		self.server
+			.runner_lifecycle_messages
+			.insert(message_id, message.clone());
 		let sender = self.server.runner_input.lock().unwrap().clone();
-		let Some(sender) = sender else {
-			return;
-		};
-		let event = tg::runner::control::InputEvent::SandboxDestroyed(id.clone());
-		sender.send(event).await.ok();
+		if let Some(sender) = sender {
+			sender.send(message).await.ok();
+		}
 	}
 
 	async fn sandbox_heartbeat_task(

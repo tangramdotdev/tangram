@@ -53,7 +53,7 @@ impl Index {
 			tg::Principal::Anonymous
 			| tg::Principal::Process(_)
 			| tg::Principal::Root
-			| tg::Principal::Runner
+			| tg::Principal::Runner(_)
 			| tg::Principal::Sandbox(_) => None,
 		};
 		if let Some(id) = id {

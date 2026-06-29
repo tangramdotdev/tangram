@@ -83,9 +83,10 @@ impl Session {
 
 			// Break any outstanding scheduler dispatch loop for the process so that a queued process
 			// that has not been picked up by a runner stops being dispatched.
-			let request = crate::scheduler::SchedulerRequest::CancelProcess(
-				crate::scheduler::CancelProcessRequest { id: id.clone() },
-			);
+			let request =
+				crate::scheduler::Request::CancelProcess(crate::scheduler::CancelProcessRequest {
+					id: id.clone(),
+				});
 			self.server
 				.messenger
 				.publish("scheduler".to_owned(), request)

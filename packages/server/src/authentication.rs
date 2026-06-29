@@ -176,7 +176,7 @@ impl Session {
 			| tg::Principal::Group(_)
 			| tg::Principal::Organization(_)
 			| tg::Principal::Root
-			| tg::Principal::Runner
+			| tg::Principal::Runner(_)
 			| tg::Principal::User(_) => Ok(None),
 		}
 	}
@@ -210,10 +210,10 @@ impl Server {
 			}
 
 			match self.authenticate_runner(token).await {
-				Ok(true) => {
-					return Ok(tg::Principal::Runner);
+				Ok(Some(runner)) => {
+					return Ok(tg::Principal::Runner(runner));
 				},
-				Ok(false) => (),
+				Ok(None) => (),
 				Err(error) => {
 					return Err(error);
 				},
@@ -292,7 +292,10 @@ impl Server {
 		Ok(Some(row.id))
 	}
 
-	pub(crate) async fn authenticate_runner(&self, token: &str) -> tg::Result<bool> {
+	pub(crate) async fn authenticate_runner(
+		&self,
+		token: &str,
+	) -> tg::Result<Option<tg::runner::Id>> {
 		let connection = self
 			.database
 			.connection()
@@ -301,25 +304,28 @@ impl Server {
 
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			id: String,
+			#[tangram_database(as = "db::value::FromStr")]
+			runner: tg::runner::Id,
 		}
 
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select id
+				select runner
 				from runner_tokens
-				where id = {p}1;
+				where token = {p}1;
 			"
 		);
 		let params = db::params![token];
-		let row = connection
+		let Some(row) = connection
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let output = row.is_some_and(|row| row.id == token);
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
 
-		Ok(output)
+		Ok(Some(row.runner))
 	}
 
 	pub(crate) async fn authenticate_sandbox(

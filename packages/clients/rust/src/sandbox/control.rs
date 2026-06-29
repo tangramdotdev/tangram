@@ -30,11 +30,7 @@ pub struct ClientAck {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientNotification {
-	Heartbeat(HeartbeatClientNotification),
-	SandboxCreated(SandboxCreatedClientNotification),
-	SandboxDestroyed(SandboxDestroyedClientNotification),
-}
+pub enum ClientNotification {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
@@ -43,7 +39,7 @@ pub enum ClientRequest {}
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientResponse {
-	CreateSandbox(CreateSandboxClientResponse),
+	SpawnProcess(SpawnProcessClientResponse),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -58,81 +54,41 @@ pub enum ServerNotification {}
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerRequest {
-	CreateSandbox(CreateSandboxServerRequest),
+	SpawnProcess(SpawnProcessServerRequest),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponse {}
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct HeartbeatClientNotification {
-	pub cpus: Capacity,
-	pub memory: Capacity,
-	pub permits: Capacity,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Capacity {
-	pub total: u64,
-	pub used: u64,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct CreateSandboxServerRequest {
-	pub arg: tg::sandbox::create::Arg,
-
+pub struct SpawnProcessServerRequest {
 	pub id: String,
-
-	// The process to run in the sandbox once it is created, if any.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub process: Option<tg::process::Id>,
+	pub process: tg::process::Id,
 
 	// The token to authenticate as the process.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_token: Option<String>,
-
-	pub sandbox: tg::sandbox::Id,
-
-	// The token to authenticate as the sandbox.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct CreateSandboxClientResponse {
-	pub created: bool,
-
+pub struct SpawnProcessClientResponse {
 	pub id: String,
-
-	pub sandbox: tg::sandbox::Id,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct SandboxCreatedClientNotification {
-	pub id: String,
-
-	pub sandbox: tg::sandbox::Id,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct SandboxDestroyedClientNotification {
-	pub id: String,
-
-	pub sandbox: tg::sandbox::Id,
+	pub process: tg::process::Id,
+	pub spawned: bool,
 }
 
 impl ServerRequest {
 	#[must_use]
 	pub fn id(&self) -> &str {
 		match self {
-			Self::CreateSandbox(request) => &request.id,
+			Self::SpawnProcess(request) => &request.id,
 		}
 	}
 
 	pub fn set_id(&mut self, id: String) {
 		match self {
-			Self::CreateSandbox(request) => request.id = id,
+			Self::SpawnProcess(request) => request.id = id,
 		}
 	}
 }
@@ -141,33 +97,31 @@ impl ClientResponse {
 	#[must_use]
 	pub fn id(&self) -> &str {
 		match self {
-			Self::CreateSandbox(response) => &response.id,
+			Self::SpawnProcess(response) => &response.id,
 		}
 	}
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub host: String,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Session {
-	pub async fn get_runner_control_stream(
+	pub async fn get_sandbox_control_stream(
 		&self,
-		id: &tg::runner::Id,
-		arg: tg::runner::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<
-		impl futures::Stream<Item = tg::Result<tg::runner::control::ServerMessage>>
+		impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
 		+ Send
 		+ 'static
 		+ use<>,
 	> {
 		let method = http::Method::POST;
-		let path = format!("/runner/{id}/control");
+		let path = format!("/sandboxes/{id}/control");
 		let uri = Uri::builder()
 			.path(&path)
 			.query_params(&arg)
@@ -176,7 +130,7 @@ impl tg::Session {
 			.unwrap();
 		let stream =
 			stream.map(
-				|result: tg::Result<tg::runner::control::ClientMessage>| match result {
+				|result: tg::Result<tg::sandbox::control::ClientMessage>| match result {
 					Ok(message) => message.try_into(),
 					Err(error) => error.try_into(),
 				},
@@ -253,15 +207,6 @@ impl TryFrom<ClientMessage> for tangram_http::sse::Event {
 				tangram_http::sse::Event {
 					data,
 					event: Some("response".to_owned()),
-					..Default::default()
-				}
-			},
-			ClientMessage::Notification(notification) => {
-				let data = serde_json::to_string(&notification)
-					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
-				tangram_http::sse::Event {
-					data,
-					event: Some("notification".to_owned()),
 					..Default::default()
 				}
 			},

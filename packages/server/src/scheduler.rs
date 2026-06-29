@@ -1,5 +1,9 @@
 use {
-	crate::Server,
+	crate::{
+		Server,
+		runner::control::{RunnerControlClientMessage, RunnerControlServerMessage},
+		sandbox::control::SandboxControlServerMessage,
+	},
 	dashmap::DashMap,
 	futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
 	std::{collections::BTreeSet, pin::pin, sync::Arc, time::Duration},
@@ -9,84 +13,101 @@ use {
 };
 
 struct Scheduler {
-	server: Server,
-	runners: DashMap<tg::runner::Id, Runner>,
-	processes: DashMap<tg::process::Id, tg::runner::Id>,
-	sandboxes: DashMap<tg::sandbox::Id, tg::runner::Id>,
-	sandbox_creations:
-		DashMap<String, tokio::sync::oneshot::Sender<tg::runner::control::SandboxCreated>>,
-	process_dispatches:
-		DashMap<String, tokio::sync::oneshot::Sender<tg::runner::control::ProcessSpawned>>,
-	create_sandbox_responses: DashMap<String, Option<CreateSandboxResponse>>,
-	spawn_process_responses: DashMap<String, Option<SpawnProcessResponse>>,
-	process_cancellations: DashMap<tg::process::Id, ()>,
 	control_ttl: Duration,
 	create_sandbox_timeout: Duration,
+	process_cancellations: DashMap<tg::process::Id, ()>,
+	process_dispatches: DashMap<
+		String,
+		tokio::sync::oneshot::Sender<tg::sandbox::control::SpawnProcessClientResponse>,
+	>,
+	processes: DashMap<tg::process::Id, tg::runner::Id>,
+	responses: DashMap<String, CachedResponse>,
+	runners: DashMap<tg::runner::Id, Runner>,
+	sandbox_creations: DashMap<
+		String,
+		tokio::sync::oneshot::Sender<tg::runner::control::CreateSandboxClientResponse>,
+	>,
+	sandboxes: DashMap<tg::sandbox::Id, tg::runner::Id>,
+	server: Server,
 	spawn_process_timeout: Duration,
 }
 
 struct Runner {
-	host: String,
-	#[expect(dead_code)]
-	task: Option<Task<()>>,
 	cpus: tg::runner::control::Capacity,
+	heartbeat_at: tokio::time::Instant,
+	host: String,
 	memory: tg::runner::control::Capacity,
 	permits: tg::runner::control::Capacity,
-	heartbeat_at: tokio::time::Instant,
 	processes: BTreeSet<tg::process::Id>,
 	sandboxes: BTreeSet<tg::sandbox::Id>,
+	#[expect(dead_code)]
+	task: Option<Task<()>>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ListenMessage {
-	pub(crate) id: tg::runner::Id,
 	pub(crate) arg: tg::runner::control::Arg,
+	pub(crate) id: tg::runner::Id,
 }
-
-pub(crate) struct InputMessage(pub(crate) tg::runner::control::InputEvent);
-
-pub(crate) struct OutputMessage(pub(crate) tg::runner::control::OutputEvent);
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub(crate) enum SchedulerRequest {
-	CreateSandbox(CreateSandboxRequest),
-	SpawnProcess(SpawnProcessRequest),
+pub(crate) enum Request {
+	Ack(Ack),
 	CancelProcess(CancelProcessRequest),
-	Ack(SchedulerAck),
+	CreateSandbox(CreateSandboxRequest),
+	SandboxInput(SandboxInputRequest),
+	SpawnProcess(SpawnProcessRequest),
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub(crate) enum SchedulerResponse {
+pub(crate) enum Response {
 	CreateSandbox(CreateSandboxResponse),
 	SpawnProcess(SpawnProcessResponse),
 }
 
+#[derive(Clone, Debug)]
+enum CachedResponse {
+	Pending,
+	Ready(Response),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Ack {
+	pub(crate) id: String,
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CreateSandboxRequest {
-	pub(crate) request_id: String,
-	pub(crate) id: tg::sandbox::Id,
 	pub(crate) arg: tg::sandbox::create::Arg,
+	pub(crate) id: String,
 	pub(crate) process: Option<tg::process::Id>,
-	pub(crate) token: Option<String>,
 	pub(crate) process_token: Option<String>,
+	pub(crate) sandbox: tg::sandbox::Id,
+	pub(crate) token: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SpawnProcessRequest {
-	pub(crate) request_id: String,
-	pub(crate) sandbox: tg::sandbox::Id,
-	pub(crate) id: tg::process::Id,
+	pub(crate) id: String,
+	pub(crate) process: tg::process::Id,
 	pub(crate) process_token: Option<String>,
+	pub(crate) sandbox: tg::sandbox::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SpawnProcessResponse {
-	pub(crate) request_id: String,
-	pub(crate) id: tg::process::Id,
-	pub(crate) spawned: bool,
 	pub(crate) error: Option<tg::error::Data>,
+	pub(crate) id: String,
+	pub(crate) process: tg::process::Id,
+	pub(crate) spawned: bool,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SandboxInputRequest {
+	pub(crate) message: tg::sandbox::control::ClientMessage,
+	pub(crate) sandbox: tg::sandbox::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -95,16 +116,27 @@ pub(crate) struct CancelProcessRequest {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SchedulerAck {
-	pub(crate) request_id: String,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CreateSandboxResponse {
-	pub(crate) request_id: String,
-	pub(crate) id: tg::sandbox::Id,
 	pub(crate) created: bool,
 	pub(crate) error: Option<tg::error::Data>,
+	pub(crate) id: String,
+	pub(crate) sandbox: tg::sandbox::Id,
+}
+
+impl Response {
+	fn id(&self) -> &str {
+		match self {
+			Self::CreateSandbox(response) => &response.id,
+			Self::SpawnProcess(response) => &response.id,
+		}
+	}
+
+	fn subject(&self) -> String {
+		match self {
+			Self::CreateSandbox(response) => format!("scheduler.create-sandbox.{}", response.id),
+			Self::SpawnProcess(response) => format!("scheduler.spawn-process.{}", response.id),
+		}
+	}
 }
 
 impl Server {
@@ -126,8 +158,7 @@ impl Server {
 			sandboxes: DashMap::new(),
 			sandbox_creations: DashMap::new(),
 			process_dispatches: DashMap::new(),
-			create_sandbox_responses: DashMap::new(),
-			spawn_process_responses: DashMap::new(),
+			responses: DashMap::new(),
 			process_cancellations: DashMap::new(),
 			control_ttl: config.control_ttl,
 			create_sandbox_timeout: config.create_sandbox_timeout,
@@ -181,11 +212,11 @@ impl Server {
 			}
 		});
 
-		// Create the task to dispatch runner events.
+		// Create the task to dispatch runner messages.
 		let request_task = Task::spawn({
 			let stream = self
 				.messenger
-				.subscribe::<SchedulerRequest>("scheduler".into())
+				.subscribe::<Request>("scheduler".into())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the scheduler stream"))?;
 			let scheduler = scheduler.clone();
@@ -201,55 +232,47 @@ impl Server {
 						},
 					};
 					match message.payload {
-						SchedulerRequest::CreateSandbox(request) => {
+						Request::CreateSandbox(request) => {
 							// If there is already an entry for the request, then it is a duplicate. Resend the cached response if there is one, otherwise drop the request because it is in flight or acked.
-							let cached = scheduler
-								.create_sandbox_responses
-								.get(&request.request_id)
-								.map(|entry| entry.value().clone());
-							if let Some(cached) = cached {
-								if let Some(response) = cached {
-									scheduler.respond_create_sandbox(response).await;
+							if let Some(cached) = scheduler.cached_response(&request.id) {
+								if let CachedResponse::Ready(response) = cached {
+									scheduler.respond(response).await;
 								}
 								continue;
 							}
 
 							// Mark the request as in flight so that duplicates are dropped until the response is ready.
 							scheduler
-								.create_sandbox_responses
-								.insert(request.request_id.clone(), None);
+								.responses
+								.insert(request.id.clone(), CachedResponse::Pending);
 
-							// Handle each request concurrently so that waiting for a runner's reply does not block other requests.
+							// Handle each request concurrently so that waiting for a runner's response does not block other requests.
 							let scheduler = scheduler.clone();
 							tokio::spawn(async move {
 								scheduler.handle_create_sandbox(request).await;
 							});
 						},
-						SchedulerRequest::SpawnProcess(request) => {
+						Request::SpawnProcess(request) => {
 							// If there is already an entry for the request, then it is a duplicate. Resend the cached response if there is one, otherwise drop the request because it is in flight or acked.
-							let cached = scheduler
-								.spawn_process_responses
-								.get(&request.request_id)
-								.map(|entry| entry.value().clone());
-							if let Some(cached) = cached {
-								if let Some(response) = cached {
-									scheduler.respond_spawn_process(response).await;
+							if let Some(cached) = scheduler.cached_response(&request.id) {
+								if let CachedResponse::Ready(response) = cached {
+									scheduler.respond(response).await;
 								}
 								continue;
 							}
 
 							// Mark the request as in flight so that duplicates are dropped until the response is ready.
 							scheduler
-								.spawn_process_responses
-								.insert(request.request_id.clone(), None);
+								.responses
+								.insert(request.id.clone(), CachedResponse::Pending);
 
-							// Handle each request concurrently so that waiting for a runner's reply does not block other requests.
+							// Handle each request concurrently so that waiting for a sandbox's response does not block other requests.
 							let scheduler = scheduler.clone();
 							tokio::spawn(async move {
 								scheduler.handle_spawn_process(request).await;
 							});
 						},
-						SchedulerRequest::CancelProcess(request) => {
+						Request::CancelProcess(request) => {
 							// Mark the process as cancelled so that the outstanding and any subsequent
 							// dispatch loops for it break. Remove the marker after the TTL.
 							scheduler
@@ -263,20 +286,19 @@ impl Server {
 								}
 							});
 						},
-						SchedulerRequest::Ack(ack) => {
+						Request::SandboxInput(request) => {
+							scheduler.handle_sandbox_input(request);
+						},
+						Request::Ack(ack) => {
 							// Mark the response as acked and remove it after the TTL.
 							scheduler
-								.create_sandbox_responses
-								.insert(ack.request_id.clone(), None);
-							scheduler
-								.spawn_process_responses
-								.insert(ack.request_id.clone(), None);
+								.responses
+								.insert(ack.id.clone(), CachedResponse::Pending);
 							tokio::spawn({
 								let scheduler = scheduler.clone();
 								async move {
 									tokio::time::sleep(scheduler.control_ttl).await;
-									scheduler.create_sandbox_responses.remove(&ack.request_id);
-									scheduler.spawn_process_responses.remove(&ack.request_id);
+									scheduler.responses.remove(&ack.id);
 								}
 							});
 						},
@@ -286,7 +308,6 @@ impl Server {
 			}
 		});
 
-		// Spawn the watchdog task.
 		let _watchdog_task = Task::spawn({
 			let scheduler = scheduler.clone();
 			let runner_ttl = config.runner_ttl;
@@ -299,24 +320,52 @@ impl Server {
 		let listener = pin!(listener_task.wait());
 		let request = pin!(request_task.wait());
 		future::select(listener, request).await;
+
 		Err(tg::error!("the scheduler stopped"))
 	}
 }
 
 impl Scheduler {
+	fn cached_response(&self, id: &str) -> Option<CachedResponse> {
+		self.responses.get(id).map(|entry| entry.value().clone())
+	}
+
+	async fn cache_and_respond(&self, response: Response) {
+		self.responses.insert(
+			response.id().to_owned(),
+			CachedResponse::Ready(response.clone()),
+		);
+		self.respond(response).await;
+	}
+
+	async fn respond(&self, response: Response) {
+		let subject = response.subject();
+		self.server
+			.messenger
+			.publish(subject, response)
+			.await
+			.inspect_err(|error| {
+				tracing::error!(%error, "failed to publish the scheduler response");
+			})
+			.ok();
+	}
+
 	async fn spawn_runner_task(
 		self: &Arc<Self>,
 		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
 	) -> tg::Result<()> {
-		// Subscribe to the runner's input stream.
-		let stream = self
+		// Subscribe to the runner's client message stream.
+		let client_messages = self
 			.server
 			.messenger
-			.subscribe::<InputMessage>(format!("runners.{id}.input"))
+			.subscribe::<RunnerControlClientMessage>(format!("runners.{id}.client"))
 			.await
 			.map_err(|source| {
-				tg::error!(!source, "failed to subscribe to the runner input stream")
+				tg::error!(
+					!source,
+					"failed to subscribe to the runner client message stream"
+				)
 			})?
 			.boxed();
 		let task = Task::spawn({
@@ -324,13 +373,14 @@ impl Scheduler {
 			let id = id.clone();
 			async move |stop| {
 				let stop = stop.wait();
-				let fut = scheduler
-					.runner_task(&id, stream)
+				let future = scheduler
+					.clone()
+					.runner_task(&id, client_messages)
 					.inspect_err(
 						|error| tracing::error!(%error, runner = %id, "the runner task failed"),
 					)
 					.map(|_| ());
-				future::select(pin!(fut), pin!(stop)).await;
+				future::select(pin!(future), pin!(stop)).await;
 				scheduler.remove_runner(&id);
 			}
 		});
@@ -365,10 +415,10 @@ impl Scheduler {
 		}
 	}
 
-	async fn handle_create_sandbox(&self, message: CreateSandboxRequest) {
+	async fn handle_create_sandbox(self: Arc<Self>, message: CreateSandboxRequest) {
 		let CreateSandboxRequest {
-			request_id,
 			id,
+			sandbox,
 			arg,
 			process,
 			token,
@@ -383,8 +433,8 @@ impl Scheduler {
 				&& self.process_cancellations.contains_key(process)
 			{
 				break CreateSandboxResponse {
-					request_id: request_id.clone(),
 					id: id.clone(),
+					sandbox: sandbox.clone(),
 					created: false,
 					error: Some(tg::error::Data {
 						message: Some("the process was cancelled".to_owned()),
@@ -395,8 +445,8 @@ impl Scheduler {
 
 			if tokio::time::Instant::now() >= deadline {
 				break CreateSandboxResponse {
-					request_id: request_id.clone(),
 					id: id.clone(),
+					sandbox: sandbox.clone(),
 					created: false,
 					error: None,
 				};
@@ -409,41 +459,43 @@ impl Scheduler {
 				continue;
 			};
 
-			// Register the dispatch so that the runner's reply can be matched.
+			// Register the dispatch so that the runner's response can be matched.
 			let dispatch_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 			let (sender, mut receiver) = tokio::sync::oneshot::channel();
 			self.sandbox_creations.insert(dispatch_id.clone(), sender);
 
-			// Dispatch the sandbox to the runner, republishing with backoff for reliability until the runner replies.
-			let subject = format!("runners.{runner}.output");
-			let event = tg::runner::control::OutputEvent::CreateSandbox(
-				tg::runner::control::CreateSandbox {
-					request_id: dispatch_id.clone(),
-					id: id.clone(),
-					arg: arg.clone(),
-					process: process.clone(),
-					token: token.clone(),
-					process_token: process_token.clone(),
-				},
+			// Dispatch the sandbox to the runner, republishing with backoff for reliability until the runner responds.
+			let subject = format!("runners.{runner}.server");
+			let message = tg::runner::control::ServerMessage::Request(
+				tg::runner::control::ServerRequest::CreateSandbox(
+					tg::runner::control::CreateSandboxServerRequest {
+						arg: arg.clone(),
+						id: dispatch_id.clone(),
+						process: process.clone(),
+						process_token: process_token.clone(),
+						sandbox: sandbox.clone(),
+						token: token.clone(),
+					},
+				),
 			);
 			let options = tangram_futures::retry::Options {
 				max_retries: u64::MAX,
 				..Default::default()
 			};
 			let mut retries = pin!(tangram_futures::retry::stream(options));
-			let reply = loop {
+			let runner_response = loop {
 				match future::select(&mut receiver, retries.next()).await {
-					future::Either::Left((reply, _)) => break reply.ok(),
+					future::Either::Left((response, _)) => break response.ok(),
 					future::Either::Right((_tick, _)) => {
 						if tokio::time::Instant::now() >= deadline {
 							break None;
 						}
 						self.server
 							.messenger
-							.publish(subject.clone(), OutputMessage(event.clone()))
+							.publish(subject.clone(), RunnerControlServerMessage(message.clone()))
 							.await
 							.inspect_err(|error| {
-								tracing::error!(%error, "failed to publish the create sandbox event");
+								tracing::error!(%error, "failed to publish the create sandbox request");
 							})
 							.ok();
 					},
@@ -454,29 +506,29 @@ impl Scheduler {
 			self.sandbox_creations.remove(&dispatch_id);
 
 			// Ack the runner.
-			if reply.is_some() {
+			if runner_response.is_some() {
 				self.server
 					.messenger
 					.publish(
 						subject.clone(),
-						OutputMessage(tg::runner::control::OutputEvent::CreateSandboxAck(
-							dispatch_id,
+						RunnerControlServerMessage(tg::runner::control::ServerMessage::Ack(
+							tg::runner::control::ServerAck { id: dispatch_id },
 						)),
 					)
 					.await
 					.inspect_err(|error| {
-						tracing::error!(%error, "failed to acknowledge the runner's reply");
+						tracing::error!(%error, "failed to acknowledge the runner response");
 					})
 					.ok();
 			}
 
 			// Check if the sandbox was actually created, or the runner rejected the request.
-			if reply.is_some_and(|reply| reply.created) {
+			if runner_response.is_some_and(|response| response.created) {
 				// Record the sandbox's placement so that processes can be routed to it.
-				self.register_sandbox(&id, &runner);
+				self.register_sandbox(&sandbox, &runner);
 				break CreateSandboxResponse {
-					request_id: request_id.clone(),
 					id: id.clone(),
+					sandbox: sandbox.clone(),
 					created: true,
 					error: None,
 				};
@@ -484,10 +536,8 @@ impl Scheduler {
 			excluded.insert(runner);
 		};
 
-		// Cache and publish the response.
-		self.create_sandbox_responses
-			.insert(response.request_id.clone(), Some(response.clone()));
-		self.respond_create_sandbox(response).await;
+		self.cache_and_respond(Response::CreateSandbox(response))
+			.await;
 	}
 
 	fn find_runner(
@@ -533,35 +583,28 @@ impl Scheduler {
 		}
 	}
 
-	fn register_sandbox(&self, sandbox: &tg::sandbox::Id, runner: &tg::runner::Id) {
+	fn register_sandbox(self: &Arc<Self>, sandbox: &tg::sandbox::Id, runner: &tg::runner::Id) {
 		self.sandboxes.insert(sandbox.clone(), runner.clone());
 		if let Some(mut entry) = self.runners.get_mut(runner) {
 			entry.sandboxes.insert(sandbox.clone());
 		}
 	}
 
-	fn deregister_sandbox(&self, sandbox: &tg::sandbox::Id, runner: &tg::runner::Id) {
-		self.sandboxes.remove(sandbox);
-		if let Some(mut entry) = self.runners.get_mut(runner) {
-			entry.sandboxes.remove(sandbox);
-		}
-	}
-
-	async fn handle_spawn_process(&self, message: SpawnProcessRequest) {
+	async fn handle_spawn_process(self: Arc<Self>, message: SpawnProcessRequest) {
 		let SpawnProcessRequest {
-			request_id,
-			sandbox,
 			id,
+			sandbox,
+			process,
 			process_token,
 		} = message;
 
 		let deadline = tokio::time::Instant::now() + self.spawn_process_timeout;
 		let response = loop {
 			// If the process was cancelled, then break the loop so that the spawn does not retry.
-			if self.process_cancellations.contains_key(&id) {
+			if self.process_cancellations.contains_key(&process) {
 				break SpawnProcessResponse {
-					request_id: request_id.clone(),
 					id: id.clone(),
+					process: process.clone(),
 					spawned: false,
 					error: Some(tg::error::Data {
 						message: Some("the process was cancelled".to_owned()),
@@ -572,8 +615,8 @@ impl Scheduler {
 
 			if tokio::time::Instant::now() >= deadline {
 				break SpawnProcessResponse {
-					request_id: request_id.clone(),
 					id: id.clone(),
+					process: process.clone(),
 					spawned: false,
 					error: Some(tg::error::Data {
 						message: Some(
@@ -584,48 +627,49 @@ impl Scheduler {
 				};
 			}
 
-			// Find the runner that hosts the sandbox, retrying until its registration arrives.
-			let Some(runner) = self
-				.sandboxes
-				.get(&sandbox)
-				.map(|entry| entry.value().clone())
-			else {
+			// Wait until the sandbox has registered its control stream.
+			if !self.sandboxes.contains_key(&sandbox) {
 				tokio::time::sleep(Duration::from_millis(10)).await;
 				continue;
-			};
+			}
 
-			// Register the dispatch so that the runner's reply can be matched.
+			// Register the dispatch so that the sandbox's response can be matched.
 			let dispatch_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 			let (sender, mut receiver) = tokio::sync::oneshot::channel();
 			self.process_dispatches.insert(dispatch_id.clone(), sender);
 
-			// Dispatch the process to the runner, republishing with backoff for reliability until the runner replies.
-			let subject = format!("runners.{runner}.output");
-			let event =
-				tg::runner::control::OutputEvent::SpawnProcess(tg::runner::control::SpawnProcess {
-					request_id: dispatch_id.clone(),
-					sandbox: sandbox.clone(),
-					id: id.clone(),
-					process_token: process_token.clone(),
-				});
+			// Dispatch the process to the sandbox, republishing with backoff for reliability until the sandbox responds.
+			let subject = format!("sandboxes.{sandbox}.server");
+			let message = tg::sandbox::control::ServerMessage::Request(
+				tg::sandbox::control::ServerRequest::SpawnProcess(
+					tg::sandbox::control::SpawnProcessServerRequest {
+						id: dispatch_id.clone(),
+						process: process.clone(),
+						process_token: process_token.clone(),
+					},
+				),
+			);
 			let options = tangram_futures::retry::Options {
 				max_retries: u64::MAX,
 				..Default::default()
 			};
 			let mut retries = pin!(tangram_futures::retry::stream(options));
-			let reply = loop {
+			let sandbox_response = loop {
 				match future::select(&mut receiver, retries.next()).await {
-					future::Either::Left((reply, _)) => break reply.ok(),
+					future::Either::Left((response, _)) => break response.ok(),
 					future::Either::Right((_tick, _)) => {
 						if tokio::time::Instant::now() >= deadline {
 							break None;
 						}
 						self.server
 							.messenger
-							.publish(subject.clone(), OutputMessage(event.clone()))
+							.publish(
+								subject.clone(),
+								SandboxControlServerMessage(message.clone()),
+							)
 							.await
 							.inspect_err(|error| {
-								tracing::error!(%error, "failed to publish the spawn process event");
+								tracing::error!(%error, "failed to publish the spawn process request");
 							})
 							.ok();
 					},
@@ -635,28 +679,28 @@ impl Scheduler {
 			// Remove the dispatch registration.
 			self.process_dispatches.remove(&dispatch_id);
 
-			// Ack the runner.
-			if reply.is_some() {
+			// Ack the sandbox.
+			if sandbox_response.is_some() {
 				self.server
 					.messenger
 					.publish(
 						subject.clone(),
-						OutputMessage(tg::runner::control::OutputEvent::SpawnProcessAck(
-							dispatch_id,
+						SandboxControlServerMessage(tg::sandbox::control::ServerMessage::Ack(
+							tg::sandbox::control::ServerAck { id: dispatch_id },
 						)),
 					)
 					.await
 					.inspect_err(|error| {
-						tracing::error!(%error, "failed to acknowledge the runner's reply");
+						tracing::error!(%error, "failed to acknowledge the sandbox response");
 					})
 					.ok();
 			}
 
 			// Check if the process was actually spawned, or the runner rejected the request.
-			if reply.is_some_and(|reply| reply.spawned) {
+			if sandbox_response.is_some_and(|response| response.spawned) {
 				break SpawnProcessResponse {
-					request_id: request_id.clone(),
 					id: id.clone(),
+					process: process.clone(),
 					spawned: true,
 					error: None,
 				};
@@ -664,8 +708,8 @@ impl Scheduler {
 
 			// The runner did not start the process.
 			break SpawnProcessResponse {
-				request_id: request_id.clone(),
 				id: id.clone(),
+				process: process.clone(),
 				spawned: false,
 				error: Some(tg::error::Data {
 					message: Some("the process could not be started in the sandbox".to_owned()),
@@ -674,52 +718,29 @@ impl Scheduler {
 			};
 		};
 
-		// Cache and publish the response.
-		self.spawn_process_responses
-			.insert(response.request_id.clone(), Some(response.clone()));
-		self.respond_spawn_process(response).await;
-	}
-
-	async fn respond_create_sandbox(&self, response: CreateSandboxResponse) {
-		let subject = format!("scheduler.create-sandbox.{}", response.request_id);
-		let response = SchedulerResponse::CreateSandbox(response);
-		self.server
-			.messenger
-			.publish(subject, response)
-			.await
-			.inspect_err(|error| {
-				tracing::error!(%error, "failed to publish the create sandbox response");
-			})
-			.ok();
-	}
-
-	async fn respond_spawn_process(&self, response: SpawnProcessResponse) {
-		let subject = format!("scheduler.spawn-process.{}", response.request_id);
-		let response = SchedulerResponse::SpawnProcess(response);
-		self.server
-			.messenger
-			.publish(subject, response)
-			.await
-			.inspect_err(|error| {
-				tracing::error!(%error, "failed to publish the spawn process response");
-			})
-			.ok();
+		self.cache_and_respond(Response::SpawnProcess(response))
+			.await;
 	}
 
 	async fn runner_task(
-		&self,
+		self: Arc<Self>,
 		id: &tg::runner::Id,
 		mut stream: futures::stream::BoxStream<
 			'static,
-			Result<tangram_messenger::Message<InputMessage>, tangram_messenger::Error>,
+			Result<
+				tangram_messenger::Message<RunnerControlClientMessage>,
+				tangram_messenger::Error,
+			>,
 		>,
 	) -> tg::Result<()> {
 		while let Some(message) = stream.try_next().await.map_err(
-			|source| tg::error!(!source, runner = %id, "failed to receive runner output message"),
+			|source| tg::error!(!source, runner = %id, "failed to receive a runner client message"),
 		)? {
 			match message.payload.0 {
-				tg::runner::control::InputEvent::Heartbeat(heartbeat) => {
-					// The heartbeat is the source of truth for the runner's permit usage and liveness.
+				tg::runner::control::ClientMessage::Ack(_) => {},
+				tg::runner::control::ClientMessage::Notification(
+					tg::runner::control::ClientNotification::Heartbeat(heartbeat),
+				) => {
 					if let Some(mut entry) = self.runners.get_mut(id) {
 						entry.cpus = heartbeat.cpus;
 						entry.memory = heartbeat.memory;
@@ -727,29 +748,79 @@ impl Scheduler {
 						entry.heartbeat_at = tokio::time::Instant::now();
 					}
 				},
-				tg::runner::control::InputEvent::ProcessSpawned(reply) => {
-					if let Some((_, sender)) = self.process_dispatches.remove(&reply.request_id) {
-						sender.send(reply).ok();
+				tg::runner::control::ClientMessage::Response(
+					tg::runner::control::ClientResponse::CreateSandbox(response),
+				) => {
+					if let Some((_, sender)) = self.sandbox_creations.remove(&response.id) {
+						sender.send(response).ok();
 					}
 				},
-				tg::runner::control::InputEvent::SandboxCreated(reply) => {
-					// A sandbox the runner created itself via the local permit fast path registers its
-					// placement so that processes can be routed to it.
-					if reply.runner {
-						self.register_sandbox(&reply.id, id);
-					} else if let Some((_, sender)) =
-						self.sandbox_creations.remove(&reply.request_id)
-					{
-						sender.send(reply).ok();
+				tg::runner::control::ClientMessage::Notification(
+					tg::runner::control::ClientNotification::SandboxCreated(sandbox_created),
+				) => {
+					self.register_sandbox(&sandbox_created.sandbox, id);
+					self.server
+						.messenger
+						.publish(
+							format!("runners.{id}.server"),
+							RunnerControlServerMessage(tg::runner::control::ServerMessage::Ack(
+								tg::runner::control::ServerAck {
+									id: sandbox_created.id,
+								},
+							)),
+						)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(
+								%error,
+								"failed to acknowledge the sandbox created message"
+							);
+						})
+						.ok();
+				},
+				tg::runner::control::ClientMessage::Notification(
+					tg::runner::control::ClientNotification::SandboxDestroyed(sandbox_destroyed),
+				) => {
+					self.sandboxes
+						.remove_if(&sandbox_destroyed.sandbox, |_, runner| runner == id);
+					if let Some(mut entry) = self.runners.get_mut(id) {
+						entry.sandboxes.remove(&sandbox_destroyed.sandbox);
 					}
+					self.server
+						.messenger
+						.publish(
+							format!("runners.{id}.server"),
+							RunnerControlServerMessage(tg::runner::control::ServerMessage::Ack(
+								tg::runner::control::ServerAck {
+									id: sandbox_destroyed.id,
+								},
+							)),
+						)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(
+								%error,
+								"failed to acknowledge the sandbox destroyed message"
+							);
+						})
+						.ok();
 				},
-				tg::runner::control::InputEvent::SandboxDestroyed(sandbox) => {
-					self.deregister_sandbox(&sandbox, id);
-				},
-				tg::runner::control::InputEvent::End => break,
 			}
 		}
 		Ok(())
+	}
+
+	fn handle_sandbox_input(&self, request: SandboxInputRequest) {
+		match request.message {
+			tg::sandbox::control::ClientMessage::Ack(_) => {},
+			tg::sandbox::control::ClientMessage::Response(
+				tg::sandbox::control::ClientResponse::SpawnProcess(response),
+			) => {
+				if let Some((_, sender)) = self.process_dispatches.remove(&response.id) {
+					sender.send(response).ok();
+				}
+			},
+		}
 	}
 }
 
@@ -769,41 +840,7 @@ impl tangram_messenger::Payload for ListenMessage {
 	}
 }
 
-impl tangram_messenger::Payload for InputMessage {
-	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error>
-	where
-		Self: Sized,
-	{
-		let message =
-			serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)?;
-		Ok(Self(message))
-	}
-
-	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		let message =
-			serde_json::to_vec(&self.0).map_err(tangram_messenger::Error::serialization)?;
-		Ok(message.into())
-	}
-}
-
-impl tangram_messenger::Payload for OutputMessage {
-	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error>
-	where
-		Self: Sized,
-	{
-		let message =
-			serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)?;
-		Ok(Self(message))
-	}
-
-	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		let message =
-			serde_json::to_vec(&self.0).map_err(tangram_messenger::Error::serialization)?;
-		Ok(message.into())
-	}
-}
-
-impl tangram_messenger::Payload for SchedulerRequest {
+impl tangram_messenger::Payload for Request {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error>
 	where
 		Self: Sized,
@@ -819,7 +856,7 @@ impl tangram_messenger::Payload for SchedulerRequest {
 	}
 }
 
-impl tangram_messenger::Payload for SchedulerResponse {
+impl tangram_messenger::Payload for Response {
 	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error>
 	where
 		Self: Sized,

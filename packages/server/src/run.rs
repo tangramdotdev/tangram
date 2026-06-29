@@ -20,6 +20,12 @@ pub struct Output {
 	pub value: Option<tg::Value>,
 }
 
+#[derive(Clone, Debug)]
+enum CachedRunnerResponse {
+	Pending,
+	Ready(tg::runner::control::CreateSandboxClientResponse),
+}
+
 impl Server {
 	pub(crate) async fn runner_task(&self) {
 		loop {
@@ -47,9 +53,9 @@ impl Server {
 				},
 			);
 
-		// Create the input stream for the events this runner sends to the scheduler.
+		// Create the input stream for the messages this runner sends to the scheduler.
 		let (input, input_receiver) =
-			tokio::sync::mpsc::channel::<tg::runner::control::InputEvent>(256);
+			tokio::sync::mpsc::channel::<tg::runner::control::ClientMessage>(256);
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
@@ -61,7 +67,7 @@ impl Server {
 			location: Some(location.clone().into()),
 		};
 		let context = Context {
-			principal: tg::Principal::Runner,
+			principal: tg::Principal::Runner(id.clone()),
 			..self.context.clone()
 		};
 		let session = self.session(&context);
@@ -73,8 +79,6 @@ impl Server {
 		// Make the input sender available so fast-path sandboxes can register their placement.
 		self.runner_input.lock().unwrap().replace(input.clone());
 
-		// Spawn a task to send heartbeats, immediately and then on a timer, so the scheduler learns
-		// this runner's permit capacity.
 		let heartbeat_interval = self.config.runner.as_ref().map_or_else(
 			|| Duration::from_secs(1),
 			|config| config.heartbeat_interval,
@@ -86,10 +90,34 @@ impl Server {
 				let mut interval = tokio::time::interval(heartbeat_interval);
 				loop {
 					interval.tick().await;
-					let event =
-						tg::runner::control::InputEvent::Heartbeat(server.runner_heartbeat());
-					if input.send(event).await.is_err() {
+					let message = tg::runner::control::ClientMessage::Notification(
+						tg::runner::control::ClientNotification::Heartbeat(
+							server.runner_heartbeat(),
+						),
+					);
+					if input.send(message).await.is_err() {
 						break;
+					}
+				}
+			}
+		});
+
+		let lifecycle_task = tokio::spawn({
+			let server = self.clone();
+			let input = input.clone();
+			async move {
+				let mut interval = tokio::time::interval(Duration::from_secs(1));
+				loop {
+					interval.tick().await;
+					for message in server
+						.runner_lifecycle_messages
+						.iter()
+						.map(|entry| entry.value().clone())
+						.collect::<Vec<_>>()
+					{
+						if input.send(message).await.is_err() {
+							return;
+						}
 					}
 				}
 			}
@@ -102,156 +130,90 @@ impl Server {
 			.map_or(Duration::from_mins(1), |runner| runner.control_ttl);
 
 		// Dedup caches.
-		let replies: Arc<DashMap<String, Option<tg::runner::control::SandboxCreated>>> =
-			Arc::new(DashMap::new());
-		let process_replies: Arc<DashMap<String, Option<tg::runner::control::ProcessSpawned>>> =
-			Arc::new(DashMap::new());
+		let responses: Arc<DashMap<String, CachedRunnerResponse>> = Arc::new(DashMap::new());
 
-		// Process the events the scheduler sends to this runner.
-		while let Some(event) = output
+		// Process the messages the scheduler sends to this runner.
+		while let Some(message) = output
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to receive a runner control event"))?
+			.map_err(|source| tg::error!(!source, "failed to receive a runner control message"))?
 		{
-			match event {
-				tg::runner::control::OutputEvent::CreateSandbox(event) => {
-					// Duplicate; resend the cached reply, or drop if in flight or acked.
-					let cached = replies
-						.get(&event.request_id)
-						.map(|entry| entry.value().clone());
+			match message {
+				tg::runner::control::ServerMessage::Request(request) => {
+					let id = request.id().to_owned();
+
+					// Duplicate; resend the cached response, or drop if in flight or acked.
+					let cached = responses.get(&id).map(|entry| entry.value().clone());
 					if let Some(cached) = cached {
-						if let Some(reply) = cached {
+						if let CachedRunnerResponse::Ready(response) = cached {
 							input
-								.send(tg::runner::control::InputEvent::SandboxCreated(reply))
+								.send(tg::runner::control::ClientMessage::Response(
+									tg::runner::control::ClientResponse::CreateSandbox(response),
+								))
 								.await
 								.ok();
 						}
 						continue;
 					}
 
-					// Mark in flight so duplicates are dropped until the reply is ready.
-					replies.insert(event.request_id.clone(), None);
+					// Mark in flight so duplicates are dropped until the response is ready.
+					responses.insert(id.clone(), CachedRunnerResponse::Pending);
+
+					let tg::runner::control::ServerRequest::CreateSandbox(request) = request;
 
 					// Acquire a permit and start the sandbox; if none, a local child sandbox took it, so report not created.
 					let created =
 						if let Ok(permit) = self.sandbox_semaphore.clone().try_acquire_owned() {
 							let permit = crate::sandbox::Permit(tg::Either::Left(permit));
 							self.spawn_sandbox_task(SpawnSandboxTaskArg {
-								id: event.id.clone(),
+								id: request.sandbox.clone(),
 								location: location.clone(),
 								permit,
-								process: event.process.clone(),
-								process_token: event.process_token.clone(),
-								token: event.token.clone(),
+								process: request.process.clone(),
+								process_token: request.process_token.clone(),
+								token: request.token.clone(),
 							});
 							true
 						} else {
 							false
 						};
 
-					// Cache and send the reply.
-					let reply = tg::runner::control::SandboxCreated {
-						request_id: event.request_id.clone(),
-						id: event.id,
+					// Cache and send the response.
+					let response = tg::runner::control::CreateSandboxClientResponse {
+						id: id.clone(),
+						sandbox: request.sandbox,
 						created,
-						runner: false,
 					};
-					replies.insert(event.request_id, Some(reply.clone()));
+					responses.insert(id, CachedRunnerResponse::Ready(response.clone()));
 					input
-						.send(tg::runner::control::InputEvent::SandboxCreated(reply))
+						.send(tg::runner::control::ClientMessage::Response(
+							tg::runner::control::ClientResponse::CreateSandbox(response),
+						))
 						.await
 						.ok();
 				},
-				tg::runner::control::OutputEvent::CreateSandboxAck(request_id) => {
-					replies.insert(request_id.clone(), None);
-					tokio::spawn({
-						let replies = replies.clone();
-						async move {
-							tokio::time::sleep(control_ttl).await;
-							replies.remove(&request_id);
-						}
-					});
-				},
-				tg::runner::control::OutputEvent::SpawnProcess(event) => {
-					// Duplicate; resend the cached reply, or drop if in flight or acked.
-					let cached = process_replies
-						.get(&event.request_id)
-						.map(|entry| entry.value().clone());
-					if let Some(cached) = cached {
-						if let Some(reply) = cached {
-							input
-								.send(tg::runner::control::InputEvent::ProcessSpawned(reply))
-								.await
-								.ok();
-						}
-						continue;
+				tg::runner::control::ServerMessage::Ack(ack) => {
+					if self.runner_lifecycle_messages.remove(&ack.id).is_none() {
+						responses.insert(ack.id.clone(), CachedRunnerResponse::Pending);
+						tokio::spawn({
+							let responses = responses.clone();
+							async move {
+								tokio::time::sleep(control_ttl).await;
+								responses.remove(&ack.id);
+							}
+						});
 					}
-
-					// Mark in flight so duplicates are dropped until the reply is ready.
-					process_replies.insert(event.request_id.clone(), None);
-
-					// Deliver the process to its sandbox task and report whether it started in a
-					// separate task so that waiting for the sandbox does not block other control
-					// events.
-					let sender = self
-						.sandbox_process_senders
-						.get(&event.sandbox)
-						.map(|entry| entry.value().clone());
-					tokio::spawn({
-						let input = input.clone();
-						let process_replies = process_replies.clone();
-						async move {
-							// If the sandbox is not present, then report not spawned so the scheduler
-							// retries. Otherwise, wait until the sandbox reports whether it started.
-							let spawned = match sender {
-								Some(sender) => {
-									let (started, result) = tokio::sync::oneshot::channel();
-									sender
-										.send((
-											event.id.clone(),
-											event.process_token.clone(),
-											started,
-										))
-										.await
-										.is_ok() && result.await.unwrap_or(false)
-								},
-								None => false,
-							};
-
-							// Cache and send the reply.
-							let reply = tg::runner::control::ProcessSpawned {
-								request_id: event.request_id.clone(),
-								id: event.id,
-								spawned,
-							};
-							process_replies.insert(event.request_id, Some(reply.clone()));
-							input
-								.send(tg::runner::control::InputEvent::ProcessSpawned(reply))
-								.await
-								.ok();
-						}
-					});
 				},
-				tg::runner::control::OutputEvent::SpawnProcessAck(request_id) => {
-					process_replies.insert(request_id.clone(), None);
-					tokio::spawn({
-						let process_replies = process_replies.clone();
-						async move {
-							tokio::time::sleep(control_ttl).await;
-							process_replies.remove(&request_id);
-						}
-					});
-				},
-				tg::runner::control::OutputEvent::End => break,
 			}
 		}
 
 		heartbeat_task.abort();
+		lifecycle_task.abort();
 
 		Ok(())
 	}
 
-	fn runner_heartbeat(&self) -> tg::runner::control::Heartbeat {
+	fn runner_heartbeat(&self) -> tg::runner::control::HeartbeatClientNotification {
 		let total = self
 			.config
 			.runner
@@ -262,7 +224,7 @@ impl Server {
 			});
 		let available = self.sandbox_semaphore.available_permits();
 		let used = total.saturating_sub(available);
-		tg::runner::control::Heartbeat {
+		tg::runner::control::HeartbeatClientNotification {
 			cpus: tg::runner::control::Capacity::default(),
 			memory: tg::runner::control::Capacity::default(),
 			permits: tg::runner::control::Capacity {

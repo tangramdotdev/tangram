@@ -334,7 +334,8 @@ impl Session {
 		bytes: Bytes,
 	) -> tg::Result<usize> {
 		let request =
-			tg::process::control::RequestKind::Write(tg::process::control::WriteRequest {
+			tg::process::control::ServerRequest::Write(tg::process::control::WriteServerRequest {
+				id: String::new(),
 				stream,
 				bytes,
 			});
@@ -344,7 +345,7 @@ impl Session {
 		else {
 			return Ok(0);
 		};
-		let tg::process::control::ResponseKind::Write(response) = response.kind else {
+		let tg::process::control::ClientResponse::Write(response) = response else {
 			return Err(tg::error!("expected a write response"));
 		};
 		Ok(response.length)

@@ -3,7 +3,7 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::task::Task,
+	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -21,18 +21,18 @@ use {
 )]
 pub enum Message {
 	#[tangram_serialize(id = 1)]
-	Request(tg::process::control::RequestEvent),
+	Request(tg::process::control::ServerMessage),
 	#[tangram_serialize(id = 2)]
-	Response(tg::process::control::ResponseEvent),
+	Response(tg::process::control::ClientMessage),
 }
 
 impl Session {
 	pub(crate) async fn try_send_process_control_request(
 		&self,
 		id: &tg::process::Id,
-		request: tg::process::control::RequestKind,
+		mut request: tg::process::control::ServerRequest,
 		max_retries: u64,
-	) -> tg::Result<Option<tg::process::control::Response>> {
+	) -> tg::Result<Option<tg::process::control::ClientResponse>> {
 		// Get the process status stream. Also checks for existence.
 		let Some(status) = self
 			.try_get_process_status_stream_local(id, self.context.stopper.clone(), None)
@@ -60,11 +60,8 @@ impl Session {
 		}
 
 		// Create the request.
-		let request = tg::process::control::Request {
-			id: tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes()),
-			kind: request,
-		};
-		let subject = format!("processes.{id}.control.{}", request.id);
+		request.set_id(tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes()));
+		let subject = format!("processes.{id}.control.{}", request.id());
 		let responses = self
 			.server
 			.messenger
@@ -75,7 +72,7 @@ impl Session {
 
 		// Send the request and wait for the response.
 		let subject = format!("processes.{id}.control");
-		let payload = Message::Request(tg::process::control::RequestEvent::Request(request));
+		let payload = Message::Request(tg::process::control::ServerMessage::Request(request));
 		let options = tangram_futures::retry::Options {
 			max_retries,
 			..Default::default()
@@ -85,7 +82,7 @@ impl Session {
 			tokio::select! {
 				message = responses.next() => match message {
 					Some(Ok(message)) => {
-						let Message::Response(tg::process::control::ResponseEvent::Response(
+						let Message::Response(tg::process::control::ClientMessage::Response(
 							response,
 						)) = message.payload
 						else {
@@ -94,9 +91,9 @@ impl Session {
 
 						// Send the ack over the control stream so that the runner can release the cached response.
 						let subject = format!("processes.{id}.control");
-						let payload = Message::Request(tg::process::control::RequestEvent::Ack(
-							tg::process::control::Ack {
-								id: response.id.clone(),
+						let payload = Message::Request(tg::process::control::ServerMessage::Ack(
+							tg::process::control::ServerAck {
+								id: response.id().to_owned(),
 							},
 						));
 						self.server
@@ -109,8 +106,8 @@ impl Session {
 							.ok();
 
 						// If the response is an error, then return it.
-						if let tg::process::control::ResponseKind::Error(error) = &response.kind {
-							return Err(error.clone().try_into()?);
+						if let tg::process::control::ClientResponse::Error(response) = &response {
+							return Err(response.error.clone().try_into()?);
 						}
 
 						return Ok(Some(response));
@@ -156,8 +153,8 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
-		mut stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>> {
+		mut stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>> {
 		let location = self.server.location(arg.location.as_ref())?;
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => (),
@@ -179,7 +176,9 @@ impl Session {
 					.map_err(
 						|error| tg::error!(!error, region = %region, "failed to get the control stream"),
 					)?;
-				return Ok(stream.map(futures::StreamExt::boxed));
+				let stream =
+					stream.map(|stream| stream.with_stopper(self.context.stopper.clone()).boxed());
+				return Ok(stream);
 			},
 			tg::Location::Remote(tg::location::Remote { name, region }) => {
 				let client = self.get_remote_session(&name).await.map_err(
@@ -194,27 +193,31 @@ impl Session {
 					.map_err(
 						|error| tg::error!(!error, remote = %name, "failed to get the control stream"),
 					)?;
-				return Ok(stream.map(futures::StreamExt::boxed));
+				let stream =
+					stream.map(|stream| stream.with_stopper(self.context.stopper.clone()).boxed());
+				return Ok(stream);
 			},
 		}
+
 		// Spawn the response task. It is detached so that it drains and publishes the remaining responses when the request stream is dropped. It completes when the response stream ends. Deduplication and acknowledgement are handled by the runner's control task, so this task only forwards responses to the messenger.
 		let mut response_task = Task::spawn({
 			let session = self.clone();
 			let id = id.clone();
 			move |_| async move {
 				while let Some(result) = stream.next().await {
-					let event = match result {
-						Ok(event) => event,
+					let message = match result {
+						Ok(message) => message,
 						Err(error) => {
 							tracing::error!(%error, "failed to read the control response");
 							continue;
 						},
 					};
-					match event {
-						tg::process::control::ResponseEvent::Response(response) => {
-							let subject = format!("processes.{id}.control.{}", response.id);
+					match message {
+						tg::process::control::ClientMessage::Ack(_) => {},
+						tg::process::control::ClientMessage::Response(response) => {
+							let subject = format!("processes.{id}.control.{}", response.id());
 							let payload = Message::Response(
-								tg::process::control::ResponseEvent::Response(response),
+								tg::process::control::ClientMessage::Response(response),
 							);
 							session
 								.server
@@ -225,9 +228,6 @@ impl Session {
 									tracing::error!(%error, "failed to publish the response");
 								})
 								.ok();
-						},
-						tg::process::control::ResponseEvent::End => {
-							break;
 						},
 					}
 				}
@@ -242,7 +242,7 @@ impl Session {
 			.messenger
 			.subscribe::<Message>(subject)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the event stream"))?
+			.map_err(|source| tg::error!(!source, "failed to get the message stream"))?
 			.map_err(|source| tg::error!(!source, "failed to get the message"))
 			.and_then(|message| {
 				let payload = message
@@ -251,6 +251,7 @@ impl Session {
 					.map_err(|source| tg::error!(!source, "expected a request"));
 				future::ready(payload)
 			})
+			.with_stopper(self.context.stopper.clone())
 			.boxed();
 
 		Ok(Some(requests))
@@ -291,7 +292,7 @@ impl Session {
 		// Create the response stream.
 		let stream = request
 			.sse()
-			.map_err(|error| tg::error!(!error, "failed to read an event"))
+			.map_err(|error| tg::error!(!error, "failed to read a message"))
 			.and_then(|event| {
 				future::ready(
 					if event.event.as_deref().is_some_and(|event| event == "error") {

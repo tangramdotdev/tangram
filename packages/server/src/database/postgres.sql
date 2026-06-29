@@ -77,7 +77,8 @@ create table github_identities (
 );
 
 create table runner_tokens (
-	id text primary key
+	token text primary key,
+	runner text not null
 );
 
 create table groups (
