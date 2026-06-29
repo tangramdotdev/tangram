@@ -251,14 +251,27 @@ impl Session {
 				name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))
 			})
 			.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
-			.parse()
+			.parse::<tg::artifact::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the artifact id"))?;
+
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		if !self
+			.authorize(resource, permission)
+			.await?
+			.is_some_and(|permissions| permissions.contains(permission))
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+
 		if path.components().count() == 1 {
 			let mut artifact = tg::Referent::with_item(id);
 			artifact.options.token = self.create_artifact_token(&artifact.item)?;
 			let output = tg::checkin::Output { artifact };
 			return Ok(output);
 		}
+
 		let subpath = path.components().skip(1).collect::<PathBuf>();
 		let artifact = tg::Artifact::with_id(id);
 		let directory = artifact
@@ -269,10 +282,12 @@ impl Session {
 			.get_with_handle(self, subpath)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the artifact from the cache"))?;
+
 		let id = artifact.id();
 		let mut referent = tg::Referent::with_item(id);
 		referent.options.token = self.create_artifact_token(&referent.item)?;
 		let output = tg::checkin::Output { artifact: referent };
+
 		Ok(output)
 	}
 
