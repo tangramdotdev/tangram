@@ -421,6 +421,8 @@ impl Session {
 		let handler_task = Task::spawn({
 			let sender = sender.clone();
 			let responses = responses.clone();
+			let stderr_sender = stderr_sender.clone();
+			let stdout_sender = stdout_sender.clone();
 			|_| async move {
 				while let Some(message) = requests.try_next().await.map_err(|source| {
 					tg::error!(!source, "failed to get the next control request")
@@ -545,6 +547,10 @@ impl Session {
 		// Wait until the sandbox process has exited or will never be spawned.
 		exited.await.ok();
 
+		handler_task.abort();
+		drop(stdout_sender);
+		drop(stderr_sender);
+
 		// Join the output tasks, which finish when the process's stdout and stderr reach EOF.
 		for result in future::join_all([stdout_task.wait(), stderr_task.wait()]).await {
 			result.map_err(|source| tg::error!(!source, "an i/o task panicked"))??;
@@ -554,7 +560,6 @@ impl Session {
 		stdin_task.abort();
 		signal_task.abort();
 		tty_task.abort();
-		handler_task.abort();
 
 		drop(sender);
 		Ok(())

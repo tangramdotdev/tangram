@@ -317,16 +317,6 @@ impl Session {
 			}
 		});
 
-		let arg = tg::sandbox::status::Arg {
-			location: Some(location.clone().into()),
-			timeout: None,
-		};
-		let status = self
-			.get_sandbox_status(id, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox status stream"))?;
-		let mut status = pin!(status);
-
 		// Create the process tasks.
 		let mut process_tasks = JoinSet::new();
 		let process_stopper = Stopper::new();
@@ -362,6 +352,15 @@ impl Session {
 				.map_or(Duration::from_mins(1), |runner| runner.control_ttl);
 
 			let responses: Arc<DashMap<String, CachedSandboxResponse>> = Arc::new(DashMap::new());
+
+			let arg = tg::sandbox::status::Arg {
+				location: Some(location.clone().into()),
+				timeout: None,
+			};
+			let status = self.get_sandbox_status(id, arg).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get the sandbox status stream"),
+			)?;
+			let mut status = pin!(status);
 
 			match process {
 				Some(process) => {
