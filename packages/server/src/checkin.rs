@@ -241,7 +241,7 @@ impl Session {
 	}
 
 	async fn checkin_cache_path(&self, path: &Path) -> tg::Result<tg::checkin::Output> {
-		let id: tg::artifact::Id = path
+		let id = path
 			.components()
 			.next()
 			.map(|component| {
@@ -251,7 +251,7 @@ impl Session {
 				name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))
 			})
 			.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
-			.parse()
+			.parse::<tg::artifact::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the artifact id"))?;
 
 		let resource = tg::grant::Resource::Id(id.clone().into());
