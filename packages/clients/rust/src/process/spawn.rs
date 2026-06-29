@@ -125,6 +125,9 @@ where
 	let mut options = tg::referent::Options::default();
 	if let Some(command) = arg.command {
 		options = command.options;
+		if options.token.is_none() {
+			options.token = command.item.state().token();
+		}
 		command_.replace(command.item);
 	}
 	if let Some(name) = arg.name {

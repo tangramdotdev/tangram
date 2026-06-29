@@ -58,6 +58,9 @@ export let spawnArg = async (
 		} else {
 			command_ = arg.command;
 		}
+		if (command_ !== undefined) {
+			options.token ??= command_.state.token;
+		}
 	}
 	if ("name" in arg) {
 		options.name = arg.name;

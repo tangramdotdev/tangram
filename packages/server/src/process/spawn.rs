@@ -145,15 +145,22 @@ impl Session {
 		arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let tty = match arg.tty.as_ref() {
-			None => None,
-			Some(tty) => Some(
-				tty.as_ref()
-					.right()
-					.copied()
-					.ok_or_else(|| tg::error!("invalid tty"))?,
-			),
+		// Authorize the command.
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let command = tg::object::Id::from(arg.command.item.clone());
+		let command = if let Some(token) = arg.command.options.token.clone() {
+			tg::Either::Right(tg::WithToken { id: command, token })
+		} else {
+			tg::Either::Left(command)
 		};
+		if !self
+			.authorize(command, permission)
+			.await?
+			.is_some_and(|permissions| permissions.contains(permission))
+		{
+			return Err(tg::error!("unauthorized"));
+		}
 
 		// Get the host.
 		let command_ = tg::Command::with_id(arg.command.item.clone());
@@ -174,7 +181,7 @@ impl Session {
 			&& arg.stdin.is_null()
 			&& arg.stdout.is_log()
 			&& arg.stderr.is_log()
-			&& tty.is_none();
+			&& arg.tty.is_none();
 
 		// Authorize assigning the sandbox owner.
 		if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
