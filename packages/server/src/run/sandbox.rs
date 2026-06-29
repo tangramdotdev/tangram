@@ -335,8 +335,7 @@ impl Session {
 		let mut timer = None;
 		let ttl = state.ttl;
 
-		// Connect to the sandbox control stream before registering the sandbox's placement so
-		// processes can be routed to it.
+		// Connect to the sandbox control stream.
 		let (input, input_receiver) =
 			tokio::sync::mpsc::channel::<tg::sandbox::control::ClientMessage>(256);
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
@@ -359,10 +358,9 @@ impl Session {
 			.runner
 			.as_ref()
 			.map_or(Duration::from_mins(1), |runner| runner.control_ttl);
+
 		let responses: Arc<DashMap<String, CachedSandboxResponse>> = Arc::new(DashMap::new());
 
-		// If the sandbox was created with a process, then start it. Otherwise, start the timer. A
-		// failure to start the process does not tear down the sandbox.
 		match process {
 			Some(process) => {
 				match self
@@ -453,6 +451,7 @@ impl Session {
 					let tg::sandbox::control::ServerRequest::SpawnProcess(request) = request;
 
 					timer.take();
+
 					match self
 						.create_process_session(
 							request.process.clone(),

@@ -734,9 +734,6 @@ pub struct Scheduler {
 	pub create_sandbox_timeout: Duration,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub spawn_process_timeout: Duration,
-
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub runner_ttl: Duration,
 }
 
@@ -754,6 +751,9 @@ pub struct Sandbox {
 	pub network: SandboxNetwork,
 
 	pub nice: u8,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub spawn_process_timeout: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1387,7 +1387,6 @@ impl Default for Scheduler {
 		Self {
 			control_ttl: Duration::from_mins(1),
 			create_sandbox_timeout: Duration::from_secs(10),
-			spawn_process_timeout: Duration::from_secs(10),
 			runner_ttl: Duration::from_secs(10),
 		}
 	}
@@ -1400,6 +1399,7 @@ impl Default for Sandbox {
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
+			spawn_process_timeout: Duration::from_secs(10),
 		}
 	}
 }

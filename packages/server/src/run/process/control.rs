@@ -63,7 +63,6 @@ impl Session {
 				runner.control_ttl
 			});
 
-		// Create the cache of responses that have been sent but not yet acked. Deduplication and acknowledgement are handled here, in the control task that owns the process's streams, rather than at the messenger level, so that a retried request is not executed more than once even across a restart of an intermediate server.
 		let responses: Arc<DashMap<String, CachedProcessResponse>> = Arc::new(DashMap::new());
 
 		let (stdout_sender, mut stdout_receiver) =

@@ -8,8 +8,10 @@ use {
 	tangram_messenger::Messenger as _,
 };
 
+#[derive(Clone)]
 pub(crate) struct RunnerControlClientMessage(pub(crate) tg::runner::control::ClientMessage);
 
+#[derive(Clone)]
 pub(crate) struct RunnerControlServerMessage(pub(crate) tg::runner::control::ServerMessage);
 
 impl Session {
@@ -75,45 +77,53 @@ impl Session {
 				)
 			})?;
 
-		// Subscribe to the acknowledgement subject before notifying the scheduler so that the acknowledgement is not missed.
-		let subject = "scheduler.listen";
+		// Subscribe to the ack subject before notifying the scheduler so that the ack is not missed.
+		let subject = "scheduler.register";
 		let ack = self
 			.server
 			.messenger
-			.subscribe::<()>(format!("{subject}.{id}"))
+			.subscribe::<crate::scheduler::Message>(format!("{subject}.{id}"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the ack stream"))?;
 		let mut ack = pin!(ack);
 
-		// Notify the scheduler that this runner is connected, republishing with backoff until an acknowledgement is received.
+		// Notify the scheduler that this runner is registered, republishing with backoff until an ack is received.
 		let options = tangram_futures::retry::Options::default();
 		let mut retries = pin!(tangram_futures::retry::stream(options));
 		loop {
 			match future::select(ack.next(), retries.next()).await {
 				future::Either::Left((message, _)) => {
-					if message.is_none() {
-						return Err(tg::error!("the acknowledgement stream ended"));
-					}
+					let Some(message) = message else {
+						return Err(tg::error!("the ack stream ended"));
+					};
+					let message = message.map_err(|source| {
+						tg::error!(!source, "failed to receive the scheduler ack")
+					})?;
+					let crate::scheduler::Message::Ack(_) = message.payload else {
+						return Err(tg::error!("expected an ack"));
+					};
 					break;
 				},
 				future::Either::Right((tick, _)) => {
 					if tick.is_none() {
-						return Err(tg::error!(
-							"failed to receive an acknowledgement from a scheduler"
-						));
+						return Err(tg::error!("failed to receive an ack from a scheduler"));
 					}
 					self.server
 						.messenger
 						.publish(
-							subject.to_owned(),
-							crate::scheduler::ListenMessage {
-								id: id.clone(),
-								arg: arg.clone(),
-							},
+							"scheduler".to_owned(),
+							crate::scheduler::Message::Notification(
+								crate::scheduler::Notification::Register(
+									crate::scheduler::RegisterNotification {
+										arg: arg.clone(),
+										id: id.clone(),
+									},
+								),
+							),
 						)
 						.await
 						.map_err(|source| {
-							tg::error!(!source, "failed to publish the listen message")
+							tg::error!(!source, "failed to publish the register message")
 						})?;
 				},
 			}
@@ -127,12 +137,21 @@ impl Session {
 				{
 					let mut stream = pin!(stream);
 					while let Some(message) = stream.try_next().await? {
+						let subject = match message.clone() {
+							tg::runner::control::ClientMessage::Response(response) => {
+								format!("runners.{id}.client.{}", response.id())
+							},
+							tg::runner::control::ClientMessage::Ack(_)
+							| tg::runner::control::ClientMessage::Notification(_) => {
+								format!("runners.{id}.client")
+							},
+							tg::runner::control::ClientMessage::Request(request) => {
+								match request {}
+							},
+						};
 						server
 							.messenger
-							.publish(
-								format!("runners.{id}.client"),
-								RunnerControlClientMessage(message),
-							)
+							.publish(subject, RunnerControlClientMessage(message))
 							.await
 							.map_err(|source| {
 								tg::error!(!source, "failed to publish the runner client message")

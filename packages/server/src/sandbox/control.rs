@@ -8,6 +8,10 @@ use {
 	tangram_messenger::Messenger as _,
 };
 
+#[derive(Clone)]
+pub(crate) struct SandboxControlClientMessage(pub(crate) tg::sandbox::control::ClientMessage);
+
+#[derive(Clone)]
 pub(crate) struct SandboxControlServerMessage(pub(crate) tg::sandbox::control::ServerMessage);
 
 impl Session {
@@ -80,17 +84,23 @@ impl Session {
 				{
 					let mut stream = pin!(stream);
 					while let Some(message) = stream.try_next().await? {
+						let subject = match message.clone() {
+							tg::sandbox::control::ClientMessage::Response(response) => {
+								format!("sandboxes.{id}.client.{}", response.id())
+							},
+							tg::sandbox::control::ClientMessage::Ack(_) => {
+								format!("sandboxes.{id}.client")
+							},
+							tg::sandbox::control::ClientMessage::Notification(notification) => {
+								match notification {}
+							},
+							tg::sandbox::control::ClientMessage::Request(request) => {
+								match request {}
+							},
+						};
 						server
 							.messenger
-							.publish(
-								"scheduler".to_owned(),
-								crate::scheduler::Request::SandboxInput(
-									crate::scheduler::SandboxInputRequest {
-										sandbox: id.clone(),
-										message,
-									},
-								),
-							)
+							.publish(subject, SandboxControlClientMessage(message))
 							.await
 							.map_err(|source| {
 								tg::error!(!source, "failed to publish the sandbox client message")
@@ -185,6 +195,23 @@ impl Session {
 			.unwrap();
 
 		Ok(response)
+	}
+}
+
+impl tangram_messenger::Payload for SandboxControlClientMessage {
+	fn deserialize(bytes: bytes::Bytes) -> Result<Self, tangram_messenger::Error>
+	where
+		Self: Sized,
+	{
+		let message =
+			serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)?;
+		Ok(Self(message))
+	}
+
+	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
+		let message =
+			serde_json::to_vec(&self.0).map_err(tangram_messenger::Error::serialization)?;
+		Ok(message.into())
 	}
 }
 

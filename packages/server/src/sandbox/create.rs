@@ -162,7 +162,7 @@ impl Session {
 			let response = self
 				.server
 				.messenger
-				.subscribe::<crate::scheduler::Response>(format!(
+				.subscribe::<crate::scheduler::Message>(format!(
 					"scheduler.create-sandbox.{message_id}"
 				))
 				.await
@@ -172,15 +172,16 @@ impl Session {
 			let mut response = pin!(response);
 
 			// Create the request.
-			let request =
+			let request = crate::scheduler::Message::Request(
 				crate::scheduler::Request::CreateSandbox(crate::scheduler::CreateSandboxRequest {
-					id: message_id.clone(),
-					sandbox: id.clone(),
 					arg: arg.clone(),
+					id: message_id.clone(),
 					process: process.cloned(),
-					token: token.clone(),
 					process_token: process_token.clone(),
-				});
+					sandbox: id.clone(),
+					token: token.clone(),
+				}),
+			);
 
 			// Publish the request and wait for the response.
 			let options = tangram_futures::retry::Options {
@@ -196,7 +197,9 @@ impl Session {
 							.map_err(|source| {
 								tg::error!(!source, "failed to receive the scheduler response")
 							})?;
-						let crate::scheduler::Response::CreateSandbox(response) = message.payload
+						let crate::scheduler::Message::Response(
+							crate::scheduler::Response::CreateSandbox(response),
+						) = message.payload
 						else {
 							return Err(tg::error!("expected a create sandbox response"));
 						};
@@ -218,7 +221,7 @@ impl Session {
 			};
 
 			// Acknowledge the response so that the scheduler can release its cached response.
-			let ack = crate::scheduler::Request::Ack(crate::scheduler::Ack { id: message_id });
+			let ack = crate::scheduler::Message::Ack(crate::scheduler::Ack { id: message_id });
 			self.server
 				.messenger
 				.publish("scheduler".to_owned(), ack)
@@ -253,96 +256,94 @@ impl Session {
 		process: &tg::process::Id,
 		process_token: Option<String>,
 	) -> tg::Result<()> {
-		let mut delay = std::time::Duration::from_millis(10);
-		let max_delay = std::time::Duration::from_secs(1);
-		loop {
-			let message_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
+		let timeout = self.server.config.sandbox.spawn_process_timeout;
+		let message_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 
-			// Subscribe to the response subject before publishing so that the response is not missed.
-			let response = self
-				.server
-				.messenger
-				.subscribe::<crate::scheduler::Response>(format!(
-					"scheduler.spawn-process.{message_id}"
-				))
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to subscribe to the scheduler response")
-				})?;
-			let mut response = pin!(response);
+		// Subscribe to the sandbox response before publishing so that the response is not missed.
+		let response = self
+			.server
+			.messenger
+			.subscribe::<crate::sandbox::control::SandboxControlClientMessage>(format!(
+				"sandboxes.{sandbox}.client.{message_id}"
+			))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe to the sandbox response"))?;
+		let mut response = pin!(response);
 
-			// Create the request.
-			let request =
-				crate::scheduler::Request::SpawnProcess(crate::scheduler::SpawnProcessRequest {
+		// Create the request.
+		let request = tg::sandbox::control::ServerMessage::Request(
+			tg::sandbox::control::ServerRequest::SpawnProcess(
+				tg::sandbox::control::SpawnProcessServerRequest {
 					id: message_id.clone(),
-					sandbox: sandbox.clone(),
 					process: process.clone(),
 					process_token: process_token.clone(),
-				});
+				},
+			),
+		);
+		let request = crate::sandbox::control::SandboxControlServerMessage(request);
 
-			// Publish the request and wait for the response.
-			let options = tangram_futures::retry::Options {
-				max_retries: u64::MAX,
-				..Default::default()
-			};
-			let mut retries = pin!(tangram_futures::retry::stream(options));
-			let response = loop {
-				match future::select(response.next(), retries.next()).await {
-					future::Either::Left((message, _)) => {
-						let message = message
-							.ok_or_else(|| tg::error!("the scheduler response stream ended"))?
-							.map_err(|source| {
-								tg::error!(!source, "failed to receive the scheduler response")
-							})?;
-						let crate::scheduler::Response::SpawnProcess(response) = message.payload
-						else {
-							return Err(tg::error!("expected a spawn process response"));
-						};
-						break response;
-					},
-					future::Either::Right((tick, _)) => {
-						if tick.is_none() {
-							return Err(tg::error!("timed out waiting for the scheduler response"));
-						}
-						self.server
-							.messenger
-							.publish("scheduler".to_owned(), request.clone())
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to publish the scheduler request")
-							})?;
-					},
-				}
-			};
-
-			// Acknowledge the response so that the scheduler can release its cached response.
-			let ack = crate::scheduler::Request::Ack(crate::scheduler::Ack { id: message_id });
-			self.server
-				.messenger
-				.publish("scheduler".to_owned(), ack)
-				.await
-				.inspect_err(|error| {
-					tracing::error!(%error, "failed to acknowledge the scheduler response");
-				})
-				.ok();
-
-			// If the response is an error, then return it.
-			if let Some(error) = response.error {
-				let error = tg::Error::try_from(error).map_err(|source| {
-					tg::error!(!source, "failed to deserialize the scheduler error")
-				})?;
-				return Err(error);
+		// Publish the request and wait for the response.
+		let options = tangram_futures::retry::Options {
+			max_retries: u64::MAX,
+			..Default::default()
+		};
+		let mut retries = pin!(tangram_futures::retry::stream(options));
+		let deadline = tokio::time::Instant::now() + timeout;
+		let response = loop {
+			match future::select(response.next(), retries.next()).await {
+				future::Either::Left((message, _)) => {
+					let message = message
+						.ok_or_else(|| tg::error!("the sandbox client message stream ended"))?
+						.map_err(|source| {
+							tg::error!(!source, "failed to receive a sandbox client message")
+						})?;
+					let tg::sandbox::control::ClientMessage::Response(
+						tg::sandbox::control::ClientResponse::SpawnProcess(response),
+					) = message.payload.0
+					else {
+						return Err(tg::error!("expected a spawn process response"));
+					};
+					break response;
+				},
+				future::Either::Right((tick, _)) => {
+					if tick.is_none() || tokio::time::Instant::now() >= deadline {
+						return Err(tg::error!("timed out waiting for the sandbox response"));
+					}
+					self.server
+						.messenger
+						.publish(format!("sandboxes.{sandbox}.server"), request.clone())
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to publish the spawn process request")
+						})?;
+				},
 			}
+		};
 
-			// If the process was spawned, then return.
-			if response.spawned {
-				return Ok(());
-			}
+		// Acknowledge the response so that the sandbox can release its cached response.
+		let ack = tg::sandbox::control::ServerMessage::Ack(tg::sandbox::control::ServerAck {
+			id: message_id,
+		});
+		self.server
+			.messenger
+			.publish(
+				format!("sandboxes.{sandbox}.server"),
+				crate::sandbox::control::SandboxControlServerMessage(ack),
+			)
+			.await
+			.inspect_err(|error| {
+				tracing::error!(%error, "failed to acknowledge the sandbox response");
+			})
+			.ok();
 
-			// Otherwise, the runner was not ready, so back off and try again with a new request.
-			tokio::time::sleep(delay).await;
-			delay = (delay * 2).min(max_delay);
+		// If the process was spawned, then return.
+		if response.spawned {
+			return Ok(());
 		}
+
+		Err(tg::error!(
+			"the process could not be started in the sandbox"
+		))
 	}
 
 	async fn create_sandbox_with_transaction(

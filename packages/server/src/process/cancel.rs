@@ -8,7 +8,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_messenger::Messenger as _,
 };
 
 impl Session {
@@ -80,21 +79,6 @@ impl Session {
 
 		if deleted.is_some_and(|deleted| deleted > 0) {
 			self.server.spawn_publish_watchdog_message_task();
-
-			// Break any outstanding scheduler dispatch loop for the process so that a queued process
-			// that has not been picked up by a runner stops being dispatched.
-			let request =
-				crate::scheduler::Request::CancelProcess(crate::scheduler::CancelProcessRequest {
-					id: id.clone(),
-				});
-			self.server
-				.messenger
-				.publish("scheduler".to_owned(), request)
-				.await
-				.inspect_err(|error| {
-					tracing::error!(%error, "failed to publish the cancel process request");
-				})
-				.ok();
 		}
 
 		Ok(deleted.map(drop))

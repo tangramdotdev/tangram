@@ -129,7 +129,6 @@ impl Server {
 			.as_ref()
 			.map_or(Duration::from_mins(1), |runner| runner.control_ttl);
 
-		// Dedup caches.
 		let responses: Arc<DashMap<String, CachedRunnerResponse>> = Arc::new(DashMap::new());
 
 		// Process the messages the scheduler sends to this runner.
