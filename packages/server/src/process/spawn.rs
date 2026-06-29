@@ -186,7 +186,8 @@ impl Session {
 			self.authorize_owner(sandbox.owner.as_ref()).await?;
 		}
 
-		// Try to acquire a permit to run the process on the local runner. If a permit is acquired, then the process is created as claimed and run directly. Otherwise, it is enqueued.
+		// Try to acquire a permit to run the process on the local runner. If a permit is acquired,
+		// then the process is created as claimed and run directly. Otherwise, it is scheduled.
 		let mut permit = match &arg.sandbox {
 			Some(tg::Either::Left(sandbox)) if !sandbox.enqueue => {
 				self.try_acquire_sandbox_permit(parent_sandbox.as_ref())
@@ -356,6 +357,28 @@ impl Session {
 					};
 					if let Err(error) = result {
 						tracing::error!(%error, %process, "failed to dispatch the process");
+						let mut error = error.to_data_or_id();
+						if !session.server.config.advanced.internal_error_locations
+							&& let tg::Either::Left(error) = &mut error
+						{
+							error.remove_internal_locations();
+						}
+						let arg = tg::process::finish::Arg {
+							checksum: None,
+							error: Some(error),
+							exit: 1,
+							location: Some(
+								tg::Location::Local(tg::location::Local::default()).into(),
+							),
+							output: None,
+						};
+						session
+							.try_finish_process(&process, arg)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(%error, %process, "failed to finish the process after dispatch failed");
+							})
+							.ok();
 					}
 				})
 				.detach();

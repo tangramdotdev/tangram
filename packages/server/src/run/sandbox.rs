@@ -350,115 +350,28 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to connect to the sandbox control stream"),
 			)?;
-		let mut control = pin!(control);
-		self.register_sandbox_with_scheduler(id).await;
-		let control_ttl = self
-			.server
-			.config
-			.runner
-			.as_ref()
-			.map_or(Duration::from_mins(1), |runner| runner.control_ttl);
-
-		let responses: Arc<DashMap<String, CachedSandboxResponse>> = Arc::new(DashMap::new());
-
-		match process {
-			Some(process) => {
-				match self
-					.create_process_session(
-						process,
-						&location,
-						id,
-						state.creator.clone(),
-						process_token,
-					)
-					.await
-				{
-					Ok(output) => {
-						output.session.spawn_process_task(SpawnProcessTaskArg {
-							guest_url: &guest_url,
-							process: output.process,
-							process_token: output.process_token,
-							process_stopper: &process_stopper,
-							process_tasks: &mut process_tasks,
-							sandbox: &sandbox,
-						});
-					},
-					Err(error) => {
-						tracing::error!(error = %error.trace(), %id, "failed to start the process");
-						if let Some(ttl) = ttl {
-							timer.replace(tokio::time::sleep(ttl).boxed());
-						}
-					},
-				}
-			},
-			None => {
-				if let Some(ttl) = ttl {
-					timer.replace(tokio::time::sleep(ttl).boxed());
-				}
-			},
-		}
-
 		let mut destroy = false;
-		loop {
-			let timer_future = timer.as_mut().map_or_else(
-				|| future::pending().left_future(),
-				|timer| timer.as_mut().right_future(),
-			);
-			tokio::select! {
-				// If a process is dispatched to the sandbox, then start it and report whether it
-				// started. A failure to start does not tear down the sandbox.
-				message = control.try_next() => {
-					let message = message
-						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
-					let Some(message) = message else {
-						break;
-					};
-					let request = match message {
-						tg::sandbox::control::ServerMessage::Request(request) => request,
-						tg::sandbox::control::ServerMessage::Ack(ack) => {
-								responses.insert(ack.id.clone(), CachedSandboxResponse::Pending);
-								tokio::spawn({
-									let responses = responses.clone();
-									async move {
-										tokio::time::sleep(control_ttl).await;
-										responses.remove(&ack.id);
-									}
-								});
-								continue;
-						}
-					};
-					let request_id = request.id().to_owned();
+		{
+			let mut control = pin!(control);
+			self.register_sandbox_with_scheduler(id).await;
+			let control_ttl = self
+				.server
+				.config
+				.runner
+				.as_ref()
+				.map_or(Duration::from_mins(1), |runner| runner.control_ttl);
 
-					// Duplicate; resend the cached response, or drop if in flight or acked.
-					let cached = responses
-						.get(&request_id)
-						.map(|entry| entry.value().clone());
-						if let Some(cached) = cached {
-							if let CachedSandboxResponse::Ready(response) = cached {
-								input
-									.send(tg::sandbox::control::ClientMessage::Response(
-										tg::sandbox::control::ClientResponse::SpawnProcess(response),
-									))
-									.await
-									.ok();
-							}
-						continue;
-					}
+			let responses: Arc<DashMap<String, CachedSandboxResponse>> = Arc::new(DashMap::new());
 
-					// Mark in flight so duplicates are dropped until the response is ready.
-					responses.insert(request_id.clone(), CachedSandboxResponse::Pending);
-
-					let tg::sandbox::control::ServerRequest::SpawnProcess(request) = request;
-
-					timer.take();
-
+			match process {
+				Some(process) => {
 					match self
 						.create_process_session(
-							request.process.clone(),
+							process,
 							&location,
 							id,
 							state.creator.clone(),
-							request.process_token.clone(),
+							process_token,
 						)
 						.await
 					{
@@ -471,83 +384,173 @@ impl Session {
 								process_tasks: &mut process_tasks,
 								sandbox: &sandbox,
 							});
-							let response = tg::sandbox::control::SpawnProcessClientResponse {
-								id: request_id.clone(),
-								process: request.process,
-								spawned: true,
-							};
-							responses.insert(request_id, CachedSandboxResponse::Ready(response.clone()));
-							input
-								.send(tg::sandbox::control::ClientMessage::Response(
-									tg::sandbox::control::ClientResponse::SpawnProcess(response),
-								))
-								.await
-								.ok();
 						},
 						Err(error) => {
-							tracing::error!(error = %error.trace(), %id, "failed to start the dispatched process");
-							let response = tg::sandbox::control::SpawnProcessClientResponse {
-								id: request_id.clone(),
-								process: request.process,
-								spawned: false,
-							};
-							responses.insert(request_id, CachedSandboxResponse::Ready(response.clone()));
-							input
-								.send(tg::sandbox::control::ClientMessage::Response(
-									tg::sandbox::control::ClientResponse::SpawnProcess(response),
-								))
-								.await
-								.ok();
-							if process_tasks.is_empty()
-								&& let Some(ttl) = ttl
-							{
+							tracing::error!(error = %error.trace(), %id, "failed to start the process");
+							if let Some(ttl) = ttl {
 								timer.replace(tokio::time::sleep(ttl).boxed());
 							}
 						},
 					}
 				},
-
-				// If the sandbox is destroyed or its status cannot be read, then break.
-				result = status.try_next() => {
-					let option = match result {
-						Ok(option) => option,
-						Err(error) => {
-							tracing::error!(error = %error.trace(), %id, "failed to read the sandbox status");
-							break;
-						},
-					};
-					let Some(status) = option else {
-						break;
-					};
-					if status.is_destroyed() {
-						break;
-					}
-				},
-
-				// If a process finishes and there are no processes, then start the timer. A process
-				// task panic or failure is logged so that it does not tear down the sandbox.
-				output = process_tasks.join_next(), if !process_tasks.is_empty() => {
-					match output.unwrap() {
-						Ok(Ok(())) => (),
-						Ok(Err(error)) => {
-							tracing::error!(error = %error.trace(), %id, "a process task failed");
-						},
-						Err(error) => {
-							tracing::error!(%error, %id, "a process task panicked");
-						},
-					}
-					if process_tasks.is_empty() && let Some(ttl) = ttl {
+				None => {
+					if let Some(ttl) = ttl {
 						timer.replace(tokio::time::sleep(ttl).boxed());
 					}
 				},
+			}
 
-				// If the timer fires, then break and destroy the sandbox.
-				() = timer_future => {
-					destroy = true;
-					break;
-				},
+			loop {
+				let timer_future = timer.as_mut().map_or_else(
+					|| future::pending().left_future(),
+					|timer| timer.as_mut().right_future(),
+				);
+				tokio::select! {
+					// If a process is dispatched to the sandbox, then start it and report whether it
+					// started. A failure to start does not tear down the sandbox.
+					message = control.try_next() => {
+						let message = message
+							.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
+						let Some(message) = message else {
+							break;
+						};
+						let request = match message {
+							tg::sandbox::control::ServerMessage::Request(request) => request,
+							tg::sandbox::control::ServerMessage::Ack(ack) => {
+									responses.insert(ack.id.clone(), CachedSandboxResponse::Pending);
+									tokio::spawn({
+										let responses = responses.clone();
+										async move {
+											tokio::time::sleep(control_ttl).await;
+											responses.remove(&ack.id);
+										}
+									});
+									continue;
+							}
+						};
+						let request_id = request.id().to_owned();
+
+						// Duplicate; resend the cached response, or drop if in flight or acked.
+						let cached = responses
+							.get(&request_id)
+							.map(|entry| entry.value().clone());
+							if let Some(cached) = cached {
+								if let CachedSandboxResponse::Ready(response) = cached {
+									input
+										.send(tg::sandbox::control::ClientMessage::Response(
+											tg::sandbox::control::ClientResponse::SpawnProcess(response),
+										))
+										.await
+										.ok();
+								}
+							continue;
+						}
+
+						// Mark in flight so duplicates are dropped until the response is ready.
+						responses.insert(request_id.clone(), CachedSandboxResponse::Pending);
+
+						let tg::sandbox::control::ServerRequest::SpawnProcess(request) = request;
+
+						timer.take();
+
+						match self
+							.create_process_session(
+								request.process.clone(),
+								&location,
+								id,
+								state.creator.clone(),
+								request.process_token.clone(),
+							)
+							.await
+						{
+							Ok(output) => {
+								output.session.spawn_process_task(SpawnProcessTaskArg {
+									guest_url: &guest_url,
+									process: output.process,
+									process_token: output.process_token,
+									process_stopper: &process_stopper,
+									process_tasks: &mut process_tasks,
+									sandbox: &sandbox,
+								});
+								let response = tg::sandbox::control::SpawnProcessClientResponse {
+									id: request_id.clone(),
+									process: request.process,
+									spawned: true,
+								};
+								responses.insert(request_id, CachedSandboxResponse::Ready(response.clone()));
+								input
+									.send(tg::sandbox::control::ClientMessage::Response(
+										tg::sandbox::control::ClientResponse::SpawnProcess(response),
+									))
+									.await
+									.ok();
+							},
+							Err(error) => {
+								tracing::error!(error = %error.trace(), %id, "failed to start the dispatched process");
+								let response = tg::sandbox::control::SpawnProcessClientResponse {
+									id: request_id.clone(),
+									process: request.process,
+									spawned: false,
+								};
+								responses.insert(request_id, CachedSandboxResponse::Ready(response.clone()));
+								input
+									.send(tg::sandbox::control::ClientMessage::Response(
+										tg::sandbox::control::ClientResponse::SpawnProcess(response),
+									))
+									.await
+									.ok();
+								if process_tasks.is_empty()
+									&& let Some(ttl) = ttl
+								{
+									timer.replace(tokio::time::sleep(ttl).boxed());
+								}
+							},
+						}
+					},
+
+					// If the sandbox is destroyed or its status cannot be read, then break.
+					result = status.try_next() => {
+						let option = match result {
+							Ok(option) => option,
+							Err(error) => {
+								tracing::error!(error = %error.trace(), %id, "failed to read the sandbox status");
+								break;
+							},
+						};
+						let Some(status) = option else {
+							break;
+						};
+						if status.is_destroyed() {
+							break;
+						}
+					},
+
+					// If a process finishes and there are no processes, then start the timer. A process
+					// task panic or failure is logged so that it does not tear down the sandbox.
+					output = process_tasks.join_next(), if !process_tasks.is_empty() => {
+						match output.unwrap() {
+							Ok(Ok(())) => (),
+							Ok(Err(error)) => {
+								tracing::error!(error = %error.trace(), %id, "a process task failed");
+							},
+							Err(error) => {
+								tracing::error!(%error, %id, "a process task panicked");
+							},
+						}
+							if process_tasks.is_empty() && let Some(ttl) = ttl {
+								timer.replace(tokio::time::sleep(ttl).boxed());
+							}
+						},
+
+					// If the timer fires, then break and destroy the sandbox.
+					() = timer_future => {
+						destroy = true;
+						break;
+					},
+				}
 			}
 		}
+		drop(input);
 
 		// Deregister the sandbox's placement with the scheduler.
 		self.deregister_sandbox_with_scheduler(id).await;
@@ -699,7 +702,9 @@ impl Session {
 			.insert(message_id, message.clone());
 		let sender = self.server.runner_input.lock().unwrap().clone();
 		if let Some(sender) = sender {
-			sender.send(message).await.ok();
+			tokio::spawn(async move {
+				sender.send(message).await.ok();
+			});
 		}
 	}
 
@@ -733,7 +738,9 @@ impl Session {
 			.insert(message_id, message.clone());
 		let sender = self.server.runner_input.lock().unwrap().clone();
 		if let Some(sender) = sender {
-			sender.send(message).await.ok();
+			tokio::spawn(async move {
+				sender.send(message).await.ok();
+			});
 		}
 	}
 

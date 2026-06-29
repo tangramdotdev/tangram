@@ -130,7 +130,7 @@ impl Session {
 		}
 
 		// Spawn a task to forward client messages to the scheduler.
-		let task = Task::spawn({
+		let mut task = Task::spawn({
 			let server = self.server.clone();
 			let id = id.clone();
 			async move |_| {
@@ -162,12 +162,12 @@ impl Session {
 				.inspect_err(|error| tracing::error!(%error, "the runner control task failed"))
 			}
 		});
+		task.detach();
 
 		// End the stream when the server stops, without an end message, so the runner retries while the server restarts.
 		let stream = server_messages
 			.map_ok(|message| message.payload.0)
 			.map_err(|source| tg::error!(!source, "failed to get a runner server message"))
-			.attach(task)
 			.with_stopper(self.context.stopper.clone());
 		Ok(stream)
 	}

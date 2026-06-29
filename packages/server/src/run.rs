@@ -95,8 +95,9 @@ impl Server {
 							server.runner_heartbeat(),
 						),
 					);
-					if input.send(message).await.is_err() {
-						break;
+					match input.try_send(message) {
+						Ok(()) | Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => (),
+						Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
 					}
 				}
 			}

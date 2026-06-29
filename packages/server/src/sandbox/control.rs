@@ -77,7 +77,7 @@ impl Session {
 			})?;
 
 		// Spawn a task to forward client messages from the sandbox.
-		let task = Task::spawn({
+		let mut task = Task::spawn({
 			let server = self.server.clone();
 			let id = id.clone();
 			async move |_| {
@@ -111,11 +111,11 @@ impl Session {
 				.inspect_err(|error| tracing::error!(%error, "the sandbox control task failed"))
 			}
 		});
+		task.detach();
 
 		let stream = server_messages
 			.map_ok(|message| message.payload.0)
 			.map_err(|source| tg::error!(!source, "failed to get a sandbox server message"))
-			.attach(task)
 			.with_stopper(self.context.stopper.clone())
 			.boxed();
 		Ok(stream)

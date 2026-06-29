@@ -30,6 +30,7 @@ struct Runner {
 	host: String,
 	memory: tg::runner::control::Capacity,
 	permits: tg::runner::control::Capacity,
+	reserved: u64,
 	sandboxes: BTreeSet<tg::sandbox::Id>,
 	#[expect(dead_code)]
 	task: Option<Task<()>>,
@@ -302,6 +303,7 @@ impl Scheduler {
 			cpus: tg::runner::control::Capacity::default(),
 			memory: tg::runner::control::Capacity::default(),
 			permits: tg::runner::control::Capacity::default(),
+			reserved: 0,
 			heartbeat_at: tokio::time::Instant::now(),
 			sandboxes: BTreeSet::new(),
 		};
@@ -349,7 +351,7 @@ impl Scheduler {
 			}
 
 			// Find a runner with a matching host.
-			let Some(runner) = self.find_runner(arg.host.as_ref(), &excluded) else {
+			let Some(runner) = self.reserve_runner(arg.host.as_ref(), &excluded) else {
 				excluded.clear();
 				tokio::time::sleep(Duration::from_millis(10)).await;
 				continue;
@@ -446,8 +448,7 @@ impl Scheduler {
 
 			// Check if the sandbox was actually created, or the runner rejected the request.
 			if runner_response.is_some_and(|response| response.created) {
-				// Record the sandbox's placement so that processes can be routed to it.
-				self.register_sandbox(&sandbox, &runner);
+				self.confirm_runner_reservation(&runner, &sandbox);
 				break CreateSandboxResponse {
 					id: id.clone(),
 					sandbox: sandbox.clone(),
@@ -455,6 +456,7 @@ impl Scheduler {
 					error: None,
 				};
 			}
+			self.release_runner_reservation(&runner);
 			excluded.insert(runner);
 		};
 
@@ -462,19 +464,21 @@ impl Scheduler {
 			.await;
 	}
 
-	fn find_runner(
+	fn reserve_runner(
 		&self,
 		host: Option<&String>,
 		excluded: &BTreeSet<tg::runner::Id>,
 	) -> Option<tg::runner::Id> {
-		self.runners
-			.iter()
-			.find(|entry| {
-				!excluded.contains(entry.key())
-					&& host.is_none_or(|host| host == &entry.host)
-					&& entry.permits.used < entry.permits.total
-			})
-			.map(|entry| entry.key().clone())
+		for mut entry in self.runners.iter_mut() {
+			if excluded.contains(entry.key()) || host.is_some_and(|host| host != &entry.host) {
+				continue;
+			}
+			if entry.permits.used + entry.reserved < entry.permits.total {
+				entry.reserved += 1;
+				return Some(entry.key().clone());
+			}
+		}
+		None
 	}
 
 	fn remove_runner(&self, id: &tg::runner::Id) {
@@ -500,9 +504,30 @@ impl Scheduler {
 		}
 	}
 
-	fn register_sandbox(self: &Arc<Self>, sandbox: &tg::sandbox::Id, runner: &tg::runner::Id) {
+	fn confirm_runner_reservation(&self, runner: &tg::runner::Id, sandbox: &tg::sandbox::Id) {
 		if let Some(mut entry) = self.runners.get_mut(runner) {
-			entry.sandboxes.insert(sandbox.clone());
+			entry.reserved = entry.reserved.saturating_sub(1);
+			if entry.sandboxes.insert(sandbox.clone()) {
+				entry.permits.used = entry.permits.used.saturating_add(1);
+			}
+		}
+	}
+
+	fn register_sandbox(
+		self: &Arc<Self>,
+		sandbox: &tg::sandbox::Id,
+		runner: &tg::runner::Id,
+	) -> bool {
+		if let Some(mut entry) = self.runners.get_mut(runner) {
+			entry.sandboxes.insert(sandbox.clone())
+		} else {
+			false
+		}
+	}
+
+	fn release_runner_reservation(&self, runner: &tg::runner::Id) {
+		if let Some(mut entry) = self.runners.get_mut(runner) {
+			entry.reserved = entry.reserved.saturating_sub(1);
 		}
 	}
 
@@ -530,13 +555,19 @@ impl Scheduler {
 								entry.cpus = heartbeat.cpus;
 								entry.memory = heartbeat.memory;
 								entry.permits = heartbeat.permits;
+								entry.permits.used =
+									entry.permits.used.max(entry.sandboxes.len() as u64);
 								entry.heartbeat_at = tokio::time::Instant::now();
 							}
 						},
 						tg::runner::control::ClientNotification::SandboxCreated(
 							sandbox_created,
 						) => {
-							self.register_sandbox(&sandbox_created.sandbox, id);
+							if self.register_sandbox(&sandbox_created.sandbox, id)
+								&& let Some(mut entry) = self.runners.get_mut(id)
+							{
+								entry.permits.used = entry.permits.used.saturating_add(1);
+							}
 							self.server
 								.messenger
 								.publish(
@@ -561,8 +592,10 @@ impl Scheduler {
 						tg::runner::control::ClientNotification::SandboxDestroyed(
 							sandbox_destroyed,
 						) => {
-							if let Some(mut entry) = self.runners.get_mut(id) {
-								entry.sandboxes.remove(&sandbox_destroyed.sandbox);
+							if let Some(mut entry) = self.runners.get_mut(id)
+								&& entry.sandboxes.remove(&sandbox_destroyed.sandbox)
+							{
+								entry.permits.used = entry.permits.used.saturating_sub(1);
 							}
 							self.server
 								.messenger
