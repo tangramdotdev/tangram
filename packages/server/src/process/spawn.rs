@@ -163,6 +163,16 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the command host"))?
 			.to_string();
 
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		if !self
+			.authorize(tg::object::Id::from(arg.command.item.clone()), permission)
+			.await?
+			.is_some_and(|permissions| permissions.contains(permission))
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+
 		// Determine if the process is cacheable.
 		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
 			sandbox.mounts.is_empty() && sandbox.network.is_none()
