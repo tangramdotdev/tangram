@@ -145,24 +145,7 @@ impl Session {
 		arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let tty = match arg.tty.as_ref() {
-			None => None,
-			Some(tty) => Some(
-				tty.as_ref()
-					.right()
-					.copied()
-					.ok_or_else(|| tg::error!("invalid tty"))?,
-			),
-		};
-
-		// Get the host.
-		let command_ = tg::Command::with_id(arg.command.item.clone());
-		let host = command_
-			.host_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command host"))?
-			.to_string();
-
+		// Authorize the command.
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 		if !self
@@ -172,6 +155,14 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
+
+		// Get the host.
+		let command_ = tg::Command::with_id(arg.command.item.clone());
+		let host = command_
+			.host_with_handle(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the command host"))?
+			.to_string();
 
 		// Determine if the process is cacheable.
 		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
@@ -184,7 +175,7 @@ impl Session {
 			&& arg.stdin.is_null()
 			&& arg.stdout.is_log()
 			&& arg.stderr.is_log()
-			&& tty.is_none();
+			&& arg.tty.is_none();
 
 		// Authorize assigning the sandbox owner.
 		if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
