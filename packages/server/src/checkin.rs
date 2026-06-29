@@ -241,7 +241,7 @@ impl Session {
 	}
 
 	async fn checkin_cache_path(&self, path: &Path) -> tg::Result<tg::checkin::Output> {
-		let id = path
+		let id: tg::artifact::Id = path
 			.components()
 			.next()
 			.map(|component| {
@@ -253,6 +253,19 @@ impl Session {
 			.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the artifact id"))?;
+
+		// Authorize the caller to read the artifact before minting a token for it.
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		if !self
+			.authorize(resource, permission)
+			.await?
+			.is_some_and(|permissions| permissions.contains(permission))
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+
 		if path.components().count() == 1 {
 			let mut artifact = tg::Referent::with_item(id);
 			artifact.options.token = self.create_artifact_token(&artifact.item)?;
