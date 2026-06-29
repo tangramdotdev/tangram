@@ -583,10 +583,12 @@ impl Cli {
 
 		// Create the command builder.
 		let mut command_env = None;
+		let mut command_options = None;
 		let mut command = match referent.item.clone() {
 			tg::graph::Edge::Object(tg::Object::Command(command)) => {
 				let object = command.object_with_handle(&client).await?;
 				command_env = Some(object.env.clone());
+				command_options = Some(referent.options.clone());
 				tg::Command::builder()
 					.host(object.host.clone())
 					.executable(object.executable.clone())
@@ -903,6 +905,9 @@ impl Cli {
 			args: command.args.clone(),
 			cached: options.cached,
 			checksum: options.checksum,
+			command: command_options.map(|options| {
+				tg::Referent::new(tg::Command::with_object(command.clone()), options)
+			}),
 			cwd: command.cwd.clone(),
 			debug: debug.map(tg::Either::Right),
 			env: command.env.clone(),

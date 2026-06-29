@@ -148,8 +148,14 @@ impl Session {
 		// Authorize the command.
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let command = tg::object::Id::from(arg.command.item.clone());
+		let command = if let Some(token) = arg.command.options.token.clone() {
+			tg::Either::Right(tg::WithToken { id: command, token })
+		} else {
+			tg::Either::Left(command)
+		};
 		if !self
-			.authorize(tg::object::Id::from(arg.command.item.clone()), permission)
+			.authorize(command, permission)
 			.await?
 			.is_some_and(|permissions| permissions.contains(permission))
 		{
