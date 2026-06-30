@@ -554,7 +554,7 @@ impl Index {
 			if children.is_empty() {
 				continue;
 			}
-			if depth == root_depth + 1
+			if depth > root_depth
 				&& Self::authorize_permission_with_transaction_inner(
 					context,
 					&resource,
