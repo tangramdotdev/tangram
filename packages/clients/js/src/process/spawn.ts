@@ -30,12 +30,22 @@ export let spawnArg = async (
 	arg: tg.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
-	let sandbox = normalizeSandbox(await sandboxArg(...args));
+	let arg = await tg.Process.arg(...args);
+	return await spawnArgFromResolved(arg);
+};
+
+export let spawnArgFromResolved = async (
+	arg: tg.Process.ArgObject,
+): Promise<{
+	arg: tg.Spawn.Arg;
+	options: tg.Referent.Options;
+}> => {
+	let sandbox = normalizeSandbox(sandboxArgFromResolved(arg));
 	let defaults =
 		sandbox === undefined
 			? [{ cwd: tg.process.cwd, env: { ...tg.process.env } }]
 			: [];
-	let arg = await tg.Process.arg(...defaults, ...args);
+	arg = await tg.Process.argResolved(...defaults, arg);
 	if (sandbox !== undefined) {
 		if (!("host" in arg)) {
 			arg.host = tg.host.current;
@@ -151,57 +161,35 @@ export let spawnArg = async (
 	return { arg: spawnArg, options };
 };
 
-let sandboxArg = async (
-	...args: tg.Args<tg.Process.Arg>
-): Promise<
-	Pick<
+let sandboxArgFromResolved = (
+	arg: tg.Process.ArgObject,
+): Pick<
+	tg.Process.ArgObject,
+	"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
+> => {
+	let output: Pick<
 		tg.Process.ArgObject,
 		"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
-	>
-> => {
-	return await tg.Args.apply({
-		args,
-		map: async (arg) => {
-			if (
-				arg === undefined ||
-				typeof arg === "string" ||
-				tg.Artifact.is(arg) ||
-				arg instanceof tg.Template ||
-				arg instanceof tg.Command
-			) {
-				return {};
-			}
-			let output: tg.MaybeMutationMap<
-				Pick<
-					tg.Process.ArgObject,
-					"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
-				>
-			> = {};
-			if ("cpu" in arg) {
-				output.cpu = arg.cpu;
-			}
-			if ("memory" in arg) {
-				output.memory = arg.memory;
-			}
-			if ("mounts" in arg) {
-				output.mounts = arg.mounts;
-			}
-			if ("network" in arg) {
-				output.network = arg.network;
-			}
-			if ("ports" in arg) {
-				output.ports = arg.ports;
-			}
-			if ("sandbox" in arg) {
-				output.sandbox = arg.sandbox;
-			}
-			return output;
-		},
-		reduce: {
-			mounts: "append",
-			ports: "append",
-		},
-	});
+	> = {};
+	if ("cpu" in arg) {
+		output.cpu = arg.cpu;
+	}
+	if ("memory" in arg) {
+		output.memory = arg.memory;
+	}
+	if ("mounts" in arg) {
+		output.mounts = arg.mounts;
+	}
+	if ("network" in arg) {
+		output.network = arg.network;
+	}
+	if ("ports" in arg) {
+		output.ports = arg.ports;
+	}
+	if ("sandbox" in arg) {
+		output.sandbox = arg.sandbox;
+	}
+	return output;
 };
 
 export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(

@@ -132,7 +132,15 @@ export class Process<O extends tg.Value = tg.Value> {
 	static async arg(
 		...args: tg.Args<tg.Process.Arg>
 	): Promise<tg.Process.ArgObject> {
-		return await tg.Args.apply({
+		return await tg.Process.argResolved(
+			...(await Promise.all(args.map(tg.resolve))),
+		);
+	}
+
+	static async argResolved(
+		...args: Array<tg.ValueOrMaybeMutationMap<tg.Process.Arg>>
+	): Promise<tg.Process.ArgObject> {
+		return await tg.Args.applyResolved({
 			args,
 			map: async (arg) => {
 				if (arg === undefined) {
@@ -188,6 +196,13 @@ export class Process<O extends tg.Value = tg.Value> {
 		options: tg.Referent.Options;
 	}> {
 		return await spawn.spawnArg(...args);
+	}
+
+	static async spawnArgFromResolved(arg: tg.Process.ArgObject): Promise<{
+		arg: tg.Spawn.Arg;
+		options: tg.Referent.Options;
+	}> {
+		return await spawn.spawnArgFromResolved(arg);
 	}
 
 	static async execUnsandboxed(arg: tg.Spawn.Arg): Promise<never> {
@@ -818,7 +833,7 @@ export namespace Process {
 		async #thenInner(): Promise<O | tg.Process<O>> {
 			let arg = await tg.Process.arg(...this.#args);
 			this.#validate?.(arg);
-			let output = await tg.Process.spawnArg(...this.#args);
+			let output = await tg.Process.spawnArgFromResolved(arg);
 			if (this.#mode === "exec") {
 				return await tg.Process.execUnsandboxed(output.arg);
 			}

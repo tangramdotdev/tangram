@@ -52,6 +52,7 @@ export class Directory {
 	static async new(
 		...args: Array<tg.Unresolved<tg.Directory.Arg>>
 	): Promise<tg.Directory> {
+		let resolved: Array<tg.Directory.Arg>;
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
 			if (tg.Graph.Arg.Pointer.is(arg)) {
@@ -69,8 +70,10 @@ export class Directory {
 				}
 				return tg.Directory.withObject({ children });
 			}
+			resolved = [arg];
+		} else {
+			resolved = await Promise.all(args.map(tg.resolve));
 		}
-		let resolved = await Promise.all(args.map(tg.resolve));
 		let entries = await resolved.reduce<
 			Promise<{ [key: string]: tg.Graph.Edge<tg.Artifact> }>
 		>(async function reduce(promise, arg) {

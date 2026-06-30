@@ -33,11 +33,18 @@ impl Session {
 			},
 			tg::value::Data::Object(object) => {
 				let id = object.clone().map_right(|object| object.id).into_inner();
-				*object = self.object_output(
-					id,
-					tg::grant::permission::object::Permission::Subtree,
+				let token = self.create_token(
+					tg::grant::Resource::Id(id.clone().into()),
+					vec![tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Subtree,
+					)],
 					expires_at,
 				)?;
+				*object = if let Some(token) = token {
+					tg::Either::Right(tg::WithToken { id, token })
+				} else {
+					tg::Either::Left(id)
+				};
 			},
 			tg::value::Data::Mutation(mutation) => {
 				self.add_tokens_to_mutation_data(mutation, expires_at)?;
@@ -94,17 +101,17 @@ impl Session {
 					.clone()
 					.map_right(|artifact| artifact.id)
 					.into_inner();
-				let object = self.object_output(
-					id.clone().into(),
-					tg::grant::permission::object::Permission::Subtree,
+				let token = self.create_token(
+					tg::grant::Resource::Id(tg::object::Id::from(id.clone()).into()),
+					vec![tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Subtree,
+					)],
 					expires_at,
 				)?;
-				*artifact = match object {
-					tg::Either::Left(_) => tg::Either::Left(id),
-					tg::Either::Right(object) => tg::Either::Right(tg::WithToken {
-						id,
-						token: object.token,
-					}),
+				*artifact = if let Some(token) = token {
+					tg::Either::Right(tg::WithToken { id, token })
+				} else {
+					tg::Either::Left(id)
 				};
 			}
 		}

@@ -59,13 +59,16 @@ export class File {
 
 	/** Create a file. */
 	static async new(...args: tg.Args<tg.File.Arg>): Promise<tg.File> {
+		let arg: Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>;
 		if (args.length === 1) {
-			let arg = await tg.resolve(args[0]);
-			if (tg.Graph.Arg.Pointer.is(arg)) {
-				return tg.File.withObject(tg.Graph.Pointer.fromArg(arg));
+			let resolved = await tg.resolve(args[0]);
+			if (tg.Graph.Arg.Pointer.is(resolved)) {
+				return tg.File.withObject(tg.Graph.Pointer.fromArg(resolved));
 			}
+			arg = await tg.File.argResolved(resolved);
+		} else {
+			arg = await tg.File.arg(...args);
 		}
-		let arg = await tg.File.arg(...args);
 		let contents = await tg.blob(arg.contents);
 		let dependencies = Object.fromEntries(
 			Object.entries(arg.dependencies ?? {}).map(([reference, value]) => {
@@ -97,7 +100,16 @@ export class File {
 		...args: tg.Args<tg.File.Arg>
 	): Promise<Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>> {
 		type Arg = Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>;
-		return await tg.Args.apply<tg.File.Arg, Arg>({
+		return await tg.File.argResolved(
+			...(await Promise.all(args.map(tg.resolve))),
+		);
+	}
+
+	static async argResolved(
+		...args: Array<tg.ValueOrMaybeMutationMap<tg.File.Arg>>
+	): Promise<Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>> {
+		type Arg = Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>;
+		return await tg.Args.applyResolved<tg.File.Arg, Arg>({
 			args,
 			map: async (arg) => {
 				if (arg === undefined) {

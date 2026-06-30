@@ -41,6 +41,12 @@ struct SubtreeSearchBudget {
 	remaining_objects: usize,
 }
 
+#[derive(Clone, Copy)]
+enum SubtreeSearch {
+	Enabled,
+	Disabled,
+}
+
 struct AuthorizationContext<'a, 'txn> {
 	db: &'a Db,
 	subspace: &'a fdbt::Subspace,
@@ -187,6 +193,7 @@ impl Index {
 			&mut object_subtree_budget,
 			&mut HashSet::new(),
 			0,
+			SubtreeSearch::Enabled,
 		)
 	}
 
@@ -197,6 +204,7 @@ impl Index {
 		object_subtree_budget: &mut SubtreeSearchBudget,
 		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
 		depth: usize,
+		subtree_search: SubtreeSearch,
 	) -> tg::Result<bool> {
 		let root = (resource.clone(), permission);
 		if !Self::is_authorized_by_token(context, resource, permission)
@@ -274,20 +282,25 @@ impl Index {
 				Self::finish_authorization(context.cache, &mut pending, key, true);
 				continue;
 			}
-			let subtree_unknown = match Self::authorize_with_object_subtree_search_with_transaction(
-				context,
-				&frame.resource,
-				frame.permission,
-				object_subtree_budget,
-				unknown,
-				depth,
-			)? {
-				Some(true) => {
-					Self::finish_authorization(context.cache, &mut pending, key, true);
-					continue;
+			let subtree_unknown = match subtree_search {
+				SubtreeSearch::Enabled => {
+					match Self::authorize_with_object_subtree_search_with_transaction(
+						context,
+						&frame.resource,
+						frame.permission,
+						object_subtree_budget,
+						unknown,
+						depth,
+					)? {
+						Some(true) => {
+							Self::finish_authorization(context.cache, &mut pending, key, true);
+							continue;
+						},
+						Some(false) => false,
+						None => true,
+					}
 				},
-				Some(false) => false,
-				None => true,
+				SubtreeSearch::Disabled => false,
 			};
 
 			let dependencies = Self::get_authorization_dependencies_with_transaction(
@@ -366,7 +379,12 @@ impl Index {
 		authorized: bool,
 	) {
 		pending.remove(&key);
-		cache.authorization.insert(key, authorized);
+		match cache.authorization.get_mut(&key) {
+			Some(existing) => *existing = *existing || authorized,
+			None => {
+				cache.authorization.insert(key, authorized);
+			},
+		}
 	}
 
 	fn finish_unknown_authorization(
@@ -485,8 +503,20 @@ impl Index {
 		{
 			return Ok(Some(false));
 		}
+		if Self::authorize_permission_with_transaction_inner(
+			context,
+			resource,
+			permission,
+			budget,
+			unknown,
+			depth,
+			SubtreeSearch::Disabled,
+		)? {
+			return Ok(Some(true));
+		}
 		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 
+		let root_depth = depth;
 		let mut stack = Vec::from([(tg::object::Id::try_from(resource.clone())?, depth)]);
 		while let Some((object, depth)) = stack.pop() {
 			if depth > budget.max_depth || budget.remaining_objects == 0 {
@@ -496,7 +526,13 @@ impl Index {
 
 			let resource = tg::Id::from(object.clone());
 			if !Self::authorize_permission_with_transaction_inner(
-				context, &resource, node, budget, unknown, depth,
+				context,
+				&resource,
+				node,
+				budget,
+				unknown,
+				depth,
+				SubtreeSearch::Disabled,
 			)? {
 				if unknown.contains(&(resource, node)) {
 					return Ok(None);
@@ -515,7 +551,22 @@ impl Index {
 			if children.len() > budget.remaining_objects {
 				return Ok(None);
 			}
-			if !children.is_empty() && depth == budget.max_depth {
+			if children.is_empty() {
+				continue;
+			}
+			if depth == root_depth + 1
+				&& Self::authorize_permission_with_transaction_inner(
+					context,
+					&resource,
+					permission,
+					budget,
+					unknown,
+					depth,
+					SubtreeSearch::Disabled,
+				)? {
+				continue;
+			}
+			if depth == budget.max_depth {
 				return Ok(None);
 			}
 			for child in children {

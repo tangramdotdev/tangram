@@ -69,6 +69,14 @@ enum SubtreeSearch {
 
 impl Cache {
 	fn merge(&mut self, other: Self) {
+		for (key, authorized) in other.authorization {
+			match self.authorization.get_mut(&key) {
+				Some(existing) => *existing = *existing || authorized,
+				None => {
+					self.authorization.insert(key, authorized);
+				},
+			}
+		}
 		self.resource_parents.extend(other.resource_parents);
 		self.group_members.extend(other.group_members);
 		self.item_tags.extend(other.item_tags);
@@ -469,7 +477,12 @@ impl Index {
 		authorized: bool,
 	) {
 		pending.remove(&key);
-		cache.authorization.insert(key, authorized);
+		match cache.authorization.get_mut(&key) {
+			Some(existing) => *existing = *existing || authorized,
+			None => {
+				cache.authorization.insert(key, authorized);
+			},
+		}
 	}
 
 	fn finish_unknown_authorization(
@@ -589,6 +602,18 @@ impl Index {
 			{
 				return Ok(Some(false));
 			}
+			if Self::authorize_permission_with_transaction_inner(
+				context,
+				resource,
+				permission,
+				cache,
+				unknown,
+				SubtreeSearch::Disabled,
+			)
+			.await?
+			{
+				return Ok(Some(true));
+			}
 			let node =
 				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 			let mut budget = SubtreeSearchBudget {
@@ -631,7 +656,23 @@ impl Index {
 				if children.len() > budget.remaining_objects {
 					return Ok(None);
 				}
-				if !children.is_empty() && depth == budget.max_depth {
+				if children.is_empty() {
+					continue;
+				}
+				if depth == 1
+					&& Self::authorize_permission_with_transaction_inner(
+						context,
+						&resource,
+						permission,
+						cache,
+						unknown,
+						SubtreeSearch::Disabled,
+					)
+					.await?
+				{
+					continue;
+				}
+				if depth == budget.max_depth {
 					return Ok(None);
 				}
 				for child in children {

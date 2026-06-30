@@ -27,8 +27,20 @@ export namespace Args {
 		let resolved = (await Promise.all(args.map(tg.resolve))) as Array<
 			tg.ValueOrMaybeMutationMap<T>
 		>;
+		return await applyResolved({ args: resolved, map, reduce });
+	};
+
+	export let applyResolved = async <
+		T extends tg.Value,
+		O extends { [key: string]: tg.Value },
+	>(
+		input: Omit<Input<T, O>, "args"> & {
+			args: Array<tg.ValueOrMaybeMutationMap<T>>;
+		},
+	): Promise<O> => {
+		let { args, map, reduce } = input;
 		let output: { [key: string]: tg.Value } = {};
-		for (let arg of resolved) {
+		for (let arg of args) {
 			let object = await map(arg);
 			for (let [key, value] of Object.entries(object)) {
 				if (value instanceof tg.Mutation) {

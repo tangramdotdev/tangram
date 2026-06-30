@@ -74,7 +74,7 @@ impl Session {
 		// Deserialize the objects and create the index args.
 		let mut batch_objects = BTreeSet::new();
 		let mut object_children = BTreeMap::new();
-		let mut object_advisory_children = BTreeMap::new();
+		let mut object_children_with_tokens = BTreeMap::new();
 		let mut put_object_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
 			batch_objects.insert(object.id.clone());
@@ -87,7 +87,7 @@ impl Session {
 			let mut children = BTreeSet::new();
 			data.children(&mut children);
 			object_children.insert(object.id.clone(), children.clone());
-			object_advisory_children.insert(object.id.clone(), object.children.clone());
+			object_children_with_tokens.insert(object.id.clone(), object.children.clone());
 
 			// Create the metadata.
 			let metadata = tg::object::Metadata {
@@ -120,16 +120,13 @@ impl Session {
 					continue;
 				}
 				let children = object_children.get(&object.id).unwrap();
-				let advisory_children = object_advisory_children.get(&object.id).unwrap();
-				if self
-					.object_children_are_subtree_authorized(
-						children,
-						advisory_children,
-						&subtree_objects,
-						&batch_objects,
-					)
-					.await?
-				{
+				let children_with_tokens = object_children_with_tokens.get(&object.id).unwrap();
+				if self.post_object_batch_authorize(
+					children_with_tokens,
+					children,
+					&subtree_objects,
+					&batch_objects,
+				) {
 					subtree_objects.insert(object.id.clone());
 					changed = true;
 				}
@@ -189,11 +186,68 @@ impl Session {
 				} else {
 					tg::grant::permission::object::Permission::Node
 				};
-				self.object_output(object.id, permission, grant_expires_at)
+				let token = self.create_token(
+					tg::grant::Resource::Id(object.id.clone().into()),
+					vec![tg::grant::Permission::Object(permission)],
+					grant_expires_at,
+				)?;
+				let object = if let Some(token) = token {
+					tg::Either::Right(tg::WithToken {
+						id: object.id,
+						token,
+					})
+				} else {
+					tg::Either::Left(object.id)
+				};
+				Ok(object)
 			})
 			.collect::<tg::Result<_>>()?;
 
 		Ok(tg::object::batch::Output { objects })
+	}
+
+	pub(crate) fn post_object_batch_authorize(
+		&self,
+		children: &[tg::MaybeWithToken<tg::object::Id>],
+		actual_children: &BTreeSet<tg::object::Id>,
+		batch_subtrees: &BTreeSet<tg::object::Id>,
+		batch_objects: &BTreeSet<tg::object::Id>,
+	) -> bool {
+		let mut children_map = std::collections::BTreeMap::new();
+		for child in children {
+			let id = match child {
+				tg::Either::Left(id) => id.clone(),
+				tg::Either::Right(child) => child.id.clone(),
+			};
+			if !actual_children.contains(&id) {
+				continue;
+			}
+			if children_map.insert(id, child.clone()).is_some() {
+				return false;
+			}
+		}
+		for child in actual_children {
+			if batch_objects.contains(child) {
+				if !batch_subtrees.contains(child) {
+					return false;
+				}
+				continue;
+			}
+			let Some(child) = children_map.get(child) else {
+				return false;
+			};
+			let child = child.clone();
+			let tg::Either::Right(child) = child else {
+				return false;
+			};
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let resource = tg::grant::Resource::Id(child.id.into());
+			if !self.authorize_token(&resource, permission.into(), &child.token) {
+				return false;
+			}
+		}
+		true
 	}
 
 	async fn post_object_batch_region(

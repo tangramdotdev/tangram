@@ -66,17 +66,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
-		let batch_objects = BTreeSet::new();
-		let batch_subtrees = BTreeSet::new();
-		let permission = if self
-			.object_children_are_subtree_authorized(
-				&children,
-				&arg.children,
-				&batch_subtrees,
-				&batch_objects,
-			)
-			.await?
-		{
+		let permission = if self.post_object_batch_authorize(
+			&arg.children,
+			&children,
+			&BTreeSet::new(),
+			&BTreeSet::new(),
+		) {
 			tg::grant::permission::object::Permission::Subtree
 		} else {
 			tg::grant::permission::object::Permission::Node
@@ -153,7 +148,19 @@ impl Session {
 			})
 			.detach();
 
-		let object = self.object_output(id.clone(), permission, grant_expires_at)?;
+		let token = self.create_token(
+			tg::grant::Resource::Id(id.clone().into()),
+			vec![tg::grant::Permission::Object(permission)],
+			grant_expires_at,
+		)?;
+		let object = if let Some(token) = token {
+			tg::Either::Right(tg::WithToken {
+				id: id.clone(),
+				token,
+			})
+		} else {
+			tg::Either::Left(id.clone())
+		};
 
 		Ok(tg::object::put::Output { object })
 	}
