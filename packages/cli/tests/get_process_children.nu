@@ -29,17 +29,25 @@ snapshot $output '{"exit":0,"output":["foo","bar"]}'
 
 let children = tg process children $process.process | from json
 
-let foo = $children | get 0 | update process 'PROCESS'
+let foo = $children | get 0 | to json | normalize_ids
 snapshot $foo '
-	cached: true
-	options: name: foo
-	process: PROCESS
-
+	{
+	  "cached": true,
+	  "options": {
+	    "name": "foo",
+	    "token": "<token>"
+	  },
+	  "process": "pcs_0000000000000000000000000000"
+	}
 '
 
-let bar = $children | get 1 | update process 'PROCESS'
+let bar = $children | get 1 | to json | normalize_ids
 snapshot $bar '
-	options: name: bar
-	process: PROCESS
-
+	{
+	  "options": {
+	    "name": "bar",
+	    "token": "<token>"
+	  },
+	  "process": "pcs_0000000000000000000000000000"
+	}
 '
