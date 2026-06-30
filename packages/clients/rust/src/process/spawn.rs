@@ -215,6 +215,7 @@ where
 
 	let command = builder.finish()?;
 	let command_id = command.store_with_handle(handle).await?;
+	options.token = command.state().token();
 	let command = tg::Referent::new(command_id, options);
 
 	let spawn_arg = tg::process::spawn::Arg {
@@ -420,11 +421,13 @@ impl<O: 'static> tg::Process<O> {
 				changed = true;
 			}
 			if changed {
-				let id = tg::Command::with_object(object)
+				let command = tg::Command::with_object(object);
+				let id = command
 					.store_with_handle(&handle)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 				arg.command.item = id;
+				arg.command.options.token = command.state().token();
 			}
 		}
 		let stream = handle.spawn_process(arg).await?.boxed();

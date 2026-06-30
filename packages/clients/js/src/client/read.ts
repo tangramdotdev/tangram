@@ -5,6 +5,7 @@ import type { Client } from "../client.ts";
 export namespace Read {
 	export type Arg = {
 		blob: tg.Blob.Id;
+		token?: tg.Grant.Token | undefined;
 	} & Read.Options;
 
 	export type Options = {
@@ -56,6 +57,7 @@ export async function tryReadStream(
 			length: arg.length,
 			position: arg.position,
 			size: arg.size,
+			token: arg.token,
 		},
 	});
 	let headers = {

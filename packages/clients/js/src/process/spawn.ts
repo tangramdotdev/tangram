@@ -123,6 +123,7 @@ export let spawnArg = async (
 	);
 
 	let commandId = await command.store();
+	options.token = command.state.token;
 	let commandReferent = {
 		item: commandId,
 		options: options,
@@ -469,11 +470,16 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			}
 		}
 		if (changed) {
-			let commandId = await tg.Command.withObject({
+			let newCommand = tg.Command.withObject({
 				...command,
 				env,
-			}).store();
+			});
+			let commandId = await newCommand.store();
 			arg.command.item = commandId;
+			arg.command.options = {
+				...arg.command.options,
+				token: newCommand.state.token,
+			};
 		}
 	}
 	let stream = await tg.client.spawnProcess({
