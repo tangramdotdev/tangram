@@ -687,11 +687,26 @@ impl Server {
 			(http::Method::DELETE, ["tags"]) => session.delete_tags_request(request).boxed(),
 
 			// Users.
+			(http::Method::POST, ["oauth", "device_authorization"]) => {
+				session.create_oauth_device_session_request(request).boxed()
+			},
+			(http::Method::POST, ["oauth", "token"]) => {
+				session.get_oauth_token_request(request).boxed()
+			},
+			(http::Method::GET, ["login", "device"]) => {
+				session.get_login_device_request(request).boxed()
+			},
+			(http::Method::GET, ["login", "device", "github", "authorize"]) => session
+				.authorize_login_device_with_github_request(request)
+				.boxed(),
+			(http::Method::GET, ["login", "github", "callback"]) => {
+				session.github_login_callback_request(request).boxed()
+			},
 			(http::Method::GET, ["users", user]) => {
 				session.try_get_user_request(request, user).boxed()
 			},
 			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
-			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
+			(http::Method::POST, ["login"]) => session.login_request(request).boxed(),
 
 			// Watches.
 			(http::Method::GET, ["watches"]) => session.list_watches_request(request).boxed(),

@@ -70,6 +70,7 @@ radix_trie = { workspace = true }
 rand = { workspace = true }
 ratatui = { workspace = true }
 reedline = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }

@@ -547,6 +547,9 @@ async fn main() -> std::process::ExitCode {
 	// Initialize miette.
 	Cli::initialize_miette();
 
+	// Initialize Rustls.
+	let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
 	// Initialize V8.
 	#[cfg(feature = "v8")]
 	let initialize_v8 = if server {

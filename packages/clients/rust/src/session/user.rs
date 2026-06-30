@@ -16,10 +16,10 @@ impl tg::handle::User for tg::Session {
 		self.try_get_user(user, arg)
 	}
 
-	fn login_user(
+	fn login(
 		&self,
 		arg: tg::user::login::Arg,
 	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
-		self.login_user(arg)
+		self.login(arg)
 	}
 }

@@ -26,13 +26,13 @@ where
 		}
 	}
 
-	fn login_user(
+	fn login(
 		&self,
 		arg: tg::user::login::Arg,
 	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
 		match self {
-			tg::Either::Left(s) => s.login_user(arg).left_future(),
-			tg::Either::Right(s) => s.login_user(arg).right_future(),
+			tg::Either::Left(s) => s.login(arg).left_future(),
+			tg::Either::Right(s) => s.login(arg).right_future(),
 		}
 	}
 }

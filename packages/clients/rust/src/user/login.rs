@@ -5,7 +5,8 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub parent: tg::Specifier,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<tg::Specifier>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub email: Option<String>,
@@ -42,12 +43,9 @@ pub enum Provider {
 }
 
 impl tg::Session {
-	pub async fn login_user(
-		&self,
-		arg: tg::user::login::Arg,
-	) -> tg::Result<tg::user::login::Output> {
+	pub async fn login(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {
 		let method = http::Method::POST;
-		let uri = "/user/login";
+		let uri = "/login";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

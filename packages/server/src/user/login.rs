@@ -14,7 +14,7 @@ impl Session {
 		tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
 	}
 
-	pub(crate) async fn login_user(
+	pub(crate) async fn login(
 		&self,
 		arg: tg::user::login::Arg,
 	) -> tg::Result<tg::user::login::Output> {
@@ -23,22 +23,19 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) => self.login_user_local(arg).await,
+			tg::Location::Local(_) => self.login_local(arg).await,
 			tg::Location::Remote(remote) => {
 				let client = self.get_remote_session(&remote.name).await?;
 				let arg = tg::user::login::Arg {
 					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 					..arg
 				};
-				client.login_user(arg).await
+				client.login(arg).await
 			},
 		}
 	}
 
-	async fn login_user_local(
-		&self,
-		arg: tg::user::login::Arg,
-	) -> tg::Result<tg::user::login::Output> {
+	async fn login_local(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {
 		let provider = self.resolve_login_provider(arg.provider)?;
 		let session = self.clone();
 		let (output, batch) = self
@@ -52,7 +49,7 @@ impl Session {
 					let output = match provider {
 						tg::user::login::Provider::Insecure => {
 							session
-								.login_user_insecure_with_transaction(transaction, arg, &mut batch)
+								.login_insecure_with_transaction(transaction, arg, &mut batch)
 								.await?
 						},
 					};
@@ -92,13 +89,15 @@ impl Session {
 		}
 	}
 
-	async fn login_user_insecure_with_transaction(
+	async fn login_insecure_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::user::login::Arg,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::user::login::Output> {
-		let specifier = arg.parent;
+		let specifier = arg
+			.name
+			.ok_or_else(|| tg::error!("invalid user specifier"))?;
 		if specifier.components().count() != 1 {
 			return Err(tg::error!("invalid user specifier"));
 		}
@@ -178,7 +177,7 @@ impl Session {
 		Ok(tg::user::login::Output { token, user })
 	}
 
-	pub(crate) async fn login_user_request(
+	pub(crate) async fn login_request(
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
@@ -190,7 +189,7 @@ impl Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		let output = self.login_user(arg).await?;
+		let output = self.login(arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))

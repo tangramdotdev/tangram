@@ -32,6 +32,58 @@ create table user_tokens (
 	foreign key ("user") references users (id)
 );
 
+create table user_identities (
+	provider text not null,
+	subject text not null,
+	"user" text not null,
+	primary key (provider, subject),
+	foreign key ("user") references users (id)
+);
+
+create table github_identities (
+	"user" text primary key,
+	github_user_id text not null unique,
+	login text not null,
+	name text,
+	email text,
+	avatar_url text,
+	html_url text,
+	access_token text not null,
+	refresh_token text,
+	token_type text,
+	scope text,
+	expires_at int8,
+	refresh_token_expires_at int8,
+	updated_at int8 not null,
+	foreign key ("user") references users (id)
+);
+
+create table oauth_sessions (
+	id text primary key,
+	flow text not null check (flow in ('device')),
+	device_code text unique,
+	user_code text unique,
+	client_id text not null,
+	scope text,
+	status text not null check (status in ('started', 'succeeded', 'expired', 'failed')),
+	"user" text,
+	access_token text,
+	error text,
+	name text,
+	expires_at int8 not null,
+	created_at int8 not null,
+	foreign key ("user") references users (id)
+);
+
+create table oauth_states (
+	state text primary key,
+	session text not null,
+	provider text not null,
+	expires_at int8 not null,
+	claimed_at int8,
+	foreign key (session) references oauth_sessions (id)
+);
+
 create table runner_tokens (
 	id text primary key
 );

@@ -120,6 +120,9 @@ pub struct Advanced {
 pub struct Authentication {
 	#[serde(default)]
 	pub providers: AuthenticationProviders,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub web_url: Option<String>,
 }
 
 #[serde_as]
@@ -127,7 +130,7 @@ pub struct Authentication {
 #[serde(deny_unknown_fields)]
 pub struct AuthenticationProviders {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub github: Option<Oauth>,
+	pub github: Option<Github>,
 
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -140,7 +143,7 @@ pub struct Insecure {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Oauth {
+pub struct Github {
 	pub auth_url: String,
 
 	pub client_id: String,
@@ -148,6 +151,9 @@ pub struct Oauth {
 	pub client_secret: String,
 
 	pub redirect_url: String,
+
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub scopes: Vec<String>,
 
 	pub token_url: String,
 }

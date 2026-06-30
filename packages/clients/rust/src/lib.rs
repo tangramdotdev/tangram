@@ -84,6 +84,7 @@ pub mod list;
 pub mod location;
 pub mod module;
 pub mod mutation;
+pub mod oauth;
 pub mod object;
 pub mod organization;
 pub mod placeholder;
