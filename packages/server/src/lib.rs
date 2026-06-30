@@ -852,6 +852,24 @@ impl Server {
 			})
 		});
 
+		// Spawn the object outbox task for stores that support the outbox.
+		let object_outbox_task = server
+			.config
+			.object_outbox
+			.clone()
+			.filter(|_| server.object_store.supports_outbox())
+			.map(|config| {
+				Task::spawn({
+					let server = server.clone();
+					|_| async move {
+						let result = server.object_outbox_task(&config).await;
+						if let Err(error) = result {
+							tracing::error!(error = %error.trace());
+						}
+					}
+				})
+			});
+
 		// Spawn the cleaner task.
 		let cleaner_task = server.config.cleaner.clone().map(|config| {
 			Task::spawn({
@@ -1273,6 +1291,18 @@ impl Server {
 						tracing::error!(?error, "the index task panicked");
 					}
 					tracing::trace!("indexer task");
+				}
+
+				// Abort the object outbox task.
+				if let Some(task) = object_outbox_task {
+					task.abort();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the object outbox task panicked");
+					}
+					tracing::trace!("object outbox task");
 				}
 
 				// Remove the temp paths.

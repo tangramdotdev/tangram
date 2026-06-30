@@ -1034,7 +1034,14 @@ export def --env spawn [
 	}
 
 	# Write the config.
-	let config = $default_config | merge deep --strategy append ($config | default {})
+	let user_config = $config | default {}
+	let config = $default_config | merge deep --strategy append $user_config
+	# Replace the object store wholesale when the user provides one, so default lmdb fields are not deep-merged into another store kind.
+	let config = if ($user_config.object?.store? | is-not-empty) {
+		$config | upsert object.store $user_config.object.store
+	} else {
+		$config
+	}
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path

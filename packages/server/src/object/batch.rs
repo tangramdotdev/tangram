@@ -6,7 +6,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
 
@@ -52,7 +51,7 @@ impl Session {
 				.to_i64()
 				.unwrap();
 
-		// Store the objects.
+		// Build the store put args.
 		let principal = (!matches!(self.context.principal, tg::Principal::Anonymous))
 			.then(|| self.context.principal.clone());
 		let put_args: Vec<_> = arg
@@ -65,11 +64,6 @@ impl Session {
 				stored_at: now,
 			})
 			.collect();
-		self.server
-			.object_store
-			.put_batch(put_args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 
 		// Deserialize the objects and create the index args.
 		let mut batch_objects = BTreeSet::new();
@@ -139,44 +133,46 @@ impl Session {
 			}
 		}
 
-		let mut put_grant_args = Vec::with_capacity(arg.objects.len());
-		for object in &arg.objects {
-			if let Some(principal) = &principal {
-				let permission = if subtree_objects.contains(&object.id) {
-					tg::grant::permission::object::Permission::Subtree
-				} else {
-					tg::grant::permission::object::Permission::Node
-				};
-				put_grant_args.push(tangram_index::grant::put::Arg {
-					created_at: now,
-					creator: Some(principal.clone()),
-					expires_at: Some(grant_expires_at),
-					permissions: tg::grant::Permission::Object(permission).into(),
-					principal: principal.try_to_grant_principal()?,
-					resource: object.id.clone().into(),
-				});
-			}
-		}
-
-		// Spawn a task to index the objects.
-		self.server
-			.index_tasks
-			.spawn(|_| {
-				let session = self.clone();
-				async move {
-					if let Err(error) = session
-						.server
-						.index
-						.batch(tangram_index::batch::Arg {
-							put_grants: put_grant_args,
-							put_objects: put_object_args,
-							..Default::default()
+		// Compute the grant for each object.
+		let grants = arg
+			.objects
+			.iter()
+			.map(|object| {
+				principal
+					.as_ref()
+					.map(|principal| {
+						let permission = if subtree_objects.contains(&object.id) {
+							tg::grant::permission::object::Permission::Subtree
+						} else {
+							tg::grant::permission::object::Permission::Node
+						};
+						Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
+							created_at: now,
+							creator: Some(principal.clone()),
+							expires_at: Some(grant_expires_at),
+							permissions: tg::grant::Permission::Object(permission).into(),
+							principal: principal.try_to_grant_principal()?,
+							resource: object.id.clone().into(),
 						})
-						.await
-					{
-						tracing::error!(error = %error.trace(), "failed to put object batch to index");
-					}
-				}
+					})
+					.transpose()
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		// Put the objects.
+		self.server
+			.object_store
+			.put_batch(put_args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+
+		// Index the objects.
+		let put_grant_args = grants.into_iter().flatten().collect::<Vec<_>>();
+		self.server
+			.index_objects(tangram_index::batch::Arg {
+				put_grants: put_grant_args,
+				put_objects: put_object_args,
+				..Default::default()
 			})
 			.detach();
 

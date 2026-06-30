@@ -15,7 +15,6 @@ use {
 		path::Path,
 	},
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
 
@@ -919,13 +918,11 @@ impl Session {
 			touched_at,
 		};
 		self.server
-			.index
-			.batch(tangram_index::batch::Arg {
+			.index_objects(tangram_index::batch::Arg {
 				put_objects: vec![put_object_arg],
 				..Default::default()
 			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+			.detach();
 
 		let id = id.try_into().unwrap();
 

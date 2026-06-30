@@ -6,7 +6,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
 
@@ -56,11 +55,6 @@ impl Session {
 			id: id.clone(),
 			stored_at: now,
 		};
-		self.server
-			.object_store
-			.put(put_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
@@ -82,46 +76,6 @@ impl Session {
 			tg::grant::permission::object::Permission::Node
 		};
 
-		let (node_solvable, node_solved) = match data {
-			tg::object::Data::File(file) => match file {
-				tg::file::Data::Pointer(_) => (false, true),
-				tg::file::Data::Node(node) => (node.solvable(), node.solved()),
-			},
-			tg::object::Data::Graph(graph) => {
-				graph
-					.nodes
-					.iter()
-					.fold((false, true), |(solvable, solved), node| {
-						if let tg::graph::data::Node::File(file) = node {
-							(solvable || file.solvable(), solved && file.solved())
-						} else {
-							(solvable, solved)
-						}
-					})
-			},
-			_ => (false, true),
-		};
-
-		let metadata = if let Some(metadata) = arg.metadata {
-			metadata
-		} else {
-			tg::object::Metadata {
-				node: tg::object::metadata::Node {
-					size: arg.bytes.len().to_u64().unwrap(),
-					solvable: node_solvable,
-					solved: node_solved,
-				},
-				..Default::default()
-			}
-		};
-		let arg = tangram_index::object::put::Arg {
-			cache_entry: None,
-			children,
-			id: id.clone(),
-			metadata,
-			stored: tangram_index::object::Stored::default(),
-			touched_at: now,
-		};
 		let put_grant = (!matches!(self.context.principal, tg::Principal::Anonymous))
 			.then(|| {
 				let principal = self.context.principal.clone();
@@ -135,21 +89,20 @@ impl Session {
 				})
 			})
 			.transpose()?;
+
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let session = self.clone();
-				async move {
-					let arg = tangram_index::batch::Arg {
-						put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
-						put_objects: vec![arg],
-						..Default::default()
-					};
-					let result = session.server.index.batch(arg).await;
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), "failed to put the object to the index");
-					}
-				}
+			.object_store
+			.put(put_arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+
+		let size = arg.bytes.len().to_u64().unwrap();
+		let put_object = object_index_put_arg(id.clone(), &data, children, size, arg.metadata, now);
+		self.server
+			.index_objects(tangram_index::batch::Arg {
+				put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
+				put_objects: vec![put_object],
+				..Default::default()
 			})
 			.detach();
 
@@ -278,4 +231,36 @@ impl Session {
 
 		Ok(response)
 	}
+}
+
+// Compute the index put argument for an object from its data, recomputing the node metadata unless the metadata is overridden.
+pub(crate) fn object_index_put_arg(
+	id: tg::object::Id,
+	data: &tg::object::Data,
+	children: BTreeSet<tg::object::Id>,
+	size: u64,
+	metadata: Option<tg::object::Metadata>,
+	touched_at: i64,
+) -> tangram_index::object::put::Arg {
+	let metadata = metadata.unwrap_or_else(|| tg::object::Metadata {
+		node: tg::object::metadata::Node::with_data_and_size(data, size),
+		..Default::default()
+	});
+	tangram_index::object::put::Arg {
+		cache_entry: None,
+		children,
+		id,
+		metadata,
+		stored: tangram_index::object::Stored::default(),
+		touched_at,
+	}
+}
+
+// Map an object id to its outbox partition using the index's partitioning scheme.
+pub(crate) fn partition_for_id(id_bytes: &[u8], partition_total: u64) -> u64 {
+	let len = id_bytes.len();
+	let start = len.saturating_sub(8);
+	let mut bytes = [0u8; 8];
+	bytes[8 - (len - start)..].copy_from_slice(&id_bytes[start..]);
+	u64::from_be_bytes(bytes) % partition_total
 }

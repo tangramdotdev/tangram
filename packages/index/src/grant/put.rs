@@ -1,6 +1,6 @@
 use tangram_client::prelude::*;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub created_at: i64,
 	pub creator: Option<tg::Principal>,

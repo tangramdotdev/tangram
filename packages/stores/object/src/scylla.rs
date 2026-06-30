@@ -8,7 +8,10 @@ use {
 mod delete;
 mod flush;
 mod get;
+mod outbox;
 mod put;
+
+pub use outbox::OutboxEntry;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -39,8 +42,12 @@ pub struct Store {
 
 struct Statements {
 	delete_object: scylla::statement::prepared::PreparedStatement,
+	delete_object_outbox: scylla::statement::prepared::PreparedStatement,
+	dequeue_object_outbox: scylla::statement::prepared::PreparedStatement,
+	enqueue_object_outbox: scylla::statement::prepared::PreparedStatement,
 	get_object_batch: scylla::statement::prepared::PreparedStatement,
 	get_object: scylla::statement::prepared::PreparedStatement,
+	outbox_pending: scylla::statement::prepared::PreparedStatement,
 	put_object: scylla::statement::prepared::PreparedStatement,
 }
 
@@ -140,11 +147,64 @@ impl Store {
 			.map_err(|error| tg::error!(!error, "failed to prepare the put statement"))?;
 		put_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
+		let statement = indoc!(
+			"
+				insert into object_outbox (partition, id, enqueued_at, payload)
+				values (?, ?, ?, ?);
+			"
+		);
+		let mut enqueue_object_outbox = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the enqueue outbox statement")
+		})?;
+		enqueue_object_outbox.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
+		let statement = indoc!(
+			"
+				select id, payload
+				from object_outbox
+				where partition = ?
+				limit ?;
+			"
+		);
+		let mut dequeue_object_outbox = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the dequeue outbox statement")
+		})?;
+		dequeue_object_outbox.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				delete from object_outbox
+				where partition = ? and id in ?;
+			"
+		);
+		let mut delete_object_outbox = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the delete outbox statement")
+		})?;
+		delete_object_outbox.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
+		let statement = indoc!(
+			"
+				select partition
+				from object_outbox
+				where partition in ? and enqueued_at <= ?
+				limit 1
+				allow filtering;
+			"
+		);
+		let mut outbox_pending = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the outbox pending statement")
+		})?;
+		outbox_pending.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
 		let scylla = Self {
 			statements: Statements {
 				delete_object,
+				delete_object_outbox,
+				dequeue_object_outbox,
+				enqueue_object_outbox,
 				get_object_batch,
 				get_object,
+				outbox_pending,
 				put_object,
 			},
 			session,

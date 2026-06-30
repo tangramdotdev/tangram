@@ -11,6 +11,50 @@ use {
 	tokio_stream::wrappers::IntervalStream,
 };
 
+const OBJECT_OUTBOX_PARTITION_COUNT: u64 = 256;
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct Payload {
+	grant: Option<tangram_index::grant::put::Arg>,
+	object: Option<PayloadObject>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct PayloadObject {
+	cache_entry: Option<tg::artifact::Id>,
+	children: std::collections::BTreeSet<tg::object::Id>,
+	id: tg::object::Id,
+	metadata: tg::object::Metadata,
+	stored: tangram_index::object::Stored,
+	touched_at: i64,
+}
+
+impl From<tangram_index::object::put::Arg> for PayloadObject {
+	fn from(arg: tangram_index::object::put::Arg) -> Self {
+		Self {
+			cache_entry: arg.cache_entry,
+			children: arg.children,
+			id: arg.id,
+			metadata: arg.metadata,
+			stored: arg.stored,
+			touched_at: arg.touched_at,
+		}
+	}
+}
+
+impl From<PayloadObject> for tangram_index::object::put::Arg {
+	fn from(payload: PayloadObject) -> Self {
+		Self {
+			cache_entry: payload.cache_entry,
+			children: payload.children,
+			id: payload.id,
+			metadata: payload.metadata,
+			stored: payload.stored,
+			touched_at: payload.touched_at,
+		}
+	}
+}
+
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
@@ -476,6 +520,24 @@ impl Session {
 		self.server.index_tasks.wait().await;
 		progress.finish("tasks");
 
+		// Wait for the object outbox to drain all entries enqueued before now. This only applies to servers that run the outbox consumer.
+		if self.server.config.object_outbox.is_some() {
+			let before = time::OffsetDateTime::now_utc().unix_timestamp();
+			progress.spinner("outbox", "waiting for the object outbox");
+			let partitions = (0..OBJECT_OUTBOX_PARTITION_COUNT)
+				.map(|partition| partition.to_i64().unwrap())
+				.collect::<Vec<_>>();
+			while self
+				.server
+				.object_store
+				.outbox_has_pending(partitions.clone(), before)
+				.await?
+			{
+				tokio::time::sleep(Duration::from_millis(100)).await;
+			}
+			progress.finish("outbox");
+		}
+
 		// Subscribe to indexer progress.
 		let wakeups = self
 			.server
@@ -513,6 +575,82 @@ impl Session {
 }
 
 impl Server {
+	pub(crate) fn index_objects(
+		&self,
+		arg: tangram_index::batch::Arg,
+	) -> tangram_futures::task::Shared<()> {
+		self.index_tasks.spawn({
+			let server = self.clone();
+			|_| async move {
+				server
+					.index_objects_task(arg)
+					.await
+					.inspect_err(|error| {
+						tracing::error!(error = %error.trace(), "failed to index the objects");
+					})
+					.ok();
+			}
+		})
+	}
+
+	pub(crate) async fn index_objects_task(
+		&self,
+		mut arg: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		// If the object store does not support the durable outbox, index directly.
+		if !self.object_store.supports_outbox() {
+			return self.index.batch(arg).await;
+		}
+
+		// Take the objects out of the arg.
+		let put_objects = std::mem::take(&mut arg.put_objects);
+
+		// Partition the grants into those for an object being enqueued and the rest.
+		let object_ids = put_objects
+			.iter()
+			.map(|object| tg::Id::from(object.id.clone()))
+			.collect::<std::collections::HashSet<_>>();
+		let mut grants = std::collections::HashMap::new();
+		let mut other_grants = Vec::new();
+		for grant in std::mem::take(&mut arg.put_grants) {
+			if object_ids.contains(&grant.resource) {
+				grants.insert(grant.resource.clone(), grant);
+			} else {
+				other_grants.push(grant);
+			}
+		}
+		arg.put_grants = other_grants;
+
+		// Build the outbox entries.
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let mut entries = Vec::with_capacity(put_objects.len());
+		for object in put_objects {
+			let id = object.id.clone();
+			let grant = grants.remove(&tg::Id::from(id.clone()));
+			let payload = Payload {
+				grant,
+				object: Some(object.into()),
+			};
+			let payload = serde_json::to_vec(&payload)
+				.map_err(|error| tg::error!(!error, "failed to serialize the outbox payload"))?;
+			let partition =
+				crate::object::put::partition_for_id(&id.to_bytes(), OBJECT_OUTBOX_PARTITION_COUNT)
+					.to_i64()
+					.unwrap();
+			entries.push((partition, id, now, payload));
+		}
+
+		// Enqueue the objects to the outbox.
+		self.object_store.enqueue_outbox_batch(entries).await?;
+
+		// Index any remaining non-object args directly.
+		if !arg.is_empty() {
+			self.index.batch(arg).await?;
+		}
+
+		Ok(())
+	}
+
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		let partition_start = config.partition_start;
 		let partition_count = config.partition_count;
@@ -547,6 +685,86 @@ impl Server {
 				},
 			}
 		}
+	}
+
+	pub(crate) async fn object_outbox_task(
+		&self,
+		config: &crate::config::ObjectOutbox,
+	) -> tg::Result<()> {
+		let concurrency = config.concurrency;
+		loop {
+			// Drain all partitions concurrently.
+			let counts = stream::iter(0..OBJECT_OUTBOX_PARTITION_COUNT)
+				.map(|partition| self.object_outbox_drain_partition(config.batch_size, partition))
+				.buffer_unordered(concurrency)
+				.collect::<Vec<_>>()
+				.await;
+			let result = counts.into_iter().sum::<tg::Result<usize>>();
+			match result {
+				Ok(0) => {
+					tokio::time::sleep(Duration::from_millis(100)).await;
+				},
+				Ok(_) => {
+					self.messenger
+						.publish("indexer_progress".to_owned(), ())
+						.await
+						.ok();
+				},
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to drain the object outbox");
+					tokio::time::sleep(Duration::from_secs(1)).await;
+				},
+			}
+		}
+	}
+
+	async fn object_outbox_drain_partition(
+		&self,
+		batch_size: usize,
+		partition: u64,
+	) -> tg::Result<usize> {
+		let partition = partition.to_i64().unwrap();
+		let entries = self
+			.object_store
+			.dequeue_outbox(partition, batch_size.to_i32().unwrap())
+			.await?;
+		if entries.is_empty() {
+			return Ok(0);
+		}
+
+		// Deserialize the payloads. The bytes are stored before the entry is enqueued, so an entry always has its object.
+		let mut put_objects = Vec::new();
+		let mut put_grants = Vec::new();
+		let mut deleted = Vec::new();
+		for (id, payload) in entries {
+			deleted.push(id.clone());
+			let payload = serde_json::from_slice::<Payload>(&payload)
+				.map_err(|error| tg::error!(!error, %id, "failed to deserialize the outbox payload"))?;
+			if let Some(object) = payload.object {
+				put_objects.push(object.into());
+			}
+			if let Some(grant) = payload.grant {
+				put_grants.push(grant);
+			}
+		}
+
+		// Index the objects and grants.
+		if !put_objects.is_empty() || !put_grants.is_empty() {
+			let arg = tangram_index::batch::Arg {
+				put_grants,
+				put_objects,
+				..Default::default()
+			};
+			self.index
+				.batch(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects to the index"))?;
+		}
+
+		// Delete the drained entries from the outbox.
+		self.object_store.delete_outbox(partition, &deleted).await?;
+
+		Ok(deleted.len())
 	}
 }
 

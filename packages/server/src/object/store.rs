@@ -1,6 +1,6 @@
 #[cfg(feature = "lmdb")]
 use std::path::Path;
-use {tangram_client::prelude::*, tangram_object_store as object_store};
+use {bytes::Bytes, tangram_client::prelude::*, tangram_object_store as object_store};
 
 pub use object_store::{CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput};
 
@@ -196,6 +196,78 @@ impl Store {
 			},
 		}
 		Ok(())
+	}
+
+	pub fn supports_outbox(&self) -> bool {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(_) => false,
+			Self::Memory(_) => false,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => true,
+		}
+	}
+
+	pub async fn enqueue_outbox_batch(
+		&self,
+		entries: Vec<(i64, tg::object::Id, i64, Vec<u8>)>,
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(_) => Err(tg::error!("unimplemented")),
+			Self::Memory(_) => Err(tg::error!("unimplemented")),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.enqueue_outbox_batch(entries).await,
+		}
+	}
+
+	pub async fn dequeue_outbox(
+		&self,
+		partition: i64,
+		limit: i32,
+	) -> tg::Result<Vec<(tg::object::Id, Bytes)>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(_) => Err(tg::error!("unimplemented")),
+			Self::Memory(_) => Err(tg::error!("unimplemented")),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => {
+				let entries = scylla.dequeue_outbox(partition, limit).await?;
+				let entries = entries
+					.into_iter()
+					.map(|entry| (entry.id, entry.payload))
+					.collect();
+				Ok(entries)
+			},
+		}
+	}
+
+	pub async fn delete_outbox(
+		&self,
+		partition: i64,
+		ids: &[tg::object::Id],
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(_) => Err(tg::error!("unimplemented")),
+			Self::Memory(_) => Err(tg::error!("unimplemented")),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.delete_outbox(partition, ids).await,
+		}
+	}
+
+	pub async fn outbox_has_pending(
+		&self,
+		partitions: Vec<i64>,
+		before: i64,
+	) -> tg::Result<bool> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(_) => Err(tg::error!("unimplemented")),
+			Self::Memory(_) => Err(tg::error!("unimplemented")),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.outbox_has_pending(partitions, before).await,
+		}
 	}
 }
 

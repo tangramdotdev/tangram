@@ -56,6 +56,13 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub object: Object,
 
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(
+		default = "default_object_outbox",
+		skip_serializing_if = "is_default_object_outbox"
+	)]
+	pub object_outbox: Option<ObjectOutbox>,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub process: Process,
 
@@ -416,6 +423,14 @@ pub struct Indexer {
 	pub partition_count: u64,
 
 	pub partition_start: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ObjectOutbox {
+	pub batch_size: usize,
+
+	pub concurrency: usize,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1072,6 +1087,7 @@ impl Default for Config {
 			logs: Logs::default(),
 			messenger: Messenger::default(),
 			object: Object::default(),
+			object_outbox: Some(ObjectOutbox::default()),
 			process: Process::default(),
 			region: None,
 			regions: None,
@@ -1226,6 +1242,15 @@ impl Default for Indexer {
 			concurrency: 1,
 			partition_count: 256,
 			partition_start: 0,
+		}
+	}
+}
+
+impl Default for ObjectOutbox {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			concurrency: 1,
 		}
 	}
 }
@@ -1696,6 +1721,10 @@ fn default_indexer() -> Option<Indexer> {
 	Some(Indexer::default())
 }
 
+fn default_object_outbox() -> Option<ObjectOutbox> {
+	Some(ObjectOutbox::default())
+}
+
 #[expect(clippy::unnecessary_wraps)]
 fn default_runner() -> Option<Runner> {
 	Some(Runner::default())
@@ -1731,6 +1760,11 @@ fn is_default_http(value: &Option<Http>) -> bool {
 #[expect(clippy::ref_option)]
 fn is_default_indexer(value: &Option<Indexer>) -> bool {
 	is_serialized_default(value, default_indexer())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_object_outbox(value: &Option<ObjectOutbox>) -> bool {
+	is_serialized_default(value, default_object_outbox())
 }
 
 #[expect(clippy::ref_option)]
