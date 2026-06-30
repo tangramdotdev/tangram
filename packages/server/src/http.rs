@@ -454,7 +454,7 @@ impl Server {
 		};
 
 		let mut config = rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
-			rustls::crypto::ring::default_provider(),
+			rustls::crypto::aws_lc_rs::default_provider(),
 		))
 		.with_safe_default_protocol_versions()
 		.map_err(|error| tg::error!(!error, "failed to create the tls config"))?
