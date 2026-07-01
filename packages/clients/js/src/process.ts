@@ -1341,10 +1341,6 @@ export namespace Process {
 		};
 
 		export namespace Data {
-			export let toJson = (data: tg.Process.Wait.Data): unknown => {
-				return undefinedToNull(data);
-			};
-
 			export let fromJson = (json: unknown): tg.Process.Wait.Data => {
 				return nullToUndefined(json);
 			};

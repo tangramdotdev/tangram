@@ -69,6 +69,7 @@ export async function tryGetProcess(
 			location?: string | tg.Location | undefined;
 		}
 	>();
+	output.data = tg.Process.Data.fromJson(output.data);
 	if (typeof output.location === "string") {
 		output.location = tg.Location.fromDataString(output.location);
 	}

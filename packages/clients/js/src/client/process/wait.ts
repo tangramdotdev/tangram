@@ -97,7 +97,7 @@ async function waitProcessOnce(
 	let output: tg.Process.Wait | undefined;
 	for await (let event of response.sse()) {
 		if (event.event === "output") {
-			let data = parseJson(event.data) as tg.Process.Wait.Data;
+			let data = tg.Process.Wait.Data.fromJson(parseJson(event.data));
 			output = tg.Process.Wait.fromData(data);
 		} else if (event.event === "error") {
 			let data = parseJson(event.data) as tg.Error.Data | tg.Error.Id;

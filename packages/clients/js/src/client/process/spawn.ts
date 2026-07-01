@@ -101,6 +101,10 @@ function normalizeSpawnOutput(
 			typeof output.location === "string"
 				? tg.Location.fromDataString(output.location)
 				: output.location,
+		wait:
+			output.wait !== undefined
+				? tg.Process.Wait.Data.fromJson(output.wait)
+				: undefined,
 	};
 }
 
