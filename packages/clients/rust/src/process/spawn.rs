@@ -1187,7 +1187,6 @@ fn normalize_sandbox(
 			}
 			let sandbox = tg::sandbox::create::Arg {
 				cpu,
-				enqueue: false,
 				host: None,
 				hostname: None,
 				isolation: None,
@@ -1208,7 +1207,6 @@ fn normalize_sandbox_create_arg(
 ) -> tg::sandbox::create::Arg {
 	tg::sandbox::create::Arg {
 		cpu: sandbox.cpu,
-		enqueue: sandbox.enqueue,
 		host: None,
 		hostname: sandbox.hostname,
 		isolation: sandbox.isolation,

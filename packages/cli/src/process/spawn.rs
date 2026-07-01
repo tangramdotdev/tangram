@@ -853,7 +853,6 @@ impl Cli {
 				Some(tg::process::SandboxArg::Arg(
 					tg::process::SandboxCreateArg {
 						cpu: options.sandbox.arg.cpu,
-						enqueue: false,
 						hostname: options.sandbox.arg.hostname.clone(),
 						isolation: options.sandbox.arg.isolation,
 						location: None,
