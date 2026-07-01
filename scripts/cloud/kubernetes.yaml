@@ -125,6 +125,8 @@ spec:
           args:
             - --overprovisioned
             - "1"
+            - --max-partition-key-restrictions-per-query
+            - "1024"
           ports:
             - containerPort: 9042
           readinessProbe:
