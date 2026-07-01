@@ -1,5 +1,5 @@
 import * as tg from "../index.ts";
-import { Body } from "./body.ts";
+import { Body, parseJson } from "./body.ts";
 import { Headers } from "./headers.ts";
 
 export class Response {
@@ -85,7 +85,7 @@ export class Response {
 					if (data === undefined) {
 						fail(new Error("missing data"));
 					} else {
-						fail(tg.Error.fromData(JSON.parse(data) as tg.Error.Data));
+						fail(tg.Error.fromData(parseJson(data) as tg.Error.Data));
 					}
 				}
 			});

@@ -1,9 +1,10 @@
 use ../../test.nu *
 
 # A command argument map with an undefined entry must round-trip through the
-# object store. The id is computed locally (keeping the entry as null) while the
-# object is sent as JSON (which drops undefined keys), so storing validates
-# id == hash(bytes) and a divergence throws "invalid object id".
+# object store. The id is computed over the serde/v8 bridge, which keeps the
+# undefined-valued key, while the object is sent as JSON; undefined is converted
+# to null at the JSON boundary so the key survives JSON.stringify. A divergence
+# throws "invalid object id".
 
 let server = spawn
 

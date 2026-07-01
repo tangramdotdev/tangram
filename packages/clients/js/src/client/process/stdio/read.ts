@@ -1,5 +1,11 @@
 import * as tg from "../../../index.ts";
-import { Request, Response, Uri, percentEncode } from "../../../http.ts";
+import {
+	Request,
+	Response,
+	Uri,
+	percentEncode,
+	parseJson,
+} from "../../../http.ts";
 import type { Client } from "../../../client.ts";
 
 export namespace Stdio {
@@ -110,7 +116,7 @@ async function* decodeReadStdioEvents(
 ): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
 	for await (let event of response.sse()) {
 		if (event.event === undefined) {
-			let value = JSON.parse(
+			let value = parseJson(
 				event.data,
 			) as tg.Process.Stdio.Read.Event.Data.Chunk;
 			yield tg.Process.Stdio.Read.Event.fromData({ kind: "chunk", value });
@@ -118,7 +124,7 @@ async function* decodeReadStdioEvents(
 			yield { kind: "end" };
 			break;
 		} else if (event.event === "error") {
-			let data = JSON.parse(event.data) as tg.Error.Data | tg.Error.Id;
+			let data = parseJson(event.data) as tg.Error.Data | tg.Error.Id;
 			if (typeof data === "string") {
 				throw tg.Error.withId(data);
 			} else {

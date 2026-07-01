@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { Request, Uri, percentEncode } from "../../http.ts";
+import { Request, Uri, percentEncode, parseJson } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export namespace Get {
@@ -74,7 +74,7 @@ export async function tryGetProcess(
 	}
 	let metadata = response.headers.get("x-tg-process-metadata");
 	if (metadata !== undefined) {
-		output.metadata = JSON.parse(metadata) as unknown;
+		output.metadata = parseJson(metadata) as unknown;
 	}
 	return output as Get.Output;
 }

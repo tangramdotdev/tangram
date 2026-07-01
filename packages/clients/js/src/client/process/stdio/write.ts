@@ -1,5 +1,13 @@
 import * as tg from "../../../index.ts";
-import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
+import {
+	Body,
+	Request,
+	Response,
+	Uri,
+	percentEncode,
+	parseJson,
+	stringifyJson,
+} from "../../../http.ts";
 import { Queue } from "../../../queue.ts";
 import { Stop } from "../../../stop.ts";
 import type { Client } from "../../../client.ts";
@@ -138,7 +146,7 @@ async function* decodeWriteStdioEvents(
 ): AsyncIterableIterator<tg.Process.Stdio.Write.Event> {
 	for await (let event of response.sse()) {
 		if (event.event === "error") {
-			let data = JSON.parse(event.data) as tg.Error.Data | tg.Error.Id;
+			let data = parseJson(event.data) as tg.Error.Data | tg.Error.Id;
 			if (typeof data === "string") {
 				throw tg.Error.withId(data);
 			} else {
@@ -182,7 +190,7 @@ async function* encodeReadStdioEvents(
 			throw new Error("invalid process stdio stream");
 		}
 		yield {
-			data: JSON.stringify(data.value),
+			data: stringifyJson(data.value),
 		};
 	}
 	if (!ended) {

@@ -18,7 +18,6 @@ export type MaybeMutationMap<
 
 export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 	| undefined
-	| null
 	| boolean
 	| number
 	| string

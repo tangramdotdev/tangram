@@ -16,7 +16,7 @@ export class Body implements AsyncIterable<Uint8Array> {
 	}
 
 	static json(value: unknown) {
-		return Body.text(JSON.stringify(value));
+		return Body.text(stringifyJson(value));
 	}
 
 	static sse(events: AsyncIterable<Body.SseEvent>) {
@@ -38,7 +38,7 @@ export class Body implements AsyncIterable<Uint8Array> {
 	async json<T = unknown>() {
 		let bytes = await this.collect();
 		let string = tg.encoding.utf8.decode(bytes);
-		return JSON.parse(string) as T;
+		return parseJson(string) as T;
 	}
 
 	sse() {
@@ -163,3 +163,62 @@ function concat(chunks: Array<Uint8Array>) {
 	}
 	return output;
 }
+
+export let stringifyJson = (value: unknown): string =>
+	JSON.stringify(undefinedToNull(value));
+
+export let parseJson = (string: string): unknown =>
+	nullToUndefined(JSON.parse(string));
+
+let undefinedToNull = (value: unknown): unknown => {
+	if (value === undefined) {
+		return null;
+	} else if (Array.isArray(value)) {
+		return value.map(undefinedToNull);
+	} else if (isValueDataMap(value)) {
+		let entries: { [key: string]: unknown } = {};
+		for (let [key, entry] of Object.entries(value.value)) {
+			entries[key] = undefinedToNull(entry);
+		}
+		return { ...value, value: entries };
+	} else if (isPlainObject(value)) {
+		let output: { [key: string]: unknown } = {};
+		for (let [key, entry] of Object.entries(value)) {
+			if (entry !== undefined) {
+				output[key] = undefinedToNull(entry);
+			}
+		}
+		return output;
+	} else {
+		return value;
+	}
+};
+
+let nullToUndefined = (value: unknown): unknown => {
+	if (value === null) {
+		return undefined;
+	} else if (Array.isArray(value)) {
+		return value.map(nullToUndefined);
+	} else if (isPlainObject(value)) {
+		let output: { [key: string]: unknown } = {};
+		for (let [key, entry] of Object.entries(value)) {
+			output[key] = nullToUndefined(entry);
+		}
+		return output;
+	} else {
+		return value;
+	}
+};
+
+let isPlainObject = (value: unknown): value is { [key: string]: unknown } => {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	let prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+};
+
+let isValueDataMap = (
+	value: unknown,
+): value is { kind: "map"; value: { [key: string]: unknown } } =>
+	isPlainObject(value) && value.kind === "map" && isPlainObject(value.value);

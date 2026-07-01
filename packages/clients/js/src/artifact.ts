@@ -83,10 +83,7 @@ export namespace Artifact {
 
 	/** Get an artifact with an ID. */
 	export let withId = (id: tg.Artifact.Id): tg.Artifact => {
-		tg.assert(
-			typeof id === "string",
-			`expected a string: ${JSON.stringify(id)}`,
-		);
+		tg.assert(typeof id === "string", `expected a string: ${id}`);
 		let prefix = id.substring(0, 3);
 		if (prefix === "dir") {
 			return tg.Directory.withId(id);

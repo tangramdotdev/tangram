@@ -1305,7 +1305,7 @@ export namespace Process {
 			if (data.log !== undefined && typeof data.log !== "string") {
 				data.log = data.log.id;
 			}
-			if ("output" in data) {
+			if (data.output !== undefined) {
 				tg.Value.Data.removeTokens(data.output);
 			}
 			return data;
