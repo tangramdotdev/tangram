@@ -186,16 +186,15 @@ impl Session {
 			self.authorize_owner(sandbox.owner.as_ref()).await?;
 		}
 
-		// Try to acquire a permit to run the process on the local runner. If a permit is acquired,
-		// then the process is created as claimed and run directly. Otherwise, it is scheduled.
+		// Try to acquire a permit to run the process on this runner. If a permit is acquired, then
+		// the process is created as claimed and run directly. Otherwise, it is scheduled.
 		let mut permit = match &arg.sandbox {
-			Some(tg::Either::Left(sandbox)) if !sandbox.enqueue => {
-				self.try_acquire_sandbox_permit(parent_sandbox.as_ref())
-			},
+			Some(tg::Either::Left(_)) => self.try_acquire_sandbox_permit(parent_sandbox.as_ref()),
 			_ => None,
 		};
 
 		// Get or create a local process in the process store.
+		let has_permit = permit.is_some();
 		let session = self.clone();
 		let mut output = self
 			.server
@@ -212,6 +211,7 @@ impl Session {
 							&arg,
 							parent_sandbox.as_ref(),
 							cacheable,
+							has_permit,
 							Some(host.as_str()),
 						)
 						.await
@@ -279,16 +279,7 @@ impl Session {
 			self.server.spawn_publish_watchdog_message_task();
 		}
 
-		// If the process is unfinished and a local permit was not acquired, then dispatch it to a
-		// runner via the scheduler. A new sandbox is created via the scheduler first. A deduplicated
-		// process is dispatched by its creator, so it is only waited for here.
-		let mut schedule: Option<(
-			tg::sandbox::Id,
-			tg::process::Id,
-			Option<tg::sandbox::create::Arg>,
-			Option<String>,
-			Option<String>,
-		)> = None;
+		// If the process is unfinished, then dispatch it.
 		if let Some(output) = &mut output
 			&& !output.status.is_finished()
 			&& !output.cached
@@ -306,82 +297,39 @@ impl Session {
 					token: sandbox_token,
 				});
 			} else if let Some(tg::Either::Left(sandbox_arg)) = &arg.sandbox {
+				if let Some(parent_sandbox) = parent_sandbox.as_ref()
+					&& self.server.sandbox_permits.contains_key(parent_sandbox)
+				{
+					self.spawn_process_parent_permit_task(
+						parent_sandbox,
+						&sandbox,
+						&output.id,
+						process_token.clone(),
+						sandbox_token.clone(),
+					);
+				}
+
 				// A new sandbox runs the process, so it must run on a runner matching the process host.
 				let mut sandbox_arg = sandbox_arg.clone();
 				if sandbox_arg.host.is_none() {
 					sandbox_arg.host = Some(host.clone());
 				}
-				schedule = Some((
-					sandbox,
-					output.id.clone(),
+				self.spawn_process_scheduler_task(
+					&sandbox,
+					&output.id,
 					Some(sandbox_arg),
 					sandbox_token,
 					process_token,
-				));
+				);
 			} else {
-				schedule = Some((
-					sandbox,
-					output.id.clone(),
+				self.spawn_process_scheduler_task(
+					&sandbox,
+					&output.id,
 					None,
 					sandbox_token,
 					process_token,
-				));
+				);
 			}
-		}
-
-		// Dispatch the process to a runner in a separate task so that it is not cancelled if the
-		// spawn returns early with a cached process. A new sandbox is created with the process, while
-		// an existing sandbox has the process queued to it.
-		if let Some((sandbox, process, sandbox_arg, sandbox_token, process_token)) = schedule {
-			let session = self.clone();
-			self.server
-				.dispatch_tasks
-				.spawn(|_| async move {
-					let result = match sandbox_arg {
-						Some(sandbox_arg) => {
-							session
-								.schedule_process(
-									&sandbox,
-									sandbox_arg,
-									Some(&process),
-									sandbox_token,
-									process_token,
-								)
-								.await
-						},
-						None => {
-							session
-								.dispatch_process(&sandbox, &process, process_token)
-								.await
-						},
-					};
-					if let Err(error) = result {
-						tracing::error!(%error, %process, "failed to dispatch the process");
-						let mut error = error.to_data_or_id();
-						if !session.server.config.advanced.internal_error_locations
-							&& let tg::Either::Left(error) = &mut error
-						{
-							error.remove_internal_locations();
-						}
-						let arg = tg::process::finish::Arg {
-							checksum: None,
-							error: Some(error),
-							exit: 1,
-							location: Some(
-								tg::Location::Local(tg::location::Local::default()).into(),
-							),
-							output: None,
-						};
-						session
-							.try_finish_process(&process, arg)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(%error, %process, "failed to finish the process after dispatch failed");
-							})
-							.ok();
-					}
-				})
-				.detach();
 		}
 
 		// Determine if the local process is finished.
@@ -867,6 +815,7 @@ impl Session {
 		arg: &tg::process::spawn::Arg,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
+		has_permit: bool,
 		host: Option<&str>,
 	) -> tg::Result<ControlFlow<Option<LocalOutput>, database::Error>> {
 		let mut output = None;
@@ -915,7 +864,15 @@ impl Session {
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = match self
-				.create_local_process(transaction, arg, parent_sandbox, cacheable, host, owner)
+				.create_local_process(
+					transaction,
+					arg,
+					parent_sandbox,
+					cacheable,
+					has_permit,
+					host,
+					owner,
+				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create a local process"))?
 			{
@@ -1517,6 +1474,7 @@ impl Session {
 		arg: &tg::process::spawn::Arg,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
+		has_permit: bool,
 		host: &str,
 		owner: Option<tg::Principal>,
 	) -> tg::Result<ControlFlow<LocalOutput, database::Error>> {
@@ -1531,8 +1489,11 @@ impl Session {
 		let (sandbox, sandbox_token) = match &arg.sandbox {
 			None => return Err(tg::error!("expected the sandbox to be set")),
 			Some(tg::Either::Left(sandbox_arg)) => {
-				// The sandbox is created as started since a runner starts it when it picks it up.
-				let status = tg::sandbox::Status::Started;
+				let status = if has_permit {
+					tg::sandbox::Status::Started
+				} else {
+					tg::sandbox::Status::Created
+				};
 				let sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
 				let sandbox = match self
 					.create_local_sandbox_with_transaction(
@@ -1584,8 +1545,11 @@ impl Session {
 			},
 		};
 
-		// The process is started once a runner picks it up, which spawn blocks on, so it is created as started.
-		let status = tg::process::Status::Started;
+		let status = if has_permit {
+			tg::process::Status::Started
+		} else {
+			tg::process::Status::Created
+		};
 		// Insert the process.
 		let statement = formatdoc!(
 			"
@@ -1635,7 +1599,7 @@ impl Session {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let token = self.create_process_wait_token(&id, now)?;
-		let started_at = Some(now);
+		let started_at = (status == tg::process::Status::Started).then_some(now);
 		let tty = match arg.tty.as_ref() {
 			None => None,
 			Some(tty) => Some(
@@ -1964,6 +1928,129 @@ impl Session {
 			.try_acquire_owned()
 			.ok()
 			.map(|permit| crate::sandbox::Permit(tg::Either::Left(permit)))
+	}
+
+	fn spawn_process_parent_permit_task(
+		&self,
+		parent_sandbox: &tg::sandbox::Id,
+		id: &tg::sandbox::Id,
+		process: &tg::process::Id,
+		process_token: Option<String>,
+		token: Option<String>,
+	) {
+		tokio::spawn({
+			let session = self.clone();
+			let parent_sandbox = parent_sandbox.clone();
+			let sandbox = id.clone();
+			let process = process.clone();
+			async move {
+				let Some(parent_permit) = session
+					.server
+					.sandbox_permits
+					.get(&parent_sandbox)
+					.map(|permit| permit.clone())
+				else {
+					return;
+				};
+				let permit = parent_permit
+					.lock_owned()
+					.map(|guard| crate::sandbox::Permit(tg::Either::Right(guard)))
+					.await;
+				let Ok(started) = session
+					.start_sandbox_process(&sandbox, Some(&process))
+					.await
+					.inspect_err(|error| {
+						tracing::trace!(
+							error = %error.trace(),
+							sandbox = %sandbox,
+							process = %process,
+							"failed to start the sandbox process with the parent permit"
+						);
+					})
+				else {
+					return;
+				};
+				if !started {
+					return;
+				}
+				session.server.spawn_sandbox_task(SpawnSandboxTaskArg {
+					id: sandbox,
+					location: tg::Location::Local(tg::location::Local::default()),
+					permit,
+					process: Some(process),
+					process_token,
+					token,
+				});
+			}
+		});
+	}
+
+	fn spawn_process_scheduler_task(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		process: &tg::process::Id,
+		sandbox_arg: Option<tg::sandbox::create::Arg>,
+		sandbox_token: Option<String>,
+		process_token: Option<String>,
+	) {
+		let session = self.clone();
+		let process = process.clone();
+		let sandbox = sandbox.clone();
+		self.server
+			.dispatch_tasks
+			.spawn(|_| async move {
+				let result = match sandbox_arg {
+					Some(sandbox_arg) => {
+						session
+							.schedule_process(
+								&sandbox,
+								sandbox_arg,
+								Some(&process),
+								sandbox_token,
+								process_token,
+							)
+							.await
+					},
+					None => {
+						session
+							.dispatch_process(&sandbox, &process, process_token)
+							.await
+					},
+				};
+				if let Err(error) = result {
+					session
+						.finish_process_after_dispatch_failed(&process, error)
+						.await;
+				}
+			})
+			.detach();
+	}
+
+	async fn finish_process_after_dispatch_failed(
+		&self,
+		process: &tg::process::Id,
+		error: tg::Error,
+	) {
+		tracing::error!(%error, %process, "failed to dispatch the process");
+		let mut error = error.to_data_or_id();
+		if !self.server.config.advanced.internal_error_locations
+			&& let tg::Either::Left(error) = &mut error
+		{
+			error.remove_internal_locations();
+		}
+		let arg = tg::process::finish::Arg {
+			checksum: None,
+			error: Some(error),
+			exit: 1,
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			output: None,
+		};
+		self.try_finish_process(process, arg)
+			.await
+			.inspect_err(|error| {
+				tracing::error!(%error, %process, "failed to finish the process after dispatch failed");
+			})
+			.ok();
 	}
 
 	async fn add_process_child_creates_cycle_with_transaction(

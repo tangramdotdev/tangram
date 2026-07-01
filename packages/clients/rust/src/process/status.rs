@@ -27,6 +27,7 @@ use {
 #[from_str(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Status {
+	Created,
 	Started,
 	Finished,
 }

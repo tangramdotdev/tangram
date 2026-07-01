@@ -551,6 +551,9 @@ impl Session {
 		}
 		drop(input);
 
+		// Release the sandbox's permit before telling the scheduler that capacity is available.
+		self.server.sandbox_permits.remove(id);
+
 		// Deregister the sandbox's placement with the scheduler.
 		self.deregister_sandbox_with_scheduler(id).await;
 

@@ -274,7 +274,7 @@ impl Session {
 }
 
 impl Server {
-	fn spawn_publish_process_status_task(&self, id: &tg::process::Id) {
+	pub(crate) fn spawn_publish_process_status_task(&self, id: &tg::process::Id) {
 		let subject = format!("processes.{id}.status");
 		tokio::spawn({
 			let server = self.clone();

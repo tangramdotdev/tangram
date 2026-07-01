@@ -161,7 +161,7 @@ impl Server {
 
 					let tg::runner::control::ServerRequest::CreateSandbox(request) = request;
 
-					// Acquire a permit and start the sandbox; if none, a local child sandbox took it, so report not created.
+					// Acquire a permit and spawn the sandbox. If none is available, report not created.
 					let created =
 						if let Ok(permit) = self.sandbox_semaphore.clone().try_acquire_owned() {
 							let permit = crate::sandbox::Permit(tg::Either::Left(permit));

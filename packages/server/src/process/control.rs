@@ -50,13 +50,19 @@ impl Session {
 			.map_or(Duration::from_secs(10), |runner| runner.control_timeout);
 		let mut deadline = None;
 		let mut status = pin!(status);
-		if !matches!(
-			status.try_next().await?,
-			Some(tg::process::status::Event::Status(
-				tg::process::Status::Started
-			))
-		) {
-			deadline.replace(tokio::time::Instant::now() + grace);
+		loop {
+			let Some(event) = status.try_next().await? else {
+				deadline.replace(tokio::time::Instant::now() + grace);
+				break;
+			};
+			match event {
+				tg::process::status::Event::Status(tg::process::Status::Created) => (),
+				tg::process::status::Event::Status(tg::process::Status::Started) => break,
+				_ => {
+					deadline.replace(tokio::time::Instant::now() + grace);
+					break;
+				},
+			}
 		}
 
 		// Create the request.

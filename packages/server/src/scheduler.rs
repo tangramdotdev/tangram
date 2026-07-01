@@ -448,6 +448,34 @@ impl Scheduler {
 
 			// Check if the sandbox was actually created, or the runner rejected the request.
 			if runner_response.is_some_and(|response| response.created) {
+				let session = self.server.session(&self.server.context);
+				let result = session
+					.start_sandbox_process(&sandbox, process.as_ref())
+					.await;
+				match result {
+					Ok(true) => {},
+					Ok(false) => {
+						self.release_runner_reservation(&runner);
+						excluded.insert(runner);
+						continue;
+					},
+					Err(error) => {
+						self.release_runner_reservation(&runner);
+						let error = match error.to_data_or_id() {
+							tg::Either::Left(error) => error,
+							tg::Either::Right(error) => tg::error::Data {
+								message: Some(error.to_string()),
+								..Default::default()
+							},
+						};
+						break CreateSandboxResponse {
+							created: false,
+							error: Some(error),
+							id: id.clone(),
+							sandbox: sandbox.clone(),
+						};
+					},
+				}
 				self.confirm_runner_reservation(&runner, &sandbox);
 				break CreateSandboxResponse {
 					id: id.clone(),
