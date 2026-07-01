@@ -15,11 +15,6 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::get::Output>>>;
 
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::sandbox::queue::Output>>>;
-
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -42,12 +37,6 @@ pub trait Sandbox: Send + Sync + 'static {
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>;
-
-	fn try_dequeue_sandbox_process<'a>(
-		&'a self,
-		sandbox: &'a tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::process::queue::Output>>>;
 }
 
 impl<T> Sandbox for T
@@ -67,13 +56,6 @@ where
 		arg: tg::sandbox::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::get::Output>>> {
 		self.try_get_sandbox(id, arg).boxed()
-	}
-
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::sandbox::queue::Output>>> {
-		self.try_dequeue_sandbox(arg).boxed()
 	}
 
 	fn list_sandboxes(
@@ -112,13 +94,5 @@ where
 				.map(futures::StreamExt::boxed))
 		}
 		.boxed()
-	}
-
-	fn try_dequeue_sandbox_process<'a>(
-		&'a self,
-		sandbox: &'a tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::process::queue::Output>>> {
-		self.try_dequeue_sandbox_process(sandbox, arg).boxed()
 	}
 }

@@ -62,27 +62,21 @@ impl Session {
 
 			#[derive(db::row::Deserialize)]
 			struct Row {
-				created: u64,
 				started: u64,
 			}
 			let statement = indoc!(
 				"
 					select
-						(select count(*) from processes where status = 'created') as created,
 						(select count(*) from processes where status = 'started') as started;
 				"
 			);
 			let params = db::params![];
-			let Row { created, started } = connection
+			let Row { started } = connection
 				.query_one_into::<Row>(statement.into(), params)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 
-			Some(tg::health::Processes {
-				created,
-				permits,
-				started,
-			})
+			Some(tg::health::Processes { permits, started })
 		} else {
 			None
 		};

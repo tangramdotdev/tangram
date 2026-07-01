@@ -160,6 +160,7 @@ impl Cli {
 					process: process.item().id().cloned(),
 					token: process.item().token(),
 					wait: process.item().wait_output(),
+					sandbox: None,
 				};
 				let value = serde_json::to_value(output)
 					.map_err(|error| tg::error!(!error, "failed to serialize the output"))?

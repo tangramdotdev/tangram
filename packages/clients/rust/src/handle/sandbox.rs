@@ -24,22 +24,6 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::sandbox::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::sandbox::get::Output>>> + Send;
 
-	fn dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::queue::Output>> + Send {
-		async move {
-			self.try_dequeue_sandbox(arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the sandbox"))
-		}
-	}
-
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::queue::Output>>> + Send;
-
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -92,24 +76,6 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 		>,
 	> + Send;
-
-	fn dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::process::queue::Output>> + Send {
-		async move {
-			self.try_dequeue_sandbox_process(sandbox, arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the sandbox"))
-		}
-	}
-
-	fn try_dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> + Send;
 }
 
 impl tg::handle::Sandbox for tg::Client {
@@ -126,13 +92,6 @@ impl tg::handle::Sandbox for tg::Client {
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		self.session(&self.context).try_get_sandbox(id, arg).await
-	}
-
-	async fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		self.session(&self.context).try_dequeue_sandbox(arg).await
 	}
 
 	async fn list_sandboxes(
@@ -171,16 +130,6 @@ impl tg::handle::Sandbox for tg::Client {
 	> {
 		self.session(&self.context)
 			.try_get_sandbox_status_stream(id, arg)
-			.await
-	}
-
-	async fn try_dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		self.session(&self.context)
-			.try_dequeue_sandbox_process(sandbox, arg)
 			.await
 	}
 }

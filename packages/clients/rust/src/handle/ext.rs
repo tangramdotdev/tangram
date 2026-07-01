@@ -485,6 +485,105 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
+	fn get_runner_control_stream_all(
+		&self,
+		id: &tg::runner::Id,
+		arg: tg::runner::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::runner::control::InputEvent>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::runner::control::OutputEvent>> + Send + 'static,
+		>,
+	> + Send {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+
+			// Create a channel for buffering events from the input.
+			let (input_sender, input_receiver) = async_channel::bounded(1);
+
+			// Create the input task. This will read events from the input stream and write them to the input channel. It is detached so that it forwards the remaining events when the request stream is dropped. It completes when the input stream ends or all of the receivers are dropped.
+			let mut input_task = Task::spawn(move |_| async move {
+				let mut input = pin!(stream);
+				while let Some(event) = input.next().await {
+					if input_sender.send(event).await.is_err() {
+						break;
+					}
+				}
+			});
+			input_task.detach();
+
+			// Get the initial output stream.
+			let output = handle
+				.get_runner_control_stream(&id, arg.clone(), input_receiver.clone().boxed())
+				.await?;
+
+			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
+			struct State {
+				retries: Option<BoxStream<'static, ()>>,
+				stream: Option<BoxStream<'static, tg::Result<tg::runner::control::OutputEvent>>>,
+			}
+			let state = State {
+				retries: None,
+				stream: Some(output.boxed()),
+			};
+			let stream = stream::unfold(state, move |mut state| {
+				let handle = handle.clone();
+				let id = id.clone();
+				let arg = arg.clone();
+				let input_receiver = input_receiver.clone();
+				async move {
+					loop {
+						if state.stream.is_none() {
+							let retries = state.retries.get_or_insert_with(|| {
+								let options = tangram_futures::retry::Options {
+									max_retries: u64::MAX,
+									..Default::default()
+								};
+								tangram_futures::retry::stream(options).boxed()
+							});
+							retries.next().await?;
+							match handle
+								.get_runner_control_stream(
+									&id,
+									arg.clone(),
+									input_receiver.clone().boxed(),
+								)
+								.await
+							{
+								Ok(stream) => {
+									state.stream.replace(stream.boxed());
+								},
+								Err(error) => {
+									tracing::error!(error = %error.trace(), "failed to reconnect the control stream");
+									continue;
+								},
+							}
+						}
+						match state.stream.as_mut().unwrap().next().await {
+							Some(Ok(event)) => {
+								state.retries.take();
+								return Some((Ok(event), state));
+							},
+							Some(Err(error)) => {
+								tracing::error!(error = %error.trace(), "the control stream returned an error");
+								state.stream.take();
+							},
+							None => {
+								state.stream.take();
+							},
+						}
+					}
+				}
+			})
+			.take_while(|event| {
+				future::ready(!matches!(event, Ok(tg::runner::control::OutputEvent::End)))
+			});
+
+			Ok(stream)
+		}
+	}
+
 	fn try_read_process_stdio_all(
 		&self,
 		id: &tg::process::Id,

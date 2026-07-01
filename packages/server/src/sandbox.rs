@@ -1,7 +1,6 @@
 use {
 	crate::{Server, Session, database},
 	dashmap::DashMap,
-	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
@@ -17,7 +16,6 @@ pub mod heartbeat;
 pub mod isolation;
 pub mod list;
 pub mod process;
-pub mod queue;
 pub mod status;
 
 pub type Map = DashMap<tg::sandbox::Id, tangram_sandbox::Sandbox, tg::id::BuildHasher>;
@@ -31,6 +29,18 @@ pub struct Permit(
 );
 
 pub type Tasks = tangram_futures::task::Map<tg::sandbox::Id, (), (), tg::id::BuildHasher>;
+
+// Each dispatched process carries a oneshot to report back whether it actually started, so the
+// runner acks the scheduler only after the sandbox has started the process.
+pub type ProcessSenders = DashMap<
+	tg::sandbox::Id,
+	tokio::sync::mpsc::Sender<(
+		tg::process::Id,
+		Option<String>,
+		tokio::sync::oneshot::Sender<bool>,
+	)>,
+	tg::id::BuildHasher,
+>;
 
 impl Session {
 	pub(super) fn create_sandbox_token_string() -> String {
@@ -81,48 +91,6 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		drop(connection);
 		Ok(exists)
-	}
-
-	pub(crate) async fn try_start_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
-		let sandbox = id.to_string();
-		let n = self
-			.process_store
-			.run(|transaction| {
-				let sandbox = sandbox.clone();
-				async move { Self::try_start_sandbox_with_transaction(transaction, &sandbox).await }
-					.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the sandbox"))?;
-		if n == 0 {
-			return Ok(false);
-		}
-		self.spawn_publish_sandbox_status_task(id);
-		Ok(true)
-	}
-
-	async fn try_start_sandbox_with_transaction(
-		transaction: &database::Transaction<'_>,
-		sandbox: &str,
-	) -> tg::Result<ControlFlow<u64, database::Error>> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				update sandboxes
-				set
-					heartbeat_at = {p}1,
-					started_at = case when started_at is null then {p}1 else started_at end,
-					status = 'started'
-				where
-					id = {p}2 and
-					status = 'created';
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, sandbox];
-		let result = transaction.execute(statement.into(), params).await;
-		let n = crate::database::retry!(result, "failed to execute the statement");
-		Ok(ControlFlow::Break(n))
 	}
 
 	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {

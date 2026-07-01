@@ -50,21 +50,13 @@ impl Session {
 			.map_or(Duration::from_secs(10), |runner| runner.control_timeout);
 		let mut deadline = None;
 		let mut status = pin!(status);
-		loop {
-			let Some(event) = status.try_next().await? else {
-				deadline.replace(tokio::time::Instant::now() + grace);
-				break;
-			};
-			match event {
-				tg::process::status::Event::Status(
-					tg::process::Status::Created | tg::process::Status::Dequeued,
-				) => (),
-				tg::process::status::Event::Status(tg::process::Status::Started) => break,
-				_ => {
-					deadline.replace(tokio::time::Instant::now() + grace);
-					break;
-				},
-			}
+		if !matches!(
+			status.try_next().await?,
+			Some(tg::process::status::Event::Status(
+				tg::process::Status::Started
+			))
+		) {
+			deadline.replace(tokio::time::Instant::now() + grace);
 		}
 
 		// Create the request.
@@ -260,12 +252,6 @@ impl Session {
 				future::ready(payload)
 			})
 			.boxed();
-
-		// Mark the process started now that the subscription exists. This is a no-op if the process was already started, which is allowed due to reconnection.
-		self.server
-			.try_start_process_local(id)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to start the process"))?;
 
 		Ok(Some(requests))
 	}
