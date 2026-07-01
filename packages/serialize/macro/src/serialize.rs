@@ -200,7 +200,12 @@ impl Enum<'_> {
 		let ident = self.ident;
 
 		// Generate the body.
-		let body = if self.untagged {
+		let body = if self.variants.is_empty() {
+			quote! {
+				let _ = serializer;
+				::std::result::Result::Err(::std::io::Error::other("cannot serialize an empty enum"))
+			}
+		} else if self.untagged {
 			// For untagged enums, serialize variant data without Kind::Enum wrapper and variant ID.
 			let unit_variants = self
 				.variants

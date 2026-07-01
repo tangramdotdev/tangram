@@ -288,7 +288,20 @@ impl Enum<'_> {
 		let ident = self.ident;
 
 		// Generate the body.
-		let body = if self.untagged {
+		let body = if self.variants.is_empty() {
+			if self.untagged {
+				quote! {
+					let _ = deserializer;
+					::std::result::Result::Err(::std::io::Error::other("invalid variant"))
+				}
+			} else {
+				quote! {
+					deserializer.ensure_kind(tangram_serialize::Kind::Enum)?;
+					let _ = deserializer.read_id()?;
+					::std::result::Result::Err(::std::io::Error::other("invalid variant"))
+				}
+			}
+		} else if self.untagged {
 			// For untagged enums, try each variant in order with backtracking.
 			let variant_attempts = self
 				.variants
