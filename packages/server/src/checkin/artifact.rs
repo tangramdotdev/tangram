@@ -919,13 +919,24 @@ impl Session {
 			touched_at,
 		};
 		self.server
-			.index
-			.batch(tangram_index::batch::Arg {
-				put_objects: vec![put_object_arg],
-				..Default::default()
+			.index_tasks
+			.spawn({
+				let session = self.clone();
+				move |_| async move {
+					let result = session
+						.server
+						.index
+						.batch(tangram_index::batch::Arg {
+							put_objects: vec![put_object_arg],
+							..Default::default()
+						})
+						.await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), "failed to index the object");
+					}
+				}
 			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+			.detach();
 
 		let id = id.try_into().unwrap();
 
