@@ -21,8 +21,8 @@ create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where stat
 create index sandboxes_status_index on sandboxes (status);
 
 create table sandbox_tokens (
-	sandbox text not null,
-	token text primary key
+	token text primary key,
+	sandbox text not null
 );
 
 create index sandbox_tokens_sandbox_index on sandbox_tokens (sandbox);
@@ -69,8 +69,8 @@ create index processes_status_index on processes (status);
 create index processes_creator_status_index on processes (creator, status);
 
 create table process_tokens (
-	process text not null,
-	token text primary key
+	token text primary key,
+	process text not null
 );
 
 create index process_tokens_process_index on process_tokens (process);

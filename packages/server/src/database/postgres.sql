@@ -45,7 +45,7 @@ create table logins (
 );
 
 create table user_tokens (
-	id text primary key,
+	token text primary key,
 	"user" text not null,
 	foreign key ("user") references users (id)
 );

@@ -421,7 +421,7 @@ impl Server {
 				from users
 				join nodes on nodes.id = users.id
 				join user_tokens on user_tokens."user" = users.id
-				where user_tokens.id = {p}1;
+				where user_tokens.token = {p}1;
 			"#
 		);
 		let params = db::params![token];

@@ -63,7 +63,7 @@ impl Session {
 					let p = transaction.p();
 					let statement = formatdoc!(
 						r#"
-							insert into user_tokens (id, "user")
+							insert into user_tokens (token, "user")
 							values ({p}1, {p}2);
 						"#
 					);
