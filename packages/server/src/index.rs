@@ -14,12 +14,6 @@ use {
 const OBJECT_OUTBOX_PARTITION_COUNT: u64 = 256;
 
 #[derive(serde::Deserialize, serde::Serialize)]
-struct Payload {
-	grant: Option<tangram_index::grant::put::Arg>,
-	object: Option<PayloadObject>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
 struct PayloadObject {
 	cache_entry: Option<tg::artifact::Id>,
 	children: std::collections::BTreeSet<tg::object::Id>,
@@ -522,7 +516,9 @@ impl Session {
 
 		// Wait for the object outbox to drain all entries enqueued before now. This only applies to servers that run the outbox consumer.
 		if self.server.config.object_outbox.is_some() {
-			let before = time::OffsetDateTime::now_utc().unix_timestamp();
+			let before = (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)
+				.to_i64()
+				.unwrap();
 			progress.spinner("outbox", "waiting for the object outbox");
 			let partitions = (0..OBJECT_OUTBOX_PARTITION_COUNT)
 				.map(|partition| partition.to_i64().unwrap())
@@ -621,23 +617,22 @@ impl Server {
 		}
 		arg.put_grants = other_grants;
 
-		// Build the outbox entries.
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		// Build the outbox entries. Each object is enqueued as a row carrying its metadata payload and, when present, its grant payload.
 		let mut entries = Vec::with_capacity(put_objects.len());
 		for object in put_objects {
 			let id = object.id.clone();
-			let grant = grants.remove(&tg::Id::from(id.clone()));
-			let payload = Payload {
-				grant,
-				object: Some(object.into()),
-			};
-			let payload = serde_json::to_vec(&payload)
-				.map_err(|error| tg::error!(!error, "failed to serialize the outbox payload"))?;
+			let grant = grants
+				.remove(&tg::Id::from(id.clone()))
+				.map(|grant| serde_json::to_vec(&grant))
+				.transpose()
+				.map_err(|error| tg::error!(!error, "failed to serialize the grant payload"))?;
+			let metadata = serde_json::to_vec(&PayloadObject::from(object))
+				.map_err(|error| tg::error!(!error, "failed to serialize the metadata payload"))?;
 			let partition =
 				crate::object::put::partition_for_id(&id.to_bytes(), OBJECT_OUTBOX_PARTITION_COUNT)
 					.to_i64()
 					.unwrap();
-			entries.push((partition, id, now, payload));
+			entries.push((partition, id, grant, Some(metadata)));
 		}
 
 		// Enqueue the objects to the outbox.
@@ -724,26 +719,31 @@ impl Server {
 		partition: u64,
 	) -> tg::Result<usize> {
 		let partition = partition.to_i64().unwrap();
-		let entries = self
+		let items = self
 			.object_store
 			.dequeue_outbox(partition, batch_size.to_i32().unwrap())
 			.await?;
-		if entries.is_empty() {
+		if items.is_empty() {
 			return Ok(0);
 		}
 
-		// Deserialize the payloads. The bytes are stored before the entry is enqueued, so an entry always has its object.
+		// Deserialize the payloads. Each item carries a metadata payload, a grant payload, or both.
 		let mut put_objects = Vec::new();
 		let mut put_grants = Vec::new();
-		let mut deleted = Vec::new();
-		for (id, payload) in entries {
-			deleted.push(id.clone());
-			let payload = serde_json::from_slice::<Payload>(&payload)
-				.map_err(|error| tg::error!(!error, %id, "failed to deserialize the outbox payload"))?;
-			if let Some(object) = payload.object {
+		let mut tokens = Vec::with_capacity(items.len());
+		for item in items {
+			tokens.push(item.token);
+			if let Some(metadata) = item.metadata {
+				let object = serde_json::from_slice::<PayloadObject>(&metadata).map_err(
+					|error| tg::error!(!error, id = %item.id, "failed to deserialize the metadata payload"),
+				)?;
 				put_objects.push(object.into());
 			}
-			if let Some(grant) = payload.grant {
+			if let Some(grant) = item.grant {
+				let grant = serde_json::from_slice::<tangram_index::grant::put::Arg>(&grant)
+					.map_err(
+						|error| tg::error!(!error, id = %item.id, "failed to deserialize the grant payload"),
+					)?;
 				put_grants.push(grant);
 			}
 		}
@@ -762,9 +762,9 @@ impl Server {
 		}
 
 		// Delete the drained entries from the outbox.
-		self.object_store.delete_outbox(partition, &deleted).await?;
+		self.object_store.delete_outbox(partition, &tokens).await?;
 
-		Ok(deleted.len())
+		Ok(tokens.len())
 	}
 }
 

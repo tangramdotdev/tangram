@@ -17,6 +17,13 @@ pub enum Store {
 	Scylla(object_store::scylla::Store),
 }
 
+pub struct OutboxItem {
+	pub token: uuid::Uuid,
+	pub id: tg::object::Id,
+	pub grant: Option<Bytes>,
+	pub metadata: Option<Bytes>,
+}
+
 impl Store {
 	#[cfg(feature = "lmdb")]
 	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbObjectStore) -> tg::Result<Self> {
@@ -210,7 +217,7 @@ impl Store {
 
 	pub async fn enqueue_outbox_batch(
 		&self,
-		entries: Vec<(i64, tg::object::Id, i64, Vec<u8>)>,
+		entries: Vec<(i64, tg::object::Id, Option<Vec<u8>>, Option<Vec<u8>>)>,
 	) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
@@ -221,38 +228,41 @@ impl Store {
 		}
 	}
 
-	pub async fn dequeue_outbox(
-		&self,
-		partition: i64,
-		limit: i32,
-	) -> tg::Result<Vec<(tg::object::Id, Bytes)>> {
+	pub async fn dequeue_outbox(&self, partition: i64, limit: i32) -> tg::Result<Vec<OutboxItem>> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(_) => Err(tg::error!("unimplemented")),
 			Self::Memory(_) => Err(tg::error!("unimplemented")),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => {
-				let entries = scylla.dequeue_outbox(partition, limit).await?;
-				let entries = entries
+				let items = scylla.dequeue_outbox(partition, limit).await?;
+				let items = items
 					.into_iter()
-					.map(|entry| (entry.id, entry.payload))
+					.map(|item| OutboxItem {
+						token: uuid::Uuid::from_bytes(item.token),
+						id: item.id,
+						grant: item.grant,
+						metadata: item.metadata,
+					})
 					.collect();
-				Ok(entries)
+				Ok(items)
 			},
 		}
 	}
 
-	pub async fn delete_outbox(
-		&self,
-		partition: i64,
-		ids: &[tg::object::Id],
-	) -> tg::Result<()> {
+	pub async fn delete_outbox(&self, partition: i64, tokens: &[uuid::Uuid]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(_) => Err(tg::error!("unimplemented")),
 			Self::Memory(_) => Err(tg::error!("unimplemented")),
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete_outbox(partition, ids).await,
+			Self::Scylla(scylla) => {
+				let tokens = tokens
+					.iter()
+					.map(|token| *token.as_bytes())
+					.collect::<Vec<_>>();
+				scylla.delete_outbox(partition, &tokens).await
+			},
 		}
 	}
 

@@ -11,7 +11,7 @@ mod get;
 mod outbox;
 mod put;
 
-pub use outbox::OutboxEntry;
+pub use outbox::OutboxItem;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -149,8 +149,8 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into object_outbox (partition, id, enqueued_at, payload)
-				values (?, ?, ?, ?);
+				insert into object_outbox (partition, token, id, grant_payload, metadata_payload)
+				values (?, now(), ?, ?, ?);
 			"
 		);
 		let mut enqueue_object_outbox = session.prepare(statement).await.map_err(|error| {
@@ -160,7 +160,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select id, payload
+				select token, id, grant_payload, metadata_payload
 				from object_outbox
 				where partition = ?
 				limit ?;
@@ -174,7 +174,7 @@ impl Store {
 		let statement = indoc!(
 			"
 				delete from object_outbox
-				where partition = ? and id in ?;
+				where partition = ? and token = ?;
 			"
 		);
 		let mut delete_object_outbox = session.prepare(statement).await.map_err(|error| {
@@ -184,11 +184,10 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select partition
+				select token
 				from object_outbox
-				where partition in ? and enqueued_at <= ?
-				limit 1
-				allow filtering;
+				where partition in ? and token < maxTimeuuid(?)
+				limit 1;
 			"
 		);
 		let mut outbox_pending = session.prepare(statement).await.map_err(|error| {

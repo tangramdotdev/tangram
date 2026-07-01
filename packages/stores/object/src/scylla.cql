@@ -7,8 +7,9 @@ create table if not exists objects (
 
 create table if not exists object_outbox (
 	partition bigint,
+	token timeuuid,
 	id blob,
-	enqueued_at bigint,
-	payload blob,
-	primary key (partition, id)
+	grant_payload blob,
+	metadata_payload blob,
+	primary key ((partition), token)
 );
