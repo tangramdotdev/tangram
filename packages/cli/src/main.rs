@@ -313,6 +313,7 @@ enum Command {
 
 	New(self::new::Args),
 
+	#[command(alias = "obj")]
 	Object(self::object::Args),
 
 	#[command(alias = "org")]
@@ -322,6 +323,7 @@ enum Command {
 
 	Output(self::process::output::Args),
 
+	#[command(alias = "pcs")]
 	Process(self::process::Args),
 
 	#[command(alias = "ps")]
@@ -351,6 +353,7 @@ enum Command {
 	#[command(alias = "r")]
 	Run(self::process::run::Args),
 
+	#[command(alias = "sbx")]
 	Sandbox(self::sandbox::Args),
 
 	#[command(name = "self")]

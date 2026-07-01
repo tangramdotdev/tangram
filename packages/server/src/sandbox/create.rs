@@ -65,7 +65,7 @@ impl Session {
 		self.authorize_owner(arg.owner.as_ref()).await?;
 		arg = Self::normalize_sandbox_create_arg(arg)?;
 		if arg.host.is_none() {
-			arg.host = Some(tg::host::current().to_owned());
+			return Err(tg::error!("missing sandbox host"));
 		}
 		let id = tg::sandbox::Id::new();
 		let creator = self.context.principal.clone();

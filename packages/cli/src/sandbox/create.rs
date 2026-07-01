@@ -7,6 +7,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub arg: super::Options,
 
+	#[arg(id = "create.host", long = "host")]
+	pub host: Option<String>,
+
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
@@ -41,7 +44,7 @@ impl Cli {
 		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
 		let arg = tg::sandbox::create::Arg {
 			cpu: args.arg.cpu,
-			host: None,
+			host: Some(args.host.unwrap_or_else(|| tg::host::current().to_owned())),
 			hostname: args.arg.hostname,
 			isolation: args.arg.isolation,
 			location: args.location.get(),
