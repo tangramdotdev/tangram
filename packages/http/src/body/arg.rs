@@ -38,7 +38,7 @@ where
 		.map_err(|_| std::io::Error::other("invalid arg length"))?;
 	let mut bytes = vec![0; len];
 	reader.read_exact(&mut bytes).await?;
-	let arg = serde_json::from_slice(&bytes)?;
+	let arg = crate::de::from_slice(&bytes)?;
 	Ok(arg)
 }
 

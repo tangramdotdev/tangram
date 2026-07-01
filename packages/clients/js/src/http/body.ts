@@ -175,18 +175,10 @@ let undefinedToNull = (value: unknown): unknown => {
 		return null;
 	} else if (Array.isArray(value)) {
 		return value.map(undefinedToNull);
-	} else if (isValueDataMap(value)) {
-		let entries: { [key: string]: unknown } = {};
-		for (let [key, entry] of Object.entries(value.value)) {
-			entries[key] = undefinedToNull(entry);
-		}
-		return { ...value, value: entries };
 	} else if (isPlainObject(value)) {
 		let output: { [key: string]: unknown } = {};
 		for (let [key, entry] of Object.entries(value)) {
-			if (entry !== undefined) {
-				output[key] = undefinedToNull(entry);
-			}
+			output[key] = undefinedToNull(entry);
 		}
 		return output;
 	} else {
@@ -217,8 +209,3 @@ let isPlainObject = (value: unknown): value is { [key: string]: unknown } => {
 	let prototype = Object.getPrototypeOf(value);
 	return prototype === Object.prototype || prototype === null;
 };
-
-let isValueDataMap = (
-	value: unknown,
-): value is { kind: "map"; value: { [key: string]: unknown } } =>
-	isPlainObject(value) && value.kind === "map" && isPlainObject(value.value);

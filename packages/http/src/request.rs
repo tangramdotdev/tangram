@@ -129,7 +129,7 @@ where
 		T: serde::de::DeserializeOwned,
 	{
 		let bytes = self.bytes().await?;
-		let json = serde_json::from_slice(&bytes)?;
+		let json = crate::de::from_slice(&bytes)?;
 		Ok(json)
 	}
 
@@ -141,7 +141,7 @@ where
 		if bytes.is_empty() {
 			return Ok(T::default());
 		}
-		let json = serde_json::from_slice(&bytes)?;
+		let json = crate::de::from_slice(&bytes)?;
 		Ok(json)
 	}
 
