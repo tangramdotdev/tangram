@@ -5,8 +5,6 @@ import {
 	Response,
 	Uri,
 	percentEncode,
-	parseJson,
-	stringifyJson,
 } from "../../../http.ts";
 import { Queue } from "../../../queue.ts";
 import { Stop } from "../../../stop.ts";
@@ -146,7 +144,7 @@ async function* decodeWriteStdioEvents(
 ): AsyncIterableIterator<tg.Process.Stdio.Write.Event> {
 	for await (let event of response.sse()) {
 		if (event.event === "error") {
-			let data = parseJson(event.data) as tg.Error.Data | tg.Error.Id;
+			let data = JSON.parse(event.data) as tg.Error.Data | tg.Error.Id;
 			if (typeof data === "string") {
 				throw tg.Error.withId(data);
 			} else {
@@ -190,7 +188,7 @@ async function* encodeReadStdioEvents(
 			throw new Error("invalid process stdio stream");
 		}
 		yield {
-			data: stringifyJson(data.value),
+			data: JSON.stringify(data.value),
 		};
 	}
 	if (!ended) {

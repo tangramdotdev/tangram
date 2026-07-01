@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { Request, Uri, percentEncode, parseJson } from "../../http.ts";
+import { Request, Uri, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export namespace Wait {
@@ -97,10 +97,10 @@ async function waitProcessOnce(
 	let output: tg.Process.Wait | undefined;
 	for await (let event of response.sse()) {
 		if (event.event === "output") {
-			let data = tg.Process.Wait.Data.fromJson(parseJson(event.data));
+			let data = tg.Process.Wait.Data.fromJson(JSON.parse(event.data));
 			output = tg.Process.Wait.fromData(data);
 		} else if (event.event === "error") {
-			let data = parseJson(event.data) as tg.Error.Data | tg.Error.Id;
+			let data = JSON.parse(event.data) as tg.Error.Data | tg.Error.Id;
 			if (typeof data === "string") {
 				throw tg.Error.withId(data);
 			} else {

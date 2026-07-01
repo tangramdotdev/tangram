@@ -1,4 +1,4 @@
-export { Body, parseJson, stringifyJson } from "./http/body.ts";
+export { Body } from "./http/body.ts";
 export { Headers } from "./http/headers.ts";
 export { Request } from "./http/request.ts";
 export { Response } from "./http/response.ts";

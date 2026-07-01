@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { Response, parseJson } from "./http.ts";
+import { Response } from "./http.ts";
 
 export namespace Progress {
 	export type Event<T> =
@@ -30,14 +30,14 @@ export namespace Progress {
 	): AsyncIterableIterator<Event<T>> {
 		for await (let event of response.sse()) {
 			if (event.event === "error") {
-				let data = parseJson(event.data) as tg.Error.Data | tg.Error.Id;
+				let data = JSON.parse(event.data) as tg.Error.Data | tg.Error.Id;
 				if (typeof data === "string") {
 					throw tg.Error.withId(data);
 				} else {
 					throw tg.Error.fromData(data);
 				}
 			} else if (event.event === undefined) {
-				yield parseJson(event.data) as Event<T>;
+				yield JSON.parse(event.data) as Event<T>;
 			} else if (
 				event.event === "diagnostic" ||
 				event.event === "indicators" ||
@@ -46,7 +46,7 @@ export namespace Progress {
 			) {
 				yield {
 					kind: event.event,
-					value: parseJson(event.data) as Event<T>["value"],
+					value: JSON.parse(event.data) as Event<T>["value"],
 				} as Event<T>;
 			} else {
 				throw new Error("invalid progress event");

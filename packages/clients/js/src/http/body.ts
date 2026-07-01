@@ -16,7 +16,7 @@ export class Body implements AsyncIterable<Uint8Array> {
 	}
 
 	static json(value: unknown) {
-		return Body.text(stringifyJson(value));
+		return Body.text(JSON.stringify(value));
 	}
 
 	static sse(events: AsyncIterable<Body.SseEvent>) {
@@ -38,7 +38,7 @@ export class Body implements AsyncIterable<Uint8Array> {
 	async json<T = unknown>() {
 		let bytes = await this.collect();
 		let string = tg.encoding.utf8.decode(bytes);
-		return parseJson(string) as T;
+		return JSON.parse(string) as T;
 	}
 
 	sse() {
@@ -163,7 +163,3 @@ function concat(chunks: Array<Uint8Array>) {
 	}
 	return output;
 }
-
-export let stringifyJson = (value: unknown): string => JSON.stringify(value);
-
-export let parseJson = (string: string): unknown => JSON.parse(string);
