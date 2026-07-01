@@ -232,6 +232,7 @@ impl Session {
 					},
 				)
 			})
+			.with_stopper(self.context.stopper.clone())
 			.boxed();
 
 		// Get the server message stream.

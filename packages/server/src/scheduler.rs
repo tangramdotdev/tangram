@@ -455,9 +455,13 @@ impl Scheduler {
 				match result {
 					Ok(true) => {},
 					Ok(false) => {
-						self.release_runner_reservation(&runner);
-						excluded.insert(runner);
-						continue;
+						self.confirm_runner_reservation(&runner, &sandbox);
+						break CreateSandboxResponse {
+							id: id.clone(),
+							sandbox: sandbox.clone(),
+							created: true,
+							error: None,
+						};
 					},
 					Err(error) => {
 						self.release_runner_reservation(&runner);

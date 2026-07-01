@@ -294,6 +294,7 @@ impl Session {
 					permit,
 					process: Some(output.id.clone()),
 					process_token,
+					started: None,
 					token: sandbox_token,
 				});
 			} else if let Some(tg::Either::Left(sandbox_arg)) = &arg.sandbox {
@@ -1979,6 +1980,7 @@ impl Session {
 					permit,
 					process: Some(process),
 					process_token,
+					started: None,
 					token,
 				});
 			}

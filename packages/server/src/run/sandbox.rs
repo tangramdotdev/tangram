@@ -3,7 +3,11 @@ use {
 	crate::{Context, Server, Session, temp::Temp},
 	dashmap::DashMap,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future},
-	std::{pin::pin, sync::Arc, time::Duration},
+	std::{
+		pin::pin,
+		sync::{Arc, Mutex},
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tangram_index::prelude::*,
@@ -18,7 +22,18 @@ pub(crate) struct SpawnSandboxTaskArg {
 	pub permit: crate::sandbox::Permit,
 	pub process: Option<tg::process::Id>,
 	pub process_token: Option<String>,
+	pub started: Option<tokio::sync::oneshot::Sender<bool>>,
 	pub token: Option<String>,
+}
+
+struct SandboxTaskArg {
+	id: tg::sandbox::Id,
+	location: tg::Location,
+	permit: crate::sandbox::Permit,
+	process: Option<tg::process::Id>,
+	process_token: Option<String>,
+	started: Arc<Mutex<Option<tokio::sync::oneshot::Sender<bool>>>>,
+	token: Option<String>,
 }
 
 struct CreateProcessSessionOutput {
@@ -35,10 +50,12 @@ enum CachedSandboxResponse {
 
 impl Server {
 	pub(crate) fn spawn_sandbox_task(&self, task: SpawnSandboxTaskArg) {
+		let started = Arc::new(Mutex::new(task.started));
 		self.sandbox_tasks
 			.spawn(task.id.clone(), |_| {
 				let server = self.clone();
 				let id = task.id;
+				let started = started.clone();
 				async move {
 					// Create the session.
 					let context = Context {
@@ -52,14 +69,15 @@ impl Server {
 
 					// Run the sandbox task.
 					let result = session
-						.sandbox_task(
-							&id,
-							task.location.clone(),
-							task.permit,
-							task.process,
-							task.token.clone(),
-							task.process_token,
-						)
+						.sandbox_task(SandboxTaskArg {
+							id: id.clone(),
+							location: task.location.clone(),
+							permit: task.permit,
+							process: task.process,
+							process_token: task.process_token,
+							started: started.clone(),
+							token: task.token.clone(),
+						})
 						.boxed()
 						.await;
 
@@ -85,6 +103,9 @@ impl Server {
 							);
 						}
 					}
+					if let Some(started) = started.lock().unwrap().take() {
+						started.send(false).ok();
+					}
 				}
 			})
 			.detach();
@@ -92,25 +113,27 @@ impl Server {
 }
 
 impl Session {
-	async fn sandbox_task(
-		&self,
-		id: &tg::sandbox::Id,
-		location: tg::Location,
-		permit: crate::sandbox::Permit,
-		process: Option<tg::process::Id>,
-		token: Option<String>,
-		process_token: Option<String>,
-	) -> tg::Result<()> {
+	async fn sandbox_task(&self, arg: SandboxTaskArg) -> tg::Result<()> {
+		let SandboxTaskArg {
+			id,
+			location,
+			permit,
+			process,
+			process_token,
+			started,
+			token,
+		} = arg;
+
 		// Get the sandbox.
 		let state = self
 			.try_get_sandbox(
-				id,
+				&id,
 				tg::sandbox::get::Arg {
 					location: Some(location.clone().into()),
 				},
 			)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?;
+			.map_err(|error| tg::error!(!error, id = %id, "failed to get the sandbox"))?;
 		let Some(state) = state else {
 			return Ok(());
 		};
@@ -205,7 +228,7 @@ impl Session {
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
 		self.server.sandbox_permits.insert(id.clone(), permit);
 		scopeguard::defer! {
-			self.server.sandbox_permits.remove(id);
+			self.server.sandbox_permits.remove(&id);
 		}
 
 		// Create the temp.
@@ -238,6 +261,9 @@ impl Session {
 
 		// Create the sandbox. Include the artifacts directory as a readonly mount.
 		let artifacts_path = self.server.artifacts_path();
+		tokio::fs::create_dir_all(&artifacts_path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
 		let mut mounts = state.mounts.clone();
 		mounts.push(tg::sandbox::Mount {
 			readonly: true,
@@ -289,8 +315,11 @@ impl Session {
 			.map_err(|error| tg::error!(!error, %id, "failed to create the sandbox"))?;
 
 		self.server.sandboxes.insert(id.clone(), sandbox.clone());
+		if let Some(started) = started.lock().unwrap().take() {
+			started.send(true).ok();
+		}
 		scopeguard::defer! {
-			self.server.sandboxes.remove(id);
+			self.server.sandboxes.remove(&id);
 		}
 
 		// Spawn the serve task.
@@ -335,7 +364,7 @@ impl Session {
 			location: Some(location.clone().into()),
 		};
 		let control = self
-			.get_sandbox_control_stream_all(id, arg, input_stream)
+			.get_sandbox_control_stream_all(&id, arg, input_stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to connect to the sandbox control stream"),
@@ -343,7 +372,7 @@ impl Session {
 		let mut destroy = false;
 		{
 			let mut control = pin!(control);
-			self.register_sandbox_with_scheduler(id).await;
+			self.register_sandbox_with_scheduler(&id).await;
 			let control_ttl = self
 				.server
 				.config
@@ -357,7 +386,7 @@ impl Session {
 				location: Some(location.clone().into()),
 				timeout: None,
 			};
-			let status = self.get_sandbox_status(id, arg).await.map_err(
+			let status = self.get_sandbox_status(&id, arg).await.map_err(
 				|error| tg::error!(!error, %id, "failed to get the sandbox status stream"),
 			)?;
 			let mut status = pin!(status);
@@ -368,7 +397,7 @@ impl Session {
 						.create_process_session(
 							process,
 							&location,
-							id,
+							&id,
 							state.creator.clone(),
 							process_token,
 						)
@@ -456,7 +485,7 @@ impl Session {
 							.create_process_session(
 								request.process.clone(),
 								&location,
-								id,
+								&id,
 								state.creator.clone(),
 								request.process_token.clone(),
 							)
@@ -552,10 +581,10 @@ impl Session {
 		drop(input);
 
 		// Release the sandbox's permit before telling the scheduler that capacity is available.
-		self.server.sandbox_permits.remove(id);
+		self.server.sandbox_permits.remove(&id);
 
 		// Deregister the sandbox's placement with the scheduler.
-		self.deregister_sandbox_with_scheduler(id).await;
+		self.deregister_sandbox_with_scheduler(&id).await;
 
 		// Destroy the sandbox.
 		if destroy {
@@ -563,7 +592,7 @@ impl Session {
 				error: None,
 				location: Some(location.clone().into()),
 			};
-			self.destroy_sandbox(id, arg).await?;
+			self.destroy_sandbox(&id, arg).await?;
 		}
 
 		// Stop and await the process tasks.

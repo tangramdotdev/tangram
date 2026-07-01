@@ -297,50 +297,84 @@ impl Session {
 	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
 		let p = transaction.p();
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let statement = formatdoc!(
-			"
-				update sandboxes
-				set
-					heartbeat_at = coalesce(heartbeat_at, {p}1),
-					started_at = coalesce(started_at, {p}1),
-					status = {p}2
-				where id = {p}3 and status = {p}4;
-			"
-		);
-		let params = db::params![
-			now,
-			tg::sandbox::Status::Started.to_string(),
-			sandbox.to_string(),
-			tg::sandbox::Status::Created.to_string(),
-		];
-		let result = transaction.execute(statement.into(), params).await;
-		let n = crate::database::retry!(result, "failed to execute the statement");
-		if n == 0 && process.is_none() {
-			return Ok(ControlFlow::Break(false));
-		}
-
-		if let Some(process) = process {
+		let n = if let Some(process) = process {
+			let process_condition = format!(
+				"
+					and exists (
+						select 1
+						from processes
+						where id = {p}5 and sandbox = {p}3 and status = {p}6
+					)
+				"
+			);
 			let statement = formatdoc!(
 				"
-					update processes
+					update sandboxes
 					set
+						heartbeat_at = coalesce(heartbeat_at, {p}1),
 						started_at = coalesce(started_at, {p}1),
 						status = {p}2
-					where id = {p}3 and sandbox = {p}4 and status = {p}5;
+					where id = {p}3 and status = {p}4
+					{process_condition};
 				"
 			);
 			let params = db::params![
 				now,
-				tg::process::Status::Started.to_string(),
-				process.to_string(),
+				tg::sandbox::Status::Started.to_string(),
 				sandbox.to_string(),
+				tg::sandbox::Status::Created.to_string(),
+				process.to_string(),
 				tg::process::Status::Created.to_string(),
 			];
 			let result = transaction.execute(statement.into(), params).await;
-			let n = crate::database::retry!(result, "failed to execute the statement");
-			if n == 0 {
-				return Ok(ControlFlow::Break(false));
-			}
+			crate::database::retry!(result, "failed to execute the statement")
+		} else {
+			let statement = formatdoc!(
+				"
+					update sandboxes
+					set
+						heartbeat_at = coalesce(heartbeat_at, {p}1),
+						started_at = coalesce(started_at, {p}1),
+						status = {p}2
+					where id = {p}3 and status = {p}4;
+				"
+			);
+			let params = db::params![
+				now,
+				tg::sandbox::Status::Started.to_string(),
+				sandbox.to_string(),
+				tg::sandbox::Status::Created.to_string(),
+			];
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement")
+		};
+		if n == 0 {
+			return Ok(ControlFlow::Break(false));
+		}
+
+		let Some(process) = process else {
+			return Ok(ControlFlow::Break(true));
+		};
+		let statement = formatdoc!(
+			"
+				update processes
+				set
+					started_at = coalesce(started_at, {p}1),
+					status = {p}2
+				where id = {p}3 and sandbox = {p}4 and status = {p}5;
+			"
+		);
+		let params = db::params![
+			now,
+			tg::process::Status::Started.to_string(),
+			process.to_string(),
+			sandbox.to_string(),
+			tg::process::Status::Created.to_string(),
+		];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		if n == 0 {
+			return Ok(ControlFlow::Break(false));
 		}
 
 		Ok(ControlFlow::Break(true))

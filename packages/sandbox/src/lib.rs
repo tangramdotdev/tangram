@@ -317,7 +317,7 @@ impl Sandbox {
 			Some(listener) => Client::with_listener(listener).right_future(),
 		};
 
-		let client = match tokio::time::timeout(Duration::from_secs(5), async {
+		let client = match tokio::time::timeout(Duration::from_secs(30), async {
 			tokio::select! {
 				result = connect => result,
 				result = process.wait() => {

@@ -162,35 +162,52 @@ impl Server {
 					let tg::runner::control::ServerRequest::CreateSandbox(request) = request;
 
 					// Acquire a permit and spawn the sandbox. If none is available, report not created.
-					let created =
-						if let Ok(permit) = self.sandbox_semaphore.clone().try_acquire_owned() {
-							let permit = crate::sandbox::Permit(tg::Either::Left(permit));
-							self.spawn_sandbox_task(SpawnSandboxTaskArg {
-								id: request.sandbox.clone(),
-								location: location.clone(),
-								permit,
-								process: request.process.clone(),
-								process_token: request.process_token.clone(),
-								token: request.token.clone(),
-							});
-							true
-						} else {
-							false
+					let Ok(permit) = self.sandbox_semaphore.clone().try_acquire_owned() else {
+						let response = tg::runner::control::CreateSandboxClientResponse {
+							id: id.clone(),
+							sandbox: request.sandbox,
+							created: false,
 						};
-
-					// Cache and send the response.
-					let response = tg::runner::control::CreateSandboxClientResponse {
-						id: id.clone(),
-						sandbox: request.sandbox,
-						created,
+						responses.insert(id, CachedRunnerResponse::Ready(response.clone()));
+						input
+							.send(tg::runner::control::ClientMessage::Response(
+								tg::runner::control::ClientResponse::CreateSandbox(response),
+							))
+							.await
+							.ok();
+						continue;
 					};
-					responses.insert(id, CachedRunnerResponse::Ready(response.clone()));
-					input
-						.send(tg::runner::control::ClientMessage::Response(
-							tg::runner::control::ClientResponse::CreateSandbox(response),
-						))
-						.await
-						.ok();
+
+					let permit = crate::sandbox::Permit(tg::Either::Left(permit));
+					let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+					self.spawn_sandbox_task(SpawnSandboxTaskArg {
+						id: request.sandbox.clone(),
+						location: location.clone(),
+						permit,
+						process: request.process.clone(),
+						process_token: request.process_token.clone(),
+						started: Some(started_sender),
+						token: request.token.clone(),
+					});
+					tokio::spawn({
+						let id = id.clone();
+						let input = input.clone();
+						let responses = responses.clone();
+						async move {
+							let response = tg::runner::control::CreateSandboxClientResponse {
+								id: id.clone(),
+								sandbox: request.sandbox,
+								created: started_receiver.await.unwrap_or(false),
+							};
+							responses.insert(id, CachedRunnerResponse::Ready(response.clone()));
+							input
+								.send(tg::runner::control::ClientMessage::Response(
+									tg::runner::control::ClientResponse::CreateSandbox(response),
+								))
+								.await
+								.ok();
+						}
+					});
 				},
 				tg::runner::control::ServerMessage::Ack(ack) => {
 					if self.runner_lifecycle_messages.remove(&ack.id).is_none() {
