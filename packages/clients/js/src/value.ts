@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { nullToUndefined, undefinedToNull } from "./json.ts";
 import {
 	Printer as Printer_,
 	type Options as PrintOptions_,
@@ -327,6 +328,14 @@ export namespace Value {
 					tg.Template.Data.removeTokens(data.value);
 				}
 			}
+		};
+
+		export let toJson = (data: tg.Value.Data): unknown => {
+			return undefinedToNull(data);
+		};
+
+		export let fromJson = (json: unknown): tg.Value.Data => {
+			return nullToUndefined(json);
 		};
 	}
 }
