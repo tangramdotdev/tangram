@@ -11,7 +11,6 @@ pub(crate) struct Process {
 	pub location: Option<tg::Location>,
 	pub retry: bool,
 	pub sandbox: tg::sandbox::Id,
-	pub token: Option<String>,
 }
 
 #[derive(Clone)]
@@ -37,7 +36,6 @@ impl Session {
 				location: process.location().cloned(),
 				retry: process.retry(),
 				sandbox: process.sandbox().clone(),
-				token: Some(process.token().to_owned()),
 			}));
 		}
 
@@ -54,24 +52,17 @@ impl Session {
 			retry: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			sandbox: tg::sandbox::Id,
-			token: Option<String>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-					select
-						processes.debug,
-						processes.retry,
-						processes.sandbox,
-						(
-							select process_tokens.token
-							from process_tokens
-							where process_tokens.process = processes.id
-							limit 1
-						) as token
-					from processes
-					where processes.id = {p}1;
-				"
+				select
+					processes.debug,
+					processes.retry,
+					processes.sandbox
+				from processes
+				where processes.id = {p}1;
+			"
 		);
 		let params = db::params![id.to_string()];
 		let Some(row) = connection
@@ -93,7 +84,6 @@ impl Session {
 			location,
 			retry: row.retry,
 			sandbox: row.sandbox,
-			token: row.token,
 		}))
 	}
 
@@ -152,8 +142,8 @@ impl Session {
 		remote: &str,
 	) -> tg::Result<Option<String>> {
 		match &self.context.principal {
-			tg::Principal::Process(process) => {
-				let Some(process) = self.try_get_authenticated_process(process).await? else {
+			tg::Principal::Process(id) => {
+				let Some(process) = self.try_get_authenticated_process(id).await? else {
 					return Ok(None);
 				};
 				let Some(location) = process.location.as_ref() else {
@@ -162,7 +152,10 @@ impl Session {
 				let tg::Location::Remote(location) = location else {
 					return Ok(None);
 				};
-				Ok((location.name == remote).then_some(process.token).flatten())
+				if location.name != remote {
+					return Ok(None);
+				}
+				self.try_get_process_token(id).await
 			},
 			tg::Principal::Sandbox(sandbox) => {
 				let Some(sandbox) = self.try_get_authenticated_sandbox(sandbox).await? else {
@@ -180,6 +173,36 @@ impl Session {
 			| tg::Principal::Runner(_)
 			| tg::Principal::User(_) => Ok(None),
 		}
+	}
+
+	async fn try_get_process_token(&self, id: &tg::process::Id) -> tg::Result<Option<String>> {
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
+
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			token: String,
+		}
+
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select token
+				from process_tokens
+				where process = {p}1
+				limit 1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		let row = connection
+			.query_optional_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		Ok(row.map(|row| row.token))
 	}
 }
 
