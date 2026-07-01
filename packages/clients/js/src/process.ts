@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { nullToUndefined, undefinedToNull } from "./json.ts";
 import * as build from "./process/build.ts";
 import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
@@ -1305,10 +1306,18 @@ export namespace Process {
 			if (data.log !== undefined && typeof data.log !== "string") {
 				data.log = data.log.id;
 			}
-			if ("output" in data) {
+			if (data.output !== undefined) {
 				tg.Value.Data.removeTokens(data.output);
 			}
 			return data;
+		};
+
+		export let toJson = (data: tg.Process.Data): unknown => {
+			return undefinedToNull(data);
+		};
+
+		export let fromJson = (json: unknown): tg.Process.Data => {
+			return nullToUndefined(json);
 		};
 	}
 
@@ -1330,6 +1339,12 @@ export namespace Process {
 			exit: number;
 			output?: tg.Value.Data;
 		};
+
+		export namespace Data {
+			export let fromJson = (json: unknown): tg.Process.Wait.Data => {
+				return nullToUndefined(json);
+			};
+		}
 
 		export let fromData = (data: tg.Process.Wait.Data): tg.Process.Wait => {
 			let output: Wait = {

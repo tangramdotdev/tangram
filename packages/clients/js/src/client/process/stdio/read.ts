@@ -1,5 +1,10 @@
 import * as tg from "../../../index.ts";
-import { Request, Response, Uri, percentEncode } from "../../../http.ts";
+import {
+	Request,
+	Response,
+	Uri,
+	percentEncode,
+} from "../../../http.ts";
 import type { Client } from "../../../client.ts";
 
 export namespace Stdio {

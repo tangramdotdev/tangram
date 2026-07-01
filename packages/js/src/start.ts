@@ -24,9 +24,9 @@ export let start = async (): Promise<tg.Value.Data> => {
 	}
 	let namespace = await import(specifier, { with: attributes });
 
-	// If there is no export, then return null.
+	// If there is no export, then return undefined.
 	if (export_ === undefined) {
-		return null;
+		return undefined;
 	}
 
 	// Call the export.

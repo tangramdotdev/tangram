@@ -39,5 +39,5 @@ export async function tryGetObject(
 		}
 		throw error;
 	}
-	return await response.json<tg.Object.Data>();
+	return tg.Object.Data.fromJson(await response.json());
 }

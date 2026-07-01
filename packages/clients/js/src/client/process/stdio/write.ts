@@ -1,5 +1,11 @@
 import * as tg from "../../../index.ts";
-import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
+import {
+	Body,
+	Request,
+	Response,
+	Uri,
+	percentEncode,
+} from "../../../http.ts";
 import { Queue } from "../../../queue.ts";
 import { Stop } from "../../../stop.ts";
 import type { Client } from "../../../client.ts";
