@@ -29,11 +29,18 @@ struct LocalOutput {
 	lease: Option<String>,
 	owner: Option<tg::Principal>,
 	process_token: Option<String>,
-	sandbox: tg::sandbox::create::Output,
+	sandbox: SandboxOutput,
 	status: tg::process::Status,
 	#[debug(ignore)]
 	token: Option<tg::grant::Token>,
 	wait: Option<tg::process::wait::Output>,
+}
+
+#[derive(Clone, derive_more::Debug)]
+struct SandboxOutput {
+	id: tg::sandbox::Id,
+	#[debug(ignore)]
+	token: Option<String>,
 }
 
 struct AddProcessChildArg<'a> {
@@ -404,7 +411,6 @@ impl Session {
 						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: tg::Either::Right(output.id),
 						token: output.token,
-						sandbox: Some(output.sandbox),
 						wait: Some(wait),
 					}
 				} else {
@@ -443,7 +449,6 @@ impl Session {
 						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: tg::Either::Right(output.id),
 						token: output.token,
-						sandbox: Some(output.sandbox),
 						wait: output.wait,
 					}
 				}
@@ -1139,7 +1144,7 @@ impl Session {
 			lease,
 			owner: owner.cloned(),
 			process_token: None,
-			sandbox: tg::sandbox::create::Output {
+			sandbox: SandboxOutput {
 				id: sandbox,
 				token: None,
 			},
@@ -1454,7 +1459,7 @@ impl Session {
 			lease: None,
 			owner: owner.cloned(),
 			process_token: None,
-			sandbox: tg::sandbox::create::Output {
+			sandbox: SandboxOutput {
 				id: sandbox,
 				token: None,
 			},
@@ -1675,7 +1680,7 @@ impl Session {
 			lease: Some(lease),
 			owner,
 			process_token: Some(process_token),
-			sandbox: tg::sandbox::create::Output {
+			sandbox: SandboxOutput {
 				id: sandbox,
 				token: sandbox_token,
 			},

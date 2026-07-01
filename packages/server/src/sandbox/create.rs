@@ -95,7 +95,7 @@ impl Session {
 		let ttl = arg.ttl;
 		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
 
-		// Create the token that the caller uses to authenticate as the sandbox.
+		// Create the token that the runner uses to authenticate as the sandbox.
 		let token = Self::create_sandbox_token_string();
 
 		let create_arg = CreateSandboxArg {
@@ -137,10 +137,7 @@ impl Session {
 		self.schedule_process(&id, arg, None, Some(token.clone()), None)
 			.await?;
 
-		let output = tg::sandbox::create::Output {
-			id,
-			token: Some(token),
-		};
+		let output = tg::sandbox::create::Output { id };
 
 		Ok(output)
 	}
@@ -538,7 +535,7 @@ impl Session {
 		let result = transaction.execute(statement.into(), params).await;
 		crate::database::retry!(result, "failed to execute the statement");
 
-		// Insert the sandbox's token so that the caller can authenticate as the sandbox.
+		// Insert the sandbox's token so that the runner can authenticate as the sandbox.
 		let statement = formatdoc!(
 			"
 				insert into sandbox_tokens (sandbox, token)

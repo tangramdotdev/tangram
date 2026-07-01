@@ -43,9 +43,6 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub id: tg::sandbox::Id,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<String>,
 }
 
 impl tg::Session {

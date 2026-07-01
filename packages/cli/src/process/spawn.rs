@@ -401,7 +401,6 @@ impl Cli {
 				process: output.item().id().cloned(),
 				token: output.item().token(),
 				wait: output.item().wait_output(),
-				sandbox: None,
 			};
 			self.print_serde(output, args.print).await?;
 		} else {
