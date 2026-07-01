@@ -95,7 +95,6 @@ pub struct State {
 	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
-	dispatch_tasks: tangram_futures::task::Set<()>,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
 	#[cfg(target_os = "linux")]
@@ -107,14 +106,11 @@ pub struct State {
 	object_get_tasks: self::object::get::Tasks,
 	object_store: self::object::Store,
 	path: PathBuf,
-	process_auth: DashMap<tg::process::Id, self::authentication::Process, tg::id::BuildHasher>,
 	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
 	remote_list_tasks: self::list::remote::Tasks,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
-	runner_input: Mutex<Option<tokio::sync::mpsc::Sender<tg::runner::control::ClientMessage>>>,
-	runner_lifecycle_messages: DashMap<String, tg::runner::control::ClientMessage>,
 	sandbox_container_root: PathBuf,
 	sandbox_permits: self::sandbox::Permits,
 	sandbox_seatbelt_root: PathBuf,
@@ -492,9 +488,6 @@ impl Server {
 			},
 		};
 
-		// Create the dispatch tasks.
-		let dispatch_tasks = tangram_futures::task::Set::default();
-
 		// Create the index tasks.
 		let index_tasks = tangram_futures::task::Set::default();
 
@@ -762,7 +755,6 @@ impl Server {
 			context,
 			database,
 			diagnostics,
-			dispatch_tasks,
 			index,
 			index_tasks,
 			#[cfg(target_os = "linux")]
@@ -774,14 +766,11 @@ impl Server {
 			object_get_tasks,
 			object_store,
 			path,
-			process_auth: DashMap::default(),
 			process_store,
 			regions,
 			remote_object_put_tasks,
 			remote_list_tasks,
 			remote_clients,
-			runner_input: Mutex::new(None),
-			runner_lifecycle_messages: DashMap::default(),
 			sandbox_container_root,
 			sandbox_permits,
 			sandbox_seatbelt_root,
@@ -1270,10 +1259,6 @@ impl Server {
 				}
 				tracing::trace!("remote list tasks");
 
-				// Abort the dispatch tasks.
-				server.dispatch_tasks.abort_all();
-				server.dispatch_tasks.wait().await;
-
 				// Abort the index tasks.
 				server.index_tasks.abort_all();
 				server.index_tasks.wait().await;
@@ -1546,7 +1531,6 @@ impl Drop for Owned {
 		self.object_get_tasks.abort_all();
 		self.remote_object_put_tasks.abort_all();
 		self.remote_list_tasks.abort_all();
-		self.dispatch_tasks.abort_all();
 		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();
 		self.watches.clear();

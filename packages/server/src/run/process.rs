@@ -283,22 +283,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to load the process"))?;
 
-		// Register the process so it can authenticate to its location while its command and artifacts are pulled, before it is added to the sandbox.
-		self.server.process_auth.insert(
-			id.clone(),
-			crate::authentication::Process {
-				debug: state.debug.clone(),
-				location: location.clone(),
-				retry: state.retry,
-				sandbox: state.sandbox.clone(),
-				token: Some(token.clone()),
-			},
-		);
-		let process_auth_id = id.clone();
-		scopeguard::defer! {
-			self.server.process_auth.remove(&process_auth_id);
-		}
-
 		let command = process
 			.command_with_handle(self)
 			.await

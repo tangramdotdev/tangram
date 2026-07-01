@@ -22,8 +22,15 @@ pub(crate) struct SpawnSandboxTaskArg {
 	pub permit: crate::sandbox::Permit,
 	pub process: Option<tg::process::Id>,
 	pub process_token: Option<String>,
+	pub runner_lifecycle: Option<RunnerLifecycle>,
 	pub started: Option<tokio::sync::oneshot::Sender<bool>>,
 	pub token: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct RunnerLifecycle {
+	input: tokio::sync::mpsc::Sender<tg::runner::control::ClientMessage>,
+	messages: Arc<DashMap<String, tg::runner::control::ClientMessage>>,
 }
 
 struct SandboxTaskArg {
@@ -32,6 +39,7 @@ struct SandboxTaskArg {
 	permit: crate::sandbox::Permit,
 	process: Option<tg::process::Id>,
 	process_token: Option<String>,
+	runner_lifecycle: Option<RunnerLifecycle>,
 	started: Arc<Mutex<Option<tokio::sync::oneshot::Sender<bool>>>>,
 	token: Option<String>,
 }
@@ -46,6 +54,33 @@ struct CreateProcessSessionOutput {
 enum CachedSandboxResponse {
 	Pending,
 	Ready(tg::sandbox::control::SpawnProcessClientResponse),
+}
+
+impl RunnerLifecycle {
+	pub(crate) fn new(
+		input: tokio::sync::mpsc::Sender<tg::runner::control::ClientMessage>,
+	) -> Self {
+		Self {
+			input,
+			messages: Arc::new(DashMap::default()),
+		}
+	}
+
+	pub(crate) fn messages(&self) -> Vec<tg::runner::control::ClientMessage> {
+		self.messages
+			.iter()
+			.map(|entry| entry.value().clone())
+			.collect()
+	}
+
+	pub(crate) fn remove(&self, id: &str) -> bool {
+		self.messages.remove(id).is_some()
+	}
+
+	async fn send(&self, id: String, message: tg::runner::control::ClientMessage) {
+		self.messages.insert(id, message.clone());
+		self.input.send(message).await.ok();
+	}
 }
 
 impl Server {
@@ -75,6 +110,7 @@ impl Server {
 							permit: task.permit,
 							process: task.process,
 							process_token: task.process_token,
+							runner_lifecycle: task.runner_lifecycle,
 							started: started.clone(),
 							token: task.token.clone(),
 						})
@@ -120,6 +156,7 @@ impl Session {
 			permit,
 			process,
 			process_token,
+			runner_lifecycle,
 			started,
 			token,
 		} = arg;
@@ -372,7 +409,10 @@ impl Session {
 		let mut destroy = false;
 		{
 			let mut control = pin!(control);
-			self.register_sandbox_with_scheduler(&id).await;
+			if let Some(runner_lifecycle) = runner_lifecycle.as_ref() {
+				self.register_sandbox_with_scheduler(&id, runner_lifecycle)
+					.await;
+			}
 			let control_ttl = self
 				.server
 				.config
@@ -584,7 +624,10 @@ impl Session {
 		self.server.sandbox_permits.remove(&id);
 
 		// Deregister the sandbox's placement with the scheduler.
-		self.deregister_sandbox_with_scheduler(&id).await;
+		if let Some(runner_lifecycle) = runner_lifecycle.as_ref() {
+			self.deregister_sandbox_with_scheduler(&id, runner_lifecycle)
+				.await;
+		}
 
 		// Destroy the sandbox.
 		if destroy {
@@ -718,7 +761,11 @@ impl Session {
 		Ok(())
 	}
 
-	async fn register_sandbox_with_scheduler(&self, id: &tg::sandbox::Id) {
+	async fn register_sandbox_with_scheduler(
+		&self,
+		id: &tg::sandbox::Id,
+		runner_lifecycle: &RunnerLifecycle,
+	) {
 		let message_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 		let message = tg::runner::control::ClientMessage::Notification(
 			tg::runner::control::ClientNotification::SandboxCreated(
@@ -728,21 +775,16 @@ impl Session {
 				},
 			),
 		);
-		self.server
-			.runner_lifecycle_messages
-			.insert(message_id, message.clone());
-		let sender = self.server.runner_input.lock().unwrap().clone();
-		if let Some(sender) = sender {
-			tokio::spawn(async move {
-				sender.send(message).await.ok();
-			});
-		}
+		runner_lifecycle.send(message_id, message).await;
 	}
 
-	async fn deregister_sandbox_with_scheduler(&self, id: &tg::sandbox::Id) {
-		let created = self
-			.server
-			.runner_lifecycle_messages
+	async fn deregister_sandbox_with_scheduler(
+		&self,
+		id: &tg::sandbox::Id,
+		runner_lifecycle: &RunnerLifecycle,
+	) {
+		let created = runner_lifecycle
+			.messages
 			.iter()
 			.filter_map(|entry| match entry.value() {
 				tg::runner::control::ClientMessage::Notification(
@@ -752,7 +794,7 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 		for message in created {
-			self.server.runner_lifecycle_messages.remove(&message);
+			runner_lifecycle.remove(&message);
 		}
 
 		let message_id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
@@ -764,15 +806,7 @@ impl Session {
 				},
 			),
 		);
-		self.server
-			.runner_lifecycle_messages
-			.insert(message_id, message.clone());
-		let sender = self.server.runner_input.lock().unwrap().clone();
-		if let Some(sender) = sender {
-			tokio::spawn(async move {
-				sender.send(message).await.ok();
-			});
-		}
+		runner_lifecycle.send(message_id, message).await;
 	}
 
 	async fn sandbox_heartbeat_task(

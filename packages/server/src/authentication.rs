@@ -25,12 +25,6 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Process>> {
-		// A process running on a runner registers itself here so that it can authenticate to its
-		// location while its artifacts are checked out, before it is added to the sandbox.
-		if let Some(process) = self.server.process_auth.get(id) {
-			return Ok(Some(process.value().clone()));
-		}
-
 		if let Some(process) = self.server.sandboxes.iter().find_map(|sandbox| {
 			sandbox
 				.value()
@@ -60,17 +54,24 @@ impl Session {
 			retry: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			sandbox: tg::sandbox::Id,
+			token: Option<String>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select
-					processes.debug,
-					processes.retry,
-					processes.sandbox
-				from processes
-				where processes.id = {p}1;
-			"
+					select
+						processes.debug,
+						processes.retry,
+						processes.sandbox,
+						(
+							select process_tokens.token
+							from process_tokens
+							where process_tokens.process = processes.id
+							limit 1
+						) as token
+					from processes
+					where processes.id = {p}1;
+				"
 		);
 		let params = db::params![id.to_string()];
 		let Some(row) = connection
@@ -92,7 +93,7 @@ impl Session {
 			location,
 			retry: row.retry,
 			sandbox: row.sandbox,
-			token: None,
+			token: row.token,
 		}))
 	}
 

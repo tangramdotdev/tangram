@@ -10,7 +10,7 @@ mod process;
 mod progress;
 mod sandbox;
 
-pub(crate) use self::sandbox::SpawnSandboxTaskArg;
+pub(crate) use self::sandbox::{RunnerLifecycle, SpawnSandboxTaskArg};
 
 #[derive(Clone, Debug)]
 pub struct Output {
@@ -76,9 +76,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the scheduler"))?;
 
-		// Make the input sender available so fast-path sandboxes can register their placement.
-		self.runner_input.lock().unwrap().replace(input.clone());
-
 		let heartbeat_interval = self.config.runner.as_ref().map_or_else(
 			|| Duration::from_secs(1),
 			|config| config.heartbeat_interval,
@@ -103,19 +100,15 @@ impl Server {
 			}
 		});
 
+		let runner_lifecycle = RunnerLifecycle::new(input.clone());
 		let lifecycle_task = tokio::spawn({
-			let server = self.clone();
+			let runner_lifecycle = runner_lifecycle.clone();
 			let input = input.clone();
 			async move {
 				let mut interval = tokio::time::interval(Duration::from_secs(1));
 				loop {
 					interval.tick().await;
-					for message in server
-						.runner_lifecycle_messages
-						.iter()
-						.map(|entry| entry.value().clone())
-						.collect::<Vec<_>>()
-					{
+					for message in runner_lifecycle.messages() {
 						if input.send(message).await.is_err() {
 							return;
 						}
@@ -186,6 +179,7 @@ impl Server {
 						permit,
 						process: request.process.clone(),
 						process_token: request.process_token.clone(),
+						runner_lifecycle: Some(runner_lifecycle.clone()),
 						started: Some(started_sender),
 						token: request.token.clone(),
 					});
@@ -210,7 +204,7 @@ impl Server {
 					});
 				},
 				tg::runner::control::ServerMessage::Ack(ack) => {
-					if self.runner_lifecycle_messages.remove(&ack.id).is_none() {
+					if !runner_lifecycle.remove(&ack.id) {
 						responses.insert(ack.id.clone(), CachedRunnerResponse::Pending);
 						tokio::spawn({
 							let responses = responses.clone();

@@ -301,6 +301,7 @@ impl Session {
 					permit,
 					process: Some(output.id.clone()),
 					process_token,
+					runner_lifecycle: None,
 					started: None,
 					token: sandbox_token,
 				});
@@ -1985,6 +1986,7 @@ impl Session {
 					permit,
 					process: Some(process),
 					process_token,
+					runner_lifecycle: None,
 					started: None,
 					token,
 				});
@@ -2003,34 +2005,31 @@ impl Session {
 		let session = self.clone();
 		let process = process.clone();
 		let sandbox = sandbox.clone();
-		self.server
-			.dispatch_tasks
-			.spawn(|_| async move {
-				let result = match sandbox_arg {
-					Some(sandbox_arg) => {
-						session
-							.schedule_process(
-								&sandbox,
-								sandbox_arg,
-								Some(&process),
-								sandbox_token,
-								process_token,
-							)
-							.await
-					},
-					None => {
-						session
-							.dispatch_process(&sandbox, &process, process_token)
-							.await
-					},
-				};
-				if let Err(error) = result {
+		tokio::spawn(async move {
+			let result = match sandbox_arg {
+				Some(sandbox_arg) => {
 					session
-						.finish_process_after_dispatch_failed(&process, error)
-						.await;
-				}
-			})
-			.detach();
+						.schedule_process(
+							&sandbox,
+							sandbox_arg,
+							Some(&process),
+							sandbox_token,
+							process_token,
+						)
+						.await
+				},
+				None => {
+					session
+						.dispatch_process(&sandbox, &process, process_token)
+						.await
+				},
+			};
+			if let Err(error) = result {
+				session
+					.finish_process_after_dispatch_failed(&process, error)
+					.await;
+			}
+		});
 	}
 
 	async fn finish_process_after_dispatch_failed(
