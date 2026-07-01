@@ -833,7 +833,7 @@ export namespace Process {
 		async #thenInner(): Promise<O | tg.Process<O>> {
 			let arg = await tg.Process.arg(...this.#args);
 			this.#validate?.(arg);
-			let output = await tg.Process.spawnArgFromResolved(arg);
+			let output = await spawn.spawnArg(...this.#args);
 			if (this.#mode === "exec") {
 				return await tg.Process.execUnsandboxed(output.arg);
 			}

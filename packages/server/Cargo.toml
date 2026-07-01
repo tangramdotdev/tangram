@@ -69,6 +69,7 @@ opentelemetry = { workspace = true }
 octocrab = { workspace = true }
 oauth2 = { workspace = true }
 petgraph = { workspace = true }
+rand = { workspace = true }
 reflink-copy = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true, optional = true }

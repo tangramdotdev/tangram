@@ -5,103 +5,183 @@ use {
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
 	tangram_index::prelude::*,
 };
 
+pub mod create;
+pub mod wait;
+
+#[derive(Clone)]
+pub(super) struct FinishLoginArg {
+	pub code: String,
+	pub default_specifier: tg::Specifier,
+	pub emails: Vec<String>,
+	pub identity: Option<LoginIdentity>,
+}
+
+#[derive(Clone)]
+pub(super) struct LoginIdentity {
+	pub provider: String,
+	pub subject: String,
+}
+
 impl Session {
-	pub(crate) fn create_user_token() -> String {
-		tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
-	}
-
-	pub(crate) async fn login(
-		&self,
-		arg: tg::user::login::Arg,
-	) -> tg::Result<tg::user::login::Output> {
-		let location = self
-			.server
-			.location(arg.location.as_ref())
-			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
-		match location {
-			tg::Location::Local(_) => self.login_local(arg).await,
-			tg::Location::Remote(remote) => {
-				let client = self.get_remote_session(&remote.name).await?;
-				let arg = tg::user::login::Arg {
-					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-					..arg
-				};
-				client.login(arg).await
-			},
-		}
-	}
-
-	async fn login_local(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {
-		let provider = self.resolve_login_provider(arg.provider)?;
-		let session = self.clone();
-		let (output, batch) = self
+	pub(super) async fn finish_login(&self, arg: FinishLoginArg) -> tg::Result<tg::User> {
+		// Finish the login.
+		let current = self.clone();
+		let (user, batch) = self
 			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
-				let session = session.clone();
+				let current = current.clone();
 				async move {
 					let mut batch = tangram_index::batch::Arg::default();
-					let output = match provider {
-						tg::user::login::Provider::Insecure => {
-							session
-								.login_insecure_with_transaction(transaction, arg, &mut batch)
-								.await?
-						},
-					};
-					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
+					let user = current
+						.upsert_login_user_with_transaction(transaction, &arg, &mut batch)
+						.await?;
+					for email in &arg.emails {
+						let p = transaction.p();
+						let statement = formatdoc!(
+							r#"
+								insert into user_emails ("user", email)
+								values ({p}1, {p}2)
+								on conflict ("user", email) do nothing;
+							"#
+						);
+						transaction
+							.execute(
+								statement.into(),
+								db::params![user.id.to_string(), email.clone()],
+							)
+							.await
+							.map_err(|error| {
+								tg::error!(!error, "failed to execute the statement")
+							})?;
+					}
+					let token = create_token();
+					let p = transaction.p();
+					let statement = formatdoc!(
+						r#"
+							insert into user_tokens (id, "user")
+							values ({p}1, {p}2);
+						"#
+					);
+					transaction
+						.execute(
+							statement.into(),
+							db::params![token.clone(), user.id.to_string()],
+						)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					let statement = formatdoc!(
+						r#"
+							update logins
+							set status = 'finished', "user" = {p}1, token = {p}2, updated_at = {p}3
+							where code = {p}4 and status = 'started';
+						"#
+					);
+					let now = time::OffsetDateTime::now_utc().unix_timestamp();
+					transaction
+						.execute(
+							statement.into(),
+							db::params![user.id.to_string(), token, now, arg.code.clone(),],
+						)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					let node = Self::try_get_node_by_id_with_transaction(
+						transaction,
+						&user.id.clone().into(),
+					)
+					.await?
+					.unwrap();
+					let user = Self::user_from_node_with_transaction(transaction, node).await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break((user, batch)))
 				}
 				.boxed()
 			})
 			.await?;
+
+		// Index the user.
 		if !batch.is_empty() {
-			self.server
+			current
+				.server
 				.index
 				.batch(batch)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the user"))?;
 		}
-		Ok(output)
+
+		Ok(user)
 	}
 
-	fn resolve_login_provider(
-		&self,
-		provider: Option<tg::user::login::Provider>,
-	) -> tg::Result<tg::user::login::Provider> {
-		let authentication = self.server.config().authentication.as_ref();
-		let insecure = authentication
-			.is_some_and(|authentication| authentication.providers.insecure.is_some());
-		if let Some(provider) = provider {
-			match provider {
-				tg::user::login::Provider::Insecure if insecure => Ok(provider),
-				tg::user::login::Provider::Insecure => Err(tg::error!(
-					"the requested authentication provider is not available"
-				)),
-			}
-		} else if insecure {
-			Ok(tg::user::login::Provider::Insecure)
-		} else {
-			Err(tg::error!("no authentication providers are configured"))
-		}
-	}
-
-	async fn login_insecure_with_transaction(
+	async fn upsert_login_user_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
-		arg: tg::user::login::Arg,
+		arg: &FinishLoginArg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<tg::user::login::Output> {
-		let specifier = arg
+	) -> tg::Result<tg::User> {
+		// Get the user from the identity.
+		if let Some(identity) = &arg.identity {
+			#[derive(db::row::Deserialize)]
+			struct Row {
+				user: String,
+			}
+			let p = transaction.p();
+			let statement = formatdoc!(
+				r#"
+					select "user"
+					from user_identities
+					where provider = {p}1 and subject = {p}2;
+				"#
+			);
+			if let Some(row) = transaction
+				.query_optional_into::<Row>(
+					statement.into(),
+					db::params![identity.provider.clone(), identity.subject.clone()],
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+			{
+				let id = row.user.parse::<tg::user::Id>()?;
+				let node = Self::try_get_node_by_id_with_transaction(transaction, &id.into())
+					.await?
+					.ok_or_else(|| tg::error!("invalid user identity"))?;
+				return Self::user_from_node_with_transaction(transaction, node).await;
+			}
+		}
+
+		// Get the login.
+		#[derive(db::row::Deserialize)]
+		struct LoginRow {
+			name: Option<String>,
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select name
+				from logins
+				where code = {p}1;
+			"
+		);
+		let login = transaction
+			.query_one_into::<LoginRow>(statement.into(), db::params![arg.code.clone()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+
+		// Get the specifier.
+		let specifier = login
 			.name
-			.ok_or_else(|| tg::error!("invalid user specifier"))?;
+			.as_deref()
+			.map(str::parse)
+			.transpose()?
+			.unwrap_or_else(|| arg.default_specifier.clone());
 		if specifier.components().count() != 1 {
 			return Err(tg::error!("invalid user specifier"));
 		}
-		let mut user = if let Some(node) =
+
+		// Get or create the user.
+		let user = if let Some(node) =
 			Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
 		{
 			if node.kind != tg::id::Kind::User {
@@ -138,76 +218,38 @@ impl Session {
 			});
 			Self::user_from_node_with_transaction(transaction, node).await?
 		};
-		if let Some(email) = arg.email {
+
+		// Insert the identity.
+		if let Some(identity) = &arg.identity {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				r#"
-					insert into user_emails ("user", email)
-					values ({p}1, {p}2)
-					on conflict ("user", email) do nothing;
+					insert into user_identities (provider, subject, "user")
+					values ({p}1, {p}2, {p}3);
 				"#
 			);
 			transaction
-				.execute(statement.into(), db::params![user.id.to_string(), email])
+				.execute(
+					statement.into(),
+					db::params![
+						identity.provider.clone(),
+						identity.subject.clone(),
+						user.id.to_string()
+					],
+				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			user = Self::user_from_node_with_transaction(
-				transaction,
-				Self::try_get_node_by_id_with_transaction(transaction, &user.id.clone().into())
-					.await?
-					.unwrap(),
-			)
-			.await?;
 		}
-		let token = Self::create_user_token();
-		let p = transaction.p();
-		let statement = formatdoc!(
-			r#"
-				insert into user_tokens (id, "user")
-				values ({p}1, {p}2);
-			"#
-		);
-		transaction
-			.execute(
-				statement.into(),
-				db::params![token.clone(), user.id.to_string()],
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(tg::user::login::Output { token, user })
-	}
 
-	pub(crate) async fn login_request(
-		&self,
-		request: http::Request<BoxBody>,
-	) -> tg::Result<http::Response<BoxBody>> {
-		let accept = request
-			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let arg = request
-			.json()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		let output = self.login(arg).await?;
-		let (content_type, body) = match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
-				let content_type = mime::APPLICATION_JSON;
-				let body = serde_json::to_vec(&output).unwrap();
-				(Some(content_type), BoxBody::with_bytes(body))
-			},
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
-			},
-		};
-		let mut response = http::Response::builder();
-		if let Some(content_type) = content_type {
-			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
-		}
-		let response = response.body(body).unwrap().boxed_body();
-		Ok(response)
+		Ok(user)
 	}
+}
+
+pub(super) fn create_token() -> String {
+	tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
+}
+
+pub(super) fn create_code() -> String {
+	let bytes = rand::random::<[u8; 5]>();
+	tg::id::ENCODING.encode(&bytes)
 }

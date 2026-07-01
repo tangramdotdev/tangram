@@ -15,6 +15,16 @@ where
 		}
 	}
 
+	fn create_login(
+		&self,
+		arg: tg::user::login::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::login::create::Output>> {
+		match self {
+			tg::Either::Left(s) => s.create_login(arg).left_future(),
+			tg::Either::Right(s) => s.create_login(arg).right_future(),
+		}
+	}
+
 	fn try_get_user(
 		&self,
 		user: &tg::user::Selector,
@@ -26,13 +36,13 @@ where
 		}
 	}
 
-	fn login(
+	fn wait_login(
 		&self,
-		arg: tg::user::login::Arg,
-	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
+		arg: tg::user::login::wait::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::login::wait::Output>> {
 		match self {
-			tg::Either::Left(s) => s.login(arg).left_future(),
-			tg::Either::Right(s) => s.login(arg).right_future(),
+			tg::Either::Left(s) => s.wait_login(arg).left_future(),
+			tg::Either::Right(s) => s.wait_login(arg).right_future(),
 		}
 	}
 }

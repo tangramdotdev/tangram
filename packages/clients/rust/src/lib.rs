@@ -1,6 +1,10 @@
 use {
 	crate::prelude::*,
-	std::{fmt, ops::Deref, sync::Arc},
+	std::{
+		fmt,
+		ops::Deref,
+		sync::{Arc, RwLock},
+	},
 	tangram_uri::Uri,
 	tokio::io::{AsyncRead, AsyncWrite},
 };
@@ -84,7 +88,6 @@ pub mod list;
 pub mod location;
 pub mod module;
 pub mod mutation;
-pub mod oauth;
 pub mod object;
 pub mod organization;
 pub mod placeholder;
@@ -148,9 +151,33 @@ pub struct State {
 	version: String,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct Context {
-	pub token: Option<String>,
+	token: Arc<RwLock<Option<String>>>,
+}
+
+impl Clone for Context {
+	fn clone(&self) -> Self {
+		Self::new(self.token())
+	}
+}
+
+impl Context {
+	#[must_use]
+	pub fn new(token: Option<String>) -> Self {
+		Self {
+			token: Arc::new(RwLock::new(token)),
+		}
+	}
+
+	#[must_use]
+	pub fn token(&self) -> Option<String> {
+		self.token.read().unwrap().clone()
+	}
+
+	pub fn set_token(&self, token: Option<String>) {
+		*self.token.write().unwrap() = token;
+	}
 }
 
 impl Client {
@@ -166,7 +193,7 @@ impl Client {
 		let reconnect = arg.reconnect.unwrap_or_default();
 		let retry = arg.retry.unwrap_or_default();
 		let sync = arg.sync;
-		let context = Context { token: arg.token };
+		let context = Context::new(arg.token);
 		let pool = Self::pool(pool_options, &reconnect, &url);
 		let service = Self::service(&version, &pool);
 		let client = Self(Arc::new(State {
@@ -217,7 +244,7 @@ impl Client {
 		let reconnect = arg.reconnect.unwrap_or_default();
 		let retry = arg.retry.unwrap_or_default();
 		let sync = arg.sync;
-		let context = Context { token: arg.token };
+		let context = Context::new(arg.token);
 		let sender = Self::handshake_h2(stream).await?;
 		let options = tangram_pool::Options {
 			min: 1,
@@ -274,6 +301,10 @@ impl Client {
 	#[must_use]
 	pub fn context(&self) -> &Context {
 		&self.context
+	}
+
+	pub fn set_token(&self, token: Option<String>) {
+		self.context.set_token(token);
 	}
 
 	#[must_use]

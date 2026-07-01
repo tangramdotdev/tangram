@@ -5,6 +5,13 @@ impl tg::handle::User for Session {
 		self.get_current_user(arg).await
 	}
 
+	async fn create_login(
+		&self,
+		arg: tg::user::login::create::Arg,
+	) -> tg::Result<tg::user::login::create::Output> {
+		self.create_login(arg).await
+	}
+
 	async fn try_get_user(
 		&self,
 		user: &tg::user::Selector,
@@ -13,7 +20,10 @@ impl tg::handle::User for Session {
 		self.try_get_user(user, arg).await
 	}
 
-	async fn login(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {
-		self.login(arg).await
+	async fn wait_login(
+		&self,
+		arg: tg::user::login::wait::Arg,
+	) -> tg::Result<tg::user::login::wait::Output> {
+		self.wait_login(arg).await
 	}
 }

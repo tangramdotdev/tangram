@@ -491,7 +491,7 @@ impl Connection {
 impl tg::Session {
 	pub(crate) fn apply_context_headers<B>(&self, request: &mut http::Request<B>) {
 		let headers = request.headers_mut();
-		if let Some(token) = &self.context().token {
+		if let Some(token) = self.context().token() {
 			headers
 				.entry(http::header::AUTHORIZATION)
 				.or_insert_with(|| {

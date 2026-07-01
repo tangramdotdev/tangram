@@ -30,8 +30,15 @@ export let spawnArg = async (
 	arg: tg.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
-	let arg = await tg.Process.arg(...args);
-	return await spawnArgFromResolved(arg);
+	let resolved = await Promise.all(args.map(tg.resolve));
+	let arg = await tg.Process.argResolved(...resolved);
+	let sandbox = normalizeSandbox(sandboxArgFromResolved(arg));
+	let defaults =
+		sandbox === undefined
+			? [{ cwd: tg.process.cwd, env: { ...tg.process.env } }]
+			: [];
+	arg = await tg.Process.argResolved(...defaults, ...resolved);
+	return await spawnArgFromResolvedWithSandbox(arg, sandbox);
 };
 
 export let spawnArgFromResolved = async (
@@ -46,6 +53,16 @@ export let spawnArgFromResolved = async (
 			? [{ cwd: tg.process.cwd, env: { ...tg.process.env } }]
 			: [];
 	arg = await tg.Process.argResolved(...defaults, arg);
+	return await spawnArgFromResolvedWithSandbox(arg, sandbox);
+};
+
+let spawnArgFromResolvedWithSandbox = async (
+	arg: tg.Process.ArgObject,
+	sandbox: Exclude<tg.Spawn.Arg["sandbox"], undefined> | undefined,
+): Promise<{
+	arg: tg.Spawn.Arg;
+	options: tg.Referent.Options;
+}> => {
 	if (sandbox !== undefined) {
 		if (!("host" in arg)) {
 			arg.host = tg.host.current;

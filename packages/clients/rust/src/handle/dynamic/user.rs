@@ -8,6 +8,13 @@ impl tg::handle::User for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.get_current_user(arg)) }
 	}
 
+	fn create_login(
+		&self,
+		arg: tg::user::login::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::login::create::Output>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.create_login(arg)) }
+	}
+
 	fn try_get_user(
 		&self,
 		user: &tg::user::Selector,
@@ -16,10 +23,10 @@ impl tg::handle::User for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_user(user, arg)) }
 	}
 
-	fn login(
+	fn wait_login(
 		&self,
-		arg: tg::user::login::Arg,
-	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.login(arg)) }
+		arg: tg::user::login::wait::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::login::wait::Output>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.wait_login(arg)) }
 	}
 }

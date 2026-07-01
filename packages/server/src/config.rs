@@ -115,11 +115,21 @@ pub struct Advanced {
 	pub single_process: bool,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default)]
 #[serde(deny_unknown_fields)]
 pub struct Authentication {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	#[serde(default = "default_login_interval", skip_serializing_if = "is_default")]
+	pub interval: Duration,
+
 	#[serde(default)]
 	pub providers: AuthenticationProviders,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	#[serde(default = "default_login_ttl", skip_serializing_if = "is_default")]
+	pub ttl: Duration,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub web_url: Option<String>,
@@ -151,9 +161,6 @@ pub struct Github {
 	pub client_secret: String,
 
 	pub redirect_url: String,
-
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub scopes: Vec<String>,
 
 	pub token_url: String,
 }
@@ -1106,6 +1113,17 @@ impl Default for Advanced {
 	}
 }
 
+impl Default for Authentication {
+	fn default() -> Self {
+		Self {
+			interval: default_login_interval(),
+			providers: AuthenticationProviders::default(),
+			ttl: default_login_ttl(),
+			web_url: None,
+		}
+	}
+}
+
 impl Default for CheckinBlob {
 	fn default() -> Self {
 		Self { concurrency: 8 }
@@ -1671,6 +1689,14 @@ fn default_process_grant_time_to_live() -> Duration {
 
 fn default_time_to_touch() -> Duration {
 	Duration::from_hours(1)
+}
+
+fn default_login_interval() -> Duration {
+	Duration::from_secs(5)
+}
+
+fn default_login_ttl() -> Duration {
+	Duration::from_mins(15)
 }
 
 fn default_sync_max_frame_size() -> u64 {
