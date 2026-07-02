@@ -5,7 +5,7 @@ import type { Client } from "../../client.ts";
 export async function getSandbox(
 	client: Client,
 	id: tg.Sandbox.Id,
-	arg?: tg.Sandbox.Get.Arg | undefined,
+	arg?: tg.Sandbox.Get.Arg,
 ): Promise<tg.Sandbox.Get.Output> {
 	let output = await tryGetSandbox(client, id, arg);
 	if (output === undefined) {
@@ -17,7 +17,7 @@ export async function getSandbox(
 export async function tryGetSandbox(
 	client: Client,
 	id: tg.Sandbox.Id,
-	arg?: tg.Sandbox.Get.Arg | undefined,
+	arg?: tg.Sandbox.Get.Arg,
 ): Promise<tg.Sandbox.Get.Output | undefined> {
 	let method = "GET";
 	let uri = new Uri({
@@ -51,7 +51,7 @@ export async function tryGetSandbox(
 	}
 	let output = await response.json<
 		Omit<tg.Sandbox.Get.Output, "location"> & {
-			location?: string | tg.Location | undefined;
+			location?: string | tg.Location;
 		}
 	>();
 	if (typeof output.location === "string") {

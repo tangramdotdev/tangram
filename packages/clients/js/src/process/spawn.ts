@@ -156,24 +156,38 @@ let spawnArgFromResolvedWithSandbox = async (
 		options: options,
 	};
 
+	let debug =
+		arg.debug === undefined || arg.debug === false
+			? undefined
+			: arg.debug === true
+				? {}
+				: arg.debug;
 	let spawnArg: tg.Spawn.Arg = {
-		cache_location: arg.cache_location,
-		checksum,
 		command: commandReferent,
-		debug:
-			arg.debug === undefined || arg.debug === false
-				? undefined
-				: arg.debug === true
-					? {}
-					: arg.debug,
-		location: arg.location,
+		public: false,
 		retry: false,
-		sandbox,
 		stderr: stderr ?? "inherit",
 		stdin: processStdin ?? "inherit",
 		stdout: stdout ?? "inherit",
-		tty,
 	};
+	if (arg.cache_location !== undefined) {
+		spawnArg.cacheLocation = arg.cache_location;
+	}
+	if (checksum !== undefined) {
+		spawnArg.checksum = checksum;
+	}
+	if (debug !== undefined) {
+		spawnArg.debug = debug;
+	}
+	if (arg.location !== undefined) {
+		spawnArg.location = arg.location;
+	}
+	if (sandbox !== undefined) {
+		spawnArg.sandbox = sandbox;
+	}
+	if (tty !== undefined) {
+		spawnArg.tty = tty;
+	}
 
 	return { arg: spawnArg, options };
 };
@@ -308,12 +322,16 @@ export let waitUnsandboxed = async (
 			if (wait.output === undefined) {
 				let stream = await tg.client.checkin({
 					options: {
+						cachePointers: true,
 						destructive: true,
 						deterministic: true,
 						ignore: false,
-						lock: undefined,
+						localDependencies: true,
 						locked: true,
 						root: true,
+						solve: true,
+						unsolvedDependencies: false,
+						watch: false,
 					},
 					path: outputPath,
 					updates: [],
@@ -487,14 +505,19 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			};
 		}
 	}
-	let stream = await tg.client.spawnProcess({
+	let spawnArg: tg.Spawn.Arg = {
 		...arg,
 		retry: arg.retry ?? false,
 		stderr: spawnStderr ?? "inherit",
 		stdin: spawnStdin ?? "inherit",
 		stdout: spawnStdout ?? "inherit",
-		tty,
-	});
+	};
+	if (tty !== undefined) {
+		spawnArg.tty = tty;
+	} else {
+		delete spawnArg.tty;
+	}
+	let stream = await tg.client.spawnProcess(spawnArg);
 	let output = await tg.Progress.lastOutput(stream);
 	if (output === undefined) {
 		throw new Error("stream ended without output");
@@ -555,8 +578,6 @@ async function checkoutArtifacts(
 			artifact,
 			dependencies: true,
 			force: false,
-			lock: undefined,
-			path: undefined,
 		});
 		let event = await tg.Progress.lastOutput(stream);
 		if (event === undefined) {
@@ -856,8 +877,11 @@ let normalizeSandbox = (
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
 		sandboxNetwork = sandbox.network;
-		output.network = normalizeNetwork(sandbox.network);
-		if ("ttl" in sandbox) {
+		let networkData = normalizeNetwork(sandbox.network);
+		if (networkData !== undefined) {
+			output.network = networkData;
+		}
+		if (sandbox.ttl !== undefined) {
 			output.ttl = sandbox.ttl;
 		} else if (defaultTtl) {
 			output.ttl = 0;
@@ -866,10 +890,10 @@ let normalizeSandbox = (
 			output.user = sandbox.user;
 		}
 	}
-	if (hasCpu) {
+	if (cpu !== undefined) {
 		output.cpu = cpu;
 	}
-	if (hasMemory) {
+	if (memory !== undefined) {
 		output.memory = memory;
 	}
 	if (mounts.length > 0) {
@@ -879,10 +903,13 @@ let normalizeSandbox = (
 		];
 	}
 	if (hasNetwork || hasPorts) {
-		output.network = normalizeNetworkForPorts(
+		let networkData = normalizeNetworkForPorts(
 			hasNetwork ? network : sandboxNetwork,
 			ports,
 		);
+		if (networkData !== undefined) {
+			output.network = networkData;
+		}
 	}
 	return output;
 };

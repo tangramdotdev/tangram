@@ -4,14 +4,14 @@ import type { Client } from "../../client.ts";
 
 export namespace Get {
 	export type Arg = {
-		location?: tg.Location.Arg | undefined;
-		metadata?: boolean | undefined;
+		location?: tg.Location.Arg;
+		metadata?: boolean;
 	};
 
 	export type Output = {
 		data: tg.Process.Data;
 		id: tg.Process.Id;
-		location?: tg.Location | undefined;
+		location?: tg.Location;
 		metadata?: unknown;
 	};
 }
@@ -19,7 +19,7 @@ export namespace Get {
 export async function getProcess(
 	client: Client,
 	id: tg.Process.Id,
-	arg?: Get.Arg | undefined,
+	arg?: Get.Arg,
 ): Promise<Get.Output> {
 	let output = await tryGetProcess(client, id, arg);
 	if (output === undefined) {
@@ -31,7 +31,7 @@ export async function getProcess(
 export async function tryGetProcess(
 	client: Client,
 	id: tg.Process.Id,
-	arg?: Get.Arg | undefined,
+	arg?: Get.Arg,
 ): Promise<Get.Output | undefined> {
 	let method = "GET";
 	let uri = new Uri({
@@ -66,9 +66,10 @@ export async function tryGetProcess(
 	}
 	let output = await response.json<
 		Omit<Get.Output, "location"> & {
-			location?: string | tg.Location | undefined;
+			location?: string | tg.Location;
 		}
 	>();
+	output.data = tg.Process.Data.fromJson(output.data);
 	if (typeof output.location === "string") {
 		output.location = tg.Location.fromDataString(output.location);
 	}

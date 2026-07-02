@@ -4,27 +4,76 @@ import type { Client } from "../../client.ts";
 
 export namespace Spawn {
 	export type Arg = {
-		cache_location?: tg.Location.Arg | undefined;
-		checksum?: tg.Checksum | undefined;
+		cached?: boolean;
+		cacheLocation?: tg.Location.Arg;
+		checksum?: tg.Checksum;
 		command: tg.Referent<tg.Command.Id>;
-		debug?: tg.Process.Debug | undefined;
-		location?: tg.Location.Arg | undefined;
-		parent?: tg.Process.Id | undefined;
-		retry?: boolean | undefined;
-		sandbox?: tg.Sandbox.DataArg | string | undefined;
-		stderr?: string | undefined;
-		stdin?: string | undefined;
-		stdout?: string | undefined;
-		tty?: boolean | tg.Process.Tty | undefined;
+		debug?: tg.Process.Debug;
+		location?: tg.Location.Arg;
+		parent?: tg.Process.Id;
+		public: boolean;
+		retry: boolean;
+		sandbox?: tg.Sandbox.DataArg | string;
+		stderr: tg.Process.Stdio;
+		stdin: tg.Process.Stdio;
+		stdout: tg.Process.Stdio;
+		tty?: boolean | tg.Process.Tty;
 	};
+
+	export namespace Arg {
+		export let toJson = (arg: tg.Spawn.Arg): unknown => {
+			let output: { [key: string]: unknown } = {};
+			if (arg.cached !== undefined) {
+				output.cached = arg.cached;
+			}
+			if (arg.cacheLocation !== undefined) {
+				output.cache_location = tg.Location.Arg.toDataString(arg.cacheLocation);
+			}
+			if (arg.checksum !== undefined) {
+				output.checksum = arg.checksum;
+			}
+			output.command = tg.Referent.toData(arg.command, (id) => id);
+			if (arg.debug !== undefined) {
+				output.debug = arg.debug;
+			}
+			if (arg.location !== undefined) {
+				output.location = tg.Location.Arg.toDataString(arg.location);
+			}
+			if (arg.parent !== undefined) {
+				output.parent = arg.parent;
+			}
+			if (arg.public) {
+				output.public = arg.public;
+			}
+			if (arg.retry) {
+				output.retry = arg.retry;
+			}
+			if (arg.sandbox !== undefined) {
+				output.sandbox = arg.sandbox;
+			}
+			if (arg.stderr !== "inherit") {
+				output.stderr = arg.stderr;
+			}
+			if (arg.stdin !== "inherit") {
+				output.stdin = arg.stdin;
+			}
+			if (arg.stdout !== "inherit") {
+				output.stdout = arg.stdout;
+			}
+			if (arg.tty !== undefined) {
+				output.tty = arg.tty;
+			}
+			return output;
+		};
+	}
 
 	export type Output = {
 		cached: boolean;
-		lease: string | undefined;
-		location: tg.Location | undefined;
+		lease?: string;
+		location?: tg.Location;
 		process: tg.Process.Id;
-		token?: tg.Grant.Token | undefined;
-		wait: tg.Process.Wait.Data | undefined;
+		token?: tg.Grant.Token;
+		wait?: tg.Process.Wait.Data;
 	};
 }
 
@@ -48,7 +97,7 @@ export async function trySpawnProcess(
 		accept: "text/event-stream",
 		"content-type": "application/json",
 	};
-	let body = Body.json(normalizeSpawnArg(arg));
+	let body = Body.json(Spawn.Arg.toJson(arg));
 	let request = new Request({
 		body,
 		method,
@@ -68,40 +117,23 @@ export async function trySpawnProcess(
 	return decodeSpawnEvents(response);
 }
 
-function normalizeSpawnArg(arg: tg.Spawn.Arg): Omit<
-	tg.Spawn.Arg,
-	"cache_location" | "command" | "location"
-> & {
-	cache_location?: string | undefined;
-	command: tg.Referent.Data<tg.Command.Id>;
-	location?: string | undefined;
-} {
-	return {
-		...arg,
-		cache_location:
-			arg.cache_location === undefined
-				? undefined
-				: tg.Location.Arg.toDataString(arg.cache_location),
-		command: tg.Referent.toData(arg.command, (id) => id),
-		location:
-			arg.location === undefined
-				? undefined
-				: tg.Location.Arg.toDataString(arg.location),
-	};
-}
-
 function normalizeSpawnOutput(
 	output: Omit<tg.Spawn.Output, "location"> & {
-		location?: string | tg.Location | undefined;
+		location?: string | tg.Location;
 	},
 ): tg.Spawn.Output {
-	return {
-		...output,
-		location:
-			typeof output.location === "string"
-				? tg.Location.fromDataString(output.location)
-				: output.location,
-	};
+	let { location, wait, ...rest } = output;
+	let result: tg.Spawn.Output = { ...rest };
+	if (location !== undefined) {
+		result.location =
+			typeof location === "string"
+				? tg.Location.fromDataString(location)
+				: location;
+	}
+	if (wait !== undefined) {
+		result.wait = tg.Process.Wait.Data.fromJson(wait);
+	}
+	return result;
 }
 
 async function* decodeSpawnEvents(
@@ -109,7 +141,7 @@ async function* decodeSpawnEvents(
 ): AsyncIterableIterator<tg.Progress.Event<tg.Spawn.Output | undefined>> {
 	for await (let event of tg.Progress.decode<
 		| (Omit<tg.Spawn.Output, "location"> & {
-				location?: string | tg.Location | undefined;
+				location?: string | tg.Location;
 		  })
 		| undefined
 	>(response)) {

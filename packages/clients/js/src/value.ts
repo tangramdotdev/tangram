@@ -7,7 +7,6 @@ import {
 /** The union of all types that can be used as the input or output of Tangram commands. */
 export type Value =
 	| undefined
-	| null
 	| boolean
 	| number
 	| string
@@ -40,9 +39,8 @@ export namespace Value {
 	};
 
 	export let toData = (value: Value): Data => {
-		if (value === undefined || value === null) {
-			return null;
-		} else if (
+		if (
+			typeof value === "undefined" ||
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string"
@@ -73,9 +71,8 @@ export namespace Value {
 	};
 
 	export let fromData = (data: tg.Value.Data): tg.Value => {
-		if (data === null) {
-			return undefined;
-		} else if (
+		if (
+			typeof data === "undefined" ||
 			typeof data === "boolean" ||
 			typeof data === "number" ||
 			typeof data === "string"
@@ -92,9 +89,7 @@ export namespace Value {
 			);
 		} else if (data.kind === "object") {
 			let id =
-				typeof data.value === "object" &&
-				data.value !== null &&
-				"id" in data.value
+				typeof data.value === "object" && "id" in data.value
 					? data.value.id
 					: data.value;
 			let object = tg.Object.withId(id);
@@ -119,7 +114,6 @@ export namespace Value {
 	export let is = (value: unknown): value is Value => {
 		return (
 			value === undefined ||
-			value === null ||
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string" ||
@@ -272,7 +266,7 @@ export namespace Value {
 	};
 
 	export type Data =
-		| null
+		| undefined
 		| boolean
 		| number
 		| string
@@ -287,7 +281,7 @@ export namespace Value {
 	export namespace Data {
 		export let children = (data: tg.Value.Data): Array<tg.Object.Id> => {
 			if (
-				data === null ||
+				typeof data === "undefined" ||
 				typeof data === "boolean" ||
 				typeof data === "number" ||
 				typeof data === "string"
@@ -299,9 +293,7 @@ export namespace Value {
 				return globalThis.Object.values(data.value).flatMap(children);
 			} else if (data.kind === "object") {
 				return [
-					typeof data.value === "object" &&
-					data.value !== null &&
-					"id" in data.value
+					typeof data.value === "object" && "id" in data.value
 						? data.value.id
 						: data.value,
 				];
@@ -319,16 +311,14 @@ export namespace Value {
 				for (let value of data) {
 					removeTokens(value);
 				}
-			} else if (typeof data === "object" && data !== null) {
+			} else if (typeof data === "object") {
 				if (data.kind === "map") {
 					for (let value of globalThis.Object.values(data.value)) {
 						removeTokens(value);
 					}
 				} else if (data.kind === "object") {
 					data.value =
-						typeof data.value === "object" &&
-						data.value !== null &&
-						"id" in data.value
+						typeof data.value === "object" && "id" in data.value
 							? data.value.id
 							: data.value;
 				} else if (data.kind === "mutation") {

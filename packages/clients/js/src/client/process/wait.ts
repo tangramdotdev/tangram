@@ -4,9 +4,9 @@ import type { Client } from "../../client.ts";
 
 export namespace Wait {
 	export type Arg = {
-		lease: string | undefined;
-		location?: tg.Location.Arg | undefined;
-		token?: tg.Grant.Token | undefined;
+		lease?: string;
+		location?: tg.Location.Arg;
+		token?: tg.Grant.Token;
 	};
 }
 
@@ -97,7 +97,7 @@ async function waitProcessOnce(
 	let output: tg.Process.Wait | undefined;
 	for await (let event of response.sse()) {
 		if (event.event === "output") {
-			let data = JSON.parse(event.data) as tg.Process.Wait.Data;
+			let data = tg.Process.Wait.Data.fromJson(JSON.parse(event.data));
 			output = tg.Process.Wait.fromData(data);
 		} else if (event.event === "error") {
 			let data = JSON.parse(event.data) as tg.Error.Data | tg.Error.Id;

@@ -4,7 +4,7 @@ import type { Client } from "../client.ts";
 
 export namespace Write {
 	export type Arg = {
-		cachePointers?: boolean | undefined;
+		cachePointers?: boolean;
 	};
 
 	export type Output = {

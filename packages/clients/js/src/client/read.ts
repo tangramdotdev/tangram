@@ -5,13 +5,13 @@ import type { Client } from "../client.ts";
 export namespace Read {
 	export type Arg = {
 		blob: tg.Blob.Id;
-		token?: tg.Grant.Token | undefined;
+		token?: tg.Grant.Token;
 	} & Read.Options;
 
 	export type Options = {
-		position?: number | string | undefined;
-		length?: number | undefined;
-		size?: number | undefined;
+		position?: number | string;
+		length?: number;
+		size?: number;
 	};
 
 	export type Event =

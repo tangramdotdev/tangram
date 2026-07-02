@@ -22,7 +22,7 @@ export async function putObject(
 		accept: "application/json",
 		"content-type": "application/json",
 	};
-	let body = Body.json(arg.data);
+	let body = Body.json(tg.Object.Data.toJson(arg.data));
 	let request = new Request({
 		body,
 		method,

@@ -7,7 +7,7 @@ import type { Client } from "../../../client.ts";
 export namespace Stdio {
 	export namespace Write {
 		export type Arg = {
-			location?: tg.Location.Arg | undefined;
+			location?: tg.Location.Arg;
 			streams: Array<tg.Process.Stdio.Stream>;
 		};
 	}

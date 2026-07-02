@@ -18,6 +18,10 @@ export async function postObjectBatch(
 			arg.location === undefined
 				? undefined
 				: tg.Location.Arg.toDataString(arg.location),
+		objects: arg.objects.map((object) => ({
+			...object,
+			data: tg.Object.Data.toJson(object.data),
+		})),
 	});
 	let request = new Request({
 		body,

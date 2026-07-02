@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { nullToUndefined, undefinedToNull } from "./json.ts";
 import * as build from "./process/build.ts";
 import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
@@ -281,9 +282,11 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (typeof this.#id === "number") {
 			throw new Error("loading unsandboxed process state is not supported");
 		}
-		let output = await tg.client.getProcess(this.#id, {
-			location: this.#location,
-		});
+		let arg: tg.Process.Get.Arg = {};
+		if (this.#location !== undefined) {
+			arg.location = this.#location;
+		}
+		let output = await tg.client.getProcess(this.#id, arg);
 		if (output.location !== undefined) {
 			this.#location = tg.Location.Arg.fromLocation(output.location);
 		}
@@ -461,10 +464,10 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			location = this.#location;
 		}
-		let arg = {
-			location,
-			signal,
-		};
+		let arg: tg.Signal.Arg = { signal };
+		if (location !== undefined) {
+			arg.location = location;
+		}
 		await tg.client.signalProcess(this.#id, arg);
 	}
 
@@ -577,10 +580,11 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			location = this.#location;
 		}
-		await tg.client.setProcessTtySize(this.#id, {
-			location,
-			size,
-		});
+		let arg: tg.Process.Tty.Put.Arg = { size };
+		if (location !== undefined) {
+			arg.location = location;
+		}
+		await tg.client.setProcessTtySize(this.#id, arg);
 	}
 }
 
@@ -602,7 +606,7 @@ export namespace Process {
 	export namespace Tty {
 		export namespace Put {
 			export type Arg = {
-				location?: tg.Location.Arg | undefined;
+				location?: tg.Location.Arg;
 				size: tg.Process.Tty.Size;
 			};
 		}
@@ -1305,10 +1309,18 @@ export namespace Process {
 			if (data.log !== undefined && typeof data.log !== "string") {
 				data.log = data.log.id;
 			}
-			if ("output" in data) {
+			if (data.output !== undefined) {
 				tg.Value.Data.removeTokens(data.output);
 			}
 			return data;
+		};
+
+		export let toJson = (data: tg.Process.Data): unknown => {
+			return undefinedToNull(data);
+		};
+
+		export let fromJson = (json: unknown): tg.Process.Data => {
+			return nullToUndefined(json);
 		};
 	}
 
@@ -1330,6 +1342,12 @@ export namespace Process {
 			exit: number;
 			output?: tg.Value.Data;
 		};
+
+		export namespace Data {
+			export let fromJson = (json: unknown): tg.Process.Wait.Data => {
+				return nullToUndefined(json);
+			};
+		}
 
 		export let fromData = (data: tg.Process.Wait.Data): tg.Process.Wait => {
 			let output: Wait = {

@@ -4,34 +4,35 @@ export namespace Sandbox {
 	export type Id = string;
 
 	export type DataArg = {
-		cpu?: number | undefined;
-		hostname?: string | undefined;
-		isolation?: tg.Sandbox.Isolation.Data | undefined;
-		location?: tg.Location.Arg | undefined;
-		memory?: number | undefined;
-		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
-		network?: tg.Sandbox.Network.Data | undefined;
-		ttl?: number | undefined;
-		user?: string | undefined;
+		cpu?: number;
+		hostname?: string;
+		isolation?: tg.Sandbox.Isolation.Data;
+		location?: tg.Location.Arg;
+		memory?: number;
+		mounts?: Array<tg.Sandbox.Mount.Data>;
+		network?: tg.Sandbox.Network.Data;
+		ttl?: number;
+		user?: string;
 	};
 
 	export namespace Get {
 		export type Arg = {
-			location?: tg.Location.Arg | undefined;
+			location?: tg.Location.Arg;
 		};
 
 		export type Output = {
-			cpu?: number | undefined;
-			hostname?: string | undefined;
+			cpu?: number;
+			creator?: string;
+			hostname?: string;
 			id: tg.Sandbox.Id;
-			isolation?: tg.Sandbox.Isolation.Data | undefined;
-			location?: tg.Location | undefined;
-			memory?: number | undefined;
+			isolation?: tg.Sandbox.Isolation.Data;
+			location?: tg.Location;
+			memory?: number;
 			mounts: Array<tg.Sandbox.Mount.Data>;
-			network?: tg.Sandbox.Network.Data | undefined;
+			network?: tg.Sandbox.Network.Data;
+			owner?: string;
 			status: tg.Sandbox.Status;
-			ttl?: number | undefined;
-			user?: string | undefined;
+			ttl?: number;
 		};
 	}
 
@@ -88,7 +89,7 @@ export namespace Sandbox {
 			| { kind: "host" }
 			| {
 					kind: "bridge";
-					ports?: Array<tg.Sandbox.Port.Data> | undefined;
+					ports?: Array<tg.Sandbox.Port.Data>;
 			  };
 
 		export let toData = (
@@ -97,9 +98,12 @@ export namespace Sandbox {
 			if (typeof value === "string") {
 				return { kind: value };
 			}
+			if (value.ports === undefined) {
+				return { kind: "bridge" };
+			}
 			return {
 				kind: "bridge",
-				ports: value.ports?.map(tg.Sandbox.Port.toDataString),
+				ports: value.ports.map(tg.Sandbox.Port.toDataString),
 			};
 		};
 

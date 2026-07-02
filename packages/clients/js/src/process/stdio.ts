@@ -532,10 +532,11 @@ async function sigwinchTask(
 		if (size === undefined) {
 			continue;
 		}
-		await tg.client.setProcessTtySize(id, {
-			location,
-			size,
-		});
+		let arg: tg.Process.Tty.Put.Arg = { size };
+		if (location !== undefined) {
+			arg.location = location;
+		}
+		await tg.client.setProcessTtySize(id, arg);
 	}
 }
 

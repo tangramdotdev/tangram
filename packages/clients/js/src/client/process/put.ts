@@ -5,11 +5,11 @@ import type { Client } from "../../client.ts";
 export namespace Put {
 	export type Arg = {
 		data: tg.Process.Data;
-		location?: tg.Location.Arg | undefined;
+		location?: tg.Location.Arg;
 	};
 
 	export type Output = {
-		token?: tg.Grant.Token | undefined;
+		token?: tg.Grant.Token;
 	};
 }
 
@@ -26,6 +26,7 @@ export async function putProcess(
 	};
 	let body = Body.json({
 		...arg,
+		data: tg.Process.Data.toJson(arg.data),
 		location:
 			arg.location === undefined
 				? undefined
