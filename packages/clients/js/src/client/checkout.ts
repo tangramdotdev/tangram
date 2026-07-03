@@ -64,13 +64,7 @@ export async function checkout(
 	});
 	let response = await client.send(request);
 	if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	return tg.Progress.decode<tg.Checkout.Output>(response);
 }

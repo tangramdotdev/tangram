@@ -7,6 +7,7 @@ import * as spawn from "./process/spawn.ts";
 import * as stdio from "./process/stdio.ts";
 import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
+import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
 
 export let process: {
 	args: Array<tg.Value>;
@@ -193,25 +194,25 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	static async spawnArg(...args: tg.Args<tg.Process.Arg>): Promise<{
-		arg: tg.Spawn.Arg;
+		arg: tg.Process.Spawn.Arg;
 		options: tg.Referent.Options;
 	}> {
 		return await spawn.spawnArg(...args);
 	}
 
 	static async spawnArgFromResolved(arg: tg.Process.ArgObject): Promise<{
-		arg: tg.Spawn.Arg;
+		arg: tg.Process.Spawn.Arg;
 		options: tg.Referent.Options;
 	}> {
 		return await spawn.spawnArgFromResolved(arg);
 	}
 
-	static async execUnsandboxed(arg: tg.Spawn.Arg): Promise<never> {
+	static async execUnsandboxed(arg: tg.Process.Spawn.Arg): Promise<never> {
 		return await exec.execUnsandboxed(arg);
 	}
 
 	static async spawnUnsandboxed<O extends tg.Value = tg.Value>(
-		arg: tg.Spawn.Arg,
+		arg: tg.Process.Spawn.Arg,
 		options?: tg.Referent.Options,
 	): Promise<tg.Process<O>> {
 		return await spawn.spawnUnsandboxed<O>(arg, options);
@@ -231,14 +232,14 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	static async prepareUnsandboxedCommand(
-		arg: tg.Spawn.Arg,
+		arg: tg.Process.Spawn.Arg,
 		outputPath?: string,
 	): Promise<tg.Process.PreparedUnsandboxedCommandOutput> {
 		return await spawn.prepareUnsandboxedCommand(arg, outputPath);
 	}
 
 	static async spawnSandboxed<O extends tg.Value = tg.Value>(
-		arg: tg.Spawn.Arg,
+		arg: tg.Process.Spawn.Arg,
 		options?: tg.Referent.Options,
 	): Promise<tg.Process<O>> {
 		return await spawn.spawnSandboxed<O>(arg, options);
@@ -606,6 +607,12 @@ export namespace Process {
 		export type Arg = ProcessPut.Arg;
 
 		export type Output = ProcessPut.Output;
+	}
+
+	export namespace Spawn {
+		export import Arg = ProcessSpawn.Arg;
+
+		export import Output = ProcessSpawn.Output;
 	}
 
 	export namespace Tty {

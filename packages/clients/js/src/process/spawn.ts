@@ -27,7 +27,7 @@ export let builder = (...args: any): any => {
 export let spawnArg = async (
 	...args: tg.Args<tg.Process.Arg>
 ): Promise<{
-	arg: tg.Spawn.Arg;
+	arg: tg.Process.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
 	let resolved = await Promise.all(args.map(tg.resolve));
@@ -44,7 +44,7 @@ export let spawnArg = async (
 export let spawnArgFromResolved = async (
 	arg: tg.Process.ArgObject,
 ): Promise<{
-	arg: tg.Spawn.Arg;
+	arg: tg.Process.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
 	let sandbox = normalizeSandbox(sandboxArgFromResolved(arg));
@@ -58,9 +58,9 @@ export let spawnArgFromResolved = async (
 
 let spawnArgFromResolvedWithSandbox = async (
 	arg: tg.Process.ArgObject,
-	sandbox: Exclude<tg.Spawn.Arg["sandbox"], undefined> | undefined,
+	sandbox: Exclude<tg.Process.Spawn.Arg["sandbox"], undefined> | undefined,
 ): Promise<{
-	arg: tg.Spawn.Arg;
+	arg: tg.Process.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
 	if (sandbox !== undefined) {
@@ -162,7 +162,7 @@ let spawnArgFromResolvedWithSandbox = async (
 			: arg.debug === true
 				? {}
 				: arg.debug;
-	let spawnArg: tg.Spawn.Arg = {
+	let spawnArg: tg.Process.Spawn.Arg = {
 		command: commandReferent,
 		public: false,
 		retry: false,
@@ -224,7 +224,7 @@ let sandboxArgFromResolved = (
 };
 
 export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
-	arg: tg.Spawn.Arg,
+	arg: tg.Process.Spawn.Arg,
 	options?: tg.Referent.Options,
 ): Promise<tg.Process<O>> => {
 	let prepared = await prepareUnsandboxedCommand(arg);
@@ -363,7 +363,7 @@ export let waitUnsandboxed = async (
 };
 
 export let prepareUnsandboxedCommand = async (
-	arg: tg.Spawn.Arg,
+	arg: tg.Process.Spawn.Arg,
 	outputPath?: string,
 ): Promise<tg.Process.PreparedUnsandboxedCommandOutput> => {
 	if (arg.tty !== undefined) {
@@ -409,7 +409,7 @@ export let prepareUnsandboxedCommand = async (
 };
 
 export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
-	arg: tg.Spawn.Arg,
+	arg: tg.Process.Spawn.Arg,
 	options?: tg.Referent.Options,
 ): Promise<tg.Process<O>> => {
 	let noTty = arg.tty === false;
@@ -505,7 +505,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			};
 		}
 	}
-	let spawnArg: tg.Spawn.Arg = {
+	let spawnArg: tg.Process.Spawn.Arg = {
 		...arg,
 		retry: arg.retry ?? false,
 		stderr: spawnStderr ?? "inherit",
@@ -827,7 +827,7 @@ let normalizeSandbox = (
 		tg.Process.ArgObject,
 		"cpu" | "memory" | "mounts" | "network" | "owner" | "ports" | "sandbox"
 	>,
-): Exclude<tg.Spawn.Arg["sandbox"], undefined> | undefined => {
+): Exclude<tg.Process.Spawn.Arg["sandbox"], undefined> | undefined => {
 	let hasCpu = "cpu" in arg;
 	let cpu = arg.cpu;
 	let hasMemory = "memory" in arg;

@@ -122,13 +122,7 @@ async function writeProcessStdioOnce(
 	if (response.status === 404) {
 		return undefined;
 	} else if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	return decodeWriteStdioEvents(response);
 }

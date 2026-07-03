@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { Body, Request, Response } from "../../http.ts";
+import { Body, Request } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export namespace Spawn {
@@ -21,7 +21,7 @@ export namespace Spawn {
 	};
 
 	export namespace Arg {
-		export let toJson = (arg: tg.Spawn.Arg): unknown => {
+		export let toJson = (arg: tg.Process.Spawn.Arg): unknown => {
 			let output: { [key: string]: unknown } = {};
 			if (arg.cached !== undefined) {
 				output.cached = arg.cached;
@@ -75,21 +75,41 @@ export namespace Spawn {
 		token?: tg.Grant.Token | undefined;
 		wait?: tg.Process.Wait.Data | undefined;
 	};
+
+	export namespace Output {
+		export let fromJson = (json: unknown): tg.Process.Spawn.Output => {
+			let output = json as Omit<tg.Process.Spawn.Output, "location"> & {
+				location?: string | tg.Location;
+			};
+			let { location, wait, ...rest } = output;
+			let result: tg.Process.Spawn.Output = { ...rest };
+			if (location !== undefined) {
+				result.location =
+					typeof location === "string"
+						? tg.Location.fromDataString(location)
+						: location;
+			}
+			if (wait !== undefined) {
+				result.wait = tg.Process.Wait.Data.fromJson(wait);
+			}
+			return result;
+		};
+	}
 }
 
 export async function spawnProcess(
 	client: Client,
-	arg: tg.Spawn.Arg,
-): Promise<AsyncIterableIterator<tg.Progress.Event<tg.Spawn.Output>>> {
+	arg: tg.Process.Spawn.Arg,
+): Promise<AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output>>> {
 	let stream = await trySpawnProcess(client, arg);
 	return mapSpawnEvents(stream);
 }
 
 export async function trySpawnProcess(
 	client: Client,
-	arg: tg.Spawn.Arg,
+	arg: tg.Process.Spawn.Arg,
 ): Promise<
-	AsyncIterableIterator<tg.Progress.Event<tg.Spawn.Output | undefined>>
+	AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output | undefined>>
 > {
 	let method = "POST";
 	let uri = "/processes/spawn";
@@ -106,65 +126,26 @@ export async function trySpawnProcess(
 	});
 	let response = await client.send(request);
 	if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return decodeSpawnEvents(response);
-}
-
-function normalizeSpawnOutput(
-	output: Omit<tg.Spawn.Output, "location"> & {
-		location?: string | tg.Location;
-	},
-): tg.Spawn.Output {
-	let { location, wait, ...rest } = output;
-	let result: tg.Spawn.Output = { ...rest };
-	if (location !== undefined) {
-		result.location =
-			typeof location === "string"
-				? tg.Location.fromDataString(location)
-				: location;
-	}
-	if (wait !== undefined) {
-		result.wait = tg.Process.Wait.Data.fromJson(wait);
-	}
-	return result;
-}
-
-async function* decodeSpawnEvents(
-	response: Response,
-): AsyncIterableIterator<tg.Progress.Event<tg.Spawn.Output | undefined>> {
-	for await (let event of tg.Progress.decode<
-		| (Omit<tg.Spawn.Output, "location"> & {
-				location?: string | tg.Location;
-		  })
-		| undefined
-	>(response)) {
-		if (event.kind === "output" && event.value !== undefined) {
-			yield {
-				kind: "output",
-				value: normalizeSpawnOutput(event.value),
-			};
-		} else {
-			yield event as tg.Progress.Event<tg.Spawn.Output | undefined>;
-		}
-	}
+	return tg.Progress.decode<tg.Process.Spawn.Output | undefined>(
+		response,
+		(output) =>
+			output === undefined
+				? undefined
+				: tg.Process.Spawn.Output.fromJson(output),
+	);
 }
 
 async function* mapSpawnEvents(
-	events: AsyncIterable<tg.Progress.Event<tg.Spawn.Output | undefined>>,
-): AsyncIterableIterator<tg.Progress.Event<tg.Spawn.Output>> {
+	events: AsyncIterable<tg.Progress.Event<tg.Process.Spawn.Output | undefined>>,
+): AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output>> {
 	for await (let event of events) {
 		if (event.kind === "output") {
 			if (event.value === undefined) {
 				throw new Error("expected a process");
 			}
-			yield event as tg.Progress.Event<tg.Spawn.Output>;
+			yield event as tg.Progress.Event<tg.Process.Spawn.Output>;
 		} else {
 			yield event;
 		}
