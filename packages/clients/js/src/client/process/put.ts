@@ -5,11 +5,11 @@ import type { Client } from "../../client.ts";
 export namespace Put {
 	export type Arg = {
 		data: tg.Process.Data;
-		location?: tg.Location.Arg;
+		location?: tg.Location.Arg | undefined;
 	};
 
 	export type Output = {
-		token?: tg.Grant.Token;
+		token?: tg.Grant.Token | undefined;
 	};
 }
 

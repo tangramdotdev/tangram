@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { nullToUndefined, undefinedToNull } from "./json.ts";
+import { nullToUndefined, undefinedToNull } from "./util.ts";
 import * as build from "./process/build.ts";
 import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
@@ -487,11 +487,16 @@ export class Process<O extends tg.Value = tg.Value> {
 			this.#wait = wait;
 			return wait;
 		}
-		let arg: tg.Process.Wait.Arg = {
-			lease: this.#lease,
-			location: this.#location,
-			token: this.#token,
-		};
+		let arg: tg.Process.Wait.Arg = {};
+		if (this.#lease !== undefined) {
+			arg.lease = this.#lease;
+		}
+		if (this.#location !== undefined) {
+			arg.location = this.#location;
+		}
+		if (this.#token !== undefined) {
+			arg.token = this.#token;
+		}
 		let promise = await tg.client.waitProcessPromise(this.#id, arg);
 		let wait = await promise();
 		if (wait === undefined) {
@@ -606,7 +611,7 @@ export namespace Process {
 	export namespace Tty {
 		export namespace Put {
 			export type Arg = {
-				location?: tg.Location.Arg;
+				location?: tg.Location.Arg | undefined;
 				size: tg.Process.Tty.Size;
 			};
 		}
@@ -944,6 +949,9 @@ export namespace Process {
 
 		/** Configure network. */
 		network?: boolean | tg.Sandbox.Network | undefined;
+
+		/** The sandbox owner. */
+		owner?: string | undefined;
 
 		/** Configure port forwarding. */
 		ports?: Array<tg.Sandbox.Port> | undefined;
@@ -1332,7 +1340,7 @@ export namespace Process {
 
 	export namespace Wait {
 		export type Arg = {
-			lease: string | undefined;
+			lease?: string | undefined;
 			location?: tg.Location.Arg | undefined;
 			token?: tg.Grant.Token | undefined;
 		};

@@ -1,5 +1,5 @@
 import * as tg from "./index.ts";
-import { nullToUndefined, undefinedToNull } from "./json.ts";
+import { nullToUndefined, undefinedToNull } from "./util.ts";
 
 export type Object =
 	| tg.Blob

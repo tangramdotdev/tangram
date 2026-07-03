@@ -4,35 +4,35 @@ export namespace Sandbox {
 	export type Id = string;
 
 	export type DataArg = {
-		cpu?: number;
-		hostname?: string;
-		isolation?: tg.Sandbox.Isolation.Data;
-		location?: tg.Location.Arg;
-		memory?: number;
-		mounts?: Array<tg.Sandbox.Mount.Data>;
-		network?: tg.Sandbox.Network.Data;
-		ttl?: number;
-		user?: string;
+		cpu?: number | undefined;
+		hostname?: string | undefined;
+		isolation?: tg.Sandbox.Isolation.Data | undefined;
+		location?: tg.Location.Arg | undefined;
+		memory?: number | undefined;
+		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
+		network?: tg.Sandbox.Network.Data | undefined;
+		owner?: string | undefined;
+		ttl?: number | undefined;
 	};
 
 	export namespace Get {
 		export type Arg = {
-			location?: tg.Location.Arg;
+			location?: tg.Location.Arg | undefined;
 		};
 
 		export type Output = {
-			cpu?: number;
-			creator?: string;
-			hostname?: string;
+			cpu?: number | undefined;
+			creator?: string | undefined;
+			hostname?: string | undefined;
 			id: tg.Sandbox.Id;
-			isolation?: tg.Sandbox.Isolation.Data;
-			location?: tg.Location;
-			memory?: number;
+			isolation?: tg.Sandbox.Isolation.Data | undefined;
+			location?: tg.Location | undefined;
+			memory?: number | undefined;
 			mounts: Array<tg.Sandbox.Mount.Data>;
-			network?: tg.Sandbox.Network.Data;
-			owner?: string;
+			network?: tg.Sandbox.Network.Data | undefined;
+			owner?: string | undefined;
 			status: tg.Sandbox.Status;
-			ttl?: number;
+			ttl?: number | undefined;
 		};
 	}
 
@@ -50,8 +50,8 @@ export namespace Sandbox {
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 		network?: boolean | tg.Sandbox.Network | undefined;
+		owner?: string | undefined;
 		ttl?: number | undefined;
-		user?: string | undefined;
 	};
 
 	export type Isolation = "container" | "seatbelt" | "vm";
@@ -89,7 +89,7 @@ export namespace Sandbox {
 			| { kind: "host" }
 			| {
 					kind: "bridge";
-					ports?: Array<tg.Sandbox.Port.Data>;
+					ports?: Array<tg.Sandbox.Port.Data> | undefined;
 			  };
 
 		export let toData = (

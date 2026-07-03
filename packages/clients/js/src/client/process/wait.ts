@@ -4,9 +4,9 @@ import type { Client } from "../../client.ts";
 
 export namespace Wait {
 	export type Arg = {
-		lease?: string;
-		location?: tg.Location.Arg;
-		token?: tg.Grant.Token;
+		lease?: string | undefined;
+		location?: tg.Location.Arg | undefined;
+		token?: tg.Grant.Token | undefined;
 	};
 }
 

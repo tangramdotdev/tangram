@@ -4,7 +4,7 @@ import type { Client } from "../../client.ts";
 
 export namespace Signal {
 	export type Arg = {
-		location?: tg.Location.Arg;
+		location?: tg.Location.Arg | undefined;
 		signal: tg.Process.Signal;
 	};
 }

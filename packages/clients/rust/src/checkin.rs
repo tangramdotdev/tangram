@@ -8,28 +8,6 @@ use {
 	tangram_util::serde::{CommaSeparatedString, is_false, is_true, return_false, return_true},
 };
 
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	Eq,
-	Hash,
-	PartialEq,
-	derive_more::Display,
-	derive_more::FromStr,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
-)]
-#[display(rename_all = "snake_case")]
-#[from_str(rename_all = "snake_case")]
-pub enum Lock {
-	#[default]
-	Auto,
-	Attr,
-	File,
-}
-
 #[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -91,6 +69,28 @@ pub struct Options {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub watch: bool,
+}
+
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	Eq,
+	Hash,
+	PartialEq,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
+pub enum Lock {
+	#[default]
+	Auto,
+	Attr,
+	File,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

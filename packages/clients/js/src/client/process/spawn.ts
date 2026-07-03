@@ -4,20 +4,20 @@ import type { Client } from "../../client.ts";
 
 export namespace Spawn {
 	export type Arg = {
-		cached?: boolean;
-		cacheLocation?: tg.Location.Arg;
-		checksum?: tg.Checksum;
+		cached?: boolean | undefined;
+		cacheLocation?: tg.Location.Arg | undefined;
+		checksum?: tg.Checksum | undefined;
 		command: tg.Referent<tg.Command.Id>;
-		debug?: tg.Process.Debug;
-		location?: tg.Location.Arg;
-		parent?: tg.Process.Id;
-		public: boolean;
-		retry: boolean;
-		sandbox?: tg.Sandbox.DataArg | string;
-		stderr: tg.Process.Stdio;
-		stdin: tg.Process.Stdio;
-		stdout: tg.Process.Stdio;
-		tty?: boolean | tg.Process.Tty;
+		debug?: tg.Process.Debug | undefined;
+		location?: tg.Location.Arg | undefined;
+		parent?: tg.Process.Id | undefined;
+		public?: boolean | undefined;
+		retry?: boolean | undefined;
+		sandbox?: tg.Sandbox.DataArg | string | undefined;
+		stderr?: tg.Process.Stdio | undefined;
+		stdin?: tg.Process.Stdio | undefined;
+		stdout?: tg.Process.Stdio | undefined;
+		tty?: boolean | tg.Process.Tty | undefined;
 	};
 
 	export namespace Arg {
@@ -51,13 +51,13 @@ export namespace Spawn {
 			if (arg.sandbox !== undefined) {
 				output.sandbox = arg.sandbox;
 			}
-			if (arg.stderr !== "inherit") {
+			if (arg.stderr !== undefined && arg.stderr !== "inherit") {
 				output.stderr = arg.stderr;
 			}
-			if (arg.stdin !== "inherit") {
+			if (arg.stdin !== undefined && arg.stdin !== "inherit") {
 				output.stdin = arg.stdin;
 			}
-			if (arg.stdout !== "inherit") {
+			if (arg.stdout !== undefined && arg.stdout !== "inherit") {
 				output.stdout = arg.stdout;
 			}
 			if (arg.tty !== undefined) {
@@ -69,11 +69,11 @@ export namespace Spawn {
 
 	export type Output = {
 		cached: boolean;
-		lease?: string;
-		location?: tg.Location;
-		process: tg.Process.Id;
-		token?: tg.Grant.Token;
-		wait?: tg.Process.Wait.Data;
+		lease?: string | undefined;
+		location?: tg.Location | undefined;
+		process: number | tg.Process.Id;
+		token?: tg.Grant.Token | undefined;
+		wait?: tg.Process.Wait.Data | undefined;
 	};
 }
 

@@ -12,7 +12,10 @@ export namespace Checkin {
 	export namespace Arg {
 		export let toJson = (arg: tg.Checkin.Arg): unknown => {
 			let options: { [key: string]: unknown } = {};
-			if (!arg.options.cachePointers) {
+			if (
+				arg.options.cachePointers !== undefined &&
+				!arg.options.cachePointers
+			) {
 				options.cache_pointers = arg.options.cachePointers;
 			}
 			if (arg.options.destructive) {
@@ -21,7 +24,7 @@ export namespace Checkin {
 			if (arg.options.deterministic) {
 				options.deterministic = arg.options.deterministic;
 			}
-			if (!arg.options.ignore) {
+			if (arg.options.ignore !== undefined && !arg.options.ignore) {
 				options.ignore = arg.options.ignore;
 			}
 			if ("lock" in arg.options) {
@@ -37,10 +40,13 @@ export namespace Checkin {
 			if (arg.options.root) {
 				options.root = arg.options.root;
 			}
-			if (!arg.options.solve) {
+			if (arg.options.solve !== undefined && !arg.options.solve) {
 				options.solve = arg.options.solve;
 			}
-			if (!arg.options.localDependencies) {
+			if (
+				arg.options.localDependencies !== undefined &&
+				!arg.options.localDependencies
+			) {
 				options.source_dependencies = arg.options.localDependencies;
 			}
 			if (arg.options.ttl !== undefined) {
@@ -68,18 +74,18 @@ export namespace Checkin {
 	};
 
 	export type Options = {
-		cachePointers: boolean;
-		destructive: boolean;
-		deterministic: boolean;
-		root: boolean;
-		ignore: boolean;
-		localDependencies: boolean;
+		cachePointers?: boolean | undefined;
+		destructive?: boolean | undefined;
+		deterministic?: boolean | undefined;
+		root?: boolean | undefined;
+		ignore?: boolean | undefined;
+		localDependencies?: boolean | undefined;
 		lock?: "auto" | "attr" | "file" | undefined;
-		locked: boolean;
-		solve: boolean;
-		unsolvedDependencies: boolean;
-		ttl?: number;
-		watch: boolean;
+		locked?: boolean | undefined;
+		solve?: boolean | undefined;
+		unsolvedDependencies?: boolean | undefined;
+		ttl?: number | undefined;
+		watch?: boolean | undefined;
 	};
 }
 

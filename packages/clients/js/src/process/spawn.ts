@@ -530,6 +530,9 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		output.location !== undefined
 			? tg.Location.Arg.fromLocation(output.location)
 			: undefined;
+	if (typeof output.process !== "string") {
+		throw new Error("expected a sandboxed process id");
+	}
 	let stdioPromise =
 		stdin !== undefined ||
 		stdout !== undefined ||
@@ -822,7 +825,7 @@ export let isNetworkEnabled = (
 let normalizeSandbox = (
 	arg: Pick<
 		tg.Process.ArgObject,
-		"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
+		"cpu" | "memory" | "mounts" | "network" | "owner" | "ports" | "sandbox"
 	>,
 ): Exclude<tg.Spawn.Arg["sandbox"], undefined> | undefined => {
 	let hasCpu = "cpu" in arg;
@@ -832,16 +835,23 @@ let normalizeSandbox = (
 	let mounts = arg.mounts ?? [];
 	let hasNetwork = "network" in arg;
 	let network = arg.network;
+	let hasOwner = "owner" in arg;
+	let owner = arg.owner;
 	let ports = arg.ports ?? [];
 	let hasPorts = ports.length > 0;
 	let sandbox = arg.sandbox;
 	let hasSandboxFields =
-		hasCpu || hasMemory || mounts.length > 0 || hasNetwork || hasPorts;
+		hasCpu ||
+		hasMemory ||
+		mounts.length > 0 ||
+		hasNetwork ||
+		hasOwner ||
+		hasPorts;
 	let defaultTtl = typeof sandbox !== "string";
 	if (typeof sandbox === "string") {
 		if (hasSandboxFields) {
 			throw new Error(
-				"cpu, memory, mounts, network, and ports are not supported for existing sandboxes",
+				"cpu, memory, mounts, network, owner, and ports are not supported for existing sandboxes",
 			);
 		}
 		return sandbox;
@@ -886,8 +896,8 @@ let normalizeSandbox = (
 		} else if (defaultTtl) {
 			output.ttl = 0;
 		}
-		if (sandbox.user !== undefined) {
-			output.user = sandbox.user;
+		if (sandbox.owner !== undefined) {
+			output.owner = sandbox.owner;
 		}
 	}
 	if (cpu !== undefined) {
@@ -910,6 +920,9 @@ let normalizeSandbox = (
 		if (networkData !== undefined) {
 			output.network = networkData;
 		}
+	}
+	if (owner !== undefined) {
+		output.owner = owner;
 	}
 	return output;
 };

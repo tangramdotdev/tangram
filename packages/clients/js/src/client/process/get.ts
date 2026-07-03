@@ -4,15 +4,15 @@ import type { Client } from "../../client.ts";
 
 export namespace Get {
 	export type Arg = {
-		location?: tg.Location.Arg;
-		metadata?: boolean;
+		location?: tg.Location.Arg | undefined;
+		metadata?: boolean | undefined;
 	};
 
 	export type Output = {
 		data: tg.Process.Data;
 		id: tg.Process.Id;
-		location?: tg.Location;
-		metadata?: unknown;
+		location?: tg.Location | undefined;
+		metadata?: unknown | undefined;
 	};
 }
 
