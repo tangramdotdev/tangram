@@ -27,7 +27,7 @@ export let builder = (...args: any): any => {
 export let spawnArg = async (
 	...args: tg.Args<tg.Process.Arg>
 ): Promise<{
-	arg: tg.Spawn.Arg;
+	arg: tg.Process.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
 	let resolved = await Promise.all(args.map(tg.resolve));
@@ -44,7 +44,7 @@ export let spawnArg = async (
 export let spawnArgFromResolved = async (
 	arg: tg.Process.ArgObject,
 ): Promise<{
-	arg: tg.Spawn.Arg;
+	arg: tg.Process.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
 	let sandbox = normalizeSandbox(sandboxArgFromResolved(arg));
@@ -58,9 +58,9 @@ export let spawnArgFromResolved = async (
 
 let spawnArgFromResolvedWithSandbox = async (
 	arg: tg.Process.ArgObject,
-	sandbox: Exclude<tg.Spawn.Arg["sandbox"], undefined> | undefined,
+	sandbox: Exclude<tg.Process.Spawn.Arg["sandbox"], undefined> | undefined,
 ): Promise<{
-	arg: tg.Spawn.Arg;
+	arg: tg.Process.Spawn.Arg;
 	options: tg.Referent.Options;
 }> => {
 	if (sandbox !== undefined) {
@@ -156,24 +156,38 @@ let spawnArgFromResolvedWithSandbox = async (
 		options: options,
 	};
 
-	let spawnArg: tg.Spawn.Arg = {
-		cache_location: arg.cache_location,
-		checksum,
+	let debug =
+		arg.debug === undefined || arg.debug === false
+			? undefined
+			: arg.debug === true
+				? {}
+				: arg.debug;
+	let spawnArg: tg.Process.Spawn.Arg = {
 		command: commandReferent,
-		debug:
-			arg.debug === undefined || arg.debug === false
-				? undefined
-				: arg.debug === true
-					? {}
-					: arg.debug,
-		location: arg.location,
+		public: false,
 		retry: false,
-		sandbox,
 		stderr: stderr ?? "inherit",
 		stdin: processStdin ?? "inherit",
 		stdout: stdout ?? "inherit",
-		tty,
 	};
+	if (arg.cache_location !== undefined) {
+		spawnArg.cacheLocation = arg.cache_location;
+	}
+	if (checksum !== undefined) {
+		spawnArg.checksum = checksum;
+	}
+	if (debug !== undefined) {
+		spawnArg.debug = debug;
+	}
+	if (arg.location !== undefined) {
+		spawnArg.location = arg.location;
+	}
+	if (sandbox !== undefined) {
+		spawnArg.sandbox = sandbox;
+	}
+	if (tty !== undefined) {
+		spawnArg.tty = tty;
+	}
 
 	return { arg: spawnArg, options };
 };
@@ -210,7 +224,7 @@ let sandboxArgFromResolved = (
 };
 
 export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
-	arg: tg.Spawn.Arg,
+	arg: tg.Process.Spawn.Arg,
 	options?: tg.Referent.Options,
 ): Promise<tg.Process<O>> => {
 	let prepared = await prepareUnsandboxedCommand(arg);
@@ -308,12 +322,16 @@ export let waitUnsandboxed = async (
 			if (wait.output === undefined) {
 				let stream = await tg.client.checkin({
 					options: {
+						cachePointers: true,
 						destructive: true,
 						deterministic: true,
 						ignore: false,
-						lock: undefined,
+						localDependencies: true,
 						locked: true,
 						root: true,
+						solve: true,
+						unsolvedDependencies: false,
+						watch: false,
 					},
 					path: outputPath,
 					updates: [],
@@ -345,7 +363,7 @@ export let waitUnsandboxed = async (
 };
 
 export let prepareUnsandboxedCommand = async (
-	arg: tg.Spawn.Arg,
+	arg: tg.Process.Spawn.Arg,
 	outputPath?: string,
 ): Promise<tg.Process.PreparedUnsandboxedCommandOutput> => {
 	if (arg.tty !== undefined) {
@@ -391,7 +409,7 @@ export let prepareUnsandboxedCommand = async (
 };
 
 export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
-	arg: tg.Spawn.Arg,
+	arg: tg.Process.Spawn.Arg,
 	options?: tg.Referent.Options,
 ): Promise<tg.Process<O>> => {
 	let noTty = arg.tty === false;
@@ -487,14 +505,19 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			};
 		}
 	}
-	let stream = await tg.client.spawnProcess({
+	let spawnArg: tg.Process.Spawn.Arg = {
 		...arg,
 		retry: arg.retry ?? false,
 		stderr: spawnStderr ?? "inherit",
 		stdin: spawnStdin ?? "inherit",
 		stdout: spawnStdout ?? "inherit",
-		tty,
-	});
+	};
+	if (tty !== undefined) {
+		spawnArg.tty = tty;
+	} else {
+		delete spawnArg.tty;
+	}
+	let stream = await tg.client.spawnProcess(spawnArg);
 	let output = await tg.Progress.lastOutput(stream);
 	if (output === undefined) {
 		throw new Error("stream ended without output");
@@ -507,6 +530,9 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		output.location !== undefined
 			? tg.Location.Arg.fromLocation(output.location)
 			: undefined;
+	if (typeof output.process !== "string") {
+		throw new Error("expected a sandboxed process id");
+	}
 	let stdioPromise =
 		stdin !== undefined ||
 		stdout !== undefined ||
@@ -555,8 +581,6 @@ async function checkoutArtifacts(
 			artifact,
 			dependencies: true,
 			force: false,
-			lock: undefined,
-			path: undefined,
 		});
 		let event = await tg.Progress.lastOutput(stream);
 		if (event === undefined) {
@@ -801,9 +825,9 @@ export let isNetworkEnabled = (
 let normalizeSandbox = (
 	arg: Pick<
 		tg.Process.ArgObject,
-		"cpu" | "memory" | "mounts" | "network" | "ports" | "sandbox"
+		"cpu" | "memory" | "mounts" | "network" | "owner" | "ports" | "sandbox"
 	>,
-): Exclude<tg.Spawn.Arg["sandbox"], undefined> | undefined => {
+): Exclude<tg.Process.Spawn.Arg["sandbox"], undefined> | undefined => {
 	let hasCpu = "cpu" in arg;
 	let cpu = arg.cpu;
 	let hasMemory = "memory" in arg;
@@ -811,16 +835,23 @@ let normalizeSandbox = (
 	let mounts = arg.mounts ?? [];
 	let hasNetwork = "network" in arg;
 	let network = arg.network;
+	let hasOwner = "owner" in arg;
+	let owner = arg.owner;
 	let ports = arg.ports ?? [];
 	let hasPorts = ports.length > 0;
 	let sandbox = arg.sandbox;
 	let hasSandboxFields =
-		hasCpu || hasMemory || mounts.length > 0 || hasNetwork || hasPorts;
+		hasCpu ||
+		hasMemory ||
+		mounts.length > 0 ||
+		hasNetwork ||
+		hasOwner ||
+		hasPorts;
 	let defaultTtl = typeof sandbox !== "string";
 	if (typeof sandbox === "string") {
 		if (hasSandboxFields) {
 			throw new Error(
-				"cpu, memory, mounts, network, and ports are not supported for existing sandboxes",
+				"cpu, memory, mounts, network, owner, and ports are not supported for existing sandboxes",
 			);
 		}
 		return sandbox;
@@ -856,20 +887,23 @@ let normalizeSandbox = (
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
 		sandboxNetwork = sandbox.network;
-		output.network = normalizeNetwork(sandbox.network);
-		if ("ttl" in sandbox) {
+		let networkData = normalizeNetwork(sandbox.network);
+		if (networkData !== undefined) {
+			output.network = networkData;
+		}
+		if (sandbox.ttl !== undefined) {
 			output.ttl = sandbox.ttl;
 		} else if (defaultTtl) {
 			output.ttl = 0;
 		}
-		if (sandbox.user !== undefined) {
-			output.user = sandbox.user;
+		if (sandbox.owner !== undefined) {
+			output.owner = sandbox.owner;
 		}
 	}
-	if (hasCpu) {
+	if (cpu !== undefined) {
 		output.cpu = cpu;
 	}
-	if (hasMemory) {
+	if (memory !== undefined) {
 		output.memory = memory;
 	}
 	if (mounts.length > 0) {
@@ -879,10 +913,16 @@ let normalizeSandbox = (
 		];
 	}
 	if (hasNetwork || hasPorts) {
-		output.network = normalizeNetworkForPorts(
+		let networkData = normalizeNetworkForPorts(
 			hasNetwork ? network : sandboxNetwork,
 			ports,
 		);
+		if (networkData !== undefined) {
+			output.network = networkData;
+		}
+	}
+	if (owner !== undefined) {
+		output.owner = owner;
 	}
 	return output;
 };

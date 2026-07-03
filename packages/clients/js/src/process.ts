@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { nullToUndefined, undefinedToNull } from "./util.ts";
 import * as build from "./process/build.ts";
 import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
@@ -6,6 +7,7 @@ import * as spawn from "./process/spawn.ts";
 import * as stdio from "./process/stdio.ts";
 import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
+import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
 
 export let process: {
 	args: Array<tg.Value>;
@@ -192,25 +194,25 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	static async spawnArg(...args: tg.Args<tg.Process.Arg>): Promise<{
-		arg: tg.Spawn.Arg;
+		arg: tg.Process.Spawn.Arg;
 		options: tg.Referent.Options;
 	}> {
 		return await spawn.spawnArg(...args);
 	}
 
 	static async spawnArgFromResolved(arg: tg.Process.ArgObject): Promise<{
-		arg: tg.Spawn.Arg;
+		arg: tg.Process.Spawn.Arg;
 		options: tg.Referent.Options;
 	}> {
 		return await spawn.spawnArgFromResolved(arg);
 	}
 
-	static async execUnsandboxed(arg: tg.Spawn.Arg): Promise<never> {
+	static async execUnsandboxed(arg: tg.Process.Spawn.Arg): Promise<never> {
 		return await exec.execUnsandboxed(arg);
 	}
 
 	static async spawnUnsandboxed<O extends tg.Value = tg.Value>(
-		arg: tg.Spawn.Arg,
+		arg: tg.Process.Spawn.Arg,
 		options?: tg.Referent.Options,
 	): Promise<tg.Process<O>> {
 		return await spawn.spawnUnsandboxed<O>(arg, options);
@@ -230,14 +232,14 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	static async prepareUnsandboxedCommand(
-		arg: tg.Spawn.Arg,
+		arg: tg.Process.Spawn.Arg,
 		outputPath?: string,
 	): Promise<tg.Process.PreparedUnsandboxedCommandOutput> {
 		return await spawn.prepareUnsandboxedCommand(arg, outputPath);
 	}
 
 	static async spawnSandboxed<O extends tg.Value = tg.Value>(
-		arg: tg.Spawn.Arg,
+		arg: tg.Process.Spawn.Arg,
 		options?: tg.Referent.Options,
 	): Promise<tg.Process<O>> {
 		return await spawn.spawnSandboxed<O>(arg, options);
@@ -281,9 +283,11 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (typeof this.#id === "number") {
 			throw new Error("loading unsandboxed process state is not supported");
 		}
-		let output = await tg.client.getProcess(this.#id, {
-			location: this.#location,
-		});
+		let arg: tg.Process.Get.Arg = {};
+		if (this.#location !== undefined) {
+			arg.location = this.#location;
+		}
+		let output = await tg.client.getProcess(this.#id, arg);
 		if (output.location !== undefined) {
 			this.#location = tg.Location.Arg.fromLocation(output.location);
 		}
@@ -461,10 +465,10 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			location = this.#location;
 		}
-		let arg = {
-			location,
-			signal,
-		};
+		let arg: tg.Signal.Arg = { signal };
+		if (location !== undefined) {
+			arg.location = location;
+		}
 		await tg.client.signalProcess(this.#id, arg);
 	}
 
@@ -484,11 +488,16 @@ export class Process<O extends tg.Value = tg.Value> {
 			this.#wait = wait;
 			return wait;
 		}
-		let arg: tg.Process.Wait.Arg = {
-			lease: this.#lease,
-			location: this.#location,
-			token: this.#token,
-		};
+		let arg: tg.Process.Wait.Arg = {};
+		if (this.#lease !== undefined) {
+			arg.lease = this.#lease;
+		}
+		if (this.#location !== undefined) {
+			arg.location = this.#location;
+		}
+		if (this.#token !== undefined) {
+			arg.token = this.#token;
+		}
 		let promise = await tg.client.waitProcessPromise(this.#id, arg);
 		let wait = await promise();
 		if (wait === undefined) {
@@ -577,10 +586,11 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			location = this.#location;
 		}
-		await tg.client.setProcessTtySize(this.#id, {
-			location,
-			size,
-		});
+		let arg: tg.Process.Tty.Put.Arg = { size };
+		if (location !== undefined) {
+			arg.location = location;
+		}
+		await tg.client.setProcessTtySize(this.#id, arg);
 	}
 }
 
@@ -597,6 +607,12 @@ export namespace Process {
 		export type Arg = ProcessPut.Arg;
 
 		export type Output = ProcessPut.Output;
+	}
+
+	export namespace Spawn {
+		export import Arg = ProcessSpawn.Arg;
+
+		export import Output = ProcessSpawn.Output;
 	}
 
 	export namespace Tty {
@@ -940,6 +956,9 @@ export namespace Process {
 
 		/** Configure network. */
 		network?: boolean | tg.Sandbox.Network | undefined;
+
+		/** The sandbox owner. */
+		owner?: string | undefined;
 
 		/** Configure port forwarding. */
 		ports?: Array<tg.Sandbox.Port> | undefined;
@@ -1305,10 +1324,18 @@ export namespace Process {
 			if (data.log !== undefined && typeof data.log !== "string") {
 				data.log = data.log.id;
 			}
-			if ("output" in data) {
+			if (data.output !== undefined) {
 				tg.Value.Data.removeTokens(data.output);
 			}
 			return data;
+		};
+
+		export let toJson = (data: tg.Process.Data): unknown => {
+			return undefinedToNull(data);
+		};
+
+		export let fromJson = (json: unknown): tg.Process.Data => {
+			return nullToUndefined(json);
 		};
 	}
 
@@ -1320,7 +1347,7 @@ export namespace Process {
 
 	export namespace Wait {
 		export type Arg = {
-			lease: string | undefined;
+			lease?: string | undefined;
 			location?: tg.Location.Arg | undefined;
 			token?: tg.Grant.Token | undefined;
 		};
@@ -1330,6 +1357,12 @@ export namespace Process {
 			exit: number;
 			output?: tg.Value.Data;
 		};
+
+		export namespace Data {
+			export let fromJson = (json: unknown): tg.Process.Wait.Data => {
+				return nullToUndefined(json);
+			};
+		}
 
 		export let fromData = (data: tg.Process.Wait.Data): tg.Process.Wait => {
 			let output: Wait = {

@@ -5,12 +5,40 @@ import type { Client } from "../client.ts";
 export namespace Checkout {
 	export type Arg = {
 		artifact: tg.Artifact.Id;
-		dependencies: boolean;
+		dependencies?: boolean | undefined;
 		extension?: string | undefined;
-		force: boolean;
+		force?: boolean | undefined;
 		lock?: "auto" | "attr" | "file" | undefined;
 		path?: string | undefined;
 	};
+
+	export namespace Arg {
+		export let toJson = (arg: tg.Checkout.Arg): unknown => {
+			let output: { [key: string]: unknown } = {
+				artifact: arg.artifact,
+			};
+			if (arg.dependencies !== undefined && !arg.dependencies) {
+				output.dependencies = arg.dependencies;
+			}
+			if (arg.extension !== undefined) {
+				output.extension = arg.extension;
+			}
+			if (arg.force) {
+				output.force = arg.force;
+			}
+			if ("lock" in arg) {
+				if (arg.lock === undefined) {
+					output.lock = null;
+				} else if (arg.lock !== "auto") {
+					output.lock = arg.lock;
+				}
+			}
+			if (arg.path !== undefined) {
+				output.path = arg.path;
+			}
+			return output;
+		};
+	}
 
 	export type Output = {
 		path: string;
@@ -27,7 +55,7 @@ export async function checkout(
 		accept: "text/event-stream",
 		"content-type": "application/json",
 	};
-	let body = Body.json(arg);
+	let body = Body.json(Checkout.Arg.toJson(arg));
 	let request = new Request({
 		body,
 		method,
@@ -36,13 +64,7 @@ export async function checkout(
 	});
 	let response = await client.send(request);
 	if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	return tg.Progress.decode<tg.Checkout.Output>(response);
 }

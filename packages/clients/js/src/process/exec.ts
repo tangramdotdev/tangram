@@ -24,7 +24,9 @@ export let builder = (...args: any): any => {
 	}
 };
 
-export let execUnsandboxed = async (arg: tg.Spawn.Arg): Promise<never> => {
+export let execUnsandboxed = async (
+	arg: tg.Process.Spawn.Arg,
+): Promise<never> => {
 	if (arg.sandbox !== undefined) {
 		throw new Error("an exec must not be sandboxed");
 	}

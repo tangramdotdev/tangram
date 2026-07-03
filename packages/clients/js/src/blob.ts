@@ -169,7 +169,10 @@ export class Blob {
 	/** Read from this blob. */
 	async read(options?: tg.Blob.ReadOptions): Promise<Uint8Array> {
 		let id = await this.store();
-		const arg = { blob: id, ...options, token: this.state.token };
+		let arg: tg.Read.Arg = { blob: id, ...options };
+		if (this.state.token !== undefined) {
+			arg.token = this.state.token;
+		}
 		return await tg.client.read(arg);
 	}
 
@@ -398,9 +401,9 @@ export namespace Blob {
 	}
 
 	export type ReadOptions = {
-		position?: number | string | undefined;
-		length?: number | undefined;
-		size?: number | undefined;
+		position?: number | string;
+		length?: number;
+		size?: number;
 	};
 
 	export let raw = (

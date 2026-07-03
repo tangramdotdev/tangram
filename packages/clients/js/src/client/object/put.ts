@@ -22,7 +22,7 @@ export async function putObject(
 		accept: "application/json",
 		"content-type": "application/json",
 	};
-	let body = Body.json(arg.data);
+	let body = Body.json(tg.Object.Data.toJson(arg.data));
 	let request = new Request({
 		body,
 		method,
@@ -31,13 +31,7 @@ export async function putObject(
 	});
 	let response = await client.send(request);
 	if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	return await response.json<tg.Object.Put.Output>();
 }

@@ -11,8 +11,8 @@ export namespace Sandbox {
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
 		network?: tg.Sandbox.Network.Data | undefined;
+		owner?: string | undefined;
 		ttl?: number | undefined;
-		user?: string | undefined;
 	};
 
 	export namespace Get {
@@ -22,6 +22,7 @@ export namespace Sandbox {
 
 		export type Output = {
 			cpu?: number | undefined;
+			creator?: string | undefined;
 			hostname?: string | undefined;
 			id: tg.Sandbox.Id;
 			isolation?: tg.Sandbox.Isolation.Data | undefined;
@@ -29,9 +30,9 @@ export namespace Sandbox {
 			memory?: number | undefined;
 			mounts: Array<tg.Sandbox.Mount.Data>;
 			network?: tg.Sandbox.Network.Data | undefined;
+			owner?: string | undefined;
 			status: tg.Sandbox.Status;
 			ttl?: number | undefined;
-			user?: string | undefined;
 		};
 	}
 
@@ -49,8 +50,8 @@ export namespace Sandbox {
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 		network?: boolean | tg.Sandbox.Network | undefined;
+		owner?: string | undefined;
 		ttl?: number | undefined;
-		user?: string | undefined;
 	};
 
 	export type Isolation = "container" | "seatbelt" | "vm";
@@ -97,9 +98,12 @@ export namespace Sandbox {
 			if (typeof value === "string") {
 				return { kind: value };
 			}
+			if (value.ports === undefined) {
+				return { kind: "bridge" };
+			}
 			return {
 				kind: "bridge",
-				ports: value.ports?.map(tg.Sandbox.Port.toDataString),
+				ports: value.ports.map(tg.Sandbox.Port.toDataString),
 			};
 		};
 

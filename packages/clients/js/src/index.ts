@@ -85,7 +85,6 @@ export type { Checkin } from "./client/checkin.ts";
 export type { Checkout } from "./client/checkout.ts";
 export type { Read } from "./client/read.ts";
 export type { Signal } from "./client/process/signal.ts";
-export type { Spawn } from "./client/process/spawn.ts";
 export type { Write } from "./client/write.ts";
 
 let build = Process.build;

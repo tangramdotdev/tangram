@@ -12,14 +12,14 @@ export namespace Get {
 		data: tg.Process.Data;
 		id: tg.Process.Id;
 		location?: tg.Location | undefined;
-		metadata?: unknown;
+		metadata?: unknown | undefined;
 	};
 }
 
 export async function getProcess(
 	client: Client,
 	id: tg.Process.Id,
-	arg?: Get.Arg | undefined,
+	arg?: Get.Arg,
 ): Promise<Get.Output> {
 	let output = await tryGetProcess(client, id, arg);
 	if (output === undefined) {
@@ -31,7 +31,7 @@ export async function getProcess(
 export async function tryGetProcess(
 	client: Client,
 	id: tg.Process.Id,
-	arg?: Get.Arg | undefined,
+	arg?: Get.Arg,
 ): Promise<Get.Output | undefined> {
 	let method = "GET";
 	let uri = new Uri({
@@ -56,19 +56,14 @@ export async function tryGetProcess(
 	if (response.status === 404) {
 		return undefined;
 	} else if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	let output = await response.json<
 		Omit<Get.Output, "location"> & {
-			location?: string | tg.Location | undefined;
+			location?: string | tg.Location;
 		}
 	>();
+	output.data = tg.Process.Data.fromJson(output.data);
 	if (typeof output.location === "string") {
 		output.location = tg.Location.fromDataString(output.location);
 	}

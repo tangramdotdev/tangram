@@ -26,6 +26,7 @@ export async function putProcess(
 	};
 	let body = Body.json({
 		...arg,
+		data: tg.Process.Data.toJson(arg.data),
 		location:
 			arg.location === undefined
 				? undefined
@@ -39,13 +40,7 @@ export async function putProcess(
 	});
 	let response = await client.send(request);
 	if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	return await response.json<Put.Output>();
 }

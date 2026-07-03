@@ -4,7 +4,7 @@ import type { Client } from "../../client.ts";
 
 export namespace Wait {
 	export type Arg = {
-		lease: string | undefined;
+		lease?: string | undefined;
 		location?: tg.Location.Arg | undefined;
 		token?: tg.Grant.Token | undefined;
 	};
@@ -86,18 +86,12 @@ async function waitProcessOnce(
 	if (response.status === 404) {
 		throw new Error("failed to find the process");
 	} else if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	let output: tg.Process.Wait | undefined;
 	for await (let event of response.sse()) {
 		if (event.event === "output") {
-			let data = JSON.parse(event.data) as tg.Process.Wait.Data;
+			let data = tg.Process.Wait.Data.fromJson(JSON.parse(event.data));
 			output = tg.Process.Wait.fromData(data);
 		} else if (event.event === "error") {
 			let data = JSON.parse(event.data) as tg.Error.Data | tg.Error.Id;

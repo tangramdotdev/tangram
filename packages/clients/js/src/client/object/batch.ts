@@ -18,6 +18,10 @@ export async function postObjectBatch(
 			arg.location === undefined
 				? undefined
 				: tg.Location.Arg.toDataString(arg.location),
+		objects: arg.objects.map((object) => ({
+			...object,
+			data: tg.Object.Data.toJson(object.data),
+		})),
 	});
 	let request = new Request({
 		body,
@@ -27,13 +31,7 @@ export async function postObjectBatch(
 	});
 	let response = await client.send(request);
 	if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	return await response.json<tg.Object.Batch.Output>();
 }

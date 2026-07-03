@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { nullToUndefined, undefinedToNull } from "./util.ts";
 
 export type Object =
 	| tg.Blob
@@ -319,6 +320,14 @@ export namespace Object {
 					return tg.Error.Data.children(data.value);
 				}
 			}
+		};
+
+		export let toJson = (data: tg.Object.Data): unknown => {
+			return undefinedToNull(data);
+		};
+
+		export let fromJson = (json: unknown): tg.Object.Data => {
+			return nullToUndefined(json);
 		};
 	}
 

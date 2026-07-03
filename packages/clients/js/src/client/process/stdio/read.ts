@@ -5,12 +5,12 @@ import type { Client } from "../../../client.ts";
 export namespace Stdio {
 	export namespace Read {
 		export type Arg = {
-			length?: number | undefined;
-			location?: tg.Location.Arg | undefined;
-			position?: number | string | undefined;
-			size?: number | undefined;
+			length?: number;
+			location?: tg.Location.Arg;
+			position?: number | string;
+			size?: number;
 			streams: Array<tg.Process.Stdio.Stream>;
-			timeout?: number | undefined;
+			timeout?: number;
 		};
 	}
 }
@@ -94,13 +94,7 @@ async function readProcessStdioOnce(
 	if (response.status === 404) {
 		return undefined;
 	} else if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	return decodeReadStdioEvents(response);
 }

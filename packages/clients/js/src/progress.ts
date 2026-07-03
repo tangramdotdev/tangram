@@ -27,6 +27,7 @@ export namespace Progress {
 
 	export async function* decode<T>(
 		response: Response,
+		f: (value: unknown) => T = (value) => value as T,
 	): AsyncIterableIterator<Event<T>> {
 		for await (let event of response.sse()) {
 			if (event.event === "error") {
@@ -37,17 +38,22 @@ export namespace Progress {
 					throw tg.Error.fromData(data);
 				}
 			} else if (event.event === undefined) {
-				yield JSON.parse(event.data) as Event<T>;
+				let parsed = JSON.parse(event.data) as Event<unknown>;
+				yield parsed.kind === "output"
+					? { kind: "output", value: f(parsed.value) }
+					: (parsed as Event<T>);
 			} else if (
 				event.event === "diagnostic" ||
 				event.event === "indicators" ||
 				event.event === "log" ||
 				event.event === "output"
 			) {
-				yield {
-					kind: event.event,
-					value: JSON.parse(event.data) as Event<T>["value"],
-				} as Event<T>;
+				let value = JSON.parse(event.data);
+				yield (
+					event.event === "output"
+						? { kind: "output", value: f(value) }
+						: { kind: event.event, value }
+				) as Event<T>;
 			} else {
 				throw new Error("invalid progress event");
 			}

@@ -5,13 +5,13 @@ import type { Client } from "../client.ts";
 export namespace Read {
 	export type Arg = {
 		blob: tg.Blob.Id;
-		token?: tg.Grant.Token | undefined;
+		token?: tg.Grant.Token;
 	} & Read.Options;
 
 	export type Options = {
-		position?: number | string | undefined;
-		length?: number | undefined;
-		size?: number | undefined;
+		position?: number | string;
+		length?: number;
+		size?: number;
 	};
 
 	export type Event =
@@ -72,13 +72,7 @@ export async function tryReadStream(
 	if (response.status === 404) {
 		return undefined;
 	} else if (response.status < 200 || response.status >= 300) {
-		let error: unknown;
-		try {
-			error = tg.Error.fromData(await response.json<tg.Error.Data>());
-		} catch {
-			error = new Error("the request failed");
-		}
-		throw error;
+		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	return decodeReadEvents(response);
 }

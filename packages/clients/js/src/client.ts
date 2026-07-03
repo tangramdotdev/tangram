@@ -126,15 +126,19 @@ export class Client {
 	}
 
 	spawnProcess(
-		arg: tg.Spawn.Arg,
-	): Promise<AsyncIterableIterator<tg.Progress.Event<tg.Spawn.Output>>> {
+		arg: tg.Process.Spawn.Arg,
+	): Promise<
+		AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output>>
+	> {
 		return spawnProcess(this, arg);
 	}
 
 	trySpawnProcess(
-		arg: tg.Spawn.Arg,
+		arg: tg.Process.Spawn.Arg,
 	): Promise<
-		AsyncIterableIterator<tg.Progress.Event<tg.Spawn.Output | undefined>>
+		AsyncIterableIterator<
+			tg.Progress.Event<tg.Process.Spawn.Output | undefined>
+		>
 	> {
 		return trySpawnProcess(this, arg);
 	}
