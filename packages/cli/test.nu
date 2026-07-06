@@ -665,16 +665,7 @@ export def doc [string: string] {
 
 	# Extract leading whitespace from each non-empty line.
 	let leading_whitespace = $non_whitespace_lines | each { |line|
-		let chars = $line | split chars
-		mut ws = ""
-		for char in $chars {
-			if $char == "\t" or $char == " " {
-				$ws = $ws + $char
-			} else {
-				break
-			}
-		}
-		$ws
+		$line | split chars | take while { |char| $char == "\t" or $char == " " } | str join
 	}
 
 	# Find the common prefix of all leading whitespace strings.
