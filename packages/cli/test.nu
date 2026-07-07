@@ -2,7 +2,7 @@
 
 use std/util 'path add'
 
-export use std assert
+export use std/assert
 
 const repository_path = path self '../../'
 const harness_path = path self
@@ -956,7 +956,7 @@ export def --env spawn [
 	mut id: any = null
 	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default "") | str length) > 0
 	if $use_cloud {
-		$id = ((random chars) | str downcase)
+		$id = ((random chars) | str lowercase)
 		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
 		print -e $id
 

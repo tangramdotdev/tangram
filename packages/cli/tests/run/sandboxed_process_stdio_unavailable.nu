@@ -4,14 +4,14 @@ use ../../test.nu *
 
 let server = spawn
 
-def run [source: string] {
+def run_source [source: string] {
 	let path = artifact { tangram.ts: $source }
 	let output = tg run $path | complete
 	failure $output
 	$output.stderr | redact $path
 }
 
-let stdin = run '
+let stdin = run_source '
 	export default async function () {
 		let process = await tg
 			.spawn`true`
@@ -36,7 +36,7 @@ snapshot ($stdin | redact | normalize_ids) '
 
 '
 
-let stdout = run '
+let stdout = run_source '
 	export default async function () {
 		let process = await tg
 			.spawn`true`
@@ -60,7 +60,7 @@ snapshot ($stdout | redact | normalize_ids) '
 
 '
 
-let stderr = run '
+let stderr = run_source '
 	export default async function () {
 		let process = await tg
 			.spawn`true`
