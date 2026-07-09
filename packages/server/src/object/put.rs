@@ -118,20 +118,23 @@ impl Session {
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at: now,
 		};
-		let put_grant = (!matches!(self.context.principal, tg::Principal::Anonymous))
-			.then(|| {
-				let principal = self.context.principal.clone();
-				Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
-					created_at: now,
-					creator: Some(principal.clone()),
-					expires_at: Some(grant_expires_at),
-					permissions: tg::grant::Permission::Object(permission).into(),
-					principal: principal.try_to_grant_principal()?,
-					resource: id.clone().into(),
-					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
-				})
+		let put_grant = (!matches!(
+			self.context.principal,
+			tg::Principal::Anonymous | tg::Principal::Root
+		))
+		.then(|| {
+			let principal = self.context.principal.clone();
+			Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
+				created_at: now,
+				creator: Some(principal.clone()),
+				expires_at: Some(grant_expires_at),
+				permissions: tg::grant::Permission::Object(permission).into(),
+				principal: principal.try_to_grant_principal()?,
+				resource: id.clone().into(),
+				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 			})
-			.transpose()?;
+		})
+		.transpose()?;
 		self.server
 			.index_tasks
 			.spawn(|_| {
