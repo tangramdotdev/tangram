@@ -141,22 +141,25 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let put_grant = (!matches!(self.context.principal, tg::Principal::Anonymous))
-			.then(|| {
-				let principal = self.context.principal.clone();
-				Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
-					created_at: now,
-					creator: Some(principal.clone()),
-					expires_at: Some(grant_expires_at),
-					permissions: tg::grant::Permission::Process(
-						tg::grant::permission::process::Permission::Node,
-					)
-					.into(),
-					principal: principal.try_to_grant_principal()?,
-					resource: id.clone().into(),
-				})
+		let put_grant = (!matches!(
+			self.context.principal,
+			tg::Principal::Anonymous | tg::Principal::Root
+		))
+		.then(|| {
+			let principal = self.context.principal.clone();
+			Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
+				created_at: now,
+				creator: Some(principal.clone()),
+				expires_at: Some(grant_expires_at),
+				permissions: tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::Node,
+				)
+				.into(),
+				principal: principal.try_to_grant_principal()?,
+				resource: id.clone().into(),
 			})
-			.transpose()?;
+		})
+		.transpose()?;
 		self.server
 			.index_tasks
 			.spawn(|_| {

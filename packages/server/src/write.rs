@@ -499,8 +499,11 @@ impl Session {
 			blob,
 			cache_pointer,
 			touched_at,
-			(!matches!(self.context.principal, tg::Principal::Anonymous))
-				.then_some(&self.context.principal),
+			(!matches!(
+				self.context.principal,
+				tg::Principal::Anonymous | tg::Principal::Root
+			))
+			.then_some(&self.context.principal),
 			grant_expires_at,
 		);
 		self.server

@@ -53,8 +53,11 @@ impl Session {
 				.unwrap();
 
 		// Store the objects.
-		let principal = (!matches!(self.context.principal, tg::Principal::Anonymous))
-			.then(|| self.context.principal.clone());
+		let principal = (!matches!(
+			self.context.principal,
+			tg::Principal::Anonymous | tg::Principal::Root
+		))
+		.then(|| self.context.principal.clone());
 		let put_args: Vec<_> = arg
 			.objects
 			.iter()

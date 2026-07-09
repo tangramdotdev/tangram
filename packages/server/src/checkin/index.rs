@@ -65,24 +65,27 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let put_grant = (!matches!(self.context.principal, tg::Principal::Anonymous))
-			.then(|| {
-				let principal = self.context.principal.clone();
-				let index = graph.paths.get(root).unwrap();
-				let resource = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
-				Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
-					created_at: touched_at,
-					creator: Some(principal.clone()),
-					expires_at: Some(grant_expires_at),
-					permissions: tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Subtree,
-					)
-					.into(),
-					principal: principal.try_to_grant_principal()?,
-					resource: resource.into(),
-				})
+		let put_grant = (!matches!(
+			self.context.principal,
+			tg::Principal::Anonymous | tg::Principal::Root
+		))
+		.then(|| {
+			let principal = self.context.principal.clone();
+			let index = graph.paths.get(root).unwrap();
+			let resource = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
+			Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
+				created_at: touched_at,
+				creator: Some(principal.clone()),
+				expires_at: Some(grant_expires_at),
+				permissions: tg::grant::Permission::Object(
+					tg::grant::permission::object::Permission::Subtree,
+				)
+				.into(),
+				principal: principal.try_to_grant_principal()?,
+				resource: resource.into(),
 			})
-			.transpose()?;
+		})
+		.transpose()?;
 
 		// Index.
 		self.server
