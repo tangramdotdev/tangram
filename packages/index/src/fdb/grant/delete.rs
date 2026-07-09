@@ -39,7 +39,7 @@ impl Index {
 				} else {
 					GrantSource::Explicit
 				};
-				Self::delete_grant_index_entry(
+				let changed = Self::delete_grant_index_entry(
 					txn,
 					subspace,
 					&GrantIndexEntry {
@@ -53,14 +53,16 @@ impl Index {
 					partition_total,
 				)
 				.await?;
-				Self::enqueue_grant_update(
-					txn,
-					subspace,
-					&arg.resource,
-					&arg.principal,
-					permission,
-					partition_total,
-				);
+				if changed {
+					Self::enqueue_grant_update(
+						txn,
+						subspace,
+						&arg.resource,
+						&arg.principal,
+						permission,
+						partition_total,
+					);
+				}
 			}
 		}
 		Ok(())

@@ -38,7 +38,7 @@ impl Index {
 				} else {
 					GrantSource::Explicit
 				};
-				Self::put_grant_index_entry(
+				let changed = Self::put_grant_index_entry(
 					db,
 					subspace,
 					transaction,
@@ -51,14 +51,16 @@ impl Index {
 					},
 					source,
 				)?;
-				Self::enqueue_grant_update(
-					db,
-					subspace,
-					transaction,
-					&arg.resource,
-					&arg.principal,
-					permission,
-				)?;
+				if changed {
+					Self::enqueue_grant_update(
+						db,
+						subspace,
+						transaction,
+						&arg.resource,
+						&arg.principal,
+						permission,
+					)?;
+				}
 			}
 		}
 		Ok(())
