@@ -1,7 +1,7 @@
 use {
 	crate::lmdb::{
 		Db, Index, Key, Request,
-		grant::{GrantIndexEntry, GrantSource, grant_source_mask, grant_sources},
+		grant::{GrantIndexEntry, GrantSource, GrantValue},
 	},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
@@ -33,6 +33,11 @@ impl Index {
 	) -> tg::Result<()> {
 		for arg in args {
 			for permission in arg.permissions.iter() {
+				let source = if arg.expires_at.is_some() {
+					GrantSource::Temporary
+				} else {
+					GrantSource::Explicit
+				};
 				Self::delete_grant_index_entry(
 					db,
 					subspace,
@@ -44,7 +49,7 @@ impl Index {
 						principal: &arg.principal,
 						resource: &arg.resource,
 					},
-					GrantSource::Explicit,
+					source,
 				)?;
 				Self::enqueue_grant_update(
 					db,
@@ -66,14 +71,12 @@ impl Index {
 		entry: &GrantIndexEntry<'_>,
 		source: GrantSource,
 	) -> tg::Result<bool> {
-		let mask = grant_source_mask(source);
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
 			principal: entry.principal.clone(),
 			creator: entry.creator.cloned(),
 			permission: entry.permission,
-			expires_at: entry.expires_at,
 		}))
 		.chain(std::iter::once(Key::Grant(
 			crate::lmdb::grant::Key::PrincipalGrant {
@@ -81,7 +84,6 @@ impl Index {
 				resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
-				expires_at: entry.expires_at,
 			},
 		)))
 		.collect::<Vec<_>>();
@@ -93,18 +95,28 @@ impl Index {
 			else {
 				continue;
 			};
-			let sources = grant_sources(value);
-			let new_sources = sources & !mask;
-			if new_sources == sources {
+			let mut value = GrantValue::deserialize(value)?;
+			let old_expires_at = value.source_expires_at(source).flatten();
+			if !value.delete(source, entry.expires_at) {
 				continue;
 			}
-			if new_sources == 0 {
+			if value.is_empty() {
 				db.delete(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to delete the grant entry"))?;
 			} else {
-				db.put(transaction, &key, &[new_sources])
+				let bytes = value.serialize()?;
+				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put the grant entry"))?;
 			}
+			Self::update_grant_expiration(
+				db,
+				subspace,
+				transaction,
+				entry,
+				source,
+				old_expires_at,
+				None,
+			)?;
 			changed = true;
 		}
 
@@ -116,7 +128,6 @@ impl Index {
 				grant_resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
-				expires_at: entry.expires_at,
 			});
 			let key = Self::pack(subspace, &key);
 			let Some(value) = db
@@ -125,42 +136,28 @@ impl Index {
 			else {
 				continue;
 			};
-			let sources = grant_sources(value);
-			let new_sources = sources & !mask;
-			if new_sources == 0 {
+			let mut value = GrantValue::deserialize(value)?;
+			if !value.delete(source, entry.expires_at) {
+				continue;
+			}
+			if value.is_empty() {
 				db.delete(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to delete the visibility entry"))?;
-			} else if new_sources != sources {
-				db.put(transaction, &key, &[new_sources])
+			} else {
+				let bytes = value.serialize()?;
+				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put the visibility entry"))?;
 			}
 		}
-		if let Some(expires_at) = entry.expires_at {
-			let key = Key::Grant(crate::lmdb::grant::Key::GrantExpiresAt {
-				expires_at,
-				resource: entry.resource.clone(),
-				principal: entry.principal.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
-			});
-			let key = Self::pack(subspace, &key);
-			if let Some(value) = db
-				.get(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to get the grant expiration"))?
-			{
-				let sources = grant_sources(value);
-				let new_sources = sources & !mask;
-				if new_sources == 0 {
-					db.delete(transaction, &key).map_err(|error| {
-						tg::error!(!error, "failed to delete the grant expiration")
-					})?;
-				} else if new_sources != sources {
-					db.put(transaction, &key, &[new_sources]).map_err(|error| {
-						tg::error!(!error, "failed to put the grant expiration")
-					})?;
-				}
-			}
-		}
+		Self::update_grant_expiration(
+			db,
+			subspace,
+			transaction,
+			entry,
+			source,
+			entry.expires_at,
+			None,
+		)?;
 		Ok(changed)
 	}
 }

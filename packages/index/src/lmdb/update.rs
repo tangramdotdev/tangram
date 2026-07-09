@@ -374,26 +374,22 @@ impl Index {
 		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 		let subtree =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let explicit_subtree = entries
-			.iter()
-			.filter(|entry| {
-				entry.permission == subtree
-					&& entry.sources & crate::lmdb::grant::EXPLICIT_GRANT_SOURCE != 0
-			})
-			.map(|entry| (entry.principal.clone(), entry.expires_at))
-			.collect::<BTreeSet<_>>();
 		let mut expected = BTreeSet::new();
 		for entry in entries.iter().filter(|entry| entry.permission == node) {
-			if explicit_subtree.contains(&(entry.principal.clone(), entry.expires_at)) {
+			let Some(entry_expires_at) = entry.effective_expires_at() else {
 				continue;
-			}
+			};
 			let expires_at = child_entries
 				.iter()
-				.try_fold(entry.expires_at, |output, entries| {
+				.try_fold(entry_expires_at, |output, entries| {
 					Self::grant_entries_cover_expires_at(entries, &entry.principal, subtree)
 						.map(|cover| Self::min_expires_at(output, cover.expires_at))
 				});
 			if let Some(expires_at) = expires_at {
+				if Self::has_non_materialized_cover(&entries, &entry.principal, subtree, expires_at)
+				{
+					continue;
+				}
 				expected.insert((entry.principal.clone(), subtree, expires_at));
 			}
 		}
@@ -421,11 +417,12 @@ impl Index {
 		let mut changed = false;
 		let current = entries
 			.iter()
-			.filter(|entry| {
-				managed.contains(&entry.permission)
-					&& entry.sources & crate::lmdb::grant::MATERIALIZED_GRANT_SOURCE != 0
+			.filter(|entry| managed.contains(&entry.permission))
+			.filter_map(|entry| {
+				entry
+					.materialized
+					.map(|expires_at| (entry.principal.clone(), entry.permission, expires_at))
 			})
-			.map(|entry| (entry.principal.clone(), entry.permission, entry.expires_at))
 			.collect::<BTreeSet<_>>();
 		for (principal, permission, expires_at) in current.difference(expected) {
 			if Self::delete_grant_index_entry(
@@ -490,18 +487,12 @@ impl Index {
 		let subtree_output =
 			process_permission(tg::grant::permission::process::Permission::SubtreeOutput);
 
-		let explicit = input
-			.entries
-			.iter()
-			.filter(|entry| entry.sources & crate::lmdb::grant::EXPLICIT_GRANT_SOURCE != 0)
-			.map(|entry| (entry.principal.clone(), entry.permission, entry.expires_at))
-			.collect::<BTreeSet<_>>();
 		let mut expected = BTreeSet::new();
 
 		if let Some(command_object_entries) = input.command_object_entries {
 			Self::insert_object_aspect_grants(
 				&mut expected,
-				&explicit,
+				input.entries,
 				command_object_entries,
 				&[command_object_entries],
 				object_subtree,
@@ -516,7 +507,7 @@ impl Index {
 				.collect::<Vec<_>>();
 			Self::insert_object_aspect_grants(
 				&mut expected,
-				&explicit,
+				input.entries,
 				error_object_entries.iter().flat_map(|entries| *entries),
 				&error_object_entries,
 				object_subtree,
@@ -526,7 +517,7 @@ impl Index {
 		if let Some(log_object_entries) = input.log_object_entries {
 			Self::insert_object_aspect_grants(
 				&mut expected,
-				&explicit,
+				input.entries,
 				log_object_entries,
 				&[log_object_entries],
 				object_subtree,
@@ -541,7 +532,7 @@ impl Index {
 				.collect::<Vec<_>>();
 			Self::insert_object_aspect_grants(
 				&mut expected,
-				&explicit,
+				input.entries,
 				output_object_entries.iter().flat_map(|entries| *entries),
 				&output_object_entries,
 				object_subtree,
@@ -561,18 +552,26 @@ impl Index {
 				.iter()
 				.filter(|entry| entry.permission == source)
 			{
-				if explicit.contains(&(entry.principal.clone(), target, entry.expires_at)) {
+				let Some(entry_expires_at) = entry.effective_expires_at() else {
 					continue;
-				}
+				};
 				let expires_at =
 					input
 						.child_entries
 						.iter()
-						.try_fold(entry.expires_at, |output, entries| {
+						.try_fold(entry_expires_at, |output, entries| {
 							Self::grant_entries_cover_expires_at(entries, &entry.principal, target)
 								.map(|cover| Self::min_expires_at(output, cover.expires_at))
 						});
 				if let Some(expires_at) = expires_at {
+					if Self::has_non_materialized_cover(
+						input.entries,
+						&entry.principal,
+						target,
+						expires_at,
+					) {
+						continue;
+					}
 					expected.insert((entry.principal.clone(), target, expires_at));
 				}
 			}
@@ -602,7 +601,7 @@ impl Index {
 
 	fn insert_object_aspect_grants<'a>(
 		expected: &mut BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
-		explicit: &BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
+		target_entries: &[crate::lmdb::grant::GrantEntry],
 		sources: impl IntoIterator<Item = &'a crate::lmdb::grant::GrantEntry>,
 		required: &[&[crate::lmdb::grant::GrantEntry]],
 		source_permission: tg::grant::Permission,
@@ -612,12 +611,12 @@ impl Index {
 			.into_iter()
 			.filter(|entry| entry.permission == source_permission)
 		{
-			if explicit.contains(&(entry.principal.clone(), target_permission, entry.expires_at)) {
+			let Some(entry_expires_at) = entry.effective_expires_at() else {
 				continue;
-			}
+			};
 			let expires_at = required
 				.iter()
-				.try_fold(entry.expires_at, |output, entries| {
+				.try_fold(entry_expires_at, |output, entries| {
 					Self::grant_entries_cover_expires_at(
 						entries,
 						&entry.principal,
@@ -626,9 +625,30 @@ impl Index {
 					.map(|cover| Self::min_expires_at(output, cover.expires_at))
 				});
 			if let Some(expires_at) = expires_at {
+				if Self::has_non_materialized_cover(
+					target_entries,
+					&entry.principal,
+					target_permission,
+					expires_at,
+				) {
+					continue;
+				}
 				expected.insert((entry.principal.clone(), target_permission, expires_at));
 			}
 		}
+	}
+
+	fn has_non_materialized_cover(
+		entries: &[crate::lmdb::grant::GrantEntry],
+		principal: &tg::grant::Principal,
+		permission: tg::grant::Permission,
+		expires_at: Option<i64>,
+	) -> bool {
+		entries.iter().any(|entry| {
+			entry.principal == *principal
+				&& entry.permission == permission
+				&& entry.has_non_materialized_cover(expires_at)
+		})
 	}
 
 	fn grant_entries_cover_expires_at(
@@ -639,8 +659,10 @@ impl Index {
 		entries
 			.iter()
 			.filter(|entry| entry.principal == *principal && entry.permission == permission)
-			.map(|entry| GrantCover {
-				expires_at: entry.expires_at,
+			.filter_map(|entry| {
+				entry
+					.effective_expires_at()
+					.map(|expires_at| GrantCover { expires_at })
 			})
 			.reduce(|left, right| GrantCover {
 				expires_at: Self::max_expires_at(left.expires_at, right.expires_at),

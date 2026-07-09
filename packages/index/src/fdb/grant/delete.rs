@@ -1,7 +1,7 @@
 use {
 	crate::fdb::{
 		Index, Key, Request, Response,
-		grant::{GrantIndexEntry, GrantSource, grant_source_mask, grant_sources},
+		grant::{GrantIndexEntry, GrantSource, GrantValue},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
@@ -34,6 +34,11 @@ impl Index {
 	) -> tg::Result<()> {
 		for arg in args {
 			for permission in arg.permissions.iter() {
+				let source = if arg.expires_at.is_some() {
+					GrantSource::Temporary
+				} else {
+					GrantSource::Explicit
+				};
 				Self::delete_grant_index_entry(
 					txn,
 					subspace,
@@ -44,7 +49,7 @@ impl Index {
 						principal: &arg.principal,
 						resource: &arg.resource,
 					},
-					GrantSource::Explicit,
+					source,
 					partition_total,
 				)
 				.await?;
@@ -68,14 +73,12 @@ impl Index {
 		source: GrantSource,
 		partition_total: u64,
 	) -> tg::Result<bool> {
-		let mask = grant_source_mask(source);
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
 			principal: entry.principal.clone(),
 			creator: entry.creator.cloned(),
 			permission: entry.permission,
-			expires_at: entry.expires_at,
 		}))
 		.chain(std::iter::once(Key::Grant(
 			crate::fdb::grant::Key::PrincipalGrant {
@@ -83,7 +86,6 @@ impl Index {
 				resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
-				expires_at: entry.expires_at,
 			},
 		)))
 		.collect::<Vec<_>>();
@@ -96,16 +98,26 @@ impl Index {
 			else {
 				continue;
 			};
-			let sources = grant_sources(&value);
-			let new_sources = sources & !mask;
-			if new_sources == sources {
+			let mut value = GrantValue::deserialize(&value)?;
+			let old_expires_at = value.source_expires_at(source).flatten();
+			if !value.delete(source, entry.expires_at) {
 				continue;
 			}
-			if new_sources == 0 {
+			if value.is_empty() {
 				txn.clear(&key);
 			} else {
-				txn.set(&key, &[new_sources]);
+				let bytes = value.serialize()?;
+				txn.set(&key, &bytes);
 			}
+			Self::update_grant_expiration(
+				txn,
+				subspace,
+				entry,
+				source,
+				old_expires_at,
+				None,
+				partition_total,
+			);
 			changed = true;
 		}
 
@@ -116,7 +128,6 @@ impl Index {
 				grant_resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
-				expires_at: entry.expires_at,
 			});
 			let key = Self::pack(subspace, &key);
 			let Some(value) = txn
@@ -126,39 +137,26 @@ impl Index {
 			else {
 				continue;
 			};
-			let sources = grant_sources(&value);
-			let new_sources = sources & !mask;
-			if new_sources == 0 {
+			let mut value = GrantValue::deserialize(&value)?;
+			if !value.delete(source, entry.expires_at) {
+				continue;
+			}
+			if value.is_empty() {
 				txn.clear(&key);
-			} else if new_sources != sources {
-				txn.set(&key, &[new_sources]);
+			} else {
+				let bytes = value.serialize()?;
+				txn.set(&key, &bytes);
 			}
 		}
-		if let Some(expires_at) = entry.expires_at {
-			let partition = Self::partition_for_id(&entry.resource.to_bytes(), partition_total);
-			let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
-				partition,
-				expires_at,
-				resource: entry.resource.clone(),
-				principal: entry.principal.clone(),
-				creator: entry.creator.cloned(),
-				permission: entry.permission,
-			});
-			let key = Self::pack(subspace, &key);
-			if let Some(value) = txn
-				.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the grant expiration"))?
-			{
-				let sources = grant_sources(&value);
-				let new_sources = sources & !mask;
-				if new_sources == 0 {
-					txn.clear(&key);
-				} else if new_sources != sources {
-					txn.set(&key, &[new_sources]);
-				}
-			}
-		}
+		Self::update_grant_expiration(
+			txn,
+			subspace,
+			entry,
+			source,
+			entry.expires_at,
+			None,
+			partition_total,
+		);
 		Ok(changed)
 	}
 }

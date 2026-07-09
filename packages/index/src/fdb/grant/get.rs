@@ -76,17 +76,18 @@ impl Index {
 				let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 					principal,
 					permission,
-					expires_at,
 					..
 				}) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
+				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
 				Ok(crate::fdb::grant::GrantEntry {
-					expires_at,
+					explicit: value.explicit,
+					temporary: value.temporary,
+					materialized: value.materialized,
 					permission,
 					principal,
-					sources: crate::fdb::grant::grant_sources(entry.value()),
 				})
 			})
 			.collect()

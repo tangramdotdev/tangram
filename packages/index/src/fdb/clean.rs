@@ -252,22 +252,26 @@ impl Index {
 					principal,
 					creator,
 					permission,
+					source,
 					..
 				}) = key
 				else {
 					return Err(tg::error!("expected a grant expiration key"));
 				};
-				args.push(crate::grant::delete::Arg {
-					creator,
-					expires_at: Some(expires_at),
-					permissions: permission.into(),
-					principal,
-					resource,
-				});
+				args.push((
+					crate::grant::delete::Arg {
+						creator,
+						expires_at: Some(expires_at),
+						permissions: permission.into(),
+						principal,
+						resource,
+					},
+					source,
+				));
 			}
 		}
 		let count = args.len();
-		for arg in args {
+		for (arg, source) in args {
 			for permission in arg.permissions.iter() {
 				Self::delete_grant_index_entry(
 					txn,
@@ -279,7 +283,7 @@ impl Index {
 						principal: &arg.principal,
 						resource: &arg.resource,
 					},
-					crate::fdb::grant::GrantSource::All,
+					source,
 					partition_total,
 				)
 				.await?;

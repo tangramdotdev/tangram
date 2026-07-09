@@ -64,17 +64,18 @@ impl Index {
 			let Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
 				principal,
 				permission,
-				expires_at,
 				..
 			}) = key
 			else {
 				return Err(tg::error!("unexpected key type"));
 			};
+			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
 			grants.push(crate::lmdb::grant::GrantEntry {
-				expires_at,
+				explicit: value.explicit,
+				temporary: value.temporary,
+				materialized: value.materialized,
 				permission,
 				principal,
-				sources: crate::lmdb::grant::grant_sources(value),
 			});
 		}
 		Ok(grants)

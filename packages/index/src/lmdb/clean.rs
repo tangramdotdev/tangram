@@ -195,6 +195,7 @@ impl Index {
 				principal,
 				creator,
 				permission,
+				source,
 			}) = key
 			else {
 				return Err(tg::error!("expected a grant expiration key"));
@@ -202,16 +203,19 @@ impl Index {
 			if expires_at > now {
 				break;
 			}
-			args.push(crate::grant::delete::Arg {
-				creator,
-				expires_at: Some(expires_at),
-				permissions: permission.into(),
-				principal,
-				resource,
-			});
+			args.push((
+				crate::grant::delete::Arg {
+					creator,
+					expires_at: Some(expires_at),
+					permissions: permission.into(),
+					principal,
+					resource,
+				},
+				source,
+			));
 		}
 		let count = args.len();
-		for arg in args {
+		for (arg, source) in args {
 			for permission in arg.permissions.iter() {
 				Self::delete_grant_index_entry(
 					db,
@@ -224,7 +228,7 @@ impl Index {
 						principal: &arg.principal,
 						resource: &arg.resource,
 					},
-					crate::lmdb::grant::GrantSource::All,
+					source,
 				)?;
 				Self::enqueue_grant_update(
 					db,

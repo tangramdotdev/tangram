@@ -7,14 +7,12 @@ pub enum Key {
 		principal: tg::grant::Principal,
 		creator: Option<tg::Principal>,
 		permission: tg::grant::Permission,
-		expires_at: Option<i64>,
 	},
 	PrincipalGrant {
 		principal: tg::grant::Principal,
 		resource: tg::Id,
 		creator: Option<tg::Principal>,
 		permission: tg::grant::Permission,
-		expires_at: Option<i64>,
 	},
 	Visibility {
 		resource: tg::Id,
@@ -22,7 +20,6 @@ pub enum Key {
 		grant_resource: tg::Id,
 		creator: Option<tg::Principal>,
 		permission: tg::grant::Permission,
-		expires_at: Option<i64>,
 	},
 	GrantExpiresAt {
 		expires_at: i64,
@@ -30,5 +27,6 @@ pub enum Key {
 		principal: tg::grant::Principal,
 		creator: Option<tg::Principal>,
 		permission: tg::grant::Permission,
+		source: super::GrantSource,
 	},
 }
