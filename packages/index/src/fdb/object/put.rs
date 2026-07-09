@@ -23,8 +23,16 @@ impl Index {
 				.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
 		};
 
+		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
+		let touch = existing.as_ref().is_none_or(|existing| {
+			arg.touched_at.saturating_sub(existing.touched_at) >= time_to_touch
+		});
 		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
-			existing.touched_at.max(arg.touched_at)
+			if touch {
+				existing.touched_at.max(arg.touched_at)
+			} else {
+				existing.touched_at
+			}
 		});
 
 		let cache_entry = arg.cache_entry.clone().or_else(|| {
@@ -44,6 +52,14 @@ impl Index {
 		if let Some(ref existing) = existing {
 			metadata.merge(&existing.metadata);
 		}
+		let changed = existing.as_ref().is_none_or(|existing| {
+			existing.cache_entry != cache_entry
+				|| existing.metadata != metadata
+				|| existing.stored != stored
+		});
+		if !changed && !touch {
+			return Ok(());
+		}
 
 		let value = crate::object::Object {
 			cache_entry,
@@ -61,7 +77,7 @@ impl Index {
 		}
 		txn.set(&key, &value);
 
-		for child in &arg.children {
+		for child in arg.children.iter().filter(|_| changed) {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::ObjectChild {
@@ -81,7 +97,7 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
-		if let Some(cache_entry) = &arg.cache_entry {
+		if changed && let Some(cache_entry) = &arg.cache_entry {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::ObjectCacheEntry {
@@ -114,12 +130,14 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		txn.set(&key, &[]);
 
-		Self::enqueue_update(
-			txn,
-			subspace,
-			&tg::Either::Left(id.clone()),
-			partition_total,
-		);
+		if changed {
+			Self::enqueue_update(
+				txn,
+				subspace,
+				&tg::Either::Left(id.clone()),
+				partition_total,
+			);
+		}
 
 		Ok(())
 	}

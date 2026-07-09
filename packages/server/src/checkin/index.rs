@@ -80,6 +80,7 @@ impl Session {
 					.into(),
 					principal: principal.try_to_grant_principal()?,
 					resource: resource.into(),
+					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 				})
 			})
 			.transpose()?;

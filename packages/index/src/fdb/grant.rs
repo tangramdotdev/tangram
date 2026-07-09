@@ -82,7 +82,12 @@ impl GrantValue {
 		}
 	}
 
-	pub(crate) fn put(&mut self, source: GrantSource, expires_at: Option<i64>) -> bool {
+	pub(crate) fn put(
+		&mut self,
+		source: GrantSource,
+		expires_at: Option<i64>,
+		time_to_touch: Option<std::time::Duration>,
+	) -> bool {
 		match source {
 			GrantSource::Explicit => {
 				if self.explicit {
@@ -96,7 +101,12 @@ impl GrantValue {
 				let Some(expires_at) = expires_at else {
 					return false;
 				};
-				if self.temporary.is_some_and(|current| current >= expires_at) {
+				let time_to_touch = time_to_touch
+					.map(|value| i64::try_from(value.as_secs()).unwrap())
+					.unwrap_or_default();
+				if self.temporary.is_some_and(|current| {
+					current >= expires_at || expires_at.saturating_sub(current) < time_to_touch
+				}) {
 					false
 				} else {
 					self.temporary = Some(expires_at);

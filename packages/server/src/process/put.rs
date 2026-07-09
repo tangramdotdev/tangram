@@ -130,6 +130,7 @@ impl Session {
 			parent: None,
 			sandbox: Some(arg.data.sandbox.clone()),
 			stored: tangram_index::process::Stored::default(),
+			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
 		let grant_expires_at = now
@@ -154,6 +155,7 @@ impl Session {
 					.into(),
 					principal: principal.try_to_grant_principal()?,
 					resource: id.clone().into(),
+					time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 				})
 			})
 			.transpose()?;

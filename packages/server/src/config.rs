@@ -497,6 +497,10 @@ pub struct Object {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_live: Duration,
 
+	#[serde(alias = "grant_ttt", default = "default_time_to_touch")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_touch: Duration,
+
 	#[serde(default)]
 	pub store: ObjectStore,
 
@@ -592,6 +596,10 @@ pub struct Process {
 	#[serde(alias = "grant_ttl", default = "default_process_grant_time_to_live")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_live: Duration,
+
+	#[serde(alias = "grant_ttt", default = "default_time_to_touch")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_touch: Duration,
 
 	#[serde(default = "default_process_store")]
 	pub store: Database,
@@ -1299,6 +1307,7 @@ impl Default for Object {
 	fn default() -> Self {
 		Self {
 			grant_time_to_live: default_object_grant_time_to_live(),
+			grant_time_to_touch: default_time_to_touch(),
 			store: ObjectStore::default(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
@@ -1327,6 +1336,7 @@ impl Default for Process {
 		Self {
 			finalizer: Some(Finalizer::default()),
 			grant_time_to_live: default_process_grant_time_to_live(),
+			grant_time_to_touch: default_time_to_touch(),
 			store: default_process_store(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),

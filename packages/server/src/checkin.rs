@@ -466,6 +466,7 @@ impl Session {
 			index_cache_entry_args: &mut index_cache_entry_args,
 			graph_data: &mut graph_data,
 			root,
+			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
 		};
 		Self::checkin_create_artifacts(create_artifacts_arg)?;

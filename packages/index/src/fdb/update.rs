@@ -545,6 +545,7 @@ impl Index {
 					resource,
 				},
 				crate::fdb::grant::GrantSource::Materialized,
+				None,
 				partition_total,
 			)
 			.await?

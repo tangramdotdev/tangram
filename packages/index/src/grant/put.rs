@@ -8,4 +8,5 @@ pub struct Arg {
 	pub permissions: tg::grant::permission::Set,
 	pub principal: tg::grant::Principal,
 	pub resource: tg::Id,
+	pub time_to_touch: Option<std::time::Duration>,
 }

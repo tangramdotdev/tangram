@@ -50,6 +50,7 @@ impl Index {
 						resource: &arg.resource,
 					},
 					source,
+					arg.time_to_touch,
 					partition_total,
 				)
 				.await?;
@@ -73,6 +74,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		entry: &GrantIndexEntry<'_>,
 		source: GrantSource,
+		time_to_touch: Option<std::time::Duration>,
 		partition_total: u64,
 	) -> tg::Result<bool> {
 		let mut changed = false;
@@ -100,7 +102,7 @@ impl Index {
 				.as_deref()
 				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
 			let old_expires_at = value.source_expires_at(source).flatten();
-			if value.put(source, entry.expires_at) {
+			if value.put(source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				txn.set(&key, &bytes);
 				Self::update_grant_expiration(
@@ -114,6 +116,9 @@ impl Index {
 				);
 				changed = true;
 			}
+		}
+		if !changed {
+			return Ok(false);
 		}
 
 		for id in Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await? {
@@ -131,7 +136,7 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to get the visibility entry"))?
 				.as_deref()
 				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
-			if value.put(source, entry.expires_at) {
+			if value.put(source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				txn.set(&key, &bytes);
 			}

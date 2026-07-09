@@ -115,6 +115,7 @@ impl Session {
 			id: id.clone(),
 			metadata,
 			stored: tangram_index::object::Stored::default(),
+			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at: now,
 		};
 		let put_grant = (!matches!(self.context.principal, tg::Principal::Anonymous))
@@ -127,6 +128,7 @@ impl Session {
 					permissions: tg::grant::Permission::Object(permission).into(),
 					principal: principal.try_to_grant_principal()?,
 					resource: id.clone().into(),
+					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 				})
 			})
 			.transpose()?;

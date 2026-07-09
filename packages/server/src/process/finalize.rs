@@ -291,6 +291,7 @@ impl Server {
 			parent: None,
 			sandbox: None,
 			stored: tangram_index::process::Stored::default(),
+			time_to_touch: self.config.process.time_to_touch,
 			touched_at: now,
 		};
 		self.index_tasks

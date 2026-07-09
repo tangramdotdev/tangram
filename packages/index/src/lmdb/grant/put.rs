@@ -50,6 +50,7 @@ impl Index {
 						resource: &arg.resource,
 					},
 					source,
+					arg.time_to_touch,
 				)?;
 				if changed {
 					Self::enqueue_grant_update(
@@ -72,6 +73,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		entry: &GrantIndexEntry<'_>,
 		source: GrantSource,
+		time_to_touch: Option<std::time::Duration>,
 	) -> tg::Result<bool> {
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
@@ -96,7 +98,7 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to get the grant entry"))?
 				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
 			let old_expires_at = value.source_expires_at(source).flatten();
-			if value.put(source, entry.expires_at) {
+			if value.put(source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put the grant entry"))?;
@@ -111,6 +113,9 @@ impl Index {
 				)?;
 				changed = true;
 			}
+		}
+		if !changed {
+			return Ok(false);
 		}
 
 		let ids = Self::ancestor_ids_with_transaction(db, subspace, transaction, entry.resource)?;
@@ -127,7 +132,7 @@ impl Index {
 				.get(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to get the visibility entry"))?
 				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
-			if value.put(source, entry.expires_at) {
+			if value.put(source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put the visibility entry"))?;

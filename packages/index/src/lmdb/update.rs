@@ -454,6 +454,7 @@ impl Index {
 					resource,
 				},
 				crate::lmdb::grant::GrantSource::Materialized,
+				None,
 			)? {
 				changed = true;
 			}

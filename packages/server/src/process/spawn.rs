@@ -235,6 +235,7 @@ impl Session {
 				parent: None,
 				sandbox: Some(output.sandbox.clone()),
 				stored: tangram_index::process::Stored::default(),
+				time_to_touch: self.server.config.process.time_to_touch,
 				touched_at: now,
 			};
 			let put_sandbox_arg = tangram_index::sandbox::put::Arg {
@@ -2207,6 +2208,7 @@ impl Session {
 			parent: Some(parent.clone()),
 			sandbox: sandbox.cloned(),
 			stored: tangram_index::process::Stored::default(),
+			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
 		};
 		let arg = tangram_index::batch::Arg {

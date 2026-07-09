@@ -12,6 +12,7 @@ pub struct Arg {
 	pub parent: Option<tg::process::Id>,
 	pub sandbox: Option<tg::sandbox::Id>,
 	pub stored: Stored,
+	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
 }
 

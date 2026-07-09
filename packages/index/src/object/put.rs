@@ -7,6 +7,7 @@ pub struct Arg {
 	pub id: tg::object::Id,
 	pub metadata: tg::object::Metadata,
 	pub stored: Stored,
+	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
 }
 

@@ -244,6 +244,7 @@ impl Session {
 			permissions,
 			principal: principal.clone(),
 			resource: resource.clone(),
+			time_to_touch: None,
 		});
 		Ok((
 			tg::Grant {

@@ -240,6 +240,7 @@ impl Session {
 					parent: None,
 					sandbox: None,
 					stored: tangram_index::process::Stored::default(),
+					time_to_touch: server.config.process.time_to_touch,
 					touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
 				};
 				if let Err(error) = server

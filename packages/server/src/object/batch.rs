@@ -105,6 +105,7 @@ impl Session {
 				id: object.id.clone(),
 				metadata,
 				stored: tangram_index::object::Stored::default(),
+				time_to_touch: self.server.config.object.time_to_touch,
 				touched_at: now,
 			};
 
@@ -151,6 +152,7 @@ impl Session {
 					permissions: tg::grant::Permission::Object(permission).into(),
 					principal: principal.try_to_grant_principal()?,
 					resource: object.id.clone().into(),
+					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 				});
 			}
 		}

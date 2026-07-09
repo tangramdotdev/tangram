@@ -528,6 +528,7 @@ impl Session {
 			permissions,
 			principal,
 			resource: command.id().into(),
+			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 		};
 
 		self.server

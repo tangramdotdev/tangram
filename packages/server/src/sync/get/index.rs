@@ -951,6 +951,7 @@ impl Session {
 								),
 								principal: grant_principal.clone(),
 								resource: id.clone().unwrap_object().into(),
+								time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 							});
 						}
 						let covered = object_covered[index] || subtree;
@@ -979,6 +980,7 @@ impl Session {
 								permissions: tg::grant::permission::Set::Process(permissions),
 								principal: grant_principal.clone(),
 								resource: id.clone().unwrap_process().into(),
+								time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 							});
 						}
 						let subtree_permissions =
@@ -1037,6 +1039,7 @@ impl Session {
 							id,
 							metadata,
 							stored,
+							time_to_touch: self.server.config.object.time_to_touch,
 							touched_at,
 						};
 						put_object_args.push(arg);
@@ -1115,6 +1118,7 @@ impl Session {
 							parent: None,
 							sandbox: None,
 							stored,
+							time_to_touch: self.server.config.process.time_to_touch,
 							touched_at,
 						};
 						put_process_args.push(arg);
