@@ -26,9 +26,9 @@ export type Host = {
 
 	exists(path: string): Promise<boolean>;
 
-	getTtySize(): tg.Process.Tty.Size | undefined;
+	getTtySize(): tg.Process.Tty.Size | null;
 
-	getxattr(path: string, name: string): Promise<Uint8Array | undefined>;
+	getxattr(path: string, name: string): Promise<Uint8Array | null>;
 
 	isForegroundControllingTty(fd: number): boolean;
 
@@ -49,15 +49,15 @@ export type Host = {
 
 	read(
 		fd: number,
-		length?: number | undefined,
-		stopper?: tg.Host.Stopper | undefined,
-	): Promise<Uint8Array | undefined>;
+		length?: number | null,
+		stopper?: tg.Host.Stopper | null,
+	): Promise<Uint8Array | null>;
 
 	remove(path: string): Promise<void>;
 
 	signal(pid: number, signal: tg.Process.Signal): Promise<void>;
 
-	sleep(duration: number, stopper?: tg.Host.Stopper | undefined): Promise<void>;
+	sleep(duration: number, stopper?: tg.Host.Stopper | null): Promise<void>;
 
 	stringifyValue(value: tg.Value.Data): string;
 
@@ -71,7 +71,7 @@ export type Host = {
 
 	wait(
 		pid: number,
-		stopper?: tg.Host.Stopper | undefined,
+		stopper?: tg.Host.Stopper | null,
 	): Promise<tg.Host.WaitOutput>;
 
 	write(fd: number, bytes: Uint8Array): Promise<void>;
@@ -123,7 +123,7 @@ export namespace Host {
 		};
 
 		export type RequestOptions = {
-			endStream?: boolean | undefined;
+			endStream?: boolean;
 		};
 
 		export interface ClientHttp2Session {
@@ -165,7 +165,7 @@ export namespace Host {
 	export type SpawnArg = {
 		executable: string;
 		args: Array<string>;
-		cwd?: string | undefined;
+		cwd?: string;
 		env: { [key: string]: string };
 		stdin: tg.Host.Stdio;
 		stdout: tg.Host.Stdio;
@@ -174,9 +174,9 @@ export namespace Host {
 
 	export type SpawnOutput = {
 		pid: number;
-		stdin?: number | undefined;
-		stdout?: number | undefined;
-		stderr?: number | undefined;
+		stdin: number | null;
+		stdout: number | null;
+		stderr: number | null;
 	};
 
 	export type WaitOutput = {

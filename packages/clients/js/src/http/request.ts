@@ -4,18 +4,15 @@ import { Headers } from "./headers.ts";
 import { Uri } from "./uri.ts";
 
 export class Request {
-	body?: Body | undefined;
+	body?: Body;
 	headers: Headers;
 	method: string;
 	uri: Uri;
 
 	constructor(arg: Request.Arg) {
-		this.body =
-			arg.body === undefined
-				? undefined
-				: arg.body instanceof Body
-					? arg.body
-					: new Body(arg.body);
+		if (arg.body !== undefined) {
+			this.body = arg.body instanceof Body ? arg.body : new Body(arg.body);
+		}
 		this.headers =
 			arg.headers instanceof Headers ? arg.headers : new Headers(arg.headers);
 		this.method = arg.method;
@@ -25,8 +22,8 @@ export class Request {
 
 export namespace Request {
 	export type Arg = {
-		body?: Body | AsyncIterable<string | Uint8Array> | undefined;
-		headers?: Headers | tg.Host.Http2.Headers | undefined;
+		body?: Body | AsyncIterable<string | Uint8Array>;
+		headers?: Headers | tg.Host.Http2.Headers;
 		method: string;
 		uri: Uri | Uri.Arg;
 	};

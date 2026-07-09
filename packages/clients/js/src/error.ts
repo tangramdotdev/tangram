@@ -2,16 +2,24 @@ import * as tg from "./index.ts";
 
 /** Create an error. */
 export function error(): tg.Error;
-export function error(message: string, arg?: tg.Error.Arg): tg.Error;
+export function error(message: string, arg?: tg.Error.Arg | null): tg.Error;
 export function error(arg: tg.Error.Arg): tg.Error;
 export function error(
 	firstArg?: string | tg.Error.Arg,
-	secondArg?: tg.Error.Arg,
+	secondArg?: tg.Error.Arg | null,
 ): tg.Error {
-	let object: tg.Error.Object = { values: {} };
-	if (firstArg !== undefined && typeof firstArg === "string") {
+	let object: tg.Error.Object = {
+		code: null,
+		diagnostics: null,
+		location: null,
+		message: null,
+		source: null,
+		stack: null,
+		values: {},
+	};
+	if (firstArg != null && typeof firstArg === "string") {
 		object.message = firstArg;
-		if (secondArg !== undefined) {
+		if (secondArg != null) {
 			if ("code" in secondArg) {
 				object.code = secondArg.code;
 			}
@@ -34,7 +42,7 @@ export function error(
 				object.values = secondArg.values ?? {};
 			}
 		}
-	} else if (firstArg !== undefined && typeof firstArg === "object") {
+	} else if (firstArg != null && typeof firstArg === "object") {
 		if ("code" in firstArg) {
 			object.code = firstArg.code;
 		}
@@ -57,7 +65,7 @@ export function error(
 			object.values = firstArg.values ?? {};
 		}
 	}
-	if (!("stack" in object)) {
+	if (object.stack == null) {
 		// @ts-expect-error
 		globalThis.Error.captureStackTrace(object, tg.error);
 	}
@@ -78,8 +86,8 @@ export class Error {
 				? { kind: "error" as const, value: arg.object }
 				: undefined;
 		this.#state = new tg.Object.State({
-			id: arg.id,
-			object,
+			...(arg.id !== undefined ? { id: arg.id } : {}),
+			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
 		});
 	}
@@ -170,43 +178,43 @@ export class Error {
 	}
 
 	/** Get this error's code. */
-	get code(): Promise<string | undefined> {
+	get code(): Promise<string | null> {
 		return (async () => {
 			let object = await this.object();
-			return object.code;
+			return object.code ?? null;
 		})();
 	}
 
 	/** Get this error's diagnostics. */
-	get diagnostics(): Promise<Array<tg.Diagnostic> | undefined> {
+	get diagnostics(): Promise<Array<tg.Diagnostic> | null> {
 		return (async () => {
 			let object = await this.object();
-			return object.diagnostics;
+			return object.diagnostics ?? null;
 		})();
 	}
 
 	/** Get this error's location. */
-	get location(): Promise<tg.Error.Location | undefined> {
+	get location(): Promise<tg.Error.Location | null> {
 		return (async () => {
 			let object = await this.object();
-			return object.location;
+			return object.location ?? null;
 		})();
 	}
 
 	/** Get this error's message. */
-	get message(): Promise<string | undefined> {
+	get message(): Promise<string | null> {
 		return (async () => {
 			let object = await this.object();
-			return object.message;
+			return object.message ?? null;
 		})();
 	}
 
 	/** Get this error's source. */
-	get source(): Promise<tg.Referent<tg.Error> | undefined> {
+	get source(): Promise<tg.Referent<tg.Error> | null> {
 		return (async () => {
 			let object = await this.object();
-			if (object.source === undefined) {
-				return undefined;
+			if (object.source == null) {
+				return null;
 			}
 			if (object.source.item instanceof tg.Error) {
 				return object.source as tg.Referent<tg.Error>;
@@ -220,10 +228,10 @@ export class Error {
 	}
 
 	/** Get this error's stack. */
-	get stack(): Promise<Array<tg.Error.Location> | undefined> {
+	get stack(): Promise<Array<tg.Error.Location> | null> {
 		return (async () => {
 			let object = await this.object();
-			return object.stack;
+			return object.stack ?? null;
 		})();
 	}
 
@@ -240,41 +248,41 @@ export namespace Error {
 	export type Id = string;
 
 	export type Arg = {
-		code?: string | undefined;
-		diagnostics?: Array<tg.Diagnostic> | undefined;
-		location?: tg.Error.Location | undefined;
-		message?: string;
-		source?: tg.Referent<tg.Error.Object | tg.Error> | undefined;
-		stack?: Array<tg.Error.Location> | undefined;
-		values?: { [key: string]: string } | undefined;
+		code?: string | null;
+		diagnostics?: Array<tg.Diagnostic> | null;
+		location?: tg.Error.Location | null;
+		message?: string | null;
+		source?: tg.Referent<tg.Error.Object | tg.Error> | null;
+		stack?: Array<tg.Error.Location> | null;
+		values?: { [key: string]: string } | null;
 	};
 
 	export type Object = {
-		code?: string | undefined;
-		diagnostics?: Array<tg.Diagnostic> | undefined;
-		location?: tg.Error.Location | undefined;
-		message?: string | undefined;
-		source?: tg.Referent<tg.Error.Object | tg.Error> | undefined;
-		stack?: Array<tg.Error.Location> | undefined;
+		code?: string | null;
+		diagnostics?: Array<tg.Diagnostic> | null;
+		location?: tg.Error.Location | null;
+		message?: string | null;
+		source?: tg.Referent<tg.Error.Object | tg.Error> | null;
+		stack?: Array<tg.Error.Location> | null;
 		values: { [key: string]: string };
 	};
 
 	export namespace Object {
 		export let toData = (object: tg.Error.Object): tg.Error.Data => {
 			let data: tg.Error.Data = {};
-			if (object.code !== undefined) {
+			if (object.code != null) {
 				data.code = object.code;
 			}
-			if (object.diagnostics !== undefined) {
+			if (object.diagnostics != null) {
 				data.diagnostics = object.diagnostics.map(tg.Diagnostic.toData);
 			}
-			if (object.location !== undefined) {
+			if (object.location != null) {
 				data.location = tg.Error.Location.toData(object.location);
 			}
-			if (object.message !== undefined) {
+			if (object.message != null) {
 				data.message = object.message;
 			}
-			if (object.source !== undefined) {
+			if (object.source != null) {
 				data.source = tg.Referent.toData(object.source, (item) => {
 					if (item instanceof tg.Error) {
 						if (item.state.stored) {
@@ -289,7 +297,7 @@ export namespace Error {
 					}
 				});
 			}
-			if (object.stack !== undefined) {
+			if (object.stack != null) {
 				data.stack = object.stack.map(tg.Error.Location.toData);
 			}
 			if (globalThis.Object.keys(object.values).length > 0) {
@@ -299,43 +307,39 @@ export namespace Error {
 		};
 
 		export let fromData = (data: tg.Error.Data): tg.Error.Object => {
-			let object: tg.Error.Object = { values: {} };
-			if ("code" in data) {
-				object.code = data.code;
-			}
-			if ("diagnostics" in data) {
-				object.diagnostics = data.diagnostics?.map(tg.Diagnostic.fromData);
-			}
-			if ("location" in data) {
-				object.location = tg.Error.Location.fromData(data.location);
-			}
-			if ("message" in data) {
-				object.message = data.message;
-			}
-			if ("source" in data) {
-				object.source = tg.Referent.fromData(data.source, (item) => {
-					if (typeof item === "string") {
-						return tg.Error.withId(item);
-					} else {
-						return tg.Error.Object.fromData(item);
-					}
-				});
-			}
-			if ("stack" in data) {
-				object.stack = data.stack?.map(tg.Error.Location.fromData);
-			}
-			if ("values" in data) {
-				object.values = data.values ?? {};
-			}
+			let object: tg.Error.Object = {
+				code: data.code ?? null,
+				diagnostics:
+					data.diagnostics != null
+						? data.diagnostics.map(tg.Diagnostic.fromData)
+						: null,
+				location:
+					data.location != null
+						? tg.Error.Location.fromData(data.location)
+						: null,
+				message: data.message ?? null,
+				source:
+					data.source != null
+						? tg.Referent.fromData(data.source, (item) => {
+								if (typeof item === "string") {
+									return tg.Error.withId(item);
+								} else {
+									return tg.Error.Object.fromData(item);
+								}
+							})
+						: null,
+				stack:
+					data.stack != null
+						? data.stack.map(tg.Error.Location.fromData)
+						: null,
+				values: data.values ?? {},
+			};
 			return object;
 		};
 
 		export let children = (object: tg.Error.Object): Array<tg.Object> => {
 			let children: Array<tg.Object> = [];
-			if (
-				object.source !== undefined &&
-				object.source.item instanceof tg.Error
-			) {
+			if (object.source != null && object.source.item instanceof tg.Error) {
 				children.push(object.source.item);
 			}
 			return children;
@@ -343,7 +347,7 @@ export namespace Error {
 	}
 
 	export type Location = {
-		symbol?: string;
+		symbol?: string | null;
 		file: tg.Error.File;
 		range: tg.Range;
 	};
@@ -353,13 +357,13 @@ export namespace Error {
 		| { kind: "module"; value: tg.Module };
 
 	export type Data = {
-		code?: string;
-		diagnostics?: Array<tg.Diagnostic.Data>;
-		location?: tg.Error.Data.Location;
-		message?: string;
-		source?: tg.Referent.Data<tg.Error.Data | tg.Error.Id>;
-		stack?: Array<tg.Error.Data.Location>;
-		values?: { [key: string]: string };
+		code?: string | null;
+		diagnostics?: Array<tg.Diagnostic.Data> | null;
+		location?: tg.Error.Data.Location | null;
+		message?: string | null;
+		source?: tg.Referent.Data<tg.Error.Data | tg.Error.Id> | null;
+		stack?: Array<tg.Error.Data.Location> | null;
+		values?: { [key: string]: string } | null;
 	};
 
 	export namespace Data {
@@ -368,12 +372,12 @@ export namespace Error {
 				tg.Diagnostic.Data.children,
 			);
 			let location =
-				data.location !== undefined
+				data.location != null
 					? tg.Error.Data.Location.children(data.location)
 					: [];
 			let stack = (data.stack ?? []).flatMap(tg.Error.Data.Location.children);
 			let source: Array<tg.Object.Id>;
-			if (data.source === undefined) {
+			if (data.source == null) {
 				source = [];
 			} else if (typeof data.source === "string") {
 				let [item] = data.source.split("?");
@@ -387,7 +391,7 @@ export namespace Error {
 		};
 
 		export type Location = {
-			symbol?: string;
+			symbol?: string | null;
 			file: tg.Error.Data.File;
 			range: tg.Range;
 		};
@@ -424,10 +428,11 @@ export namespace Error {
 							value: tg.Module.toData(value.file.value),
 						}
 					: value.file;
-			return {
-				...value,
-				file: file,
-			};
+			let data: tg.Error.Data.Location = { file, range: value.range };
+			if (value.symbol != null) {
+				data.symbol = value.symbol;
+			}
+			return data;
 		};
 
 		export let fromData = (data: tg.Error.Data.Location): tg.Error.Location => {
@@ -439,8 +444,9 @@ export namespace Error {
 						}
 					: data.file;
 			return {
-				...data,
+				symbol: data.symbol ?? null,
 				file,
+				range: data.range,
 			};
 		};
 	}

@@ -35,9 +35,9 @@ export class Client {
 		let token = tg.process.env.TANGRAM_TOKEN;
 		let url = tg.process.env.TANGRAM_URL;
 		return {
-			process: typeof process === "string" ? process : undefined,
-			token: typeof token === "string" ? token : undefined,
-			url: typeof url === "string" ? url : undefined,
+			...(typeof process === "string" ? { process } : {}),
+			...(typeof token === "string" ? { token } : {}),
+			...(typeof url === "string" ? { url } : {}),
 		};
 	}
 
@@ -57,7 +57,7 @@ export class Client {
 		return getObject(this, id);
 	}
 
-	tryGetObject(id: tg.Object.Id): Promise<tg.Object.Data | undefined> {
+	tryGetObject(id: tg.Object.Id): Promise<tg.Object.Data | null> {
 		return tryGetObject(this, id);
 	}
 
@@ -74,15 +74,15 @@ export class Client {
 
 	getProcess(
 		id: tg.Process.Id,
-		arg?: tg.Process.Get.Arg | undefined,
+		arg?: tg.Process.Get.Arg | null,
 	): Promise<tg.Process.Get.Output> {
 		return getProcess(this, id, arg);
 	}
 
 	tryGetProcess(
 		id: tg.Process.Id,
-		arg?: tg.Process.Get.Arg | undefined,
-	): Promise<tg.Process.Get.Output | undefined> {
+		arg?: tg.Process.Get.Arg | null,
+	): Promise<tg.Process.Get.Output | null> {
 		return tryGetProcess(this, id, arg);
 	}
 
@@ -96,7 +96,7 @@ export class Client {
 	tryReadProcessStdio(
 		id: tg.Process.Id,
 		arg: tg.Process.Stdio.Read.Arg,
-	): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined> {
+	): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | null> {
 		return tryReadProcessStdio(this, id, arg);
 	}
 
@@ -110,7 +110,7 @@ export class Client {
 	trySetProcessTtySize(
 		id: tg.Process.Id,
 		arg: tg.Process.Tty.Put.Arg,
-	): Promise<true | undefined> {
+	): Promise<true | null> {
 		return trySetProcessTtySize(this, id, arg);
 	}
 
@@ -121,7 +121,7 @@ export class Client {
 	trySignalProcess(
 		id: tg.Process.Id,
 		arg: tg.Signal.Arg,
-	): Promise<true | undefined> {
+	): Promise<true | null> {
 		return trySignalProcess(this, id, arg);
 	}
 
@@ -136,9 +136,7 @@ export class Client {
 	trySpawnProcess(
 		arg: tg.Process.Spawn.Arg,
 	): Promise<
-		AsyncIterableIterator<
-			tg.Progress.Event<tg.Process.Spawn.Output | undefined>
-		>
+		AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output | null>>
 	> {
 		return trySpawnProcess(this, arg);
 	}
@@ -153,14 +151,14 @@ export class Client {
 	waitProcessPromise(
 		id: tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
-	): Promise<() => Promise<tg.Process.Wait | undefined>> {
+	): Promise<() => Promise<tg.Process.Wait | null>> {
 		return waitProcessPromise(this, id, arg);
 	}
 
 	tryWaitProcessPromise(
 		id: tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
-	): Promise<(() => Promise<tg.Process.Wait | undefined>) | undefined> {
+	): Promise<(() => Promise<tg.Process.Wait | null>) | null> {
 		return tryWaitProcessPromise(this, id, arg);
 	}
 
@@ -176,21 +174,21 @@ export class Client {
 		id: tg.Process.Id,
 		arg: tg.Process.Stdio.Write.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-	): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | undefined> {
+	): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
 		return tryWriteProcessStdio(this, id, arg, input);
 	}
 
 	getSandbox(
 		id: tg.Sandbox.Id,
-		arg?: tg.Sandbox.Get.Arg | undefined,
+		arg?: tg.Sandbox.Get.Arg | null,
 	): Promise<tg.Sandbox.Get.Output> {
 		return getSandbox(this, id, arg);
 	}
 
 	tryGetSandbox(
 		id: tg.Sandbox.Id,
-		arg?: tg.Sandbox.Get.Arg | undefined,
-	): Promise<tg.Sandbox.Get.Output | undefined> {
+		arg?: tg.Sandbox.Get.Arg | null,
+	): Promise<tg.Sandbox.Get.Output | null> {
 		return tryGetSandbox(this, id, arg);
 	}
 
@@ -206,13 +204,13 @@ export class Client {
 		return read(this, arg);
 	}
 
-	tryRead(arg: tg.Read.Arg): Promise<Uint8Array | undefined> {
+	tryRead(arg: tg.Read.Arg): Promise<Uint8Array | null> {
 		return tryRead(this, arg);
 	}
 
 	tryReadStream(
 		arg: tg.Read.Arg,
-	): Promise<AsyncIterableIterator<tg.Read.Event> | undefined> {
+	): Promise<AsyncIterableIterator<tg.Read.Event> | null> {
 		return tryReadStream(this, arg);
 	}
 

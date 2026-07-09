@@ -65,27 +65,27 @@ export namespace Module {
 	export let toDataString = (value: tg.Module): string => {
 		let string = tg.Module.Item.toDataString(value.referent.item);
 		let params = [];
-		if (value.referent.options?.artifact !== undefined) {
+		if (value.referent.options?.artifact != null) {
 			params.push(
 				`artifact=${encodeURIComponent(value.referent.options.artifact)}`,
 			);
 		}
-		if (value.referent.options?.id !== undefined) {
+		if (value.referent.options?.id != null) {
 			params.push(`id=${encodeURIComponent(value.referent.options.id)}`);
 		}
-		if (value.referent.options?.location !== undefined) {
+		if (value.referent.options?.location != null) {
 			let location = tg.Location.Arg.toDataString(
 				value.referent.options.location,
 			);
 			params.push(`location=${encodeURIComponent(location)}`);
 		}
-		if (value.referent.options?.name !== undefined) {
+		if (value.referent.options?.name != null) {
 			params.push(`name=${encodeURIComponent(value.referent.options.name)}`);
 		}
-		if (value.referent.options?.path !== undefined) {
+		if (value.referent.options?.path != null) {
 			params.push(`path=${encodeURIComponent(value.referent.options.path)}`);
 		}
-		if (value.referent.options?.tag !== undefined) {
+		if (value.referent.options?.tag != null) {
 			params.push(`tag=${encodeURIComponent(value.referent.options.tag)}`);
 		}
 		params.push(`kind=${encodeURIComponent(value.kind)}`);

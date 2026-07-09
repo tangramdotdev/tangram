@@ -6,7 +6,7 @@ export let builder = (...args: any): any => {
 		let sandbox = arg.sandbox ?? true;
 		let sandboxArg = spawn.isSandboxArg(sandbox) ? sandbox : undefined;
 		let network =
-			"network" in arg
+			arg.network !== undefined
 				? (arg.network ?? false)
 				: (sandboxArg?.network ?? false);
 		let cacheable =

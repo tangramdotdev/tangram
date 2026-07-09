@@ -13,7 +13,7 @@ export async function putObject(
 		query: {
 			children: arg.children,
 			location:
-				arg.location === undefined
+				arg.location == null
 					? undefined
 					: tg.Location.Arg.toDataString(arg.location),
 		},
@@ -22,7 +22,7 @@ export async function putObject(
 		accept: "application/json",
 		"content-type": "application/json",
 	};
-	let body = Body.json(tg.Object.Data.toJson(arg.data));
+	let body = Body.json(arg.data);
 	let request = new Request({
 		body,
 		method,

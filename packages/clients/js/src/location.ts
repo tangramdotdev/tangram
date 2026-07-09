@@ -4,7 +4,7 @@ export type Location = Location.Local | Location.Remote;
 
 export namespace Location {
 	export type Local = {
-		region?: string | undefined;
+		region?: string | null;
 	};
 
 	export namespace Local {
@@ -18,7 +18,7 @@ export namespace Location {
 				!("regions" in value) &&
 				!("remote" in value) &&
 				("region" in value
-					? value.region === undefined || typeof value.region === "string"
+					? value.region == null || typeof value.region === "string"
 					: true)
 			);
 		};
@@ -26,7 +26,7 @@ export namespace Location {
 
 	export type Remote = {
 		name: string;
-		region?: string | undefined;
+		region?: string | null;
 	};
 
 	export namespace Remote {
@@ -41,7 +41,7 @@ export namespace Location {
 				"name" in value &&
 				typeof value.name === "string" &&
 				("region" in value
-					? value.region === undefined || typeof value.region === "string"
+					? value.region == null || typeof value.region === "string"
 					: true)
 			);
 		};
@@ -81,7 +81,7 @@ export namespace Location {
 		}
 
 		export type LocalComponent = {
-			regions?: Array<string> | undefined;
+			regions?: Array<string> | null;
 		};
 
 		export namespace LocalComponent {
@@ -105,7 +105,7 @@ export namespace Location {
 		}
 
 		export type RemoteComponent = {
-			regions?: Array<string> | undefined;
+			regions?: Array<string> | null;
 			name: string;
 		};
 
@@ -186,18 +186,14 @@ export namespace Location {
 		export let fromLocation = (value: tg.Location): tg.Location.Arg => {
 			if (!("name" in value)) {
 				return {
-					components: [
-						{
-							regions: value.region === undefined ? undefined : [value.region],
-						},
-					],
+					components: [value.region == null ? {} : { regions: [value.region] }],
 				};
 			}
 			return {
 				components: [
 					{
 						name: value.name,
-						regions: value.region === undefined ? undefined : [value.region],
+						...(value.region == null ? {} : { regions: [value.region] }),
 					},
 				],
 			};
@@ -212,18 +208,18 @@ export namespace Location {
 			}
 			if (!("name" in component)) {
 				let region = component.regions?.[0];
-				if (component.regions !== undefined && component.regions.length !== 1) {
+				if (component.regions != null && component.regions.length !== 1) {
 					return undefined;
 				}
-				return { region };
+				return region === undefined ? {} : { region };
 			}
 			let region = component.regions?.[0];
-			if (component.regions !== undefined && component.regions.length !== 1) {
+			if (component.regions != null && component.regions.length !== 1) {
 				return undefined;
 			}
 			return {
 				name: component.name,
-				region,
+				...(region === undefined ? {} : { region }),
 			};
 		};
 	}

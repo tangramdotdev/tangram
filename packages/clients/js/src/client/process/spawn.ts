@@ -4,20 +4,20 @@ import type { Client } from "../../client.ts";
 
 export namespace Spawn {
 	export type Arg = {
-		cached?: boolean | undefined;
-		cacheLocation?: tg.Location.Arg | undefined;
-		checksum?: tg.Checksum | undefined;
+		cached?: boolean;
+		cacheLocation?: tg.Location.Arg | null;
+		checksum?: tg.Checksum | null;
 		command: tg.Referent<tg.Command.Id>;
-		debug?: tg.Process.Debug | undefined;
-		location?: tg.Location.Arg | undefined;
-		parent?: tg.Process.Id | undefined;
-		public?: boolean | undefined;
-		retry?: boolean | undefined;
-		sandbox?: tg.Sandbox.DataArg | string | undefined;
-		stderr?: tg.Process.Stdio | undefined;
-		stdin?: tg.Process.Stdio | undefined;
-		stdout?: tg.Process.Stdio | undefined;
-		tty?: boolean | tg.Process.Tty | undefined;
+		debug?: tg.Process.Debug | null;
+		location?: tg.Location.Arg | null;
+		parent?: tg.Process.Id | null;
+		public?: boolean;
+		retry?: boolean;
+		sandbox?: tg.Sandbox.DataArg | string | null;
+		stderr?: tg.Process.Stdio;
+		stdin?: tg.Process.Stdio;
+		stdout?: tg.Process.Stdio;
+		tty?: boolean | tg.Process.Tty | null;
 	};
 
 	export namespace Arg {
@@ -27,7 +27,10 @@ export namespace Spawn {
 				output.cached = arg.cached;
 			}
 			if (arg.cacheLocation !== undefined) {
-				output.cache_location = tg.Location.Arg.toDataString(arg.cacheLocation);
+				output.cache_location =
+					arg.cacheLocation === null
+						? null
+						: tg.Location.Arg.toDataString(arg.cacheLocation);
 			}
 			if (arg.checksum !== undefined) {
 				output.checksum = arg.checksum;
@@ -37,7 +40,10 @@ export namespace Spawn {
 				output.debug = arg.debug;
 			}
 			if (arg.location !== undefined) {
-				output.location = tg.Location.Arg.toDataString(arg.location);
+				output.location =
+					arg.location === null
+						? null
+						: tg.Location.Arg.toDataString(arg.location);
 			}
 			if (arg.parent !== undefined) {
 				output.parent = arg.parent;
@@ -69,11 +75,11 @@ export namespace Spawn {
 
 	export type Output = {
 		cached: boolean;
-		lease?: string | undefined;
-		location?: tg.Location | undefined;
+		lease?: string | null;
+		location?: tg.Location | null;
 		process: number | tg.Process.Id;
-		token?: tg.Grant.Token | undefined;
-		wait?: tg.Process.Wait.Data | undefined;
+		token?: tg.Grant.Token | null;
+		wait?: tg.Process.Wait.Data | null;
 	};
 
 	export namespace Output {
@@ -90,7 +96,7 @@ export namespace Spawn {
 						: location;
 			}
 			if (wait !== undefined) {
-				result.wait = tg.Process.Wait.Data.fromJson(wait);
+				result.wait = wait;
 			}
 			return result;
 		};
@@ -109,7 +115,7 @@ export async function trySpawnProcess(
 	client: Client,
 	arg: tg.Process.Spawn.Arg,
 ): Promise<
-	AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output | undefined>>
+	AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output | null>>
 > {
 	let method = "POST";
 	let uri = "/processes/spawn";
@@ -128,21 +134,21 @@ export async function trySpawnProcess(
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return tg.Progress.decode<tg.Process.Spawn.Output | undefined>(
+	return tg.Progress.decode<tg.Process.Spawn.Output | null>(
 		response,
 		(output) =>
-			output === undefined
-				? undefined
+			output === undefined || output === null
+				? null
 				: tg.Process.Spawn.Output.fromJson(output),
 	);
 }
 
 async function* mapSpawnEvents(
-	events: AsyncIterable<tg.Progress.Event<tg.Process.Spawn.Output | undefined>>,
+	events: AsyncIterable<tg.Progress.Event<tg.Process.Spawn.Output | null>>,
 ): AsyncIterableIterator<tg.Progress.Event<tg.Process.Spawn.Output>> {
 	for await (let event of events) {
 		if (event.kind === "output") {
-			if (event.value === undefined) {
+			if (event.value === null) {
 				throw new Error("expected a process");
 			}
 			yield event as tg.Progress.Event<tg.Process.Spawn.Output>;

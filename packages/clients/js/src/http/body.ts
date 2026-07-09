@@ -3,7 +3,7 @@ import * as tg from "../index.ts";
 export class Body implements AsyncIterable<Uint8Array> {
 	#body: AsyncIterable<Uint8Array>;
 
-	constructor(body?: AsyncIterable<string | Uint8Array> | undefined) {
+	constructor(body?: AsyncIterable<string | Uint8Array>) {
 		this.#body = normalize(body ?? empty());
 	}
 
@@ -53,7 +53,7 @@ export class Body implements AsyncIterable<Uint8Array> {
 export namespace Body {
 	export type SseEvent = {
 		data: string;
-		event?: string | undefined;
+		event?: string;
 	};
 }
 
@@ -137,7 +137,7 @@ function parseSse(block: string) {
 	}
 	return {
 		data: data.join("\n"),
-		event,
+		...(event !== undefined ? { event } : {}),
 	};
 }
 

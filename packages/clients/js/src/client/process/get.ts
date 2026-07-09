@@ -4,25 +4,25 @@ import type { Client } from "../../client.ts";
 
 export namespace Get {
 	export type Arg = {
-		location?: tg.Location.Arg | undefined;
-		metadata?: boolean | undefined;
+		location?: tg.Location.Arg | null;
+		metadata?: boolean;
 	};
 
 	export type Output = {
 		data: tg.Process.Data;
 		id: tg.Process.Id;
-		location?: tg.Location | undefined;
-		metadata?: unknown | undefined;
+		location?: tg.Location | null;
+		metadata?: unknown;
 	};
 }
 
 export async function getProcess(
 	client: Client,
 	id: tg.Process.Id,
-	arg?: Get.Arg,
+	arg?: Get.Arg | null,
 ): Promise<Get.Output> {
 	let output = await tryGetProcess(client, id, arg);
-	if (output === undefined) {
+	if (output === null) {
 		throw new Error("failed to find the process");
 	}
 	return output;
@@ -31,14 +31,14 @@ export async function getProcess(
 export async function tryGetProcess(
 	client: Client,
 	id: tg.Process.Id,
-	arg?: Get.Arg,
-): Promise<Get.Output | undefined> {
+	arg?: Get.Arg | null,
+): Promise<Get.Output | null> {
 	let method = "GET";
 	let uri = new Uri({
 		path: `/processes/${percentEncode(id)}`,
 		query: {
 			location:
-				arg?.location === undefined
+				arg?.location == null
 					? undefined
 					: tg.Location.Arg.toDataString(arg.location),
 			metadata: arg?.metadata === true ? true.toString() : undefined,
@@ -54,7 +54,7 @@ export async function tryGetProcess(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
-		return undefined;
+		return null;
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
@@ -63,7 +63,6 @@ export async function tryGetProcess(
 			location?: string | tg.Location;
 		}
 	>();
-	output.data = tg.Process.Data.fromJson(output.data);
 	if (typeof output.location === "string") {
 		output.location = tg.Location.fromDataString(output.location);
 	}

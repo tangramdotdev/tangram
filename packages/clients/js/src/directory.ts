@@ -21,8 +21,8 @@ export class Directory {
 				? { kind: "directory" as const, value: arg.object }
 				: undefined;
 		this.#state = new tg.Object.State({
-			id: arg.id,
-			object,
+			...(arg.id !== undefined ? { id: arg.id } : {}),
+			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
 		});
 	}
@@ -54,7 +54,7 @@ export class Directory {
 	): Promise<tg.Directory> {
 		let resolved: Array<tg.Directory.Arg>;
 		if (args.length === 1) {
-			let arg = await tg.resolve(args[0]);
+			let arg = await tg.resolve(args[0]!);
 			if (tg.Graph.Arg.Pointer.is(arg)) {
 				return tg.Directory.withObject(tg.Graph.Pointer.fromArg(arg));
 			}
@@ -78,9 +78,7 @@ export class Directory {
 			Promise<{ [key: string]: tg.Graph.Edge<tg.Artifact> }>
 		>(async function reduce(promise, arg) {
 			let entries = await promise;
-			if (arg === undefined) {
-				// If the arg is undefined, then continue.
-			} else if (arg instanceof tg.Directory) {
+			if (arg instanceof tg.Directory) {
 				// If the arg is a directory, then apply each entry.
 				for (let [name, entry] of Object.entries(await arg.entries)) {
 					// Get an existing entry.
@@ -123,15 +121,17 @@ export class Directory {
 						let trailingPath = tg.path.fromComponents(trailingComponents);
 
 						// Merge the entry with the trailing path.
-						let newEntry = await tg.Directory.new(existingEntry, {
-							[trailingPath]: value,
-						});
+						let newEntry = await tg.Directory.new(
+							...(existingEntry !== undefined ? [existingEntry] : []),
+							{ [trailingPath]: value },
+						);
 
 						// Add the entry.
 						entries[name] = newEntry;
 					} else {
 						// If there are no trailing path components, then create the artifact specified by the value.
-						if (value === undefined) {
+						if (value === null) {
+							// If the value is null, then remove the entry.
 							delete entries[name];
 						} else if (typeof value === "number") {
 							throw new Error(
@@ -155,7 +155,10 @@ export class Directory {
 						) {
 							entries[name] = value;
 						} else {
-							entries[name] = await tg.Directory.new(existingEntry, value);
+							entries[name] = await tg.Directory.new(
+								...(existingEntry !== undefined ? [existingEntry] : []),
+								value,
+							);
 						}
 					}
 				}
@@ -218,8 +221,8 @@ export class Directory {
 		return artifact;
 	}
 
-	/** Try to get the child at the specified path. This method returns `undefined` if the path does not exist. */
-	async tryGet(arg: string): Promise<tg.Artifact | undefined> {
+	/** Try to get the child at the specified path. This method returns `null` if the path does not exist. */
+	async tryGet(arg: string): Promise<tg.Artifact | null> {
 		let components = tg.path.components(arg);
 		let artifact: tg.Artifact = this;
 		let parents: Array<tg.Directory> = [];
@@ -240,28 +243,28 @@ export class Directory {
 				continue;
 			}
 			if (!(artifact instanceof tg.Directory)) {
-				return undefined;
+				return null;
 			}
 			let entries: { [key: string]: tg.Artifact } = await artifact.entries;
 			let entry: tg.Artifact | undefined = entries[component];
 			if (entry === undefined) {
-				return undefined;
+				return null;
 			}
 			parents.push(artifact);
 			artifact = entry;
 			if (entry instanceof tg.Symlink) {
 				let artifact_ = await entry.artifact;
 				let path_ = await entry.path;
-				if (artifact_ === undefined && path_ !== undefined) {
+				if (artifact_ == null && path_ != null) {
 					let parent = parents.pop();
 					if (!parent) {
 						throw new Error("path is external");
 					}
 					artifact = parent;
 					components.unshift(...tg.path.components(path_));
-				} else if (artifact_ !== undefined && path_ === undefined) {
+				} else if (artifact_ != null && path_ == null) {
 					return artifact_;
-				} else if (artifact_ instanceof tg.Directory && path_ !== undefined) {
+				} else if (artifact_ instanceof tg.Directory && path_ != null) {
 					return await artifact_.tryGet(path_);
 				} else {
 					throw new Error("invalid symlink");
@@ -299,7 +302,7 @@ export class Directory {
 		let object = await this.object();
 		if (tg.Graph.Pointer.is(object)) {
 			let graph = object.graph;
-			tg.assert(graph !== undefined);
+			tg.assert(graph != null);
 			let nodes = await graph.nodes;
 			let node = nodes[object.index];
 			tg.assert(
@@ -336,7 +339,7 @@ export class Directory {
 			for (let [name, edge] of Object.entries(object.entries)) {
 				tg.assert(typeof edge === "object", "expected an object");
 				if (tg.Graph.Pointer.is(edge)) {
-					tg.assert(edge.graph !== undefined, "missing graph");
+					tg.assert(edge.graph != null, "missing graph");
 					let artifact = await edge.graph.get(edge.index);
 					tg.Object.inheritToken(artifact, this.#state.token);
 					yield [name, artifact];
@@ -359,7 +362,7 @@ export class Directory {
 		edge: tg.Graph.Edge<tg.Directory>,
 	): Promise<tg.Directory> {
 		if (tg.Graph.Pointer.is(edge)) {
-			tg.assert(edge.graph !== undefined, "missing graph for directory edge");
+			tg.assert(edge.graph != null, "missing graph for directory edge");
 			let artifact = await edge.graph.get(edge.index);
 			tg.assert(artifact instanceof tg.Directory, "expected a directory");
 			return artifact;
@@ -420,7 +423,7 @@ export namespace Directory {
 		}
 	}
 
-	export type Arg = undefined | tg.Directory | tg.Directory.Arg.Object;
+	export type Arg = tg.Directory | tg.Directory.Arg.Object;
 
 	export namespace Arg {
 		export type Object =
@@ -430,7 +433,7 @@ export namespace Directory {
 
 		export type Leaf = {
 			[key: string]:
-				| undefined
+				| null
 				| string
 				| Uint8Array
 				| tg.Blob

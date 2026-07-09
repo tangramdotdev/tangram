@@ -25,10 +25,8 @@ export function command(...args: any): any {
 		if ("module" in executable) {
 			let options = executable.module.referent.options;
 			if (!(options?.tag || options?.id)) {
-				executable.module.referent.options = {
-					...options,
-					path: undefined,
-				};
+				let { path: _path, ...rest } = options ?? {};
+				executable.module.referent.options = rest;
 			}
 		}
 		return new tg.Command.Builder({
@@ -70,20 +68,20 @@ export class Command<
 		let env = arg.env ?? {};
 		let executable: tg.Command.Executable | undefined;
 		if (tg.Artifact.is(arg.executable)) {
-			executable = { artifact: arg.executable, path: undefined };
+			executable = { artifact: arg.executable };
 		} else if (typeof arg.executable === "string") {
 			executable = { path: arg.executable };
-		} else if (arg.executable !== undefined && "artifact" in arg.executable) {
+		} else if (arg.executable != null && "artifact" in arg.executable) {
 			executable = {
 				artifact: arg.executable.artifact,
-				path: arg.executable.path,
+				path: arg.executable.path ?? null,
 			};
-		} else if (arg.executable !== undefined && "module" in arg.executable) {
+		} else if (arg.executable != null && "module" in arg.executable) {
 			executable = {
 				module: arg.executable.module,
-				export: arg.executable.export,
+				export: arg.executable.export ?? null,
 			};
-		} else if (arg.executable !== undefined && "path" in arg.executable) {
+		} else if (arg.executable != null && "path" in arg.executable) {
 			executable = {
 				path: arg.executable.path,
 			};
@@ -95,16 +93,16 @@ export class Command<
 		if (host === undefined) {
 			throw new Error("cannot create a command without a host");
 		}
-		let stdin = arg.stdin !== undefined ? await tg.blob(arg.stdin) : undefined;
+		let stdin = arg.stdin != null ? await tg.blob(arg.stdin) : undefined;
 		let user = arg.user;
 		let object = {
 			args: args_,
-			cwd,
 			env,
 			executable,
 			host,
-			stdin,
-			user,
+			...(cwd != null ? { cwd } : {}),
+			...(stdin !== undefined ? { stdin } : {}),
+			...(user != null ? { user } : {}),
 		};
 		return tg.Command.withObject(object) as tg.Command<A, O>;
 	}
@@ -151,8 +149,8 @@ export class Command<
 				? { kind: "command" as const, value: arg.object }
 				: undefined;
 		this.#state = new tg.Object.State({
-			id: arg.id,
-			object,
+			...(arg.id !== undefined ? { id: arg.id } : {}),
+			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
 		});
 	}
@@ -227,9 +225,9 @@ export class Command<
 	}
 
 	/** Get this command's cwd. */
-	get cwd(): Promise<string | undefined> {
+	get cwd(): Promise<string | null> {
 		return (async () => {
-			return (await this.object()).cwd;
+			return (await this.object()).cwd ?? null;
 		})();
 	}
 
@@ -254,16 +252,16 @@ export class Command<
 		})();
 	}
 
-	get stdin(): Promise<tg.Blob | undefined> {
+	get stdin(): Promise<tg.Blob | null> {
 		return (async () => {
-			return (await this.object()).stdin;
+			return (await this.object()).stdin ?? null;
 		})();
 	}
 
 	/** Get this command's user. */
-	get user(): Promise<string | undefined> {
+	get user(): Promise<string | null> {
 		return (async () => {
-			return (await this.object()).user;
+			return (await this.object()).user ?? null;
 		})();
 	}
 
@@ -292,7 +290,6 @@ export namespace Command {
 	export type Id = string;
 
 	export type Arg =
-		| undefined
 		| string
 		| tg.Artifact
 		| tg.Template
@@ -302,25 +299,25 @@ export namespace Command {
 	export namespace Arg {
 		export type Object = {
 			/** The command's arguments. */
-			args?: Array<tg.Value> | undefined;
+			args?: Array<tg.Value> | null;
 
 			/** The command's working directory. */
-			cwd?: string | undefined;
+			cwd?: string | null;
 
 			/** The command's environment. */
-			env?: tg.MaybeMutationMap | undefined;
+			env?: tg.MaybeMutationMap | null;
 
 			/** The command's executable. */
-			executable?: tg.Command.Arg.Executable | undefined;
+			executable?: tg.Command.Arg.Executable | null;
 
 			/** The command's host. */
-			host?: string | undefined;
+			host?: string | null;
 
 			/** The command's stdin. */
-			stdin?: tg.Blob.Arg | undefined;
+			stdin?: tg.Blob.Arg | null;
 
 			/** The command's user. */
-			user?: string | undefined;
+			user?: string | null;
 		};
 
 		export type Executable =
@@ -333,12 +330,12 @@ export namespace Command {
 		export namespace Executable {
 			export type Artifact = {
 				artifact: tg.Artifact;
-				path?: string | undefined;
+				path?: string | null;
 			};
 
 			export type Module = {
 				module: tg.Module;
-				export?: string | undefined;
+				export?: string | null;
 			};
 
 			export type Path = {
@@ -371,12 +368,12 @@ export namespace Command {
 
 	export type Object = {
 		args: Array<tg.Value>;
-		cwd: string | undefined;
+		cwd?: string | null;
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable;
 		host: string;
-		stdin: tg.Blob | undefined;
-		user: string | undefined;
+		stdin?: tg.Blob | null;
+		user?: string | null;
 	};
 
 	export namespace Object {
@@ -392,22 +389,22 @@ export namespace Command {
 				executable: tg.Command.Executable.toData(object.executable),
 				host: object.host,
 			};
-			if (object.cwd !== undefined) {
+			if (object.cwd != null) {
 				output.cwd = object.cwd;
 			}
-			if (object.stdin !== undefined) {
+			if (object.stdin != null) {
 				output.stdin = object.stdin.id;
 			}
-			if (object.user !== undefined) {
+			if (object.user != null) {
 				output.user = object.user;
 			}
 			return output;
 		};
 
 		export let fromData = (data: tg.Command.Data): tg.Command.Object => {
-			return {
+			let object: tg.Command.Object = {
 				args: (data.args ?? []).map(tg.Value.fromData),
-				cwd: data.cwd,
+				cwd: data.cwd ?? null,
 				env: globalThis.Object.fromEntries(
 					globalThis.Object.entries(data.env ?? {}).map(([key, value]) => [
 						key,
@@ -416,10 +413,10 @@ export namespace Command {
 				),
 				executable: tg.Command.Executable.fromData(data.executable),
 				host: data.host,
-				stdin:
-					data.stdin !== undefined ? tg.Blob.withId(data.stdin) : undefined,
-				user: data.user,
+				stdin: data.stdin != null ? tg.Blob.withId(data.stdin) : null,
+				user: data.user ?? null,
 			};
+			return object;
 		};
 
 		export let children = (object: tg.Command.Object): Array<tg.Object> => {
@@ -429,7 +426,7 @@ export namespace Command {
 					tg.Value.objects(value),
 				),
 				...tg.Command.Executable.children(object.executable),
-				...(object.stdin !== undefined ? [object.stdin] : []),
+				...(object.stdin != null ? [object.stdin] : []),
 			];
 		};
 	}
@@ -447,7 +444,7 @@ export namespace Command {
 				let output: tg.Command.Data.Executable = {
 					artifact: value.artifact.id,
 				};
-				if (value.path !== undefined) {
+				if (value.path != null) {
 					output.path = value.path;
 				}
 				return output;
@@ -455,7 +452,7 @@ export namespace Command {
 				let output: tg.Command.Data.Executable = {
 					module: tg.Module.toData(value.module),
 				};
-				if (value.export !== undefined) {
+				if (value.export != null) {
 					output.export = value.export;
 				}
 				return output;
@@ -474,12 +471,12 @@ export namespace Command {
 			if ("artifact" in data) {
 				return {
 					artifact: tg.Artifact.withId(data.artifact),
-					path: data.path,
+					path: data.path ?? null,
 				};
 			} else if ("module" in data) {
 				return {
 					module: tg.Module.fromData(data.module),
-					export: data.export,
+					export: data.export ?? null,
 				};
 			} else if ("path" in data) {
 				return {
@@ -504,12 +501,12 @@ export namespace Command {
 	export namespace Executable {
 		export type Artifact = {
 			artifact: tg.Artifact;
-			path: string | undefined;
+			path?: string | null;
 		};
 
 		export type Module = {
 			module: tg.Module;
-			export: string | undefined;
+			export?: string | null;
 		};
 
 		export type Path = {
@@ -518,13 +515,13 @@ export namespace Command {
 	}
 
 	export type Data = {
-		args?: Array<tg.Value.Data>;
-		cwd?: string;
-		env?: { [key: string]: tg.Value.Data };
+		args?: Array<tg.Value.Data> | null;
+		cwd?: string | null;
+		env?: { [key: string]: tg.Value.Data } | null;
 		executable: tg.Command.Data.Executable;
 		host: string;
-		stdin?: tg.Blob.Id;
-		user?: string;
+		stdin?: tg.Blob.Id | null;
+		user?: string | null;
 	};
 
 	export namespace Data {
@@ -546,12 +543,12 @@ export namespace Command {
 		export namespace Executable {
 			export type Artifact = {
 				artifact: tg.Artifact.Id;
-				path?: string;
+				path?: string | null;
 			};
 
 			export type Module = {
 				module: tg.Module.Data;
-				export?: string;
+				export?: string | null;
 			};
 
 			export type Path = {
@@ -620,7 +617,7 @@ export namespace Command {
 			return this;
 		}
 
-		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string>>): this {
 			this.#args.push({ cwd });
 			return this;
 		}

@@ -1,6 +1,10 @@
 use {
 	super::Result,
-	crate::quickjs::{StateHandle, serde::Serde, types::Uint8Array},
+	crate::quickjs::{
+		StateHandle,
+		serde::Serde,
+		types::{OptionNull, Uint8Array},
+	},
 	rquickjs as qjs,
 };
 
@@ -39,14 +43,14 @@ pub async fn stream_end(ctx: qjs::Ctx<'_>, stream: usize, bytes: Option<Uint8Arr
 pub async fn stream_read(
 	ctx: qjs::Ctx<'_>,
 	stream: usize,
-) -> Result<Option<Serde<crate::http2::StreamEvent>>> {
+) -> Result<OptionNull<Serde<crate::http2::StreamEvent>>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(
 		state
 			.http2
 			.stream_read(stream)
 			.await
-			.map(|event| event.map(Serde)),
+			.map(|event| OptionNull(event.map(Serde))),
 	)
 }
 

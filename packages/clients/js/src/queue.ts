@@ -20,7 +20,7 @@ export class Queue<T> {
 		})().catch(() => {});
 	}
 
-	next(stop?: Promise<void> | undefined): Promise<IteratorResult<T>> {
+	next(stop?: Promise<void>): Promise<IteratorResult<T>> {
 		if (this.#values.length > 0) {
 			return Promise.resolve({ done: false, value: this.#values.shift()! });
 		}

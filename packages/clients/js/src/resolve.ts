@@ -17,7 +17,7 @@ export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 	>
 		? UnresolvedCommand<A, O>
 		: T extends
-					| undefined
+					| null
 					| boolean
 					| number
 					| string
@@ -45,7 +45,7 @@ type UnresolvedCommand<A extends Array<tg.Value>, O extends tg.Value> =
 
 type UnresolvedWithoutCommand<T extends tg.Value> = tg.MaybePromise<
 	T extends
-		| undefined
+		| null
 		| boolean
 		| number
 		| string
@@ -74,13 +74,14 @@ type UnresolvedWithoutCommand<T extends tg.Value> = tg.MaybePromise<
  * Resolved<Promise<Array<Promise<string>>>> = Array<string>
  * ```
  */
-export type Resolved<T extends tg.Unresolved<tg.Value>> =
+export type Resolved<T extends tg.Unresolved<tg.Value> | undefined> =
 	T extends PromiseLike<infer U extends tg.Unresolved<tg.Value>>
 		? tg.Resolved<U>
 		: T extends tg.Function<infer A, infer O>
 			? tg.Command<tg.ResolvedArgs<A>, tg.ResolvedReturnValue<O>>
 			: T extends
 						| undefined
+						| null
 						| boolean
 						| number
 						| string
@@ -97,15 +98,15 @@ export type Resolved<T extends tg.Unresolved<tg.Value>> =
 						: never;
 
 /** Resolve all deeply nested promises in an unresolved value. */
-export let resolve = async <T extends tg.Unresolved<tg.Value>>(
+export let resolve = async <T extends tg.Unresolved<tg.Value> | undefined>(
 	value: T,
 ): Promise<tg.Resolved<T>> => {
-	let inner = async <T extends tg.Unresolved<tg.Value>>(
-		value: tg.Unresolved<tg.Value>,
+	let inner = async <T extends tg.Unresolved<tg.Value> | undefined>(
+		value: tg.Unresolved<tg.Value> | undefined,
 		visited: im.Set<object>,
 	): Promise<Resolved<T>> => {
 		value = await value;
-		if (typeof value === "object") {
+		if (typeof value === "object" && value !== null) {
 			if (visited.has(value)) {
 				throw new Error("cycle detected");
 			}
@@ -114,6 +115,7 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 		let output: Resolved<T>;
 		if (
 			value === undefined ||
+			value === null ||
 			typeof value === "boolean" ||
 			typeof value === "number" ||
 			typeof value === "string" ||
@@ -147,7 +149,7 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 		} else {
 			throw new Error("invalid value to resolve");
 		}
-		if (typeof value === "object") {
+		if (typeof value === "object" && value !== null) {
 			visited = visited.delete(value);
 		}
 		return output;

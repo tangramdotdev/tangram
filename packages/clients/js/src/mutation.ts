@@ -40,7 +40,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			return new tg.Mutation({
 				kind: arg.kind,
 				template: await tg.template(arg.template),
-				separator: arg.separator,
+				separator: arg.separator ?? null,
 			}) as tg.Mutation<T>;
 		} else if (arg.kind === "merge") {
 			return new tg.Mutation({
@@ -100,24 +100,24 @@ export class Mutation<T extends tg.Value = tg.Value> {
 	/** Create a prefix mutation. */
 	static async prefix(
 		template: tg.Unresolved<tg.Template.Arg>,
-		separator?: string | undefined,
+		separator?: string,
 	): Promise<tg.Mutation<tg.Template>> {
 		return new tg.Mutation({
 			kind: "prefix",
 			template: await tg.template(template),
-			separator,
+			separator: separator ?? null,
 		});
 	}
 
 	/** Create a suffix mutation. */
 	static async suffix(
 		template: tg.Unresolved<tg.Template.Arg>,
-		separator?: string | undefined,
+		separator?: string,
 	): Promise<tg.Mutation<tg.Template>> {
 		return new tg.Mutation({
 			kind: "suffix",
 			template: await tg.template(template),
-			separator,
+			separator: separator ?? null,
 		});
 	}
 
@@ -167,12 +167,12 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			let output: {
 				kind: "prefix" | "suffix";
 				template: tg.Template.Data;
-				separator?: string;
+				separator?: string | null;
 			} = {
 				kind: value.inner.kind,
 				template: tg.Template.toData(value.inner.template),
 			};
-			if (value.inner.separator !== undefined) {
+			if (value.inner.separator != null) {
 				output.separator = value.inner.separator;
 			}
 			return output;
@@ -215,7 +215,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			return new tg.Mutation({
 				kind: data.kind,
 				template: tg.Template.fromData(data.template),
-				separator: data.separator,
+				separator: data.separator ?? null,
 			}) as tg.Mutation<T>;
 		} else if (data.kind === "merge") {
 			return new tg.Mutation({
@@ -259,57 +259,57 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		} else if (this.#inner.kind === "set") {
 			map[key] = this.#inner.value;
 		} else if (this.#inner.kind === "set_if_unset") {
-			if (!(key in map)) {
+			if (map[key] === undefined) {
 				map[key] = this.#inner.value;
 			}
 		} else if (this.#inner.kind === "prepend") {
-			if (!(key in map) || map[key] === undefined) {
+			if (map[key] === undefined || map[key] === null) {
 				map[key] = [];
 			}
 			let array = map[key];
 			tg.assert(array instanceof Array);
 			map[key] = [...this.#inner.values, ...array];
 		} else if (this.#inner.kind === "append") {
-			if (!(key in map) || map[key] === undefined) {
+			if (map[key] === undefined || map[key] === null) {
 				map[key] = [];
 			}
 			let array = map[key];
 			tg.assert(array instanceof Array);
 			map[key] = [...array, ...this.#inner.values];
 		} else if (this.#inner.kind === "prefix") {
-			if (!(key in map)) {
+			if (map[key] === undefined) {
 				map[key] = await tg.template();
 			}
 			let value = map[key];
 			tg.assert(
-				value === undefined ||
+				value === null ||
 					typeof value === "string" ||
 					tg.Artifact.is(value) ||
 					value instanceof tg.Template,
 			);
 			map[key] = await tg.Template.join(
-				this.#inner.separator,
+				this.#inner.separator ?? null,
 				this.#inner.template,
 				value,
 			);
 		} else if (this.#inner.kind === "suffix") {
-			if (!(key in map)) {
+			if (map[key] === undefined) {
 				map[key] = await tg.template();
 			}
 			let value = map[key];
 			tg.assert(
-				value === undefined ||
+				value === null ||
 					typeof value === "string" ||
 					tg.Artifact.is(value) ||
 					value instanceof tg.Template,
 			);
 			map[key] = await tg.Template.join(
-				this.#inner.separator,
+				this.#inner.separator ?? null,
 				value,
 				this.#inner.template,
 			);
 		} else if (this.#inner.kind === "merge") {
-			if (!(key in map) || map[key] === undefined) {
+			if (map[key] === undefined || map[key] === null) {
 				map[key] = {};
 			}
 			let target = map[key];
@@ -317,6 +317,9 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			let inner = this.#inner.value;
 			for (let innerKey in inner) {
 				let mutation = inner[innerKey];
+				if (mutation === undefined) {
+					continue;
+				}
 				if (!(mutation instanceof tg.Mutation)) {
 					target[innerKey] = mutation;
 				} else {
@@ -374,12 +377,12 @@ export namespace Mutation {
 		| {
 				kind: "prefix";
 				template: T extends tg.Template ? T : never;
-				separator?: string | undefined;
+				separator?: string | null;
 		  }
 		| {
 				kind: "suffix";
 				template: T extends tg.Template ? T : never;
-				separator?: string | undefined;
+				separator?: string | null;
 		  }
 		| {
 				kind: "merge";
@@ -401,12 +404,12 @@ export namespace Mutation {
 		| {
 				kind: "prefix";
 				template: T extends tg.Template ? T : never;
-				separator: string | undefined;
+				separator?: string | null;
 		  }
 		| {
 				kind: "suffix";
 				template: T extends tg.Template ? T : never;
-				separator: string | undefined;
+				separator?: string | null;
 		  }
 		| {
 				kind: "merge";
@@ -428,12 +431,12 @@ export namespace Mutation {
 		| {
 				kind: "prefix";
 				template: tg.Template.Data;
-				separator?: string;
+				separator?: string | null;
 		  }
 		| {
 				kind: "suffix";
 				template: tg.Template.Data;
-				separator?: string;
+				separator?: string | null;
 		  }
 		| {
 				kind: "merge";

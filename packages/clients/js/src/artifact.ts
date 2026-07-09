@@ -46,13 +46,11 @@ export namespace Artifact {
 				);
 			}
 			if ("contents" in value) {
-				return (
-					value.contents === undefined || typeof value.contents === "string"
-				);
+				return value.contents == null || typeof value.contents === "string";
 			}
 			if ("dependencies" in value) {
 				return (
-					value.dependencies === undefined ||
+					value.dependencies == null ||
 					(typeof value.dependencies === "object" &&
 						value.dependencies !== null &&
 						!(value.dependencies instanceof Array))
@@ -60,13 +58,13 @@ export namespace Artifact {
 			}
 			if ("artifact" in value) {
 				return (
-					value.artifact === undefined ||
+					value.artifact == null ||
 					typeof value.artifact === "string" ||
 					tg.Graph.Data.Pointer.is(value.artifact)
 				);
 			}
 			if ("path" in value) {
-				return value.path === undefined || typeof value.path === "string";
+				return value.path == null || typeof value.path === "string";
 			}
 			if ("executable" in value) {
 				return (
@@ -75,7 +73,7 @@ export namespace Artifact {
 				);
 			}
 			if ("module" in value) {
-				return value.module === undefined || typeof value.module === "string";
+				return value.module == null || typeof value.module === "string";
 			}
 			return globalThis.Object.keys(value).length === 0;
 		};

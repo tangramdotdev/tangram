@@ -3,7 +3,7 @@ import * as tg from "../index.ts";
 export class Headers {
 	#headers: tg.Host.Http2.Headers;
 
-	constructor(headers?: Headers | tg.Host.Http2.Headers | undefined) {
+	constructor(headers?: Headers | tg.Host.Http2.Headers) {
 		this.#headers =
 			headers instanceof Headers ? headers.toData() : (headers ?? {});
 	}

@@ -3,7 +3,7 @@ use {
 	crate::quickjs::{
 		StateHandle,
 		serde::Serde,
-		types::{Either, Uint8Array},
+		types::{Either, OptionNull, Uint8Array},
 	},
 	rquickjs as qjs,
 	tangram_client::prelude::*,
@@ -59,13 +59,17 @@ pub fn get_tty_size(_ctx: qjs::Ctx<'_>) -> Result<Serde<Option<tg::process::tty:
 	Result(Ok(Serde(crate::host::Host::get_tty_size())))
 }
 
-pub async fn getxattr(ctx: qjs::Ctx<'_>, path: String, name: String) -> Result<Option<Uint8Array>> {
+pub async fn getxattr(
+	ctx: qjs::Ctx<'_>,
+	path: String,
+	name: String,
+) -> Result<OptionNull<Uint8Array>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let result = state
 		.host
 		.getxattr(path, name)
 		.await
-		.map(|bytes| bytes.map(Uint8Array::from));
+		.map(|bytes| OptionNull(bytes.map(Uint8Array::from)));
 	Result(result)
 }
 
@@ -177,13 +181,13 @@ pub async fn read(
 	fd: i32,
 	length: Option<usize>,
 	stopper: Option<usize>,
-) -> Result<Option<Uint8Array>> {
+) -> Result<OptionNull<Uint8Array>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let result = state
 		.host
 		.read(fd, length, stopper)
 		.await
-		.map(|bytes| bytes.map(Uint8Array::from));
+		.map(|bytes| OptionNull(bytes.map(Uint8Array::from)));
 	Result(result)
 }
 

@@ -222,8 +222,8 @@ export class ClientHttp2Stream extends EventEmitter {
 			while (!this.#closed) {
 				let event = (await syscall("http2_stream_read", token)) as
 					| StreamEvent
-					| undefined;
-				if (event === undefined) {
+					| null;
+				if (event === null) {
 					break;
 				}
 				if (event.kind === "response") {

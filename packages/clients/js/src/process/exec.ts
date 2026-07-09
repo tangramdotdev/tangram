@@ -41,7 +41,7 @@ export let execUnsandboxed = async (
 	);
 	return await tg.host.exec({
 		args: prepared.args,
-		cwd: prepared.cwd,
+		...(prepared.cwd !== undefined ? { cwd: prepared.cwd } : {}),
 		env: prepared.env,
 		executable: prepared.executable,
 		stderr: renderStdio(arg.stderr ?? "inherit"),

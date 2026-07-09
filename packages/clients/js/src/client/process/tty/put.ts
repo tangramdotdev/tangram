@@ -17,7 +17,7 @@ export async function trySetProcessTtySize(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Tty.Put.Arg,
-): Promise<true | undefined> {
+): Promise<true | null> {
 	let method = "PUT";
 	let uri = `/processes/${percentEncode(id)}/tty/size`;
 	let headers = {
@@ -26,7 +26,7 @@ export async function trySetProcessTtySize(
 	let body = Body.json({
 		...arg,
 		location:
-			arg.location === undefined
+			arg.location == null
 				? undefined
 				: tg.Location.Arg.toDataString(arg.location),
 	});
@@ -38,7 +38,7 @@ export async function trySetProcessTtySize(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
-		return undefined;
+		return null;
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}

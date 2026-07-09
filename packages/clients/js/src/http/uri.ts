@@ -2,14 +2,13 @@ import * as tg from "../index.ts";
 
 export class Uri {
 	path: string;
-	query: string | undefined;
+	query?: string;
 
 	constructor(arg: Uri.Arg) {
 		if (typeof arg === "string") {
 			let index = arg.indexOf("?");
 			if (index === -1) {
 				this.path = arg;
-				this.query = undefined;
 			} else {
 				this.path = arg.slice(0, index);
 				this.query = arg.slice(index + 1);
@@ -41,10 +40,10 @@ export namespace Uri {
 		| string
 		| {
 				path: string;
-				query?: Record<string, QueryValue> | string | undefined;
+				query?: Record<string, QueryValue> | string;
 		  };
 
-	export type QueryPrimitive = boolean | number | string | undefined;
+	export type QueryPrimitive = boolean | number | string | null | undefined;
 	export type QueryValue = QueryArray | QueryObject | QueryPrimitive;
 
 	export interface QueryArray extends Array<QueryValue> {}
@@ -59,7 +58,7 @@ function appendQueryParam(
 	name: string,
 	value: Uri.QueryValue,
 ) {
-	if (value === undefined) {
+	if (value == null) {
 		return;
 	}
 	if (Array.isArray(value)) {

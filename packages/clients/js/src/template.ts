@@ -9,7 +9,7 @@ export function template(
 	...args: tg.Args<tg.Template.Arg>
 ): tg.Template.Builder;
 export function template(
-	firstArg:
+	firstArg?:
 		| TemplateStringsArray
 		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Template.Arg>>,
 	...args: tg.Args<tg.Template.Arg>
@@ -49,7 +49,7 @@ export class Template {
 		let components = (
 			await Promise.all(
 				resolved.map(async (arg) => {
-					if (arg === undefined) {
+					if (arg === undefined || arg === null) {
 						return [];
 					} else if (
 						typeof arg === "string" ||
@@ -183,7 +183,7 @@ export namespace Template {
 			...placeholders: tg.Args<tg.Template.Arg>
 		);
 		constructor(
-			firstArg:
+			firstArg?:
 				| TemplateStringsArray
 				| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Template.Arg>>,
 			...args: tg.Args<tg.Template.Arg>
@@ -239,7 +239,7 @@ export namespace Template {
 		}
 	}
 
-	export type Arg = undefined | tg.Template.Component | tg.Template;
+	export type Arg = null | tg.Template.Component | tg.Template;
 
 	export type Component = string | tg.Artifact | tg.Placeholder;
 

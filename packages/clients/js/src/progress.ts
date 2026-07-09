@@ -9,17 +9,17 @@ export namespace Progress {
 		| { kind: "output"; value: T };
 
 	export type Indicator = {
-		current?: number | undefined;
+		current?: number | null;
 		format: IndicatorFormat;
 		name: string;
 		title: string;
-		total?: number | undefined;
+		total?: number | null;
 	};
 
 	export type IndicatorFormat = "normal" | "bytes";
 
 	export type Log = {
-		level?: Level | undefined;
+		level?: Level | null;
 		message: string;
 	};
 

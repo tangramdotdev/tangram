@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { nullToUndefined, undefinedToNull } from "./util.ts";
 
 export type Object =
 	| tg.Blob
@@ -15,13 +14,13 @@ export namespace Object {
 		export type Object = {
 			children?: Array<
 				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			>;
+			> | null;
 			id: tg.Object.Id;
 			data: tg.Object.Data;
 		};
 
 		export type Arg = {
-			location?: tg.Location.Arg | undefined;
+			location?: tg.Location.Arg | null;
 			objects: Array<tg.Object.Batch.Object>;
 		};
 
@@ -36,9 +35,9 @@ export namespace Object {
 		export type Arg = {
 			children?: Array<
 				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			>;
+			> | null;
 			data: tg.Object.Data;
-			location?: tg.Location.Arg | undefined;
+			location?: tg.Location.Arg | null;
 		};
 
 		export type Output = {
@@ -94,10 +93,10 @@ export namespace Object {
 		#token: tg.Grant.Token | undefined;
 
 		constructor(arg: {
-			id?: tg.Object.Id | undefined;
-			object?: tg.Object.Object | undefined;
+			id?: tg.Object.Id;
+			object?: tg.Object.Object;
 			stored: boolean;
-			token?: tg.Grant.Token | undefined;
+			token?: tg.Grant.Token;
 		}) {
 			this.#id = arg.id;
 			this.#object = arg.object;
@@ -320,14 +319,6 @@ export namespace Object {
 					return tg.Error.Data.children(data.value);
 				}
 			}
-		};
-
-		export let toJson = (data: tg.Object.Data): unknown => {
-			return undefinedToNull(data);
-		};
-
-		export let fromJson = (json: unknown): tg.Object.Data => {
-			return nullToUndefined(json);
 		};
 	}
 

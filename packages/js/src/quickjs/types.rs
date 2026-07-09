@@ -49,6 +49,29 @@ where
 	}
 }
 
+/// Wraps an `Option<T>` so `None` serializes to JS `null` (rquickjs defaults to
+/// `undefined`). Needed for native-`IntoJs` types like `Uint8Array` that cannot
+/// go through `Serde<Option<T>>` to get the same `null` behavior.
+pub struct OptionNull<T>(pub Option<T>);
+
+impl<T> From<Option<T>> for OptionNull<T> {
+	fn from(value: Option<T>) -> Self {
+		Self(value)
+	}
+}
+
+impl<'js, T> qjs::IntoJs<'js> for OptionNull<T>
+where
+	T: qjs::IntoJs<'js>,
+{
+	fn into_js(self, ctx: &qjs::Ctx<'js>) -> qjs::Result<qjs::Value<'js>> {
+		match self.0 {
+			Some(value) => value.into_js(ctx),
+			None => Ok(qjs::Value::new_null(ctx.clone())),
+		}
+	}
+}
+
 #[derive(Clone, Debug)]
 pub struct Uint8Array(pub Bytes);
 
