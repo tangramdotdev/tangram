@@ -17,6 +17,7 @@ export function error(
 		stack: null,
 		values: {},
 	};
+	let stackProvided = false;
 	if (firstArg != null && typeof firstArg === "string") {
 		object.message = firstArg;
 		if (secondArg != null) {
@@ -37,6 +38,7 @@ export function error(
 			}
 			if ("stack" in secondArg) {
 				object.stack = secondArg.stack;
+				stackProvided = true;
 			}
 			if ("values" in secondArg) {
 				object.values = secondArg.values ?? {};
@@ -60,12 +62,13 @@ export function error(
 		}
 		if ("stack" in firstArg) {
 			object.stack = firstArg.stack;
+			stackProvided = true;
 		}
 		if ("values" in firstArg) {
 			object.values = firstArg.values ?? {};
 		}
 	}
-	if (object.stack == null) {
+	if (!stackProvided) {
 		// @ts-expect-error
 		globalThis.Error.captureStackTrace(object, tg.error);
 	}

@@ -611,32 +611,34 @@ export namespace Command {
 		}
 
 		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
+			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>> | null>>
 		): this {
 			this.#args.push(...args.map((args) => ({ args })));
 			return this;
 		}
 
-		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string>>): this {
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ cwd });
 			return this;
 		}
 
 		env(
-			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+			...envs: Array<
+				tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap> | null>
+			>
 		): this {
 			this.#args.push(...envs.map((env) => ({ env })));
 			return this;
 		}
 
 		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable> | null>,
 		): this {
 			this.#args.push({ executable });
 			return this;
 		}
 
-		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
+		host(host: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ host });
 			return this;
 		}

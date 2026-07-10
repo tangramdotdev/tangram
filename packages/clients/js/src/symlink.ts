@@ -262,12 +262,14 @@ export namespace Symlink {
 			this.#args = args;
 		}
 
-		artifact(artifact: tg.Unresolved<tg.Graph.Arg.Edge<tg.Artifact>>): this {
+		artifact(
+			artifact: tg.Unresolved<tg.Graph.Arg.Edge<tg.Artifact> | null>,
+		): this {
 			this.#args.push({ artifact });
 			return this;
 		}
 
-		path(path: tg.Unresolved<string>): this {
+		path(path: tg.Unresolved<string | null>): this {
 			this.#args.push({ path });
 			return this;
 		}

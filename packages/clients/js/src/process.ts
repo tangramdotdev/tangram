@@ -664,54 +664,60 @@ export namespace Process {
 		}
 
 		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
+			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>> | null>>
 		): this {
 			this.#args.push(...args.map((args) => ({ args })));
 			return this;
 		}
 
-		checksum(checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum>>): this {
+		checksum(
+			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum> | null>,
+		): this {
 			this.#args.push({ checksum });
 			return this;
 		}
 
-		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string>>): this {
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ cwd });
 			return this;
 		}
 
 		debug(
-			debug: tg.Unresolved<tg.MaybeMutation<boolean | tg.Process.Debug>> = true,
+			debug: tg.Unresolved<tg.MaybeMutation<
+				boolean | tg.Process.Debug
+			> | null> = true,
 		): this {
 			this.#args.push({ debug });
 			return this;
 		}
 
-		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number>>): this {
+		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
 			this.#args.push({ cpu });
 			return this;
 		}
 
 		env(
-			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+			...envs: Array<
+				tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap> | null>
+			>
 		): this {
 			this.#args.push(...envs.map((env) => ({ env })));
 			return this;
 		}
 
 		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable> | null>,
 		): this {
 			this.#args.push({ executable });
 			return this;
 		}
 
-		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
+		host(host: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ host });
 			return this;
 		}
 
-		memory(memory: tg.Unresolved<tg.MaybeMutation<number>>): this {
+		memory(memory: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
 			this.#args.push({ memory });
 			return this;
 		}
@@ -722,21 +728,25 @@ export namespace Process {
 		}
 
 		mounts(
-			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Mount>>>>
+			...mounts: Array<
+				tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Mount>> | null>
+			>
 		): this {
 			this.#args.push(...mounts.map((mounts) => ({ mounts })));
 			return this;
 		}
 
-		named(name: tg.Unresolved<tg.MaybeMutation<string>>): this {
+		named(name: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ name });
 			return this;
 		}
 
 		network(
-			network?: tg.Unresolved<tg.MaybeMutation<boolean | tg.Sandbox.Network>>,
+			network?: tg.Unresolved<tg.MaybeMutation<
+				boolean | tg.Sandbox.Network
+			> | null>,
 		): this {
-			this.#args.push({ network: network ?? true });
+			this.#args.push({ network: network === undefined ? true : network });
 			return this;
 		}
 
@@ -746,44 +756,56 @@ export namespace Process {
 		}
 
 		ports(
-			...ports: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Port>>>>
+			...ports: Array<
+				tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Port>> | null>
+			>
 		): this {
 			this.#args.push(...ports.map((ports) => ({ ports })));
 			return this;
 		}
 
 		sandbox(
-			sandbox?: tg.Unresolved<
-				tg.MaybeMutation<boolean | tg.Sandbox.Arg | tg.Sandbox.Id>
-			>,
+			sandbox?: tg.Unresolved<tg.MaybeMutation<
+				boolean | tg.Sandbox.Arg | tg.Sandbox.Id
+			> | null>,
 		): this {
-			this.#args.push({ sandbox: sandbox ?? true });
+			this.#args.push({ sandbox: sandbox === undefined ? true : sandbox });
 			return this;
 		}
 
-		stderr(stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this {
+		stderr(
+			stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio> | null>,
+		): this {
 			this.#args.push({ stderr });
 			return this;
 		}
 
 		stdin(
-			stdin: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio>>,
+			stdin: tg.Unresolved<tg.MaybeMutation<
+				tg.Blob.Arg | tg.Process.Stdio
+			> | null>,
 		): this {
 			this.#args.push({ stdin });
 			return this;
 		}
 
-		stdio(stdio: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this {
+		stdio(
+			stdio: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio> | null>,
+		): this {
 			this.#args.push({ stdin: stdio, stdout: stdio, stderr: stdio });
 			return this;
 		}
 
-		stdout(stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this {
+		stdout(
+			stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio> | null>,
+		): this {
 			this.#args.push({ stdout });
 			return this;
 		}
 
-		tty(tty: tg.Unresolved<tg.MaybeMutation<boolean | tg.Process.Tty>>): this {
+		tty(
+			tty: tg.Unresolved<tg.MaybeMutation<boolean | tg.Process.Tty> | null>,
+		): this {
 			this.#args.push({ tty });
 			return this;
 		}

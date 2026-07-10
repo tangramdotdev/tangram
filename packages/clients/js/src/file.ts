@@ -425,15 +425,17 @@ export namespace File {
 			}
 		}
 
-		contents(contents: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg>>): this {
+		contents(
+			contents: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg> | null>,
+		): this {
 			this.#args.push({ contents });
 			return this;
 		}
 
 		dependencies(
-			dependencies: tg.Unresolved<
-				tg.MaybeMutation<Exclude<tg.Graph.Arg.File["dependencies"], undefined>>
-			>,
+			dependencies: tg.Unresolved<tg.MaybeMutation<
+				Exclude<tg.Graph.Arg.File["dependencies"], undefined>
+			> | null>,
 		): this {
 			this.#args.push({ dependencies });
 			return this;
@@ -453,13 +455,13 @@ export namespace File {
 		}
 
 		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<boolean>> = true,
+			executable: tg.Unresolved<tg.MaybeMutation<boolean> | null> = true,
 		): this {
 			this.#args.push({ executable });
 			return this;
 		}
 
-		module(module: tg.Unresolved<tg.MaybeMutation<string>>): this {
+		module(module: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ module });
 			return this;
 		}

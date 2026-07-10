@@ -33,12 +33,10 @@ pub fn hex_encode(value: Uint8Array) -> String {
 }
 
 pub fn json_decode(value: String) -> Result<Serde<serde_json::Value>> {
-	let result = (|| {
-		let value: serde_json::Value = serde_json::from_str(&value)
-			.map_err(|error| tg::error!(!error, "failed to decode json"))?;
-		Ok(value)
-	})();
-	Result(result.map(Serde))
+	let result = serde_json::from_str(&value).map(Serde).map_err(|error| {
+		tg::Error::from(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
+	});
+	Result(result)
 }
 
 pub fn json_encode(value: Serde<serde_json::Value>) -> Result<String> {

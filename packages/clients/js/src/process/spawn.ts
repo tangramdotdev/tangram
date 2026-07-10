@@ -145,22 +145,22 @@ let spawnArgFromResolvedWithSandbox = async (
 	if (command_ !== undefined) {
 		commandArgs.push(command_);
 	}
-	if (arg.args != null) {
+	if (arg.args !== undefined) {
 		commandArgs.push({ args: arg.args });
 	}
-	if (arg.cwd != null) {
+	if (arg.cwd !== undefined) {
 		commandArgs.push({ cwd: arg.cwd });
 	}
-	if (arg.env != null) {
+	if (arg.env !== undefined) {
 		commandArgs.push({ env: arg.env });
 	}
 	if (executable !== undefined) {
 		commandArgs.push({ executable });
 	}
-	if (arg.host != null) {
+	if (arg.host !== undefined) {
 		commandArgs.push({ host: arg.host });
 	}
-	if (arg.user != null) {
+	if (arg.user !== undefined) {
 		commandArgs.push({ user: arg.user });
 	}
 	if (commandStdin !== undefined) {
