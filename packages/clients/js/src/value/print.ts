@@ -436,7 +436,7 @@ export class Printer {
 			let entries: { [key: string]: Print } = {
 				artifact: () => this.artifact(executable.artifact),
 			};
-			if (executable.path !== undefined) {
+			if (executable.path !== null) {
 				entries.path = () => this.value(executable.path!);
 			}
 			return this.map(entries);
@@ -445,7 +445,7 @@ export class Printer {
 			let entries: { [key: string]: Print } = {
 				module: () => this.module(executable.module),
 			};
-			if (executable.export !== undefined) {
+			if (executable.export !== null) {
 				entries.export = () => this.value(executable.export!);
 			}
 			return this.map(entries);
@@ -455,10 +455,10 @@ export class Printer {
 
 	private errorObject(object: tg.Error.Object): string {
 		let entries: { [key: string]: Print } = {};
-		if (object.code !== undefined) {
+		if (object.code !== null) {
 			entries.code = () => this.value(object.code!);
 		}
-		if (object.diagnostics !== undefined) {
+		if (object.diagnostics !== null) {
 			entries.diagnostics = () =>
 				this.array(
 					object.diagnostics!.map(
@@ -466,16 +466,16 @@ export class Printer {
 					),
 				);
 		}
-		if (object.location !== undefined) {
+		if (object.location !== null) {
 			entries.location = () => this.errorLocation(object.location!);
 		}
-		if (object.message !== undefined) {
+		if (object.message !== null) {
 			entries.message = () => this.value(object.message!);
 		}
-		if (object.source !== undefined) {
+		if (object.source !== null) {
 			entries.source = () => this.errorSource(object.source!);
 		}
-		if (object.stack !== undefined) {
+		if (object.stack !== null) {
 			entries.stack = () =>
 				this.array(
 					object.stack!.map((location) => () => this.errorLocation(location)),
@@ -533,7 +533,7 @@ export class Printer {
 
 	private diagnostic(diagnostic: tg.Diagnostic): string {
 		let entries: { [key: string]: Print } = {};
-		if (diagnostic.location !== undefined) {
+		if (diagnostic.location !== null) {
 			entries.location = () => this.moduleLocation(diagnostic.location!);
 		}
 		entries.message = () => this.value(diagnostic.message);
