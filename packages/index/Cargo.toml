@@ -19,7 +19,6 @@ workspace = true
 
 [lib]
 doctest = false
-test = false
 
 [dependencies]
 bitflags = { workspace = true }
@@ -39,3 +38,6 @@ tangram_client = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

@@ -10,6 +10,8 @@ use {
 };
 
 mod authorize;
+#[cfg(test)]
+mod authorize_scan_test;
 mod batch;
 mod cache;
 mod clean;

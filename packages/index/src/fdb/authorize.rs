@@ -31,6 +31,7 @@ struct Requester<'a> {
 	id: Option<tg::Id>,
 }
 
+#[derive(Clone)]
 struct AuthorizationFrame {
 	resource: tg::Id,
 	permission: tg::grant::Permission,
@@ -236,11 +237,17 @@ impl Index {
 			subtree_unknown: false,
 		}]);
 
+		// Frames whose dependencies are not all decided wait here, keyed by the
+		// dependency they block on, instead of being re-enqueued and re-polled.
+		let mut waiters: HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>> =
+			HashMap::new();
+
 		while let Some(frame) = queue.pop_front() {
 			let key = (frame.resource.clone(), frame.permission);
 			if Self::is_authorized_by_token(context, &frame.resource, frame.permission) {
 				pending.remove(&key);
-				token_authorized.insert(key);
+				token_authorized.insert(key.clone());
+				Self::wake_waiters(&mut waiters, &mut queue, &key);
 				continue;
 			}
 			if cache.authorization.contains_key(&key) || unknown.contains(&key) {
@@ -270,19 +277,26 @@ impl Index {
 						None => complete = false,
 					}
 				}
+				// An incomplete frame is registered as a waiter, so it is dropped here.
 				if complete {
 					if authorized || !(frame.subtree_unknown || has_unknown_dependency) {
-						Self::finish_authorization(cache, &mut pending, key, authorized);
+						Self::finish_authorization(
+							cache,
+							&mut pending,
+							&mut waiters,
+							&mut queue,
+							key,
+							authorized,
+						);
 					} else {
-						Self::finish_unknown_authorization(unknown, &mut pending, key);
+						Self::finish_unknown_authorization(
+							unknown,
+							&mut pending,
+							&mut waiters,
+							&mut queue,
+							key,
+						);
 					}
-				} else {
-					queue.push_back(AuthorizationFrame {
-						resource: frame.resource,
-						permission: frame.permission,
-						dependencies: Some(dependencies),
-						subtree_unknown: frame.subtree_unknown,
-					});
 				}
 				continue;
 			}
@@ -299,7 +313,8 @@ impl Index {
 				let key = (frame.resource.clone(), frame.permission);
 				if Self::is_authorized_by_token(context, &frame.resource, frame.permission) {
 					pending.remove(&key);
-					token_authorized.insert(key);
+					token_authorized.insert(key.clone());
+					Self::wake_waiters(&mut waiters, &mut queue, &key);
 					continue;
 				}
 				if cache.authorization.contains_key(&key) {
@@ -336,6 +351,7 @@ impl Index {
 					unknown,
 					&token_authorized,
 					&mut pending,
+					&mut waiters,
 					&mut queue,
 					evaluation,
 				);
@@ -405,6 +421,7 @@ impl Index {
 		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
 		token_authorized: &HashSet<(tg::Id, tg::grant::Permission)>,
 		pending: &mut HashSet<(tg::Id, tg::grant::Permission)>,
+		waiters: &mut HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>>,
 		queue: &mut VecDeque<AuthorizationFrame>,
 		evaluation: AuthorizationFrameEvaluation,
 	) {
@@ -413,7 +430,7 @@ impl Index {
 			evaluation.frame.permission,
 		);
 		if evaluation.directly_authorized || evaluation.subtree_authorized == Some(true) {
-			Self::finish_authorization(cache, pending, key, true);
+			Self::finish_authorization(cache, pending, waiters, queue, key, true);
 			return;
 		}
 
@@ -446,20 +463,35 @@ impl Index {
 		}
 
 		if authorized || !has_unknown_dependency {
-			Self::finish_authorization(cache, pending, key, authorized);
+			Self::finish_authorization(cache, pending, waiters, queue, key, authorized);
 			return;
 		}
 		if dependencies_to_push.is_empty() {
-			Self::finish_unknown_authorization(unknown, pending, key);
+			Self::finish_unknown_authorization(unknown, pending, waiters, queue, key);
 			return;
 		}
 
-		queue.push_back(AuthorizationFrame {
+		// Register the frame as a waiter on each undecided dependency.
+		let frame = AuthorizationFrame {
 			resource: evaluation.frame.resource,
 			permission: evaluation.frame.permission,
 			dependencies: Some(evaluation.dependencies),
 			subtree_unknown,
-		});
+		};
+		if let Some(dependencies) = &frame.dependencies {
+			for (dependency, dependency_permission) in dependencies {
+				let dependency_key = (dependency.clone(), *dependency_permission);
+				if !cache.authorization.contains_key(&dependency_key)
+					&& !unknown.contains(&dependency_key)
+				{
+					waiters
+						.entry(dependency_key)
+						.or_default()
+						.push(frame.clone());
+				}
+			}
+		}
+		// Queue the dependencies that have not been visited.
 		for (dependency, dependency_permission) in dependencies_to_push {
 			queue.push_back(AuthorizationFrame {
 				resource: dependency,
@@ -470,13 +502,26 @@ impl Index {
 		}
 	}
 
+	fn wake_waiters(
+		waiters: &mut HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>>,
+		queue: &mut VecDeque<AuthorizationFrame>,
+		key: &(tg::Id, tg::grant::Permission),
+	) {
+		if let Some(frames) = waiters.remove(key) {
+			queue.extend(frames);
+		}
+	}
+
 	fn finish_authorization(
 		cache: &mut Cache,
 		pending: &mut HashSet<(tg::Id, tg::grant::Permission)>,
+		waiters: &mut HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>>,
+		queue: &mut VecDeque<AuthorizationFrame>,
 		key: (tg::Id, tg::grant::Permission),
 		authorized: bool,
 	) {
 		pending.remove(&key);
+		Self::wake_waiters(waiters, queue, &key);
 		match cache.authorization.get_mut(&key) {
 			Some(existing) => *existing = *existing || authorized,
 			None => {
@@ -488,9 +533,12 @@ impl Index {
 	fn finish_unknown_authorization(
 		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
 		pending: &mut HashSet<(tg::Id, tg::grant::Permission)>,
+		waiters: &mut HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>>,
+		queue: &mut VecDeque<AuthorizationFrame>,
 		key: (tg::Id, tg::grant::Permission),
 	) {
 		pending.remove(&key);
+		Self::wake_waiters(waiters, queue, &key);
 		unknown.insert(key);
 	}
 

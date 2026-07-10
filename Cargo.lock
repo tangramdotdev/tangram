@@ -7842,6 +7842,7 @@ dependencies = [
  "tangram_client",
  "tangram_serialize",
  "tangram_util",
+ "tempfile",
  "tokio",
 ]
 
