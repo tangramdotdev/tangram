@@ -87,7 +87,7 @@ mod library {
 		)
 		.unwrap();
 		std::process::Command::new("bunx")
-			.args(["tsgo", "--project"])
+			.args(["tsc", "--project"])
 			.arg(&tsconfig_path)
 			.status()
 			.unwrap()
@@ -104,23 +104,20 @@ mod library {
 			Ok(path) => PathBuf::from(path),
 			Err(_) => PathBuf::from("../../node_modules"),
 		};
-		let paths = glob::glob(
-			&node_modules_path
-				.join("typescript/lib/lib.es*.d.ts")
-				.to_string_lossy(),
-		)
-		.unwrap();
+		let typescript_lib_path = node_modules_path.join("typescript/../old/lib");
+		let paths =
+			glob::glob(&typescript_lib_path.join("lib.es*.d.ts").to_string_lossy()).unwrap();
 		for path in paths {
 			let path = path.unwrap();
 			std::fs::copy(&path, lib_path.join(path.file_name().unwrap())).unwrap();
 		}
 		std::fs::copy(
-			node_modules_path.join("typescript/lib/lib.decorators.d.ts"),
+			typescript_lib_path.join("lib.decorators.d.ts"),
 			lib_path.join("lib.decorators.d.ts"),
 		)
 		.unwrap();
 		std::fs::copy(
-			node_modules_path.join("typescript/lib/lib.decorators.legacy.d.ts"),
+			typescript_lib_path.join("lib.decorators.legacy.d.ts"),
 			lib_path.join("lib.decorators.legacy.d.ts"),
 		)
 		.unwrap();
@@ -183,7 +180,7 @@ mod typescript {
 			)
 			.unwrap();
 			std::process::Command::new("bunx")
-				.args(["tsgo", "--project", out_dir_path.to_str().unwrap()])
+				.args(["tsc", "--project", out_dir_path.to_str().unwrap()])
 				.status()
 				.unwrap()
 				.success()

@@ -3,7 +3,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"check": "tsgo && oxlint src",
+		"check": "tsc && oxlint src",
 		"format": "oxfmt --write src"
 	}
 }

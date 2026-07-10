@@ -3,7 +3,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"check": "tsgo && oxlint ./src/main.ts",
+		"check": "tsc && oxlint ./src/main.ts",
 		"format": "oxfmt --write ./src/tangram.d.ts ./src/main.ts"
 	},
 	"dependencies": {

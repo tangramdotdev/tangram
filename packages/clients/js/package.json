@@ -4,7 +4,7 @@
 	"type": "module",
 	"main": "src/index.ts",
 	"scripts": {
-		"check": "tsgo && oxlint src",
+		"check": "tsc && oxlint src",
 		"format": "oxfmt --write src"
 	},
 	"dependencies": {

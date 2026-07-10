@@ -67,7 +67,7 @@ fn js() {
 		)
 		.unwrap();
 		std::process::Command::new("bunx")
-			.args(["tsgo", "--project", out_dir_path.to_str().unwrap()])
+			.args(["tsc", "--project", out_dir_path.to_str().unwrap()])
 			.status()
 			.unwrap()
 			.success()

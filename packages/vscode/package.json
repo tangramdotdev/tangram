@@ -17,7 +17,7 @@
 	"main": "./extension.js",
 	"scripts": {
 		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode extension.ts && vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
-		"check": "tsgo && oxlint extension.ts",
+		"check": "tsc && oxlint extension.ts",
 		"format": "oxfmt --write extension.ts"
 	},
 	"dependencies": {
