@@ -57,10 +57,10 @@ export class Symlink {
 			return tg.Symlink.withObject(tg.Graph.Pointer.fromArg(arg));
 		}
 		let object: tg.Symlink.Object = {};
-		if (arg.artifact !== undefined) {
+		if (arg.artifact !== undefined && arg.artifact !== null) {
 			object.artifact = tg.Graph.Edge.fromArg(arg.artifact);
 		}
-		if (arg.path !== undefined) {
+		if (arg.path !== undefined && arg.path !== null) {
 			object.path = arg.path;
 		}
 		return tg.Symlink.withObject(object);
@@ -176,11 +176,11 @@ export class Symlink {
 			let artifact: tg.Artifact | null;
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph != null);
+				tg.assert(graph !== undefined);
 				let node = (await graph.nodes)[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "symlink");
-				if (node.artifact == null) {
+				if (node.artifact === undefined) {
 					artifact = null;
 				} else if (typeof node.artifact === "number") {
 					artifact = await graph.get(node.artifact);
@@ -196,13 +196,13 @@ export class Symlink {
 				}
 			} else {
 				tg.assert(typeof object.artifact !== "number");
-				if (object.artifact == null) {
+				if (object.artifact === undefined) {
 					artifact = null;
 				} else if (
 					typeof object.artifact === "object" &&
 					"index" in object.artifact
 				) {
-					tg.assert(object.artifact.graph != null);
+					tg.assert(object.artifact.graph !== undefined);
 					artifact = await object.artifact.graph.get(object.artifact.index);
 				} else {
 					artifact = object.artifact;
@@ -221,7 +221,7 @@ export class Symlink {
 			let object = await this.object();
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph != null);
+				tg.assert(graph !== undefined);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);

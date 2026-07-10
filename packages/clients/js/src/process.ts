@@ -169,13 +169,13 @@ export class Process<O extends tg.Value = tg.Value> {
 						executable: object.executable,
 						host: object.host,
 					};
-					if (object.cwd != null) {
+					if (object.cwd !== undefined) {
 						output.cwd = object.cwd;
 					}
-					if (object.stdin != null) {
+					if (object.stdin !== undefined) {
 						output.stdin = object.stdin;
 					}
-					if (object.user != null) {
+					if (object.user !== undefined) {
 						output.user = object.user;
 					}
 					return output;
@@ -507,7 +507,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	async output(): Promise<O> {
 		let wait = await this.wait();
 
-		if (wait.error != null) {
+		if (wait.error !== undefined) {
 			let error = wait.error;
 			const source = {
 				item: error,
@@ -986,27 +986,27 @@ export namespace Process {
 	};
 
 	export type State = {
-		actualChecksum?: tg.Checksum | null;
+		actualChecksum?: tg.Checksum;
 		cacheable: boolean;
-		children?: Array<tg.Process.Child> | null;
+		children?: Array<tg.Process.Child>;
 		command: tg.Command;
 		createdAt: number;
-		debug?: tg.Process.Debug | null;
-		error?: tg.Error | null;
-		exit?: number | null;
-		expectedChecksum?: tg.Checksum | null;
-		finishedAt?: number | null;
+		debug?: tg.Process.Debug;
+		error?: tg.Error;
+		exit?: number;
+		expectedChecksum?: tg.Checksum;
+		finishedAt?: number;
 		host: string;
-		log?: tg.Blob | null;
+		log?: tg.Blob;
 		output?: tg.Value;
 		retry: boolean;
 		sandbox: string;
-		startedAt?: number | null;
+		startedAt?: number;
 		status: tg.Process.Status;
 		stderr: tg.Process.Stdio;
 		stdin: tg.Process.Stdio;
 		stdout: tg.Process.Stdio;
-		tty?: tg.Process.Tty | null;
+		tty?: tg.Process.Tty;
 	};
 
 	export type Child = {
@@ -1111,10 +1111,10 @@ export namespace Process {
 			for (let child of state.children ?? []) {
 				child.process.inheritToken(token);
 			}
-			if (state.error != null) {
+			if (state.error !== undefined) {
 				tg.Object.inheritToken(state.error, token);
 			}
-			if (state.log != null) {
+			if (state.log !== undefined) {
 				tg.Object.inheritToken(state.log, token);
 			}
 			if (state.output !== undefined) {
@@ -1130,31 +1130,31 @@ export namespace Process {
 				sandbox: value.sandbox,
 				status: value.status,
 			};
-			if (value.actualChecksum != null) {
+			if (value.actualChecksum !== undefined) {
 				output.actual_checksum = value.actualChecksum;
 			}
 			if (value.cacheable) {
 				output.cacheable = value.cacheable;
 			}
-			if (value.children != null) {
+			if (value.children !== undefined) {
 				output.children = value.children.map(tg.Process.Child.toData);
 			}
-			if (value.debug != null) {
+			if (value.debug !== undefined) {
 				output.debug = value.debug;
 			}
-			if (value.error != null) {
+			if (value.error !== undefined) {
 				output.error = tg.Error.toDataOrId(value.error);
 			}
-			if (value.exit != null) {
+			if (value.exit !== undefined) {
 				output.exit = value.exit;
 			}
-			if (value.expectedChecksum != null) {
+			if (value.expectedChecksum !== undefined) {
 				output.expected_checksum = value.expectedChecksum;
 			}
-			if (value.finishedAt != null) {
+			if (value.finishedAt !== undefined) {
 				output.finished_at = value.finishedAt;
 			}
-			if (value.log != null) {
+			if (value.log !== undefined) {
 				let token = value.log.state.token;
 				output.log =
 					token === undefined ? value.log.id : { id: value.log.id, token };
@@ -1165,7 +1165,7 @@ export namespace Process {
 			if (value.retry) {
 				output.retry = value.retry;
 			}
-			if (value.startedAt != null) {
+			if (value.startedAt !== undefined) {
 				output.started_at = value.startedAt;
 			}
 			if (value.stderr !== "inherit") {
@@ -1177,7 +1177,7 @@ export namespace Process {
 			if (value.stdout !== "inherit") {
 				output.stdout = value.stdout;
 			}
-			if (value.tty != null) {
+			if (value.tty !== undefined) {
 				output.tty = value.tty;
 			}
 			return output;
@@ -1185,56 +1185,68 @@ export namespace Process {
 
 		export let fromData = (data: tg.Process.Data): tg.Process.State => {
 			let output: State = {
-				actualChecksum: data.actual_checksum ?? null,
 				cacheable: data.cacheable ?? false,
-				children:
-					data.children != null
-						? data.children.map(tg.Process.Child.fromData)
-						: null,
 				command: tg.Command.withId(data.command),
 				createdAt: data.created_at,
-				debug: data.debug ?? null,
-				error:
-					data.error != null
-						? typeof data.error === "string" || "id" in data.error
-							? (() => {
-									let error =
-										typeof data.error === "string"
-											? tg.Error.withId(data.error)
-											: tg.Error.withId(data.error.id);
-									if (typeof data.error !== "string") {
-										error.state.token = data.error.token;
-									}
-									return error;
-								})()
-							: tg.Error.fromData(data.error)
-						: null,
-				exit: data.exit ?? null,
-				expectedChecksum: data.expected_checksum ?? null,
-				finishedAt: data.finished_at ?? null,
 				host: data.host,
-				log:
-					data.log != null
-						? (() => {
-								let blob =
-									typeof data.log === "string"
-										? tg.Blob.withId(data.log)
-										: tg.Blob.withId(data.log.id);
-								if (typeof data.log !== "string") {
-									blob.state.token = data.log.token;
-								}
-								return blob;
-							})()
-						: null,
 				retry: data.retry ?? false,
 				sandbox: data.sandbox,
-				startedAt: data.started_at ?? null,
 				status: data.status,
 				stderr: data.stderr ?? "inherit",
 				stdin: data.stdin ?? "inherit",
 				stdout: data.stdout ?? "inherit",
-				tty: data.tty ?? null,
 			};
+			if (data.actual_checksum !== undefined) {
+				output.actualChecksum = data.actual_checksum;
+			}
+			if (data.children !== undefined) {
+				output.children = data.children.map(tg.Process.Child.fromData);
+			}
+			if (data.debug !== undefined) {
+				output.debug = data.debug;
+			}
+			if (data.error !== undefined) {
+				output.error =
+					typeof data.error === "string" || "id" in data.error
+						? (() => {
+								let error =
+									typeof data.error === "string"
+										? tg.Error.withId(data.error)
+										: tg.Error.withId(data.error.id);
+								if (typeof data.error !== "string") {
+									error.state.token = data.error.token;
+								}
+								return error;
+							})()
+						: tg.Error.fromData(data.error);
+			}
+			if (data.exit !== undefined) {
+				output.exit = data.exit;
+			}
+			if (data.expected_checksum !== undefined) {
+				output.expectedChecksum = data.expected_checksum;
+			}
+			if (data.finished_at !== undefined) {
+				output.finishedAt = data.finished_at;
+			}
+			if (data.log !== undefined) {
+				output.log = (() => {
+					let blob =
+						typeof data.log === "string"
+							? tg.Blob.withId(data.log)
+							: tg.Blob.withId(data.log.id);
+					if (typeof data.log !== "string") {
+						blob.state.token = data.log.token;
+					}
+					return blob;
+				})();
+			}
+			if (data.started_at !== undefined) {
+				output.startedAt = data.started_at;
+			}
+			if (data.tty !== undefined) {
+				output.tty = data.tty;
+			}
 			if ("output" in data) {
 				output.output = tg.Value.fromData(data.output);
 			}
@@ -1279,27 +1291,27 @@ export namespace Process {
 	export type Status = "created" | "dequeued" | "started" | "finished";
 
 	export type Data = {
-		actual_checksum?: tg.Checksum | null;
+		actual_checksum?: tg.Checksum;
 		cacheable?: boolean;
-		children?: Array<tg.Process.Data.Child> | null;
+		children?: Array<tg.Process.Data.Child>;
 		command: tg.Command.Id;
 		created_at: number;
-		debug?: tg.Process.Debug | null;
-		error?: tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id> | null;
-		exit?: number | null;
-		expected_checksum?: tg.Checksum | null;
-		finished_at?: number | null;
+		debug?: tg.Process.Debug;
+		error?: tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id>;
+		exit?: number;
+		expected_checksum?: tg.Checksum;
+		finished_at?: number;
 		host: string;
-		log?: tg.Grant.MaybeWithToken<tg.Blob.Id> | null;
+		log?: tg.Grant.MaybeWithToken<tg.Blob.Id>;
 		output?: tg.Value.Data;
 		retry?: boolean;
 		sandbox: string;
-		started_at?: number | null;
+		started_at?: number;
 		status: tg.Process.Status;
 		stderr?: tg.Process.Stdio | null;
 		stdin?: tg.Process.Stdio | null;
 		stdout?: tg.Process.Stdio | null;
-		tty?: tg.Process.Tty | null;
+		tty?: tg.Process.Tty;
 	};
 
 	export namespace Data {
@@ -1310,7 +1322,7 @@ export namespace Process {
 		};
 
 		export let removeTokens = (data: tg.Process.Data): tg.Process.Data => {
-			if (data.children != null) {
+			if (data.children !== undefined) {
 				for (let child of data.children) {
 					if (typeof child.process !== "string") {
 						child.process = child.process.id;
@@ -1318,13 +1330,13 @@ export namespace Process {
 				}
 			}
 			if (
-				data.error != null &&
+				data.error !== undefined &&
 				typeof data.error !== "string" &&
 				"id" in data.error
 			) {
 				data.error = data.error.id;
 			}
-			if (data.log != null && typeof data.log !== "string") {
+			if (data.log !== undefined && typeof data.log !== "string") {
 				data.log = data.log.id;
 			}
 			if (data.output !== undefined) {
@@ -1335,7 +1347,7 @@ export namespace Process {
 	}
 
 	export type Wait = {
-		error?: tg.Error | null;
+		error?: tg.Error;
 		exit: number;
 		output?: tg.Value;
 	};
@@ -1348,21 +1360,21 @@ export namespace Process {
 		};
 
 		export type Data = {
-			error?: tg.Error.Data | tg.Error.Id | null;
+			error?: tg.Error.Data | tg.Error.Id;
 			exit: number;
 			output?: tg.Value.Data;
 		};
 
 		export let fromData = (data: tg.Process.Wait.Data): tg.Process.Wait => {
 			let output: Wait = {
-				error:
-					data.error != null
-						? typeof data.error === "string"
-							? tg.Error.withId(data.error)
-							: tg.Error.fromData(data.error)
-						: null,
 				exit: data.exit,
 			};
+			if (data.error !== undefined) {
+				output.error =
+					typeof data.error === "string"
+						? tg.Error.withId(data.error)
+						: tg.Error.fromData(data.error);
+			}
 			if ("output" in data) {
 				output.output = tg.Value.fromData(data.output);
 			}
@@ -1373,7 +1385,7 @@ export namespace Process {
 			wait: tg.Process.Wait,
 			token: tg.Grant.Token | undefined,
 		): void => {
-			if (wait.error != null) {
+			if (wait.error !== undefined) {
 				tg.Object.inheritToken(wait.error, token);
 			}
 			if ("output" in wait) {
@@ -1385,7 +1397,7 @@ export namespace Process {
 			let output: Data = {
 				exit: value.exit,
 			};
-			if (value.error != null) {
+			if (value.error !== undefined) {
 				output.error = tg.Error.toData(value.error);
 			}
 			if (value.output !== undefined) {

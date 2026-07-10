@@ -87,22 +87,28 @@ export class Graph {
 						),
 					);
 					let executable = node.executable ?? false;
-					return {
+					let fileNode: tg.Graph.FileNode = {
 						kind: "file" as const,
 						contents,
 						dependencies,
 						executable,
-						module: node.module ?? null,
 					};
+					if (node.module !== undefined && node.module !== null) {
+						fileNode.module = node.module;
+					}
+					return fileNode;
 				} else if (node.kind === "symlink") {
-					return {
-						kind: "symlink" as const,
-						artifact:
-							node.artifact != null
-								? tg.Graph.Edge.fromArg(node.artifact, arg.nodes)
-								: null,
-						path: node.path ?? null,
-					};
+					let symlinkNode: tg.Graph.SymlinkNode = { kind: "symlink" as const };
+					if (node.artifact !== undefined && node.artifact !== null) {
+						symlinkNode.artifact = tg.Graph.Edge.fromArg(
+							node.artifact,
+							arg.nodes,
+						);
+					}
+					if (node.path !== undefined && node.path !== null) {
+						symlinkNode.path = node.path;
+					}
+					return symlinkNode;
 				} else {
 					return tg.unreachable();
 				}
@@ -610,7 +616,7 @@ export namespace Graph {
 			[reference: tg.Reference.String]: tg.Graph.Dependency | null;
 		};
 		executable: boolean;
-		module?: string | null;
+		module?: string;
 	};
 
 	export namespace File {
@@ -632,7 +638,7 @@ export namespace Graph {
 			if (object.executable !== false) {
 				data.executable = object.executable;
 			}
-			if (object.module != null) {
+			if (object.module !== undefined) {
 				data.module = object.module;
 			}
 			return data;
@@ -640,7 +646,7 @@ export namespace Graph {
 
 		export let fromData = (data: tg.Graph.Data.File): tg.Graph.File => {
 			tg.assert(data.contents != null);
-			return {
+			let file: tg.Graph.File = {
 				contents: tg.Blob.withId(data.contents),
 				dependencies: globalThis.Object.fromEntries(
 					globalThis.Object.entries(data.dependencies ?? {}).map(
@@ -662,8 +668,11 @@ export namespace Graph {
 					),
 				),
 				executable: data.executable ?? false,
-				module: data.module ?? null,
 			};
+			if (data.module !== undefined) {
+				file.module = data.module;
+			}
+			return file;
 		};
 
 		export let children = (object: tg.Graph.File): Array<tg.Object> => {
@@ -771,37 +780,41 @@ export namespace Graph {
 	}
 
 	export type Symlink = {
-		artifact?: tg.Graph.Edge<tg.Artifact> | null;
-		path?: string | null;
+		artifact?: tg.Graph.Edge<tg.Artifact>;
+		path?: string;
 	};
 
 	export namespace Symlink {
 		export let toData = (object: tg.Graph.Symlink): tg.Graph.Data.Symlink => {
 			let data: tg.Graph.Data.Symlink = {};
-			if (object.artifact != null) {
+			if (object.artifact !== undefined) {
 				data.artifact = tg.Graph.Edge.toData(
 					object.artifact,
 					(artifact) => artifact.id,
 				);
 			}
-			if (object.path != null) {
+			if (object.path !== undefined) {
 				data.path = object.path;
 			}
 			return data;
 		};
 
 		export let fromData = (data: tg.Graph.Data.Symlink): tg.Graph.Symlink => {
-			return {
-				artifact:
-					data.artifact != null
-						? tg.Graph.Edge.fromData(data.artifact, tg.Artifact.withId)
-						: null,
-				path: data.path ?? null,
-			};
+			let symlink: tg.Graph.Symlink = {};
+			if (data.artifact !== undefined) {
+				symlink.artifact = tg.Graph.Edge.fromData(
+					data.artifact,
+					tg.Artifact.withId,
+				);
+			}
+			if (data.path !== undefined) {
+				symlink.path = data.path;
+			}
+			return symlink;
 		};
 
 		export let children = (object: tg.Graph.Symlink): Array<tg.Object> => {
-			if (object.artifact != null) {
+			if (object.artifact !== undefined) {
 				return tg.Graph.Edge.children(object.artifact);
 			} else {
 				return [];
@@ -838,17 +851,21 @@ export namespace Graph {
 					index: number;
 					kind?: tg.Artifact.Kind | null;
 				};
-				if (reference.kind != null) {
+				if (reference.kind !== undefined && reference.kind !== null) {
 					return reference as tg.Graph.Pointer;
 				}
-				if (nodes == null) {
+				if (nodes === undefined || nodes === null) {
 					throw new Error("cannot infer kind without nodes context");
 				}
 				let kind = nodes[reference.index]?.kind;
 				if (!kind) {
 					throw new Error(`invalid node index: ${reference.index}`);
 				}
-				return { ...reference, kind };
+				let pointer: tg.Graph.Pointer = { index: reference.index, kind };
+				if (reference.graph !== undefined && reference.graph !== null) {
+					pointer.graph = reference.graph;
+				}
+				return pointer;
 			} else {
 				return arg as T;
 			}
@@ -911,7 +928,7 @@ export namespace Graph {
 	}
 
 	export type Pointer = {
-		graph?: tg.Graph | null;
+		graph?: tg.Graph;
 		index: number;
 		kind: tg.Artifact.Kind;
 	};
@@ -937,7 +954,7 @@ export namespace Graph {
 
 		export let toData = (object: tg.Graph.Pointer): tg.Graph.Data.Pointer => {
 			let data: { graph?: tg.Graph.Id; index: number; kind: tg.Artifact.Kind };
-			if (object.graph != null) {
+			if (object.graph !== undefined) {
 				data = {
 					graph: object.graph.id,
 					index: object.index,
@@ -953,17 +970,20 @@ export namespace Graph {
 			if (typeof data === "string") {
 				return tg.Graph.Pointer.fromDataString(data);
 			} else {
-				return {
-					graph: data.graph != null ? tg.Graph.withId(data.graph) : null,
+				let pointer: tg.Graph.Pointer = {
 					index: data.index,
 					kind: data.kind,
 				};
+				if (data.graph !== undefined) {
+					pointer.graph = tg.Graph.withId(data.graph);
+				}
+				return pointer;
 			}
 		};
 
 		export let toDataString = (object: tg.Graph.Pointer): string => {
 			let string = "";
-			if (object.graph != null) {
+			if (object.graph !== undefined) {
 				string += `graph=${object.graph.id}&`;
 			}
 			string += `index=${object.index}`;
@@ -1008,7 +1028,7 @@ export namespace Graph {
 		};
 
 		export let children = (object: tg.Graph.Pointer): Array<tg.Object> => {
-			if (object.graph != null) {
+			if (object.graph !== undefined) {
 				return [object.graph];
 			} else {
 				return [];
@@ -1107,7 +1127,7 @@ export namespace Graph {
 				[reference: tg.Reference.String]: tg.Graph.Dependency.Data | null;
 			} | null;
 			executable?: boolean;
-			module?: string | null;
+			module?: string;
 		};
 
 		export namespace File {
@@ -1129,15 +1149,15 @@ export namespace Graph {
 		}
 
 		export type Symlink = {
-			artifact?: tg.Graph.Data.Edge<tg.Artifact.Id> | null;
-			path?: string | null;
+			artifact?: tg.Graph.Data.Edge<tg.Artifact.Id>;
+			path?: string;
 		};
 
 		export namespace Symlink {
 			export let children = (
 				data: tg.Graph.Data.Symlink,
 			): Array<tg.Object.Id> => {
-				if (data.artifact != null) {
+				if (data.artifact !== undefined) {
 					return tg.Graph.Data.Edge.children(data.artifact);
 				} else {
 					return [];
@@ -1166,7 +1186,7 @@ export namespace Graph {
 		export type Pointer =
 			| string
 			| {
-					graph?: tg.Graph.Id | null;
+					graph?: tg.Graph.Id;
 					index: number;
 					kind: tg.Artifact.Kind;
 			  };
@@ -1194,7 +1214,7 @@ export namespace Graph {
 						}
 					}
 					return [];
-				} else if (data.graph != null) {
+				} else if (data.graph !== undefined) {
 					return [data.graph];
 				} else {
 					return [];

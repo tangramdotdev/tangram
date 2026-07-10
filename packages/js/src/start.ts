@@ -7,7 +7,7 @@ export let start = async (): Promise<tg.Value.Data> => {
 	let export_: string | null = null;
 	if ("artifact" in tg.process.executable) {
 		specifier = tg.process.executable.artifact.id;
-		if (tg.process.executable.path != null) {
+		if (tg.process.executable.path !== undefined) {
 			specifier += `?get=${encodeURIComponent(tg.process.executable.path)}`;
 		}
 	} else if ("module" in tg.process.executable) {

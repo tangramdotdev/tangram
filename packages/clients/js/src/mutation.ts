@@ -40,7 +40,9 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			return new tg.Mutation({
 				kind: arg.kind,
 				template: await tg.template(arg.template),
-				separator: arg.separator ?? null,
+				...(arg.separator !== undefined && arg.separator !== null
+					? { separator: arg.separator }
+					: {}),
 			}) as tg.Mutation<T>;
 		} else if (arg.kind === "merge") {
 			return new tg.Mutation({
@@ -105,7 +107,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		return new tg.Mutation({
 			kind: "prefix",
 			template: await tg.template(template),
-			separator: separator ?? null,
+			...(separator !== undefined ? { separator } : {}),
 		});
 	}
 
@@ -117,7 +119,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		return new tg.Mutation({
 			kind: "suffix",
 			template: await tg.template(template),
-			separator: separator ?? null,
+			...(separator !== undefined ? { separator } : {}),
 		});
 	}
 
@@ -167,12 +169,12 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			let output: {
 				kind: "prefix" | "suffix";
 				template: tg.Template.Data;
-				separator?: string | null;
+				separator?: string;
 			} = {
 				kind: value.inner.kind,
 				template: tg.Template.toData(value.inner.template),
 			};
-			if (value.inner.separator != null) {
+			if (value.inner.separator !== undefined) {
 				output.separator = value.inner.separator;
 			}
 			return output;
@@ -215,7 +217,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 			return new tg.Mutation({
 				kind: data.kind,
 				template: tg.Template.fromData(data.template),
-				separator: data.separator ?? null,
+				...(data.separator !== undefined ? { separator: data.separator } : {}),
 			}) as tg.Mutation<T>;
 		} else if (data.kind === "merge") {
 			return new tg.Mutation({
@@ -404,12 +406,12 @@ export namespace Mutation {
 		| {
 				kind: "prefix";
 				template: T extends tg.Template ? T : never;
-				separator?: string | null;
+				separator?: string;
 		  }
 		| {
 				kind: "suffix";
 				template: T extends tg.Template ? T : never;
-				separator?: string | null;
+				separator?: string;
 		  }
 		| {
 				kind: "merge";
@@ -431,12 +433,12 @@ export namespace Mutation {
 		| {
 				kind: "prefix";
 				template: tg.Template.Data;
-				separator?: string | null;
+				separator?: string;
 		  }
 		| {
 				kind: "suffix";
 				template: tg.Template.Data;
-				separator?: string | null;
+				separator?: string;
 		  }
 		| {
 				kind: "merge";

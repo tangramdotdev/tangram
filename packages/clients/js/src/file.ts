@@ -95,7 +95,7 @@ export class File {
 		);
 		let executable = arg.executable ?? false;
 		let object: tg.Graph.File = { contents, dependencies, executable };
-		if (arg.module != null) {
+		if (arg.module !== undefined && arg.module !== null) {
 			object.module = arg.module;
 		}
 		return tg.File.withObject(object);
@@ -193,7 +193,7 @@ export class File {
 			let contents: tg.Blob;
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph != null);
+				tg.assert(graph !== undefined);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
@@ -218,7 +218,7 @@ export class File {
 			let object = await this.object();
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph != null);
+				tg.assert(graph !== undefined);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
@@ -270,7 +270,7 @@ export class File {
 								} else {
 									tg.assert(typeof dependency.item === "object");
 									if ("index" in dependency.item) {
-										tg.assert(dependency.item.graph != null);
+										tg.assert(dependency.item.graph !== undefined);
 										object = await dependency.item.graph.get(
 											dependency.item.index,
 										);
@@ -318,7 +318,7 @@ export class File {
 			let object = await this.object();
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph != null);
+				tg.assert(graph !== undefined);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
@@ -336,7 +336,7 @@ export class File {
 			let object = await this.object();
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph != null);
+				tg.assert(graph !== undefined);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);

@@ -394,12 +394,12 @@ export let prepareUnsandboxedCommand = async (
 	}
 
 	let command = await tg.Command.withId(arg.command.item).object();
-	if (command.stdin != null) {
+	if (command.stdin !== undefined) {
 		throw new Error(
 			"command stdin blobs are not supported for unsandboxed processes",
 		);
 	}
-	if (command.user != null) {
+	if (command.user !== undefined) {
 		throw new Error(
 			"setting a user is not supported for unsandboxed processes",
 		);
@@ -417,7 +417,7 @@ export let prepareUnsandboxedCommand = async (
 	);
 	return {
 		args,
-		...(command.cwd != null ? { cwd: command.cwd } : {}),
+		...(command.cwd !== undefined ? { cwd: command.cwd } : {}),
 		env,
 		executable,
 		tempPath,
@@ -657,7 +657,9 @@ function renderExecutable(
 		if (path === undefined) {
 			throw new Error("failed to find the executable artifact path");
 		}
-		return executable.path != null ? tg.path.join(path, executable.path) : path;
+		return executable.path !== undefined
+			? tg.path.join(path, executable.path)
+			: path;
 	} else if ("module" in executable) {
 		throw new Error("invalid executable");
 	} else {
@@ -668,13 +670,13 @@ function renderExecutable(
 function renderExecutableUri(executable: tg.Command.Executable): string {
 	if ("artifact" in executable) {
 		let string = executable.artifact.id;
-		if (executable.path != null) {
+		if (executable.path !== undefined) {
 			string += `?path=${encodeURIComponent(executable.path)}`;
 		}
 		return string;
 	} else if ("module" in executable) {
 		let string = tg.Module.toDataString(executable.module);
-		if (executable.export != null) {
+		if (executable.export !== undefined) {
 			string += `#${encodeURIComponent(executable.export)}`;
 		}
 		return string;

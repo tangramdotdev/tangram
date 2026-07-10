@@ -299,7 +299,7 @@ export class Printer {
 		if (file.executable) {
 			entries.executable = () => this.value(file.executable);
 		}
-		if (file.module != null) {
+		if (file.module !== undefined) {
 			entries.module = () => this.value(file.module!);
 		}
 		return this.map(entries);
@@ -333,11 +333,11 @@ export class Printer {
 		if (tag) {
 			entries.kind = () => this.value("symlink");
 		}
-		if (symlink.artifact != null) {
+		if (symlink.artifact !== undefined) {
 			let artifact = symlink.artifact;
 			entries.artifact = () => this.graphEdgeArtifact(artifact);
 		}
-		if (symlink.path != null) {
+		if (symlink.path !== undefined) {
 			entries.path = () => this.value(symlink.path!);
 		}
 		return this.map(entries);
@@ -389,7 +389,7 @@ export class Printer {
 
 	private graphPointer(pointer: tg.Graph.Pointer): string {
 		let entries: { [key: string]: Print } = {};
-		if (pointer.graph != null) {
+		if (pointer.graph !== undefined) {
 			let graph = pointer.graph;
 			entries.graph = () => this.graph(graph);
 		}
@@ -404,7 +404,7 @@ export class Printer {
 			entries.args = () =>
 				this.array(object.args.map((arg) => () => this.value(arg)));
 		}
-		if (object.cwd != null) {
+		if (object.cwd !== undefined) {
 			entries.cwd = () => this.value(object.cwd!);
 		}
 		let env = Object.entries(object.env);
@@ -421,11 +421,11 @@ export class Printer {
 		}
 		entries.executable = () => this.commandExecutable(object.executable);
 		entries.host = () => this.value(object.host);
-		if (object.stdin != null) {
+		if (object.stdin !== undefined) {
 			let stdin = object.stdin;
 			entries.stdin = () => this.blob(stdin);
 		}
-		if (object.user != null) {
+		if (object.user !== undefined) {
 			entries.user = () => this.value(object.user!);
 		}
 		return this.call("command", this.map(entries));
@@ -436,7 +436,7 @@ export class Printer {
 			let entries: { [key: string]: Print } = {
 				artifact: () => this.artifact(executable.artifact),
 			};
-			if (executable.path !== null) {
+			if (executable.path !== undefined) {
 				entries.path = () => this.value(executable.path!);
 			}
 			return this.map(entries);
@@ -445,7 +445,7 @@ export class Printer {
 			let entries: { [key: string]: Print } = {
 				module: () => this.module(executable.module),
 			};
-			if (executable.export !== null) {
+			if (executable.export !== undefined) {
 				entries.export = () => this.value(executable.export!);
 			}
 			return this.map(entries);
@@ -455,10 +455,10 @@ export class Printer {
 
 	private errorObject(object: tg.Error.Object): string {
 		let entries: { [key: string]: Print } = {};
-		if (object.code !== null) {
+		if (object.code !== undefined) {
 			entries.code = () => this.value(object.code!);
 		}
-		if (object.diagnostics !== null) {
+		if (object.diagnostics !== undefined) {
 			entries.diagnostics = () =>
 				this.array(
 					object.diagnostics!.map(
@@ -466,16 +466,16 @@ export class Printer {
 					),
 				);
 		}
-		if (object.location !== null) {
+		if (object.location !== undefined) {
 			entries.location = () => this.errorLocation(object.location!);
 		}
-		if (object.message !== null) {
+		if (object.message !== undefined) {
 			entries.message = () => this.value(object.message!);
 		}
-		if (object.source !== null) {
+		if (object.source !== undefined) {
 			entries.source = () => this.errorSource(object.source!);
 		}
-		if (object.stack !== null) {
+		if (object.stack !== undefined) {
 			entries.stack = () =>
 				this.array(
 					object.stack!.map((location) => () => this.errorLocation(location)),
@@ -515,7 +515,7 @@ export class Printer {
 			file: () => this.errorFile(location.file),
 			range: () => this.range(location.range),
 		};
-		if (location.symbol != null) {
+		if (location.symbol !== undefined) {
 			entries.symbol = () => this.value(location.symbol!);
 		}
 		return this.map(entries);
@@ -533,7 +533,7 @@ export class Printer {
 
 	private diagnostic(diagnostic: tg.Diagnostic): string {
 		let entries: { [key: string]: Print } = {};
-		if (diagnostic.location !== null) {
+		if (diagnostic.location !== undefined) {
 			entries.location = () => this.moduleLocation(diagnostic.location!);
 		}
 		entries.message = () => this.value(diagnostic.message);

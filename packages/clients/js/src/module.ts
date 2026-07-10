@@ -218,6 +218,10 @@ export namespace Module {
 			};
 		};
 
+		export let children = (value: tg.Module.Location): Array<tg.Object> => {
+			return tg.Module.children(value.module);
+		};
+
 		export namespace Data {
 			export let children = (
 				data: tg.Module.Location.Data,
