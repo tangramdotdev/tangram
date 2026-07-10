@@ -5,13 +5,13 @@ import type { Client } from "../client.ts";
 export namespace Read {
 	export type Arg = {
 		blob: tg.Blob.Id;
-		token?: tg.Grant.Token;
+		token?: tg.Grant.Token | null;
 	} & Read.Options;
 
 	export type Options = {
-		position?: number | string;
-		length?: number;
-		size?: number;
+		position?: number | string | null;
+		length?: number | null;
+		size?: number | null;
 	};
 
 	export type Event =
@@ -31,7 +31,7 @@ export async function read(
 	arg: tg.Read.Arg,
 ): Promise<Uint8Array> {
 	let stream = await tryReadStream(client, arg);
-	if (stream === undefined) {
+	if (stream === null) {
 		throw new Error("failed to find the blob");
 	}
 	return await collectReadStream(stream);
@@ -40,24 +40,24 @@ export async function read(
 export async function tryRead(
 	client: Client,
 	arg: tg.Read.Arg,
-): Promise<Uint8Array | undefined> {
+): Promise<Uint8Array | null> {
 	let stream = await tryReadStream(client, arg);
-	return stream === undefined ? undefined : await collectReadStream(stream);
+	return stream === null ? null : await collectReadStream(stream);
 }
 
 export async function tryReadStream(
 	client: Client,
 	arg: tg.Read.Arg,
-): Promise<AsyncIterableIterator<tg.Read.Event> | undefined> {
+): Promise<AsyncIterableIterator<tg.Read.Event> | null> {
 	let method = "GET";
 	let uri = new Uri({
 		path: "/read",
 		query: {
 			blob: arg.blob,
-			length: arg.length,
-			position: arg.position,
-			size: arg.size,
-			token: arg.token,
+			length: arg.length ?? null,
+			position: arg.position ?? null,
+			size: arg.size ?? null,
+			token: arg.token ?? null,
 		},
 	});
 	let headers = {
@@ -70,7 +70,7 @@ export async function tryReadStream(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
-		return undefined;
+		return null;
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}

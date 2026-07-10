@@ -8,13 +8,13 @@ export type Request = {
 };
 
 export type Response = {
-	links: Array<Link> | undefined;
+	links?: Array<Link> | null;
 };
 
 export type Link = {
 	range: Range;
 	module: Module;
-	tooltip: string | undefined;
+	tooltip?: string | null;
 };
 
 export let handle = (request: Request): Response => {
@@ -36,19 +36,19 @@ export let handle = (request: Request): Response => {
 		.map(({ specifier, attributes }) =>
 			convertLink(request.module, sourceFile, specifier, attributes),
 		)
-		.filter((link): link is Link => link !== undefined);
+		.filter((link): link is Link => link !== null);
 
 	// Deduplicate identical links.
 	let deduplicatedLinks = deduplicateLinks(links);
 
 	return {
-		links: deduplicatedLinks.length === 0 ? undefined : deduplicatedLinks,
+		links: deduplicatedLinks.length === 0 ? null : deduplicatedLinks,
 	};
 };
 
 type Specifier = {
 	specifier: ts.StringLiteral;
-	attributes: { [key: string]: string } | undefined;
+	attributes: { [key: string]: string } | null;
 };
 
 let collectSpecifiers = (sourceFile: ts.SourceFile): Array<Specifier> => {
@@ -85,18 +85,18 @@ let convertLink = (
 	module: Module,
 	sourceFile: ts.SourceFile,
 	specifier: ts.StringLiteral,
-	attributes: { [key: string]: string } | undefined,
-): Link | undefined => {
+	attributes: { [key: string]: string } | null,
+): Link | null => {
 	let resolvedModule: Module;
 	try {
 		resolvedModule = syscall(
 			"module_resolve",
 			module,
 			specifier.text,
-			attributes,
+			attributes ?? null,
 		);
 	} catch {
-		return undefined;
+		return null;
 	}
 
 	// Exclude the quotes from the string literal range.
@@ -111,7 +111,7 @@ let convertLink = (
 	return {
 		range: { start, end },
 		module: resolvedModule,
-		tooltip: undefined,
+		tooltip: null,
 	};
 };
 
@@ -131,9 +131,9 @@ let deduplicateLinks = (links: Array<Link>): Array<Link> => {
 
 let getImportAttributesFromImportDeclaration = (
 	declaration: ts.ImportDeclaration | ts.ExportDeclaration,
-): { [key: string]: string } | undefined => {
+): { [key: string]: string } | null => {
 	if (declaration.attributes === undefined) {
-		return undefined;
+		return null;
 	}
 	let attributes: { [key: string]: string } = {};
 	for (let attribute of declaration.attributes.elements) {
@@ -149,10 +149,10 @@ let getImportAttributesFromImportDeclaration = (
 
 let getImportAttributesFromImportExpression = (
 	expression: ts.CallExpression,
-): { [key: string]: string } | undefined => {
+): { [key: string]: string } | null => {
 	let argument = expression.arguments.at(1);
 	if (argument === undefined || !ts.isObjectLiteralExpression(argument)) {
-		return undefined;
+		return null;
 	}
 	let with_: ts.Expression | undefined;
 	for (let property of argument.properties) {
@@ -171,7 +171,7 @@ let getImportAttributesFromImportExpression = (
 		break;
 	}
 	if (with_ === undefined || !ts.isObjectLiteralExpression(with_)) {
-		return undefined;
+		return null;
 	}
 	let attributes: { [key: string]: string } = {};
 	for (let property of with_.properties) {

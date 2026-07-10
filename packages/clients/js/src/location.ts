@@ -4,7 +4,7 @@ export type Location = Location.Local | Location.Remote;
 
 export namespace Location {
 	export type Local = {
-		region?: string | undefined;
+		region?: string | null;
 	};
 
 	export namespace Local {
@@ -18,7 +18,9 @@ export namespace Location {
 				!("regions" in value) &&
 				!("remote" in value) &&
 				("region" in value
-					? value.region === undefined || typeof value.region === "string"
+					? value.region === undefined ||
+						value.region === null ||
+						typeof value.region === "string"
 					: true)
 			);
 		};
@@ -26,7 +28,7 @@ export namespace Location {
 
 	export type Remote = {
 		name: string;
-		region?: string | undefined;
+		region?: string | null;
 	};
 
 	export namespace Remote {
@@ -41,7 +43,9 @@ export namespace Location {
 				"name" in value &&
 				typeof value.name === "string" &&
 				("region" in value
-					? value.region === undefined || typeof value.region === "string"
+					? value.region === undefined ||
+						value.region === null ||
+						typeof value.region === "string"
 					: true)
 			);
 		};
@@ -59,7 +63,7 @@ export namespace Location {
 	export let fromDataString = (data: string): tg.Location => {
 		let arg = Arg.fromDataString(data);
 		let location = Arg.toLocation(arg);
-		if (location === undefined) {
+		if (location === null) {
 			throw new Error("expected exactly one location");
 		}
 		return location;
@@ -81,7 +85,7 @@ export namespace Location {
 		}
 
 		export type LocalComponent = {
-			regions?: Array<string> | undefined;
+			regions?: Array<string> | null;
 		};
 
 		export namespace LocalComponent {
@@ -97,15 +101,17 @@ export namespace Location {
 					!("region" in value) &&
 					!("remote" in value) &&
 					("regions" in value
-						? Array.isArray(value.regions) &&
-							value.regions.every((region) => typeof region === "string")
+						? value.regions === undefined ||
+							value.regions === null ||
+							(Array.isArray(value.regions) &&
+								value.regions.every((region) => typeof region === "string"))
 						: true)
 				);
 			};
 		}
 
 		export type RemoteComponent = {
-			regions?: Array<string> | undefined;
+			regions?: Array<string> | null;
 			name: string;
 		};
 
@@ -122,8 +128,10 @@ export namespace Location {
 					"name" in value &&
 					typeof value.name === "string" &&
 					("regions" in value
-						? Array.isArray(value.regions) &&
-							value.regions.every((region) => typeof region === "string")
+						? value.regions === undefined ||
+							value.regions === null ||
+							(Array.isArray(value.regions) &&
+								value.regions.every((region) => typeof region === "string"))
 						: true)
 				);
 			};
@@ -187,9 +195,9 @@ export namespace Location {
 			if (!("name" in value)) {
 				return {
 					components: [
-						{
-							regions: value.region === undefined ? undefined : [value.region],
-						},
+						value.region === undefined || value.region === null
+							? {}
+							: { regions: [value.region] },
 					],
 				};
 			}
@@ -197,33 +205,41 @@ export namespace Location {
 				components: [
 					{
 						name: value.name,
-						regions: value.region === undefined ? undefined : [value.region],
+						...(value.region === undefined || value.region === null
+							? {}
+							: { regions: [value.region] }),
 					},
 				],
 			};
 		};
 
-		export let toLocation = (
-			value: tg.Location.Arg | undefined,
-		): tg.Location | undefined => {
-			let component = value?.components[0];
-			if (component === undefined || value?.components.length !== 1) {
-				return undefined;
+		export let toLocation = (value: tg.Location.Arg): tg.Location | null => {
+			let component = value.components[0];
+			if (component === undefined || value.components.length !== 1) {
+				return null;
 			}
 			if (!("name" in component)) {
 				let region = component.regions?.[0];
-				if (component.regions !== undefined && component.regions.length !== 1) {
-					return undefined;
+				if (
+					component.regions !== undefined &&
+					component.regions !== null &&
+					component.regions.length !== 1
+				) {
+					return null;
 				}
-				return { region };
+				return region === undefined ? {} : { region };
 			}
 			let region = component.regions?.[0];
-			if (component.regions !== undefined && component.regions.length !== 1) {
-				return undefined;
+			if (
+				component.regions !== undefined &&
+				component.regions !== null &&
+				component.regions.length !== 1
+			) {
+				return null;
 			}
 			return {
 				name: component.name,
-				region,
+				...(region === undefined ? {} : { region }),
 			};
 		};
 	}
@@ -237,7 +253,7 @@ let parseComponent = (
 		let next = index + "local".length;
 		let regions = parseOptionalRegions(data, next);
 		return {
-			value: regions.value === undefined ? {} : { regions: regions.value },
+			value: regions.value === null ? {} : { regions: regions.value },
 			index: regions.index,
 		};
 	}
@@ -253,7 +269,7 @@ let parseComponent = (
 	}
 	let regions = parseOptionalRegions(data, next);
 	let value: tg.Location.Arg.RemoteComponent = { name };
-	if (regions.value !== undefined) {
+	if (regions.value !== null) {
 		value.regions = regions.value;
 	}
 	return { value, index: regions.index };
@@ -262,10 +278,10 @@ let parseComponent = (
 let parseOptionalRegions = (
 	data: string,
 	index: number,
-): { value: Array<string> | undefined; index: number } => {
+): { value: Array<string> | null; index: number } => {
 	index = skipWhitespace(data, index);
 	if (data[index] !== "(") {
-		return { value: undefined, index };
+		return { value: null, index };
 	}
 	index += 1;
 	let regions: Array<string> = [];

@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let symlink = await tg.symlink("a/b");
-			return [await symlink.path, (await symlink.artifact) === undefined];
+			return [await symlink.path, (await symlink.artifact) === null];
 		}
 	'
 }

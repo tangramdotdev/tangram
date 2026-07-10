@@ -77,10 +77,10 @@ export namespace path {
 	};
 
 	/** Return the path with its last component removed. */
-	export let parent = (arg: string): string | undefined => {
+	export let parent = (arg: string): string | null => {
 		let components = path.components(arg);
 		if (components.length === 0) {
-			return undefined;
+			return null;
 		}
 		return fromComponents(components.slice(0, -1));
 	};

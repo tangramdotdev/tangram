@@ -6,17 +6,17 @@ import * as typescript from "./typescript.ts";
 export type Request = {
 	module: Module;
 	range: Range;
-	only: Array<string> | undefined;
+	only?: Array<string> | null;
 };
 
 export type Response = {
-	actions: Array<CodeAction> | undefined;
+	actions?: Array<CodeAction> | null;
 };
 
 export type CodeAction = {
 	title: string;
-	kind: string | undefined;
-	edits: Array<TextEdit> | undefined;
+	kind?: string | null;
+	edits?: Array<TextEdit> | null;
 };
 
 export type TextEdit = {
@@ -54,13 +54,13 @@ export let handle = (request: Request): Response => {
 	// Collect all code actions.
 	let actions = [];
 
-	if (shouldIncludeKind(request.only, "quickfix")) {
+	if (shouldIncludeKind(request.only ?? null, "quickfix")) {
 		actions.push(...getQuickFixActions(fileName, start, end));
 	}
 
-	if (shouldIncludeKind(request.only, "source.organizeImports")) {
+	if (shouldIncludeKind(request.only ?? null, "source.organizeImports")) {
 		let organizeImportsAction = getOrganizeImportsAction(fileName);
-		if (organizeImportsAction !== undefined) {
+		if (organizeImportsAction !== null) {
 			actions.push(organizeImportsAction);
 		}
 	}
@@ -69,15 +69,12 @@ export let handle = (request: Request): Response => {
 	let deduplicatedActions = deduplicateActions(actions);
 
 	return {
-		actions: deduplicatedActions.length === 0 ? undefined : deduplicatedActions,
+		actions: deduplicatedActions.length === 0 ? null : deduplicatedActions,
 	};
 };
 
-let shouldIncludeKind = (
-	only: Array<string> | undefined,
-	kind: string,
-): boolean => {
-	if (only === undefined || only.length === 0) {
+let shouldIncludeKind = (only: Array<string> | null, kind: string): boolean => {
+	if (only === null || only.length === 0) {
 		return true;
 	}
 	return only.some(
@@ -132,7 +129,7 @@ let getQuickFixActions = (
 	return actions;
 };
 
-let getOrganizeImportsAction = (fileName: string): CodeAction | undefined => {
+let getOrganizeImportsAction = (fileName: string): CodeAction | null => {
 	let changes = typescript.languageService.organizeImports(
 		{ type: "file", fileName },
 		{},
@@ -140,7 +137,7 @@ let getOrganizeImportsAction = (fileName: string): CodeAction | undefined => {
 	);
 	let edits = convertFileTextChanges(changes);
 	if (edits.length === 0) {
-		return undefined;
+		return null;
 	}
 	return {
 		title: "organize imports",

@@ -35,7 +35,7 @@ export async function write(
 		query: {
 			cache_pointers:
 				argOrBytes.cachePointers === undefined
-					? undefined
+					? null
 					: argOrBytes.cachePointers.toString(),
 		},
 	});

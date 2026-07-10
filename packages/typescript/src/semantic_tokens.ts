@@ -7,7 +7,7 @@ export type Request = {
 };
 
 export type Response = {
-	tokens: Array<SemanticToken> | undefined;
+	tokens?: Array<SemanticToken> | null;
 };
 
 export type SemanticToken = {
@@ -45,7 +45,7 @@ export let handle = (request: Request): Response => {
 	let tokens = decodeSemanticTokens(sourceFile, classifications.spans);
 
 	return {
-		tokens: tokens.length === 0 ? undefined : tokens,
+		tokens: tokens.length === 0 ? null : tokens,
 	};
 };
 

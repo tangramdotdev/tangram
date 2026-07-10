@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { nullToUndefined, undefinedToNull } from "./util.ts";
 import * as build from "./process/build.ts";
 import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
@@ -25,17 +24,17 @@ export let setProcess = (newProcess: typeof process) => {
 
 export class Process<O extends tg.Value = tg.Value> {
 	#id: number | tg.Process.Id;
-	#lease: string | undefined;
-	#location: tg.Location.Arg | undefined;
+	#lease: string | null;
+	#location: tg.Location.Arg | null;
 	#options: tg.Referent.Options;
-	#promise: Promise<tg.Process.Wait> | undefined;
-	#state: tg.Process.State | undefined;
+	#promise: Promise<tg.Process.Wait> | null;
+	#state: tg.Process.State | null;
 	#stderr: tg.Process.Stdio.Reader;
 	#stdin: tg.Process.Stdio.Writer;
-	#stdioPromise: Promise<void> | undefined;
+	#stdioPromise: Promise<void> | null;
 	#stdout: tg.Process.Stdio.Reader;
-	#token: tg.Grant.Token | undefined;
-	#wait: tg.Process.Wait | undefined;
+	#token: tg.Grant.Token | null;
+	#wait: tg.Process.Wait | null;
 
 	static build<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
@@ -170,13 +169,13 @@ export class Process<O extends tg.Value = tg.Value> {
 						executable: object.executable,
 						host: object.host,
 					};
-					if (object.cwd !== undefined) {
+					if (object.cwd !== null) {
 						output.cwd = object.cwd;
 					}
-					if (object.stdin !== undefined) {
+					if (object.stdin !== null) {
 						output.stdin = object.stdin;
 					}
-					if (object.user !== undefined) {
+					if (object.user !== null) {
 						output.user = object.user;
 					}
 					return output;
@@ -213,7 +212,7 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	static async spawnUnsandboxed<O extends tg.Value = tg.Value>(
 		arg: tg.Process.Spawn.Arg,
-		options?: tg.Referent.Options,
+		options?: tg.Referent.Options | null,
 	): Promise<tg.Process<O>> {
 		return await spawn.spawnUnsandboxed<O>(arg, options);
 	}
@@ -233,37 +232,37 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	static async prepareUnsandboxedCommand(
 		arg: tg.Process.Spawn.Arg,
-		outputPath?: string,
+		outputPath?: string | null,
 	): Promise<tg.Process.PreparedUnsandboxedCommandOutput> {
 		return await spawn.prepareUnsandboxedCommand(arg, outputPath);
 	}
 
 	static async spawnSandboxed<O extends tg.Value = tg.Value>(
 		arg: tg.Process.Spawn.Arg,
-		options?: tg.Referent.Options,
+		options?: tg.Referent.Options | null,
 	): Promise<tg.Process<O>> {
 		return await spawn.spawnSandboxed<O>(arg, options);
 	}
 
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
-		this.#lease = arg.lease;
-		this.#location = arg.location;
+		this.#lease = arg.lease ?? null;
+		this.#location = arg.location ?? null;
 		this.#options = arg.options ?? {};
-		this.#state = arg.state;
-		this.#stdioPromise = arg.stdioPromise;
-		this.#promise = arg.promise;
+		this.#state = arg.state ?? null;
+		this.#stdioPromise = arg.stdioPromise ?? null;
+		this.#promise = arg.promise ?? null;
 		this.#stdin = arg.stdin;
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
-		this.#token = arg.token;
-		this.#wait = arg.wait;
+		this.#token = arg.token ?? null;
+		this.#wait = arg.wait ?? null;
 		this.#stdin.setProcess(this);
 		this.#stdout.setProcess(this);
 		this.#stderr.setProcess(this);
 	}
 
-	get state(): tg.Process.State | undefined {
+	get state(): tg.Process.State | null {
 		return this.#state;
 	}
 
@@ -284,13 +283,14 @@ export class Process<O extends tg.Value = tg.Value> {
 			throw new Error("loading unsandboxed process state is not supported");
 		}
 		let arg: tg.Process.Get.Arg = {};
-		if (this.#location !== undefined) {
+		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
 		let output = await tg.client.getProcess(this.#id, arg);
-		if (output.location !== undefined) {
-			this.#location = tg.Location.Arg.fromLocation(output.location);
-		}
+		this.#location =
+			output.location === undefined || output.location === null
+				? null
+				: tg.Location.Arg.fromLocation(output.location);
 		this.#state = tg.Process.State.fromData(output.data);
 		tg.Process.State.inheritToken(this.#state, this.#token);
 	}
@@ -300,16 +300,12 @@ export class Process<O extends tg.Value = tg.Value> {
 		await this.load();
 	}
 
-	async #getSandbox(): Promise<tg.Sandbox.Get.Output | undefined> {
+	async #getSandbox(): Promise<tg.Sandbox.Get.Output | null> {
 		if (typeof this.#id === "number") {
-			return undefined;
+			return null;
 		}
 		await this.load();
-		let sandbox = this.#state!.sandbox;
-		if (sandbox === undefined) {
-			return undefined;
-		}
-		return await tg.client.getSandbox(sandbox);
+		return await tg.client.getSandbox(this.#state!.sandbox);
 	}
 
 	/** Get this process's ID. */
@@ -318,20 +314,20 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's location arg. */
-	get location(): tg.Location.Arg | undefined {
-		return this.#location;
+	get location(): tg.Location.Arg | null {
+		return this.#location ?? null;
 	}
 
-	get token(): tg.Grant.Token | undefined {
-		return this.#token;
+	get token(): tg.Grant.Token | null {
+		return this.#token ?? null;
 	}
 
-	set token(token: tg.Grant.Token | undefined) {
+	set token(token: tg.Grant.Token | null) {
 		this.#token = token;
 	}
 
-	inheritToken(token: tg.Grant.Token | undefined): void {
-		if (this.#token === undefined) {
+	inheritToken(token: tg.Grant.Token | null): void {
+		if (this.#token === null) {
 			this.#token = token;
 		}
 	}
@@ -358,7 +354,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command's cwd. */
-	get cwd(): Promise<string | undefined> {
+	get cwd(): Promise<string | null> {
 		return (async () => {
 			return await (
 				await this.command
@@ -399,7 +395,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	get network(): Promise<boolean> {
 		return (async () => {
 			let sandbox = await this.#getSandbox();
-			return sandbox?.network !== undefined;
+			return sandbox?.network !== undefined && sandbox.network !== null;
 		})();
 	}
 
@@ -415,10 +411,10 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's sandbox. */
-	get sandbox(): Promise<string | undefined> {
+	get sandbox(): Promise<string | null> {
 		return (async () => {
 			if (typeof this.#id === "number") {
-				return undefined;
+				return null;
 			}
 			await this.load();
 			return this.#state!.sandbox;
@@ -426,7 +422,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command's user. */
-	get user(): Promise<string | undefined> {
+	get user(): Promise<string | null> {
 		return (async () => {
 			return await (
 				await this.command
@@ -450,7 +446,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's lease. */
-	get lease(): string | undefined {
+	get lease(): string | null {
 		return this.#lease;
 	}
 
@@ -461,12 +457,12 @@ export class Process<O extends tg.Value = tg.Value> {
 			return;
 		}
 		let location = this.#location;
-		if (location === undefined) {
+		if (location === null) {
 			await this.load();
 			location = this.#location;
 		}
 		let arg: tg.Signal.Arg = { signal };
-		if (location !== undefined) {
+		if (location !== null) {
 			arg.location = location;
 		}
 		await tg.client.signalProcess(this.#id, arg);
@@ -474,33 +470,33 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	/** Wait for this process to exit. */
 	async wait(): Promise<tg.Process.Wait> {
-		if (this.#stdioPromise !== undefined) {
+		if (this.#stdioPromise !== null) {
 			await this.#stdioPromise;
 		}
-		if (this.#wait !== undefined) {
+		if (this.#wait !== null) {
 			tg.Process.Wait.inheritToken(this.#wait, this.#token);
 			return this.#wait;
 		}
 		if (typeof this.#id === "number") {
-			tg.assert(this.#promise !== undefined);
+			tg.assert(this.#promise !== null);
 			let wait = await this.#promise;
 			tg.Process.Wait.inheritToken(wait, this.#token);
 			this.#wait = wait;
 			return wait;
 		}
 		let arg: tg.Process.Wait.Arg = {};
-		if (this.#lease !== undefined) {
+		if (this.#lease !== null) {
 			arg.lease = this.#lease;
 		}
-		if (this.#location !== undefined) {
+		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		if (this.#token !== undefined) {
+		if (this.#token !== null) {
 			arg.token = this.#token;
 		}
 		let promise = await tg.client.waitProcessPromise(this.#id, arg);
 		let wait = await promise();
-		if (wait === undefined) {
+		if (wait === null) {
 			throw new Error("failed to find the process");
 		}
 		tg.Process.Wait.inheritToken(wait, this.#token);
@@ -512,7 +508,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	async output(): Promise<O> {
 		let wait = await this.wait();
 
-		if (wait.error !== undefined) {
+		if (wait.error !== null) {
 			let error = wait.error;
 			const source = {
 				item: error,
@@ -521,7 +517,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			const values: { [key: string]: string } = {
 				id: String(this.id),
 			};
-			if (this.#options.name !== undefined) {
+			if (this.#options.name !== undefined && this.#options.name !== null) {
 				values.name = this.#options.name;
 			}
 			throw tg.error("the child process failed", {
@@ -538,7 +534,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			const values: { [key: string]: string } = {
 				id: String(this.id),
 			};
-			if (this.#options.name !== undefined) {
+			if (this.#options.name !== undefined && this.#options.name !== null) {
 				values.name = this.#options.name;
 			}
 			throw tg.error("the child process failed", {
@@ -555,7 +551,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			const values: { [key: string]: string } = {
 				id: String(this.id),
 			};
-			if (this.#options.name !== undefined) {
+			if (this.#options.name !== undefined && this.#options.name !== null) {
 				values.name = this.#options.name;
 			}
 			throw tg.error(
@@ -569,7 +565,9 @@ export class Process<O extends tg.Value = tg.Value> {
 
 		let output = wait.output;
 
-		tg.Value.inheritToken(output, this.#token);
+		if (output !== undefined) {
+			tg.Value.inheritToken(output, this.#token);
+		}
 
 		return output as O;
 	}
@@ -582,12 +580,12 @@ export class Process<O extends tg.Value = tg.Value> {
 			);
 		}
 		let location = this.#location;
-		if (location === undefined) {
+		if (location === null) {
 			await this.load();
 			location = this.#location;
 		}
 		let arg: tg.Process.Tty.Put.Arg = { size };
-		if (location !== undefined) {
+		if (location !== null) {
 			arg.location = location;
 		}
 		await tg.client.setProcessTtySize(this.#id, arg);
@@ -618,7 +616,7 @@ export namespace Process {
 	export namespace Tty {
 		export namespace Put {
 			export type Arg = {
-				location?: tg.Location.Arg | undefined;
+				location?: tg.Location.Arg | null;
 				size: tg.Process.Tty.Size;
 			};
 		}
@@ -667,58 +665,60 @@ export namespace Process {
 		}
 
 		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
+			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>> | null>>
 		): this {
 			this.#args.push(...args.map((args) => ({ args })));
 			return this;
 		}
 
 		checksum(
-			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
+			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum> | null>,
 		): this {
 			this.#args.push({ checksum });
 			return this;
 		}
 
-		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ cwd });
 			return this;
 		}
 
 		debug(
-			debug: tg.Unresolved<
-				tg.MaybeMutation<boolean | tg.Process.Debug | undefined>
-			> = true,
+			debug: tg.Unresolved<tg.MaybeMutation<
+				boolean | tg.Process.Debug
+			> | null> = true,
 		): this {
 			this.#args.push({ debug });
 			return this;
 		}
 
-		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number>>): this {
+		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
 			this.#args.push({ cpu });
 			return this;
 		}
 
 		env(
-			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+			...envs: Array<
+				tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap> | null>
+			>
 		): this {
 			this.#args.push(...envs.map((env) => ({ env })));
 			return this;
 		}
 
 		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable> | null>,
 		): this {
 			this.#args.push({ executable });
 			return this;
 		}
 
-		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
+		host(host: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ host });
 			return this;
 		}
 
-		memory(memory: tg.Unresolved<tg.MaybeMutation<number>>): this {
+		memory(memory: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
 			this.#args.push({ memory });
 			return this;
 		}
@@ -729,23 +729,31 @@ export namespace Process {
 		}
 
 		mounts(
-			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Mount>>>>
+			...mounts: Array<
+				tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Mount>> | null>
+			>
 		): this {
 			this.#args.push(...mounts.map((mounts) => ({ mounts })));
 			return this;
 		}
 
-		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+		named(name: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ name });
 			return this;
 		}
 
+		network(): this;
 		network(
-			network?: tg.Unresolved<
-				tg.MaybeMutation<boolean | tg.Sandbox.Network | undefined>
-			>,
+			network: tg.Unresolved<tg.MaybeMutation<
+				boolean | tg.Sandbox.Network
+			> | null>,
+		): this;
+		network(
+			network?: tg.Unresolved<tg.MaybeMutation<
+				boolean | tg.Sandbox.Network
+			> | null>,
 		): this {
-			this.#args.push({ network: network ?? true });
+			this.#args.push({ network: network === undefined ? true : network });
 			return this;
 		}
 
@@ -755,47 +763,61 @@ export namespace Process {
 		}
 
 		ports(
-			...ports: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Port>>>>
+			...ports: Array<
+				tg.Unresolved<tg.MaybeMutation<Array<tg.Sandbox.Port>> | null>
+			>
 		): this {
 			this.#args.push(...ports.map((ports) => ({ ports })));
 			return this;
 		}
 
+		sandbox(): this;
 		sandbox(
-			sandbox?: tg.Unresolved<
-				tg.MaybeMutation<boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined>
-			>,
+			sandbox: tg.Unresolved<tg.MaybeMutation<
+				boolean | tg.Sandbox.Arg | tg.Sandbox.Id
+			> | null>,
+		): this;
+		sandbox(
+			sandbox?: tg.Unresolved<tg.MaybeMutation<
+				boolean | tg.Sandbox.Arg | tg.Sandbox.Id
+			> | null>,
 		): this {
-			this.#args.push({ sandbox: sandbox ?? true });
+			this.#args.push({ sandbox: sandbox === undefined ? true : sandbox });
 			return this;
 		}
 
-		stderr(stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this {
+		stderr(
+			stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio> | null>,
+		): this {
 			this.#args.push({ stderr });
 			return this;
 		}
 
 		stdin(
-			stdin: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio>>,
+			stdin: tg.Unresolved<tg.MaybeMutation<
+				tg.Blob.Arg | tg.Process.Stdio
+			> | null>,
 		): this {
 			this.#args.push({ stdin });
 			return this;
 		}
 
-		stdio(stdio: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this {
+		stdio(
+			stdio: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio> | null>,
+		): this {
 			this.#args.push({ stdin: stdio, stdout: stdio, stderr: stdio });
 			return this;
 		}
 
-		stdout(stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this {
+		stdout(
+			stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio> | null>,
+		): this {
 			this.#args.push({ stdout });
 			return this;
 		}
 
 		tty(
-			tty: tg.Unresolved<
-				tg.MaybeMutation<boolean | tg.Process.Tty | undefined>
-			>,
+			tty: tg.Unresolved<tg.MaybeMutation<boolean | tg.Process.Tty> | null>,
 		): this {
 			this.#args.push({ tty });
 			return this;
@@ -881,129 +903,123 @@ export namespace Process {
 
 	export type ConstructorArg = {
 		id: number | tg.Process.Id;
-		lease?: string | undefined;
-		location?: tg.Location.Arg | undefined;
+		lease?: string | null;
+		location?: tg.Location.Arg | null;
 		options?: tg.Referent.Options;
-		promise?: Promise<tg.Process.Wait> | undefined;
-		state?: State | undefined;
+		promise?: Promise<tg.Process.Wait> | null;
+		state?: State | null;
 		stderr: tg.Process.Stdio.Reader;
 		stdin: tg.Process.Stdio.Writer;
-		stdioPromise?: Promise<void> | undefined;
+		stdioPromise?: Promise<void> | null;
 		stdout: tg.Process.Stdio.Reader;
-		token?: tg.Grant.Token | undefined;
-		wait?: tg.Process.Wait | undefined;
+		token?: tg.Grant.Token | null;
+		wait?: tg.Process.Wait | null;
 	};
 
 	export type PreparedUnsandboxedCommandOutput = {
 		args: Array<string>;
-		cwd?: string | undefined;
+		cwd: string | null;
 		env: { [key: string]: string };
 		executable: string;
 		outputPath: string;
 		tempPath: string;
 	};
 
-	export type Arg =
-		| undefined
-		| string
-		| tg.Artifact
-		| tg.Template
-		| tg.Command
-		| ArgObject;
+	export type Arg = string | tg.Artifact | tg.Template | tg.Command | ArgObject;
 
 	export type ArgObject = {
 		/** The command's arguments. */
-		args?: Array<tg.Value> | undefined;
+		args?: Array<tg.Value> | null;
 
 		/** The cache location arg. */
-		cache_location?: tg.Location.Arg | undefined;
+		cache_location?: tg.Location.Arg | null;
 
 		/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
-		checksum?: tg.Checksum | undefined;
+		checksum?: tg.Checksum | null;
 
 		/** The base command. */
-		command?: tg.MaybeReferent<tg.Command> | undefined;
+		command?: tg.MaybeReferent<tg.Command> | null;
 
 		/** The sandbox's CPU allocation. */
-		cpu?: number | undefined;
+		cpu?: number | null;
 
 		/** The command's working directory. */
-		cwd?: string | undefined;
+		cwd?: string | null;
 
 		/** Configure debugging. */
-		debug?: boolean | tg.Process.Debug | undefined;
+		debug?: boolean | tg.Process.Debug | null;
 
 		/** The command's environment. */
-		env?: tg.MaybeMutationMap | undefined;
+		env?: tg.MaybeMutationMap | null;
 
 		/** The command's executable. */
-		executable?: tg.Command.Arg.Executable | undefined;
+		executable?: tg.Command.Arg.Executable | null;
 
 		/** The command's host. */
-		host?: string | undefined;
+		host?: string | null;
 
 		/** The process location arg. */
-		location?: tg.Location.Arg | undefined;
+		location?: tg.Location.Arg | null;
 
 		/** The sandbox's memory allocation. */
-		memory?: number | undefined;
+		memory?: number | null;
 
 		/** Configure mounts. */
-		mounts?: Array<tg.Sandbox.Mount> | undefined;
+		mounts?: Array<tg.Sandbox.Mount> | null;
 
 		/** The process's name. */
-		name?: string | undefined;
+		name?: string | null;
 
 		/** Configure network. */
-		network?: boolean | tg.Sandbox.Network | undefined;
+		network?: boolean | tg.Sandbox.Network | null;
 
 		/** The sandbox owner. */
-		owner?: string | undefined;
+		owner?: string | null;
 
 		/** Configure port forwarding. */
-		ports?: Array<tg.Sandbox.Port> | undefined;
+		ports?: Array<tg.Sandbox.Port> | null;
 
 		/** Configure or select the sandbox for this process. */
-		sandbox?: boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined;
+		sandbox?: boolean | tg.Sandbox.Arg | tg.Sandbox.Id | null;
 
 		/** Configure stderr. */
-		stderr?: tg.Process.Stdio | undefined;
+		stderr?: tg.Process.Stdio | null;
 
 		/** Configure stdin, or set it to a blob. */
-		stdin?: tg.Blob.Arg | tg.Process.Stdio | undefined;
+		stdin?: tg.Blob.Arg | tg.Process.Stdio | null;
 
 		/** Configure stdout. */
-		stdout?: tg.Process.Stdio | undefined;
+		stdout?: tg.Process.Stdio | null;
 
 		/** Configure whether the process should allocate a tty. */
-		tty?: boolean | tg.Process.Tty | undefined;
+		tty?: boolean | tg.Process.Tty | null;
 
 		/** The command's user. */
-		user?: string | undefined;
+		user?: string | null;
 	};
 
 	export type State = {
-		actualChecksum?: tg.Checksum | undefined;
+		actualChecksum: tg.Checksum | null;
 		cacheable: boolean;
-		children?: Array<tg.Process.Child> | undefined;
+		children: Array<tg.Process.Child> | null;
 		command: tg.Command;
 		createdAt: number;
-		debug?: tg.Process.Debug | undefined;
-		error: tg.Error | undefined;
-		exit: number | undefined;
-		expectedChecksum?: tg.Checksum | undefined;
-		finishedAt?: number | undefined;
+		debug: tg.Process.Debug | null;
+		error: tg.Error | null;
+		exit: number | null;
+		expectedChecksum: tg.Checksum | null;
+		finishedAt: number | null;
 		host: string;
-		log?: tg.Blob | undefined;
+		log: tg.Blob | null;
 		output?: tg.Value;
 		retry: boolean;
-		sandbox?: string;
-		startedAt?: number | undefined;
+		sandbox: string;
+		startedAt: number | null;
 		status: tg.Process.Status;
 		stderr: tg.Process.Stdio;
 		stdin: tg.Process.Stdio;
 		stdout: tg.Process.Stdio;
-		tty?: tg.Process.Tty | undefined;
+		tty: tg.Process.Tty | null;
 	};
 
 	export type Child = {
@@ -1013,8 +1029,8 @@ export namespace Process {
 	};
 
 	export type Debug = {
-		addr?: string | undefined;
-		mode?: tg.Process.Debug.Mode | undefined;
+		addr?: string | null;
+		mode?: tg.Process.Debug.Mode | null;
 	};
 
 	export namespace Debug {
@@ -1024,22 +1040,28 @@ export namespace Process {
 	export namespace Child {
 		export let toData = (value: tg.Process.Child): tg.Process.Data.Child => {
 			let options: tg.Referent.Data.Options = {};
-			if (value.options.artifact !== undefined) {
+			if (
+				value.options.artifact !== undefined &&
+				value.options.artifact !== null
+			) {
 				options.artifact = value.options.artifact;
 			}
-			if (value.options.id !== undefined) {
+			if (value.options.id !== undefined && value.options.id !== null) {
 				options.id = value.options.id;
 			}
-			if (value.options.location !== undefined) {
+			if (
+				value.options.location !== undefined &&
+				value.options.location !== null
+			) {
 				options.location = tg.Location.Arg.toDataString(value.options.location);
 			}
-			if (value.options.name !== undefined) {
+			if (value.options.name !== undefined && value.options.name !== null) {
 				options.name = value.options.name;
 			}
-			if (value.options.path !== undefined) {
+			if (value.options.path !== undefined && value.options.path !== null) {
 				options.path = value.options.path;
 			}
-			if (value.options.tag !== undefined) {
+			if (value.options.tag !== undefined && value.options.tag !== null) {
 				options.tag = value.options.tag;
 			}
 			let process = value.process.id;
@@ -1050,30 +1072,36 @@ export namespace Process {
 			return {
 				cached: value.cached,
 				options,
-				process: token === undefined ? process : { id: process, token },
+				process: token === null ? process : { id: process, token },
 			};
 		};
 
 		export let fromData = (data: tg.Process.Data.Child): tg.Process.Child => {
 			let options: tg.Referent.Options = {};
-			if (data.options.artifact !== undefined) {
+			if (
+				data.options.artifact !== undefined &&
+				data.options.artifact !== null
+			) {
 				options.artifact = data.options.artifact;
 			}
-			if (data.options.id !== undefined) {
+			if (data.options.id !== undefined && data.options.id !== null) {
 				options.id = data.options.id;
 			}
-			if (data.options.location !== undefined) {
+			if (
+				data.options.location !== undefined &&
+				data.options.location !== null
+			) {
 				options.location = tg.Location.Arg.fromDataString(
 					data.options.location,
 				);
 			}
-			if (data.options.name !== undefined) {
+			if (data.options.name !== undefined && data.options.name !== null) {
 				options.name = data.options.name;
 			}
-			if (data.options.path !== undefined) {
+			if (data.options.path !== undefined && data.options.path !== null) {
 				options.path = data.options.path;
 			}
-			if (data.options.tag !== undefined) {
+			if (data.options.tag !== undefined && data.options.tag !== null) {
 				options.tag = data.options.tag;
 			}
 			return {
@@ -1081,8 +1109,6 @@ export namespace Process {
 				options,
 				process: new tg.Process({
 					id: typeof data.process === "string" ? data.process : data.process.id,
-					location: undefined,
-					state: undefined,
 					stderr: new tg.Process.Stdio.Reader({
 						stream: "stderr",
 					}),
@@ -1092,8 +1118,11 @@ export namespace Process {
 					stdout: new tg.Process.Stdio.Reader({
 						stream: "stdout",
 					}),
-					token:
-						typeof data.process === "string" ? undefined : data.process.token,
+					...(typeof data.process !== "string" &&
+					data.process.token !== undefined &&
+					data.process.token !== null
+						? { token: data.process.token }
+						: {}),
 				}),
 			};
 		};
@@ -1102,19 +1131,19 @@ export namespace Process {
 	export namespace State {
 		export let inheritToken = (
 			state: State,
-			token: tg.Grant.Token | undefined,
+			token: tg.Grant.Token | null,
 		): void => {
 			tg.Object.inheritToken(state.command, token);
 			for (let child of state.children ?? []) {
 				child.process.inheritToken(token);
 			}
-			if (state.error !== undefined) {
+			if (state.error !== null) {
 				tg.Object.inheritToken(state.error, token);
 			}
-			if (state.log !== undefined) {
+			if (state.log !== null) {
 				tg.Object.inheritToken(state.log, token);
 			}
-			if ("output" in state) {
+			if (state.output !== undefined) {
 				tg.Value.inheritToken(state.output, token);
 			}
 		};
@@ -1124,45 +1153,45 @@ export namespace Process {
 				command: value.command.id,
 				created_at: value.createdAt,
 				host: value.host,
-				sandbox: value.sandbox!,
+				sandbox: value.sandbox,
 				status: value.status,
 			};
-			if (value.actualChecksum !== undefined) {
+			if (value.actualChecksum !== null) {
 				output.actual_checksum = value.actualChecksum;
 			}
 			if (value.cacheable) {
 				output.cacheable = value.cacheable;
 			}
-			if (value.children !== undefined) {
+			if (value.children !== null) {
 				output.children = value.children.map(tg.Process.Child.toData);
 			}
-			if (value.debug !== undefined) {
+			if (value.debug !== null) {
 				output.debug = value.debug;
 			}
-			if (value.error !== undefined) {
+			if (value.error !== null) {
 				output.error = tg.Error.toDataOrId(value.error);
 			}
-			if (value.exit !== undefined) {
+			if (value.exit !== null) {
 				output.exit = value.exit;
 			}
-			if (value.expectedChecksum !== undefined) {
+			if (value.expectedChecksum !== null) {
 				output.expected_checksum = value.expectedChecksum;
 			}
-			if (value.finishedAt !== undefined) {
+			if (value.finishedAt !== null) {
 				output.finished_at = value.finishedAt;
 			}
-			if (value.log !== undefined) {
+			if (value.log !== null) {
 				let token = value.log.state.token;
 				output.log =
-					token === undefined ? value.log.id : { id: value.log.id, token };
+					token === null ? value.log.id : { id: value.log.id, token };
 			}
-			if ("output" in value) {
+			if (value.output !== undefined) {
 				output.output = tg.Value.toData(value.output);
 			}
 			if (value.retry) {
 				output.retry = value.retry;
 			}
-			if (value.startedAt !== undefined) {
+			if (value.startedAt !== null) {
 				output.started_at = value.startedAt;
 			}
 			if (value.stderr !== "inherit") {
@@ -1174,7 +1203,7 @@ export namespace Process {
 			if (value.stdout !== "inherit") {
 				output.stdout = value.stdout;
 			}
-			if (value.tty !== undefined) {
+			if (value.tty !== null) {
 				output.tty = value.tty;
 			}
 			return output;
@@ -1182,17 +1211,17 @@ export namespace Process {
 
 		export let fromData = (data: tg.Process.Data): tg.Process.State => {
 			let output: State = {
-				actualChecksum: data.actual_checksum,
+				actualChecksum: data.actual_checksum ?? null,
 				cacheable: data.cacheable ?? false,
 				children:
-					data.children !== undefined
+					data.children !== undefined && data.children !== null
 						? data.children.map(tg.Process.Child.fromData)
-						: undefined,
+						: null,
 				command: tg.Command.withId(data.command),
 				createdAt: data.created_at,
-				debug: data.debug,
+				debug: data.debug ?? null,
 				error:
-					data.error !== undefined
+					data.error !== undefined && data.error !== null
 						? typeof data.error === "string" || "id" in data.error
 							? (() => {
 									let error =
@@ -1205,13 +1234,13 @@ export namespace Process {
 									return error;
 								})()
 							: tg.Error.fromData(data.error)
-						: undefined,
-				exit: data.exit,
-				expectedChecksum: data.expected_checksum,
-				finishedAt: data.finished_at,
+						: null,
+				exit: data.exit ?? null,
+				expectedChecksum: data.expected_checksum ?? null,
+				finishedAt: data.finished_at ?? null,
 				host: data.host,
 				log:
-					data.log !== undefined
+					data.log !== undefined && data.log !== null
 						? (() => {
 								let blob =
 									typeof data.log === "string"
@@ -1222,17 +1251,17 @@ export namespace Process {
 								}
 								return blob;
 							})()
-						: undefined,
+						: null,
 				retry: data.retry ?? false,
 				sandbox: data.sandbox,
-				startedAt: data.started_at,
+				startedAt: data.started_at ?? null,
 				status: data.status,
 				stderr: data.stderr ?? "inherit",
 				stdin: data.stdin ?? "inherit",
 				stdout: data.stdout ?? "inherit",
-				tty: data.tty,
+				tty: data.tty ?? null,
 			};
-			if ("output" in data) {
+			if (data.output !== undefined) {
 				output.output = tg.Value.fromData(data.output);
 			}
 			return output;
@@ -1276,27 +1305,27 @@ export namespace Process {
 	export type Status = "created" | "dequeued" | "started" | "finished";
 
 	export type Data = {
-		actual_checksum?: tg.Checksum;
+		actual_checksum?: tg.Checksum | null;
 		cacheable?: boolean;
-		children?: Array<tg.Process.Data.Child>;
+		children?: Array<tg.Process.Data.Child> | null;
 		command: tg.Command.Id;
 		created_at: number;
-		debug?: tg.Process.Debug;
-		error?: tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id>;
-		exit?: number;
-		expected_checksum?: tg.Checksum;
-		finished_at?: number;
+		debug?: tg.Process.Debug | null;
+		error?: tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id> | null;
+		exit?: number | null;
+		expected_checksum?: tg.Checksum | null;
+		finished_at?: number | null;
 		host: string;
-		log?: tg.Grant.MaybeWithToken<tg.Blob.Id>;
+		log?: tg.Grant.MaybeWithToken<tg.Blob.Id> | null;
 		output?: tg.Value.Data;
 		retry?: boolean;
 		sandbox: string;
-		started_at?: number;
+		started_at?: number | null;
 		status: tg.Process.Status;
 		stderr?: tg.Process.Stdio;
 		stdin?: tg.Process.Stdio;
 		stdout?: tg.Process.Stdio;
-		tty?: tg.Process.Tty;
+		tty?: tg.Process.Tty | null;
 	};
 
 	export namespace Data {
@@ -1307,7 +1336,7 @@ export namespace Process {
 		};
 
 		export let removeTokens = (data: tg.Process.Data): tg.Process.Data => {
-			if (data.children !== undefined) {
+			if (data.children !== undefined && data.children !== null) {
 				for (let child of data.children) {
 					if (typeof child.process !== "string") {
 						child.process = child.process.id;
@@ -1316,12 +1345,17 @@ export namespace Process {
 			}
 			if (
 				data.error !== undefined &&
+				data.error !== null &&
 				typeof data.error !== "string" &&
 				"id" in data.error
 			) {
 				data.error = data.error.id;
 			}
-			if (data.log !== undefined && typeof data.log !== "string") {
+			if (
+				data.log !== undefined &&
+				data.log !== null &&
+				typeof data.log !== "string"
+			) {
 				data.log = data.log.id;
 			}
 			if (data.output !== undefined) {
@@ -1329,49 +1363,35 @@ export namespace Process {
 			}
 			return data;
 		};
-
-		export let toJson = (data: tg.Process.Data): unknown => {
-			return undefinedToNull(data);
-		};
-
-		export let fromJson = (json: unknown): tg.Process.Data => {
-			return nullToUndefined(json);
-		};
 	}
 
 	export type Wait = {
-		error: tg.Error | undefined;
+		error: tg.Error | null;
 		exit: number;
 		output?: tg.Value;
 	};
 
 	export namespace Wait {
 		export type Arg = {
-			lease?: string | undefined;
-			location?: tg.Location.Arg | undefined;
-			token?: tg.Grant.Token | undefined;
+			lease?: string | null;
+			location?: tg.Location.Arg | null;
+			token?: tg.Grant.Token | null;
 		};
 
 		export type Data = {
-			error?: tg.Error.Data | tg.Error.Id;
+			error?: tg.Error.Data | tg.Error.Id | null;
 			exit: number;
 			output?: tg.Value.Data;
 		};
 
-		export namespace Data {
-			export let fromJson = (json: unknown): tg.Process.Wait.Data => {
-				return nullToUndefined(json);
-			};
-		}
-
 		export let fromData = (data: tg.Process.Wait.Data): tg.Process.Wait => {
 			let output: Wait = {
 				error:
-					data.error !== undefined
+					data.error !== undefined && data.error !== null
 						? typeof data.error === "string"
 							? tg.Error.withId(data.error)
 							: tg.Error.fromData(data.error)
-						: undefined,
+						: null,
 				exit: data.exit,
 			};
 			if ("output" in data) {
@@ -1382,12 +1402,12 @@ export namespace Process {
 
 		export let inheritToken = (
 			wait: tg.Process.Wait,
-			token: tg.Grant.Token | undefined,
+			token: tg.Grant.Token | null,
 		): void => {
-			if (wait.error !== undefined) {
+			if (wait.error !== null) {
 				tg.Object.inheritToken(wait.error, token);
 			}
-			if ("output" in wait) {
+			if (wait.output !== undefined) {
 				tg.Value.inheritToken(wait.output, token);
 			}
 		};
@@ -1396,10 +1416,10 @@ export namespace Process {
 			let output: Data = {
 				exit: value.exit,
 			};
-			if (value.error !== undefined) {
+			if (value.error !== null) {
 				output.error = tg.Error.toData(value.error);
 			}
-			if ("output" in value) {
+			if (value.output !== undefined) {
 				output.output = tg.Value.toData(value.output);
 			}
 			return output;

@@ -20,10 +20,12 @@ type Reference = {
 type Id = string;
 
 type Options = {
-	id?: string;
-	name?: string;
-	path?: string;
-	tag?: string;
+	artifact?: string | null;
+	id?: string | null;
+	name?: string | null;
+	path?: string | null;
+	tag?: string | null;
+	token?: string | null;
 };
 
 export namespace Module {
@@ -31,16 +33,36 @@ export namespace Module {
 		let item = value.referent.item;
 		let string = item.toString();
 		let params = [];
-		if (value.referent.options?.id !== undefined) {
+		if (
+			value.referent.options?.artifact !== undefined &&
+			value.referent.options.artifact !== null
+		) {
+			params.push(
+				`artifact=${encodeURIComponent(value.referent.options.artifact)}`,
+			);
+		}
+		if (
+			value.referent.options?.id !== undefined &&
+			value.referent.options.id !== null
+		) {
 			params.push(`id=${encodeURIComponent(value.referent.options.id)}`);
 		}
-		if (value.referent.options?.name !== undefined) {
+		if (
+			value.referent.options?.name !== undefined &&
+			value.referent.options.name !== null
+		) {
 			params.push(`name=${encodeURIComponent(value.referent.options.name)}`);
 		}
-		if (value.referent.options?.path !== undefined) {
+		if (
+			value.referent.options?.path !== undefined &&
+			value.referent.options.path !== null
+		) {
 			params.push(`path=${encodeURIComponent(value.referent.options.path)}`);
 		}
-		if (value.referent.options?.tag !== undefined) {
+		if (
+			value.referent.options?.tag !== undefined &&
+			value.referent.options.tag !== null
+		) {
 			params.push(`tag=${encodeURIComponent(value.referent.options.tag)}`);
 		}
 		params.push(`kind=${encodeURIComponent(value.kind)}`);

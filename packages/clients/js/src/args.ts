@@ -43,7 +43,12 @@ export namespace Args {
 		for (let arg of args) {
 			let object = await map(arg);
 			for (let [key, value] of Object.entries(object)) {
-				if (value instanceof tg.Mutation) {
+				if (value === undefined) {
+					continue;
+				} else if (value === null) {
+					// An explicit null overrides any accumulated value, clearing it.
+					output[key] = null;
+				} else if (value instanceof tg.Mutation) {
 					await value.apply(output, key);
 				} else if (reduce[key] !== undefined) {
 					if (typeof reduce[key] === "string") {

@@ -1,9 +1,9 @@
 import * as tg from "../index.ts";
 
 export type Options = {
-	color?: boolean | undefined;
-	indent?: number | undefined;
-	indentation?: string | undefined;
+	color?: boolean | null;
+	indent?: number | null;
+	indentation?: string | null;
 };
 
 type Print = () => string;
@@ -11,12 +11,12 @@ type Print = () => string;
 export class Printer {
 	private color: boolean;
 	private indent_: number;
-	private indentation: string | undefined;
+	private indentation: string | null;
 
 	constructor(options: Options = {}) {
 		this.color = options.color ?? false;
 		this.indent_ = options.indent ?? 0;
-		this.indentation = options.indentation;
+		this.indentation = options.indentation ?? null;
 	}
 
 	print(value: tg.Value): string {
@@ -38,7 +38,9 @@ export class Printer {
 				return this.style("undefined", colors.gray);
 			}
 			case "object": {
-				if (value_ instanceof Array) {
+				if (value_ === null) {
+					return this.null();
+				} else if (value_ instanceof Array) {
 					return this.array(value_.map((value_) => () => this.value(value_)));
 				} else if (tg.Object.is(value_)) {
 					return this.objectHandle(value_);
@@ -74,7 +76,7 @@ export class Printer {
 	private blob(value: tg.Blob): string {
 		let state = value.state;
 		let object = state.object;
-		if (object === undefined) {
+		if (object === null) {
 			return this.objectId(state);
 		}
 		tg.assert(object.kind === "blob", "expected a blob object");
@@ -84,7 +86,7 @@ export class Printer {
 	private directory(value: tg.Directory): string {
 		let state = value.state;
 		let object = state.object;
-		if (object === undefined) {
+		if (object === null) {
 			return this.objectId(state);
 		}
 		tg.assert(object.kind === "directory", "expected a directory object");
@@ -94,7 +96,7 @@ export class Printer {
 	private file(value: tg.File): string {
 		let state = value.state;
 		let object = state.object;
-		if (object === undefined) {
+		if (object === null) {
 			return this.objectId(state);
 		}
 		tg.assert(object.kind === "file", "expected a file object");
@@ -104,7 +106,7 @@ export class Printer {
 	private symlink(value: tg.Symlink): string {
 		let state = value.state;
 		let object = state.object;
-		if (object === undefined) {
+		if (object === null) {
 			return this.objectId(state);
 		}
 		tg.assert(object.kind === "symlink", "expected a symlink object");
@@ -114,7 +116,7 @@ export class Printer {
 	private graph(value: tg.Graph): string {
 		let state = value.state;
 		let object = state.object;
-		if (object === undefined) {
+		if (object === null) {
 			return this.objectId(state);
 		}
 		tg.assert(object.kind === "graph", "expected a graph object");
@@ -124,7 +126,7 @@ export class Printer {
 	private command(value: tg.Command): string {
 		let state = value.state;
 		let object = state.object;
-		if (object === undefined) {
+		if (object === null) {
 			return this.objectId(state);
 		}
 		tg.assert(object.kind === "command", "expected a command object");
@@ -134,7 +136,7 @@ export class Printer {
 	private error(value: tg.Error): string {
 		let state = value.state;
 		let object = state.object;
-		if (object === undefined) {
+		if (object === null) {
 			return this.objectId(state);
 		}
 		tg.assert(object.kind === "error", "expected an error object");
@@ -297,18 +299,18 @@ export class Printer {
 		if (file.executable) {
 			entries.executable = () => this.value(file.executable);
 		}
-		if (file.module !== undefined) {
-			entries.module = () => this.value(file.module);
+		if (file.module !== null) {
+			entries.module = () => this.value(file.module!);
 		}
 		return this.map(entries);
 	}
 
-	private graphDependency(dependency: tg.Graph.Dependency | undefined): string {
-		if (dependency === undefined) {
+	private graphDependency(dependency: tg.Graph.Dependency | null): string {
+		if (dependency === null) {
 			return this.null();
 		}
 		let entries: { [key: string]: Print } = {};
-		if (dependency.item !== undefined) {
+		if (dependency.item !== null) {
 			let item = dependency.item;
 			entries.item = () => this.graphEdgeObject(item);
 		}
@@ -331,12 +333,12 @@ export class Printer {
 		if (tag) {
 			entries.kind = () => this.value("symlink");
 		}
-		if (symlink.artifact !== undefined) {
+		if (symlink.artifact !== null) {
 			let artifact = symlink.artifact;
 			entries.artifact = () => this.graphEdgeArtifact(artifact);
 		}
-		if (symlink.path !== undefined) {
-			entries.path = () => this.value(symlink.path);
+		if (symlink.path !== null) {
+			entries.path = () => this.value(symlink.path!);
 		}
 		return this.map(entries);
 	}
@@ -387,7 +389,7 @@ export class Printer {
 
 	private graphPointer(pointer: tg.Graph.Pointer): string {
 		let entries: { [key: string]: Print } = {};
-		if (pointer.graph !== undefined) {
+		if (pointer.graph !== null) {
 			let graph = pointer.graph;
 			entries.graph = () => this.graph(graph);
 		}
@@ -402,8 +404,8 @@ export class Printer {
 			entries.args = () =>
 				this.array(object.args.map((arg) => () => this.value(arg)));
 		}
-		if (object.cwd !== undefined) {
-			entries.cwd = () => this.value(object.cwd);
+		if (object.cwd !== null) {
+			entries.cwd = () => this.value(object.cwd!);
 		}
 		let env = Object.entries(object.env);
 		if (env.length > 0) {
@@ -419,12 +421,12 @@ export class Printer {
 		}
 		entries.executable = () => this.commandExecutable(object.executable);
 		entries.host = () => this.value(object.host);
-		if (object.stdin !== undefined) {
+		if (object.stdin !== null) {
 			let stdin = object.stdin;
 			entries.stdin = () => this.blob(stdin);
 		}
-		if (object.user !== undefined) {
-			entries.user = () => this.value(object.user);
+		if (object.user !== null) {
+			entries.user = () => this.value(object.user!);
 		}
 		return this.call("command", this.map(entries));
 	}
@@ -434,8 +436,8 @@ export class Printer {
 			let entries: { [key: string]: Print } = {
 				artifact: () => this.artifact(executable.artifact),
 			};
-			if (executable.path !== undefined) {
-				entries.path = () => this.value(executable.path);
+			if (executable.path !== undefined && executable.path !== null) {
+				entries.path = () => this.value(executable.path!);
 			}
 			return this.map(entries);
 		}
@@ -443,8 +445,8 @@ export class Printer {
 			let entries: { [key: string]: Print } = {
 				module: () => this.module(executable.module),
 			};
-			if (executable.export !== undefined) {
-				entries.export = () => this.value(executable.export);
+			if (executable.export !== undefined && executable.export !== null) {
+				entries.export = () => this.value(executable.export!);
 			}
 			return this.map(entries);
 		}
@@ -453,10 +455,10 @@ export class Printer {
 
 	private errorObject(object: tg.Error.Object): string {
 		let entries: { [key: string]: Print } = {};
-		if (object.code !== undefined) {
-			entries.code = () => this.value(object.code);
+		if (object.code !== null) {
+			entries.code = () => this.value(object.code!);
 		}
-		if (object.diagnostics !== undefined) {
+		if (object.diagnostics !== null) {
 			entries.diagnostics = () =>
 				this.array(
 					object.diagnostics!.map(
@@ -464,16 +466,16 @@ export class Printer {
 					),
 				);
 		}
-		if (object.location !== undefined) {
+		if (object.location !== null) {
 			entries.location = () => this.errorLocation(object.location!);
 		}
-		if (object.message !== undefined) {
+		if (object.message !== null) {
 			entries.message = () => this.value(object.message!);
 		}
-		if (object.source !== undefined) {
+		if (object.source !== null) {
 			entries.source = () => this.errorSource(object.source!);
 		}
-		if (object.stack !== undefined) {
+		if (object.stack !== null) {
 			entries.stack = () =>
 				this.array(
 					object.stack!.map((location) => () => this.errorLocation(location)),
@@ -513,7 +515,7 @@ export class Printer {
 			file: () => this.errorFile(location.file),
 			range: () => this.range(location.range),
 		};
-		if (location.symbol !== undefined) {
+		if (location.symbol !== undefined && location.symbol !== null) {
 			entries.symbol = () => this.value(location.symbol!);
 		}
 		return this.map(entries);
@@ -531,7 +533,7 @@ export class Printer {
 
 	private diagnostic(diagnostic: tg.Diagnostic): string {
 		let entries: { [key: string]: Print } = {};
-		if (diagnostic.location !== undefined) {
+		if (diagnostic.location !== undefined && diagnostic.location !== null) {
 			entries.location = () => this.moduleLocation(diagnostic.location!);
 		}
 		entries.message = () => this.value(diagnostic.message);
@@ -591,33 +593,33 @@ export class Printer {
 	): options is tg.Referent.Options {
 		return (
 			options !== undefined &&
-			(options.artifact !== undefined ||
-				options.id !== undefined ||
-				options.location !== undefined ||
-				options.name !== undefined ||
-				options.path !== undefined ||
-				options.tag !== undefined)
+			((options.artifact !== undefined && options.artifact !== null) ||
+				(options.id !== undefined && options.id !== null) ||
+				(options.location !== undefined && options.location !== null) ||
+				(options.name !== undefined && options.name !== null) ||
+				(options.path !== undefined && options.path !== null) ||
+				(options.tag !== undefined && options.tag !== null))
 		);
 	}
 
 	private referentOptions(options: tg.Referent.Options): string {
 		let entries: { [key: string]: Print } = {};
-		if (options.artifact !== undefined) {
+		if (options.artifact !== undefined && options.artifact !== null) {
 			entries.artifact = () => this.value(options.artifact!);
 		}
-		if (options.id !== undefined) {
+		if (options.id !== undefined && options.id !== null) {
 			entries.id = () => this.value(options.id!);
 		}
-		if (options.location !== undefined) {
+		if (options.location !== undefined && options.location !== null) {
 			entries.location = () => this.value(options.location!);
 		}
-		if (options.name !== undefined) {
+		if (options.name !== undefined && options.name !== null) {
 			entries.name = () => this.value(options.name!);
 		}
-		if (options.path !== undefined) {
+		if (options.path !== undefined && options.path !== null) {
 			entries.path = () => this.value(options.path!);
 		}
-		if (options.tag !== undefined) {
+		if (options.tag !== undefined && options.tag !== null) {
 			entries.tag = () => this.value(options.tag!);
 		}
 		return this.map(entries);
@@ -661,7 +663,7 @@ export class Printer {
 	}
 
 	private array(values: Array<Print>): string {
-		if (this.indentation === undefined) {
+		if (this.indentation === null) {
 			return `${this.style("[")}${values.map((value) => value()).join(this.style(","))}${this.style("]")}`;
 		}
 		if (values.length === 0) {
@@ -676,7 +678,7 @@ export class Printer {
 
 	private map(value_: { [key: string]: Print }): string {
 		let entries = Object.entries(value_);
-		if (this.indentation === undefined) {
+		if (this.indentation === null) {
 			return `${this.style("{")}${entries
 				.map(
 					([key, value_]) =>
@@ -707,7 +709,7 @@ export class Printer {
 
 	private objectId(state: tg.Object.State): string {
 		let string = state.id;
-		if (state.token !== undefined) {
+		if (state.token !== null) {
 			string += `&token=${state.token}`;
 		}
 		return this.id(string);
@@ -732,11 +734,11 @@ export class Printer {
 		}
 	}
 
-	private call(name: string, arg?: string | undefined): string {
+	private call(name: string, arg?: string): string {
 		return `${this.style("tg")}${this.style(".")}${this.style(name, colors.blue)}${this.style("(")}${arg ?? ""}${this.style(")")}`;
 	}
 
-	private style(value: string, code?: string | undefined): string {
+	private style(value: string, code?: string): string {
 		return this.color && code !== undefined
 			? `${code}${value}${colors.reset}`
 			: value;

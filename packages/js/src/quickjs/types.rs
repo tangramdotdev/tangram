@@ -49,6 +49,31 @@ where
 	}
 }
 
+impl<L, R> tangram_quickjs::Serialize for Either<L, R>
+where
+	L: tangram_quickjs::Serialize,
+	R: tangram_quickjs::Serialize,
+{
+	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+		match self {
+			Self::Left(value) => tangram_quickjs::Serialize::serialize(value, ctx),
+			Self::Right(value) => tangram_quickjs::Serialize::serialize(value, ctx),
+		}
+	}
+}
+
+impl<'js, L, R> tangram_quickjs::Deserialize<'js> for Either<L, R>
+where
+	L: tangram_quickjs::Deserialize<'js>,
+	R: tangram_quickjs::Deserialize<'js>,
+{
+	fn deserialize(ctx: &qjs::Ctx<'js>, value: qjs::Value<'js>) -> tg::Result<Self> {
+		L::deserialize(ctx, value.clone())
+			.map(Self::Left)
+			.or_else(|_| R::deserialize(ctx, value).map(Self::Right))
+	}
+}
+
 #[derive(Clone, Debug)]
 pub struct Uint8Array(pub Bytes);
 
@@ -86,5 +111,17 @@ impl<'js> qjs::FromJs<'js> for Uint8Array {
 			.ok_or_else(|| qjs::Error::new_from_js("Uint8Array", "bytes"))?;
 		let bytes = slice.to_vec().into();
 		Ok(Self(bytes))
+	}
+}
+
+impl tangram_quickjs::Serialize for Uint8Array {
+	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+		tangram_quickjs::Serialize::serialize(&self.0, ctx)
+	}
+}
+
+impl<'js> tangram_quickjs::Deserialize<'js> for Uint8Array {
+	fn deserialize(ctx: &qjs::Ctx<'js>, value: qjs::Value<'js>) -> tg::Result<Self> {
+		<Bytes as tangram_quickjs::Deserialize>::deserialize(ctx, value).map(Self)
 	}
 }

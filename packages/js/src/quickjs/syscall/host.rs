@@ -1,12 +1,12 @@
 use {
-	super::Result,
+	super::{Arg, Result},
 	crate::quickjs::{
 		StateHandle,
-		serde::Serde,
 		types::{Either, Uint8Array},
 	},
 	rquickjs as qjs,
 	tangram_client::prelude::*,
+	tangram_quickjs::Serde,
 };
 
 pub async fn close(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {
@@ -175,9 +175,11 @@ pub fn value_stringify(_ctx: qjs::Ctx<'_>, value: Serde<tg::value::Data>) -> Res
 pub async fn read(
 	ctx: qjs::Ctx<'_>,
 	fd: i32,
-	length: Option<usize>,
-	stopper: Option<usize>,
+	length: Arg<Option<usize>>,
+	stopper: Arg<Option<usize>>,
 ) -> Result<Option<Uint8Array>> {
+	let Arg(length) = length;
+	let Arg(stopper) = stopper;
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let result = state
 		.host
@@ -198,8 +200,9 @@ pub async fn signal(ctx: qjs::Ctx<'_>, pid: u32, signal: Serde<tg::process::Sign
 	Result(state.host.signal(pid, signal).await)
 }
 
-pub async fn sleep(ctx: qjs::Ctx<'_>, duration: f64, stopper: Option<usize>) -> Result<()> {
+pub async fn sleep(ctx: qjs::Ctx<'_>, duration: f64, stopper: Arg<Option<usize>>) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	let Arg(stopper) = stopper;
 	Result(state.host.sleep(duration, stopper).await)
 }
 
@@ -236,9 +239,10 @@ pub async fn stopper_stop(ctx: qjs::Ctx<'_>, stopper: usize) -> Result<()> {
 pub async fn wait(
 	ctx: qjs::Ctx<'_>,
 	pid: u32,
-	stopper: Option<usize>,
+	stopper: Arg<Option<usize>>,
 ) -> Result<Serde<crate::host::WaitOutput>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	let Arg(stopper) = stopper;
 	let result = state.host.wait(pid, stopper).await.map(Serde);
 	Result(result)
 }

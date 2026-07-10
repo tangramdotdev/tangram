@@ -51,13 +51,13 @@ declare global {
 
 	function syscall(
 		syscall: "host_get_tty_size",
-	): tg.Process.Tty.Size | undefined;
+	): tg.Process.Tty.Size | null;
 
 	function syscall(
 		syscall: "host_get_xattr",
 		path: string,
 		name: string,
-	): Promise<Uint8Array | undefined>;
+	): Promise<Uint8Array | null>;
 
 	function syscall(
 		syscall: "host_is_foreground_controlling_tty",
@@ -84,9 +84,9 @@ declare global {
 	function syscall(
 		syscall: "host_read",
 		fd: number,
-		length: number | undefined,
-		stopper: number | undefined,
-	): Promise<Uint8Array | undefined>;
+		length: number | null,
+		stopper: number | null,
+	): Promise<Uint8Array | null>;
 
 	function syscall(syscall: "host_remove", path: string): Promise<void>;
 
@@ -111,7 +111,7 @@ declare global {
 	function syscall(
 		syscall: "host_sleep",
 		duration: number,
-		stopper: number | undefined,
+		stopper: number | null,
 	): Promise<void>;
 
 	function syscall(
@@ -134,7 +134,7 @@ declare global {
 	function syscall(
 		syscall: "host_wait",
 		pid: number,
-		stopper: number | undefined,
+		stopper: number | null,
 	): Promise<tg.Host.WaitOutput>;
 
 	function syscall(
@@ -152,7 +152,7 @@ declare global {
 	function syscall(
 		syscall: "http2_connect",
 		authority: string,
-		options: { port?: number | undefined },
+		options: { port?: number },
 	): Promise<number>;
 
 	function syscall(syscall: "http2_session_close", session: number): Promise<void>;
@@ -160,7 +160,7 @@ declare global {
 	function syscall(
 		syscall: "http2_session_destroy",
 		session: number,
-		error: string | undefined,
+		error: string | null,
 	): Promise<void>;
 
 	function syscall(
@@ -175,13 +175,13 @@ declare global {
 	function syscall(
 		syscall: "http2_stream_end",
 		stream: number,
-		bytes: Uint8Array | undefined,
+		bytes: Uint8Array | null,
 	): Promise<void>;
 
 	function syscall(
 		syscall: "http2_stream_read",
 		stream: number,
-	): Promise<unknown | undefined>;
+	): Promise<unknown | null>;
 
 	function syscall(
 		syscall: "http2_stream_write",

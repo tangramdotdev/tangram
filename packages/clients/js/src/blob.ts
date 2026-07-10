@@ -8,12 +8,14 @@ export function blob(
 ): tg.Blob.Builder;
 export function blob(...args: tg.Args<tg.Blob.Arg>): tg.Blob.Builder;
 export function blob(
-	firstArg:
+	firstArg?:
 		| TemplateStringsArray
 		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Blob.Arg>>,
 	...args: tg.Args<tg.Blob.Arg>
 ): tg.Blob.Builder {
-	return new tg.Blob.Builder(firstArg, ...args);
+	return firstArg === undefined
+		? new tg.Blob.Builder(...args)
+		: new tg.Blob.Builder(firstArg, ...args);
 }
 
 export class Blob {
@@ -29,8 +31,8 @@ export class Blob {
 				? { kind: "blob" as const, value: arg.object }
 				: undefined;
 		this.#state = new tg.Object.State({
-			id: arg.id,
-			object,
+			...(arg.id !== undefined ? { id: arg.id } : {}),
+			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
 		});
 	}
@@ -67,7 +69,7 @@ export class Blob {
 	}
 
 	static leaf(
-		...args: tg.Args<undefined | string | Uint8Array | tg.Blob>
+		...args: tg.Args<string | Uint8Array | tg.Blob>
 	): tg.Blob.Builder {
 		return tg.Blob.Builder.leaf(...args);
 	}
@@ -167,10 +169,10 @@ export class Blob {
 	}
 
 	/** Read from this blob. */
-	async read(options?: tg.Blob.ReadOptions): Promise<Uint8Array> {
+	async read(options?: tg.Blob.ReadOptions | null): Promise<Uint8Array> {
 		let id = await this.store();
 		let arg: tg.Read.Arg = { blob: id, ...options };
-		if (this.state.token !== undefined) {
+		if (this.state.token !== null) {
 			arg.token = this.state.token;
 		}
 		return await tg.client.read(arg);
@@ -206,7 +208,7 @@ export namespace Blob {
 			...placeholders: tg.Args<string>
 		);
 		constructor(
-			firstArg:
+			firstArg?:
 				| TemplateStringsArray
 				| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Blob.Arg>>,
 			...args: tg.Args<tg.Blob.Arg>
@@ -242,7 +244,7 @@ export namespace Blob {
 		}
 
 		static leaf(
-			...args: tg.Args<undefined | string | Uint8Array | tg.Blob>
+			...args: tg.Args<string | Uint8Array | tg.Blob>
 		): tg.Blob.Builder {
 			let builder = new tg.Blob.Builder();
 			builder.#args = args;
@@ -251,7 +253,7 @@ export namespace Blob {
 		}
 
 		static async createLeaf(
-			...args: tg.Args<undefined | string | Uint8Array | tg.Blob>
+			...args: tg.Args<string | Uint8Array | tg.Blob>
 		): Promise<tg.Blob> {
 			let resolved = await Promise.all(args.map(tg.resolve));
 			let objects = await Promise.all(
@@ -307,16 +309,11 @@ export namespace Blob {
 		}
 	}
 
-	export type Arg =
-		| undefined
-		| string
-		| Uint8Array
-		| tg.Blob
-		| tg.Blob.Arg.Object;
+	export type Arg = string | Uint8Array | tg.Blob | tg.Blob.Arg.Object;
 
 	export namespace Arg {
 		export type Object = {
-			children?: Array<tg.Blob.Child> | undefined;
+			children?: Array<tg.Blob.Child> | null;
 		};
 	}
 
@@ -401,9 +398,9 @@ export namespace Blob {
 	}
 
 	export type ReadOptions = {
-		position?: number | string;
-		length?: number;
-		size?: number;
+		position?: number | string | null;
+		length?: number | null;
+		size?: number | null;
 	};
 
 	export let raw = (

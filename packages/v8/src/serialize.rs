@@ -258,7 +258,7 @@ where
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		match self {
 			Some(value) => value.serialize(scope),
-			None => Ok(v8::undefined(scope).into()),
+			None => Ok(v8::null(scope).into()),
 		}
 	}
 }

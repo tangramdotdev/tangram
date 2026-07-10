@@ -9,7 +9,7 @@ export type Request = {
 };
 
 export type Response = {
-	text: string | undefined;
+	text?: string | null;
 };
 
 export let handle = (request: Request): Response => {
@@ -38,5 +38,5 @@ export let handle = (request: Request): Response => {
 	// Get the text.
 	let text = quickInfo?.displayParts?.map(({ text }) => text).join("");
 
-	return { text };
+	return { text: text ?? null };
 };

@@ -99,7 +99,7 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		let output = imports.map((import_) => {
 			let specifier = import_.text;
 			let parent = import_.parent;
-			let attributes: { [key: string]: string } | undefined;
+			let attributes: { [key: string]: string } | null;
 			if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) {
 				attributes = getImportAttributesFromImportDeclaration(parent);
 			} else if (
@@ -114,13 +114,13 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 			let extension: string;
 			let module = moduleFromFileName(fileName);
 			let resolvedModule = resolveLibraryModule(module, specifier);
-			if (resolvedModule === undefined) {
+			if (resolvedModule === null) {
 				try {
 					resolvedModule = syscall(
 						"module_resolve",
 						module,
 						specifier,
-						attributes,
+						attributes ?? null,
 					);
 				} catch (error) {
 					log(error);
@@ -167,9 +167,9 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 let resolveLibraryModule = (
 	referrer: Module,
 	specifier: string,
-): Module | undefined => {
+): Module | null => {
 	if (referrer.kind !== "dts") {
-		return undefined;
+		return null;
 	}
 	if (
 		!(
@@ -179,19 +179,19 @@ let resolveLibraryModule = (
 			specifier === ".."
 		)
 	) {
-		return undefined;
+		return null;
 	}
 	let item = referrer.referent.item;
 	if (typeof item !== "string") {
-		return undefined;
+		return null;
 	}
 	let referrerPath = item.startsWith("./") ? item.slice(2) : item;
 	let referrerDirectory = referrerPath.includes("/")
 		? referrerPath.slice(0, referrerPath.lastIndexOf("/"))
 		: "";
 	let path = normalizeLibraryPath(`${referrerDirectory}/${specifier}`);
-	if (path === undefined) {
-		return undefined;
+	if (path === null) {
+		return null;
 	}
 	if (path.endsWith(".d.ts")) {
 	} else if (path.endsWith(".ts") || path.endsWith(".js")) {
@@ -207,7 +207,7 @@ let resolveLibraryModule = (
 	};
 };
 
-let normalizeLibraryPath = (path: string): string | undefined => {
+let normalizeLibraryPath = (path: string): string | null => {
 	let components = [];
 	for (let component of path.split("/")) {
 		if (component === "" || component === ".") {
@@ -215,7 +215,7 @@ let normalizeLibraryPath = (path: string): string | undefined => {
 		}
 		if (component === "..") {
 			if (components.length === 0) {
-				return undefined;
+				return null;
 			}
 			components.pop();
 		} else {
@@ -227,9 +227,9 @@ let normalizeLibraryPath = (path: string): string | undefined => {
 
 let getImportAttributesFromImportDeclaration = (
 	declaration: ts.ImportDeclaration | ts.ExportDeclaration,
-): { [key: string]: string } | undefined => {
+): { [key: string]: string } | null => {
 	if (declaration.attributes === undefined) {
-		return undefined;
+		return null;
 	}
 	let attributes: { [key: string]: string } = {};
 	for (let attribute of declaration.attributes.elements) {
@@ -245,13 +245,13 @@ let getImportAttributesFromImportDeclaration = (
 
 let getImportAttributesFromImportExpression = (
 	expression: ts.CallExpression,
-): { [key: string]: string } | undefined => {
+): { [key: string]: string } | null => {
 	let argument = expression.arguments.at(1);
 	if (argument === undefined) {
-		return undefined;
+		return null;
 	}
 	if (!ts.isObjectLiteralExpression(argument)) {
-		return undefined;
+		return null;
 	}
 	let with_: ts.Expression | undefined;
 	for (let property of argument.properties) {
@@ -270,10 +270,10 @@ let getImportAttributesFromImportExpression = (
 		break;
 	}
 	if (with_ === undefined) {
-		return undefined;
+		return null;
 	}
 	if (!ts.isObjectLiteralExpression(with_)) {
-		return undefined;
+		return null;
 	}
 	let attributes: { [key: string]: string } = {};
 	for (let property of with_.properties) {

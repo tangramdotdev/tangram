@@ -8,12 +8,14 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ranges: Option<Vec<SelectionRange>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct SelectionRange {
 	pub range: tg::Range,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<Box<SelectionRange>>,
 }
 

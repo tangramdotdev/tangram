@@ -9,6 +9,8 @@ mod encoding;
 mod host;
 mod http2;
 
+pub(super) struct Arg<T>(pub T);
+
 struct Result<T>(tg::Result<T>);
 
 pub fn syscall<'js>(
@@ -115,14 +117,27 @@ impl<T> From<tg::Result<T>> for Result<T> {
 	}
 }
 
+impl<'js, T> qjs::FromJs<'js> for Arg<T>
+where
+	T: tangram_quickjs::Deserialize<'js>,
+{
+	fn from_js(ctx: &qjs::Ctx<'js>, value: qjs::Value<'js>) -> qjs::Result<Self> {
+		T::deserialize(ctx, value)
+			.map(Self)
+			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))
+	}
+}
+
 impl<'js, T> qjs::IntoJs<'js> for Result<T>
 where
-	T: qjs::IntoJs<'js>,
+	T: tangram_quickjs::Serialize,
 {
 	fn into_js(self, ctx: &qjs::Ctx<'js>) -> qjs::Result<qjs::Value<'js>> {
 		match self.0 {
 			Ok(value) => {
-				let value = value.into_js(ctx)?;
+				let value = value
+					.serialize(ctx)
+					.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 				Ok(value)
 			},
 			Err(error) => {

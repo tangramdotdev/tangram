@@ -4,7 +4,7 @@ import type { Client } from "../../client.ts";
 
 export namespace Signal {
 	export type Arg = {
-		location?: tg.Location.Arg | undefined;
+		location?: tg.Location.Arg | null;
 		signal: tg.Process.Signal;
 	};
 }
@@ -24,7 +24,7 @@ export async function trySignalProcess(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Signal.Arg,
-): Promise<true | undefined> {
+): Promise<true | null> {
 	let method = "POST";
 	let uri = `/processes/${percentEncode(id)}/signal`;
 	let headers = {
@@ -33,8 +33,8 @@ export async function trySignalProcess(
 	let body = Body.json({
 		...arg,
 		location:
-			arg.location === undefined
-				? undefined
+			arg.location === undefined || arg.location === null
+				? null
 				: tg.Location.Arg.toDataString(arg.location),
 	});
 	let request = new Request({
@@ -45,7 +45,7 @@ export async function trySignalProcess(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
-		return undefined;
+		return null;
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}

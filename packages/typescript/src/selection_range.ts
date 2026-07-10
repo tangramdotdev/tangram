@@ -10,12 +10,12 @@ export type Request = {
 };
 
 export type Response = {
-	ranges: Array<SelectionRange> | undefined;
+	ranges?: Array<SelectionRange> | null;
 };
 
 export type SelectionRange = {
 	range: Range;
-	parent: SelectionRange | undefined;
+	parent?: SelectionRange | null;
 };
 
 export let handle = (request: Request): Response => {
@@ -44,7 +44,7 @@ export let handle = (request: Request): Response => {
 	});
 
 	return {
-		ranges: ranges.length === 0 ? undefined : ranges,
+		ranges: ranges.length === 0 ? null : ranges,
 	};
 };
 
@@ -62,7 +62,7 @@ let convertSelectionRange = (
 	);
 	let parent =
 		selectionRange.parent === undefined
-			? undefined
+			? null
 			: convertSelectionRange(sourceFile, selectionRange.parent);
 
 	return {

@@ -8,6 +8,7 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub entries: Option<Vec<Entry>>,
 }
 
@@ -17,12 +18,15 @@ pub struct ResolveRequest {
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 	pub name: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ResolveResponse {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub entry: Option<EntryDetails>,
 }
 
@@ -31,21 +35,31 @@ pub struct ResolveResponse {
 pub struct Entry {
 	pub name: String,
 	pub kind: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind_modifiers: Option<String>,
 	pub sort_text: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub insert_text: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub filter_text: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub is_snippet: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub commit_characters: Option<Vec<String>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub data: Option<serde_json::Value>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub label_details: Option<LabelDetails>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LabelDetails {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detail: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub description: Option<String>,
 }
 
@@ -53,8 +67,11 @@ pub struct LabelDetails {
 #[serde(rename_all = "camelCase")]
 pub struct EntryDetails {
 	pub kind: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind_modifiers: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detail: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub documentation: Option<String>,
 }
 

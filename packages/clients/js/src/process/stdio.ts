@@ -5,7 +5,7 @@ export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
 export namespace Stdio {
 	export type Chunk = {
 		bytes: Uint8Array;
-		position?: number | undefined;
+		position?: number | null;
 		stream: tg.Process.Stdio.Stream;
 	};
 
@@ -13,12 +13,12 @@ export namespace Stdio {
 
 	export namespace Read {
 		export type Arg = {
-			length?: number | undefined;
-			location?: tg.Location.Arg | undefined;
-			position?: number | string | undefined;
-			size?: number | undefined;
+			length?: number | null;
+			location?: tg.Location.Arg | null;
+			position?: number | string | null;
+			size?: number | null;
 			streams: Array<tg.Process.Stdio.Stream>;
-			timeout?: number | undefined;
+			timeout?: number | null;
 		};
 
 		export type Event =
@@ -33,7 +33,7 @@ export namespace Stdio {
 			export namespace Data {
 				export type Chunk = {
 					bytes: string;
-					position?: number | undefined;
+					position?: number | null;
 					stream: tg.Process.Stdio.Stream;
 				};
 			}
@@ -46,7 +46,7 @@ export namespace Stdio {
 						kind: "chunk",
 						value: {
 							bytes: tg.encoding.base64.decode(data.value.bytes),
-							position: data.value.position,
+							position: data.value.position ?? null,
 							stream: data.value.stream,
 						},
 					};
@@ -63,7 +63,10 @@ export namespace Stdio {
 						kind: "chunk",
 						value: {
 							bytes: tg.encoding.base64.encode(event.value.bytes),
-							position: event.value.position,
+							...(event.value.position !== undefined &&
+							event.value.position !== null
+								? { position: event.value.position }
+								: {}),
 							stream: event.value.stream,
 						},
 					};
@@ -76,7 +79,7 @@ export namespace Stdio {
 
 	export namespace Write {
 		export type Arg = {
-			location?: tg.Location.Arg | undefined;
+			location?: tg.Location.Arg | null;
 			streams: Array<tg.Process.Stdio.Stream>;
 		};
 
@@ -85,20 +88,20 @@ export namespace Stdio {
 
 	export class Reader {
 		#available: boolean;
-		#fd: number | undefined;
-		#input: AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined;
-		#process: tg.Process | undefined;
+		#fd: number | null;
+		#input: AsyncIterableIterator<tg.Process.Stdio.Read.Event> | null;
+		#process: tg.Process | null;
 		#stream: "stdout" | "stderr";
 
 		constructor(arg: {
-			fd?: number | undefined;
-			unavailable?: boolean | undefined;
+			fd?: number | null;
+			unavailable?: boolean;
 			stream: "stdout" | "stderr";
 		}) {
 			this.#available = !(arg.unavailable ?? false);
-			this.#fd = arg.fd;
-			this.#input = undefined;
-			this.#process = undefined;
+			this.#fd = arg.fd ?? null;
+			this.#input = null;
+			this.#process = null;
 			this.#stream = arg.stream;
 		}
 
@@ -110,29 +113,29 @@ export namespace Stdio {
 		async close(): Promise<void> {
 			let fd = this.#fd;
 			let input = this.#input;
-			this.#fd = undefined;
-			this.#input = undefined;
-			this.#process = undefined;
+			this.#fd = null;
+			this.#input = null;
+			this.#process = null;
 			if (!this.#available) {
 				return;
 			}
-			if (fd !== undefined) {
+			if (fd !== null) {
 				await tg.host.close(fd);
 			}
-			if (input !== undefined) {
+			if (input !== null) {
 				await input.return?.();
 			}
 		}
 
 		/** Read one chunk from the stream. */
-		async read(): Promise<Uint8Array | undefined> {
+		async read(): Promise<Uint8Array | null> {
 			if (!this.#available) {
 				throw new Error(`${this.#stream} is not available`);
 			}
-			if (this.#fd !== undefined) {
+			if (this.#fd !== null) {
 				while (true) {
 					let bytes = await tg.host.read(this.#fd, 4096);
-					if (bytes === undefined) {
+					if (bytes === null) {
 						break;
 					}
 					if (bytes.length > 0) {
@@ -140,25 +143,27 @@ export namespace Stdio {
 					}
 				}
 				let fd = this.#fd;
-				this.#fd = undefined;
-				this.#process = undefined;
-				if (fd !== undefined) {
+				this.#fd = null;
+				this.#process = null;
+				if (fd !== null) {
 					await tg.host.close(fd);
 				}
-				return undefined;
+				return null;
 			}
-			if (this.#process === undefined) {
+			if (this.#process === null) {
 				throw new Error(`${this.#stream} is not available`);
 			}
-			if (this.#input === undefined) {
+			if (this.#input === null) {
 				if (typeof this.#process.id !== "string") {
 					throw new Error("expected a sandboxed process id");
 				}
 				let input = await tg.client.tryReadProcessStdio(this.#process.id, {
-					location: this.#process.location,
+					...(this.#process.location !== null
+						? { location: this.#process.location }
+						: {}),
 					streams: [this.#stream],
 				});
-				if (input === undefined) {
+				if (input === null) {
 					throw new Error(`${this.#stream} is not available`);
 				}
 				this.#input = input;
@@ -179,9 +184,9 @@ export namespace Stdio {
 					return event.value.bytes;
 				}
 			}
-			this.#input = undefined;
-			this.#process = undefined;
-			return undefined;
+			this.#input = null;
+			this.#process = null;
+			return null;
 		}
 
 		/** Read all remaining bytes from the stream. */
@@ -190,7 +195,7 @@ export namespace Stdio {
 			let length = 0;
 			while (true) {
 				let bytes = await this.read();
-				if (bytes === undefined) {
+				if (bytes === null) {
 					break;
 				}
 				chunks.push(bytes);
@@ -218,18 +223,18 @@ export namespace Stdio {
 
 	export class Writer {
 		#available: boolean;
-		#fd: number | undefined;
-		#process: tg.Process | undefined;
+		#fd: number | null;
+		#process: tg.Process | null;
 		#stream: "stdin";
 
 		constructor(arg: {
-			fd?: number | undefined;
-			unavailable?: boolean | undefined;
+			fd?: number | null;
+			unavailable?: boolean;
 			stream: "stdin";
 		}) {
 			this.#available = !(arg.unavailable ?? false);
-			this.#fd = arg.fd;
-			this.#process = undefined;
+			this.#fd = arg.fd ?? null;
+			this.#process = null;
 			this.#stream = arg.stream;
 		}
 
@@ -243,29 +248,29 @@ export namespace Stdio {
 			let process = this.#process;
 			let stream = this.#stream;
 			if (!this.#available) {
-				this.#fd = undefined;
-				this.#process = undefined;
+				this.#fd = null;
+				this.#process = null;
 				return;
 			}
-			if (fd !== undefined) {
-				this.#fd = undefined;
-				this.#process = undefined;
+			if (fd !== null) {
+				this.#fd = null;
+				this.#process = null;
 				await tg.host.close(fd);
 				return;
 			}
-			if (process !== undefined) {
+			if (process !== null) {
 				if (typeof process.id === "number") {
-					this.#fd = undefined;
-					this.#process = undefined;
+					this.#fd = null;
+					this.#process = null;
 					return;
 				}
 				let location = process.location;
-				if (location === undefined) {
+				if (location === null) {
 					await process.load();
 					location = process.location;
 				}
-				this.#fd = undefined;
-				this.#process = undefined;
+				this.#fd = null;
+				this.#process = null;
 				if (typeof process.id !== "string") {
 					throw new Error("expected a sandboxed process id");
 				}
@@ -273,7 +278,7 @@ export namespace Stdio {
 					await tg.client.writeProcessStdio(
 						process.id,
 						{
-							location,
+							...(location !== null ? { location } : {}),
 							streams: [stream],
 						},
 						(async function* () {
@@ -295,13 +300,13 @@ export namespace Stdio {
 			let fd = this.#fd;
 			let process = this.#process;
 			let stream = this.#stream;
-			if (fd === undefined && process === undefined) {
+			if (fd === null && process === null) {
 				throw new Error(`${stream} is not available`);
 			}
 			if (input.length === 0) {
 				return 0;
 			}
-			if (fd !== undefined) {
+			if (fd !== null) {
 				await tg.host.write(fd, input);
 				return input.length;
 			}
@@ -309,7 +314,7 @@ export namespace Stdio {
 				throw new Error(`${stream} is not available`);
 			}
 			let location = process!.location;
-			if (location === undefined) {
+			if (location === null) {
 				await process!.load();
 				location = process!.location;
 			}
@@ -317,7 +322,7 @@ export namespace Stdio {
 				await tg.client.writeProcessStdio(
 					process!.id,
 					{
-						location,
+						...(location !== null ? { location } : {}),
 						streams: [stream],
 					},
 					(async function* () {
@@ -354,77 +359,78 @@ export namespace Stdio {
 
 export let task = async (
 	id: tg.Process.Id,
-	location: tg.Location.Arg | undefined,
-	stdin: "pipe" | "tty" | undefined,
-	stdout: "pipe" | "tty" | undefined,
-	stderr: "pipe" | "tty" | undefined,
+	location: tg.Location.Arg | null,
+	stdin: "pipe" | "tty" | null,
+	stdout: "pipe" | "tty" | null,
+	stderr: "pipe" | "tty" | null,
 	tty: boolean,
 ): Promise<void> => {
-	let stdinError: unknown;
+	let stdinError: unknown = null;
+	let stdinFailed = false;
 	let stdinClosing = false;
-	let stdinStopper =
-		stdin !== undefined ? await tg.host.stopperOpen() : undefined;
+	let stdinStopper = stdin !== null ? await tg.host.stopperOpen() : null;
 	let stdinTask_ =
-		stdin !== undefined && stdinStopper !== undefined
+		stdin !== null && stdinStopper !== null
 			? stdinTask(id, location, stdin, stdinStopper).catch((error) => {
 					if (!stdinClosing) {
 						stdinError = error;
+						stdinFailed = true;
 					}
 				})
-			: undefined;
-	let sigwinchError: unknown;
-	let sigwinchListener = tty ? tg.host.listenSignal("sigwinch") : undefined;
+			: null;
+	let sigwinchError: unknown = null;
+	let sigwinchFailed = false;
+	let sigwinchListener = tty ? tg.host.listenSignal("sigwinch") : null;
 	let sigwinchTask_ =
-		sigwinchListener !== undefined
+		sigwinchListener !== null
 			? sigwinchTask(id, location, sigwinchListener).catch((error) => {
 					sigwinchError = error;
+					sigwinchFailed = true;
 				})
-			: undefined;
-	let stdoutStderrError: unknown;
+			: null;
+	let stdoutStderrError: unknown = null;
+	let stdoutStderrFailed = false;
 	try {
-		stdoutStderrError = await stdoutStderrTask(
-			id,
-			location,
-			stdout,
-			stderr,
-		).then(
-			() => undefined,
-			(error) => error,
-		);
-		if (stdinStopper !== undefined) {
+		try {
+			await stdoutStderrTask(id, location, stdout, stderr);
+		} catch (error) {
+			stdoutStderrError = error;
+			stdoutStderrFailed = true;
+		}
+		if (stdinStopper !== null) {
 			stdinClosing = true;
 			await tg.host.stopperStop(stdinStopper);
 		}
 	} finally {
 		await cleanup(stdinStopper, sigwinchListener);
 	}
-	if (stdinTask_ !== undefined) {
+	if (stdinTask_ !== null) {
 		await stdinTask_;
 	}
-	if (sigwinchTask_ !== undefined) {
+	if (sigwinchTask_ !== null) {
 		await sigwinchTask_;
 	}
-	if (stdinError !== undefined) {
+	if (stdinFailed) {
 		throw stdinError;
 	}
-	if (sigwinchError !== undefined) {
+	if (sigwinchFailed) {
 		throw sigwinchError;
 	}
-	if (stdoutStderrError !== undefined) {
+	if (stdoutStderrFailed) {
 		throw stdoutStderrError;
 	}
 };
 
 async function cleanup(
-	stdinStopper: tg.Host.Stopper | undefined,
-	sigwinchListener: tg.Host.SignalListener | undefined,
+	stdinStopper: tg.Host.Stopper | null,
+	sigwinchListener: tg.Host.SignalListener | null,
 ): Promise<void> {
 	try {
-		if (sigwinchListener !== undefined) {
+		if (sigwinchListener !== null) {
 			await sigwinchListener.close();
 		}
 	} finally {
-		if (stdinStopper !== undefined) {
+		if (stdinStopper !== null) {
 			await tg.host.stopperClose(stdinStopper);
 		}
 	}
@@ -432,11 +438,12 @@ async function cleanup(
 
 async function stdinTask(
 	id: tg.Process.Id,
-	location: tg.Location.Arg | undefined,
+	location: tg.Location.Arg | null,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
 ): Promise<void> {
-	let error: unknown;
+	let error: unknown = null;
+	let failed = false;
 	let raw = stdin === "tty" && tg.host.isForegroundControllingTty(0);
 	if (raw) {
 		await tg.host.enableRawMode(0);
@@ -446,7 +453,7 @@ async function stdinTask(
 			(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
 				while (true) {
 					let bytes = await tg.host.read(0, 4096, stopper);
-					if (bytes === undefined) {
+					if (bytes === null) {
 						break;
 					}
 					if (bytes.length === 0) {
@@ -466,7 +473,7 @@ async function stdinTask(
 			await tg.client.writeProcessStdio(
 				id,
 				{
-					location,
+					...(location !== null ? { location } : {}),
 					streams: ["stdin"],
 				},
 				input,
@@ -474,43 +481,45 @@ async function stdinTask(
 		);
 	} catch (error_) {
 		error = error_;
+		failed = true;
 	} finally {
 		if (raw) {
 			try {
 				await tg.host.disableRawMode(0);
 			} catch (disableError) {
-				if (error === undefined) {
+				if (!failed) {
 					error = disableError;
+					failed = true;
 				}
 			}
 		}
 	}
-	if (error !== undefined) {
+	if (failed) {
 		throw error;
 	}
 }
 
 async function stdoutStderrTask(
 	id: tg.Process.Id,
-	location: tg.Location.Arg | undefined,
-	stdout: "pipe" | "tty" | undefined,
-	stderr: "pipe" | "tty" | undefined,
+	location: tg.Location.Arg | null,
+	stdout: "pipe" | "tty" | null,
+	stderr: "pipe" | "tty" | null,
 ): Promise<void> {
 	let streams: Array<tg.Process.Stdio.Stream> = [];
-	if (stdout !== undefined) {
+	if (stdout !== null) {
 		streams.push("stdout");
 	}
-	if (stderr !== undefined) {
+	if (stderr !== null) {
 		streams.push("stderr");
 	}
 	if (streams.length === 0) {
 		return;
 	}
 	let iterator = await tg.client.tryReadProcessStdio(id, {
-		location,
+		...(location !== null ? { location } : {}),
 		streams,
 	});
-	if (iterator === undefined) {
+	if (iterator === null) {
 		return;
 	}
 	for await (let event of iterator) {
@@ -524,16 +533,16 @@ async function stdoutStderrTask(
 
 async function sigwinchTask(
 	id: tg.Process.Id,
-	location: tg.Location.Arg | undefined,
+	location: tg.Location.Arg | null,
 	signalListener: tg.Host.SignalListener,
 ): Promise<void> {
 	for await (let _ of signalListener) {
 		let size = tg.host.getTtySize();
-		if (size === undefined) {
+		if (size === null) {
 			continue;
 		}
 		let arg: tg.Process.Tty.Put.Arg = { size };
-		if (location !== undefined) {
+		if (location !== null) {
 			arg.location = location;
 		}
 		await tg.client.setProcessTtySize(id, arg);

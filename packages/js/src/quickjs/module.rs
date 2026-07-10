@@ -1,8 +1,9 @@
 use {
-	super::{Module, StateHandle, serde::Serde},
+	super::{Module, StateHandle},
 	rquickjs::{self as qjs, IntoJs as _},
 	sourcemap::SourceMap,
 	tangram_client::prelude::*,
+	tangram_quickjs::Serde,
 };
 
 pub struct Resolver;

@@ -201,7 +201,7 @@ impl serde::Serialize for Data {
 		S: serde::Serializer,
 	{
 		match self {
-			Self::Null => serializer.serialize_unit(),
+			Self::Null => serializer.serialize_none(),
 			Self::Bool(value) => serializer.serialize_bool(*value),
 			Self::Number(value) => serializer.serialize_f64(*value),
 			Self::String(value) => serializer.serialize_str(value),

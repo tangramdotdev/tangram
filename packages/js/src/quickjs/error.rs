@@ -1,9 +1,10 @@
 use {
-	super::{State, StateHandle, serde::Serde},
+	super::{State, StateHandle},
 	num::ToPrimitive as _,
 	rquickjs::{self as qjs, FromJs as _, IntoJs as _, function::This},
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
+	tangram_quickjs::Serde,
 };
 
 /// Convert an error to a JavaScript exception.

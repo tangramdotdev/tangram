@@ -7,15 +7,15 @@ export type Request = {
 };
 
 export type Response = {
-	ranges: Array<FoldingRange> | undefined;
+	ranges?: Array<FoldingRange> | null;
 };
 
 export type FoldingRange = {
 	startLine: number;
-	startCharacter: number | undefined;
+	startCharacter?: number | null;
 	endLine: number;
-	endCharacter: number | undefined;
-	kind: FoldingRangeKind | undefined;
+	endCharacter?: number | null;
+	kind?: FoldingRangeKind | null;
 };
 
 export type FoldingRangeKind = "comment" | "imports" | "region";
@@ -37,17 +37,17 @@ export let handle = (request: Request): Response => {
 	// Convert the outlining spans.
 	let ranges = spans
 		.map((span) => convertOutliningSpan(sourceFile, span))
-		.filter((range): range is FoldingRange => range !== undefined);
+		.filter((range): range is FoldingRange => range !== null);
 
 	return {
-		ranges: ranges.length === 0 ? undefined : ranges,
+		ranges: ranges.length === 0 ? null : ranges,
 	};
 };
 
 let convertOutliningSpan = (
 	sourceFile: ts.SourceFile,
 	span: ts.OutliningSpan,
-): FoldingRange | undefined => {
+): FoldingRange | null => {
 	let start = ts.getLineAndCharacterOfPosition(sourceFile, span.textSpan.start);
 	let end = ts.getLineAndCharacterOfPosition(
 		sourceFile,
@@ -55,14 +55,14 @@ let convertOutliningSpan = (
 	);
 
 	let endLine = end.line;
-	let endCharacter: number | undefined = end.character;
+	let endCharacter: number | null = end.character;
 	if (end.character === 0 && end.line > start.line) {
 		endLine = end.line - 1;
-		endCharacter = undefined;
+		endCharacter = null;
 	}
 
 	if (endLine < start.line) {
-		return undefined;
+		return null;
 	}
 
 	let kind = convertOutliningSpanKind(span.kind);
@@ -77,7 +77,7 @@ let convertOutliningSpan = (
 
 let convertOutliningSpanKind = (
 	kind: ts.OutliningSpanKind,
-): FoldingRangeKind | undefined => {
+): FoldingRangeKind | null => {
 	switch (kind) {
 		case ts.OutliningSpanKind.Comment:
 			return "comment";
@@ -86,6 +86,6 @@ let convertOutliningSpanKind = (
 		case ts.OutliningSpanKind.Region:
 			return "region";
 		case ts.OutliningSpanKind.Code:
-			return undefined;
+			return null;
 	}
 };

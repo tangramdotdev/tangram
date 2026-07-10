@@ -4,18 +4,22 @@ use {super::Compiler, lsp_types as lsp, std::collections::HashMap, tangram_clien
 pub struct Request {
 	pub module: tg::module::Data,
 	pub range: tg::Range,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub only: Option<Vec<String>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub actions: Option<Vec<Action>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Action {
 	pub title: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub edits: Option<Vec<Edit>>,
 }
 

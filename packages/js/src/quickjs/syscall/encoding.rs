@@ -1,7 +1,6 @@
 use {
-	super::Result,
-	crate::quickjs::{serde::Serde, types::Uint8Array},
-	tangram_client::prelude::*,
+	super::Result, crate::quickjs::types::Uint8Array, tangram_client::prelude::*,
+	tangram_quickjs::Serde,
 };
 
 pub fn base64_decode(value: String) -> Result<Uint8Array> {
@@ -35,7 +34,7 @@ pub fn hex_encode(value: Uint8Array) -> String {
 pub fn json_decode(value: String) -> Result<Serde<serde_json::Value>> {
 	let result = (|| {
 		let value: serde_json::Value = serde_json::from_str(&value)
-			.map_err(|error| tg::error!(!error, "failed to decode json"))?;
+			.map_err(|error| tg::error!(!error, "failed to decode the string as json"))?;
 		Ok(value)
 	})();
 	Result(result.map(Serde))

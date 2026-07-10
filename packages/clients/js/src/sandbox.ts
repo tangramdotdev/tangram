@@ -4,35 +4,35 @@ export namespace Sandbox {
 	export type Id = string;
 
 	export type DataArg = {
-		cpu?: number | undefined;
-		hostname?: string | undefined;
-		isolation?: tg.Sandbox.Isolation.Data | undefined;
-		location?: tg.Location.Arg | undefined;
-		memory?: number | undefined;
-		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
-		network?: tg.Sandbox.Network.Data | undefined;
-		owner?: string | undefined;
-		ttl?: number | undefined;
+		cpu?: number | null;
+		hostname?: string | null;
+		isolation?: tg.Sandbox.Isolation.Data | null;
+		location?: tg.Location.Arg | null;
+		memory?: number | null;
+		mounts?: Array<tg.Sandbox.Mount.Data>;
+		network?: tg.Sandbox.Network.Data | null;
+		owner?: string | null;
+		ttl?: number | null;
 	};
 
 	export namespace Get {
 		export type Arg = {
-			location?: tg.Location.Arg | undefined;
+			location?: tg.Location.Arg | null;
 		};
 
 		export type Output = {
-			cpu?: number | undefined;
-			creator?: string | undefined;
-			hostname?: string | undefined;
+			cpu?: number | null;
+			creator?: string | null;
+			hostname?: string | null;
 			id: tg.Sandbox.Id;
-			isolation?: tg.Sandbox.Isolation.Data | undefined;
-			location?: tg.Location | undefined;
-			memory?: number | undefined;
-			mounts: Array<tg.Sandbox.Mount.Data>;
-			network?: tg.Sandbox.Network.Data | undefined;
-			owner?: string | undefined;
+			isolation?: tg.Sandbox.Isolation.Data | null;
+			location?: tg.Location | null;
+			memory?: number | null;
+			mounts?: Array<tg.Sandbox.Mount.Data>;
+			network?: tg.Sandbox.Network.Data | null;
+			owner?: string | null;
 			status: tg.Sandbox.Status;
-			ttl?: number | undefined;
+			ttl?: number | null;
 		};
 	}
 
@@ -43,15 +43,15 @@ export namespace Sandbox {
 	}
 
 	export type Arg = {
-		cpu?: number | undefined;
-		hostname?: string | undefined;
-		isolation?: tg.Sandbox.Isolation | undefined;
-		location?: tg.Location.Arg | undefined;
-		memory?: number | undefined;
-		mounts?: Array<tg.Sandbox.Mount> | undefined;
-		network?: boolean | tg.Sandbox.Network | undefined;
-		owner?: string | undefined;
-		ttl?: number | undefined;
+		cpu?: number | null;
+		hostname?: string | null;
+		isolation?: tg.Sandbox.Isolation | null;
+		location?: tg.Location.Arg | null;
+		memory?: number | null;
+		mounts?: Array<tg.Sandbox.Mount>;
+		network?: boolean | tg.Sandbox.Network | null;
+		owner?: string | null;
+		ttl?: number | null;
 	};
 
 	export type Isolation = "container" | "seatbelt" | "vm";
@@ -80,8 +80,8 @@ export namespace Sandbox {
 
 	export namespace Network {
 		export type Bridge = {
-			kind?: "bridge" | undefined;
-			ports?: Array<tg.Sandbox.Port> | undefined;
+			kind?: "bridge";
+			ports?: Array<tg.Sandbox.Port>;
 		};
 
 		export type Data =
@@ -89,7 +89,7 @@ export namespace Sandbox {
 			| { kind: "host" }
 			| {
 					kind: "bridge";
-					ports?: Array<tg.Sandbox.Port.Data> | undefined;
+					ports?: Array<tg.Sandbox.Port.Data>;
 			  };
 
 		export let toData = (
@@ -146,7 +146,7 @@ export namespace Sandbox {
 	export type Mount = {
 		source: string;
 		target: string;
-		readonly?: boolean | undefined;
+		readonly?: boolean;
 	};
 
 	export namespace Mount {

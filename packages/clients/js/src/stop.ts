@@ -1,5 +1,5 @@
 export class Stop {
-	#resolve: (() => void) | undefined;
+	#resolve: (() => void) | null = null;
 	#promise: Promise<void>;
 
 	constructor() {
@@ -14,6 +14,6 @@ export class Stop {
 
 	stop() {
 		this.#resolve?.();
-		this.#resolve = undefined;
+		this.#resolve = null;
 	}
 }

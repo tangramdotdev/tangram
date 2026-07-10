@@ -8,12 +8,14 @@ export function file(
 ): tg.File.Builder;
 export function file(...args: tg.Args<tg.File.Arg>): tg.File.Builder;
 export function file(
-	firstArg:
+	firstArg?:
 		| TemplateStringsArray
 		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.File.Arg>>,
 	...args: tg.Args<tg.File.Arg>
 ): tg.File.Builder {
-	return new tg.File.Builder(firstArg, ...args);
+	return firstArg === undefined
+		? new tg.File.Builder(...args)
+		: new tg.File.Builder(firstArg, ...args);
 }
 
 /** A file. */
@@ -30,8 +32,8 @@ export class File {
 				? { kind: "file" as const, value: arg.object }
 				: undefined;
 		this.#state = new tg.Object.State({
-			id: arg.id,
-			object,
+			...(arg.id !== undefined ? { id: arg.id } : {}),
+			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
 		});
 	}
@@ -61,7 +63,7 @@ export class File {
 	static async new(...args: tg.Args<tg.File.Arg>): Promise<tg.File> {
 		let arg: Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>;
 		if (args.length === 1) {
-			let resolved = await tg.resolve(args[0]);
+			let resolved = await tg.resolve(args[0]!);
 			if (tg.Graph.Arg.Pointer.is(resolved)) {
 				return tg.File.withObject(tg.Graph.Pointer.fromArg(resolved));
 			}
@@ -69,30 +71,39 @@ export class File {
 		} else {
 			arg = await tg.File.arg(...args);
 		}
-		let contents = await tg.blob(arg.contents);
+		let contents =
+			arg.contents === undefined || arg.contents === null
+				? await tg.blob()
+				: await tg.blob(arg.contents);
 		let dependencies = Object.fromEntries(
 			Object.entries(arg.dependencies ?? {}).map(([reference, value]) => {
-				let dependency: tg.Graph.Dependency | undefined;
+				if (value === null) {
+					return [reference, null];
+				}
+				let dependency: tg.Graph.Dependency;
 				if (
 					typeof value === "number" ||
-					(value && "index" in value) ||
+					"index" in value ||
 					tg.Object.is(value)
 				) {
 					let item = tg.Graph.Edge.fromArg(value);
 					dependency = { item, options: {} };
-				} else if (value) {
-					let item =
-						value.item !== undefined
-							? tg.Graph.Edge.fromArg(value.item)
-							: undefined;
-					dependency = { item, options: value.options };
+				} else if (value.item === null) {
+					dependency = { item: null, options: value.options ?? {} };
+				} else {
+					let item = tg.Graph.Edge.fromArg(value.item);
+					dependency = { item, options: value.options ?? {} };
 				}
 				return [reference, dependency];
 			}),
 		);
 		let executable = arg.executable ?? false;
-		let module = arg.module;
-		let object = { contents, dependencies, executable, module };
+		let object: tg.Graph.File = {
+			contents,
+			dependencies,
+			executable,
+			module: arg.module ?? null,
+		};
 		return tg.File.withObject(object);
 	}
 
@@ -130,7 +141,16 @@ export class File {
 				}
 			},
 			reduce: {
-				contents: (a, b) => tg.blob(a, b),
+				contents: (a, b) => {
+					tg.assert(b !== undefined);
+					if (b === null) {
+						return tg.blob();
+					} else if (a === undefined || a === null) {
+						return tg.blob(b);
+					} else {
+						return tg.blob(a, b);
+					}
+				},
 				dependencies: "merge",
 			},
 		});
@@ -187,7 +207,7 @@ export class File {
 			let contents: tg.Blob;
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph !== undefined);
+				tg.assert(graph !== undefined && graph !== null);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
@@ -206,13 +226,13 @@ export class File {
 
 	/** Get this file's dependencies. */
 	get dependencies(): Promise<{
-		[reference: tg.Reference.String]: tg.Referent<tg.Object> | undefined;
+		[reference: tg.Reference.String]: tg.Referent<tg.Object | null> | null;
 	}> {
 		return (async () => {
 			let object = await this.object();
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph !== undefined);
+				tg.assert(graph !== undefined && graph !== null);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
@@ -222,12 +242,12 @@ export class File {
 					await Promise.all(
 						Object.entries(dependencies).map(
 							async ([reference, dependency]) => {
-								if (!dependency) {
-									return [reference, undefined];
+								if (dependency === null) {
+									return [reference, null];
 								}
-								let object: tg.Object | undefined;
-								if (dependency.item === undefined) {
-									object = undefined;
+								let object: tg.Object | null;
+								if (dependency.item === null) {
+									object = null;
 								} else if (typeof dependency.item === "number") {
 									object = await graph.get(dependency.item);
 								} else if ("index" in dependency.item) {
@@ -237,12 +257,12 @@ export class File {
 								} else {
 									object = dependency.item;
 								}
-								if (object !== undefined) {
+								if (object !== null) {
 									tg.Object.inheritToken(object, this.#state.token);
 								}
-								let value: tg.Referent<tg.Object | undefined> = {
+								let value: tg.Referent<tg.Object | null> = {
 									item: object,
-									options: dependency.options,
+									options: dependency.options ?? {},
 								};
 								return [reference, value];
 							},
@@ -255,25 +275,32 @@ export class File {
 					await Promise.all(
 						Object.entries(dependencies).map(
 							async ([reference, dependency]) => {
-								if (!dependency) {
-									return [reference, undefined];
+								if (dependency === null) {
+									return [reference, null];
 								}
-								let object: tg.Object | undefined;
-								tg.assert(typeof dependency.item === "object");
-								if ("index" in dependency.item) {
-									tg.assert(dependency.item.graph !== undefined);
-									object = await dependency.item.graph.get(
-										dependency.item.index,
-									);
+								let object: tg.Object | null;
+								if (dependency.item === null) {
+									object = null;
 								} else {
-									object = dependency.item;
+									tg.assert(typeof dependency.item === "object");
+									if ("index" in dependency.item) {
+										tg.assert(
+											dependency.item.graph !== undefined &&
+												dependency.item.graph !== null,
+										);
+										object = await dependency.item.graph.get(
+											dependency.item.index,
+										);
+									} else {
+										object = dependency.item;
+									}
 								}
-								if (object !== undefined) {
+								if (object !== null) {
 									tg.Object.inheritToken(object, this.#state.token);
 								}
-								let value = {
+								let value: tg.Referent<tg.Object | null> = {
 									item: object,
-									options: dependency.options,
+									options: dependency.options ?? {},
 								};
 								return [reference, value];
 							},
@@ -293,7 +320,7 @@ export class File {
 			} else {
 				let items = [];
 				for (let dependency of Object.values(dependencies)) {
-					if (dependency) {
+					if (dependency !== null && dependency.item !== null) {
 						items.push(dependency.item);
 					}
 				}
@@ -308,7 +335,7 @@ export class File {
 			let object = await this.object();
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph !== undefined);
+				tg.assert(graph !== undefined && graph !== null);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
@@ -321,19 +348,19 @@ export class File {
 	}
 
 	/** Get this file's module kind. */
-	get module(): Promise<string | undefined> {
+	get module(): Promise<string | null> {
 		return (async () => {
 			let object = await this.object();
 			if ("index" in object) {
 				let graph = object.graph;
-				tg.assert(graph !== undefined);
+				tg.assert(graph !== undefined && graph !== null);
 				let nodes = await graph.nodes;
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "file");
-				return node.module;
+				return node.module ?? null;
 			} else {
-				return object.module;
+				return object.module ?? null;
 			}
 		})();
 	}
@@ -346,7 +373,7 @@ export class File {
 	}
 
 	/** Read from this file. */
-	async read(options?: tg.Blob.ReadOptions): Promise<Uint8Array> {
+	async read(options?: tg.Blob.ReadOptions | null): Promise<Uint8Array> {
 		return (await this.contents).read(options);
 	}
 
@@ -381,7 +408,7 @@ export namespace File {
 			...placeholders: tg.Args<string>
 		);
 		constructor(
-			firstArg:
+			firstArg?:
 				| TemplateStringsArray
 				| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.File.Arg>>,
 			...args: tg.Args<tg.File.Arg>
@@ -416,16 +443,16 @@ export namespace File {
 		}
 
 		contents(
-			contents: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg | undefined>>,
+			contents: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg> | null>,
 		): this {
 			this.#args.push({ contents });
 			return this;
 		}
 
 		dependencies(
-			dependencies: tg.Unresolved<
-				tg.MaybeMutation<tg.Graph.Arg.File["dependencies"]>
-			>,
+			dependencies: tg.Unresolved<tg.MaybeMutation<
+				Exclude<tg.Graph.Arg.File["dependencies"], undefined>
+			> | null>,
 		): this {
 			this.#args.push({ dependencies });
 			return this;
@@ -433,9 +460,11 @@ export namespace File {
 
 		dependency(
 			reference: tg.Reference.String,
-			value: tg.Unresolved<tg.Graph.Arg.Dependency | undefined>,
+			value: tg.Unresolved<tg.Graph.Arg.Dependency | null>,
 		): this {
-			let dependencies: tg.Unresolved<tg.Graph.Arg.File["dependencies"]> = {
+			let dependencies: tg.Unresolved<
+				Exclude<tg.Graph.Arg.File["dependencies"], undefined>
+			> = {
 				[reference]: value,
 			};
 			this.#args.push({ dependencies });
@@ -443,13 +472,13 @@ export namespace File {
 		}
 
 		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<boolean | undefined>> = true,
+			executable: tg.Unresolved<tg.MaybeMutation<boolean> | null> = true,
 		): this {
 			this.#args.push({ executable });
 			return this;
 		}
 
-		module(module: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+		module(module: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ module });
 			return this;
 		}
@@ -469,7 +498,6 @@ export namespace File {
 	}
 
 	export type Arg =
-		| undefined
 		| string
 		| Uint8Array
 		| tg.Blob

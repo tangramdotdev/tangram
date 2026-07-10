@@ -3,13 +3,14 @@ import * as spawn from "./spawn.ts";
 
 export let builder = (...args: any): any => {
 	let validate = (arg: tg.Process.ArgObject): void => {
-		let sandbox = arg.sandbox ?? true;
+		let sandbox = arg.sandbox === undefined ? true : arg.sandbox;
 		let sandboxArg = spawn.isSandboxArg(sandbox) ? sandbox : undefined;
 		let network =
-			"network" in arg
+			arg.network !== undefined
 				? (arg.network ?? false)
 				: (sandboxArg?.network ?? false);
 		let cacheable =
+			sandbox !== null &&
 			sandbox !== false &&
 			typeof sandbox !== "string" &&
 			(sandboxArg?.mounts?.length ?? 0) === 0 &&

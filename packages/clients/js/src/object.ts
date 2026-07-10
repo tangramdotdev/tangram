@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { nullToUndefined, undefinedToNull } from "./util.ts";
 
 export type Object =
 	| tg.Blob
@@ -15,13 +14,13 @@ export namespace Object {
 		export type Object = {
 			children?: Array<
 				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			>;
+			> | null;
 			id: tg.Object.Id;
 			data: tg.Object.Data;
 		};
 
 		export type Arg = {
-			location?: tg.Location.Arg | undefined;
+			location?: tg.Location.Arg | null;
 			objects: Array<tg.Object.Batch.Object>;
 		};
 
@@ -36,9 +35,9 @@ export namespace Object {
 		export type Arg = {
 			children?: Array<
 				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			>;
+			> | null;
 			data: tg.Object.Data;
-			location?: tg.Location.Arg | undefined;
+			location?: tg.Location.Arg | null;
 		};
 
 		export type Output = {
@@ -88,25 +87,25 @@ export namespace Object {
 	}
 
 	export class State {
-		#id: tg.Object.Id | undefined;
-		#object: tg.Object.Object | undefined;
+		#id: tg.Object.Id | null;
+		#object: tg.Object.Object | null;
 		#stored: boolean;
-		#token: tg.Grant.Token | undefined;
+		#token: tg.Grant.Token | null;
 
 		constructor(arg: {
-			id?: tg.Object.Id | undefined;
-			object?: tg.Object.Object | undefined;
+			id?: tg.Object.Id | null;
+			object?: tg.Object.Object | null;
 			stored: boolean;
-			token?: tg.Grant.Token | undefined;
+			token?: tg.Grant.Token | null;
 		}) {
-			this.#id = arg.id;
-			this.#object = arg.object;
+			this.#id = arg.id ?? null;
+			this.#object = arg.object ?? null;
 			this.#stored = arg.stored;
-			this.#token = arg.token;
+			this.#token = arg.token ?? null;
 		}
 
 		get id(): tg.Object.Id {
-			if (this.#id !== undefined) {
+			if (this.#id !== null) {
 				return this.#id;
 			}
 			let data = tg.Object.Object.toData(this.#object!);
@@ -118,11 +117,11 @@ export namespace Object {
 			this.#id = id;
 		}
 
-		get object(): tg.Object.Object | undefined {
+		get object(): tg.Object.Object | null {
 			return this.#object;
 		}
 
-		set object(object: tg.Object.Object | undefined) {
+		set object(object: tg.Object.Object | null) {
 			this.#object = object;
 		}
 
@@ -134,29 +133,29 @@ export namespace Object {
 			this.#stored = stored;
 		}
 
-		get token(): tg.Grant.Token | undefined {
+		get token(): tg.Grant.Token | null {
 			return this.#token;
 		}
 
-		set token(token: tg.Grant.Token | undefined) {
+		set token(token: tg.Grant.Token | null) {
 			this.#token = token;
 		}
 
-		inheritToken(token: tg.Grant.Token | undefined): void {
-			if (this.#token === undefined) {
+		inheritToken(token: tg.Grant.Token | null): void {
+			if (this.#token === null) {
 				this.#token = token;
 			}
 		}
 
 		get kind(): tg.Object.Kind {
-			if (this.#object !== undefined) {
+			if (this.#object !== null) {
 				return this.#object.kind;
 			}
 			return tg.Object.Id.kind(this.#id!);
 		}
 
 		async load(): Promise<tg.Object.Object> {
-			if (this.#object === undefined) {
+			if (this.#object === null) {
 				let data = await tg.client.getObject(this.#id!);
 				this.#object = tg.Object.Object.fromData(data);
 			}
@@ -165,7 +164,7 @@ export namespace Object {
 
 		unload(): void {
 			if (this.#stored) {
-				this.#object = undefined;
+				this.#object = null;
 			}
 		}
 
@@ -321,14 +320,6 @@ export namespace Object {
 				}
 			}
 		};
-
-		export let toJson = (data: tg.Object.Data): unknown => {
-			return undefinedToNull(data);
-		};
-
-		export let fromJson = (json: unknown): tg.Object.Data => {
-			return nullToUndefined(json);
-		};
 	}
 
 	/** Get an object with an ID. */
@@ -368,7 +359,7 @@ export namespace Object {
 
 	export let inheritToken = (
 		object: tg.Object,
-		token: tg.Grant.Token | undefined,
+		token: tg.Grant.Token | null,
 	): void => {
 		object.state.inheritToken(token);
 	};

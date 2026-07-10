@@ -1,7 +1,6 @@
 use {
 	self::{
 		module::{Loader, Resolver},
-		serde::Serde,
 		syscall::syscall,
 	},
 	crate::Output,
@@ -10,11 +9,11 @@ use {
 	sourcemap::SourceMap,
 	std::{cell::RefCell, pin::pin, rc::Rc},
 	tangram_client::prelude::*,
+	tangram_quickjs::Serde,
 };
 
 mod error;
 mod module;
-mod serde;
 mod syscall;
 mod types;
 

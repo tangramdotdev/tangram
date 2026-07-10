@@ -4,10 +4,13 @@ export let start = async (): Promise<tg.Value.Data> => {
 	// Import the module.
 	let specifier: string;
 	let attributes: { [key: string]: string } = {};
-	let export_: string | undefined;
+	let export_: string | null = null;
 	if ("artifact" in tg.process.executable) {
 		specifier = tg.process.executable.artifact.id;
-		if (tg.process.executable.path !== undefined) {
+		if (
+			tg.process.executable.path !== undefined &&
+			tg.process.executable.path !== null
+		) {
 			specifier += `?get=${encodeURIComponent(tg.process.executable.path)}`;
 		}
 	} else if ("module" in tg.process.executable) {
@@ -16,7 +19,7 @@ export let start = async (): Promise<tg.Value.Data> => {
 			tg.Module.Item.toDataString,
 		);
 		attributes.kind = tg.process.executable.module.kind;
-		export_ = tg.process.executable.export;
+		export_ = tg.process.executable.export ?? null;
 	} else if ("path" in tg.process.executable) {
 		specifier = tg.process.executable.path;
 	} else {
@@ -24,9 +27,9 @@ export let start = async (): Promise<tg.Value.Data> => {
 	}
 	let namespace = await import(specifier, { with: attributes });
 
-	// If there is no export, then return undefined.
-	if (export_ === undefined) {
-		return undefined;
+	// If there is no export, then return null.
+	if (export_ === null) {
+		return null;
 	}
 
 	// Call the export.
@@ -38,7 +41,9 @@ export let start = async (): Promise<tg.Value.Data> => {
 	if (tg.Value.is(value)) {
 		output = value;
 	} else if (typeof value === "function") {
-		output = await tg.resolve(value(...tg.process.args));
+		// A function that returns nothing produces the null value.
+		let result = await value(...tg.process.args);
+		output = result === undefined ? null : await tg.resolve(result);
 	} else {
 		throw new Error("the export must be a tg.Value or a function");
 	}

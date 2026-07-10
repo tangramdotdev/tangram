@@ -9,25 +9,25 @@ export type Request = {
 };
 
 export type Response = {
-	help: SignatureHelp | undefined;
+	help?: SignatureHelp | null;
 };
 
 type SignatureHelp = {
 	signatures: Array<SignatureInformation>;
-	activeSignature: number | undefined;
-	activeParameter: number | undefined;
+	activeSignature?: number | null;
+	activeParameter?: number | null;
 };
 
 type SignatureInformation = {
 	label: string;
-	documentation: string | undefined;
+	documentation?: string | null;
 	parameters: Array<ParameterInformation>;
-	activeParameter: number | undefined;
+	activeParameter?: number | null;
 };
 
 type ParameterInformation = {
 	label: string;
-	documentation: string | undefined;
+	documentation?: string | null;
 };
 
 export let handle = (request: Request): Response => {
@@ -52,7 +52,7 @@ export let handle = (request: Request): Response => {
 		position,
 		undefined,
 	);
-	let help = info === undefined ? undefined : convertSignatureHelp(info);
+	let help = info === undefined ? null : convertSignatureHelp(info);
 
 	return { help };
 };
@@ -80,7 +80,7 @@ let convertSignatureInformation = (
 		label,
 		documentation,
 		parameters,
-		activeParameter: undefined,
+		activeParameter: null,
 	};
 };
 
@@ -99,7 +99,7 @@ let displayPartsToString = (parts: Array<ts.SymbolDisplayPart>): string => {
 
 let displayPartsToDocumentation = (
 	parts: Array<ts.SymbolDisplayPart>,
-): string | undefined => {
+): string | null => {
 	let text = displayPartsToString(parts);
-	return text.length === 0 ? undefined : text;
+	return text.length === 0 ? null : text;
 };

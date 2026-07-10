@@ -5,10 +5,10 @@ import type { Client } from "../../client.ts";
 export async function getSandbox(
 	client: Client,
 	id: tg.Sandbox.Id,
-	arg?: tg.Sandbox.Get.Arg,
+	arg?: tg.Sandbox.Get.Arg | null,
 ): Promise<tg.Sandbox.Get.Output> {
 	let output = await tryGetSandbox(client, id, arg);
-	if (output === undefined) {
+	if (output === null) {
 		throw new Error("failed to find the sandbox");
 	}
 	return output;
@@ -17,15 +17,15 @@ export async function getSandbox(
 export async function tryGetSandbox(
 	client: Client,
 	id: tg.Sandbox.Id,
-	arg?: tg.Sandbox.Get.Arg,
-): Promise<tg.Sandbox.Get.Output | undefined> {
+	arg?: tg.Sandbox.Get.Arg | null,
+): Promise<tg.Sandbox.Get.Output | null> {
 	let method = "GET";
 	let uri = new Uri({
 		path: `/sandboxes/${percentEncode(id)}`,
 		query: {
 			location:
-				arg?.location === undefined
-					? undefined
+				arg?.location === undefined || arg.location === null
+					? null
 					: tg.Location.Arg.toDataString(arg.location),
 		},
 	});
@@ -39,13 +39,13 @@ export async function tryGetSandbox(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
-		return undefined;
+		return null;
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	let output = await response.json<
 		Omit<tg.Sandbox.Get.Output, "location"> & {
-			location?: string | tg.Location;
+			location?: string | tg.Location | null;
 		}
 	>();
 	if (typeof output.location === "string") {

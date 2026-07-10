@@ -7,7 +7,7 @@ import type { Client } from "../../../client.ts";
 export namespace Stdio {
 	export namespace Write {
 		export type Arg = {
-			location?: tg.Location.Arg;
+			location?: tg.Location.Arg | null;
 			streams: Array<tg.Process.Stdio.Stream>;
 		};
 	}
@@ -20,7 +20,7 @@ export async function writeProcessStdio(
 	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
 ): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event>> {
 	let output = await tryWriteProcessStdio(client, id, arg, input);
-	if (output === undefined) {
+	if (output === null) {
 		throw new Error("failed to find the process");
 	}
 	return output;
@@ -31,7 +31,7 @@ export async function tryWriteProcessStdio(
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | undefined> {
+): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
 	return await writeProcessStdioAll(client, id, arg, input);
 }
 
@@ -40,7 +40,7 @@ async function writeProcessStdioAll(
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | undefined> {
+): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
 	let events = new Queue(input);
 	let stop = new Stop();
 	let output = await writeProcessStdioOnce(
@@ -49,9 +49,9 @@ async function writeProcessStdioAll(
 		arg,
 		encodeReadStdioEvents(events, arg.streams, stop),
 	);
-	if (output === undefined) {
+	if (output === null) {
 		await input.return?.();
-		return undefined;
+		return null;
 	}
 	return (async function* (output_) {
 		try {
@@ -78,7 +78,7 @@ async function writeProcessStdioAll(
 					arg,
 					encodeReadStdioEvents(events, arg.streams, stop),
 				);
-				if (nextOutput === undefined) {
+				if (nextOutput === null) {
 					return;
 				}
 				output_ = nextOutput;
@@ -94,15 +94,15 @@ async function writeProcessStdioOnce(
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Arg,
 	input: AsyncIterableIterator<Body.SseEvent>,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | undefined> {
+): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
 	let method = "POST";
 	let uri = new Uri({
 		path: `/processes/${percentEncode(id)}/stdio`,
 		query: {
 			...arg,
 			location:
-				arg.location === undefined
-					? undefined
+				arg.location === undefined || arg.location === null
+					? null
 					: tg.Location.Arg.toDataString(arg.location),
 			streams: arg.streams.join(","),
 		},
@@ -120,7 +120,7 @@ async function writeProcessStdioOnce(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
-		return undefined;
+		return null;
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}

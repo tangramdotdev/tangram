@@ -7,6 +7,7 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ranges: Option<Vec<Range>>,
 }
 
@@ -14,9 +15,12 @@ pub struct Response {
 #[serde(rename_all = "camelCase")]
 pub struct Range {
 	pub start_line: u32,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub start_character: Option<u32>,
 	pub end_line: u32,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub end_character: Option<u32>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<Kind>,
 }
 

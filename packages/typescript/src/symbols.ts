@@ -8,17 +8,17 @@ export type Request = {
 };
 
 export type Response = {
-	symbols: Array<Symbol> | null;
+	symbols?: Array<Symbol> | null;
 };
 
 export type Symbol = {
 	name: string;
-	detail: string | null;
+	detail?: string | null;
 	kind: Kind;
 	tags: Array<Tag>;
 	range: Range;
 	selection: Range;
-	children: Array<Symbol> | null;
+	children?: Array<Symbol> | null;
 };
 
 export type Kind =
@@ -69,7 +69,7 @@ export let handle = (request: Request): Response => {
 	let root = walk(sourceFile, navigationTree);
 
 	// Drop the root and return the symbols directly. The item returned by getNavigationTree is guaranteed to be a module.
-	return { symbols: root.children };
+	return { symbols: root.children ?? null };
 };
 
 export let walk = (

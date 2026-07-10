@@ -9,45 +9,45 @@ export type Request = {
 };
 
 export type Response = {
-	entries: Array<CompletionEntry> | undefined;
+	entries?: Array<CompletionEntry> | null;
 };
 
 export type CompletionEntry = {
 	name: string;
 	kind: string;
-	kindModifiers: string | undefined;
+	kindModifiers?: string | null;
 	sortText: string;
-	insertText: string | undefined;
-	filterText: string | undefined;
-	isSnippet: boolean | undefined;
-	source: string | undefined;
-	commitCharacters: Array<string> | undefined;
-	data: unknown;
-	labelDetails: CompletionEntryLabelDetails | undefined;
+	insertText?: string | null;
+	filterText?: string | null;
+	isSnippet?: boolean | null;
+	source?: string | null;
+	commitCharacters?: Array<string> | null;
+	data?: {} | null;
+	labelDetails?: CompletionEntryLabelDetails | null;
 };
 
 export type CompletionEntryLabelDetails = {
-	detail: string | undefined;
-	description: string | undefined;
+	detail?: string | null;
+	description?: string | null;
 };
 
 export type ResolveRequest = {
 	module: Module;
 	position: Position;
 	name: string;
-	source: string | undefined;
-	data: unknown;
+	source?: string | null;
+	data?: {} | null;
 };
 
 export type ResolveResponse = {
-	entry: CompletionEntryDetails | undefined;
+	entry?: CompletionEntryDetails | null;
 };
 
 export type CompletionEntryDetails = {
 	kind: string;
-	kindModifiers: string | undefined;
-	detail: string | undefined;
-	documentation: string | undefined;
+	kindModifiers?: string | null;
+	detail?: string | null;
+	documentation?: string | null;
 };
 
 export let handle = (request: Request): Response => {
@@ -76,7 +76,7 @@ export let handle = (request: Request): Response => {
 	let entries = info?.entries.map(convertCompletionEntry);
 
 	return {
-		entries,
+		entries: entries ?? null,
 	};
 };
 
@@ -102,12 +102,12 @@ export let handleResolve = (request: ResolveRequest): ResolveResponse => {
 		position,
 		request.name,
 		undefined,
-		request.source,
+		request.source ?? undefined,
 		undefined,
-		request.data as ts.CompletionEntryData | undefined,
+		(request.data ?? undefined) as ts.CompletionEntryData | undefined,
 	);
 	let entry =
-		details === undefined ? undefined : convertCompletionEntryDetails(details);
+		details === undefined ? null : convertCompletionEntryDetails(details);
 
 	return { entry };
 };
@@ -117,27 +117,27 @@ let convertCompletionEntry = (entry: ts.CompletionEntry): CompletionEntry => {
 	return {
 		name: entry.name,
 		kind: entry.kind,
-		kindModifiers: stringOrUndefined(entry.kindModifiers),
+		kindModifiers: stringOrNull(entry.kindModifiers),
 		sortText: entry.sortText,
-		insertText: entry.insertText,
-		filterText: entry.filterText,
-		isSnippet: entry.isSnippet,
-		source: entry.source,
-		commitCharacters: entry.commitCharacters,
-		data: entry.data,
+		insertText: entry.insertText ?? null,
+		filterText: entry.filterText ?? null,
+		isSnippet: entry.isSnippet ?? null,
+		source: entry.source ?? null,
+		commitCharacters: entry.commitCharacters ?? null,
+		data: (entry.data ?? null) as {} | null,
 		labelDetails,
 	};
 };
 
 let convertCompletionEntryLabelDetails = (
 	entry: ts.CompletionEntry,
-): CompletionEntryLabelDetails | undefined => {
+): CompletionEntryLabelDetails | null => {
 	let detail = entry.labelDetails?.detail;
 	let description = entry.labelDetails?.description;
 	if (detail === undefined && description === undefined) {
-		return undefined;
+		return null;
 	}
-	return { detail, description };
+	return { detail: detail ?? null, description: description ?? null };
 };
 
 let convertCompletionEntryDetails = (
@@ -147,9 +147,9 @@ let convertCompletionEntryDetails = (
 	let documentation = formatDocumentation(details);
 	return {
 		kind: details.kind,
-		kindModifiers: stringOrUndefined(details.kindModifiers),
-		detail: stringOrUndefined(detail),
-		documentation,
+		kindModifiers: stringOrNull(details.kindModifiers),
+		detail: stringOrNull(detail),
+		documentation: documentation ?? null,
 	};
 };
 
@@ -161,28 +161,26 @@ let displayPartsToString = (
 
 let formatDocumentation = (
 	details: ts.CompletionEntryDetails,
-): string | undefined => {
-	let documentation = stringOrUndefined(
-		displayPartsToString(details.documentation),
-	);
+): string | null => {
+	let documentation = stringOrNull(displayPartsToString(details.documentation));
 	let tags = details.tags
 		?.map((tag) => {
 			let text = displayPartsToString(tag.text);
 			return text.length === 0 ? `@${tag.name}` : `@${tag.name} ${text}`;
 		})
 		.join("\n");
-	let sections = [documentation, stringOrUndefined(tags)].filter(
-		(value): value is string => value !== undefined,
+	let sections = [documentation, stringOrNull(tags)].filter(
+		(value): value is string => value !== null,
 	);
 	if (sections.length === 0) {
-		return undefined;
+		return null;
 	}
 	return sections.join("\n\n");
 };
 
-let stringOrUndefined = (value: string | undefined): string | undefined => {
+let stringOrNull = (value: string | undefined): string | null => {
 	if (value === undefined || value.length === 0) {
-		return undefined;
+		return null;
 	}
 	return value;
 };

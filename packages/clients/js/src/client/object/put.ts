@@ -11,10 +11,10 @@ export async function putObject(
 	let uri = new Uri({
 		path: `/objects/${percentEncode(id)}`,
 		query: {
-			children: arg.children,
+			children: arg.children ?? null,
 			location:
-				arg.location === undefined
-					? undefined
+				arg.location === undefined || arg.location === null
+					? null
 					: tg.Location.Arg.toDataString(arg.location),
 		},
 	});
@@ -22,7 +22,7 @@ export async function putObject(
 		accept: "application/json",
 		"content-type": "application/json",
 	};
-	let body = Body.json(tg.Object.Data.toJson(arg.data));
+	let body = Body.json(arg.data);
 	let request = new Request({
 		body,
 		method,

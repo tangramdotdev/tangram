@@ -11,7 +11,7 @@ let path = artifact {
 			let symlink = await tg.symlink(file);
 			return [
 				(await symlink.artifact) instanceof tg.File,
-				(await symlink.path) === undefined,
+				(await symlink.path) === null,
 			];
 		}
 	'

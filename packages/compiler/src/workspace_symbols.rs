@@ -12,6 +12,7 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub symbols: Option<Vec<Symbol>>,
 }
 
@@ -22,7 +23,9 @@ pub struct Symbol {
 	pub kind: String,
 	pub module: tg::module::Data,
 	pub range: tg::Range,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub container_name: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub deprecated: Option<bool>,
 }
 

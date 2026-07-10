@@ -25,7 +25,7 @@ let path = artifact {
 					let chunks = [];
 					while (true) {
 						let chunk = await process.stdout.read();
-						if (chunk === undefined) {
+						if (chunk === null) {
 							break;
 						}
 						chunks.push(tg.encoding.utf8.decode(chunk));
@@ -36,7 +36,7 @@ let path = artifact {
 					let chunks = [];
 					while (true) {
 						let chunk = await process.stderr.read();
-						if (chunk === undefined) {
+						if (chunk === null) {
 							break;
 						}
 						chunks.push(tg.encoding.utf8.decode(chunk));

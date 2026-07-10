@@ -5,12 +5,12 @@ import type { Client } from "../../../client.ts";
 export namespace Stdio {
 	export namespace Read {
 		export type Arg = {
-			length?: number;
-			location?: tg.Location.Arg;
-			position?: number | string;
-			size?: number;
+			length?: number | null;
+			location?: tg.Location.Arg | null;
+			position?: number | string | null;
+			size?: number | null;
 			streams: Array<tg.Process.Stdio.Stream>;
-			timeout?: number;
+			timeout?: number | null;
 		};
 	}
 }
@@ -19,10 +19,10 @@ export async function tryReadProcessStdio(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined> {
+): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | null> {
 	let stream = await readProcessStdioOnce(client, id, arg);
-	if (stream === undefined) {
-		return undefined;
+	if (stream === null) {
+		return null;
 	}
 	return readProcessStdioAll(client, id, arg, stream);
 }
@@ -42,10 +42,11 @@ async function* readProcessStdioAll(
 	try {
 		while (true) {
 			if (current === undefined) {
-				current = await readProcessStdioOnce(client, id, nextArg);
-				if (current === undefined) {
+				let next = await readProcessStdioOnce(client, id, nextArg);
+				if (next === null) {
 					throw new Error("failed to find the process");
 				}
+				current = next;
 			}
 			let result = await current.next();
 			if (result.done) {
@@ -69,15 +70,15 @@ async function readProcessStdioOnce(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined> {
+): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | null> {
 	let method = "GET";
 	let uri = new Uri({
 		path: `/processes/${percentEncode(id)}/stdio`,
 		query: {
 			...arg,
 			location:
-				arg.location === undefined
-					? undefined
+				arg.location === undefined || arg.location === null
+					? null
 					: tg.Location.Arg.toDataString(arg.location),
 			streams: arg.streams.join(","),
 		},
@@ -92,7 +93,7 @@ async function readProcessStdioOnce(
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
-		return undefined;
+		return null;
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
@@ -128,12 +129,13 @@ function updateStdioReadArg(
 	arg: tg.Process.Stdio.Read.Arg,
 	chunk: tg.Process.Stdio.Chunk,
 ) {
-	if (chunk.position === undefined) {
+	if (chunk.position === undefined || chunk.position === null) {
 		return;
 	}
 	let length = chunk.bytes.length;
-	let forward = arg.length === undefined || arg.length >= 0;
-	if (arg.length !== undefined) {
+	let forward =
+		arg.length === undefined || arg.length === null || arg.length >= 0;
+	if (arg.length !== undefined && arg.length !== null) {
 		if (arg.length >= 0) {
 			arg.length -= Math.min(length, arg.length);
 		} else {

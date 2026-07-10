@@ -10,7 +10,7 @@ export type Request = {
 };
 
 export type Response = {
-	prepare: PrepareRename | undefined;
+	prepare?: PrepareRename | null;
 };
 
 export type PrepareRename = {
@@ -37,7 +37,7 @@ export let handle = (request: Request): Response => {
 	// Get the rename info.
 	let info = typescript.languageService.getRenameInfo(fileName, position, {});
 	if (!info.canRename) {
-		return { prepare: undefined };
+		return { prepare: null };
 	}
 
 	// Convert the rename info.

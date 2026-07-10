@@ -10,7 +10,7 @@ export type PrepareRequest = {
 };
 
 export type PrepareResponse = {
-	items: Array<Item> | undefined;
+	items?: Array<Item> | null;
 };
 
 export type IncomingRequest = {
@@ -19,7 +19,7 @@ export type IncomingRequest = {
 };
 
 export type IncomingResponse = {
-	calls: Array<IncomingCall> | undefined;
+	calls?: Array<IncomingCall> | null;
 };
 
 export type OutgoingRequest = {
@@ -28,18 +28,18 @@ export type OutgoingRequest = {
 };
 
 export type OutgoingResponse = {
-	calls: Array<OutgoingCall> | undefined;
+	calls?: Array<OutgoingCall> | null;
 };
 
 export type Item = {
 	name: string;
 	kind: string;
-	detail: string | undefined;
+	detail?: string | null;
 	module: Module;
 	range: Range;
 	selection: Range;
-	containerName: string | undefined;
-	data: ItemData;
+	containerName?: string | null;
+	data?: ItemData | null;
 };
 
 export type ItemData = {
@@ -80,13 +80,13 @@ export let handlePrepare = (request: PrepareRequest): PrepareResponse => {
 	);
 	let output =
 		items === undefined
-			? undefined
+			? null
 			: (Array.isArray(items) ? items : [items])
 					.map(convertCallHierarchyItem)
-					.filter((item): item is Item => item !== undefined);
+					.filter((item): item is Item => item !== null);
 
 	return {
-		items: output === undefined || output.length === 0 ? undefined : output,
+		items: output === null || output.length === 0 ? null : output,
 	};
 };
 
@@ -113,10 +113,10 @@ export let handleIncoming = (request: IncomingRequest): IncomingResponse => {
 	);
 	let output = calls
 		.map((call) => convertIncomingCall(call))
-		.filter((call): call is IncomingCall => call !== undefined);
+		.filter((call): call is IncomingCall => call !== null);
 
 	return {
-		calls: output.length === 0 ? undefined : output,
+		calls: output.length === 0 ? null : output,
 	};
 };
 
@@ -143,33 +143,31 @@ export let handleOutgoing = (request: OutgoingRequest): OutgoingResponse => {
 	);
 	let output = calls
 		.map((call) => convertOutgoingCall(sourceFile, call))
-		.filter((call): call is OutgoingCall => call !== undefined);
+		.filter((call): call is OutgoingCall => call !== null);
 
 	return {
-		calls: output.length === 0 ? undefined : output,
+		calls: output.length === 0 ? null : output,
 	};
 };
 
-let convertCallHierarchyItem = (
-	item: ts.CallHierarchyItem,
-): Item | undefined => {
+let convertCallHierarchyItem = (item: ts.CallHierarchyItem): Item | null => {
 	let sourceFile = typescript.host.getSourceFile(
 		item.file,
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
-		return undefined;
+		return null;
 	}
 	let module: Module;
 	try {
 		module = typescript.moduleFromFileName(item.file);
 	} catch {
-		return undefined;
+		return null;
 	}
 	let range = convertTextSpanToRange(sourceFile, item.span);
 	let selection = convertTextSpanToRange(sourceFile, item.selectionSpan);
-	if (range === undefined || selection === undefined) {
-		return undefined;
+	if (range === null || selection === null) {
+		return null;
 	}
 	let data = {
 		module,
@@ -181,32 +179,32 @@ let convertCallHierarchyItem = (
 	return {
 		name: item.name,
 		kind: item.kind,
-		detail: undefined,
+		detail: null,
 		module,
 		range,
 		selection,
-		containerName: stringOrUndefined(item.containerName),
+		containerName: stringOrNull(item.containerName),
 		data,
 	};
 };
 
 let convertIncomingCall = (
 	call: ts.CallHierarchyIncomingCall,
-): IncomingCall | undefined => {
+): IncomingCall | null => {
 	let from = convertCallHierarchyItem(call.from);
-	if (from === undefined) {
-		return undefined;
+	if (from === null) {
+		return null;
 	}
 	let sourceFile = typescript.host.getSourceFile(
 		call.from.file,
 		ts.ScriptTarget.ESNext,
 	);
 	if (sourceFile === undefined) {
-		return undefined;
+		return null;
 	}
 	let fromRanges = call.fromSpans
 		.map((span) => convertTextSpanToRange(sourceFile, span))
-		.filter((range): range is Range => range !== undefined);
+		.filter((range): range is Range => range !== null);
 	return {
 		from,
 		fromRanges,
@@ -216,14 +214,14 @@ let convertIncomingCall = (
 let convertOutgoingCall = (
 	sourceFile: ts.SourceFile,
 	call: ts.CallHierarchyOutgoingCall,
-): OutgoingCall | undefined => {
+): OutgoingCall | null => {
 	let to = convertCallHierarchyItem(call.to);
-	if (to === undefined) {
-		return undefined;
+	if (to === null) {
+		return null;
 	}
 	let fromRanges = call.fromSpans
 		.map((span) => convertTextSpanToRange(sourceFile, span))
-		.filter((range): range is Range => range !== undefined);
+		.filter((range): range is Range => range !== null);
 	return {
 		to,
 		fromRanges,
@@ -233,9 +231,9 @@ let convertOutgoingCall = (
 let convertTextSpanToRange = (
 	sourceFile: ts.SourceFile,
 	span: ts.TextSpan,
-): Range | undefined => {
+): Range | null => {
 	if (span.length < 0) {
-		return undefined;
+		return null;
 	}
 	let start = ts.getLineAndCharacterOfPosition(sourceFile, span.start);
 	let end = ts.getLineAndCharacterOfPosition(
@@ -245,9 +243,9 @@ let convertTextSpanToRange = (
 	return { start, end };
 };
 
-let stringOrUndefined = (value: string | undefined): string | undefined => {
+let stringOrNull = (value: string | undefined): string | null => {
 	if (value === undefined || value.length === 0) {
-		return undefined;
+		return null;
 	}
 	return value;
 };

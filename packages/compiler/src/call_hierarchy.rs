@@ -13,6 +13,7 @@ pub struct PrepareRequest {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PrepareResponse {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub items: Option<Vec<Item>>,
 }
 
@@ -24,6 +25,7 @@ pub struct IncomingRequest {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct IncomingResponse {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub calls: Option<Vec<IncomingCall>>,
 }
 
@@ -35,6 +37,7 @@ pub struct OutgoingRequest {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct OutgoingResponse {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub calls: Option<Vec<OutgoingCall>>,
 }
 
@@ -43,11 +46,14 @@ pub struct OutgoingResponse {
 pub struct Item {
 	pub name: String,
 	pub kind: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detail: Option<String>,
 	pub module: tg::module::Data,
 	pub range: tg::Range,
 	pub selection: tg::Range,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub container_name: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub data: Option<ItemData>,
 }
 

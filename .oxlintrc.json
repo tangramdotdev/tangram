@@ -6,6 +6,7 @@
 		"@typescript-eslint/no-non-null-assertion": "off",
 		"@typescript-eslint/no-this-alias": "off",
 		"@typescript-eslint/no-unsafe-declaration-merging": "off",
+		"eqeqeq": "error",
 		"no-else-return": "off",
 		"no-param-reassign": "off",
 		"no-redeclare": "off",

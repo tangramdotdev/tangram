@@ -1,6 +1,7 @@
 export class Queue<T> {
 	#closed = false;
-	#error: unknown;
+	#error: unknown = null;
+	#failed = false;
 	#values: Array<T> = [];
 	#waiters: Array<{
 		reject(error: unknown): void;
@@ -20,11 +21,11 @@ export class Queue<T> {
 		})().catch(() => {});
 	}
 
-	next(stop?: Promise<void> | undefined): Promise<IteratorResult<T>> {
+	next(stop?: Promise<void>): Promise<IteratorResult<T>> {
 		if (this.#values.length > 0) {
 			return Promise.resolve({ done: false, value: this.#values.shift()! });
 		}
-		if (this.#error !== undefined) {
+		if (this.#failed) {
 			return Promise.reject(this.#error);
 		}
 		if (this.#closed) {
@@ -50,6 +51,7 @@ export class Queue<T> {
 
 	#fail(error: unknown) {
 		this.#error = error;
+		this.#failed = true;
 		this.#closed = true;
 		this.#wake();
 	}
@@ -69,7 +71,7 @@ export class Queue<T> {
 	#wake() {
 		while (this.#waiters.length > 0) {
 			let waiter = this.#waiters.shift()!;
-			if (this.#error !== undefined) {
+			if (this.#failed) {
 				waiter.reject(this.#error);
 			} else {
 				waiter.resolve({ done: true, value: undefined });

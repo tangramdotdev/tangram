@@ -5,7 +5,7 @@ export let log = (...args: Array<unknown>) => {
 	let options = {
 		color: tty,
 		indent: 0,
-		indentation: tty ? "  " : undefined,
+		...(tty ? { indentation: "  " } : {}),
 	};
 	let string = args
 		.map((arg) => {
@@ -23,7 +23,7 @@ export let error = (...args: Array<unknown>) => {
 	let options = {
 		color: tty,
 		indent: 0,
-		indentation: tty ? "  " : undefined,
+		...(tty ? { indentation: "  " } : {}),
 	};
 	let string = args
 		.map((arg) => {
@@ -38,8 +38,8 @@ export let error = (...args: Array<unknown>) => {
 
 type Options = {
 	color: boolean;
-	indent?: number | undefined;
-	indentation: string | undefined;
+	indent?: number | null;
+	indentation?: string | null;
 };
 
 type Print = () => string;
@@ -47,13 +47,13 @@ type Print = () => string;
 class Printer {
 	private color: boolean;
 	private indent_: number;
-	private indentation: string | undefined;
+	private indentation: string | null;
 	private visited = new WeakSet<object>();
 
 	constructor(options: Options) {
 		this.color = options.color;
 		this.indent_ = options.indent ?? 0;
-		this.indentation = options.indentation;
+		this.indentation = options.indentation ?? null;
 	}
 
 	print(value: unknown): string {
@@ -121,7 +121,9 @@ class Printer {
 				output = tg.Value.print(value_, {
 					color: this.color,
 					indent: this.indent_,
-					indentation: this.indentation,
+					...(this.indentation !== null
+						? { indentation: this.indentation }
+						: {}),
 				});
 			} else if (value_ instanceof Array) {
 				output = this.array(value_.map((value_) => () => this.value(value_)));
@@ -150,7 +152,7 @@ class Printer {
 	}
 
 	private array(values: Array<Print>): string {
-		if (this.indentation === undefined) {
+		if (this.indentation === null) {
 			return `${this.style("[")}${values.map((value) => value()).join(this.style(","))}${this.style("]")}`;
 		}
 		if (values.length === 0) {
@@ -165,7 +167,7 @@ class Printer {
 
 	private map(value_: { [key: string]: Print }): string {
 		let entries = Object.entries(value_);
-		if (this.indentation === undefined) {
+		if (this.indentation === null) {
 			return `${this.style("{")}${entries
 				.map(
 					([key, value_]) =>
@@ -215,7 +217,7 @@ class Printer {
 		}
 	}
 
-	private style(value: string, code?: string | undefined): string {
+	private style(value: string, code?: string): string {
 		return this.color && code !== undefined
 			? `${code}${value}${colors.reset}`
 			: value;

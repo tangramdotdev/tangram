@@ -8,6 +8,7 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hints: Option<Vec<Hint>>,
 }
 
@@ -16,8 +17,11 @@ pub struct Response {
 pub struct Hint {
 	pub position: tg::Position,
 	pub label: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<Kind>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub padding_left: Option<bool>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub padding_right: Option<bool>,
 }
 

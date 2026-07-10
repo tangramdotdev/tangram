@@ -12,6 +12,7 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub links: Option<Vec<Link>>,
 }
 
@@ -19,6 +20,7 @@ pub struct Response {
 pub struct Link {
 	pub range: tg::Range,
 	pub module: tg::module::Data,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tooltip: Option<String>,
 }
 

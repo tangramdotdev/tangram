@@ -255,7 +255,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_> {
 		V: serde::de::Visitor<'de>,
 	{
 		if !self.value.is_null() && self.value.type_of() != qjs::Type::Undefined {
-			return Err(Error::custom("expected undefined or null"));
+			return Err(Error::custom("expected null or undefined"));
 		}
 		visitor.visit_unit()
 	}

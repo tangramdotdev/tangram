@@ -7877,6 +7877,7 @@ dependencies = [
  "tangram_client",
  "tangram_compiler",
  "tangram_futures",
+ "tangram_quickjs",
  "tangram_util",
  "tangram_v8",
  "tokio",
@@ -7955,6 +7956,18 @@ dependencies = [
  "futures",
  "tangram_futures",
  "tokio",
+]
+
+[[package]]
+name = "tangram_quickjs"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "num",
+ "rquickjs",
+ "serde",
+ "tangram_client",
 ]
 
 [[package]]

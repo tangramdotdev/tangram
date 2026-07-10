@@ -138,7 +138,7 @@ impl<'a, 's, 'p> serde::Serializer for Serializer<'a, 's, 'p> {
 	}
 
 	fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-		Ok(v8::undefined(self.scope).into())
+		Ok(v8::null(self.scope).into())
 	}
 
 	fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>

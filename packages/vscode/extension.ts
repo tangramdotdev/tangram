@@ -53,7 +53,7 @@ class TangramLanguageClient {
 	}
 
 	async start() {
-		if (this.languageClient != null) {
+		if (this.languageClient !== undefined && this.languageClient !== null) {
 			return;
 		}
 

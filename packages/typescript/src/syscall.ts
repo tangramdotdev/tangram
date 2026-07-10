@@ -50,7 +50,7 @@ declare global {
 		syscall: "module_resolve",
 		module: Module,
 		specifier: string,
-		attributes: { [key: string]: string } | undefined,
+		attributes: { [key: string]: string } | null,
 	): Module;
 
 	/** Mark that a module's resolutions have been validated. */

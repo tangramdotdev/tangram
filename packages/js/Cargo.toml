@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-quickjs = ["dep:rquickjs"]
+quickjs = ["dep:rquickjs", "dep:tangram_quickjs"]
 v8 = ["dep:axum", "dep:tangram_v8", "dep:v8"]
 
 [lib]
@@ -57,6 +57,7 @@ sync_wrapper = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_futures = { workspace = true }
+tangram_quickjs = { workspace = true, optional = true }
 tangram_util = { workspace = true }
 tangram_v8 = { workspace = true, optional = true }
 tokio = { workspace = true }

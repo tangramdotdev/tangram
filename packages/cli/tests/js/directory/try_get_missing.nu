@@ -1,6 +1,6 @@
 use ../../../test.nu *
 
-# A directory's tryGet method returns undefined when the path does not exist.
+# A directory's tryGet method returns null when the path does not exist.
 
 let server = spawn
 
@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let directory = await tg.directory({ "a": "alpha" });
-			return (await directory.tryGet("nope")) === undefined;
+			return (await directory.tryGet("nope")) === null;
 		}
 	'
 }

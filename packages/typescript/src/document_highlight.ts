@@ -10,12 +10,12 @@ export type Request = {
 };
 
 export type Response = {
-	highlights: Array<DocumentHighlight> | undefined;
+	highlights?: Array<DocumentHighlight> | null;
 };
 
 export type DocumentHighlight = {
 	range: Range;
-	kind: DocumentHighlightKind | undefined;
+	kind?: DocumentHighlightKind | null;
 };
 
 export type DocumentHighlightKind = "text" | "read" | "write";
@@ -69,11 +69,7 @@ export let handle = (request: Request): Response => {
 		});
 	});
 
-	if (highlights?.length === 0) {
-		highlights = undefined;
-	}
-
-	return { highlights };
+	return { highlights: highlights?.length === 0 ? null : (highlights ?? null) };
 };
 
 let convertHighlightSpanKind = (

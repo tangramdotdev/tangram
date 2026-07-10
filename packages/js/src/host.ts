@@ -35,11 +35,11 @@ export let host: tg.Host = {
 		return syscall("host_exists", path);
 	},
 
-	getTtySize(): tg.Process.Tty.Size | undefined {
+	getTtySize(): tg.Process.Tty.Size | null {
 		return syscall("host_get_tty_size");
 	},
 
-	getxattr(path: string, name: string): Promise<Uint8Array | undefined> {
+	getxattr(path: string, name: string): Promise<Uint8Array | null> {
 		return syscall("host_get_xattr", path, name);
 	},
 
@@ -106,10 +106,10 @@ export let host: tg.Host = {
 
 	read(
 		fd: number,
-		length?: number | undefined,
-		stopper?: tg.Host.Stopper | undefined,
-	): Promise<Uint8Array | undefined> {
-		return syscall("host_read", fd, length, stopper);
+		length?: number | null,
+		stopper?: tg.Host.Stopper | null,
+	): Promise<Uint8Array | null> {
+		return syscall("host_read", fd, length ?? null, stopper ?? null);
 	},
 
 	remove(path: string): Promise<void> {
@@ -126,9 +126,9 @@ export let host: tg.Host = {
 
 	sleep(
 		duration: number,
-		stopper?: tg.Host.Stopper | undefined,
+		stopper?: tg.Host.Stopper | null,
 	): Promise<void> {
-		return syscall("host_sleep", duration, stopper);
+		return syscall("host_sleep", duration, stopper ?? null);
 	},
 
 	spawn(arg: tg.Host.SpawnArg): Promise<tg.Host.SpawnOutput> {
@@ -149,9 +149,9 @@ export let host: tg.Host = {
 
 	wait(
 		pid: number,
-		stopper?: tg.Host.Stopper | undefined,
+		stopper?: tg.Host.Stopper | null,
 	): Promise<tg.Host.WaitOutput> {
-		return syscall("host_wait", pid, stopper);
+		return syscall("host_wait", pid, stopper ?? null);
 	},
 
 	write(fd: number, bytes: Uint8Array): Promise<void> {

@@ -1,7 +1,8 @@
 use {
-	super::Result,
-	crate::quickjs::{StateHandle, serde::Serde, types::Uint8Array},
+	super::{Arg, Result},
+	crate::quickjs::{StateHandle, types::Uint8Array},
 	rquickjs as qjs,
+	tangram_quickjs::Serde,
 };
 
 pub async fn connect(
@@ -31,8 +32,13 @@ pub async fn stream_write(ctx: qjs::Ctx<'_>, stream: usize, bytes: Uint8Array) -
 	Result(state.http2.stream_write(stream, bytes.into()).await)
 }
 
-pub async fn stream_end(ctx: qjs::Ctx<'_>, stream: usize, bytes: Option<Uint8Array>) -> Result<()> {
+pub async fn stream_end(
+	ctx: qjs::Ctx<'_>,
+	stream: usize,
+	bytes: Arg<Option<Uint8Array>>,
+) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	let Arg(bytes) = bytes;
 	Result(state.http2.stream_end(stream, bytes.map(Into::into)).await)
 }
 
@@ -63,8 +69,9 @@ pub async fn session_close(ctx: qjs::Ctx<'_>, session: usize) -> Result<()> {
 pub async fn session_destroy(
 	ctx: qjs::Ctx<'_>,
 	session: usize,
-	error: Option<String>,
+	error: Arg<Option<String>>,
 ) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	let Arg(error) = error;
 	Result(state.http2.session_destroy(session, error).await)
 }

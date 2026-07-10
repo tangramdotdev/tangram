@@ -8,6 +8,7 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub help: Option<Help>,
 }
 
@@ -15,7 +16,9 @@ pub struct Response {
 #[serde(rename_all = "camelCase")]
 pub struct Help {
 	pub signatures: Vec<Signature>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub active_signature: Option<u32>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub active_parameter: Option<u32>,
 }
 
@@ -23,8 +26,10 @@ pub struct Help {
 #[serde(rename_all = "camelCase")]
 pub struct Signature {
 	pub label: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub documentation: Option<String>,
 	pub parameters: Vec<Parameter>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub active_parameter: Option<u32>,
 }
 
@@ -32,6 +37,7 @@ pub struct Signature {
 #[serde(rename_all = "camelCase")]
 pub struct Parameter {
 	pub label: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub documentation: Option<String>,
 }
 

@@ -5,11 +5,11 @@ import type { Client } from "../client.ts";
 export namespace Checkout {
 	export type Arg = {
 		artifact: tg.Artifact.Id;
-		dependencies?: boolean | undefined;
-		extension?: string | undefined;
-		force?: boolean | undefined;
-		lock?: "auto" | "attr" | "file" | undefined;
-		path?: string | undefined;
+		dependencies?: boolean;
+		extension?: string | null;
+		force?: boolean;
+		lock?: "auto" | "attr" | "file" | null;
+		path?: string | null;
 	};
 
 	export namespace Arg {
@@ -26,8 +26,8 @@ export namespace Checkout {
 			if (arg.force) {
 				output.force = arg.force;
 			}
-			if ("lock" in arg) {
-				if (arg.lock === undefined) {
+			if (arg.lock !== undefined) {
+				if (arg.lock === null) {
 					output.lock = null;
 				} else if (arg.lock !== "auto") {
 					output.lock = arg.lock;

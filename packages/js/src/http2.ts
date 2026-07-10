@@ -1,11 +1,11 @@
-type Headers = Record<string, string | number | string[] | undefined>;
+type Headers = Record<string, string | number | string[]>;
 
 type ConnectOptions = {
-	port?: number | undefined;
+	port?: number;
 };
 
 type RequestOptions = {
-	endStream?: boolean | undefined;
+	endStream?: boolean;
 };
 
 type StreamEvent =
@@ -58,7 +58,7 @@ export class ClientHttp2Session extends EventEmitter {
 	#closed = false;
 	#connect: Promise<void>;
 	#destroyed = false;
-	#token: number | undefined;
+	#token: number | null = null;
 
 	constructor(
 		readonly authority: string,
@@ -110,9 +110,13 @@ export class ClientHttp2Session extends EventEmitter {
 		this.#closed = true;
 		this.#connect
 			.then(() =>
-				this.#token === undefined
-					? undefined
-					: syscall("http2_session_destroy", this.#token, error?.message),
+					this.#token === null
+						? null
+						: syscall(
+							"http2_session_destroy",
+							this.#token,
+							error?.message ?? null,
+						  ),
 			)
 			.catch(() => undefined)
 			.finally(() => {
@@ -132,7 +136,7 @@ export class ClientHttp2Session extends EventEmitter {
 
 	async #ready() {
 		await this.#connect;
-		if (this.#token === undefined) {
+		if (this.#token === null) {
 			throw new Error("the HTTP/2 session is closed");
 		}
 		return this.#token;
@@ -141,9 +145,9 @@ export class ClientHttp2Session extends EventEmitter {
 
 export class ClientHttp2Stream extends EventEmitter {
 	#closed = false;
-	#encoding: "utf8" | undefined;
+	#encoding: "utf8" | null = null;
 	#ready: Promise<number>;
-	#token: number | undefined;
+	#token: number | null = null;
 
 	constructor(
 		readonly session: ClientHttp2Session,
@@ -187,7 +191,7 @@ export class ClientHttp2Stream extends EventEmitter {
 				await syscall(
 					"http2_stream_end",
 					token,
-					bytes === undefined ? undefined : toBytes(bytes),
+					bytes === undefined ? null : toBytes(bytes),
 				);
 				return token;
 			})
@@ -222,8 +226,8 @@ export class ClientHttp2Stream extends EventEmitter {
 			while (!this.#closed) {
 				let event = (await syscall("http2_stream_read", token)) as
 					| StreamEvent
-					| undefined;
-				if (event === undefined) {
+					| null;
+				if (event === null) {
 					break;
 				}
 				if (event.kind === "response") {
@@ -231,7 +235,7 @@ export class ClientHttp2Stream extends EventEmitter {
 				} else if (event.kind === "data") {
 					this.emit(
 						"data",
-						this.#encoding === undefined
+						this.#encoding === null
 							? event.bytes
 							: syscall("encoding_utf8_decode", event.bytes),
 					);

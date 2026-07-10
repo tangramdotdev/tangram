@@ -9,17 +9,17 @@ export namespace Progress {
 		| { kind: "output"; value: T };
 
 	export type Indicator = {
-		current?: number | undefined;
+		current?: number | null;
 		format: IndicatorFormat;
 		name: string;
 		title: string;
-		total?: number | undefined;
+		total?: number | null;
 	};
 
 	export type IndicatorFormat = "normal" | "bytes";
 
 	export type Log = {
-		level?: Level | undefined;
+		level?: Level | null;
 		message: string;
 	};
 
@@ -62,8 +62,8 @@ export namespace Progress {
 
 	export async function lastOutput<T>(
 		events: AsyncIterable<Progress.Event<T>>,
-	): Promise<T | undefined> {
-		let output: T | undefined;
+	): Promise<T | null> {
+		let output: T | null = null;
 		for await (let event of events) {
 			if (event.kind === "output") {
 				output = event.value;

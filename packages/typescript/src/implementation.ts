@@ -10,7 +10,7 @@ export type Request = {
 };
 
 export type Response = {
-	locations: Array<Location> | undefined;
+	locations?: Array<Location> | null;
 };
 
 export let handle = (request: Request): Response => {
@@ -57,5 +57,5 @@ export let handle = (request: Request): Response => {
 		};
 	});
 
-	return { locations };
+	return { locations: locations ?? null };
 };

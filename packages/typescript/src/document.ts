@@ -47,8 +47,8 @@ type Declaration =
 
 type ClassDeclaration = {
 	location: Location;
-	constructSignature?: Signature | undefined;
-	callSignature?: Signature | undefined;
+	constructSignature?: Signature | null;
+	callSignature?: Signature | null;
 	properties: Array<ClassProperty>;
 	comment: Comment;
 	typeParameters: { [key: string]: TypeParameter };
@@ -63,7 +63,7 @@ type ClassProperty = {
 	name: string;
 	type: Type;
 	static?: boolean;
-	accessor?: "get" | "set" | undefined;
+	accessor?: "get" | "set" | null;
 	private?: boolean;
 	comment: Comment;
 };
@@ -75,8 +75,8 @@ type EnumDeclaration = {
 };
 
 type EnumMemberValue = {
-	constantValue: EnumMemberConstantValue | undefined;
-	initializer: string | undefined;
+	constantValue?: EnumMemberConstantValue | null;
+	initializer?: string | null;
 };
 
 type EnumMemberConstantValue =
@@ -98,7 +98,7 @@ type FunctionSignature = {
 
 type InterfaceDeclaration = {
 	location: Location;
-	indexSignature: IndexSignature | undefined;
+	indexSignature?: IndexSignature | null;
 	properties: { [key: string]: InterfaceProperty };
 	constructSignatures: Array<Signature>;
 	comment: Comment;
@@ -107,7 +107,7 @@ type InterfaceDeclaration = {
 
 type InterfaceProperty = {
 	type: Type;
-	readonly: boolean | undefined;
+	readonly: boolean;
 };
 
 type NamespaceDeclaration = {
@@ -177,8 +177,8 @@ type Parameter = {
 };
 
 type TypeParameter = {
-	constraint: Type | undefined;
-	default: Type | undefined;
+	constraint?: Type | null;
+	default?: Type | null;
 };
 
 type IndexedAccessType = {
@@ -218,12 +218,12 @@ type MappedType = {
 	type: Type;
 	typeParameterName: string;
 	constraint: Type;
-	nameType: Type | undefined;
+	nameType?: Type | null;
 };
 
 type ObjectType = {
 	properties: { [key: string]: ObjectProperty };
-	indexSignature: IndexSignature | undefined;
+	indexSignature?: IndexSignature | null;
 	constructSignatures: Array<Signature>;
 };
 
@@ -241,7 +241,7 @@ type IndexSignature = {
 type PredicateType = {
 	name: string;
 	asserts: boolean;
-	type: Type | undefined;
+	type?: Type | null;
 };
 
 type ReferenceType = {
@@ -736,8 +736,8 @@ let convertClassSymbol = (
 	return {
 		location: convertLocation(declaration),
 		properties,
-		constructSignature,
-		callSignature: callSignatures[0],
+		constructSignature: constructSignature ?? null,
+		callSignature: callSignatures[0] ?? null,
 		comment: convertComment(typeChecker, declaration, symbol),
 		typeParameters,
 	};
@@ -1084,7 +1084,7 @@ let convertInterfaceSymbol = (
 		return {
 			location: convertLocation(declaration),
 			typeParameters: Object.fromEntries(typeParameters || []),
-			indexSignature,
+			indexSignature: indexSignature ?? null,
 			constructSignatures,
 			properties,
 			comment: convertComment(typeChecker, declaration, symbol),
@@ -1286,7 +1286,10 @@ let convertEnumMemberSymbol = (
 		};
 	}
 
-	return { constantValue: value, initializer };
+	return {
+		constantValue: value ?? null,
+		initializer: initializer ?? null,
+	};
 };
 
 // ClassPropertySymbol.
@@ -1314,7 +1317,7 @@ let convertClassPropertySymbol = (
 				? "get"
 				: property.valueDeclaration!.kind === ts.SyntaxKind.SetAccessor
 					? "set"
-					: undefined,
+					: null,
 	};
 };
 
@@ -1665,7 +1668,7 @@ let convertObjectType = (
 
 	return {
 		properties: Object.fromEntries(properties),
-		indexSignature,
+		indexSignature: indexSignature ?? null,
 		constructSignatures,
 	};
 };
@@ -1698,10 +1701,10 @@ let convertTypeParameterType = (
 	return {
 		constraint: constraint
 			? convertType(typeChecker, constraint, packageExports, thisModule)
-			: undefined,
+			: null,
 		default: default_
 			? convertType(typeChecker, default_, packageExports, thisModule)
-			: undefined,
+			: null,
 	};
 };
 
@@ -1719,7 +1722,7 @@ let convertTypePredicate = (
 		name: type.parameterName ?? "this",
 		type: type.type
 			? convertType(typeChecker, type.type, packageExports, thisModule)
-			: undefined,
+			: null,
 		asserts,
 	};
 };
@@ -2169,7 +2172,7 @@ let convertMappedTypeNode = (
 		typeParameterName: node.typeParameter.name.text,
 		nameType: node.nameType
 			? convertTypeNode(typeChecker, node.nameType, packageExports, thisModule)
-			: undefined,
+			: null,
 	};
 };
 
@@ -2267,10 +2270,10 @@ let convertTypeParameterNode = (
 					packageExports,
 					thisModule,
 				)
-			: undefined,
+			: null,
 		default: node.default
 			? convertTypeNode(typeChecker, node.default, packageExports, thisModule)
-			: undefined,
+			: null,
 	};
 };
 
@@ -2286,7 +2289,7 @@ let convertTypePredicateNode = (
 		name: node.parameterName.getText(),
 		type: node.type
 			? convertTypeNode(typeChecker, node.type, packageExports, thisModule)
-			: undefined,
+			: null,
 		asserts,
 	};
 };

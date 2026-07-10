@@ -19,7 +19,8 @@ export class Response {
 
 	static fromStream(stream: tg.Host.Http2.ClientHttp2Stream) {
 		let chunks: Array<Uint8Array> = [];
-		let error: unknown;
+		let error: unknown = null;
+		let failed = false;
 		let notify: (() => void) | undefined;
 		let done = false;
 		let settled = false;
@@ -30,7 +31,7 @@ export class Response {
 					while (true) {
 						if (chunks.length > 0) {
 							yield chunks.shift()!;
-						} else if (error !== undefined) {
+						} else if (failed) {
 							throw error;
 						} else if (done) {
 							break;
@@ -52,6 +53,7 @@ export class Response {
 		return new Promise<Response>((resolve, reject) => {
 			let fail = (error_: unknown) => {
 				error = error_;
+				failed = true;
 				done = true;
 				notify?.();
 				if (!settled) {

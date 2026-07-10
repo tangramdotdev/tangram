@@ -10,15 +10,15 @@ export type Request = {
 };
 
 export type Response = {
-	hints: Array<InlayHint> | undefined;
+	hints?: Array<InlayHint> | null;
 };
 
 export type InlayHint = {
 	position: Position;
 	label: string;
-	kind: InlayHintKind | undefined;
-	paddingLeft: boolean | undefined;
-	paddingRight: boolean | undefined;
+	kind?: InlayHintKind | null;
+	paddingLeft?: boolean | null;
+	paddingRight?: boolean | null;
 };
 
 export type InlayHintKind = "type" | "parameter";
@@ -61,20 +61,20 @@ export let handle = (request: Request): Response => {
 	);
 	let convertedHints = hints
 		.map((hint) => convertInlayHint(sourceFile, hint))
-		.filter((hint): hint is InlayHint => hint !== undefined);
+		.filter((hint): hint is InlayHint => hint !== null);
 
 	return {
-		hints: convertedHints.length === 0 ? undefined : convertedHints,
+		hints: convertedHints.length === 0 ? null : convertedHints,
 	};
 };
 
 let convertInlayHint = (
 	sourceFile: ts.SourceFile,
 	hint: ts.InlayHint,
-): InlayHint | undefined => {
+): InlayHint | null => {
 	let label = hint.displayParts?.map((part) => part.text).join("") ?? hint.text;
 	if (label.length === 0) {
-		return undefined;
+		return null;
 	}
 
 	let position = ts.getLineAndCharacterOfPosition(sourceFile, hint.position);
@@ -85,14 +85,12 @@ let convertInlayHint = (
 		position,
 		label,
 		kind,
-		paddingLeft,
-		paddingRight,
+		paddingLeft: paddingLeft ?? null,
+		paddingRight: paddingRight ?? null,
 	};
 };
 
-let convertInlayHintKind = (
-	kind: ts.InlayHintKind,
-): InlayHintKind | undefined => {
+let convertInlayHintKind = (kind: ts.InlayHintKind): InlayHintKind | null => {
 	switch (kind) {
 		case ts.InlayHintKind.Type:
 		case ts.InlayHintKind.Enum:
@@ -100,4 +98,5 @@ let convertInlayHintKind = (
 		case ts.InlayHintKind.Parameter:
 			return "parameter";
 	}
+	return null;
 };

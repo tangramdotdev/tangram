@@ -8,12 +8,14 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub highlights: Option<Vec<Highlight>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Highlight {
 	pub range: tg::Range,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub kind: Option<Kind>,
 }
 

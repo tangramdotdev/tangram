@@ -27,8 +27,8 @@ export namespace Checkin {
 			if (arg.options.ignore !== undefined && !arg.options.ignore) {
 				options.ignore = arg.options.ignore;
 			}
-			if ("lock" in arg.options) {
-				if (arg.options.lock === undefined) {
+			if (arg.options.lock !== undefined) {
+				if (arg.options.lock === null) {
 					options.lock = null;
 				} else if (arg.options.lock !== "auto") {
 					options.lock = arg.options.lock;
@@ -74,18 +74,18 @@ export namespace Checkin {
 	};
 
 	export type Options = {
-		cachePointers?: boolean | undefined;
-		destructive?: boolean | undefined;
-		deterministic?: boolean | undefined;
-		root?: boolean | undefined;
-		ignore?: boolean | undefined;
-		localDependencies?: boolean | undefined;
-		lock?: "auto" | "attr" | "file" | undefined;
-		locked?: boolean | undefined;
-		solve?: boolean | undefined;
-		unsolvedDependencies?: boolean | undefined;
-		ttl?: number | undefined;
-		watch?: boolean | undefined;
+		cachePointers?: boolean;
+		destructive?: boolean;
+		deterministic?: boolean;
+		root?: boolean;
+		ignore?: boolean;
+		localDependencies?: boolean;
+		lock?: "auto" | "attr" | "file" | null;
+		locked?: boolean;
+		solve?: boolean;
+		unsolvedDependencies?: boolean;
+		ttl?: number | null;
+		watch?: boolean;
 	};
 }
 
