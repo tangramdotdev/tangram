@@ -20,16 +20,12 @@ workspace = true
 doctest = false
 
 [dependencies]
-async-broadcast = { workspace = true }
 async-nats = { workspace = true, optional = true }
 bytes = { workspace = true }
 derive_more = { workspace = true }
 futures = { workspace = true }
 rand = { workspace = true }
-rustix = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_either = { workspace = true }
-tangram_futures = { workspace = true }
-tangram_util = { workspace = true }
 tokio = { workspace = true }

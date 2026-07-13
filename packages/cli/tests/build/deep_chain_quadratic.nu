@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Awaiting a child subscribes to its "processes.<id>.status" subject; because the messenger delivers every publish to all live subscribers regardless of subject, a depth-D chain (D awaits alive at once) costs O(D^2) instead of O(D).
+# Awaiting a child subscribes to its "processes.<id>.status" subject. A depth-D chain with D live awaits should scale linearly with the chain depth.
 
 let server = spawn --config { tokio_single_threaded: false }
 

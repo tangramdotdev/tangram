@@ -7911,18 +7911,14 @@ dependencies = [
 name = "tangram_messenger"
 version = "0.0.0"
 dependencies = [
- "async-broadcast",
  "async-nats",
  "bytes",
  "derive_more",
  "futures",
  "rand 0.10.2",
- "rustix 1.1.4",
  "serde",
  "serde_json",
  "tangram_either",
- "tangram_futures",
- "tangram_util",
  "tokio",
 ]
 
