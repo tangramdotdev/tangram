@@ -1,5 +1,5 @@
 use {
-	crate::{Delivery, Error, Message, Payload},
+	crate::{Error, Message, Payload},
 	async_nats as nats,
 	futures::StreamExt as _,
 };
@@ -45,32 +45,33 @@ impl crate::Messenger for Messenger {
 	where
 		T: Payload,
 	{
-		self.subscribe_with_delivery(subject, Delivery::All).await
+		let subject = self.subject_name(subject);
+		let subscriber = self.client.subscribe(subject).await.map_err(Error::other)?;
+		let stream = subscriber.map(|message| {
+			T::deserialize(message.payload)
+				.map(|payload| Message {
+					subject: message.subject.to_string(),
+					payload,
+				})
+				.map_err(Error::deserialization)
+		});
+		Ok(stream)
 	}
 
-	async fn subscribe_with_delivery<T>(
+	async fn queue_subscribe<T>(
 		&self,
 		subject: String,
-		delivery: Delivery,
+		queue_group: String,
 	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
 	where
 		T: Payload,
 	{
 		let subject = self.subject_name(subject);
-		let subscriber = match delivery {
-			Delivery::All => self
-				.client
-				.subscribe(subject)
-				.await
-				.map_err(Error::other)?
-				.left_stream(),
-			Delivery::One => self
-				.client
-				.queue_subscribe(subject.clone(), subject)
-				.await
-				.map_err(Error::other)?
-				.right_stream(),
-		};
+		let subscriber = self
+			.client
+			.queue_subscribe(subject, queue_group)
+			.await
+			.map_err(Error::other)?;
 		let stream = subscriber.map(|message| {
 			T::deserialize(message.payload)
 				.map(|payload| Message {

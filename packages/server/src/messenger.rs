@@ -2,9 +2,9 @@ use tangram_messenger as messenger;
 
 #[derive(derive_more::IsVariant)]
 pub enum Messenger {
+	Memory(messenger::memory::Messenger),
 	#[cfg(feature = "nats")]
 	Nats(messenger::nats::Messenger),
-	Unix(messenger::unix::Messenger),
 }
 
 impl messenger::Messenger for Messenger {
@@ -13,9 +13,9 @@ impl messenger::Messenger for Messenger {
 		T: messenger::Payload,
 	{
 		match self {
+			Self::Memory(messenger) => messenger.publish(subject, payload).await,
 			#[cfg(feature = "nats")]
 			Self::Nats(messenger) => messenger.publish(subject, payload).await,
-			Self::Unix(messenger) => messenger.publish(subject, payload).await,
 		}
 	}
 
@@ -30,22 +30,22 @@ impl messenger::Messenger for Messenger {
 		T: messenger::Payload,
 	{
 		match self {
-			#[cfg(feature = "nats")]
-			Self::Nats(messenger) => messenger
+			Self::Memory(messenger) => messenger
 				.subscribe(subject)
 				.await
 				.map(futures::StreamExt::boxed),
-			Self::Unix(messenger) => messenger
+			#[cfg(feature = "nats")]
+			Self::Nats(messenger) => messenger
 				.subscribe(subject)
 				.await
 				.map(futures::StreamExt::boxed),
 		}
 	}
 
-	async fn subscribe_with_delivery<T>(
+	async fn queue_subscribe<T>(
 		&self,
 		subject: String,
-		delivery: messenger::Delivery,
+		queue_group: String,
 	) -> Result<
 		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + Send + 'static,
 		messenger::Error,
@@ -54,13 +54,13 @@ impl messenger::Messenger for Messenger {
 		T: messenger::Payload,
 	{
 		match self {
-			#[cfg(feature = "nats")]
-			Self::Nats(messenger) => messenger
-				.subscribe_with_delivery(subject, delivery)
+			Self::Memory(messenger) => messenger
+				.queue_subscribe(subject, queue_group)
 				.await
 				.map(futures::StreamExt::boxed),
-			Self::Unix(messenger) => messenger
-				.subscribe_with_delivery(subject, delivery)
+			#[cfg(feature = "nats")]
+			Self::Nats(messenger) => messenger
+				.queue_subscribe(subject, queue_group)
 				.await
 				.map(futures::StreamExt::boxed),
 		}

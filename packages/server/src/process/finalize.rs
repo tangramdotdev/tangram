@@ -31,10 +31,10 @@ impl Server {
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let batch_size = config.message_batch_size.max(1);
-		let subject = "processes.finalize.queue";
+		let subject = "processes.finalize.queue".to_owned();
 		let wakeups = self
 			.messenger
-			.subscribe_with_delivery::<()>(subject.into(), Delivery::One)
+			.queue_subscribe::<()>(subject.clone(), subject)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 			.map(|_| ());

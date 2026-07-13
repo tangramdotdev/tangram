@@ -92,7 +92,7 @@ impl Session {
 			let wakeups = self
 				.server
 				.messenger
-				.subscribe_with_delivery::<()>(subject, Delivery::One)
+				.queue_subscribe::<()>(subject.clone(), subject)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());

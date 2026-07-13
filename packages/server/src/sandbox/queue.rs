@@ -72,10 +72,11 @@ impl Session {
 		let mut wakeups = if timeout == Some(Duration::ZERO) {
 			None
 		} else {
+			let subject = "sandboxes.created".to_owned();
 			let wakeups = self
 				.server
 				.messenger
-				.subscribe_with_delivery::<()>("sandboxes.created".into(), Delivery::One)
+				.queue_subscribe::<()>(subject.clone(), subject)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());

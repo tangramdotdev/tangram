@@ -3,20 +3,13 @@ use std::future::Future;
 pub use self::payload::Payload;
 
 pub mod either;
+pub mod memory;
 #[cfg(feature = "nats")]
 pub mod nats;
 pub mod payload;
-pub mod unix;
 
 pub mod prelude {
-	pub use super::{Delivery, Messenger as _};
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Delivery {
-	One,
-	#[default]
-	All,
+	pub use super::Messenger as _;
 }
 
 pub struct Message<T> {
@@ -54,10 +47,10 @@ pub trait Messenger {
 	where
 		T: Payload;
 
-	fn subscribe_with_delivery<T>(
+	fn queue_subscribe<T>(
 		&self,
 		subject: String,
-		delivery: Delivery,
+		queue_group: String,
 	) -> impl Future<
 		Output = Result<
 			impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static,
