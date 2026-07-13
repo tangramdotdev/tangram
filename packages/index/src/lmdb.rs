@@ -25,6 +25,8 @@ mod response;
 mod sandbox;
 mod tag;
 mod task;
+#[cfg(test)]
+mod tests;
 mod update;
 mod user;
 mod visible;
