@@ -10,8 +10,6 @@ use {
 };
 
 mod authorize;
-#[cfg(test)]
-mod authorize_scan_test;
 mod batch;
 mod cache;
 mod clean;
@@ -27,6 +25,8 @@ mod response;
 mod sandbox;
 mod tag;
 mod task;
+#[cfg(test)]
+mod tests;
 mod update;
 mod user;
 mod visible;

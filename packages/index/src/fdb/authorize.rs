@@ -2,23 +2,21 @@ use {
 	crate::fdb::{Index, Key, Kind},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture, stream},
+	futures::{StreamExt as _, TryStreamExt as _, stream},
 	num_traits::ToPrimitive as _,
 	std::collections::{HashMap, HashSet, VecDeque},
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Default)]
+const PRECOMPUTE_REQUESTER_PRINCIPALS: bool = false;
+
+#[derive(Default)]
 struct Cache {
-	authorization: HashMap<(tg::Id, tg::grant::Permission), bool>,
 	resource_parents: HashMap<tg::Id, Option<tg::Id>>,
-	group_members: HashMap<tg::group::Id, Vec<tg::Id>>,
 	item_tags: HashMap<(tg::Id, tg::grant::Permission), Vec<(tg::Id, tg::grant::Permission)>>,
 	object_children: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_parents: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
-	organization_members: HashMap<tg::organization::Id, Vec<tg::Id>>,
-	principal_contains_requester: HashMap<tg::grant::Principal, bool>,
 	process_parents: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_sandboxes: HashMap<tg::process::Id, Option<tg::sandbox::Id>>,
 	resource_grants: HashMap<tg::Id, Vec<(tg::grant::Principal, tg::grant::Permission)>>,
@@ -29,23 +27,28 @@ struct Requester<'a> {
 	principal: &'a tg::Principal,
 	principal_: tg::grant::Principal,
 	id: Option<tg::Id>,
+	principals: HashSet<tg::grant::Principal>,
+	membership_cache: std::sync::Mutex<RequesterMembershipCache>,
 }
 
-#[derive(Clone)]
-struct AuthorizationFrame {
-	resource: tg::Id,
-	permission: tg::grant::Permission,
-	dependencies: Option<Vec<(tg::Id, tg::grant::Permission)>>,
-	subtree_unknown: bool,
+#[derive(Default)]
+struct RequesterMembershipCache {
+	group_members: HashMap<tg::group::Id, std::sync::Arc<[tg::Id]>>,
+	organization_members: HashMap<tg::organization::Id, std::sync::Arc<[tg::Id]>>,
+	principal_contains_requester: HashMap<tg::grant::Principal, bool>,
 }
 
-struct AuthorizationFrameEvaluation {
-	frame: AuthorizationFrame,
+struct AuthorizationNode {
+	key: (tg::Id, tg::grant::Permission),
+	dependents: Vec<usize>,
+	authorized: bool,
+}
+
+struct AuthorizationNodeEvaluation {
+	node_id: usize,
 	directly_authorized: bool,
-	subtree_authorized: Option<bool>,
 	dependencies: Vec<(tg::Id, tg::grant::Permission)>,
 	cache: Cache,
-	unknown: HashSet<(tg::Id, tg::grant::Permission)>,
 }
 
 #[derive(Clone, Copy)]
@@ -62,35 +65,98 @@ struct SubtreeSearchBudget {
 	remaining_objects: usize,
 }
 
-#[derive(Clone, Copy)]
-enum SubtreeSearch {
-	Enabled,
-	Disabled,
-}
-
 impl Cache {
 	fn merge(&mut self, other: Self) {
-		for (key, authorized) in other.authorization {
-			match self.authorization.get_mut(&key) {
-				Some(existing) => *existing = *existing || authorized,
-				None => {
-					self.authorization.insert(key, authorized);
-				},
-			}
-		}
 		self.resource_parents.extend(other.resource_parents);
-		self.group_members.extend(other.group_members);
 		self.item_tags.extend(other.item_tags);
 		self.object_children.extend(other.object_children);
 		self.object_parents.extend(other.object_parents);
 		self.object_processes.extend(other.object_processes);
-		self.organization_members.extend(other.organization_members);
-		self.principal_contains_requester
-			.extend(other.principal_contains_requester);
 		self.process_parents.extend(other.process_parents);
 		self.process_sandboxes.extend(other.process_sandboxes);
 		self.resource_grants.extend(other.resource_grants);
 		self.sandbox_owners.extend(other.sandbox_owners);
+	}
+
+	fn clone_for_direct_authorization(
+		&self,
+		resource: &tg::Id,
+		permission: tg::grant::Permission,
+	) -> Self {
+		let mut cache = Self::default();
+		if let Some(grants) = self.resource_grants.get(resource) {
+			cache
+				.resource_grants
+				.insert(resource.clone(), grants.clone());
+		}
+		if matches!(permission, tg::grant::Permission::Sandbox(_))
+			&& let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone())
+			&& let Some(owner) = self.sandbox_owners.get(&sandbox)
+		{
+			cache.sandbox_owners.insert(sandbox, owner.clone());
+		}
+		cache
+	}
+
+	fn clone_for_authorization_dependencies(
+		&self,
+		resource: &tg::Id,
+		permission: tg::grant::Permission,
+	) -> Self {
+		let mut cache = Self::default();
+		if let Some(parent) = self.resource_parents.get(resource) {
+			cache
+				.resource_parents
+				.insert(resource.clone(), parent.clone());
+		}
+		if let Some(tags) = self.item_tags.get(&(resource.clone(), permission)) {
+			cache
+				.item_tags
+				.insert((resource.clone(), permission), tags.clone());
+		}
+		match permission {
+			tg::grant::Permission::Object(_) => {
+				if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
+					if let Some(parents) = self.object_parents.get(&object) {
+						cache.object_parents.insert(object.clone(), parents.clone());
+					}
+					if let Some(processes) = self.object_processes.get(&object) {
+						cache.object_processes.insert(object, processes.clone());
+					}
+				}
+			},
+			tg::grant::Permission::Process(_) => {
+				if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
+					if let Some(parents) = self.process_parents.get(&process) {
+						cache
+							.process_parents
+							.insert(process.clone(), parents.clone());
+					}
+					if let Some(sandbox) = self.process_sandboxes.get(&process) {
+						cache.process_sandboxes.insert(process, sandbox.clone());
+					}
+				}
+			},
+			tg::grant::Permission::Sandbox(_) => {
+				if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone())
+					&& let Some(owner) = self.sandbox_owners.get(&sandbox)
+				{
+					cache.sandbox_owners.insert(sandbox, owner.clone());
+				}
+			},
+			_ => {},
+		}
+		cache
+	}
+
+	fn clone_for_object_children(&self, object: &tg::object::Id) -> Self {
+		let mut cache = Self::default();
+		if let Some(children) = self.object_children.get(object) {
+			cache
+				.object_children
+				.insert(object.clone(), children.clone());
+		}
+		cache
 	}
 }
 
@@ -107,9 +173,17 @@ impl<'a> Requester<'a> {
 		};
 		Self {
 			principal,
-			principal_,
+			principal_: principal_.clone(),
 			id,
+			principals: HashSet::from([tg::grant::Principal::Public, principal_]),
+			membership_cache: std::sync::Mutex::default(),
 		}
+	}
+
+	fn membership_cache(&self) -> std::sync::MutexGuard<'_, RequesterMembershipCache> {
+		self.membership_cache
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner)
 	}
 }
 
@@ -126,14 +200,67 @@ impl Index {
 			.database
 			.create_trx()
 			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
-		let requester = Requester::new(principal);
+		let mut requester = Requester::new(principal);
+		if PRECOMPUTE_REQUESTER_PRINCIPALS {
+			Self::load_requester_principals_with_transaction(
+				&txn,
+				&self.subspace,
+				self.config.concurrency,
+				&mut requester,
+			)
+			.await?;
+		}
+		let resource_requests = args
+			.iter()
+			.map(|arg| arg.resource.clone())
+			.collect::<Vec<_>>();
+		let resources = stream::iter(resource_requests)
+			.map(|resource| {
+				let txn = &txn;
+				let subspace = &self.subspace;
+				async move {
+					Self::try_resolve_resource_with_transaction(txn, subspace, &resource).await
+				}
+			})
+			.buffered(self.config.concurrency)
+			.try_collect::<Vec<_>>()
+			.await?;
+		let token_requests = std::iter::zip(args, &resources)
+			.enumerate()
+			.filter_map(|(index, (arg, resource))| {
+				let resource = resource.as_ref()?;
+				if crate::authorize::validate(resource, arg.permissions).is_err()
+					|| matches!(principal, tg::Principal::Root)
+					|| matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *resource)
+				{
+					return None;
+				}
+				arg.token.clone().map(|body| (index, body))
+			})
+			.collect::<Vec<_>>();
+		let resolved_tokens = stream::iter(token_requests)
+			.map(|(index, body)| {
+				let txn = &txn;
+				let subspace = &self.subspace;
+				async move {
+					let resource =
+						Self::try_resolve_resource_with_transaction(txn, subspace, &body.resource)
+							.await?;
+					Ok::<_, tg::Error>((index, resource))
+				}
+			})
+			.buffered(self.config.concurrency)
+			.try_collect::<Vec<_>>()
+			.await?;
+		let mut token_resources = vec![None; args.len()];
+		for (index, resource) in resolved_tokens {
+			token_resources[index] = resource;
+		}
 		let mut cache = Cache::default();
+		let mut authorization = HashMap::new();
 		let mut outputs = Vec::with_capacity(args.len());
-		for arg in args {
-			let Some(id) =
-				Self::try_resolve_resource_with_transaction(&txn, &self.subspace, &arg.resource)
-					.await?
-			else {
+		for (index, (arg, id)) in std::iter::zip(args, resources).enumerate() {
+			let Some(id) = id else {
 				outputs.push(None);
 				continue;
 			};
@@ -154,13 +281,13 @@ impl Index {
 				}));
 				continue;
 			}
-			let token_resource = if let Some(body) = arg.token.as_ref() {
-				Self::try_resolve_resource_with_transaction(&txn, &self.subspace, &body.resource)
-					.await?
+			let token = arg.token.as_ref().zip(token_resources[index].as_ref());
+			let mut token_authorization = HashMap::new();
+			let authorization = if token.is_some() {
+				&mut token_authorization
 			} else {
-				None
+				&mut authorization
 			};
-			let token = arg.token.as_ref().zip(token_resource.as_ref());
 			let context = AuthorizationContext {
 				txn: &txn,
 				subspace: &self.subspace,
@@ -168,378 +295,262 @@ impl Index {
 				requester: &requester,
 				token,
 			};
-			let permissions =
-				Self::authorize_with_transaction(context, &id, arg.permissions, &mut cache).await?;
+			let permissions = Self::authorize_with_transaction(
+				context,
+				&id,
+				arg.permissions,
+				authorization,
+				&mut cache,
+			)
+			.await?;
 			outputs.push(Some(crate::authorize::Output { permissions }));
 		}
 		Ok(outputs)
+	}
+
+	async fn load_requester_principals_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		concurrency: usize,
+		requester: &mut Requester<'_>,
+	) -> tg::Result<()> {
+		let Some(id) = requester.id.clone() else {
+			return Ok(());
+		};
+		if !matches!(id.kind(), tg::id::Kind::Group | tg::id::Kind::User) {
+			return Ok(());
+		}
+		let mut visited = HashSet::new();
+		let mut frontier = vec![id];
+		while !frontier.is_empty() {
+			let members = frontier
+				.into_iter()
+				.filter(|member| visited.insert(member.clone()))
+				.collect::<Vec<_>>();
+			let relations = stream::iter(members)
+				.map(|member| async move {
+					futures::try_join!(
+						Self::get_member_groups_with_transaction(txn, subspace, &member),
+						Self::get_member_organizations_with_transaction(txn, subspace, &member),
+					)
+				})
+				.buffer_unordered(concurrency)
+				.try_collect::<Vec<_>>()
+				.await?;
+			let mut next = Vec::new();
+			for (groups, organizations) in relations {
+				for group in groups {
+					requester
+						.principals
+						.insert(tg::grant::Principal::Group(group.clone()));
+					next.push(group.into());
+				}
+				for organization in organizations {
+					requester
+						.principals
+						.insert(tg::grant::Principal::Organization(organization));
+				}
+			}
+			frontier = next;
+		}
+		Ok(())
 	}
 
 	async fn authorize_with_transaction(
 		context: AuthorizationContext<'_>,
 		resource: &tg::Id,
 		permissions: tg::grant::permission::Set,
+		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
 		cache: &mut Cache,
 	) -> tg::Result<tg::grant::permission::Set> {
-		let mut found = permissions.empty_like();
-		for permission in permissions.iter() {
-			let authorized =
-				Self::authorize_permission_with_transaction(context, resource, permission, cache)
-					.await?;
-			if authorized {
-				found.insert(tg::grant::permission::Set::from_permission(permission));
-				if found.contains(permissions) {
-					break;
-				}
-			}
-		}
-		Ok(found)
-	}
-
-	async fn authorize_permission_with_transaction(
-		context: AuthorizationContext<'_>,
-		resource: &tg::Id,
-		permission: tg::grant::Permission,
-		cache: &mut Cache,
-	) -> tg::Result<bool> {
-		Self::authorize_permission_with_transaction_inner(
+		let roots = permissions
+			.iter()
+			.map(|permission| (resource.clone(), permission))
+			.collect::<Vec<_>>();
+		Self::authorize_permissions_ordinary_with_transaction(
 			context,
-			resource,
-			permission,
-			cache,
-			&mut HashSet::new(),
-			SubtreeSearch::Enabled,
-		)
-		.await
-	}
-
-	async fn authorize_permission_with_transaction_inner(
-		context: AuthorizationContext<'_>,
-		resource: &tg::Id,
-		permission: tg::grant::Permission,
-		cache: &mut Cache,
-		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
-		subtree_search: SubtreeSearch,
-	) -> tg::Result<bool> {
-		let root = (resource.clone(), permission);
-		if !Self::is_authorized_by_token(context, resource, permission)
-			&& let Some(authorized) = cache.authorization.get(&root)
-		{
-			return Ok(*authorized);
-		}
-
-		let mut token_authorized = HashSet::new();
-		let mut pending = HashSet::from([root.clone()]);
-		let mut queue = VecDeque::from([AuthorizationFrame {
-			resource: resource.clone(),
-			permission,
-			dependencies: None,
-			subtree_unknown: false,
-		}]);
-
-		// Frames whose dependencies are not all decided wait here, keyed by the
-		// dependency they block on, instead of being re-enqueued and re-polled.
-		let mut waiters: HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>> =
-			HashMap::new();
-
-		while let Some(frame) = queue.pop_front() {
-			let key = (frame.resource.clone(), frame.permission);
-			if Self::is_authorized_by_token(context, &frame.resource, frame.permission) {
-				pending.remove(&key);
-				token_authorized.insert(key.clone());
-				Self::wake_waiters(&mut waiters, &mut queue, &key);
-				continue;
-			}
-			if cache.authorization.contains_key(&key) || unknown.contains(&key) {
-				pending.remove(&key);
-				continue;
-			}
-
-			if let Some(dependencies) = frame.dependencies {
-				let mut complete = true;
-				let mut authorized = false;
-				let mut has_unknown_dependency = false;
-				for (dependency, dependency_permission) in &dependencies {
-					let dependency_key = (dependency.clone(), *dependency_permission);
-					if token_authorized.contains(&dependency_key) {
-						authorized = true;
-						break;
-					}
-					match cache.authorization.get(&dependency_key).copied() {
-						Some(true) => {
-							authorized = true;
-							break;
-						},
-						Some(false) => {},
-						None if unknown.contains(&dependency_key) => {
-							has_unknown_dependency = true;
-						},
-						None => complete = false,
-					}
-				}
-				// An incomplete frame is registered as a waiter, so it is dropped here.
-				if complete {
-					if authorized || !(frame.subtree_unknown || has_unknown_dependency) {
-						Self::finish_authorization(
-							cache,
-							&mut pending,
-							&mut waiters,
-							&mut queue,
-							key,
-							authorized,
-						);
-					} else {
-						Self::finish_unknown_authorization(
-							unknown,
-							&mut pending,
-							&mut waiters,
-							&mut queue,
-							key,
-						);
-					}
-				}
-				continue;
-			}
-
-			let mut frames = vec![frame];
-			while frames.len() < context.config.concurrency {
-				let Some(frame) = queue.pop_front() else {
-					break;
-				};
-				if frame.dependencies.is_some() {
-					queue.push_front(frame);
-					break;
-				}
-				let key = (frame.resource.clone(), frame.permission);
-				if Self::is_authorized_by_token(context, &frame.resource, frame.permission) {
-					pending.remove(&key);
-					token_authorized.insert(key.clone());
-					Self::wake_waiters(&mut waiters, &mut queue, &key);
-					continue;
-				}
-				if cache.authorization.contains_key(&key) {
-					pending.remove(&key);
-					continue;
-				}
-				frames.push(frame);
-			}
-
-			let evaluations = stream::iter(frames)
-				.map(|frame| {
-					let mut cache = cache.clone();
-					let mut unknown = unknown.clone();
-					async move {
-						Self::evaluate_authorization_frame_with_transaction(
-							context,
-							frame,
-							&mut cache,
-							&mut unknown,
-							subtree_search,
-						)
-						.await
-					}
-				})
-				.buffered(context.config.concurrency)
-				.try_collect::<Vec<_>>()
-				.await?;
-
-			for mut evaluation in evaluations {
-				cache.merge(std::mem::take(&mut evaluation.cache));
-				unknown.extend(std::mem::take(&mut evaluation.unknown));
-				Self::apply_authorization_frame_evaluation(
-					cache,
-					unknown,
-					&token_authorized,
-					&mut pending,
-					&mut waiters,
-					&mut queue,
-					evaluation,
-				);
-			}
-		}
-
-		Ok(token_authorized.contains(&root)
-			|| cache.authorization.get(&root).copied().unwrap_or(false))
-	}
-
-	async fn evaluate_authorization_frame_with_transaction(
-		context: AuthorizationContext<'_>,
-		frame: AuthorizationFrame,
-		cache: &mut Cache,
-		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
-		subtree_search: SubtreeSearch,
-	) -> tg::Result<AuthorizationFrameEvaluation> {
-		let directly_authorized = Self::is_directly_authorized_with_transaction(
-			context,
-			&frame.resource,
-			frame.permission,
+			&roots,
+			authorization,
 			cache,
 		)
 		.await?;
-		let subtree_authorized = if directly_authorized {
-			Some(false)
-		} else {
-			match subtree_search {
-				SubtreeSearch::Enabled => {
-					Self::authorize_with_object_subtree_search_with_transaction(
-						context,
-						&frame.resource,
-						frame.permission,
-						cache,
-						unknown,
-					)
-					.await?
-				},
-				SubtreeSearch::Disabled => Some(false),
+		let mut authorized = permissions.empty_like();
+		for permission in permissions.iter() {
+			let key = (resource.clone(), permission);
+			if authorization.get(&key).copied().unwrap_or(false) {
+				authorized.insert(tg::grant::permission::Set::from_permission(permission));
+				continue;
 			}
-		};
-		let dependencies = if directly_authorized || subtree_authorized == Some(true) {
-			Vec::new()
-		} else {
-			Self::get_authorization_dependencies_with_transaction(
-				context.txn,
-				context.subspace,
-				context.config.concurrency,
-				&frame.resource,
-				frame.permission,
-				cache,
-			)
-			.await?
-		};
-		Ok(AuthorizationFrameEvaluation {
-			frame,
-			directly_authorized,
-			subtree_authorized,
-			dependencies,
-			cache: std::mem::take(cache),
-			unknown: std::mem::take(unknown),
-		})
+			if permission
+				== tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree)
+				&& Self::authorize_with_object_subtree_search_with_transaction(
+					context,
+					resource,
+					authorization,
+					cache,
+				)
+				.await?
+				.unwrap_or(false)
+			{
+				authorized.insert(tg::grant::permission::Set::from_permission(permission));
+			}
+		}
+		Ok(authorized)
 	}
 
-	fn apply_authorization_frame_evaluation(
+	async fn authorize_permissions_ordinary_with_transaction(
+		context: AuthorizationContext<'_>,
+		roots: &[(tg::Id, tg::grant::Permission)],
+		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
 		cache: &mut Cache,
-		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
-		token_authorized: &HashSet<(tg::Id, tg::grant::Permission)>,
-		pending: &mut HashSet<(tg::Id, tg::grant::Permission)>,
-		waiters: &mut HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>>,
-		queue: &mut VecDeque<AuthorizationFrame>,
-		evaluation: AuthorizationFrameEvaluation,
-	) {
-		let key = (
-			evaluation.frame.resource.clone(),
-			evaluation.frame.permission,
-		);
-		if evaluation.directly_authorized || evaluation.subtree_authorized == Some(true) {
-			Self::finish_authorization(cache, pending, waiters, queue, key, true);
-			return;
-		}
-
-		let subtree_unknown = evaluation.subtree_authorized.is_none();
-		let mut authorized = false;
-		let mut has_unknown_dependency = false;
-		let mut dependencies_to_push = Vec::new();
-		for (dependency, dependency_permission) in &evaluation.dependencies {
-			let dependency_key = (dependency.clone(), *dependency_permission);
-			if token_authorized.contains(&dependency_key) {
-				authorized = true;
-				break;
+	) -> tg::Result<()> {
+		let mut nodes = Vec::new();
+		let mut node_ids = HashMap::new();
+		let mut queue = VecDeque::new();
+		for root in roots {
+			if authorization.contains_key(root) || node_ids.contains_key(root) {
+				continue;
 			}
-			match cache.authorization.get(&dependency_key).copied() {
-				Some(true) => {
-					authorized = true;
-					break;
-				},
-				Some(false) => {},
-				None if unknown.contains(&dependency_key) => {
-					has_unknown_dependency = true;
-				},
-				None => {
-					has_unknown_dependency = true;
-					if pending.insert(dependency_key) {
-						dependencies_to_push.push((dependency.clone(), *dependency_permission));
+			let node_id = nodes.len();
+			node_ids.insert(root.clone(), node_id);
+			nodes.push(AuthorizationNode {
+				key: root.clone(),
+				dependents: Vec::new(),
+				authorized: false,
+			});
+			queue.push_back(node_id);
+		}
+		while !queue.is_empty() {
+			let mut requests = Vec::new();
+			while requests.len() < context.config.concurrency
+				&& let Some(node_id) = queue.pop_front()
+			{
+				if nodes[node_id].authorized {
+					continue;
+				}
+				let (resource, permission) = nodes[node_id].key.clone();
+				if Self::is_authorized_by_token(context, &resource, permission) {
+					Self::propagate_authorization(authorization, &mut nodes, node_id);
+					continue;
+				}
+				requests.push((
+					node_id,
+					resource.clone(),
+					permission,
+					cache.clone_for_direct_authorization(&resource, permission),
+					cache.clone_for_authorization_dependencies(&resource, permission),
+				));
+			}
+			if roots
+				.iter()
+				.all(|root| authorization.get(root).copied().unwrap_or(false))
+			{
+				return Ok(());
+			}
+			let dependency_concurrency = context.config.concurrency.div_ceil(requests.len().max(1));
+
+			let evaluations = stream::iter(requests)
+				.map(
+					|(node_id, resource, permission, mut direct_cache, mut dependency_cache)| async move {
+						let directly_authorized = Self::is_directly_authorized_with_transaction(
+							context,
+							&resource,
+							permission,
+							&mut direct_cache,
+						);
+						let dependencies = Self::get_authorization_dependencies_with_transaction(
+							context.txn,
+							context.subspace,
+							dependency_concurrency,
+							&resource,
+							permission,
+							&mut dependency_cache,
+						);
+						let (directly_authorized, dependencies) =
+							futures::try_join!(directly_authorized, dependencies)?;
+						direct_cache.merge(dependency_cache);
+						Ok::<_, tg::Error>(AuthorizationNodeEvaluation {
+							node_id,
+							directly_authorized,
+							dependencies,
+							cache: direct_cache,
+						})
+					},
+				)
+				.buffer_unordered(context.config.concurrency)
+				.try_collect::<Vec<_>>()
+				.await?;
+
+			for evaluation in evaluations {
+				cache.merge(evaluation.cache);
+				if nodes[evaluation.node_id].authorized {
+					continue;
+				}
+				if evaluation.directly_authorized {
+					Self::propagate_authorization(authorization, &mut nodes, evaluation.node_id);
+					continue;
+				}
+				for (dependency, dependency_permission) in evaluation.dependencies {
+					let dependency_key = (dependency, dependency_permission);
+					match authorization.get(&dependency_key).copied() {
+						Some(true) => {
+							Self::propagate_authorization(
+								authorization,
+								&mut nodes,
+								evaluation.node_id,
+							);
+							break;
+						},
+						Some(false) => {},
+						None => {
+							let dependency_id =
+								if let Some(dependency_id) = node_ids.get(&dependency_key) {
+									*dependency_id
+								} else {
+									let dependency_id = nodes.len();
+									node_ids.insert(dependency_key.clone(), dependency_id);
+									nodes.push(AuthorizationNode {
+										key: dependency_key,
+										dependents: Vec::new(),
+										authorized: false,
+									});
+									queue.push_back(dependency_id);
+									dependency_id
+								};
+							nodes[dependency_id].dependents.push(evaluation.node_id);
+						},
 					}
-				},
-			}
-		}
-
-		if authorized || !has_unknown_dependency {
-			Self::finish_authorization(cache, pending, waiters, queue, key, authorized);
-			return;
-		}
-		if dependencies_to_push.is_empty() {
-			Self::finish_unknown_authorization(unknown, pending, waiters, queue, key);
-			return;
-		}
-
-		// Register the frame as a waiter on each undecided dependency.
-		let frame = AuthorizationFrame {
-			resource: evaluation.frame.resource,
-			permission: evaluation.frame.permission,
-			dependencies: Some(evaluation.dependencies),
-			subtree_unknown,
-		};
-		if let Some(dependencies) = &frame.dependencies {
-			for (dependency, dependency_permission) in dependencies {
-				let dependency_key = (dependency.clone(), *dependency_permission);
-				if !cache.authorization.contains_key(&dependency_key)
-					&& !unknown.contains(&dependency_key)
-				{
-					waiters
-						.entry(dependency_key)
-						.or_default()
-						.push(frame.clone());
 				}
 			}
+			if roots
+				.iter()
+				.all(|root| authorization.get(root).copied().unwrap_or(false))
+			{
+				return Ok(());
+			}
 		}
-		// Queue the dependencies that have not been visited.
-		for (dependency, dependency_permission) in dependencies_to_push {
-			queue.push_back(AuthorizationFrame {
-				resource: dependency,
-				permission: dependency_permission,
-				dependencies: None,
-				subtree_unknown: false,
-			});
+
+		for node in nodes {
+			authorization.entry(node.key).or_insert(false);
 		}
+		Ok(())
 	}
 
-	fn wake_waiters(
-		waiters: &mut HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>>,
-		queue: &mut VecDeque<AuthorizationFrame>,
-		key: &(tg::Id, tg::grant::Permission),
+	fn propagate_authorization(
+		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
+		nodes: &mut [AuthorizationNode],
+		node_id: usize,
 	) {
-		if let Some(frames) = waiters.remove(key) {
-			queue.extend(frames);
+		let mut stack = vec![node_id];
+		while let Some(node_id) = stack.pop() {
+			let node = &mut nodes[node_id];
+			if node.authorized {
+				continue;
+			}
+			node.authorized = true;
+			authorization.insert(node.key.clone(), true);
+			stack.extend(node.dependents.iter().copied());
 		}
-	}
-
-	fn finish_authorization(
-		cache: &mut Cache,
-		pending: &mut HashSet<(tg::Id, tg::grant::Permission)>,
-		waiters: &mut HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>>,
-		queue: &mut VecDeque<AuthorizationFrame>,
-		key: (tg::Id, tg::grant::Permission),
-		authorized: bool,
-	) {
-		pending.remove(&key);
-		Self::wake_waiters(waiters, queue, &key);
-		match cache.authorization.get_mut(&key) {
-			Some(existing) => *existing = *existing || authorized,
-			None => {
-				cache.authorization.insert(key, authorized);
-			},
-		}
-	}
-
-	fn finish_unknown_authorization(
-		unknown: &mut HashSet<(tg::Id, tg::grant::Permission)>,
-		pending: &mut HashSet<(tg::Id, tg::grant::Permission)>,
-		waiters: &mut HashMap<(tg::Id, tg::grant::Permission), Vec<AuthorizationFrame>>,
-		queue: &mut VecDeque<AuthorizationFrame>,
-		key: (tg::Id, tg::grant::Permission),
-	) {
-		pending.remove(&key);
-		Self::wake_waiters(waiters, queue, &key);
-		unknown.insert(key);
 	}
 
 	async fn is_directly_authorized_with_transaction(
@@ -594,7 +605,6 @@ impl Index {
 					context.subspace,
 					&owner,
 					context.requester,
-					cache,
 				)
 				.await?
 				{
@@ -617,7 +627,6 @@ impl Index {
 					context.subspace,
 					&granted_principal,
 					context.requester,
-					cache,
 				)
 				.await?
 			{
@@ -637,100 +646,115 @@ impl Index {
 		})
 	}
 
-	fn authorize_with_object_subtree_search_with_transaction<'a>(
-		context: AuthorizationContext<'a>,
-		resource: &'a tg::Id,
-		permission: tg::grant::Permission,
-		cache: &'a mut Cache,
-		unknown: &'a mut HashSet<(tg::Id, tg::grant::Permission)>,
-	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
-		async move {
-			if permission
-				!= tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree)
+	async fn authorize_with_object_subtree_search_with_transaction(
+		context: AuthorizationContext<'_>,
+		resource: &tg::Id,
+		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
+		cache: &mut Cache,
+	) -> tg::Result<Option<bool>> {
+		let subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let mut budget = SubtreeSearchBudget {
+			max_depth: context.config.object_subtree.max_depth,
+			remaining_objects: context.config.object_subtree.max_objects,
+		};
+		let root = tg::object::Id::try_from(resource.clone())?;
+		let mut visited = HashSet::from([root.clone()]);
+		let mut frontier = vec![root];
+		let mut depth = 0;
+		while !frontier.is_empty() {
+			if frontier.len() > budget.remaining_objects {
+				return Ok(None);
+			}
+			budget.remaining_objects -= frontier.len();
+			let subtree_roots = frontier
+				.iter()
+				.map(|object| (tg::Id::from(object.clone()), subtree))
+				.collect::<Vec<_>>();
+			Self::authorize_permissions_ordinary_with_transaction(
+				context,
+				&subtree_roots,
+				authorization,
+				cache,
+			)
+			.await?;
+			let uncovered = frontier
+				.into_iter()
+				.filter(|object| {
+					let key = (tg::Id::from(object.clone()), subtree);
+					!authorization.get(&key).copied().unwrap_or(false)
+				})
+				.collect::<Vec<_>>();
+			if uncovered.is_empty() {
+				break;
+			}
+
+			let node_roots = uncovered
+				.iter()
+				.map(|object| (tg::Id::from(object.clone()), node))
+				.collect::<Vec<_>>();
+			Self::authorize_permissions_ordinary_with_transaction(
+				context,
+				&node_roots,
+				authorization,
+				cache,
+			)
+			.await?;
+			if node_roots
+				.iter()
+				.any(|key| !authorization.get(key).copied().unwrap_or(false))
 			{
 				return Ok(Some(false));
 			}
-			if Self::authorize_permission_with_transaction_inner(
-				context,
-				resource,
-				permission,
-				cache,
-				unknown,
-				SubtreeSearch::Disabled,
-			)
-			.await?
-			{
-				return Ok(Some(true));
-			}
-			let node =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-			let mut budget = SubtreeSearchBudget {
-				max_depth: context.config.object_subtree.max_depth,
-				remaining_objects: context.config.object_subtree.max_objects,
+
+			let limit = if depth == budget.max_depth {
+				visited.len().saturating_add(1)
+			} else {
+				budget
+					.remaining_objects
+					.saturating_add(visited.len())
+					.saturating_add(1)
 			};
-
-			let mut stack = Vec::from([(tg::object::Id::try_from(resource.clone())?, 0)]);
-			while let Some((object, depth)) = stack.pop() {
-				if depth > budget.max_depth || budget.remaining_objects == 0 {
-					return Ok(None);
-				}
-				budget.remaining_objects -= 1;
-
-				let resource = tg::Id::from(object.clone());
-				if !Self::authorize_permission_with_transaction_inner(
-					context,
-					&resource,
-					node,
-					cache,
-					unknown,
-					SubtreeSearch::Disabled,
-				)
-				.await?
-				{
-					if unknown.contains(&(resource, node)) {
-						return Ok(None);
-					}
-					return Ok(Some(false));
-				}
-
-				let children = Self::get_cached_object_children_limited_with_transaction(
-					context.txn,
-					context.subspace,
-					&object,
-					budget.remaining_objects + 1,
-					cache,
-				)
-				.await?;
-				if children.len() > budget.remaining_objects {
-					return Ok(None);
-				}
-				if children.is_empty() {
-					continue;
-				}
-				if depth >= 1
-					&& Self::authorize_permission_with_transaction_inner(
-						context,
-						&resource,
-						permission,
-						cache,
-						unknown,
-						SubtreeSearch::Disabled,
+			let requests = uncovered
+				.into_iter()
+				.map(|object| (object.clone(), cache.clone_for_object_children(&object)))
+				.collect::<Vec<_>>();
+			let children = stream::iter(requests)
+				.map(|(object, mut cache)| async move {
+					let children = Self::get_cached_object_children_limited_with_transaction(
+						context.txn,
+						context.subspace,
+						&object,
+						limit,
+						&mut cache,
 					)
-					.await?
-				{
-					continue;
-				}
-				if depth == budget.max_depth {
-					return Ok(None);
-				}
+					.await?;
+					Ok::<_, tg::Error>((children, cache))
+				})
+				.buffer_unordered(context.config.concurrency)
+				.try_collect::<Vec<_>>()
+				.await?;
+			let mut next = Vec::new();
+			for (children, child_cache) in children {
+				cache.merge(child_cache);
 				for child in children {
-					stack.push((child, depth + 1));
+					if visited.insert(child.clone()) {
+						if depth == budget.max_depth {
+							return Ok(None);
+						}
+						next.push(child);
+					}
 				}
 			}
-
-			Ok(Some(true))
+			if next.len() > budget.remaining_objects {
+				return Ok(None);
+			}
+			frontier = next;
+			depth += 1;
 		}
-		.boxed()
+
+		Ok(Some(true))
 	}
 
 	async fn get_authorization_dependencies_with_transaction(
@@ -745,19 +769,53 @@ impl Index {
 		match permission {
 			tg::grant::Permission::Object(_) => {
 				let object = tg::object::Id::try_from(resource.clone())?;
-				let object_parents =
-					Self::get_cached_object_parents_with_transaction(txn, subspace, &object, cache)
-						.await?;
+				let cached_parents = cache.object_parents.get(&object).cloned();
+				let cached_processes = cache.object_processes.get(&object).cloned();
+				let tag_key = (resource.clone(), permission);
+				let cached_tags = cache.item_tags.get(&tag_key).cloned();
+				let object_parents = async {
+					if let Some(parents) = cached_parents {
+						Ok(parents)
+					} else {
+						Self::get_object_parents_with_transaction(txn, subspace, &object).await
+					}
+				};
+				let processes = async {
+					if let Some(processes) = cached_processes {
+						Ok(processes)
+					} else {
+						Self::get_object_processes_with_transaction(txn, subspace, &object).await
+					}
+				};
+				let tags = async {
+					if let Some(tags) = cached_tags {
+						Ok(tags)
+					} else {
+						let mut tag_cache = Cache::default();
+						Self::get_cached_item_tags_with_transaction(
+							txn,
+							subspace,
+							concurrency,
+							resource,
+							permission,
+							&mut tag_cache,
+						)
+						.await
+					}
+				};
+				let (object_parents, processes, tags) =
+					futures::try_join!(object_parents, processes, tags)?;
+				cache
+					.object_parents
+					.insert(object.clone(), object_parents.clone());
+				cache.object_processes.insert(object, processes.clone());
+				cache.item_tags.insert(tag_key, tags.clone());
 				for parent in object_parents {
 					let permission = tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Subtree,
 					);
 					dependencies.push((parent.into(), permission));
 				}
-				let processes = Self::get_cached_object_processes_with_transaction(
-					txn, subspace, &object, cache,
-				)
-				.await?;
 				for (process, kind) in processes {
 					let permission = match kind {
 						crate::process::object::Kind::Command => {
@@ -775,25 +833,58 @@ impl Index {
 					};
 					dependencies.push((process.into(), tg::grant::Permission::Process(permission)));
 				}
-				dependencies.extend(
-					Self::get_cached_item_tags_with_transaction(
-						txn,
-						subspace,
-						concurrency,
-						resource,
-						permission,
-						cache,
-					)
-					.await?,
-				);
+				dependencies.extend(tags);
 			},
 			tg::grant::Permission::Process(process_permission) => {
 				let process = tg::process::Id::try_from(resource.clone())?;
-				if let Some(sandbox) = Self::get_cached_process_sandbox_with_transaction(
-					txn, subspace, &process, cache,
-				)
-				.await?
-				{
+				let cached_sandbox = cache.process_sandboxes.get(&process).cloned();
+				let cached_parents = cache.process_parents.get(&process).cloned();
+				let tag_key = (resource.clone(), permission);
+				let cached_tags = cache.item_tags.get(&tag_key).cloned();
+				let sandbox = async {
+					if let Some(sandbox) = cached_sandbox {
+						Ok(sandbox)
+					} else {
+						Ok::<_, tg::Error>(
+							Self::try_get_process_with_transaction(txn, subspace, &process)
+								.await?
+								.and_then(|process| process.sandbox),
+						)
+					}
+				};
+				let process_parents = async {
+					if let Some(parents) = cached_parents {
+						Ok(parents)
+					} else {
+						Self::get_process_parents_with_transaction(txn, subspace, &process).await
+					}
+				};
+				let tags = async {
+					if let Some(tags) = cached_tags {
+						Ok(tags)
+					} else {
+						let mut tag_cache = Cache::default();
+						Self::get_cached_item_tags_with_transaction(
+							txn,
+							subspace,
+							concurrency,
+							resource,
+							permission,
+							&mut tag_cache,
+						)
+						.await
+					}
+				};
+				let (sandbox, process_parents, tags) =
+					futures::try_join!(sandbox, process_parents, tags)?;
+				cache
+					.process_sandboxes
+					.insert(process.clone(), sandbox.clone());
+				cache
+					.process_parents
+					.insert(process, process_parents.clone());
+				cache.item_tags.insert(tag_key, tags.clone());
+				if let Some(sandbox) = sandbox {
 					let sandbox_permission = match process_permission {
 						tg::grant::permission::process::Permission::Write => {
 							tg::grant::permission::sandbox::Permission::Write
@@ -805,26 +896,12 @@ impl Index {
 						tg::grant::Permission::Sandbox(sandbox_permission),
 					));
 				}
-				let process_parents = Self::get_cached_process_parents_with_transaction(
-					txn, subspace, &process, cache,
-				)
-				.await?;
 				for parent in process_parents {
 					let permission =
 						tg::grant::Permission::Process(process_permission.to_subtree());
 					dependencies.push((parent.into(), permission));
 				}
-				dependencies.extend(
-					Self::get_cached_item_tags_with_transaction(
-						txn,
-						subspace,
-						concurrency,
-						resource,
-						permission,
-						cache,
-					)
-					.await?,
-				);
+				dependencies.extend(tags);
 			},
 			tg::grant::Permission::Group(_)
 			| tg::grant::Permission::Organization(_)
@@ -880,8 +957,10 @@ impl Index {
 		subspace: &Subspace,
 		principal: &tg::grant::Principal,
 		requester: &Requester<'_>,
-		cache: &mut Cache,
 	) -> tg::Result<bool> {
+		if PRECOMPUTE_REQUESTER_PRINCIPALS {
+			return Ok(requester.principals.contains(principal));
+		}
 		if principal == &tg::grant::Principal::Public {
 			return Ok(true);
 		}
@@ -891,15 +970,17 @@ impl Index {
 		if requester.id.is_none() {
 			return Ok(false);
 		}
-		if let Some(contains) = cache.principal_contains_requester.get(principal) {
-			return Ok(*contains);
+		let contains = {
+			let cache = requester.membership_cache();
+			cache.principal_contains_requester.get(principal).copied()
+		};
+		if let Some(contains) = contains {
+			return Ok(contains);
 		}
 		let contains = match principal {
 			tg::grant::Principal::Group(group) => {
-				Self::group_contains_requester_with_transaction(
-					txn, subspace, group, requester, cache,
-				)
-				.await?
+				Self::group_contains_requester_with_transaction(txn, subspace, group, requester)
+					.await?
 			},
 			tg::grant::Principal::Organization(organization) => {
 				Self::organization_contains_requester_with_transaction(
@@ -907,13 +988,13 @@ impl Index {
 					subspace,
 					organization,
 					requester,
-					cache,
 				)
 				.await?
 			},
 			_ => false,
 		};
-		cache
+		requester
+			.membership_cache()
 			.principal_contains_requester
 			.insert(principal.clone(), contains);
 		Ok(contains)
@@ -924,11 +1005,14 @@ impl Index {
 		subspace: &Subspace,
 		group: &tg::group::Id,
 		requester: &Requester<'_>,
-		cache: &mut Cache,
 	) -> tg::Result<bool> {
 		let principal = tg::grant::Principal::Group(group.clone());
-		if let Some(contains) = cache.principal_contains_requester.get(&principal) {
-			return Ok(*contains);
+		let contains = {
+			let cache = requester.membership_cache();
+			cache.principal_contains_requester.get(&principal).copied()
+		};
+		if let Some(contains) = contains {
+			return Ok(contains);
 		}
 		let root = group.clone();
 		let mut visited = HashSet::new();
@@ -938,21 +1022,44 @@ impl Index {
 				continue;
 			}
 			let principal = tg::grant::Principal::Group(group.clone());
-			if let Some(contains) = cache.principal_contains_requester.get(&principal) {
-				if *contains {
-					cache
+			let contains = {
+				let cache = requester.membership_cache();
+				cache.principal_contains_requester.get(&principal).copied()
+			};
+			if let Some(contains) = contains {
+				if contains {
+					requester
+						.membership_cache()
 						.principal_contains_requester
 						.insert(tg::grant::Principal::Group(root), true);
 					return Ok(true);
 				}
 				continue;
 			}
-			let members =
-				Self::get_cached_group_members_with_transaction(txn, subspace, &group, cache)
-					.await?;
-			for member in members {
+			let members = {
+				let cache = requester.membership_cache();
+				cache.group_members.get(&group).cloned()
+			};
+			let members = if let Some(members) = members {
+				members
+			} else {
+				let members: std::sync::Arc<[tg::Id]> =
+					Self::get_group_members_with_transaction(txn, subspace, &group)
+						.await?
+						.into_iter()
+						.map(tg::Id::from)
+						.collect::<Vec<_>>()
+						.into();
+				requester
+					.membership_cache()
+					.group_members
+					.insert(group.clone(), members.clone());
+				members
+			};
+			for member in members.iter().cloned() {
 				if requester.id.as_ref() == Some(&member) {
-					cache
+					requester
+						.membership_cache()
 						.principal_contains_requester
 						.insert(tg::grant::Principal::Group(root), true);
 					return Ok(true);
@@ -962,6 +1069,7 @@ impl Index {
 				}
 			}
 		}
+		let mut cache = requester.membership_cache();
 		for group in visited {
 			cache
 				.principal_contains_requester
@@ -975,46 +1083,69 @@ impl Index {
 		subspace: &Subspace,
 		organization: &tg::organization::Id,
 		requester: &Requester<'_>,
-		cache: &mut Cache,
 	) -> tg::Result<bool> {
 		let principal = tg::grant::Principal::Organization(organization.clone());
-		if let Some(contains) = cache.principal_contains_requester.get(&principal) {
-			return Ok(*contains);
+		let contains = {
+			let cache = requester.membership_cache();
+			cache.principal_contains_requester.get(&principal).copied()
+		};
+		if let Some(contains) = contains {
+			return Ok(contains);
 		}
-		let members = Self::get_cached_organization_members_with_transaction(
-			txn,
-			subspace,
-			organization,
-			cache,
-		)
-		.await?;
-		for member in members {
+		let members = {
+			let cache = requester.membership_cache();
+			cache.organization_members.get(organization).cloned()
+		};
+		let members = if let Some(members) = members {
+			members
+		} else {
+			let members: std::sync::Arc<[tg::Id]> =
+				Self::get_organization_members_with_transaction(txn, subspace, organization)
+					.await?
+					.into_iter()
+					.map(tg::Id::from)
+					.collect::<Vec<_>>()
+					.into();
+			requester
+				.membership_cache()
+				.organization_members
+				.insert(organization.clone(), members.clone());
+			members
+		};
+		for member in members.iter().cloned() {
 			if requester.id.as_ref() == Some(&member) {
-				cache.principal_contains_requester.insert(
-					tg::grant::Principal::Organization(organization.clone()),
-					true,
-				);
+				requester
+					.membership_cache()
+					.principal_contains_requester
+					.insert(
+						tg::grant::Principal::Organization(organization.clone()),
+						true,
+					);
 				return Ok(true);
 			}
 			if member.kind() == tg::id::Kind::Group {
 				let group = tg::group::Id::try_from(member)?;
-				if Self::group_contains_requester_with_transaction(
-					txn, subspace, &group, requester, cache,
-				)
-				.await?
+				if Self::group_contains_requester_with_transaction(txn, subspace, &group, requester)
+					.await?
 				{
-					cache.principal_contains_requester.insert(
-						tg::grant::Principal::Organization(organization.clone()),
-						true,
-					);
+					requester
+						.membership_cache()
+						.principal_contains_requester
+						.insert(
+							tg::grant::Principal::Organization(organization.clone()),
+							true,
+						);
 					return Ok(true);
 				}
 			}
 		}
-		cache.principal_contains_requester.insert(
-			tg::grant::Principal::Organization(organization.clone()),
-			false,
-		);
+		requester
+			.membership_cache()
+			.principal_contains_requester
+			.insert(
+				tg::grant::Principal::Organization(organization.clone()),
+				false,
+			);
 		Ok(false)
 	}
 
@@ -1125,20 +1256,6 @@ impl Index {
 		}
 	}
 
-	async fn get_cached_object_parents_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		object: &tg::object::Id,
-		cache: &mut Cache,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		if let Some(parents) = cache.object_parents.get(object) {
-			return Ok(parents.clone());
-		}
-		let parents = Self::get_object_parents_with_transaction(txn, subspace, object).await?;
-		cache.object_parents.insert(object.clone(), parents.clone());
-		Ok(parents)
-	}
-
 	async fn get_cached_object_children_limited_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
@@ -1180,56 +1297,6 @@ impl Index {
 		Ok(children)
 	}
 
-	async fn get_cached_object_processes_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		object: &tg::object::Id,
-		cache: &mut Cache,
-	) -> tg::Result<Vec<(tg::process::Id, crate::process::object::Kind)>> {
-		if let Some(processes) = cache.object_processes.get(object) {
-			return Ok(processes.clone());
-		}
-		let processes = Self::get_object_processes_with_transaction(txn, subspace, object).await?;
-		cache
-			.object_processes
-			.insert(object.clone(), processes.clone());
-		Ok(processes)
-	}
-
-	async fn get_cached_process_parents_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		process: &tg::process::Id,
-		cache: &mut Cache,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		if let Some(parents) = cache.process_parents.get(process) {
-			return Ok(parents.clone());
-		}
-		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
-		cache
-			.process_parents
-			.insert(process.clone(), parents.clone());
-		Ok(parents)
-	}
-
-	async fn get_cached_process_sandbox_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		process: &tg::process::Id,
-		cache: &mut Cache,
-	) -> tg::Result<Option<tg::sandbox::Id>> {
-		if let Some(sandbox) = cache.process_sandboxes.get(process) {
-			return Ok(sandbox.clone());
-		}
-		let sandbox = Self::try_get_process_with_transaction(txn, subspace, process)
-			.await?
-			.and_then(|process| process.sandbox);
-		cache
-			.process_sandboxes
-			.insert(process.clone(), sandbox.clone());
-		Ok(sandbox)
-	}
-
 	async fn get_cached_sandbox_owner_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
@@ -1260,44 +1327,5 @@ impl Index {
 				.flatten();
 		cache.sandbox_owners.insert(sandbox.clone(), owner.clone());
 		Ok(owner)
-	}
-
-	async fn get_cached_group_members_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		group: &tg::group::Id,
-		cache: &mut Cache,
-	) -> tg::Result<Vec<tg::Id>> {
-		if let Some(members) = cache.group_members.get(group) {
-			return Ok(members.clone());
-		}
-		let members: Vec<tg::Id> = Self::get_group_members_with_transaction(txn, subspace, group)
-			.await?
-			.into_iter()
-			.map(tg::Id::from)
-			.collect();
-		cache.group_members.insert(group.clone(), members.clone());
-		Ok(members)
-	}
-
-	async fn get_cached_organization_members_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		organization: &tg::organization::Id,
-		cache: &mut Cache,
-	) -> tg::Result<Vec<tg::Id>> {
-		if let Some(members) = cache.organization_members.get(organization) {
-			return Ok(members.clone());
-		}
-		let members: Vec<tg::Id> =
-			Self::get_organization_members_with_transaction(txn, subspace, organization)
-				.await?
-				.into_iter()
-				.map(tg::Id::from)
-				.collect();
-		cache
-			.organization_members
-			.insert(organization.clone(), members.clone());
-		Ok(members)
 	}
 }
