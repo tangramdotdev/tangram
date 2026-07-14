@@ -125,6 +125,8 @@ export namespace Host {
 
 		export interface ClientHttp2Session {
 			readonly authority: string;
+			readonly closed: boolean;
+			readonly destroyed: boolean;
 			readonly options: ConnectOptions;
 
 			close(callback?: () => void): Promise<void>;

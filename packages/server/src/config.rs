@@ -336,9 +336,13 @@ pub struct TursoDatabase {
 	pub retry: Retry,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Http {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub idle_timeout: Duration,
+
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub listeners: Vec<HttpListener>,
 }
@@ -1193,6 +1197,15 @@ impl Default for TursoDatabase {
 			path: PathBuf::from("database"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
+		}
+	}
+}
+
+impl Default for Http {
+	fn default() -> Self {
+		Self {
+			idle_timeout: Duration::from_secs(30),
+			listeners: Vec::new(),
 		}
 	}
 }

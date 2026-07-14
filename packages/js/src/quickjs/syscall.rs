@@ -89,6 +89,7 @@ pub fn syscall<'js>(
 		"http2_session_destroy" => {
 			qjs::Function::new(ctx.clone(), Async(self::http2::session_destroy))
 		},
+		"http2_session_read" => qjs::Function::new(ctx.clone(), Async(self::http2::session_read)),
 		"http2_session_request" => {
 			qjs::Function::new(ctx.clone(), Async(self::http2::session_request))
 		},

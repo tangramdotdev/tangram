@@ -20,6 +20,11 @@ use {
 
 type BodyFrame = Result<http_body::Frame<Bytes>, std::io::Error>;
 type RequestBody = StreamBody<ReceiverStream<BodyFrame>>;
+type Handshake = (
+	hyper::client::conn::http2::SendRequest<RequestBody>,
+	mpsc::Sender<SessionEvent>,
+	mpsc::Receiver<SessionEvent>,
+);
 
 #[derive(Default)]
 pub(crate) struct Http2 {
@@ -30,6 +35,8 @@ pub(crate) struct Http2 {
 
 struct Session {
 	authority: String,
+	event_tx: mpsc::Sender<SessionEvent>,
+	events: Mutex<mpsc::Receiver<SessionEvent>>,
 	scheme: String,
 	sender: hyper::client::conn::http2::SendRequest<RequestBody>,
 	streams: DashMap<usize, ()>,
@@ -57,6 +64,13 @@ pub struct RequestOptions {
 
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SessionEvent {
+	Close,
+	Error { message: String },
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StreamEvent {
 	Close,
 	Data { bytes: Bytes },
@@ -79,8 +93,8 @@ impl Http2 {
 		if let Some(path) = authority.strip_prefix("http+unix://") {
 			let path = unix_path_from_str(path)?;
 			let stream = connect_unix(&path).await?;
-			let sender = handshake(stream).await?;
-			return Ok(self.insert_session("localhost".to_owned(), "http".to_owned(), sender));
+			let handshake = handshake(stream).await?;
+			return Ok(self.insert_session("localhost".to_owned(), "http".to_owned(), handshake));
 		}
 
 		let uri = authority
@@ -89,7 +103,7 @@ impl Http2 {
 		let scheme = uri
 			.scheme_str()
 			.ok_or_else(|| tg::error!("missing a URL scheme"))?;
-		let (authority, scheme, sender) = match scheme {
+		let (authority, scheme, handshake) = match scheme {
 			"http" | "https" => {
 				let host = uri.host().ok_or_else(|| tg::error!("missing a URL host"))?;
 				let port = options
@@ -110,42 +124,50 @@ impl Http2 {
 					host.to_owned()
 				};
 				let stream = connect_tcp(host, port).await?;
-				let sender = if scheme == "https" {
+				let handshake = if scheme == "https" {
 					let stream = connect_tls(host, stream).await?;
 					verify_alpn_protocol(&stream)?;
 					handshake(stream).await?
 				} else {
 					handshake(stream).await?
 				};
-				(authority, scheme.to_owned(), sender)
+				(authority, scheme.to_owned(), handshake)
 			},
 			"http+unix" => {
 				let path = unix_path(&uri)?;
 				let stream = connect_unix(&path).await?;
-				let sender = handshake(stream).await?;
-				("localhost".to_owned(), "http".to_owned(), sender)
+				let handshake = handshake(stream).await?;
+				("localhost".to_owned(), "http".to_owned(), handshake)
 			},
 			_ => return Err(tg::error!("unsupported URL scheme")),
 		};
 
-		Ok(self.insert_session(authority, scheme, sender))
+		Ok(self.insert_session(authority, scheme, handshake))
 	}
 
-	fn insert_session(
-		&self,
-		authority: String,
-		scheme: String,
-		sender: hyper::client::conn::http2::SendRequest<RequestBody>,
-	) -> usize {
+	fn insert_session(&self, authority: String, scheme: String, handshake: Handshake) -> usize {
+		let (sender, event_tx, event_rx) = handshake;
 		let token = self.token();
 		let session = Session {
 			authority,
+			event_tx,
+			events: Mutex::new(event_rx),
 			scheme,
 			sender,
 			streams: DashMap::new(),
 		};
 		self.sessions.insert(token, Arc::new(session));
 		token
+	}
+
+	pub(crate) async fn session_read(&self, session: usize) -> tg::Result<Option<SessionEvent>> {
+		let session = self
+			.sessions
+			.get(&session)
+			.ok_or_else(|| tg::error!("invalid HTTP/2 session"))?
+			.value()
+			.clone();
+		Ok(session.events.lock().await.recv().await)
 	}
 
 	pub(crate) async fn session_request(
@@ -223,7 +245,7 @@ impl Http2 {
 	pub(crate) async fn stream_close(&self, stream: usize) -> tg::Result<()> {
 		if let Some((_token, stream)) = self.streams.remove(&stream) {
 			self.remove_stream_from_session(&stream);
-			stream.close().await;
+			stream.close(None).await;
 		}
 		Ok(())
 	}
@@ -235,7 +257,7 @@ impl Http2 {
 	pub(crate) async fn session_destroy(
 		&self,
 		session: usize,
-		_error: Option<String>,
+		error: Option<String>,
 	) -> tg::Result<()> {
 		let Some((_token, session)) = self.sessions.remove(&session) else {
 			return Ok(());
@@ -247,9 +269,10 @@ impl Http2 {
 			.collect::<Vec<_>>();
 		for stream in streams {
 			if let Some((_token, stream)) = self.streams.remove(&stream) {
-				stream.close().await;
+				stream.close(error.as_deref()).await;
 			}
 		}
+		session.event_tx.try_send(SessionEvent::Close).ok();
 		Ok(())
 	}
 
@@ -265,8 +288,16 @@ impl Http2 {
 }
 
 impl Stream {
-	async fn close(&self) {
+	async fn close(&self, error: Option<&str>) {
 		self.request.lock().await.take();
+		if let Some(message) = error {
+			self.event_tx
+				.send(StreamEvent::Error {
+					message: message.to_owned(),
+				})
+				.await
+				.ok();
+		}
 		self.event_tx.try_send(StreamEvent::Close).ok();
 	}
 }
@@ -334,7 +365,7 @@ fn unix_path_from_str(path: &str) -> tg::Result<PathBuf> {
 	Ok(PathBuf::from(path.as_ref()))
 }
 
-async fn handshake<S>(stream: S) -> tg::Result<hyper::client::conn::http2::SendRequest<RequestBody>>
+async fn handshake<S>(stream: S) -> tg::Result<Handshake>
 where
 	S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
 {
@@ -346,14 +377,24 @@ where
 		.handshake(io)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to perform the HTTP/2 handshake"))?;
-	tokio::spawn(async move {
-		connection.await.ok();
+	let (event_tx, event_rx) = mpsc::channel(1);
+	tokio::spawn({
+		let event_tx = event_tx.clone();
+		async move {
+			let event = match connection.await {
+				Ok(()) => SessionEvent::Close,
+				Err(error) => SessionEvent::Error {
+					message: error.to_string(),
+				},
+			};
+			event_tx.send(event).await.ok();
+		}
 	});
 	sender
 		.ready()
 		.await
 		.map_err(|error| tg::error!(!error, "failed to ready the HTTP/2 sender"))?;
-	Ok(sender)
+	Ok((sender, event_tx, event_rx))
 }
 
 fn verify_alpn_protocol(

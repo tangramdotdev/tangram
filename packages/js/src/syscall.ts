@@ -164,6 +164,11 @@ declare global {
 	): Promise<void>;
 
 	function syscall(
+		syscall: "http2_session_read",
+		session: number,
+	): Promise<unknown | null>;
+
+	function syscall(
 		syscall: "http2_session_request",
 		session: number,
 		headers: [string, string][],

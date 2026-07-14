@@ -27,7 +27,22 @@ import { read, tryRead, tryReadStream } from "./client/read.ts";
 import { getSandbox, tryGetSandbox } from "./client/sandbox/get.ts";
 import { write } from "./client/write.ts";
 
+type RetryOptions = {
+	backoff: number;
+	jitter: number;
+	maxDelay: number;
+	maxRetries: number;
+};
+
+let reconnectOptions = defaultRetryOptions();
+let retryOptions = defaultRetryOptions();
+
+class RequestError {
+	constructor(readonly source: unknown) {}
+}
+
 export class Client {
+	#connecting: Promise<tg.Host.Http2.ClientHttp2Session> | null = null;
 	#session: tg.Host.Http2.ClientHttp2Session | null = null;
 
 	arg() {
@@ -230,19 +245,140 @@ export class Client {
 		return write(this, argOrBytes, input);
 	}
 
-	#connect() {
-		if (this.#session !== null) {
+	async send(request: Request): Promise<Response> {
+		try {
+			return await this.#send(request);
+		} catch (error) {
+			throw error instanceof RequestError ? error.source : error;
+		}
+	}
+
+	async sendWithRetry(request: Request): Promise<Response> {
+		if (request.body !== undefined && !request.body.replayable) {
+			throw new Error("cannot retry a request with a streaming body");
+		}
+		try {
+			return await retry(
+				retryOptions,
+				() => this.#send(request),
+				(error) => error instanceof RequestError,
+			);
+		} catch (error) {
+			throw error instanceof RequestError ? error.source : error;
+		}
+	}
+
+	async #send(request: Request): Promise<Response> {
+		let token = tg.process.env.TANGRAM_TOKEN;
+		if (token !== undefined && typeof token !== "string") {
+			throw new Error("invalid TANGRAM_TOKEN");
+		}
+		let headers: tg.Host.Http2.Headers = {
+			...request.headers.toData(),
+			":method": request.method,
+			":path": request.uri.toString(),
+		};
+		if (token !== undefined) {
+			headers = {
+				...headers,
+				authorization: `Bearer ${token}`,
+			};
+		}
+		let session = await this.#connect();
+		try {
+			let body = request.body;
+			let stream = session.request(headers, {
+				endStream: body === undefined,
+			});
+			let response = Response.fromStream(stream);
+			if (body !== undefined) {
+				(async () => {
+					for await (let chunk of body) {
+						stream.write(chunk);
+					}
+					stream.end();
+				})().catch((error) => {
+					stream.destroy(
+						error instanceof Error
+							? error
+							: new Error("failed to write the request body"),
+					);
+				});
+			}
+			return await response;
+		} catch (error) {
+			this.#disconnect(session);
+			session.destroy();
+			throw new RequestError(error);
+		}
+	}
+
+	async #connect() {
+		while (true) {
+			let session = this.#session;
+			if (session !== null) {
+				if (!session.closed) {
+					return session;
+				}
+				this.#disconnect(session);
+				session.destroy();
+			}
+			let connecting = this.#connecting;
+			if (connecting === null) {
+				connecting = retry(reconnectOptions, () => this.#createSession());
+				this.#connecting = connecting;
+			}
+			let nextSession: tg.Host.Http2.ClientHttp2Session;
+			try {
+				nextSession = await connecting;
+			} finally {
+				if (this.#connecting === connecting) {
+					this.#connecting = null;
+				}
+			}
+			if (nextSession.closed) {
+				nextSession.destroy();
+				continue;
+			}
+			if (this.#session === null) {
+				this.#session = nextSession;
+				nextSession.once("close", () => this.#disconnect(nextSession));
+				nextSession.once("error", () => this.#disconnect(nextSession));
+			} else if (this.#session !== nextSession) {
+				nextSession.destroy();
+			}
 			return this.#session;
 		}
+	}
+
+	async #createSession() {
 		let url = tg.process.env.TANGRAM_URL;
 		if (typeof url !== "string") {
 			throw new Error("missing TANGRAM_URL");
 		}
-		let nextSession = tg.host.http2.connect(url);
-		this.#session = nextSession;
-		nextSession.once("close", () => this.#disconnect(nextSession));
-		nextSession.once("error", () => this.#disconnect(nextSession));
-		return nextSession;
+		let session = tg.host.http2.connect(url);
+		try {
+			await new Promise<void>((resolve, reject) => {
+				let cleanup = () => {
+					session.off("connect", onConnect);
+					session.off("error", onError);
+				};
+				let onConnect = () => {
+					cleanup();
+					resolve();
+				};
+				let onError = (error: unknown) => {
+					cleanup();
+					reject(error);
+				};
+				session.once("connect", onConnect);
+				session.once("error", onError);
+			});
+		} catch (error) {
+			session.destroy();
+			throw error;
+		}
+		return session;
 	}
 
 	#disconnect(value?: tg.Host.Http2.ClientHttp2Session) {
@@ -251,55 +387,41 @@ export class Client {
 		}
 		this.#session = null;
 	}
-
-	async send(request: Request): Promise<Response> {
-		let error: unknown;
-		for (let attempt = 0; attempt < 2; attempt++) {
-			let session = this.#connect();
-			try {
-				let token = tg.process.env.TANGRAM_TOKEN;
-				if (token !== undefined && typeof token !== "string") {
-					throw new Error("invalid TANGRAM_TOKEN");
-				}
-				let headers: tg.Host.Http2.Headers = {
-					...request.headers.toData(),
-					":method": request.method,
-					":path": request.uri.toString(),
-				};
-				if (token !== undefined) {
-					headers = {
-						...headers,
-						authorization: `Bearer ${token}`,
-					};
-				}
-				let body = request.body;
-				let stream = session.request(headers, {
-					endStream: body === undefined,
-				});
-				let response = Response.fromStream(stream);
-				if (body !== undefined) {
-					(async () => {
-						for await (let chunk of body) {
-							stream.write(chunk);
-						}
-						stream.end();
-					})().catch((error) => {
-						stream.destroy(
-							error instanceof Error
-								? error
-								: new Error("failed to write the request body"),
-						);
-					});
-				}
-				return await response;
-			} catch (error_) {
-				error = error_;
-				this.#disconnect(session);
-				session.destroy();
-			}
-		}
-		throw error;
-	}
 }
 
 export let client = new Client();
+
+function defaultRetryOptions(): RetryOptions {
+	return {
+		backoff: 0.01,
+		jitter: 0.01,
+		maxDelay: 1,
+		maxRetries: 3,
+	};
+}
+
+async function retry<T>(
+	options: RetryOptions,
+	function_: () => Promise<T>,
+	shouldRetry: (error: unknown) => boolean = () => true,
+) {
+	let error: unknown;
+	for (let attempt = 0; attempt <= options.maxRetries; attempt++) {
+		try {
+			return await function_();
+		} catch (error_) {
+			error = error_;
+			if (attempt === options.maxRetries || !shouldRetry(error)) {
+				break;
+			}
+			let multiplier = 2 ** Math.min(attempt + 1, 31);
+			let jitter = Math.random() * options.jitter;
+			let delay = Math.min(
+				options.backoff * multiplier + jitter,
+				options.maxDelay,
+			);
+			await tg.sleep(delay);
+		}
+	}
+	throw error;
+}

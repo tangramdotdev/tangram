@@ -43,7 +43,7 @@ export async function trySignalProcess(
 		uri,
 		headers,
 	});
-	let response = await client.send(request);
+	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {
 		return null;
 	} else if (response.status < 200 || response.status >= 300) {

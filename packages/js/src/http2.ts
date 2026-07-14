@@ -8,6 +8,8 @@ type RequestOptions = {
 	endStream?: boolean;
 };
 
+type SessionEvent = { kind: "close" } | { kind: "error"; message: string };
+
 type StreamEvent =
 	| { kind: "close" }
 	| { kind: "data"; bytes: Uint8Array }
@@ -58,6 +60,7 @@ export class ClientHttp2Session extends EventEmitter {
 	#closed = false;
 	#connect: Promise<void>;
 	#destroyed = false;
+	#emittedClose = false;
 	#token: number | null = null;
 
 	constructor(
@@ -68,17 +71,26 @@ export class ClientHttp2Session extends EventEmitter {
 		this.#connect = syscall("http2_connect", authority, options).then(
 			(token) => {
 				this.#token = token;
+				this.#readLoop(token);
 				this.emit("connect", this);
 			},
 			(error) => {
 				this.#closed = true;
 				this.#destroyed = true;
 				this.emit("error", error);
-				this.emit("close");
+				this.#emitClose();
 				throw error;
 			},
 		);
 		this.#connect.catch(() => undefined);
+	}
+
+	get closed() {
+		return this.#closed;
+	}
+
+	get destroyed() {
+		return this.#destroyed;
 	}
 
 	request(headers: Headers, options: RequestOptions = {}) {
@@ -98,7 +110,7 @@ export class ClientHttp2Session extends EventEmitter {
 			let token = await this.#ready();
 			await syscall("http2_session_close", token);
 		} finally {
-			this.emit("close");
+			this.#emitClose();
 		}
 	}
 
@@ -123,7 +135,7 @@ export class ClientHttp2Session extends EventEmitter {
 				if (error !== undefined) {
 					this.emit("error", error);
 				}
-				this.emit("close");
+				this.#emitClose();
 			});
 	}
 
@@ -134,12 +146,48 @@ export class ClientHttp2Session extends EventEmitter {
 		});
 	}
 
+	async #readLoop(token: number) {
+		let error: unknown;
+		try {
+			let event = (await syscall("http2_session_read", token)) as
+				| SessionEvent
+				| null;
+			if (event?.kind === "error") {
+				error = new Error(event.message);
+			}
+		} catch (error_) {
+			error = error_;
+		}
+		if (this.#destroyed) {
+			return;
+		}
+		this.#closed = true;
+		this.#destroyed = true;
+		this.#token = null;
+		let message = error instanceof Error ? error.message : null;
+		await syscall("http2_session_destroy", token, message).catch(
+			() => undefined,
+		);
+		if (error !== undefined) {
+			this.emit("error", error);
+		}
+		this.#emitClose();
+	}
+
 	async #ready() {
 		await this.#connect;
 		if (this.#token === null) {
 			throw new Error("the HTTP/2 session is closed");
 		}
 		return this.#token;
+	}
+
+	#emitClose() {
+		if (this.#emittedClose) {
+			return;
+		}
+		this.#emittedClose = true;
+		this.emit("close");
 	}
 }
 

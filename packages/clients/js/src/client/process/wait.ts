@@ -82,7 +82,7 @@ async function waitProcessOnce(
 		uri,
 		headers,
 	});
-	let response = await client.send(request);
+	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {
 		throw new Error("failed to find the process");
 	} else if (response.status < 200 || response.status >= 300) {

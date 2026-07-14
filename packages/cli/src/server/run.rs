@@ -65,12 +65,12 @@ impl Cli {
 
 		// Set the URL.
 		if let Some(url) = &self.args.url {
-			config.http = Some(tangram_server::config::Http {
-				listeners: vec![tangram_server::config::HttpListener {
-					url: url.clone(),
-					tls: None,
-				}],
-			});
+			let listener = tangram_server::config::HttpListener {
+				url: url.clone(),
+				tls: None,
+			};
+			let http = config.http.get_or_insert_default();
+			http.listeners = vec![listener];
 		}
 
 		// Set the remotes.

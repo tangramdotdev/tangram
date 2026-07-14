@@ -62,7 +62,7 @@ export async function checkout(
 		uri,
 		headers,
 	});
-	let response = await client.send(request);
+	let response = await client.sendWithRetry(request);
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}

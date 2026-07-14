@@ -8,6 +8,28 @@ pub async fn connect(
 	state.http2.connect(authority, options).await
 }
 
+pub async fn session_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
+	let (session,) = args;
+	state.http2.session_close(session).await
+}
+
+pub async fn session_destroy(state: Rc<State>, args: (usize, Option<String>)) -> tg::Result<()> {
+	let (session, error) = args;
+	state.http2.session_destroy(session, error).await
+}
+
+pub async fn session_read(
+	state: Rc<State>,
+	args: (usize,),
+) -> tg::Result<Option<Serde<crate::http2::SessionEvent>>> {
+	let (session,) = args;
+	state
+		.http2
+		.session_read(session)
+		.await
+		.map(|event| event.map(Serde))
+}
+
 pub async fn session_request(
 	state: Rc<State>,
 	args: (
@@ -20,9 +42,9 @@ pub async fn session_request(
 	state.http2.session_request(session, headers, options).await
 }
 
-pub async fn stream_write(state: Rc<State>, args: (usize, Bytes)) -> tg::Result<()> {
-	let (stream, bytes) = args;
-	state.http2.stream_write(stream, bytes).await
+pub async fn stream_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
+	let (stream,) = args;
+	state.http2.stream_close(stream).await
 }
 
 pub async fn stream_end(state: Rc<State>, args: (usize, Option<Bytes>)) -> tg::Result<()> {
@@ -42,17 +64,7 @@ pub async fn stream_read(
 		.map(|event| event.map(Serde))
 }
 
-pub async fn stream_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
-	let (stream,) = args;
-	state.http2.stream_close(stream).await
-}
-
-pub async fn session_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
-	let (session,) = args;
-	state.http2.session_close(session).await
-}
-
-pub async fn session_destroy(state: Rc<State>, args: (usize, Option<String>)) -> tg::Result<()> {
-	let (session, error) = args;
-	state.http2.session_destroy(session, error).await
+pub async fn stream_write(state: Rc<State>, args: (usize, Bytes)) -> tg::Result<()> {
+	let (stream, bytes) = args;
+	state.http2.stream_write(stream, bytes).await
 }
