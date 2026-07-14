@@ -64,6 +64,7 @@ pub fn syscall<'s>(
 		"http2_connect" => async_(scope, &args, self::http2::connect),
 		"http2_session_close" => async_(scope, &args, self::http2::session_close),
 		"http2_session_destroy" => async_(scope, &args, self::http2::session_destroy),
+		"http2_session_read" => async_(scope, &args, self::http2::session_read),
 		"http2_session_request" => async_(scope, &args, self::http2::session_request),
 		"http2_stream_close" => async_(scope, &args, self::http2::stream_close),
 		"http2_stream_end" => async_(scope, &args, self::http2::stream_end),

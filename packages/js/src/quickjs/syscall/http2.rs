@@ -15,6 +15,35 @@ pub async fn connect(
 	Result(state.http2.connect(authority, options).await)
 }
 
+pub async fn session_close(ctx: qjs::Ctx<'_>, session: usize) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.http2.session_close(session).await)
+}
+
+pub async fn session_destroy(
+	ctx: qjs::Ctx<'_>,
+	session: usize,
+	error: Arg<Option<String>>,
+) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	let Arg(error) = error;
+	Result(state.http2.session_destroy(session, error).await)
+}
+
+pub async fn session_read(
+	ctx: qjs::Ctx<'_>,
+	session: usize,
+) -> Result<Option<Serde<crate::http2::SessionEvent>>> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(
+		state
+			.http2
+			.session_read(session)
+			.await
+			.map(|event| event.map(Serde)),
+	)
+}
+
 pub async fn session_request(
 	ctx: qjs::Ctx<'_>,
 	session: usize,
@@ -27,9 +56,9 @@ pub async fn session_request(
 	Result(state.http2.session_request(session, headers, options).await)
 }
 
-pub async fn stream_write(ctx: qjs::Ctx<'_>, stream: usize, bytes: Uint8Array) -> Result<()> {
+pub async fn stream_close(ctx: qjs::Ctx<'_>, stream: usize) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	Result(state.http2.stream_write(stream, bytes.into()).await)
+	Result(state.http2.stream_close(stream).await)
 }
 
 pub async fn stream_end(
@@ -56,22 +85,7 @@ pub async fn stream_read(
 	)
 }
 
-pub async fn stream_close(ctx: qjs::Ctx<'_>, stream: usize) -> Result<()> {
+pub async fn stream_write(ctx: qjs::Ctx<'_>, stream: usize, bytes: Uint8Array) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	Result(state.http2.stream_close(stream).await)
-}
-
-pub async fn session_close(ctx: qjs::Ctx<'_>, session: usize) -> Result<()> {
-	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	Result(state.http2.session_close(session).await)
-}
-
-pub async fn session_destroy(
-	ctx: qjs::Ctx<'_>,
-	session: usize,
-	error: Arg<Option<String>>,
-) -> Result<()> {
-	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	let Arg(error) = error;
-	Result(state.http2.session_destroy(session, error).await)
+	Result(state.http2.stream_write(stream, bytes.into()).await)
 }

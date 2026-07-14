@@ -1,14 +1,18 @@
 import * as tg from "../index.ts";
 
 export class Body implements AsyncIterable<Uint8Array> {
-	#body: AsyncIterable<Uint8Array>;
+	#body: AsyncIterable<string | Uint8Array>;
+	#replayable: boolean;
 
 	constructor(body?: AsyncIterable<string | Uint8Array>) {
-		this.#body = normalize(body ?? empty());
+		this.#body = body ?? empty();
+		this.#replayable = body === undefined;
 	}
 
 	static bytes(bytes: Uint8Array) {
-		return new Body(single(bytes));
+		let body = new Body(single(bytes));
+		body.#replayable = true;
+		return body;
 	}
 
 	static empty() {
@@ -25,6 +29,10 @@ export class Body implements AsyncIterable<Uint8Array> {
 
 	static text(text: string) {
 		return Body.bytes(tg.encoding.utf8.encode(text));
+	}
+
+	get replayable() {
+		return this.#replayable;
 	}
 
 	async collect() {
@@ -46,7 +54,7 @@ export class Body implements AsyncIterable<Uint8Array> {
 	}
 
 	[Symbol.asyncIterator]() {
-		return this.#body[Symbol.asyncIterator]();
+		return normalize(this.#body)[Symbol.asyncIterator]();
 	}
 }
 
@@ -97,8 +105,12 @@ async function* encodeSse(
 
 async function* empty(): AsyncIterableIterator<Uint8Array> {}
 
-async function* single(value: Uint8Array): AsyncIterableIterator<Uint8Array> {
-	yield value;
+function single(value: Uint8Array): AsyncIterable<Uint8Array> {
+	return {
+		async *[Symbol.asyncIterator]() {
+			yield value;
+		},
+	};
 }
 
 async function* normalize(
