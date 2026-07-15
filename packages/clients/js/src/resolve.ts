@@ -125,6 +125,7 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 			value instanceof tg.Symlink ||
 			value instanceof tg.Graph ||
 			value instanceof tg.Command ||
+			value instanceof tg.Error ||
 			value instanceof Uint8Array ||
 			value instanceof tg.Mutation ||
 			value instanceof tg.Template ||

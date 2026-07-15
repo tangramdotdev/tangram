@@ -23,7 +23,7 @@ export let builder = (...args: any): any => {
 			(arg.tty === undefined || arg.tty === false);
 		cacheable = cacheable || arg.checksum !== undefined;
 		if (!cacheable) {
-			throw tg.error("a build must be cacheable");
+			throw tg.error.sync("a build must be cacheable");
 		}
 	};
 	let firstArg: tg.Process.ArgObject = {

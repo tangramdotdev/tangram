@@ -11,7 +11,7 @@ let path = artifact {
 		}
 
 		export function foo() {
-			throw tg.error("error");
+			throw tg.error.sync("error");
 		}
 	',
 }

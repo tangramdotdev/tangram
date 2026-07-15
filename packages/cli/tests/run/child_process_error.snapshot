@@ -11,10 +11,10 @@ error an error occurred
  3 │ }
    ╰────
 -> error
-   ╭─[./tangram.ts:6:11]
+   ╭─[./tangram.ts:6:17]
  5 │ export function foo() {
- 6 │     throw tg.error("error");
-   ·              ▲
-   ·              ╰── error
+ 6 │     throw tg.error.sync("error");
+   ·                    ▲
+   ·                    ╰── error
  7 │ }
    ╰────
