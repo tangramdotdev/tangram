@@ -72,6 +72,13 @@ pub struct Config {
 	#[serde(default = "default_runner", skip_serializing_if = "is_default_runner")]
 	pub runner: Option<Runner>,
 
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(
+		default = "default_scheduler",
+		skip_serializing_if = "is_default_scheduler"
+	)]
+	pub scheduler: Option<Scheduler>,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub sandbox: Sandbox,
 
@@ -685,22 +692,34 @@ pub struct Remote {
 #[serde(default, deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub concurrency: Option<usize>,
-
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub control_timeout: Duration,
-
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub control_ttl: Duration,
+	pub cpus: Option<u64>,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::runner::Id>,
 
 	#[serde(default)]
 	pub js: Js,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory: Option<u64>,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub process_state_ttl: Duration,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub sandbox_state_ttl: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub stdio_drain_timeout: Duration,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -725,6 +744,41 @@ pub enum JsEngine {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct Scheduler {
+	#[serde(default = "default_scheduler_create_sandbox_queue_capacity")]
+	pub create_sandbox_queue_capacity: usize,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub create_sandbox_timeout: Duration,
+
+	#[serde(default = "default_scheduler_cpu")]
+	pub default_cpu: u64,
+
+	#[serde(default = "default_scheduler_memory")]
+	pub default_memory: u64,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub inbox_ttl: Duration,
+
+	#[serde(default = "scheduler_retry_default")]
+	pub message_retry: Retry,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub message_timeout: Duration,
+
+	#[serde(default = "default_scheduler_max_create_sandbox_requests")]
+	pub max_create_sandbox_requests: usize,
+
+	#[serde(default = "default_scheduler_max_create_sandbox_requests_per_runner")]
+	pub max_create_sandbox_requests_per_runner: usize,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub runner_ttl: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_finalizer")]
@@ -736,6 +790,9 @@ pub struct Sandbox {
 	pub network: SandboxNetwork,
 
 	pub nice: u8,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub spawn_process_timeout: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1103,6 +1160,7 @@ impl Default for Config {
 			regions: None,
 			remotes: None,
 			runner: Some(Runner::default()),
+			scheduler: Some(Scheduler::default()),
 			sandbox: Sandbox::default(),
 			sync: Sync::default(),
 			version: None,
@@ -1365,12 +1423,34 @@ impl Default for Finalizer {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
-			concurrency: None,
-			control_timeout: Duration::from_secs(1),
-			control_ttl: Duration::from_mins(1),
+			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
+			id: None,
 			js: Js::default(),
+			memory: None,
+			process_state_ttl: Duration::from_mins(1),
 			remote: None,
+			sandbox_state_ttl: Duration::from_mins(1),
+			stdio_drain_timeout: Duration::from_secs(1),
+			token: None,
+		}
+	}
+}
+
+impl Default for Scheduler {
+	fn default() -> Self {
+		Self {
+			create_sandbox_queue_capacity: default_scheduler_create_sandbox_queue_capacity(),
+			create_sandbox_timeout: Duration::from_secs(10),
+			default_cpu: default_scheduler_cpu(),
+			default_memory: default_scheduler_memory(),
+			inbox_ttl: Duration::from_mins(1),
+			message_retry: scheduler_retry_default(),
+			message_timeout: Duration::from_secs(10),
+			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
+			max_create_sandbox_requests_per_runner:
+				default_scheduler_max_create_sandbox_requests_per_runner(),
+			runner_ttl: Duration::from_secs(10),
 		}
 	}
 }
@@ -1382,6 +1462,7 @@ impl Default for Sandbox {
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
+			spawn_process_timeout: Duration::from_secs(10),
 		}
 	}
 }
@@ -1690,6 +1771,19 @@ fn database_retry_default() -> Retry {
 	}
 }
 
+fn scheduler_retry_default() -> Retry {
+	let options = tangram_futures::retry::Options {
+		max_retries: u64::MAX,
+		..tangram_futures::retry::Options::default()
+	};
+	Retry {
+		backoff: options.backoff,
+		jitter: options.jitter,
+		max_delay: options.max_delay,
+		max_retries: options.max_retries,
+	}
+}
+
 fn default_time_to_index() -> Duration {
 	Duration::from_mins(10)
 }
@@ -1752,6 +1846,31 @@ fn default_runner() -> Option<Runner> {
 	Some(Runner::default())
 }
 
+fn default_scheduler_cpu() -> u64 {
+	1
+}
+
+fn default_scheduler_create_sandbox_queue_capacity() -> usize {
+	1024
+}
+
+fn default_scheduler_max_create_sandbox_requests() -> usize {
+	256
+}
+
+fn default_scheduler_max_create_sandbox_requests_per_runner() -> usize {
+	16
+}
+
+fn default_scheduler_memory() -> u64 {
+	1024 * 1024 * 1024
+}
+
+#[expect(clippy::unnecessary_wraps)]
+fn default_scheduler() -> Option<Scheduler> {
+	Some(Scheduler::default())
+}
+
 #[expect(clippy::unnecessary_wraps)]
 fn default_watch() -> Option<Watch> {
 	Some(Watch::default())
@@ -1787,6 +1906,11 @@ fn is_default_indexer(value: &Option<Indexer>) -> bool {
 #[expect(clippy::ref_option)]
 fn is_default_runner(value: &Option<Runner>) -> bool {
 	is_serialized_default(value, default_runner())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_scheduler(value: &Option<Scheduler>) -> bool {
+	is_serialized_default(value, default_scheduler())
 }
 
 #[expect(clippy::ref_option)]

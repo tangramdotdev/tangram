@@ -115,9 +115,10 @@ impl Cli {
 		let root = match args.kind {
 			Kind::Tag => {
 				let item = args.reference.item();
-				let pattern = item.clone().try_unwrap_specifier().map_err(
-					|error| tg::error!(!error, reference = %args.reference, "expected a tag"),
-				)?;
+				let pattern = item
+					.clone()
+					.try_unwrap_specifier()
+					.map_err(|error| tg::error!(!error, %item, "expected a tag"))?;
 				let pattern = pattern
 					.to_string()
 					.parse::<tg::specifier::Pattern>()
@@ -128,22 +129,23 @@ impl Cli {
 				let referent = self.get_resolved_reference(&args.reference).await?;
 				let item = match referent.item() {
 					tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
-						tg::Either::Right(tg::Process::new(
-							id.clone().try_into()?,
-							tg::process::Options::default(),
-						))
+						let referent = referent.clone().map(|_| id.clone());
+						let process = tg::Process::try_with_referent(referent)?;
+						tg::Either::Right(process)
 					},
 					tg::get::Item::Id(id) => {
-						tg::Either::Left(tg::Object::with_id(id.clone().try_into()?))
+						let referent = referent.clone().map(|_| id.clone());
+						let object = tg::Object::try_with_referent(referent)?;
+						tg::Either::Left(object)
 					},
 					tg::get::Item::Pointer(pointer) => {
-						let graph = tg::Graph::with_id(
-							pointer
-								.graph
-								.clone()
-								.ok_or_else(|| tg::error!("expected a graph"))?,
-						)
-						.into();
+						let graph = pointer
+							.graph
+							.clone()
+							.ok_or_else(|| tg::error!("expected a graph"))?;
+						let referent = referent.clone().map(|_| graph);
+						let graph = tg::Graph::with_referent(referent);
+						let graph = graph.into();
 						tg::Either::Left(graph)
 					},
 				};
@@ -155,7 +157,9 @@ impl Cli {
 						crate::viewer::Item::Value(object.clone().into())
 					},
 					(tg::Either::Right(_), Kind::Package) => {
-						return Err(tg::error!(reference = %args.reference, "expected an object"));
+						return Err(
+							tg::error!(item = %args.reference.item(), "expected an object"),
+						);
 					},
 					(tg::Either::Right(process), Kind::Value) => {
 						crate::viewer::Item::Process(process.clone())

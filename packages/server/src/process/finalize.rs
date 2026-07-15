@@ -163,15 +163,6 @@ impl Server {
 		}
 		let statement = formatdoc!(
 			"
-				delete from process_tokens
-				where process = {p}1;
-			"
-		);
-		let params = db::params![entry.process.to_string()];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-		let statement = formatdoc!(
-			"
 				delete from process_finalize_queue
 				where position = {p}1;
 			"
@@ -268,17 +259,12 @@ impl Server {
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the children to be set"))?
 			.iter()
-			.map(|child| {
-				child
-					.process
-					.clone()
-					.map_right(|process| process.id)
-					.into_inner()
-			})
+			.map(|child| child.process.item.clone())
 			.collect();
 		let put_process_arg = tangram_index::process::put::Arg {
 			children: Some(children),
 			command: data.command.clone().into(),
+			data: Some(data.clone()),
 			error: Some(error),
 			id: id.clone(),
 			log: Some(

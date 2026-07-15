@@ -1,9 +1,9 @@
 use {
 	super::{
-		Db, Index, Request, RequestReceiver, Response, ResponseSender,
+		Index, Request, RequestReceiver, Response, ResponseSender, TaskArg,
 		request::{Item, Kind},
 	},
-	crossbeam_channel as crossbeam, heed as lmdb,
+	crossbeam_channel as crossbeam,
 	std::collections::VecDeque,
 	tangram_client::prelude::*,
 };
@@ -20,15 +20,17 @@ struct Batch {
 }
 
 impl Index {
-	pub(super) fn task(
-		env: &lmdb::Env,
-		db: &Db,
-		subspace: &foundationdb_tuple::Subspace,
-		receiver_high: &RequestReceiver,
-		receiver_medium: &RequestReceiver,
-		receiver_low: &RequestReceiver,
-		max_items_per_transaction: usize,
-	) {
+	pub(super) fn task(arg: TaskArg<'_>) {
+		let TaskArg {
+			db,
+			env,
+			max_items_per_transaction,
+			max_process_depth,
+			receiver_high,
+			receiver_low,
+			receiver_medium,
+			subspace,
+		} = arg;
 		let mut trackers: Vec<RequestTracker> = Vec::new();
 		let mut queue_high: VecDeque<Batch> = VecDeque::new();
 		let mut queue_medium: VecDeque<Batch> = VecDeque::new();
@@ -217,6 +219,10 @@ impl Index {
 						Self::task_put_processes(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
+					Request::PutRunners(args) => {
+						Self::task_put_runners(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
+					},
 					Request::PutSandboxes(args) => {
 						Self::task_put_sandboxes(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
@@ -268,10 +274,14 @@ impl Index {
 						time_to_touch,
 					)
 					.map(Response::Processes),
-					Request::Update(crate::lmdb::Update { batch_size }) => {
-						Self::task_update_batch(db, subspace, &mut transaction, batch_size)
-							.map(Response::UpdateCount)
-					},
+					Request::Update(crate::lmdb::Update { batch_size }) => Self::task_update_batch(
+						db,
+						subspace,
+						&mut transaction,
+						batch_size,
+						max_process_depth,
+					)
+					.map(Response::UpdateCount),
 				};
 				results.push(result);
 			}
@@ -396,6 +406,7 @@ impl Index {
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
 			| Request::PutProcesses(_)
+			| Request::PutRunners(_)
 			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
 			| Request::PutUsers(_) => Response::Unit,
@@ -486,6 +497,10 @@ impl Index {
 			Request::PutProcesses(args) => {
 				let items = args.into_iter().map(Item::PutProcess).collect();
 				(items, Kind::PutProcesses)
+			},
+			Request::PutRunners(args) => {
+				let items = args.into_iter().map(Item::PutRunner).collect();
+				(items, Kind::PutRunners)
 			},
 			Request::PutSandboxes(args) => {
 				let items = args.into_iter().map(Item::PutSandbox).collect();
@@ -709,6 +724,18 @@ impl Index {
 					})
 					.collect();
 				Request::PutProcesses(args)
+			},
+			Kind::PutRunners => {
+				let args = items
+					.into_iter()
+					.map(|item| {
+						let Item::PutRunner(arg) = item else {
+							unreachable!();
+						};
+						arg
+					})
+					.collect();
+				Request::PutRunners(args)
 			},
 			Kind::PutSandboxes => {
 				let args = items

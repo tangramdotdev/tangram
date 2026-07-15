@@ -1,7 +1,6 @@
 use {
-	crate::{Server, Session},
-	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
-	num::ToPrimitive as _,
+	crate::Session,
+	futures::{FutureExt as _, Stream, StreamExt as _, stream},
 	std::{panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -137,6 +136,109 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn try_get_cached_processes(
+		&self,
+		command: &tg::object::Id,
+	) -> tg::Result<Vec<(tg::process::Id, index::process::Process)>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_cached_processes(command).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_cached_processes(command).await,
+		}
+	}
+
+	async fn get_process_depth_detections(&self, limit: usize) -> tg::Result<Vec<tg::process::Id>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_process_depth_detections(limit).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_process_depth_detections(limit).await,
+		}
+	}
+
+	async fn list_sandboxes_for_creator(
+		&self,
+		creator: &tg::Principal,
+	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.list_sandboxes_for_creator(creator).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.list_sandboxes_for_creator(creator).await,
+		}
+	}
+
+	async fn list_sandboxes_for_owner(
+		&self,
+		owner: &tg::Principal,
+	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.list_sandboxes_for_owner(owner).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.list_sandboxes_for_owner(owner).await,
+		}
+	}
+
+	async fn get_runner_sandboxes(
+		&self,
+		runner: &tg::runner::Id,
+	) -> tg::Result<Vec<tg::sandbox::Id>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_runner_sandboxes(runner).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_runner_sandboxes(runner).await,
+		}
+	}
+
+	async fn get_sandbox_processes(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Vec<(tg::process::Id, index::process::Process)>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_sandbox_processes(sandbox).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_sandbox_processes(sandbox).await,
+		}
+	}
+
+	async fn list_sandboxes(&self) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.list_sandboxes().await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.list_sandboxes().await,
+		}
+	}
+
+	async fn get_scheduler_runners(
+		&self,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<Vec<tg::runner::Id>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_scheduler_runners(scheduler).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_scheduler_runners(scheduler).await,
+		}
+	}
+
+	async fn process_has_ancestor(
+		&self,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> tg::Result<bool> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.process_has_ancestor(process, ancestor).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.process_has_ancestor(process, ancestor).await,
+		}
+	}
+
 	async fn touch_processes(
 		&self,
 		ids: &[tg::process::Id],
@@ -148,6 +250,30 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
+		}
+	}
+
+	async fn try_get_sandboxes(
+		&self,
+		ids: &[tg::sandbox::Id],
+	) -> tg::Result<Vec<Option<index::sandbox::Sandbox>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_sandboxes(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_sandboxes(ids).await,
+		}
+	}
+
+	async fn try_get_runners(
+		&self,
+		ids: &[tg::runner::Id],
+	) -> tg::Result<Vec<Option<index::runner::Runner>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_runners(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_runners(ids).await,
 		}
 	}
 
@@ -509,44 +635,6 @@ impl Session {
 		progress.finish("updates");
 
 		Ok::<_, tg::Error>(())
-	}
-}
-
-impl Server {
-	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
-		let partition_start = config.partition_start;
-		let partition_count = config.partition_count;
-		let concurrency = config.concurrency.to_u64().unwrap();
-		loop {
-			let futures = (0..config.concurrency).map(|task_index| {
-				let task_index = task_index.to_u64().unwrap();
-				let partitions_per_task = partition_count / concurrency;
-				let extra = partition_count % concurrency;
-				let task_start =
-					partition_start + task_index * partitions_per_task + task_index.min(extra);
-				let task_count = partitions_per_task + u64::from(task_index < extra);
-				self.index
-					.update_batch(config.batch_size, task_start, task_count)
-			});
-			let result = future::try_join_all(futures)
-				.await
-				.map(|counts| counts.into_iter().sum::<usize>());
-			match result {
-				Ok(0) => {
-					tokio::time::sleep(Duration::from_millis(100)).await;
-				},
-				Ok(_) => {
-					self.messenger
-						.publish("indexer_progress".to_owned(), ())
-						.await
-						.ok();
-				},
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to index");
-					tokio::time::sleep(Duration::from_secs(1)).await;
-				},
-			}
-		}
 	}
 }
 

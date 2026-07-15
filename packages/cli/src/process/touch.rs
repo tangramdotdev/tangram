@@ -8,18 +8,21 @@ pub struct Args {
 	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Referent<tg::process::Id>,
 }
 
 impl Cli {
 	pub async fn command_process_touch(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let id = args.process.item;
 		let arg = tg::process::touch::Arg {
 			location: args.locations.get(),
+			token: args.process.options.token,
 		};
-		client.touch_process(&args.process, arg).await.map_err(
-			|error| tg::error!(!error, id = %args.process, "failed to touch the process"),
-		)?;
+		client
+			.touch_process(&id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 		Ok(())
 	}
 }

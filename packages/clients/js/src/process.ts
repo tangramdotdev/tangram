@@ -286,6 +286,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
+		if (this.#token !== null) {
+			arg.token = this.#token;
+		}
 		let output = await tg.client.getProcess(this.#id, arg);
 		this.#location =
 			output.location === undefined || output.location === null
@@ -465,6 +468,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (location !== null) {
 			arg.location = location;
 		}
+		if (this.#token !== null) {
+			arg.token = this.#token;
+		}
 		await tg.client.signalProcess(this.#id, arg);
 	}
 
@@ -588,6 +594,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (location !== null) {
 			arg.location = location;
 		}
+		if (this.#token !== null) {
+			arg.token = this.#token;
+		}
 		await tg.client.setProcessTtySize(this.#id, arg);
 	}
 }
@@ -618,6 +627,7 @@ export namespace Process {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
 				size: tg.Process.Tty.Size;
+				token?: tg.Grant.Token | null;
 			};
 		}
 	}

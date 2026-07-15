@@ -1,13 +1,40 @@
 use {
 	crate::Server,
-	futures::{StreamExt as _, TryStreamExt as _, stream::FuturesUnordered},
-	indoc::formatdoc,
+	dashmap::DashMap,
+	futures::{FutureExt as _, StreamExt as _},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, pin::pin},
+	std::{
+		ops::{ControlFlow, Deref},
+		pin::pin,
+		sync::Arc,
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_futures::task::Task,
+	tangram_index::prelude::*,
 	tangram_messenger::prelude::*,
 };
+
+struct Owned {
+	task: Task<tg::Result<()>>,
+	watchdog: Watchdog,
+}
+
+#[derive(Clone)]
+struct Watchdog {
+	state: Arc<State>,
+}
+
+struct State {
+	config: crate::config::Watchdog,
+	schedulers: DashMap<tg::scheduler::Id, Scheduler>,
+	server: Server,
+}
+
+struct Scheduler {
+	heartbeat_at: tokio::time::Instant,
+}
 
 impl Server {
 	pub(crate) fn spawn_publish_watchdog_message_task(&self) {
@@ -28,177 +55,290 @@ impl Server {
 
 	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) -> tg::Result<()> {
 		loop {
-			// Finish processes.
-			let result = self.watchdog_task_inner(config).await.inspect_err(
-				|error| tracing::error!(error = %error.trace(), "failed to finish processes"),
-			);
-
-			// If an error occurred or no processes were finished, wait to be signaled or for the timeout to expire.
-			if matches!(result, Err(_) | Ok(0)) {
-				let wakeups = self
-					.messenger
-					.subscribe::<()>("watchdog".into())
-					.await
-					.map_err(|error| {
-						tg::error!(
-							!error,
-							"failed to subscribe to the cancellation message stream"
-						)
-					})?;
-				let mut wakeups = pin!(wakeups);
-				tokio::time::timeout(config.interval, wakeups.next())
-					.await
-					.ok();
+			let result = self.watchdog_task_inner(config).await;
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), "the watchdog task failed");
+				tokio::time::sleep(Duration::from_secs(1)).await;
 			}
 		}
 	}
 
-	pub(crate) async fn watchdog_task_inner(
-		&self,
-		config: &crate::config::Watchdog,
-	) -> tg::Result<u64> {
-		let connection = self
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
+	async fn watchdog_task_inner(&self, config: &crate::config::Watchdog) -> tg::Result<()> {
+		let watchdog = Watchdog::start(self, config).await?;
+		watchdog.wait().await?;
+		Ok(())
+	}
+}
 
-		// Get entries to finish.
-		#[derive(Debug, db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			code: Option<tg::error::Code>,
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::Either<tg::process::Id, tg::sandbox::Id>,
-			message: String,
+impl Owned {
+	async fn wait(self) -> tg::Result<()> {
+		let result = self.task.wait().await;
+		if let Err(error) = result {
+			return Err(tg::error!(!error, "the watchdog task panicked"));
 		}
-		let statement = formatdoc!(
-			"
-				select id, code, message
-				from (
-					select 0 as priority, id, null as code, 'maximum depth exceeded' as message
-					from processes
-					where status != 'finished' and depth > {p}1
+		Err(tg::error!("the watchdog stopped"))
+	}
+}
 
-					union all
+impl Watchdog {
+	async fn start(server: &Server, config: &crate::config::Watchdog) -> tg::Result<Owned> {
+		// Create the watchdog.
+		let state = Arc::new(State {
+			config: config.clone(),
+			schedulers: DashMap::new(),
+			server: server.clone(),
+		});
+		let watchdog = Self { state };
 
-					select 1 as priority, id, 'cancellation' as code, 'the process was canceled' as message
-					from processes
-					where status != 'finished' and lease_count = 0
+		// Get the started schedulers.
+		let schedulers = server.get_started_schedulers().await?;
+		for id in schedulers {
+			let scheduler = Scheduler {
+				heartbeat_at: tokio::time::Instant::now(),
+			};
+			watchdog.schedulers.insert(id, scheduler);
+		}
 
-					union all
+		// Spawn the task.
+		let task = watchdog.spawn_task();
 
-					select 2 as priority, id, 'heartbeat_expiration' as code, 'heartbeat expired' as message
-					from sandboxes
-					where status = 'started' and heartbeat_at < {p}2
-				) as entries
-				order by priority, id
-				limit {p}3;
-			"
-		);
-		let max_depth = config.max_depth.to_i64().unwrap();
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let max_heartbeat_at = now - config.ttl.as_secs().to_i64().unwrap();
-		let batch_size = config.batch_size.to_i64().unwrap();
-		let params = db::params![max_depth, max_heartbeat_at, batch_size];
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
+		let owned = Owned { task, watchdog };
+
+		Ok(owned)
+	}
+
+	fn spawn_task(&self) -> Task<tg::Result<()>> {
+		let watchdog = self.clone();
+		Task::spawn(move |_| async move { watchdog.task().await })
+	}
+
+	async fn task(&self) -> tg::Result<()> {
+		let _heartbeat_task = self.spawn_heartbeat_task();
+		let wakeups = self
+			.server
+			.messenger
+			.subscribe::<()>("watchdog".into())
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(|error| {
+				tg::error!(!error, "failed to subscribe to the watchdog message stream")
+			})?;
+		let mut wakeups = pin!(wakeups);
+		loop {
+			match self.task_inner().await {
+				Ok(0) => {
+					tokio::time::timeout(self.config.interval, wakeups.next())
+						.await
+						.ok();
+				},
+				Ok(_) => {},
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to run the watchdog");
+					tokio::time::sleep(Duration::from_secs(1)).await;
+				},
+			}
+		}
+	}
 
-		drop(connection);
+	async fn task_inner(&self) -> tg::Result<u64> {
+		let mut count = 0u64;
 
-		let mut seen = BTreeSet::new();
-		let rows = rows
-			.into_iter()
-			.filter(|row| seen.insert(row.id.clone()))
-			.collect::<Vec<_>>();
-		let results = rows
-			.into_iter()
-			.map(|entry| {
-				let server = self.clone();
-				async move {
-					let session = server.session(&server.context);
-					let error = tg::error::Data {
-						code: entry.code,
-						message: Some(entry.message),
-						..Default::default()
-					};
-					match entry.id {
-						tg::Either::Left(id) => {
-							let condition = match entry.code {
-								None => {
-									crate::process::finish::Condition::DepthExceeded { max_depth }
-								},
-								Some(tg::error::Code::Cancellation) => {
-									crate::process::finish::Condition::LeaseCountZero
-								},
-								Some(code) => {
-									return Err(
-										tg::error!(%code, "invalid process finish condition"),
-									);
-								},
-							};
-							let arg = tg::process::finish::Arg {
-								checksum: None,
-								error: Some(tg::Either::Left(error)),
-								exit: 1,
-								location: Some(
-									tg::Location::Local(tg::location::Local::default()).into(),
-								),
-								output: None,
-							};
-							let finished = session
-								.try_finish_process_local(&id, arg, Some(condition))
-								.await
-								.map_err(
-									|error| tg::error!(!error, %id, "failed to finish the process"),
-								)?
-								.unwrap_or(false);
-							Ok::<_, tg::Error>(finished)
-						},
-						tg::Either::Right(id) => {
-							match entry.code {
-								Some(tg::error::Code::HeartbeatExpiration) => (),
-								Some(code) => {
-									return Err(
-										tg::error!(%code, "invalid sandbox destroy condition"),
-									);
-								},
-								None => {
-									return Err(tg::error!("invalid sandbox destroy condition"));
-								},
-							}
-							let condition = crate::sandbox::destroy::Condition::HeartbeatExpired {
-								max_heartbeat_at,
-							};
-							let destroyed = session
-								.try_destroy_sandbox_local(
-									&id,
-									Some(tg::Either::Left(error)),
-									Some(condition),
-								)
-								.await
-								.map_err(
-									|error| tg::error!(!error, %id, "failed to destroy the sandbox"),
-								)?
-								.unwrap_or(false);
-							Ok::<_, tg::Error>(destroyed)
-						},
+		// Handle processes.
+		count += self.handle_processes().await?;
+
+		// Handle expired schedulers.
+		count += self.handle_expired_schedulers().await?;
+
+		Ok(count)
+	}
+
+	/// Finish processes that have exceeded the maximum depth.
+	async fn handle_processes(&self) -> tg::Result<u64> {
+		// Finish processes that have exceeded the maximum depth.
+		let processes = self
+			.server
+			.index
+			.get_process_depth_detections(self.config.batch_size)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the process depth detections"))?;
+		let count = processes.len().to_u64().unwrap();
+		for id in processes {
+			let error = tg::error::Data {
+				message: Some("maximum depth exceeded".into()),
+				..Default::default()
+			};
+			let request = tg::process::control::ServerRequestArg::Finish(
+				tg::process::control::FinishServerRequestArg {
+					error: Some(error),
+					exit: 1,
+				},
+			);
+			let options = crate::control::Options {
+				retry: tangram_futures::retry::Options::default(),
+				timeout: Duration::from_secs(10),
+			};
+			let session = self.server.session(&self.server.context);
+			let wait_future = session
+				.try_wait_process_future(&id, tg::process::wait::Arg::default())
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
+				.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+			let finish_future = session.send_process_control_request(&id, request, options);
+			let mut wait_future = pin!(wait_future);
+			let mut finish_future = pin!(finish_future);
+			tokio::select! {
+				output = &mut wait_future => {
+					let output = output
+						.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
+					if output.is_none() {
+						return Err(tg::error!(%id, "the process wait ended without output"));
 					}
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-		let n = results
-			.into_iter()
-			.filter(|result| *result)
-			.count()
-			.to_u64()
-			.unwrap();
+				},
+				response = &mut finish_future => {
+					let response = response
+						.map_err(
+							|error| tg::error!(!error, %id, "failed to send the finish process control request"),
+						)?
+						.map_err(
+							|error| tg::error!(!error, %id, "the finish process control request failed"),
+						)?;
+					response
+						.try_unwrap_finish()
+						.map_err(|_| tg::error!(%id, "expected a finish response"))?;
+				},
+			}
+		}
 
-		Ok(n)
+		Ok(count)
+	}
+
+	async fn handle_expired_schedulers(&self) -> tg::Result<u64> {
+		let now = tokio::time::Instant::now();
+		let ttl = self.config.ttl;
+
+		// Get schedulers whose heartbeats have expired.
+		let expired_schedulers = self
+			.schedulers
+			.iter()
+			.filter(|entry| now.duration_since(entry.value().heartbeat_at) > ttl)
+			.map(|entry| entry.key().clone())
+			.collect::<Vec<_>>();
+		if expired_schedulers.is_empty() {
+			return Ok(0);
+		}
+
+		let mut handled = Vec::new();
+		for scheduler in expired_schedulers {
+			let runners = self
+				.server
+				.index
+				.get_scheduler_runners(&scheduler)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %scheduler, "failed to get the scheduler runners"),
+				)?;
+			let mut failed = false;
+			for runner in runners {
+				if let Err(error) = self.server.cleanup_lost_runner(&runner, &scheduler).await {
+					tracing::error!(error = %error.trace(), %runner, %scheduler, "failed to clean up the lost runner");
+					failed = true;
+					break;
+				}
+			}
+			if !failed {
+				handled.push(scheduler);
+			}
+		}
+		if handled.is_empty() {
+			return Ok(0);
+		}
+
+		let handled_for_transaction = handled.clone();
+		self.server
+			.database
+			.run(|transaction| {
+				let handled = handled_for_transaction.clone();
+				async move {
+					Self::handle_expired_schedulers_with_transaction(transaction, &handled).await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to handle expired schedulers"))?;
+		for scheduler in &handled {
+			self.schedulers.remove(scheduler);
+		}
+
+		Ok(handled.len().to_u64().unwrap())
+	}
+
+	async fn handle_expired_schedulers_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		expired_schedulers: &[tg::scheduler::Id],
+	) -> Result<ControlFlow<(), crate::database::Error>, tg::Error> {
+		for scheduler in expired_schedulers {
+			let p = transaction.p();
+			let statement =
+				format!("update schedulers set status = {p}1 where id = {p}2 and status = {p}3;");
+			let params = db::params!["stopped", scheduler.to_string(), "started",];
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
+
+			let statement = format!(
+				"update runners set status = {p}1, scheduler = null where scheduler = {p}2 and status = {p}3;"
+			);
+			let params = db::params!["stopped", scheduler.to_string(), "started",];
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
+		}
+		Ok(ControlFlow::Break(()))
+	}
+
+	fn spawn_heartbeat_task(&self) -> Task<tg::Result<()>> {
+		let watchdog = self.clone();
+		Task::spawn(async move |_| {
+			watchdog.heartbeat_task().await.inspect_err(|error| {
+				tracing::error!(error = %error.trace(), "the watchdog heartbeat task failed");
+			})
+		})
+	}
+
+	async fn heartbeat_task(&self) -> tg::Result<()> {
+		let stream = self
+			.server
+			.messenger
+			.subscribe::<tangram_messenger::payload::Json<tg::scheduler::Id>>(
+				"schedulers.heartbeat".into(),
+			)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to subscribe to the scheduler heartbeat stream"
+				)
+			})?;
+		let mut stream = pin!(stream);
+		while let Some(Ok(message)) = stream.next().await {
+			let scheduler = Scheduler {
+				heartbeat_at: tokio::time::Instant::now(),
+			};
+			self.schedulers.insert(message.payload.0, scheduler);
+		}
+		Ok(())
+	}
+}
+
+impl Deref for Owned {
+	type Target = Watchdog;
+
+	fn deref(&self) -> &Self::Target {
+		&self.watchdog
+	}
+}
+
+impl Deref for Watchdog {
+	type Target = State;
+
+	fn deref(&self) -> &Self::Target {
+		self.state.as_ref()
 	}
 }

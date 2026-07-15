@@ -79,6 +79,7 @@ impl Session {
 			.sync_get_touch_authorized_objects(
 				&state.graph,
 				&ids,
+				&state.arg,
 				touched_at,
 				self.server.config.object.time_to_touch,
 			)
@@ -129,6 +130,7 @@ impl Session {
 				if !visible.subtree {
 					// Get the object.
 					let bytes = self
+						.server
 						.try_get_object_local(&item.id, false)
 						.await
 						.map_err(
@@ -192,7 +194,7 @@ impl Session {
 		{
 			// Update the graph.
 			let arg = UpdateProcessLocalArg {
-				data: None,
+				data: output.as_ref().and_then(|process| process.data.as_ref()),
 				id: &item.id,
 				marked: None,
 				metadata: output.as_ref().map(|p| p.metadata.clone()),
@@ -236,15 +238,12 @@ impl Session {
 					return Err(tg::error!(id = %item.id, "failed to find the process"));
 				}
 
-				// Get the process.
-				let data = self
-					.try_get_process_local(&item.id, false)
-					.await
-					.map_err(
-						|error| tg::error!(!error, id = %item.id, "failed to get the process locally"),
-					)?
-					.ok_or_else(|| tg::error!(id = %item.id, "expected the process to exist"))?
-					.data;
+				let data = output
+					.as_ref()
+					.and_then(|process| process.data.clone())
+					.ok_or_else(
+						|| tg::error!(id = %item.id, "expected the process data to be set"),
+					)?;
 
 				// Update the graph.
 				let arg = UpdateProcessLocalArg {
@@ -457,6 +456,7 @@ impl Session {
 						},
 						subtree: tg::process::metadata::Subtree {
 							count: Some(1),
+							depth: Some(1),
 							command: tg::object::metadata::Subtree {
 								count: Some(0),
 								depth: Some(0),
@@ -1118,6 +1118,7 @@ impl Session {
 						let arg = tangram_index::process::put::Arg {
 							children: Some(children),
 							command,
+							data: node.data.clone(),
 							error: Some((!error.is_empty()).then_some(error)),
 							id,
 							log: Some(log),

@@ -191,8 +191,7 @@ impl Server {
 			let options = child_row.options.0;
 			children.push(tg::process::data::Child {
 				cached,
-				process: tg::Either::Left(process),
-				options,
+				process: tg::Referent::new(process, options),
 			});
 		}
 

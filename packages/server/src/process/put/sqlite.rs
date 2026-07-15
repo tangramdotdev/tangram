@@ -76,7 +76,6 @@ impl Session {
 					finished_at,
 					host,
 					id,
-					lease_count,
 					log,
 					output,
 					retry,
@@ -115,8 +114,7 @@ impl Session {
 					?21,
 					?22,
 					?23,
-					?24,
-					?25
+					?24
 				)
 				on conflict (id) do update set
 					actual_checksum = ?1,
@@ -130,19 +128,18 @@ impl Session {
 					expected_checksum = ?9,
 					finished_at = ?10,
 					host = ?11,
-					lease_count = ?13,
-					log = ?14,
-					output = ?15,
-					retry = ?16,
-					sandbox = ?17,
-					started_at = ?18,
-					status = ?19,
-					stderr = ?20,
-					stdin = ?21,
-					stdout = ?22,
-					stored_at = ?23,
-					creator = ?24,
-					tty = ?25
+					log = ?13,
+					output = ?14,
+					retry = ?15,
+					sandbox = ?16,
+					started_at = ?17,
+					status = ?18,
+					stderr = ?19,
+					stdin = ?20,
+					stdout = ?21,
+					stored_at = ?22,
+					creator = ?23,
+					tty = ?24
 			"
 		);
 		let result = cache.get(transaction, process_statement.into());
@@ -195,7 +192,6 @@ impl Session {
 				data.finished_at,
 				data.host,
 				id.to_string(),
-				0,
 				data.log.as_ref().map(|log| log
 					.clone()
 					.map_right(|log| log.id)
@@ -224,13 +220,8 @@ impl Session {
 						id.to_string(),
 						position.to_i64().unwrap(),
 						child.cached,
-						child
-							.process
-							.clone()
-							.map_right(|process| process.id)
-							.into_inner()
-							.to_string(),
-						serde_json::to_string(&child.options).unwrap(),
+						child.process.item.to_string(),
+						serde_json::to_string(&child.process.options).unwrap(),
 					];
 					let result = children_statement
 						.execute(params)

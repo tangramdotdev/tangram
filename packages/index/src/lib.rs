@@ -14,6 +14,7 @@ pub mod group;
 pub mod object;
 pub mod organization;
 pub mod process;
+pub mod runner;
 pub mod sandbox;
 pub mod tag;
 pub mod user;
@@ -123,11 +124,82 @@ pub trait Index {
 		ids: &[tg::process::Id],
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
+	fn try_get_cached_processes(
+		&self,
+		command: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
+
+	fn get_process_depth_detections(
+		&self,
+		limit: usize,
+	) -> impl Future<Output = tg::Result<Vec<tg::process::Id>>> + Send;
+
+	fn list_sandboxes_for_creator(
+		&self,
+		creator: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn list_sandboxes_for_owner(
+		&self,
+		owner: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn get_runner_sandboxes(
+		&self,
+		runner: &tg::runner::Id,
+	) -> impl Future<Output = tg::Result<Vec<tg::sandbox::Id>>> + Send;
+
+	fn get_sandbox_processes(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
+
+	fn list_sandboxes(
+		&self,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn get_scheduler_runners(
+		&self,
+		scheduler: &tg::scheduler::Id,
+	) -> impl Future<Output = tg::Result<Vec<tg::runner::Id>>> + Send;
+
+	fn process_has_ancestor(
+		&self,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<bool>> + Send;
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
 		self.try_get_processes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_sandboxes(
+		&self,
+		ids: &[tg::sandbox::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::sandbox::Sandbox>>>> + Send;
+
+	fn try_get_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::sandbox::Sandbox>>> + Send {
+		self.try_get_sandboxes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_runners(
+		&self,
+		ids: &[tg::runner::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::runner::Runner>>>> + Send;
+
+	fn try_get_runner(
+		&self,
+		id: &tg::runner::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::runner::Runner>>> + Send {
+		self.try_get_runners(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 

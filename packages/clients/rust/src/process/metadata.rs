@@ -11,6 +11,9 @@ use {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(
@@ -84,6 +87,10 @@ pub struct Subtree {
 	pub count: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_default")]
+	pub depth: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub error: tg::object::metadata::Subtree,
 
@@ -116,6 +123,9 @@ impl Subtree {
 	pub fn merge(&mut self, other: &Self) {
 		if self.count.is_none() {
 			self.count = other.count;
+		}
+		if self.depth.is_none() {
+			self.depth = other.depth;
 		}
 		self.command.merge(&other.command);
 		self.error.merge(&other.error);

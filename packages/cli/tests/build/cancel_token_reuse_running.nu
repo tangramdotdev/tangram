@@ -35,9 +35,6 @@ snapshot ($output.stderr | redact) '
 	   id = <process>
 	-> failed to cancel the process
 	   id = <process>
-	-> failed to cancel the process
-	-> database error
-	-> the process lease was not found
 	-> the process lease was not found
 
 '

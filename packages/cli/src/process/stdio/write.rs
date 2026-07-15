@@ -12,7 +12,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Referent<tg::process::Id>,
 
 	#[arg(long, value_delimiter = ',', visible_alias = "stream")]
 	pub streams: Vec<tg::process::stdio::Stream>,
@@ -21,10 +21,12 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_stdio_write(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let id = args.process.item;
 		let process = tg::Process::<tg::Value>::new(
-			args.process.clone(),
+			id.clone(),
 			tg::process::Options {
 				location: args.location.get(),
+				token: args.process.options.token.clone(),
 				..Default::default()
 			},
 		);
@@ -35,6 +37,7 @@ impl Cli {
 		let arg = tg::process::stdio::write::Arg {
 			location: process.location(),
 			streams: vec![stream],
+			token: None,
 		};
 		let input = tangram_util::io::stdin()
 			.map_err(|error| tg::error!(!error, "failed to open stdin"))?
@@ -55,9 +58,10 @@ impl Cli {
 				tg::process::stdio::read::Event::End,
 			)))
 			.boxed();
-		process.write_stdio_all(&client, arg, input).await.map_err(
-			|error| tg::error!(!error, id = %args.process, "failed to write process stdio"),
-		)?;
+		process
+			.write_stdio_all(&client, arg, input)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to write process stdio"))?;
 		Ok(())
 	}
 }

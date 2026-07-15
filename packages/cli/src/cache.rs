@@ -17,12 +17,21 @@ impl Cli {
 		let artifacts = referents
 			.into_iter()
 			.map(|referent| {
-				let edge = referent.item.to_graph_edge()?;
+				let edge = referent.into_graph_edge()?.item;
 				let object = edge
 					.try_unwrap_object()
 					.map_err(|_| tg::error!("expected an object"))?;
 				let artifact = tg::Artifact::try_from(object)?;
-				Ok(artifact.id())
+				let artifact = artifact.state().token().map_or_else(
+					|| tg::Either::Left(artifact.id()),
+					|token| {
+						tg::Either::Right(tg::WithToken {
+							id: artifact.id(),
+							token,
+						})
+					},
+				);
+				Ok(artifact)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 

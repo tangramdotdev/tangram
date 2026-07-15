@@ -1,7 +1,8 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
 	indoc::formatdoc,
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -26,6 +27,7 @@ impl Session {
 			if local.current
 				&& let Some(output) = self
 					.try_get_sandbox_local(id)
+					.boxed()
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?
 			{
@@ -59,11 +61,106 @@ impl Session {
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		let permission =
 			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
-		let authorized = self.authorize(id.clone(), permission).await?;
-		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
-			return Ok(None);
+		let authorize_future = async {
+			let authorized = self.authorize(id.clone(), permission).await?;
+			Ok::<_, tg::Error>(
+				authorized.is_some_and(|permissions| permissions.contains(permission)),
+			)
+		};
+		let exists_future = self.exists(id.clone(), permission);
+		let get_future = self.get_sandbox_local(id);
+		let exists_future = pin!(exists_future);
+		let get_future = pin!(get_future);
+		let get_or_exists_future = future::select(get_future, exists_future);
+		let authorize_future = pin!(authorize_future);
+		let get_or_exists_future = pin!(get_or_exists_future);
+		let output = match future::select(authorize_future, get_or_exists_future).await {
+			future::Either::Left((authorized, get_or_exists_future)) => {
+				if !authorized? {
+					return Ok(None);
+				}
+				match get_or_exists_future.await {
+					future::Either::Left((output, _)) => Some(output?),
+					future::Either::Right((exists, get_future)) => {
+						if exists? {
+							Some(get_future.await?)
+						} else {
+							None
+						}
+					},
+				}
+			},
+			future::Either::Right((get_or_exists, authorize_future)) => match get_or_exists {
+				future::Either::Left((output, _)) => {
+					let output = output?;
+					authorize_future.await?.then_some(output)
+				},
+				future::Either::Right((exists, get_future)) => {
+					if !exists? || !authorize_future.await? {
+						None
+					} else {
+						Some(get_future.await?)
+					}
+				},
+			},
+		};
+		Ok(output)
+	}
+
+	async fn get_sandbox_local(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<tg::sandbox::get::Output> {
+		if let Some(data) = self.server.runner.state.try_get_sandbox(id) {
+			return Ok(data);
 		}
 
+		let control_future = self.get_sandbox_from_control(id);
+		let process_store_future = self.try_get_sandbox_from_process_store(id);
+		let output = match future::select(pin!(control_future), pin!(process_store_future)).await {
+			future::Either::Left((result, _)) => result?,
+			future::Either::Right((result, control_future)) => match result? {
+				Some(output) => output,
+				None => control_future.await?,
+			},
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn get_sandbox_from_control(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<tg::sandbox::get::Output> {
+		let request = tg::sandbox::control::ServerRequestArg::Get(
+			tg::sandbox::control::GetServerRequestArg {},
+		);
+		let retry = tangram_futures::retry::Options {
+			max_retries: u64::MAX,
+			..Default::default()
+		};
+		let options = crate::control::Options {
+			retry,
+			timeout: std::time::Duration::from_secs(10),
+		};
+		let response = self
+			.send_sandbox_control_request(id, request, options)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to send the get sandbox control request"),
+			)?
+			.map_err(|error| tg::error!(!error, %id, "the get sandbox control request failed"))?;
+		let response = response
+			.try_unwrap_get()
+			.map_err(|_| tg::error!("expected a get response"))?;
+		let output = response.data;
+		Ok(output)
+	}
+
+	async fn try_get_sandbox_from_process_store(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			cpu: Option<i64>,
@@ -113,7 +210,7 @@ impl Session {
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let row = row
+		let output = row
 			.map(|row| {
 				Ok::<_, tg::Error>(tg::sandbox::get::Output {
 					cpu: row
@@ -146,7 +243,7 @@ impl Session {
 				})
 			})
 			.transpose()?;
-		Ok(row)
+		Ok(output)
 	}
 
 	async fn try_get_sandbox_regions(
@@ -275,7 +372,7 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let Some(output) = self.try_get_sandbox(&id, arg).await? else {
+		let Some(output) = self.try_get_sandbox(&id, arg).boxed().await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
 				.empty()

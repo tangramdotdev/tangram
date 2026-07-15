@@ -18,7 +18,7 @@ pub struct Args {
 	pub position: Option<std::io::SeekFrom>,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Referent<tg::process::Id>,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -64,10 +64,13 @@ impl Cli {
 	pub async fn command_process_stdio_read(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let locations = args.locations.get();
+		let id = args.process.item;
+		let token = args.process.options.token;
 		let process = tg::Process::<tg::Value>::new(
-			args.process.clone(),
+			id.clone(),
 			tg::process::Options {
 				location: locations.clone(),
+				token: token.clone(),
 				..Default::default()
 			},
 		);
@@ -86,14 +89,13 @@ impl Cli {
 			size: args.size,
 			streams,
 			timeout: args.timeout.get(),
+			token: None,
 		};
 		let mut stdio = process
 			.try_read_stdio_all(&client, arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, id = %args.process, "failed to get the process stdio"),
-			)?
-			.ok_or_else(|| tg::error!(id = %args.process, "failed to get the process stdio"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process stdio"))?
+			.ok_or_else(|| tg::error!(%id, "failed to get the process stdio"))?;
 
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		let mut stderr = tokio::io::BufWriter::new(tokio::io::stderr());

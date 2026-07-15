@@ -1,38 +1,18 @@
 use {
 	crate::{Server, Session},
-	futures::FutureExt as _,
-	indoc::formatdoc,
-	std::{
-		net::{IpAddr, Ipv4Addr, SocketAddr},
-		ops::ControlFlow,
-	},
+	futures::{TryStreamExt as _, future},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::prelude::*,
+	tangram_messenger::Messenger as _,
 };
 
-#[derive(Clone)]
-struct CreateSandboxArg {
-	arg: tg::sandbox::create::Arg,
-	cpu: Option<i64>,
-	creator: Option<tg::Principal>,
-	id: tg::sandbox::Id,
-	memory: Option<i64>,
-	now: i64,
-	owner: Option<tg::Principal>,
-	ttl: Option<std::time::Duration>,
-}
+mod arg;
 
 impl Session {
 	pub(crate) async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
@@ -59,15 +39,18 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 		self.authorize_owner(arg.owner.as_ref()).await?;
+
 		arg = Self::normalize_sandbox_create_arg(arg)?;
-		let id = tg::sandbox::Id::new();
+		if arg.host.is_none() {
+			return Err(tg::error!("missing sandbox host"));
+		}
 		let creator = self.context.principal.clone();
 		let owner = arg
 			.owner
 			.clone()
 			.or_else(|| Some(creator.clone()))
 			.filter(|owner| !matches!(owner, tg::Principal::Root));
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		arg.owner.clone_from(&owner);
 		let isolation = self.server.resolve_sandbox_isolation()?;
 		Server::validate_sandbox_resources(
 			&isolation,
@@ -75,111 +58,51 @@ impl Session {
 			arg.memory,
 			arg.hostname.as_deref(),
 		)?;
-		let cpu = arg
-			.cpu
-			.map(i64::try_from)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "invalid sandbox cpu"))?;
-		let memory = arg
-			.memory
-			.map(i64::try_from)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?;
-		let ttl = arg.ttl;
-		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
-		let arg = CreateSandboxArg {
-			arg: arg.clone(),
-			cpu,
-			creator: Some(creator),
-			id: id.clone(),
-			memory,
-			now,
-			owner: owner.clone(),
-			ttl,
+
+		let id = tg::sandbox::Id::new();
+		let token = Self::create_sandbox_token_string();
+
+		let mut connected = self
+			.server
+			.messenger
+			.subscribe::<()>(super::control::connected_subject(&id))
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to subscribe to the sandbox control connection"
+				)
+			})?;
+
+		let create_future = async {
+			let request = crate::scheduler::CreateSandboxRequestArg {
+				arg,
+				creator: Some(creator),
+				parent: None,
+				process: None,
+				sandbox: id.clone(),
+				token: Some(token),
+			};
+			self.enqueue_sandbox(request)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+			Ok::<_, tg::Error>(())
 		};
-		self.server
-			.process_store
-			.run(|transaction| {
-				let arg = arg.clone();
-				async move { Self::create_sandbox_with_transaction(transaction, arg).await }.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
-
-		self.server
-			.index
-			.batch(tangram_index::batch::Arg {
-				put_sandboxes: vec![tangram_index::sandbox::put::Arg {
-					id: id.clone(),
-					owner: owner.clone(),
-				}],
-				..Default::default()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the sandbox to the index"))?;
-
-		self.server.spawn_publish_sandbox_status_task(&id);
-		self.spawn_publish_sandboxes_created_message_task();
+		let connect_future = async {
+			connected
+				.try_next()
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to receive the sandbox control connection")
+				})?
+				.ok_or_else(|| tg::error!("the sandbox control connection stream ended"))?;
+			Ok::<_, tg::Error>(())
+		};
+		future::try_join(create_future, connect_future).await?;
 
 		let output = tg::sandbox::create::Output { id };
 
 		Ok(output)
-	}
-
-	async fn create_sandbox_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		arg: CreateSandboxArg,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			r"
-				insert into sandboxes (
-					id,
-					cpu,
-					created_at,
-					creator,
-					hostname,
-					isolation,
-					memory,
-					mounts,
-					network,
-					owner,
-					status,
-					ttl
-				)
-				values (
-					{p}1,
-					{p}2,
-					{p}3,
-					{p}4,
-					{p}5,
-					{p}6,
-					{p}7,
-					{p}8,
-					{p}9,
-					{p}10,
-					{p}11,
-					{p}12
-				);
-			"
-		);
-		let params = db::params![
-			arg.id.to_string(),
-			arg.cpu,
-			arg.now,
-			arg.creator.as_ref().map(ToString::to_string),
-			arg.arg.hostname.clone(),
-			arg.arg.isolation.map(db::value::Json),
-			arg.memory,
-			(!arg.arg.mounts.is_empty()).then_some(db::value::Json(arg.arg.mounts)),
-			arg.arg.network.map(db::value::Json),
-			arg.owner.as_ref().map(ToString::to_string),
-			tg::sandbox::Status::Created.to_string(),
-			db::value::DurationSeconds(arg.ttl),
-		];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-		Ok(ControlFlow::Break(()))
 	}
 
 	async fn create_sandbox_region(
@@ -257,131 +180,7 @@ impl Session {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
 		let response = response.body(body).unwrap();
+
 		Ok(response)
 	}
-
-	pub(crate) fn normalize_sandbox_create_arg(
-		mut arg: tg::sandbox::create::Arg,
-	) -> tg::Result<tg::sandbox::create::Arg> {
-		if let Some(tg::sandbox::Network::Bridge(bridge)) = &mut arg.network {
-			bridge.ports = resolve_sandbox_ports(std::mem::take(&mut bridge.ports))?;
-		}
-		Ok(arg)
-	}
-}
-
-fn resolve_sandbox_ports(ports: Vec<tg::sandbox::Port>) -> tg::Result<Vec<tg::sandbox::Port>> {
-	let mut output = Vec::new();
-	for port in ports {
-		for mut port in port.expand() {
-			if port.host.is_none() {
-				let host = allocate_sandbox_port(&output, port.host_ip, port.protocol)?;
-				port = port.with_host(tg::sandbox::PortRange::single(host));
-			}
-			validate_sandbox_port(&output, port)?;
-			output.push(port);
-		}
-	}
-	Ok(output)
-}
-
-fn allocate_sandbox_port(
-	existing: &[tg::sandbox::Port],
-	host_ip: Option<Ipv4Addr>,
-	protocol: tg::sandbox::PortProtocol,
-) -> tg::Result<u16> {
-	for _ in 0..100 {
-		let port = bind_ephemeral_port(host_ip, protocol)?;
-		if !existing
-			.iter()
-			.any(|existing| host_port_conflicts(*existing, host_ip, port, protocol))
-		{
-			return Ok(port);
-		}
-	}
-	Err(tg::error!("failed to allocate a host port"))
-}
-
-fn validate_sandbox_port(
-	existing: &[tg::sandbox::Port],
-	port: tg::sandbox::Port,
-) -> tg::Result<()> {
-	let host = port
-		.host
-		.ok_or_else(|| tg::error!("expected a resolved host port"))?;
-	if !host.is_single() || !port.guest.is_single() {
-		return Err(tg::error!("expected resolved port mappings"));
-	}
-	let host_port = host.start;
-	if existing
-		.iter()
-		.any(|existing| host_port_conflicts(*existing, port.host_ip, host_port, port.protocol))
-	{
-		return Err(tg::error!(%host_port, "duplicate host port mapping"));
-	}
-	bind_specific_port(port.host_ip, host_port, port.protocol)?;
-	Ok(())
-}
-
-fn host_port_conflicts(
-	existing: tg::sandbox::Port,
-	host_ip: Option<Ipv4Addr>,
-	host_port: u16,
-	protocol: tg::sandbox::PortProtocol,
-) -> bool {
-	existing.protocol == protocol
-		&& existing
-			.host
-			.is_some_and(|host| host.start <= host_port && host.end >= host_port)
-		&& host_ips_conflict(existing.host_ip, host_ip)
-}
-
-fn host_ips_conflict(a: Option<Ipv4Addr>, b: Option<Ipv4Addr>) -> bool {
-	a.is_none() || b.is_none() || a == b
-}
-
-fn bind_ephemeral_port(
-	host_ip: Option<Ipv4Addr>,
-	protocol: tg::sandbox::PortProtocol,
-) -> tg::Result<u16> {
-	let addr = socket_addr(host_ip, 0);
-	match protocol {
-		tg::sandbox::PortProtocol::Tcp => {
-			let listener = std::net::TcpListener::bind(addr)
-				.map_err(|error| tg::error!(!error, "failed to bind a host port"))?;
-			listener
-				.local_addr()
-				.map(|addr| addr.port())
-				.map_err(|error| tg::error!(!error, "failed to get the host port"))
-		},
-		tg::sandbox::PortProtocol::Udp => {
-			let socket = std::net::UdpSocket::bind(addr)
-				.map_err(|error| tg::error!(!error, "failed to bind a host port"))?;
-			socket
-				.local_addr()
-				.map(|addr| addr.port())
-				.map_err(|error| tg::error!(!error, "failed to get the host port"))
-		},
-	}
-}
-
-fn bind_specific_port(
-	host_ip: Option<Ipv4Addr>,
-	port: u16,
-	protocol: tg::sandbox::PortProtocol,
-) -> tg::Result<()> {
-	let addr = socket_addr(host_ip, port);
-	match protocol {
-		tg::sandbox::PortProtocol::Tcp => std::net::TcpListener::bind(addr)
-			.map(drop)
-			.map_err(|error| tg::error!(!error, %port, "failed to bind the host port")),
-		tg::sandbox::PortProtocol::Udp => std::net::UdpSocket::bind(addr)
-			.map(drop)
-			.map_err(|error| tg::error!(!error, %port, "failed to bind the host port")),
-	}
-}
-
-fn socket_addr(host_ip: Option<Ipv4Addr>, port: u16) -> SocketAddr {
-	let host_ip = host_ip.unwrap_or(Ipv4Addr::UNSPECIFIED);
-	SocketAddr::new(IpAddr::V4(host_ip), port)
 }

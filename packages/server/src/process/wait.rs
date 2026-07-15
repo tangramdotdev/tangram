@@ -56,7 +56,6 @@ impl Session {
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(future) = self
@@ -115,16 +114,6 @@ impl Session {
 		id: &tg::process::Id,
 		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		// Verify the process exists.
-		if !self
-			.get_process_exists_local(id)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to check if the process exists"))?
-		{
-			return Ok(None);
-		}
-
-		// Authorize.
 		let mut permissions = tg::grant::permission::process::Set::NODE;
 		permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
 		let permissions = tg::grant::permission::Set::Process(permissions);
@@ -137,19 +126,44 @@ impl Session {
 				})
 			},
 		);
-		let Some(permissions) = self.authorize(resource, permissions).await? else {
-			return Ok(None);
-		};
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		if !permissions.contains(permission) {
-			return Ok(None);
+		let authorize_future = self.authorize(resource, permissions).boxed();
+		let exists_future = self.exists(id.clone(), permissions).boxed();
+		let check_future = async {
+			let (permissions, exists) = future::try_join(authorize_future, exists_future).await?;
+			Ok::<_, tg::Error>(exists.then_some(permissions).flatten())
 		}
-
-		let stream = self
+		.boxed();
+		let create_future = self
 			.create_process_status_stream_local(id, None, None)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process status stream"))?;
+			.boxed();
+		let (permissions, stream) = match future::select(check_future, create_future).await {
+			future::Either::Left((permissions, create_future)) => {
+				let Some(permissions) = permissions? else {
+					return Ok(None);
+				};
+				if !permissions.contains(permission) {
+					return Ok(None);
+				}
+				let stream = create_future.await.map_err(
+					|error| tg::error!(!error, %id, "failed to get the process status stream"),
+				)?;
+				(permissions, stream)
+			},
+			future::Either::Right((stream, check_future)) => {
+				let Some(permissions) = check_future.await? else {
+					return Ok(None);
+				};
+				if !permissions.contains(permission) {
+					return Ok(None);
+				}
+				let stream = stream.map_err(
+					|error| tg::error!(!error, %id, "failed to get the process status stream"),
+				)?;
+				(permissions, stream)
+			},
+		};
 		let session = self.clone();
 		let id = id.clone();
 		let stream = stream.boxed();
@@ -171,10 +185,9 @@ impl Session {
 				return Err(tg::error!("expected the process to be finished"));
 			}
 			let process = session
-				.try_get_process_local(&id, false)
+				.get_process_local(&id, false)
 				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-				.ok_or_else(|| tg::error!(%id, "failed to get the process"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
 			let exit = process
 				.data
 				.exit

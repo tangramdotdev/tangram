@@ -39,6 +39,13 @@ export class File {
 		return this.#state;
 	}
 
+	/** Get a file with a referent. */
+	static withReferent(referent: tg.Referent<tg.File.Id>): tg.File {
+		let file = tg.File.withId(referent.item);
+		file.state.token = referent.options?.token ?? null;
+		return file;
+	}
+
 	/** Get a file with an ID. */
 	static withId(id: tg.File.Id): tg.File {
 		return new tg.File({ id, stored: true });

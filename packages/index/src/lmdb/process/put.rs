@@ -16,13 +16,10 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 
 		let merge = !arg.complete();
-		let existing = if merge {
-			db.get(transaction, &key)
-				.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-				.and_then(|bytes| crate::process::Process::deserialize(bytes).ok())
-		} else {
-			None
-		};
+		let existing = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+			.and_then(|bytes| crate::process::Process::deserialize(bytes).ok());
 
 		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
 		let touch = existing.as_ref().is_none_or(|existing| {
@@ -50,19 +47,24 @@ impl Index {
 		let parent_changed = arg.parent.is_some();
 
 		let mut set = arg.set();
-		if let Some(ref existing) = existing {
+		if merge && let Some(ref existing) = existing {
 			set.merge(&existing.set);
 		}
 
 		let mut stored = arg.stored.clone();
-		if let Some(ref existing) = existing {
+		if merge && let Some(ref existing) = existing {
 			stored.merge(&existing.stored);
 		}
 
 		let mut metadata = arg.metadata.clone();
-		if let Some(ref existing) = existing {
+		if merge && let Some(ref existing) = existing {
 			metadata.merge(&existing.metadata);
 		}
+
+		let data = arg
+			.data
+			.clone()
+			.or_else(|| existing.as_ref().and_then(|existing| existing.data.clone()));
 
 		let sandbox = arg.sandbox.clone().or_else(|| {
 			existing
@@ -70,6 +72,7 @@ impl Index {
 				.and_then(|existing| existing.sandbox.clone())
 		});
 		let changed = parent_changed
+			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
 				existing.metadata != metadata
 					|| existing.sandbox != sandbox
@@ -81,9 +84,10 @@ impl Index {
 		}
 
 		let value = crate::process::Process {
+			data: data.clone(),
 			metadata,
 			reference_count: 0,
-			sandbox,
+			sandbox: sandbox.clone(),
 			set,
 			stored,
 			touched_at,
@@ -91,6 +95,47 @@ impl Index {
 		.serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
+
+		if let Some(existing_sandbox) = existing
+			.as_ref()
+			.and_then(|existing| existing.sandbox.as_ref())
+		{
+			let key = Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
+				sandbox: existing_sandbox.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the sandbox process"))?;
+
+			let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
+				process: id.clone(),
+				sandbox: existing_sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the process sandbox"))?;
+		}
+
+		if data.as_ref().is_some_and(|data| data.status.is_started())
+			&& let Some(sandbox) = &sandbox
+		{
+			let key = Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
+				sandbox: sandbox.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the sandbox process"))?;
+
+			let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
+				process: id.clone(),
+				sandbox: sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put the process sandbox"))?;
+		}
 
 		if children_changed && let Some(children) = &arg.children {
 			for child in children {
@@ -129,6 +174,14 @@ impl Index {
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
 		}
+
+		let key = Key::Process(crate::lmdb::process::Key::CommandProcess {
+			command: arg.command.clone(),
+			process: id.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		db.put(transaction, &key, &[])
+			.map_err(|error| tg::error!(!error, "failed to put the command process"))?;
 
 		let objects = existing
 			.is_none()

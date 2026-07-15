@@ -80,14 +80,15 @@ impl Session {
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
 		let output = self
-			.try_get_process_local(id, false)
+			.try_get_process_local(id, false, arg.token.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 		let Some(output) = output else {
 			return Ok(None);
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
-		self.authorize_process_stdio_read(id, &source).await?;
+		self.authorize_process_stdio_read(id, &source, arg.token.as_ref())
+			.await?;
 		let stream = match source {
 			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &streams).await?,
 			Source::Log(streams) => {
@@ -103,6 +104,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		source: &Source,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<()> {
 		let Source::Pipe(streams) = source else {
 			return Ok(());
@@ -125,7 +127,16 @@ impl Session {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::Write,
 				);
-				let authorized = self.authorize(id.clone(), permission).await?;
+				let resource = token.map_or_else(
+					|| tg::Either::Left(id.clone()),
+					|token| {
+						tg::Either::Right(tg::WithToken {
+							id: id.clone(),
+							token: token.clone(),
+						})
+					},
+				);
+				let authorized = self.authorize(resource, permission).await?;
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));
 				}
@@ -297,12 +308,12 @@ impl Session {
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
-		// End the stream if the process is finished, because a read of its piped stdio will never be answered.
-		let status = self
-			.get_process_status_local(id)
+		let output = self
+			.get_process_local(id, false)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the process status"))?;
-		if status.is_finished() {
+			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
+
+		if output.data.status.is_finished() {
 			sender
 				.send(Ok(tg::process::stdio::read::Event::End))
 				.await
@@ -310,7 +321,6 @@ impl Session {
 			return Ok(());
 		}
 
-		// Read each stream concurrently, issuing chunked control read requests until the stream ends. On graceful shutdown, the streams stop issuing new requests but allow any outstanding request to complete, so that an already-consumed read is delivered and acknowledged rather than lost.
 		let mut futures = streams
 			.iter()
 			.map(|stream| {
@@ -342,21 +352,31 @@ impl Session {
 				return Ok(());
 			}
 
-			let request =
-				tg::process::control::RequestKind::Read(tg::process::control::ReadRequest {
+			let request = tg::process::control::ServerRequestArg::Read(
+				tg::process::control::ReadServerRequestArg {
 					stream,
 					length: READ_CHUNK_SIZE,
+				},
+			);
+			let retry = tangram_futures::retry::Options {
+				max_retries: u64::MAX,
+				..Default::default()
+			};
+			let timeout = self
+				.server
+				.config
+				.runner
+				.as_ref()
+				.map_or(std::time::Duration::from_secs(10), |runner| {
+					runner.stdio_drain_timeout
 				});
-			let Some(response) = self
-				.try_send_process_control_request(id, request, u64::MAX)
-				.await?
-			else {
-				// A clean end must come only from an empty read response, so surface an abandoned request as an error.
-				return Err(tg::error!("timed out reading process stdio"));
-			};
-			let tg::process::control::ResponseKind::Read(response) = response.kind else {
-				return Err(tg::error!("expected a read response"));
-			};
+			let options = crate::control::Options { retry, timeout };
+			let response = self
+				.send_process_control_request(id, request, options)
+				.await??;
+			let response = response
+				.try_unwrap_read()
+				.map_err(|_| tg::error!("expected a read response"))?;
 
 			// An empty response indicates that the stream has ended.
 			if response.bytes.is_empty() {

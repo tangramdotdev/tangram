@@ -4,6 +4,7 @@ use {super::Stored, tangram_client::prelude::*};
 pub struct Arg {
 	pub children: Option<Vec<tg::process::Id>>,
 	pub command: tg::object::Id,
+	pub data: Option<tg::process::Data>,
 	pub error: Option<Option<Vec<tg::object::Id>>>,
 	pub id: tg::process::Id,
 	pub log: Option<Option<tg::object::Id>>,
@@ -21,6 +22,7 @@ impl Arg {
 	pub fn complete(&self) -> bool {
 		self.set().complete()
 			&& self.metadata.subtree.count.is_some()
+			&& self.metadata.subtree.depth.is_some()
 			&& self.metadata.subtree.command.complete()
 			&& self.metadata.subtree.error.complete()
 			&& self.metadata.subtree.log.complete()

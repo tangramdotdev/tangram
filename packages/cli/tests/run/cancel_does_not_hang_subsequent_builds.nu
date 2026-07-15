@@ -7,7 +7,7 @@ use ../../test.nu *
 
 let server = spawn --config {
 	runner: {
-		concurrency: 1,
+		permits: 1,
 	},
 }
 

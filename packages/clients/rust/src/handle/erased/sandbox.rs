@@ -15,11 +15,6 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::get::Output>>>;
 
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::sandbox::queue::Output>>>;
-
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -31,23 +26,21 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::destroy::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
 
-	fn try_heartbeat_sandbox<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
-		arg: tg::sandbox::heartbeat::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::heartbeat::Output>>>;
-
 	fn try_get_sandbox_status_stream<'a>(
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>;
 
-	fn try_dequeue_sandbox_process<'a>(
+	fn get_sandbox_control_stream<'a>(
 		&'a self,
-		sandbox: &'a tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::process::queue::Output>>>;
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>>,
+	>;
 }
 
 impl<T> Sandbox for T
@@ -69,13 +62,6 @@ where
 		self.try_get_sandbox(id, arg).boxed()
 	}
 
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::sandbox::queue::Output>>> {
-		self.try_dequeue_sandbox(arg).boxed()
-	}
-
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -89,14 +75,6 @@ where
 		arg: tg::sandbox::destroy::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
 		self.try_destroy_sandbox(id, arg).boxed()
-	}
-
-	fn try_heartbeat_sandbox<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
-		arg: tg::sandbox::heartbeat::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::heartbeat::Output>>> {
-		self.try_heartbeat_sandbox(id, arg).boxed()
 	}
 
 	fn try_get_sandbox_status_stream<'a>(
@@ -114,11 +92,17 @@ where
 		.boxed()
 	}
 
-	fn try_dequeue_sandbox_process<'a>(
+	fn get_sandbox_control_stream<'a>(
 		&'a self,
-		sandbox: &'a tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::process::queue::Output>>> {
-		self.try_dequeue_sandbox_process(sandbox, arg).boxed()
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>>,
+	> {
+		self.get_sandbox_control_stream(id, arg, stream)
+			.map_ok(futures::StreamExt::boxed)
+			.boxed()
 	}
 }

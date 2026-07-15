@@ -200,26 +200,18 @@ impl State {
 impl Child {
 	#[must_use]
 	pub fn to_data(&self) -> tg::process::data::Child {
+		let mut options = self.options.clone();
+		options.token = self.process.token();
 		tg::process::data::Child {
 			cached: self.process.cached().unwrap_or(false),
-			options: self.options.clone(),
-			process: self.process.token().map_or_else(
-				|| tg::Either::Left(self.process.id().unwrap_right().clone()),
-				|token| {
-					tg::Either::Right(tg::WithToken {
-						id: self.process.id().unwrap_right().clone(),
-						token,
-					})
-				},
-			),
+			process: tg::Referent::new(self.process.id().unwrap_right().clone(), options),
 		}
 	}
 
 	pub fn try_from_data(value: tg::process::data::Child) -> tg::Result<Self> {
-		let (process, token) = match value.process {
-			tg::Either::Left(id) => (id, None),
-			tg::Either::Right(process) => (process.id, Some(process.token)),
-		};
+		let process = value.process.item;
+		let options = value.process.options;
+		let token = options.token.clone();
 		Ok(Self {
 			process: tg::Process::new(
 				process,
@@ -229,7 +221,7 @@ impl Child {
 					..Default::default()
 				},
 			),
-			options: value.options,
+			options,
 		})
 	}
 }

@@ -94,6 +94,12 @@ impl Module {
 			let tag = format!("tag={tag}");
 			query.push(tag);
 		}
+		if let Some(token) = &self.referent.options.token {
+			let token = token.to_string();
+			let token = tangram_uri::encode_query_value(&token);
+			let token = format!("token={token}");
+			query.push(token);
+		}
 		let kind = self.kind.to_string();
 		let kind = tangram_uri::encode_query_value(&kind);
 		let kind = format!("kind={kind}");
@@ -143,6 +149,13 @@ impl Module {
 									.map_err(|_| tg::error!("failed to parse the tag"))?,
 							);
 						},
+						"token" => {
+							options.token.replace(
+								value
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the token"))?,
+							);
+						},
 						"kind" => {
 							kind.replace(
 								value
@@ -160,6 +173,14 @@ impl Module {
 			kind,
 			referent: tg::Referent { item, options },
 		})
+	}
+
+	#[must_use]
+	pub fn without_token(&self) -> Self {
+		let mut module = self.clone();
+		module.referent = module.referent.without_token();
+
+		module
 	}
 }
 

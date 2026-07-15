@@ -76,6 +76,14 @@ impl Module {
 	}
 
 	#[must_use]
+	pub fn without_token(&self) -> Self {
+		let mut module = self.clone();
+		module.referent = module.referent.without_token();
+
+		module
+	}
+
+	#[must_use]
 	pub fn to_data(&self) -> Data {
 		let kind = self.kind;
 		let referent = self.referent.clone().map(|item| match item {

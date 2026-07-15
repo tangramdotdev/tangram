@@ -82,9 +82,8 @@ def main [
 		}
 
 		print -e "clearing fdb data"
-		let cluster = mktemp -t
-		"docker:docker@localhost:4500" | save -f $cluster
-		try { fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
+		let cluster = fdb_cluster
+		try { ^timeout 10 fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
 
 		let tangram_processes = count_tangram_processes
 		if $tangram_processes > 0 {
@@ -966,8 +965,7 @@ export def --env spawn [
 		createdb -U postgres -h localhost $'processes_($id)'
 		psql -U postgres -h localhost -d $'processes_($id)' -f ($repository_path | path join packages/server/src/process/store/postgres.sql)
 
-		let cluster = mktemp -t
-		"docker:docker@localhost:4500" | save -f $cluster
+		let cluster = fdb_cluster
 
 		cqlsh -e $"create keyspace \"objects_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
 		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
@@ -1148,9 +1146,8 @@ def clean_databases [id: string] {
 	try { dropdb -U postgres -h localhost $'processes_($id)' }
 
 	# Clear the fdb key range.
-	let cluster = mktemp -t
-	"docker:docker@localhost:4500" | save -f $cluster
-	try { fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
+	let cluster = fdb_cluster
+	try { ^timeout 10 fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"objects_($id)\";" }
@@ -1439,6 +1436,27 @@ def process_supervisor [] {
 '
 }
 
+def fdb_cluster [] {
+	let env_cluster = $env.TANGRAM_TEST_FDB_CLUSTER? | default ''
+	if ($env_cluster | str length) > 0 {
+		return $env_cluster
+	}
+
+	let system_cluster = '/etc/foundationdb/fdb.cluster'
+	if ($system_cluster | path exists) {
+		return $system_cluster
+	}
+
+	let user_cluster = ($nu.home-path | path join '.foundationdb/fdb.cluster')
+	if ($user_cluster | path exists) {
+		return $user_cluster
+	}
+
+	let cluster = mktemp -t
+	"local:local@localhost:4500" | save -f $cluster
+	$cluster
+}
+
 def clean_tangram_processes [] {
 	let pids = tangram_process_pids_list
 	if ($pids | is-empty) {
@@ -1509,7 +1527,7 @@ export def cleanup_background_jobs [temp_path: string] {
 		try { job kill $job.id }
 	}
 
-	for job in (job list | where { ($in.description? | default '') == 'server' }) {
+	for job in (job list | where { ($in.description? | default '') == 'server' } | sort-by id | reverse) {
 		let exit_path = server_exit_path $temp_path $job.id
 		stop_server_job $job.id
 		if not (wait_for_server_exit $exit_path) {

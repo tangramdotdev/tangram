@@ -23,7 +23,7 @@ impl Session {
 		name: &str,
 		arg: tg::remote::get::Arg,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner) {
+		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner(_)) {
 			return self.try_get_remote_runner(name).await;
 		}
 		let principal = match self

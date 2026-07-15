@@ -180,6 +180,7 @@ impl Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,
+		max_process_depth: Option<u64>,
 		partition_total: u64,
 	) -> tg::Result<usize> {
 		let mut entries = Vec::new();
@@ -253,7 +254,9 @@ impl Index {
 			let changed = match &kind {
 				Kind::Item => match &id {
 					tg::Either::Left(id) => Self::update_object(txn, subspace, id).await?,
-					tg::Either::Right(id) => Self::update_process(txn, subspace, id).await?,
+					tg::Either::Right(id) => {
+						Self::update_process(txn, subspace, id, max_process_depth).await?
+					},
 				},
 				Kind::Grants(principal) => match &id {
 					tg::Either::Left(id) => {
@@ -866,11 +869,12 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
+		max_process_depth: Option<u64>,
 	) -> tg::Result<bool> {
-		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
-		let key = Self::pack(subspace, &key);
+		let process_key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
+		let process_key = Self::pack(subspace, &process_key);
 		let bytes = txn
-			.get(&key, false)
+			.get(&process_key, false)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
@@ -908,6 +912,46 @@ impl Index {
 		}
 
 		let mut changed = false;
+
+		let depth = children
+			.iter()
+			.map(|option| {
+				option
+					.as_ref()
+					.and_then(|child| child.metadata.subtree.depth)
+			})
+			.try_fold(0u64, |output, value| value.map(|value| output.max(value)))
+			.map(|depth| depth + 1);
+		if let Some(depth) = depth
+			&& process
+				.metadata
+				.subtree
+				.depth
+				.is_none_or(|current| depth > current)
+		{
+			process.metadata.subtree.depth = Some(depth);
+			changed = true;
+		}
+
+		let depth_detection_key =
+			crate::fdb::Key::Process(crate::fdb::process::Key::ProcessDepthDetection(id.clone()));
+		let depth_detection_key = Self::pack(subspace, &depth_detection_key);
+		let detected = max_process_depth.is_some_and(|max_depth| {
+			process
+				.metadata
+				.subtree
+				.depth
+				.is_some_and(|depth| depth > max_depth)
+				&& process
+					.data
+					.as_ref()
+					.is_some_and(|data| !data.status.is_finished())
+		});
+		if detected {
+			txn.set(&depth_detection_key, &[]);
+		} else {
+			txn.clear(&depth_detection_key);
+		}
 
 		if let Some(object) = &command_object {
 			if process.metadata.node.command.count.is_none()
@@ -1612,7 +1656,7 @@ impl Index {
 			let value = process
 				.serialize()
 				.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
-			txn.set(&key, &value);
+			txn.set(&process_key, &value);
 		}
 
 		Ok(changed)

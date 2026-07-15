@@ -8,16 +8,6 @@ where
 	L: tg::handle::Process,
 	R: tg::handle::Process,
 {
-	fn list_processes(
-		&self,
-		arg: tg::process::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
-		match self {
-			tg::Either::Left(s) => s.list_processes(arg).left_future(),
-			tg::Either::Right(s) => s.list_processes(arg).right_future(),
-		}
-	}
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -88,11 +78,11 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 			>,
 		>,
 	> {
@@ -229,17 +219,6 @@ where
 		match self {
 			tg::Either::Left(s) => s.try_touch_process(id, arg).left_future(),
 			tg::Either::Right(s) => s.try_touch_process(id, arg).right_future(),
-		}
-	}
-
-	fn try_finish_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		match self {
-			tg::Either::Left(s) => s.try_finish_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.try_finish_process(id, arg).right_future(),
 		}
 	}
 

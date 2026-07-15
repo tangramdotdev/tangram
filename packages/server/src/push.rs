@@ -139,6 +139,7 @@ impl Session {
 							tg::Either::Left(object) => {
 								let metadata_arg = tg::object::metadata::Arg {
 									location: Some(source.clone().into()),
+									token: item_token(item).cloned(),
 								};
 								let metadata = session
 									.try_get_object_metadata(object, metadata_arg)
@@ -153,6 +154,7 @@ impl Session {
 							tg::Either::Right(process) => {
 								let metadata_arg = tg::process::metadata::Arg {
 									location: Some(source.clone().into()),
+									token: item_token(item).cloned(),
 								};
 								let Some(metadata) = session
 									.try_get_process_metadata(process, metadata_arg)
@@ -545,5 +547,14 @@ fn item_id(
 	match item {
 		tg::Either::Left(item) => item,
 		tg::Either::Right(item) => &item.id,
+	}
+}
+
+fn item_token(
+	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+) -> Option<&tg::grant::Token> {
+	match item {
+		tg::Either::Left(_) => None,
+		tg::Either::Right(item) => Some(&item.token),
 	}
 }

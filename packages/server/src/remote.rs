@@ -62,7 +62,7 @@ impl Session {
 			tg::Principal::Organization(id) => Some(tg::grant::Principal::Organization(id)),
 			tg::Principal::Process(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::Root => None,
-			tg::Principal::Runner => return Err(tg::error!("unauthorized")),
+			tg::Principal::Runner(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::Sandbox(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::User(id) => Some(tg::grant::Principal::User(id)),
 		};
@@ -109,7 +109,7 @@ impl Session {
 				},
 				tg::grant::Principal::Process(_)
 				| tg::grant::Principal::Public
-				| tg::grant::Principal::Runner
+				| tg::grant::Principal::Runner(_)
 				| tg::grant::Principal::Sandbox(_) => Err(tg::error!("invalid remote principal")),
 			},
 			tg::principal::Selector::Specifier(specifier) => {
@@ -136,6 +136,26 @@ impl Session {
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<tg::Principal> {
+		let owner = match principal {
+			tg::Principal::Process(id) => self
+				.server
+				.runner
+				.state
+				.try_get_process_sandbox(id)
+				.and_then(|sandbox| self.server.runner.state.try_get_sandbox(&sandbox))
+				.map(|sandbox| sandbox.owner),
+			tg::Principal::Sandbox(id) => self
+				.server
+				.runner
+				.state
+				.try_get_sandbox(id)
+				.map(|sandbox| sandbox.owner),
+			_ => None,
+		};
+		if let Some(owner) = owner {
+			return Ok(owner.unwrap_or(tg::Principal::Root));
+		}
+
 		let (statement, id) = match principal {
 			tg::Principal::Process(id) => {
 				let statement = formatdoc!(

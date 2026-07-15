@@ -12,14 +12,21 @@ pub struct File {
 }
 
 impl File {
-	#[must_use]
-	pub fn with_state(state: tg::object::State) -> Self {
-		Self { state }
+	pub fn try_with_referent<T>(referent: tg::Referent<T>) -> std::result::Result<Self, T::Error>
+	where
+		T: TryInto<Id>,
+	{
+		let referent = referent.try_map(TryInto::try_into)?;
+
+		Ok(Self::with_referent(referent))
 	}
 
 	#[must_use]
-	pub fn state(&self) -> &tg::object::State {
-		&self.state
+	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
+		let file = Self::with_id(referent.item);
+		file.state().set_token(referent.options.token);
+
+		file
 	}
 
 	#[must_use]
@@ -30,6 +37,16 @@ impl File {
 	#[must_use]
 	pub fn with_object(object: impl Into<Arc<Object>>) -> Self {
 		Self::with_state(tg::object::State::with_object(object.into()))
+	}
+
+	#[must_use]
+	pub fn with_state(state: tg::object::State) -> Self {
+		Self { state }
+	}
+
+	#[must_use]
+	pub fn state(&self) -> &tg::object::State {
+		&self.state
 	}
 
 	#[must_use]
@@ -445,7 +462,7 @@ impl File {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				let Some(dependency) = file.dependencies.get(reference).ok_or_else(
-					|| tg::error!(file = %self.id(), %reference, "expected a dependency"),
+					|| tg::error!(file = %self.id(), item = %reference.item(), "expected a dependency"),
 				)?
 				else {
 					return Ok(None);
@@ -469,7 +486,7 @@ impl File {
 			},
 			Object::Node(node) => {
 				let Some(dependency) = node.dependencies.get(reference).ok_or_else(
-					|| tg::error!(file = %self.id(), %reference, "expected a dependency"),
+					|| tg::error!(file = %self.id(), item = %reference.item(), "expected a dependency"),
 				)?
 				else {
 					return Ok(None);

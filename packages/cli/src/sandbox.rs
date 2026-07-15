@@ -262,7 +262,7 @@ impl Cli {
 				return Err(tg::error!("invalid sandbox owner"));
 			},
 			tg::grant::Principal::Root => tg::Principal::Root,
-			tg::grant::Principal::Runner => tg::Principal::Runner,
+			tg::grant::Principal::Runner(id) => tg::Principal::Runner(id),
 			tg::grant::Principal::Sandbox(id) => tg::Principal::Sandbox(id),
 			tg::grant::Principal::User(id) => tg::Principal::User(id),
 		};

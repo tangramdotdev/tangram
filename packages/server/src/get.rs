@@ -45,7 +45,11 @@ impl Session {
 		if id.kind() == tg::id::Kind::Process && options.path.is_some() {
 			return Err(tg::error!("cannot get path in process"));
 		}
-		let referent = tg::Referent::with_item(tg::get::Item::Id(id.clone()));
+		let referent_options = tg::referent::Options {
+			token: options.token.clone(),
+			..Default::default()
+		};
+		let referent = tg::Referent::new(tg::get::Item::Id(id.clone()), referent_options);
 		let output = tg::get::Output { referent };
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())
@@ -109,7 +113,11 @@ impl Session {
 		pointer: &tg::graph::data::Pointer,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let referent = tg::Referent::with_item(tg::get::Item::Pointer(pointer.clone()));
+		let referent_options = tg::referent::Options {
+			token: options.token.clone(),
+			..Default::default()
+		};
+		let referent = tg::Referent::new(tg::get::Item::Pointer(pointer.clone()), referent_options);
 		let output = tg::get::Output { referent };
 		if options.path.is_some() {
 			return Err(tg::error!("cannot get path in pointer"));
@@ -285,7 +293,8 @@ impl Session {
 		match &output.referent.item {
 			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Directory => {
 				let directory = tg::directory::Id::try_from(id.clone())?;
-				let directory = tg::Directory::with_id(directory.clone());
+				let referent = tg::Referent::new(directory, output.referent.options.clone());
+				let directory = tg::Directory::with_referent(referent);
 				let Some(artifact) = directory.try_get_with_handle(self, get).await? else {
 					return Ok(None);
 				};
@@ -304,6 +313,9 @@ impl Session {
 					.clone()
 					.map(tg::Graph::with_id)
 					.ok_or_else(|| tg::error!("missing graph"))?;
+				graph
+					.state()
+					.set_token(output.referent.options.token.clone());
 				let directory = tg::Directory::with_pointer(tg::graph::Pointer {
 					graph: Some(graph),
 					index: pointer.index,
@@ -362,10 +374,9 @@ impl Session {
 			.unwrap_or_default();
 		let reference = tg::Reference::with_item_and_options(item, arg.options.clone());
 
-		let stream = self
-			.try_get(&reference, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
+		let stream = self.try_get(&reference, arg).await.map_err(
+			|error| tg::error!(!error, item = %reference.item(), "failed to get the reference"),
+		)?;
 
 		let (content_type, body) = match accept
 			.as_ref()

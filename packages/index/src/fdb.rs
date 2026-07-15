@@ -22,6 +22,7 @@ mod organization;
 mod process;
 mod request;
 mod response;
+mod runner;
 mod sandbox;
 mod tag;
 mod task;
@@ -49,6 +50,7 @@ pub struct Options {
 	pub cluster: std::path::PathBuf,
 	pub concurrency: usize,
 	pub max_items_per_transaction: usize,
+	pub max_process_depth: Option<u64>,
 	pub partition_total: u64,
 	pub prefix: Option<String>,
 }
@@ -67,6 +69,7 @@ struct TaskArg {
 	receiver_low: RequestReceiver,
 	concurrency: usize,
 	max_items_per_transaction: usize,
+	max_process_depth: Option<u64>,
 	partition_total: u64,
 	metrics: Metrics,
 }
@@ -100,6 +103,7 @@ impl Index {
 
 		let concurrency = options.concurrency;
 		let max_items_per_transaction = options.max_items_per_transaction;
+		let max_process_depth = options.max_process_depth;
 		tokio::spawn({
 			let database = database.clone();
 			let subspace = subspace.clone();
@@ -113,6 +117,7 @@ impl Index {
 					receiver_low,
 					concurrency,
 					max_items_per_transaction,
+					max_process_depth,
 					partition_total,
 					metrics,
 				};
@@ -233,6 +238,64 @@ impl crate::Index for Index {
 		self.try_get_processes(ids).await
 	}
 
+	async fn try_get_cached_processes(
+		&self,
+		command: &tg::object::Id,
+	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+		self.try_get_cached_processes(command).await
+	}
+
+	async fn get_process_depth_detections(&self, limit: usize) -> tg::Result<Vec<tg::process::Id>> {
+		self.get_process_depth_detections(limit).await
+	}
+
+	async fn list_sandboxes_for_creator(
+		&self,
+		creator: &tg::Principal,
+	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+		self.list_sandboxes_for_creator(creator).await
+	}
+
+	async fn list_sandboxes_for_owner(
+		&self,
+		owner: &tg::Principal,
+	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+		self.list_sandboxes_for_owner(owner).await
+	}
+
+	async fn get_runner_sandboxes(
+		&self,
+		runner: &tg::runner::Id,
+	) -> tg::Result<Vec<tg::sandbox::Id>> {
+		self.get_runner_sandboxes(runner).await
+	}
+
+	async fn get_sandbox_processes(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+		self.get_sandbox_processes(sandbox).await
+	}
+
+	async fn list_sandboxes(&self) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+		self.list_sandboxes().await
+	}
+
+	async fn get_scheduler_runners(
+		&self,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<Vec<tg::runner::Id>> {
+		self.get_scheduler_runners(scheduler).await
+	}
+
+	async fn process_has_ancestor(
+		&self,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> tg::Result<bool> {
+		self.process_has_ancestor(process, ancestor).await
+	}
+
 	async fn touch_processes(
 		&self,
 		ids: &[tg::process::Id],
@@ -240,6 +303,20 @@ impl crate::Index for Index {
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		self.touch_processes(ids, touched_at, time_to_touch).await
+	}
+
+	async fn try_get_sandboxes(
+		&self,
+		ids: &[tg::sandbox::Id],
+	) -> tg::Result<Vec<Option<crate::sandbox::Sandbox>>> {
+		self.try_get_sandboxes(ids).await
+	}
+
+	async fn try_get_runners(
+		&self,
+		ids: &[tg::runner::Id],
+	) -> tg::Result<Vec<Option<crate::runner::Runner>>> {
+		self.try_get_runners(ids).await
 	}
 
 	async fn put_grants(&self, args: &[crate::grant::put::Arg]) -> tg::Result<()> {

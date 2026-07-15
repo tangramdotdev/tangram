@@ -135,7 +135,7 @@ impl Cli {
 		for (reference, item) in std::iter::zip(&args.references, &items) {
 			if reference.item().is_specifier() {
 				let item = item_id(item);
-				let message = format!("tagged {reference} {item}");
+				let message = format!("tagged {} {item}", reference.without_token());
 				self.print_info_message(&message);
 			}
 		}

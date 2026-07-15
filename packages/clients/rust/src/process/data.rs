@@ -111,10 +111,7 @@ pub struct Child {
 	pub cached: bool,
 
 	#[tangram_serialize(id = 2)]
-	pub process: tg::MaybeWithToken<tg::process::Id>,
-
-	#[tangram_serialize(id = 3)]
-	pub options: tg::referent::Options,
+	pub process: tg::Referent<tg::process::Id>,
 }
 
 impl Data {
@@ -140,9 +137,7 @@ impl Data {
 
 impl Child {
 	pub fn remove_tokens(&mut self) {
-		if let tg::Either::Right(process) = &self.process {
-			self.process = tg::Either::Left(process.id.clone());
-		}
+		self.process.options.token.take();
 	}
 }
 

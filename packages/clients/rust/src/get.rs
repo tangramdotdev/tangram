@@ -73,6 +73,23 @@ impl Item {
 	}
 }
 
+impl tg::Referent<Item> {
+	pub fn into_graph_edge(self) -> tg::Result<tg::Referent<tg::graph::Edge<tg::Object>>> {
+		let token = self.options.token.clone();
+		let referent = self.try_map(Item::to_graph_edge)?;
+		match &referent.item {
+			tg::graph::Edge::Object(object) => object.inherit_token(token),
+			tg::graph::Edge::Pointer(pointer) => {
+				if let Some(graph) = &pointer.graph {
+					graph.state().inherit_token(token);
+				}
+			},
+		}
+
+		Ok(referent)
+	}
+}
+
 impl tg::Session {
 	pub async fn try_get(
 		&self,

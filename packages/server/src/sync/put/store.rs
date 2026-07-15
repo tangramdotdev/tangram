@@ -207,14 +207,15 @@ impl Session {
 					|error| tg::error!(!error, process = %item.id, "failed to compact the log"),
 				)?;
 
-				// Get the process again.
-				output = self
+				// Get the compacted process data from the process store.
+				output.data = self
 					.server
-					.try_get_process_local(&item.id, state.arg.metadata)
+					.try_get_process_local(&item.id, false)
 					.await?
 					.ok_or_else(
 						|| tg::error!(process = %item.id, "failed to get the process after compaction"),
-					)?;
+					)?
+					.data;
 			}
 
 			// Update the graph.
@@ -275,11 +276,7 @@ impl Session {
 					.iter()
 					.map(|child| crate::sync::queue::ProcessItem {
 						eager: item.eager,
-						id: child
-							.process
-							.clone()
-							.map_right(|process| process.id)
-							.into_inner(),
+						id: child.process.item.clone(),
 						parent: Some(item.id.clone()),
 						token: None,
 					});

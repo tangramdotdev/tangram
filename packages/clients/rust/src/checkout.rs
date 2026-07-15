@@ -11,7 +11,7 @@ pub use crate::checkin::Lock;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub artifact: tg::artifact::Id,
+	pub artifact: tg::MaybeWithToken<tg::artifact::Id>,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub dependencies: bool,

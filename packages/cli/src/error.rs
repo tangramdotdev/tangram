@@ -153,6 +153,11 @@ impl Cli {
 			.is_some_and(|config| config.server.advanced.internal_error_locations);
 		let mut stack = vec![error];
 		while let Some(error_referent) = stack.pop() {
+			error_referent
+				.item()
+				.state()
+				.inherit_token(error_referent.options.token.clone());
+
 			// Attempt to get the object.
 			let error = if let Some(error) = error_referent
 				.item()

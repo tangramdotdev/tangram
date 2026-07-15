@@ -4,11 +4,6 @@ use {
 };
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
-	fn list_processes(
-		&self,
-		arg: tg::process::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::list::Output>> + Send;
-
 	fn spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -106,11 +101,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 			>,
 		>,
 	> + Send;
@@ -233,26 +228,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
-	fn finish_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		async move {
-			match self.try_finish_process(id, arg).await? {
-				Some(true) => Ok(()),
-				Some(false) => Err(tg::error!("the process was already finished")),
-				None => Err(tg::error!("failed to find the process")),
-			}
-		}
-	}
-
-	fn try_finish_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
-
 	fn wait_process_future(
 		&self,
 		id: &tg::process::Id,
@@ -283,13 +258,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Process for tg::Client {
-	async fn list_processes(
-		&self,
-		arg: tg::process::list::Arg,
-	) -> tg::Result<tg::process::list::Output> {
-		self.session(&self.context).list_processes(arg).await
-	}
-
 	async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -341,9 +309,11 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+		>,
 	> {
 		self.session(&self.context)
 			.try_get_process_control_stream(id, arg, stream)
@@ -425,16 +395,6 @@ impl tg::handle::Process for tg::Client {
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context).try_touch_process(id, arg).await
-	}
-
-	async fn try_finish_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> tg::Result<Option<bool>> {
-		self.session(&self.context)
-			.try_finish_process(id, arg)
-			.await
 	}
 
 	async fn try_wait_process_future(

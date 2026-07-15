@@ -78,6 +78,7 @@ pub struct ObjectNode {
 #[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
+	pub data: Option<tg::process::Data>,
 	pub local_permissions: Option<tg::grant::permission::Set>,
 	pub local_stored: Option<tangram_index::process::Stored>,
 	pub local_visible: Option<tangram_index::process::Stored>,
@@ -294,11 +295,7 @@ impl Graph {
 				children
 					.iter()
 					.map(|child| {
-						let child = child
-							.process
-							.clone()
-							.map_right(|process| process.id)
-							.into_inner();
+						let child = child.process.item.clone();
 						let child_entry = self.nodes.entry(child.into());
 						let child_index = child_entry.index();
 						let child_node =
@@ -442,6 +439,10 @@ impl Graph {
 
 			if let Some(children) = children {
 				node.children = Some(children);
+			}
+
+			if let Some(data) = data {
+				node.data = Some(data.clone());
 			}
 
 			if let Some(stored) = stored {

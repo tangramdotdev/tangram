@@ -59,34 +59,55 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
-		self.print_info_message(&referent.to_string());
+		self.print_info_message(&referent.without_token().to_string());
+		let kind = match referent.item() {
+			tg::get::Item::Id(id) => Some(id.kind()),
+			tg::get::Item::Pointer(_) => None,
+		};
+		if kind.is_some_and(|kind| {
+			matches!(
+				kind,
+				tg::id::Kind::Blob
+					| tg::id::Kind::Directory
+					| tg::id::Kind::File
+					| tg::id::Kind::Symlink
+					| tg::id::Kind::Graph
+					| tg::id::Kind::Command
+					| tg::id::Kind::Error
+			)
+		}) {
+			let object = referent.try_map(|item| match item {
+				tg::get::Item::Id(id) => id.try_into(),
+				tg::get::Item::Pointer(_) => unreachable!(),
+			})?;
+			let args = crate::object::get::Args {
+				bytes: args.bytes,
+				locations,
+				metadata: args.metadata,
+				object,
+				print,
+			};
+			self.command_object_get(args).await?;
+
+			return Ok(());
+		}
+		if kind == Some(tg::id::Kind::Process) {
+			let process = referent.try_map(|item| match item {
+				tg::get::Item::Id(id) => id.try_into(),
+				tg::get::Item::Pointer(_) => unreachable!(),
+			})?;
+			let args = crate::process::get::Args {
+				locations,
+				metadata: args.metadata,
+				print,
+				process,
+			};
+			self.command_process_get(args).await?;
+
+			return Ok(());
+		}
 		match referent.item {
 			tg::get::Item::Id(id) => match id.kind() {
-				tg::id::Kind::Blob
-				| tg::id::Kind::Directory
-				| tg::id::Kind::File
-				| tg::id::Kind::Symlink
-				| tg::id::Kind::Graph
-				| tg::id::Kind::Command
-				| tg::id::Kind::Error => {
-					let args = crate::object::get::Args {
-						bytes: args.bytes,
-						locations,
-						metadata: args.metadata,
-						object: id.try_into()?,
-						print,
-					};
-					self.command_object_get(args).await?;
-				},
-				tg::id::Kind::Process => {
-					let args = crate::process::get::Args {
-						locations,
-						metadata: args.metadata,
-						print,
-						process: id.try_into()?,
-					};
-					self.command_process_get(args).await?;
-				},
 				tg::id::Kind::User => {
 					let args = crate::user::get::Args {
 						location: locations,
@@ -186,14 +207,12 @@ impl Cli {
 		let reference = tg::Reference::with_item_and_options(item, options);
 
 		// Get the reference.
-		let stream = client
-			.get(&reference, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
-		let mut referent = self
-			.render_progress_stream(stream)
-			.await
-			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
+		let stream = client.get(&reference, arg).await.map_err(
+			|error| tg::error!(!error, item = %reference.item(), "failed to get the reference"),
+		)?;
+		let mut referent = self.render_progress_stream(stream).await.map_err(
+			|error| tg::error!(!error, item = %reference.item(), "failed to get the reference"),
+		)?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
 		if relative && let Some(path) = referent.path() {
@@ -237,8 +256,7 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_resolved_reference(reference).await?;
-		let item = referent.item.clone().to_graph_edge()?;
-		let mut referent = referent.map(|_| item);
+		let mut referent = referent.into_graph_edge()?;
 		let module = match referent.item.clone() {
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
 				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(

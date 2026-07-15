@@ -20,10 +20,10 @@ let path = artifact {
 
 let first = tg build --detach --verbose $"($path)#first" | from json
 tg wait $first.process | complete
-let first_shared = tg process children $first.process | from json | get 0.process
+let first_shared = tg process children $first.process | from json | get 0.process.item
 
 let second = tg build --detach --verbose $"($path)#second" | from json
 tg wait $second.process | complete
-let second_shared = tg process children $second.process | from json | get 0.process
+let second_shared = tg process children $second.process | from json | get 0.process.item
 
 assert equal $first_shared $second_shared "the shared child should be reused across the two builds"

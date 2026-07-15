@@ -4,7 +4,7 @@ import type { Client } from "../client.ts";
 
 export namespace Checkout {
 	export type Arg = {
-		artifact: tg.Artifact.Id;
+		artifact: tg.Grant.MaybeWithToken<tg.Artifact.Id>;
 		dependencies?: boolean;
 		extension?: string | null;
 		force?: boolean;

@@ -1,4 +1,7 @@
-use {crate::prelude::*, futures::FutureExt as _};
+use {
+	crate::prelude::*,
+	futures::{FutureExt as _, TryFutureExt as _, stream::BoxStream},
+};
 
 impl<L, R> tg::handle::Sandbox for tg::Either<L, R>
 where
@@ -26,16 +29,6 @@ where
 		}
 	}
 
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::queue::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_dequeue_sandbox(arg).left_future(),
-			tg::Either::Right(s) => s.try_dequeue_sandbox(arg).right_future(),
-		}
-	}
-
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -54,17 +47,6 @@ where
 		match self {
 			tg::Either::Left(s) => s.try_destroy_sandbox(id, arg).left_future(),
 			tg::Either::Right(s) => s.try_destroy_sandbox(id, arg).right_future(),
-		}
-	}
-
-	fn try_heartbeat_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::heartbeat::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_heartbeat_sandbox(id, arg).left_future(),
-			tg::Either::Right(s) => s.try_heartbeat_sandbox(id, arg).right_future(),
 		}
 	}
 
@@ -91,14 +73,27 @@ where
 		}
 	}
 
-	fn try_dequeue_sandbox_process(
+	fn get_sandbox_control_stream(
 		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> {
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
+			+ Send
+			+ 'static,
+		>,
+	> {
 		match self {
-			tg::Either::Left(s) => s.try_dequeue_sandbox_process(sandbox, arg).left_future(),
-			tg::Either::Right(s) => s.try_dequeue_sandbox_process(sandbox, arg).right_future(),
+			tg::Either::Left(s) => s
+				.get_sandbox_control_stream(id, arg, stream)
+				.map_ok(futures::StreamExt::left_stream)
+				.left_future(),
+			tg::Either::Right(s) => s
+				.get_sandbox_control_stream(id, arg, stream)
+				.map_ok(futures::StreamExt::right_stream)
+				.right_future(),
 		}
 	}
 }

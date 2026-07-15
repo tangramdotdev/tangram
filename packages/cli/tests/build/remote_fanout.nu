@@ -21,7 +21,7 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 			}
 		},
 		runner: {
-			concurrency: 1,
+			permits: 1,
 			remote: "default",
 		}
 	}

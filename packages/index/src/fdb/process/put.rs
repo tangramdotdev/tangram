@@ -15,13 +15,11 @@ impl Index {
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let existing = if arg.complete() {
-			None
-		} else {
-			txn.get(&key, false)
-				.await?
-				.and_then(|bytes| crate::process::Process::deserialize(&bytes).ok())
-		};
+		let existing = txn
+			.get(&key, false)
+			.await?
+			.and_then(|bytes| crate::process::Process::deserialize(&bytes).ok());
+		let merge = !arg.complete();
 
 		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
 		let touch = existing.as_ref().is_none_or(|existing| {
@@ -49,19 +47,24 @@ impl Index {
 		let parent_changed = arg.parent.is_some();
 
 		let mut set = arg.set();
-		if let Some(ref existing) = existing {
+		if merge && let Some(ref existing) = existing {
 			set.merge(&existing.set);
 		}
 
 		let mut stored = arg.stored.clone();
-		if let Some(ref existing) = existing {
+		if merge && let Some(ref existing) = existing {
 			stored.merge(&existing.stored);
 		}
 
 		let mut metadata = arg.metadata.clone();
-		if let Some(ref existing) = existing {
+		if merge && let Some(ref existing) = existing {
 			metadata.merge(&existing.metadata);
 		}
+
+		let data = arg
+			.data
+			.clone()
+			.or_else(|| existing.as_ref().and_then(|existing| existing.data.clone()));
 
 		let sandbox = arg.sandbox.clone().or_else(|| {
 			existing
@@ -69,6 +72,7 @@ impl Index {
 				.and_then(|existing| existing.sandbox.clone())
 		});
 		let changed = parent_changed
+			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
 				existing.metadata != metadata
 					|| existing.sandbox != sandbox
@@ -80,9 +84,10 @@ impl Index {
 		}
 
 		let value = crate::process::Process {
+			data: data.clone(),
 			metadata,
 			reference_count: 0,
-			sandbox,
+			sandbox: sandbox.clone(),
 			set,
 			stored,
 			touched_at,
@@ -90,6 +95,43 @@ impl Index {
 		.serialize()
 		.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 		txn.set(&key, &value);
+
+		if let Some(existing_sandbox) = existing
+			.as_ref()
+			.and_then(|existing| existing.sandbox.as_ref())
+		{
+			let key = Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
+				sandbox: existing_sandbox.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+
+			let key = Key::Process(crate::fdb::process::Key::ProcessSandbox {
+				process: id.clone(),
+				sandbox: existing_sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+		}
+
+		if data.as_ref().is_some_and(|data| data.status.is_started())
+			&& let Some(sandbox) = &sandbox
+		{
+			let key = Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
+				sandbox: sandbox.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+
+			let key = Key::Process(crate::fdb::process::Key::ProcessSandbox {
+				process: id.clone(),
+				sandbox: sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+		}
 
 		if children_changed && let Some(children) = &arg.children {
 			for child in children {
@@ -132,6 +174,15 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
+
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		let key = Key::Process(crate::fdb::process::Key::CommandProcess {
+			command: arg.command.clone(),
+			process: id.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		txn.set(&key, &[]);
 
 		let objects = existing
 			.is_none()

@@ -67,7 +67,6 @@ impl Session {
 					.map_err(|error| {
 						tg::error!(
 							!error,
-							?artifacts,
 							"failed to ensure the artifacts are stored and authorized"
 						)
 					});
@@ -98,6 +97,10 @@ impl Session {
 					|artifact| {
 						let session = session.clone();
 						let progress = progress.clone();
+						let artifact = match artifact {
+							tg::Either::Left(artifact) => artifact,
+							tg::Either::Right(artifact) => artifact.id,
+						};
 						async move {
 							AssertUnwindSafe(session.cache_task(&artifact, &progress))
 								.catch_unwind()
@@ -135,12 +138,15 @@ impl Session {
 
 	async fn cache_ensure_stored_and_authorized(
 		&self,
-		artifacts: &[tg::artifact::Id],
+		artifacts: &[tg::MaybeWithToken<tg::artifact::Id>],
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
 		let ids = artifacts
 			.iter()
-			.map(|id| id.clone().into())
+			.map(|artifact| match artifact {
+				tg::Either::Left(artifact) => artifact.clone().into(),
+				tg::Either::Right(artifact) => artifact.id.clone().into(),
+			})
 			.collect::<Vec<_>>();
 		let stored = self
 			.server
@@ -186,7 +192,10 @@ impl Session {
 
 		let ids = artifacts
 			.iter()
-			.map(|id| id.clone().into())
+			.map(|artifact| match artifact {
+				tg::Either::Left(artifact) => artifact.clone().into(),
+				tg::Either::Right(artifact) => artifact.id.clone().into(),
+			})
 			.collect::<Vec<_>>();
 		let stored = self
 			.server
@@ -227,7 +236,15 @@ impl Session {
 			.pull(tg::pull::Arg {
 				items: artifacts
 					.iter()
-					.map(|artifact| tg::Either::Left(tg::Either::Left(artifact.clone().into())))
+					.map(|artifact| match artifact {
+						tg::Either::Left(artifact) => {
+							tg::Either::Left(tg::Either::Left(artifact.clone().into()))
+						},
+						tg::Either::Right(artifact) => tg::Either::Right(tg::WithToken {
+							id: tg::Either::Left(artifact.id.clone().into()),
+							token: artifact.token.clone(),
+						}),
+					})
 					.collect(),
 				..Default::default()
 			})
@@ -257,7 +274,10 @@ impl Session {
 
 		let ids = artifacts
 			.iter()
-			.map(|id| id.clone().into())
+			.map(|artifact| match artifact {
+				tg::Either::Left(artifact) => artifact.clone().into(),
+				tg::Either::Right(artifact) => artifact.id.clone().into(),
+			})
 			.collect::<Vec<_>>();
 		let stored = self
 			.server

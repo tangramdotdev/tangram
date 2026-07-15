@@ -138,6 +138,17 @@ impl<T> Referent<T> {
 	pub fn inherit<U>(&mut self, parent: &tg::Referent<U>) {
 		self.options.inherit(&parent.options);
 	}
+
+	#[must_use]
+	pub fn without_token(&self) -> Self
+	where
+		T: Clone,
+	{
+		let mut referent = self.clone();
+		referent.options.token.take();
+
+		referent
+	}
 }
 
 impl<T> Referent<T>
@@ -176,6 +187,12 @@ where
 			let tag = tangram_uri::encode_query_value(&tag);
 			let tag = format!("tag={tag}");
 			query.push(tag);
+		}
+		if let Some(token) = &self.options.token {
+			let token = token.to_string();
+			let token = tangram_uri::encode_query_value(&token);
+			let token = format!("token={token}");
+			query.push(token);
 		}
 		if !query.is_empty() {
 			let query = query.join("&");
@@ -228,6 +245,13 @@ where
 									.map_err(|_| tg::error!("failed to parse the tag"))?,
 							);
 						},
+						"token" => {
+							options.token.replace(
+								value
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the token"))?,
+							);
+						},
 						_ => {},
 					}
 				}
@@ -250,6 +274,9 @@ impl Options {
 	}
 
 	pub fn inherit(&mut self, parent: &Options) {
+		if self.token.is_none() {
+			self.token = parent.token.clone();
+		}
 		if self.id.is_none() && self.tag.is_none() {
 			self.id = parent.id.clone();
 			self.tag = parent.tag.clone();

@@ -109,7 +109,7 @@ impl Session {
 
 	pub(crate) async fn compact_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
 		let output = self
-			.try_get_process_local(process, false)
+			.try_get_process_local(process, false, None)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 		if output.data.log.is_some()
@@ -238,7 +238,7 @@ impl Session {
 			return Err(tg::error!("invalid stdio stream"));
 		}
 		let output = self
-			.try_get_process_local(id, false)
+			.try_get_process_local(id, false, None)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
@@ -357,7 +357,7 @@ impl Session {
 					&& let Inner::Store(inner) = &state.inner
 					&& let Some(output) = inner
 						.session
-						.try_get_process_local(&inner.process, false)
+						.try_get_process_local(&inner.process, false, None)
 						.await? && let Some(blob_id) = output
 					.data
 					.log

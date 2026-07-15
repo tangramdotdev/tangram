@@ -1,8 +1,8 @@
 use {
 	crate::Session,
 	futures::{
-		StreamExt as _,
-		stream::{self, BoxStream, FuturesUnordered},
+		FutureExt as _, StreamExt as _, future,
+		stream::{BoxStream, FuturesUnordered},
 	},
 	indoc::formatdoc,
 	std::time::Duration,
@@ -16,7 +16,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
+	tokio_stream::wrappers::ReceiverStream,
 };
 
 impl Session {
@@ -32,27 +32,65 @@ impl Session {
 
 		if let Some(local) = &locations.local {
 			let stopper = self.context.stopper.clone();
-			if local.current
-				&& self.get_process_exists_local(id).await.map_err(
-					|error| tg::error!(!error, %id, "failed to check if the process exists"),
-				)? {
+			if local.current {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::Node,
 				);
-				let authorized = self.authorize(id.clone(), permission).await?;
-				if authorized.is_some_and(|permissions| permissions.contains(permission)) {
-					let status = self
-						.create_process_status_stream_local(id, stopper, arg.timeout)
-						.await
-						.map_err(
-							|error| tg::error!(!error, %id, "failed to get the process status stream"),
-						)?;
-					return Ok(Some(status));
+				let resource = arg.token.as_ref().map_or_else(
+					|| tg::Either::Left(id.clone()),
+					|token| {
+						tg::Either::Right(tg::WithToken {
+							id: id.clone(),
+							token: token.clone(),
+						})
+					},
+				);
+				let authorize_future = self.authorize(resource, permission).boxed();
+				let exists_future = self.exists(id.clone(), permission).boxed();
+				let check_future = async {
+					let (authorized, exists) =
+						future::try_join(authorize_future, exists_future).await?;
+					Ok::<_, tg::Error>(
+						exists
+							&& authorized
+								.is_some_and(|permissions| permissions.contains(permission)),
+					)
+				}
+				.boxed();
+				let create_future = self
+					.create_process_status_stream_local(id, stopper, arg.timeout)
+					.boxed();
+				let stream = match future::select(check_future, create_future).await {
+					future::Either::Left((checked, create_future)) => {
+						if checked? {
+							Some(create_future.await)
+						} else {
+							None
+						}
+					},
+					future::Either::Right((stream, check_future)) => {
+						if check_future.await? {
+							Some(stream)
+						} else {
+							None
+						}
+					},
+				};
+				if let Some(stream) = stream {
+					let stream = stream.map_err(
+						|error| tg::error!(!error, %id, "failed to get the process status stream"),
+					)?;
+					return Ok(Some(stream));
 				}
 			}
 
 			if let Some(status) = self
-				.try_get_process_status_stream_regions(id, &local.regions, arg.timeout)
+				.try_get_process_status_stream_regions(
+					id,
+					&local.regions,
+					arg.timeout,
+					arg.token.as_ref(),
+				)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the process status from another region"),
@@ -62,7 +100,12 @@ impl Session {
 		}
 
 		if let Some(status) = self
-			.try_get_process_status_stream_remotes(id, &locations.remotes, arg.timeout)
+			.try_get_process_status_stream_remotes(
+				id,
+				&locations.remotes,
+				arg.timeout,
+				arg.token.as_ref(),
+			)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to get the process status from a remote"),
@@ -79,15 +122,6 @@ impl Session {
 		stopper: Option<Stopper>,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
-		// Verify the process exists.
-		if !self
-			.get_process_exists_local(id)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to check if the process exists"))?
-		{
-			return Ok(None);
-		}
-
 		Ok(Some(
 			self.create_process_status_stream_local(id, stopper, timeout)
 				.await?,
@@ -112,10 +146,6 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
-			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
-				.skip(1)
-				.map(|_| ());
-			let wakeups = stream::select(wakeups, interval);
 			let wakeups = match timeout {
 				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
 				None => wakeups.boxed(),
@@ -189,15 +219,30 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Status>> {
-		// Get a process store connection.
+		if let Some(data) = self.server.runner.state.try_get_process(id) {
+			return Ok(Some(data.status));
+		}
+		let control_future = self.get_process_from_control(id).boxed();
+		let process_store_future = self.try_get_process_status_from_process_store(id).boxed();
+		match future::select(control_future, process_store_future).await {
+			future::Either::Left((result, _)) => result.map(|data| Some(data.status)),
+			future::Either::Right((result, control_future)) => match result? {
+				Some(status) => Ok(Some(status)),
+				None => control_future.await.map(|data| Some(data.status)),
+			},
+		}
+	}
+
+	async fn try_get_process_status_from_process_store(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Status>> {
 		let connection = self
 			.server
 			.process_store
 			.connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-
-		// Get the status.
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -207,22 +252,15 @@ impl Session {
 			"
 		);
 		let params = db::params![id.to_string()];
-		let Some(status) = connection
+		let status = connection
 			.query_optional_value_into::<db::value::Serde<tg::process::Status>>(
 				statement.into(),
 				params,
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.map(|value| value.0)
-		else {
-			return Ok(None);
-		};
-
-		// Drop the process store connection.
-		drop(connection);
-
-		Ok(Some(status))
+			.map(|status| status.0);
+		Ok(status)
 	}
 
 	async fn try_get_process_status_stream_regions(
@@ -230,10 +268,11 @@ impl Session {
 		id: &tg::process::Id,
 		regions: &[String],
 		timeout: Option<Duration>,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_status_stream_region(id, region, timeout))
+			.map(|region| self.try_get_process_status_stream_region(id, region, timeout, token))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -259,6 +298,7 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 		timeout: Option<Duration>,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -269,6 +309,7 @@ impl Session {
 		let arg = tg::process::status::Arg {
 			location: Some(location.into()),
 			timeout,
+			token: token.cloned(),
 		};
 		let Some(stream) = client
 			.try_get_process_status_stream(id, arg)
@@ -287,10 +328,11 @@ impl Session {
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
 		timeout: Option<Duration>,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_status_stream_remote(id, remote, timeout))
+			.map(|remote| self.try_get_process_status_stream_remote(id, remote, timeout, token))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -316,6 +358,7 @@ impl Session {
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 		timeout: Option<Duration>,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -327,6 +370,7 @@ impl Session {
 				}),
 			])),
 			timeout,
+			token: token.cloned(),
 		};
 		let Some(stream) = client
 			.try_get_process_status_stream(id, arg)

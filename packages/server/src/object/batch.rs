@@ -53,11 +53,11 @@ impl Session {
 				.unwrap();
 
 		// Store the objects.
-		let principal = (!matches!(
-			self.context.principal,
-			tg::Principal::Anonymous | tg::Principal::Root
-		))
-		.then(|| self.context.principal.clone());
+		let grant_principal = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
+			tg::Principal::Root => None,
+			principal => Some(principal.try_to_grant_principal()?),
+		};
 		let put_args: Vec<_> = arg
 			.objects
 			.iter()
@@ -142,7 +142,7 @@ impl Session {
 
 		let mut put_grant_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
-			if let Some(principal) = &principal {
+			if let Some(grant_principal) = &grant_principal {
 				let permission = if subtree_objects.contains(&object.id) {
 					tg::grant::permission::object::Permission::Subtree
 				} else {
@@ -150,10 +150,10 @@ impl Session {
 				};
 				put_grant_args.push(tangram_index::grant::put::Arg {
 					created_at: now,
-					creator: Some(principal.clone()),
+					creator: Some(self.context.principal.clone()),
 					expires_at: Some(grant_expires_at),
 					permissions: tg::grant::Permission::Object(permission).into(),
-					principal: principal.try_to_grant_principal()?,
+					principal: grant_principal.clone(),
 					resource: object.id.clone().into(),
 					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 				});

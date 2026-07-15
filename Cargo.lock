@@ -3947,6 +3947,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "maml"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b362fb7a401a09d192e277e8c5d41509fcc1656dcf593aef96ba4928caef2e5"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "markdown"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7630,6 +7639,7 @@ dependencies = [
  "indoc",
  "itertools 0.15.0",
  "libc",
+ "maml",
  "miette",
  "nu-ansi-term",
  "num",
@@ -7647,6 +7657,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "serde_yaml",
  "syntect",
  "tangram_builtin",
  "tangram_client",
@@ -7661,6 +7672,7 @@ dependencies = [
  "tangram_util",
  "tokio",
  "tokio-util",
+ "toml",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -7882,6 +7894,7 @@ dependencies = [
  "num-traits",
  "opentelemetry",
  "serde",
+ "serde_json",
  "serde_with",
  "tangram_client",
  "tangram_serialize",

@@ -8,7 +8,7 @@ pub struct Args {
 	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub object: tg::object::Id,
+	pub object: tg::Referent<tg::object::Id>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -17,16 +17,16 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let id = args.object.item;
 		let arg = tg::object::metadata::Arg {
 			location: args.locations.get(),
+			token: args.object.options.token,
 		};
 		let output = client
-			.try_get_object_metadata(&args.object, arg)
+			.try_get_object_metadata(&id, arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, id = %args.object, "failed to get the object metadata"),
-			)?
-			.ok_or_else(|| tg::error!(id = %args.object, "failed to find the object metadata"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?
+			.ok_or_else(|| tg::error!(%id, "failed to find the object metadata"))?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

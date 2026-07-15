@@ -745,6 +745,10 @@ impl Index {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		txn.clear(&key);
+		let key =
+			crate::fdb::Key::Process(crate::fdb::process::Key::ProcessDepthDetection(id.clone()));
+		let key = Self::pack(subspace, &key);
+		txn.clear(&key);
 
 		let id_bytes = id.to_bytes();
 
@@ -824,6 +828,14 @@ impl Index {
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
+			if kind.is_command() {
+				let key = crate::fdb::Key::Process(crate::fdb::process::Key::CommandProcess {
+					command: object.clone(),
+					process: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				txn.clear(&key);
+			}
 		}
 		for (object, _) in object_processes {
 			Self::decrement_object_reference_count(txn, subspace, &object, partition_total).await?;

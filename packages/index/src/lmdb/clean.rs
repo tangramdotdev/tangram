@@ -616,6 +616,11 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
+		let key =
+			crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessDepthDetection(id.clone()));
+		let key = Self::pack(subspace, &key);
+		db.delete(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to delete process depth detection"))?;
 
 		let id_bytes = id.to_bytes();
 		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
@@ -692,6 +697,15 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete object process key"))?;
+			if kind.is_command() {
+				let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::CommandProcess {
+					command: object.clone(),
+					process: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				db.delete(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to delete command process key"))?;
+			}
 		}
 		for (_, object, _) in object_entries {
 			Self::decrement_object_reference_count(db, subspace, transaction, &object)?;

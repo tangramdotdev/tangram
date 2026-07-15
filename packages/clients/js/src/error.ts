@@ -97,6 +97,13 @@ export class Error {
 		return this.#state;
 	}
 
+	/** Get an error with a referent. */
+	static withReferent(referent: tg.Referent<tg.Error.Id>): tg.Error {
+		let error = tg.Error.withId(referent.item);
+		error.state.token = referent.options?.token ?? null;
+		return error;
+	}
+
 	/** Get an error with an ID. */
 	static withId(id: tg.Error.Id): tg.Error {
 		return new tg.Error({ id, stored: true });

@@ -22,7 +22,7 @@ let parent = tg build --detach --verbose $path | from json
 
 # Wait for the child process to spawn.
 wait_until { (tg process children $parent.process | from json | length) > 0 } "the child should spawn"
-let child = tg process children $parent.process | from json | get 0.process
+let child = tg process children $parent.process | from json | get 0.process.item
 
 # Cancel the parent.
 tg cancel $parent.process $parent.lease
@@ -34,6 +34,8 @@ snapshot ($output.stderr | redact) '
 	error an error occurred
 	-> failed to get the process output
 	   id = <process>
+	-> failed to run the process
+	   process = <process>
 	-> the process was canceled
 
 '

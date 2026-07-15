@@ -68,12 +68,18 @@ export class Client {
 		return checkout(this, arg);
 	}
 
-	getObject(id: tg.Object.Id): Promise<tg.Object.Data> {
-		return getObject(this, id);
+	getObject(
+		id: tg.Object.Id,
+		arg?: tg.Object.Get.Arg | null,
+	): Promise<tg.Object.Data> {
+		return getObject(this, id, arg);
 	}
 
-	tryGetObject(id: tg.Object.Id): Promise<tg.Object.Data | null> {
-		return tryGetObject(this, id);
+	tryGetObject(
+		id: tg.Object.Id,
+		arg?: tg.Object.Get.Arg | null,
+	): Promise<tg.Object.Data | null> {
+		return tryGetObject(this, id, arg);
 	}
 
 	putObject(

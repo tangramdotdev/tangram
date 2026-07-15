@@ -5,13 +5,6 @@ use {
 };
 
 impl tg::handle::Process for Handle {
-	fn list_processes(
-		&self,
-		arg: tg::process::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
-		self.0.list_processes(arg)
-	}
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -63,11 +56,11 @@ impl tg::handle::Process for Handle {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 			>,
 		>,
 	> {
@@ -173,14 +166,6 @@ impl tg::handle::Process for Handle {
 		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_touch_process(id, arg)) }
-	}
-
-	fn try_finish_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_finish_process(id, arg)) }
 	}
 
 	fn try_wait_process_future(

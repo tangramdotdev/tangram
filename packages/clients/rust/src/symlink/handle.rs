@@ -15,14 +15,21 @@ impl Symlink {
 		Builder::new()
 	}
 
-	#[must_use]
-	pub fn with_state(state: tg::object::State) -> Self {
-		Self { state }
+	pub fn try_with_referent<T>(referent: tg::Referent<T>) -> std::result::Result<Self, T::Error>
+	where
+		T: TryInto<Id>,
+	{
+		let referent = referent.try_map(TryInto::try_into)?;
+
+		Ok(Self::with_referent(referent))
 	}
 
 	#[must_use]
-	pub fn state(&self) -> &tg::object::State {
-		&self.state
+	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
+		let symlink = Self::with_id(referent.item);
+		symlink.state().set_token(referent.options.token);
+
+		symlink
 	}
 
 	#[must_use]
@@ -33,6 +40,16 @@ impl Symlink {
 	#[must_use]
 	pub fn with_object(object: impl Into<Arc<Object>>) -> Self {
 		Self::with_state(tg::object::State::with_object(object.into()))
+	}
+
+	#[must_use]
+	pub fn with_state(state: tg::object::State) -> Self {
+		Self { state }
+	}
+
+	#[must_use]
+	pub fn state(&self) -> &tg::object::State {
+		&self.state
 	}
 
 	#[must_use]

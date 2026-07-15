@@ -16,4 +16,13 @@ pub enum Key {
 		kind: crate::process::object::Kind,
 		object: tg::object::Id,
 	},
+	CommandProcess {
+		command: tg::object::Id,
+		process: tg::process::Id,
+	},
+	ProcessDepthDetection(tg::process::Id),
+	ProcessSandbox {
+		process: tg::process::Id,
+		sandbox: tg::sandbox::Id,
+	},
 }

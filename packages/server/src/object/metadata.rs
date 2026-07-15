@@ -22,7 +22,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(metadata) = self
-					.try_get_object_metadata_local(id)
+					.try_get_object_metadata_local(id, arg.token.as_ref())
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the object metadata"))?
 			{
@@ -30,7 +30,7 @@ impl Session {
 			}
 
 			if let Some(metadata) = self
-				.try_get_object_metadata_regions(id, &local.regions)
+				.try_get_object_metadata_regions(id, &local.regions, arg.token.as_ref())
 				.await
 				.map_err(|error| {
 					tg::error!(
@@ -43,7 +43,7 @@ impl Session {
 		}
 
 		if let Some(metadata) = self
-			.try_get_object_metadata_remotes(id, &locations.remotes)
+			.try_get_object_metadata_remotes(id, &locations.remotes, arg.token.as_ref())
 			.await
 			.map_err(|error| {
 				tg::error!(!error, "failed to get the object metadata from a remote")
@@ -57,19 +57,29 @@ impl Session {
 	pub(crate) async fn try_get_object_metadata_local(
 		&self,
 		id: &tg::object::Id,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let Some(metadata) = self.server.try_get_object_metadata_local(id).await? else {
 			return Ok(None);
 		};
-		self.mask_object_metadata(id, metadata).await
+		self.mask_object_metadata(id, metadata, token).await
 	}
 
 	pub(crate) async fn mask_object_metadata(
 		&self,
 		id: &tg::object::Id,
 		metadata: tg::object::Metadata,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let resource = tg::grant::Resource::Id(id.clone().into());
+		let resource = token.map_or_else(
+			|| tg::Either::Left(id.clone()),
+			|token| {
+				tg::Either::Right(tg::WithToken {
+					id: id.clone(),
+					token: token.clone(),
+				})
+			},
+		);
 		let subtree =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 		if self
@@ -111,10 +121,11 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		regions: &[String],
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_object_metadata_region(id, region))
+			.map(|region| self.try_get_object_metadata_region(id, region, token))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -139,6 +150,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		region: &str,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -148,6 +160,7 @@ impl Session {
 		});
 		let arg = tg::object::metadata::Arg {
 			location: Some(location.into()),
+			token: token.cloned(),
 		};
 		let Some(metadata) = client.try_get_object_metadata(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the object metadata"),
@@ -162,10 +175,11 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remotes: &[crate::location::Remote],
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_object_metadata_remote(id, remote))
+			.map(|remote| self.try_get_object_metadata_remote(id, remote, token))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -190,6 +204,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -200,6 +215,7 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			token: token.cloned(),
 		};
 		let Some(metadata) = client
 			.try_get_object_metadata(id, arg)

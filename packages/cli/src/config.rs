@@ -1,7 +1,11 @@
 use {
 	crate::Cli,
 	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::{collections::BTreeMap, path::PathBuf, time::Duration},
+	std::{
+		collections::BTreeMap,
+		path::{Path, PathBuf},
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_server::config::{Reconnect, Retry},
 	tangram_util::serde::{BoolOptionDefault, is_false},
@@ -147,6 +151,72 @@ pub enum TracingFormat {
 	Pretty,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Format {
+	Json,
+	Maml,
+	Toml,
+	Yaml,
+}
+
+impl Config {
+	fn deserialize(config: &str, format: Format) -> tg::Result<Self> {
+		let config = match format {
+			Format::Json => serde_json::from_str(config)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the config as JSON"))?,
+			Format::Maml => maml::from_str(config)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the config as MAML"))?,
+			Format::Toml => toml::from_str(config)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the config as TOML"))?,
+			Format::Yaml => serde_yaml::from_str(config)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the config as YAML"))?,
+		};
+
+		Ok(config)
+	}
+
+	fn serialize(&self, format: Format) -> tg::Result<String> {
+		let config = match format {
+			Format::Json => serde_json::to_string_pretty(self)
+				.map_err(|error| tg::error!(!error, "failed to serialize the config as JSON"))?,
+			Format::Maml => maml::to_string(self)
+				.map_err(|error| tg::error!(!error, "failed to serialize the config as MAML"))?,
+			Format::Toml => toml::to_string_pretty(self)
+				.map_err(|error| tg::error!(!error, "failed to serialize the config as TOML"))?,
+			Format::Yaml => serde_yaml::to_string(self)
+				.map_err(|error| tg::error!(!error, "failed to serialize the config as YAML"))?,
+		};
+
+		Ok(config)
+	}
+}
+
+impl Format {
+	fn from_path(path: &Path) -> tg::Result<Self> {
+		let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+			return Err(tg::error!(
+				path = %path.display(),
+				"the config file is missing an extension"
+			));
+		};
+		let format = match extension {
+			"json" => Self::Json,
+			"maml" => Self::Maml,
+			"toml" => Self::Toml,
+			"yaml" | "yml" => Self::Yaml,
+			_ => {
+				return Err(tg::error!(
+					%extension,
+					path = %path.display(),
+					"the config file has an unsupported extension"
+				));
+			},
+		};
+
+		Ok(format)
+	}
+}
+
 impl Cli {
 	pub(crate) async fn read_config_with_path(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
 		let path = path.unwrap_or_else(|| {
@@ -163,9 +233,8 @@ impl Cli {
 				);
 			},
 		};
-		let config = serde_json::from_str(&config).map_err(
-			|error| tg::error!(!error, directory = %path.display(), "failed to deserialize the config"),
-		)?;
+		let format = Format::from_path(&path)?;
+		let config = Config::deserialize(&config, format)?;
 		Ok(Some(config))
 	}
 
@@ -184,15 +253,15 @@ impl Cli {
 				));
 			},
 		};
-		serde_json::from_str(&config).map_err(
-			|error| tg::error!(!error, path = %path.display(), "failed to deserialize the config"),
-		)
+		let format = Format::from_path(&path)?;
+
+		Config::deserialize(&config, format)
 	}
 
 	pub(crate) fn write_config(&self, config: &Config) -> tg::Result<()> {
 		let path = self.config_path();
-		let config = serde_json::to_string_pretty(config)
-			.map_err(|error| tg::error!(!error, "failed to serialize the config"))?;
+		let format = Format::from_path(&path)?;
+		let config = config.serialize(format)?;
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)
 				.map_err(|error| tg::error!(!error, "failed to create the config directory"))?;

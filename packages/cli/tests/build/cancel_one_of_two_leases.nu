@@ -32,6 +32,8 @@ snapshot ($output.stderr | redact) '
 	error an error occurred
 	-> failed to get the process output
 	   id = <process>
+	-> failed to run the process
+	   process = <process>
 	-> the process was canceled
 
 '

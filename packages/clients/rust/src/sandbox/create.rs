@@ -12,6 +12,9 @@ pub struct Arg {
 	pub cpu: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub host: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

@@ -30,9 +30,6 @@ snapshot ($output.stderr | redact) '
 	   id = <process>
 	-> failed to cancel the process
 	   id = <process>
-	-> failed to cancel the process
-	-> database error
-	-> the process is already finished
 	-> the process is already finished
 
 '

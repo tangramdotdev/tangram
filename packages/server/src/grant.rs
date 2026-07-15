@@ -687,7 +687,7 @@ impl Session {
 			tg::grant::Principal::Process(_)
 			| tg::grant::Principal::Public
 			| tg::grant::Principal::Root
-			| tg::grant::Principal::Runner
+			| tg::grant::Principal::Runner(_)
 			| tg::grant::Principal::Sandbox(_) => {
 				if !matches!(self.context.principal, tg::Principal::Root) {
 					return Err(tg::error!("unauthorized"));
@@ -862,7 +862,7 @@ impl Session {
 				tg::grant::Principal::Process(id) => tg::grant::Principal::Process(id.clone()),
 				tg::grant::Principal::Public => tg::grant::Principal::Public,
 				tg::grant::Principal::Root => tg::grant::Principal::Root,
-				tg::grant::Principal::Runner => tg::grant::Principal::Runner,
+				tg::grant::Principal::Runner(id) => tg::grant::Principal::Runner(id.clone()),
 				tg::grant::Principal::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
 				tg::grant::Principal::User(id) => {
 					let id = id.clone();

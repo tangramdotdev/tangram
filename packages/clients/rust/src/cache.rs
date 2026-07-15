@@ -8,7 +8,7 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub artifacts: Vec<tg::artifact::Id>,
+	pub artifacts: Vec<tg::MaybeWithToken<tg::artifact::Id>>,
 }
 
 pub async fn cache(arg: Arg) -> tg::Result<()> {

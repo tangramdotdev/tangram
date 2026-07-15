@@ -6,6 +6,7 @@ export namespace Get {
 	export type Arg = {
 		location?: tg.Location.Arg | null;
 		metadata?: boolean;
+		token?: tg.Grant.Token | null;
 	};
 
 	export type Output = {
@@ -42,6 +43,7 @@ export async function tryGetProcess(
 					? null
 					: tg.Location.Arg.toDataString(arg.location),
 			metadata: arg?.metadata === true ? true.toString() : null,
+			token: arg?.token ?? null,
 		},
 	});
 	let headers = {

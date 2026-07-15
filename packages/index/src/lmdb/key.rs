@@ -14,6 +14,7 @@ pub enum Key {
 	Object(crate::lmdb::object::Key),
 	Organization(crate::lmdb::organization::Key),
 	Process(crate::lmdb::process::Key),
+	Runner(crate::lmdb::runner::Key),
 	Sandbox(crate::lmdb::sandbox::Key),
 	Tag(crate::lmdb::tag::Key),
 	Update(crate::lmdb::update::Key),
@@ -56,6 +57,17 @@ pub enum Kind {
 	Visibility = 30,
 	GrantExpiresAt = 31,
 	Sandbox = 32,
+	CommandProcess = 33,
+	ProcessDepthDetection = 34,
+	Runner = 35,
+	SchedulerRunner = 36,
+	RunnerScheduler = 37,
+	RunnerSandbox = 38,
+	SandboxRunner = 39,
+	SandboxProcess = 40,
+	ProcessSandbox = 41,
+	CreatorSandbox = 42,
+	OwnerSandbox = 43,
 }
 
 impl fdbt::TuplePack for Key {
@@ -80,6 +92,66 @@ impl fdbt::TuplePack for Key {
 			Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(id)) => {
 				(Kind::Sandbox.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
+
+			Key::Runner(crate::lmdb::runner::Key::Runner(id)) => {
+				(Kind::Runner.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+			},
+
+			Key::Runner(crate::lmdb::runner::Key::SchedulerRunner { scheduler, runner }) => (
+				Kind::SchedulerRunner.to_i32().unwrap(),
+				scheduler.to_bytes().as_ref(),
+				runner.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Runner(crate::lmdb::runner::Key::RunnerScheduler { runner, scheduler }) => (
+				Kind::RunnerScheduler.to_i32().unwrap(),
+				runner.to_bytes().as_ref(),
+				scheduler.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Runner(crate::lmdb::runner::Key::RunnerSandbox { runner, sandbox }) => (
+				Kind::RunnerSandbox.to_i32().unwrap(),
+				runner.to_bytes().as_ref(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::lmdb::sandbox::Key::SandboxRunner { sandbox, runner }) => (
+				Kind::SandboxRunner.to_i32().unwrap(),
+				sandbox.to_bytes().as_ref(),
+				runner.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess { sandbox, process }) => (
+				Kind::SandboxProcess.to_i32().unwrap(),
+				sandbox.to_bytes().as_ref(),
+				process.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::lmdb::process::Key::ProcessSandbox { process, sandbox }) => (
+				Kind::ProcessSandbox.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::lmdb::sandbox::Key::CreatorSandbox { creator, sandbox }) => (
+				Kind::CreatorSandbox.to_i32().unwrap(),
+				creator.to_string(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::lmdb::sandbox::Key::OwnerSandbox { owner, sandbox }) => (
+				Kind::OwnerSandbox.to_i32().unwrap(),
+				owner.to_string(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
 
 			Key::Tag(crate::lmdb::tag::Key::Tag(id)) => {
 				(Kind::Tag.to_i32().unwrap(), id.to_string()).pack(w, tuple_depth)
@@ -162,6 +234,19 @@ impl fdbt::TuplePack for Key {
 				process.to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::lmdb::process::Key::CommandProcess { command, process }) => (
+				Kind::CommandProcess.to_i32().unwrap(),
+				command.to_bytes().as_ref(),
+				process.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::lmdb::process::Key::ProcessDepthDetection(process)) => (
+				Kind::ProcessDepthDetection.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -398,6 +483,121 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(id))))
 			},
 
+			Kind::Runner => {
+				let (input, bytes): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::runner::Id::from_slice(&bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				Ok((input, Key::Runner(crate::lmdb::runner::Key::Runner(id))))
+			},
+
+			Kind::SchedulerRunner => {
+				let (input, scheduler): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let scheduler = tg::scheduler::Id::from_slice(&scheduler)
+					.map_err(|_| fdbt::PackError::Message("invalid scheduler id".into()))?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				Ok((
+					input,
+					Key::Runner(crate::lmdb::runner::Key::SchedulerRunner { scheduler, runner }),
+				))
+			},
+
+			Kind::RunnerScheduler => {
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, scheduler): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				let scheduler = tg::scheduler::Id::from_slice(&scheduler)
+					.map_err(|_| fdbt::PackError::Message("invalid scheduler id".into()))?;
+				Ok((
+					input,
+					Key::Runner(crate::lmdb::runner::Key::RunnerScheduler { runner, scheduler }),
+				))
+			},
+
+			Kind::RunnerSandbox => {
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Runner(crate::lmdb::runner::Key::RunnerSandbox { runner, sandbox }),
+				))
+			},
+
+			Kind::SandboxRunner => {
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				Ok((
+					input,
+					Key::Sandbox(crate::lmdb::sandbox::Key::SandboxRunner { sandbox, runner }),
+				))
+			},
+
+			Kind::SandboxProcess => {
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess { sandbox, process }),
+				))
+			},
+
+			Kind::ProcessSandbox => {
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Process(crate::lmdb::process::Key::ProcessSandbox { process, sandbox }),
+				))
+			},
+
+			Kind::CreatorSandbox => {
+				let (input, creator): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let creator = creator
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox creator".into()))?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Sandbox(crate::lmdb::sandbox::Key::CreatorSandbox { creator, sandbox }),
+				))
+			},
+
+			Kind::OwnerSandbox => {
+				let (input, owner): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let owner = owner
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox owner".into()))?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Sandbox(crate::lmdb::sandbox::Key::OwnerSandbox { owner, sandbox }),
+				))
+			},
+
 			Kind::Tag => {
 				let (input, id): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = id
@@ -569,6 +769,29 @@ impl fdbt::TupleUnpack<'_> for Key {
 					kind,
 					process,
 				});
+				Ok((input, key))
+			},
+
+			Kind::CommandProcess => {
+				let (input, command_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let command = tg::object::Id::from_slice(&command_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid command id".into()))?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key =
+					Key::Process(crate::lmdb::process::Key::CommandProcess { command, process });
+				Ok((input, key))
+			},
+
+			Kind::ProcessDepthDetection => {
+				let (input, process_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key = Key::Process(crate::lmdb::process::Key::ProcessDepthDetection(process));
 				Ok((input, key))
 			},
 

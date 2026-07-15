@@ -44,7 +44,7 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn put_process_local(
+	pub(crate) async fn put_process_local(
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
@@ -86,13 +86,7 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the children to be set"))?
 			.iter()
-			.map(|child| {
-				child
-					.process
-					.clone()
-					.map_right(|process| process.id)
-					.into_inner()
-			})
+			.map(|child| child.process.item.clone())
 			.collect();
 		let error = arg.data.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => {
@@ -117,6 +111,7 @@ impl Session {
 		let put_process_arg = tangram_index::process::put::Arg {
 			children: Some(children),
 			command: arg.data.command.clone().into(),
+			data: Some(arg.data.clone()),
 			error: Some(error),
 			id: id.clone(),
 			log: Some(
@@ -142,26 +137,23 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let put_grant = (!matches!(
-			self.context.principal,
-			tg::Principal::Anonymous | tg::Principal::Root
-		))
-		.then(|| {
-			let principal = self.context.principal.clone();
-			Ok::<_, tg::Error>(tangram_index::grant::put::Arg {
-				created_at: now,
-				creator: Some(principal.clone()),
-				expires_at: Some(grant_expires_at),
-				permissions: tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Node,
-				)
-				.into(),
-				principal: principal.try_to_grant_principal()?,
-				resource: id.clone().into(),
-				time_to_touch: Some(self.server.config.process.grant_time_to_touch),
-			})
-		})
-		.transpose()?;
+		let grant_principal = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
+			tg::Principal::Root => None,
+			principal => Some(principal.try_to_grant_principal()?),
+		};
+		let put_grant = grant_principal.map(|grant_principal| tangram_index::grant::put::Arg {
+			created_at: now,
+			creator: Some(self.context.principal.clone()),
+			expires_at: Some(grant_expires_at),
+			permissions: tg::grant::Permission::Process(
+				tg::grant::permission::process::Permission::Node,
+			)
+			.into(),
+			principal: grant_principal,
+			resource: id.clone().into(),
+			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
+		});
 		self.server
 			.index_tasks
 			.spawn(|_| {

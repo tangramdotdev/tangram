@@ -35,6 +35,23 @@ pub enum Artifact {
 }
 
 impl Artifact {
+	pub fn try_with_referent<T>(referent: tg::Referent<T>) -> std::result::Result<Self, T::Error>
+	where
+		T: TryInto<Id>,
+	{
+		let referent = referent.try_map(TryInto::try_into)?;
+
+		Ok(Self::with_referent(referent))
+	}
+
+	#[must_use]
+	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
+		let artifact = Self::with_id(referent.item);
+		artifact.state().set_token(referent.options.token);
+
+		artifact
+	}
+
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
 		match id {

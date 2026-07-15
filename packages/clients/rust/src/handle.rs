@@ -13,6 +13,7 @@ mod object;
 mod organization;
 mod process;
 mod remote;
+mod runner;
 mod sandbox;
 mod tag;
 mod user;
@@ -20,8 +21,8 @@ mod watch;
 
 pub use self::{
 	ext::Ext, grant::Grant, group::Group, module::Module, object::Object,
-	organization::Organization, process::Process, remote::Remote, sandbox::Sandbox, tag::Tag,
-	user::User, watch::Watch,
+	organization::Organization, process::Process, remote::Remote, runner::Runner, sandbox::Sandbox,
+	tag::Tag, user::User, watch::Watch,
 };
 
 pub mod dynamic;
@@ -61,6 +62,7 @@ pub trait Handle:
 	+ Organization
 	+ Process
 	+ Remote
+	+ Runner
 	+ Sandbox
 	+ Tag
 	+ User
@@ -190,7 +192,9 @@ pub trait Handle:
 					},
 					tg::progress::Event::Output(output) => output
 						.map(|output| tg::progress::Event::Output(output.referent))
-						.ok_or_else(|| tg::error!(%reference, "failed to get the reference")),
+						.ok_or_else(
+							|| tg::error!(item = %reference.item(), "failed to get the reference"),
+						),
 				})
 			});
 			Ok(stream)

@@ -403,7 +403,8 @@ impl<O: 'static> tg::Process<O> {
 				|| stderr_is_foreground_controlling_tty);
 		arg.tty = tty.map(tg::Either::Right);
 		if arg.stdin.is_tty() || arg.stdout.is_tty() || arg.stderr.is_tty() {
-			let mut object = tg::Command::with_id(arg.command.item.clone())
+			let command = tg::Command::with_referent(arg.command.clone());
+			let mut object = command
 				.object_with_handle(&handle)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to load the command"))?
@@ -450,16 +451,18 @@ impl<O: 'static> tg::Process<O> {
 			let stdin = stdin.clone();
 			let stdout = stdout.clone();
 			let stderr = stderr.clone();
+			let token = output.token.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
 				let arg = super::stdio::StdioTaskArg {
 					handle,
 					id,
 					location,
+					raw,
+					stderr,
 					stdin,
 					stdout,
-					stderr,
+					token,
 					tty: local_tty,
-					raw,
 				};
 				super::stdio::stdio_task(arg).await
 			}))
@@ -520,7 +523,8 @@ impl<O: 'static> tg::Process<O> {
 			));
 		}
 
-		let command = tg::Command::with_id(arg.command.item().clone())
+		let command = tg::Command::with_referent(arg.command.clone());
+		let command = command
 			.data_with_handle(handle)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to load the command"))?;
@@ -541,7 +545,8 @@ impl<O: 'static> tg::Process<O> {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
-		let artifacts = checkout_artifacts(handle, &command).await?;
+		let artifacts =
+			checkout_artifacts(handle, &command, arg.command.options.token.as_ref()).await?;
 		let env = render_env(handle, &command.env, &artifacts, &output_path)?;
 		let (executable, args) =
 			render_command(&command, &artifacts, &output_path, arg.debug.as_ref())?;
@@ -798,6 +803,7 @@ impl tg::Session {
 async fn checkout_artifacts<H>(
 	handle: &H,
 	command: &tg::command::Data,
+	token: Option<&tg::grant::Token>,
 ) -> tg::Result<BTreeMap<tg::artifact::Id, PathBuf>>
 where
 	H: tg::Handle,
@@ -810,10 +816,19 @@ where
 		.collect::<BTreeSet<tg::artifact::Id>>();
 	let mut output = BTreeMap::new();
 	for artifact in artifacts {
+		let artifact_with_token = token.map_or_else(
+			|| tg::Either::Left(artifact.clone()),
+			|token| {
+				tg::Either::Right(tg::WithToken {
+					id: artifact.clone(),
+					token: token.clone(),
+				})
+			},
+		);
 		let path = tg::checkout::checkout_with_handle(
 			handle,
 			tg::checkout::Arg {
-				artifact: artifact.clone(),
+				artifact: artifact_with_token,
 				dependencies: true,
 				extension: None,
 				force: false,
@@ -1183,6 +1198,7 @@ fn normalize_sandbox(
 			}
 			let sandbox = tg::sandbox::create::Arg {
 				cpu,
+				host: None,
 				hostname: None,
 				isolation: None,
 				location: None,
@@ -1202,6 +1218,7 @@ fn normalize_sandbox_create_arg(
 ) -> tg::sandbox::create::Arg {
 	tg::sandbox::create::Arg {
 		cpu: sandbox.cpu,
+		host: None,
 		hostname: sandbox.hostname,
 		isolation: sandbox.isolation,
 		location: sandbox.location,

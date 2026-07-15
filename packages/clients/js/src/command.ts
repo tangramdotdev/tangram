@@ -169,6 +169,13 @@ export class Command<
 		return this.#state;
 	}
 
+	/** Get a command with a referent. */
+	static withReferent(referent: tg.Referent<tg.Command.Id>): tg.Command {
+		let command = tg.Command.withId(referent.item);
+		command.state.token = referent.options?.token ?? null;
+		return command;
+	}
+
 	/** Get a command with an ID. */
 	static withId(id: tg.Command.Id): tg.Command {
 		return new tg.Command({ id, stored: true });

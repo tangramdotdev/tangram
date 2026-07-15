@@ -422,7 +422,7 @@ impl Session {
 					if let tg::graph::data::Edge::Pointer(p) = &edge
 						&& p.graph.is_none()
 					{
-						return Err(tg::error!(%reference, "expected a graph"));
+						return Err(tg::error!(item = %reference.item(), "expected a graph"));
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
@@ -522,7 +522,7 @@ impl Session {
 					if let tg::graph::data::Edge::Pointer(p) = &edge
 						&& p.graph.is_none()
 					{
-						return Err(tg::error!(%reference, "expected a graph"));
+						return Err(tg::error!(item = %reference.item(), "expected a graph"));
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {

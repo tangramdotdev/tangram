@@ -11,22 +11,22 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Referent<tg::process::Id>,
 }
 
 impl Cli {
 	pub async fn command_process_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let id = args.process.item;
 		let arg = tg::process::metadata::Arg {
 			location: args.locations.get(),
+			token: args.process.options.token,
 		};
 		let output = client
-			.try_get_process_metadata(&args.process, arg)
+			.try_get_process_metadata(&id, arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, id = %args.process, "failed to get the process metadata"),
-			)?
-			.ok_or_else(|| tg::error!(id = %args.process, "failed to find the process metadata"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process metadata"))?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process metadata"))?;
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}

@@ -80,6 +80,7 @@ impl Session {
 			self.sync_get_touch_authorized_objects(
 				&state.graph,
 				&ids,
+				&state.arg,
 				touched_at,
 				self.server.config.object.time_to_touch,
 			)
@@ -173,6 +174,7 @@ impl Session {
 					} else {
 						// If the object is stored but its subtree is not visible, then enqueue the children.
 						let bytes = self
+							.server
 							.try_get_object_local(&item.id, false)
 							.await
 							.map_err(|error| tg::error!(!error, "failed to get the object"))?
@@ -292,10 +294,9 @@ impl Session {
 					let metadata = &process.metadata;
 					// Get the process.
 					let data = self
-						.try_get_process_local(&item.id, false)
+						.get_process_local(&item.id, false)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the process"))?
-						.ok_or_else(|| tg::error!("expected the process to exist"))?
 						.data;
 
 					// Update the graph with stored and metadata and data.
@@ -396,11 +397,7 @@ impl Session {
 			for child in children {
 				state.queue.enqueue_process(ProcessItem {
 					eager: state.arg.eager,
-					id: child
-						.process
-						.clone()
-						.map_right(|process| process.id)
-						.into_inner(),
+					id: child.process.item.clone(),
 					parent: Some(id.clone()),
 					token: token.cloned(),
 				});

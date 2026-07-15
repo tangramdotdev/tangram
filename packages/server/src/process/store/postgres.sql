@@ -3,7 +3,6 @@ create table sandboxes (
 	created_at int8 not null,
 	creator text,
 	finished_at int8,
-	heartbeat_at int8,
 	hostname text,
 	id text primary key,
 	isolation text,
@@ -11,23 +10,13 @@ create table sandboxes (
 	mounts text,
 	network text,
 	owner text,
+	runner text,
 	started_at int8,
 	status text not null,
 	ttl int8
 );
 
-create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';
-
 create index sandboxes_status_index on sandboxes (status);
-
-create index sandboxes_queue_index on sandboxes (created_at, id) where status = 'created';
-
-create table sandbox_tokens (
-	sandbox text not null,
-	token text primary key
-);
-
-create index sandbox_tokens_sandbox_index on sandbox_tokens (sandbox);
 
 create table processes (
 	actual_checksum text,
@@ -44,7 +33,6 @@ create table processes (
 	finished_at int8,
 	host text not null,
 	id text primary key,
-	lease_count int8 not null,
 	log text,
 	output text,
 	retry boolean not null,
@@ -62,41 +50,18 @@ create index processes_command_index on processes (command);
 
 create index processes_depth_index on processes (depth) where status = 'started';
 
-create index processes_lease_count_index on processes (lease_count) where lease_count = 0 and status != 'finished';
-
 create index processes_sandbox_index on processes (sandbox);
-
-create index processes_queue_index on processes (sandbox, created_at, id) where status = 'created';
 
 create index processes_status_index on processes (status);
 
 create index processes_creator_status_index on processes (creator, status);
-
-create table process_tokens (
-	process text not null,
-	token text primary key
-);
-
-create index process_tokens_process_index on process_tokens (process);
-
-create table process_leases (
-	process text not null,
-	lease text not null
-);
-
-create unique index process_leases_process_lease_index on process_leases (process, lease);
-
-create index process_leases_process_index on process_leases (process);
-
-create index process_leases_lease_index on process_leases (lease);
 
 create table process_children (
 	process text not null,
 	cached boolean not null,
 	child text not null,
 	position int8 not null,
-	options text,
-	lease text
+	options text
 );
 
 create unique index process_children_process_child_index on process_children (process, child);

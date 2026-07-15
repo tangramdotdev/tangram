@@ -1,4 +1,8 @@
-use {crate::Server, futures::Stream, tangram_client::prelude::*};
+use {
+	crate::Server,
+	futures::{FutureExt as _, Stream, stream::BoxStream},
+	tangram_client::prelude::*,
+};
 
 impl tg::handle::Sandbox for Server {
 	async fn create_sandbox(
@@ -13,14 +17,10 @@ impl tg::handle::Sandbox for Server {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		self.session(&self.context).try_get_sandbox(id, arg).await
-	}
-
-	async fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		self.session(&self.context).try_dequeue_sandbox(arg).await
+		self.session(&self.context)
+			.try_get_sandbox(id, arg)
+			.boxed()
+			.await
 	}
 
 	async fn list_sandboxes(
@@ -37,16 +37,7 @@ impl tg::handle::Sandbox for Server {
 	) -> tg::Result<Option<bool>> {
 		self.session(&self.context)
 			.try_destroy_sandbox(id, arg)
-			.await
-	}
-
-	async fn try_heartbeat_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::heartbeat::Arg,
-	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		self.session(&self.context)
-			.try_heartbeat_sandbox(id, arg)
+			.boxed()
 			.await
 	}
 
@@ -62,13 +53,16 @@ impl tg::handle::Sandbox for Server {
 			.await
 	}
 
-	async fn try_dequeue_sandbox_process(
+	async fn get_sandbox_control_stream(
 		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+	> {
 		self.session(&self.context)
-			.try_dequeue_sandbox_process(sandbox, arg)
+			.get_sandbox_control_stream_with_context(id, arg, stream)
 			.await
 	}
 }

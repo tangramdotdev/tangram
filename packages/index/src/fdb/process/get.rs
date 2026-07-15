@@ -3,10 +3,131 @@ use {
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	num_traits::ToPrimitive as _,
+	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 };
 
 impl Index {
+	pub async fn get_process_depth_detections(
+		&self,
+		limit: usize,
+	) -> tg::Result<Vec<tg::process::Id>> {
+		let txn = self
+			.database
+			.create_trx()
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let prefix = (Kind::ProcessDepthDetection.to_i32().unwrap(),);
+		let prefix = Self::pack(&self.subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			limit: Some(limit),
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the process depth detections"))?;
+		entries
+			.iter()
+			.map(|entry| {
+				let key = Self::unpack(&self.subspace, entry.key())?;
+				let Key::Process(crate::fdb::process::Key::ProcessDepthDetection(process)) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(process)
+			})
+			.collect()
+	}
+
+	pub async fn try_get_cached_processes(
+		&self,
+		command: &tg::object::Id,
+	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+		let txn = self
+			.database
+			.create_trx()
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let command_bytes = command.to_bytes();
+		let prefix = (
+			Kind::CommandProcess.to_i32().unwrap(),
+			command_bytes.as_ref(),
+		);
+		let prefix = Self::pack(&self.subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the cached processes"))?;
+		let processes = entries
+			.iter()
+			.map(|entry| {
+				let key = Self::unpack(&self.subspace, entry.key())?;
+				let Key::Process(crate::fdb::process::Key::CommandProcess { process, .. }) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(process)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		drop(entries);
+		let mut output = Vec::new();
+		for process in processes {
+			let Some(data) =
+				Self::try_get_process_with_transaction(&txn, &self.subspace, &process).await?
+			else {
+				continue;
+			};
+			if data.data.is_none() {
+				continue;
+			}
+			output.push((process, data));
+		}
+		output.sort_unstable_by(|(a_id, a), (b_id, b)| {
+			let a_created_at = a.data.as_ref().unwrap().created_at;
+			let b_created_at = b.data.as_ref().unwrap().created_at;
+			b_created_at.cmp(&a_created_at).then_with(|| b_id.cmp(a_id))
+		});
+		Ok(output)
+	}
+
+	pub async fn process_has_ancestor(
+		&self,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> tg::Result<bool> {
+		if process == ancestor {
+			return Ok(true);
+		}
+		let txn = self
+			.database
+			.create_trx()
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let mut seen = BTreeSet::from([process.clone()]);
+		let mut frontier = vec![process.clone()];
+		while !frontier.is_empty() {
+			let parents = futures::future::try_join_all(frontier.iter().map(|process| {
+				Self::get_process_parents_with_transaction(&txn, &self.subspace, process)
+			}))
+			.await?;
+			frontier = Vec::new();
+			for parent in parents.into_iter().flatten() {
+				if &parent == ancestor {
+					return Ok(true);
+				}
+				if seen.insert(parent.clone()) {
+					frontier.push(parent);
+				}
+			}
+		}
+		Ok(false)
+	}
+
 	pub async fn try_get_processes(
 		&self,
 		ids: &[tg::process::Id],

@@ -26,6 +26,13 @@ export class Graph {
 		return this.#state;
 	}
 
+	/** Get a graph with a referent. */
+	static withReferent(referent: tg.Referent<tg.Graph.Id>): tg.Graph {
+		let graph = tg.Graph.withId(referent.item);
+		graph.state.token = referent.options?.token ?? null;
+		return graph;
+	}
+
 	/** Get a graph with an ID. */
 	static withId(id: tg.Graph.Id): tg.Graph {
 		return new tg.Graph({ id, stored: true });

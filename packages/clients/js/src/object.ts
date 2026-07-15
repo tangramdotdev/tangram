@@ -10,6 +10,14 @@ export type Object =
 	| tg.Error;
 
 export namespace Object {
+	export namespace Get {
+		export type Arg = {
+			location?: tg.Location.Arg | null;
+			metadata?: boolean;
+			token?: tg.Grant.Token | null;
+		};
+	}
+
 	export namespace Batch {
 		export type Object = {
 			children?: Array<
@@ -151,7 +159,8 @@ export namespace Object {
 
 		async load(): Promise<tg.Object.Object> {
 			if (this.#object === null) {
-				let data = await tg.client.getObject(this.#id!);
+				let arg = this.#token !== null ? { token: this.#token } : {};
+				let data = await tg.client.getObject(this.#id!, arg);
 				this.#object = tg.Object.Object.fromData(data);
 			}
 			return this.#object;
@@ -325,6 +334,15 @@ export namespace Object {
 			}
 		};
 	}
+
+	/** Get an object with a referent. */
+	export let withReferent = (
+		referent: tg.Referent<tg.Object.Id>,
+	): tg.Object => {
+		let object = withId(referent.item);
+		object.state.token = referent.options?.token ?? null;
+		return object;
+	};
 
 	/** Get an object with an ID. */
 	export let withId = (id: tg.Object.Id): tg.Object => {

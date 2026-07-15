@@ -17,7 +17,7 @@ pub struct Args {
 
 	/// The object to print.
 	#[arg(index = 1)]
-	pub object: tg::object::Id,
+	pub object: tg::Referent<tg::object::Id>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -26,16 +26,19 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_get(&mut self, mut args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let id = args.object.item.clone();
+		let token = args.object.options.token.clone();
 		if args.bytes {
 			let arg = tg::object::get::Arg {
 				location: args.locations.get(),
 				metadata: args.metadata,
+				token: token.clone(),
 			};
 			let tg::object::get::Output { bytes, metadata } = client
-				.try_get_object(&args.object, arg)
+				.try_get_object(&id, arg)
 				.await
-				.map_err(|error| tg::error!(!error, id = %args.object, "failed to get the object"))?
-				.ok_or_else(|| tg::error!(id = %args.object, "failed to find the object"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+				.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
 			if let Some(metadata) = metadata {
 				let metadata = serde_json::to_string(&metadata)
 					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
@@ -47,20 +50,22 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 			return Ok(());
 		}
-		let value = tg::Value::Object(tg::Object::with_id(args.object.clone()));
+		let object = tg::Object::with_referent(args.object);
+		let value = tg::Value::Object(object);
 		args.print
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
 		let arg = tg::object::get::Arg {
 			location: args.locations.get(),
 			metadata: args.metadata,
+			token,
 		};
 		if args.metadata {
 			let output = client
-				.try_get_object(&args.object, arg.clone())
+				.try_get_object(&id, arg.clone())
 				.await
-				.map_err(|error| tg::error!(!error, id = %args.object, "failed to get the object"))?
-				.ok_or_else(|| tg::error!(id = %args.object, "failed to find the object"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+				.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
 			if let Some(metadata) = output.metadata {
 				let metadata = serde_json::to_string(&metadata)
 					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;

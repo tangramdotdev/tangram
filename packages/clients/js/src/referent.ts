@@ -194,6 +194,17 @@ export namespace Referent {
 		return referent;
 	};
 
+	export let withoutToken = <T>(value: tg.Referent<T>): tg.Referent<T> => {
+		let referent: tg.Referent<T> = {
+			item: value.item,
+		};
+		if (value.options !== undefined) {
+			referent.options = { ...value.options };
+			delete referent.options.token;
+		}
+		return referent;
+	};
+
 	export type Data<T> =
 		| string
 		| {

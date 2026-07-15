@@ -30,6 +30,13 @@ export class Symlink {
 		return this.#state;
 	}
 
+	/** Get a symlink with a referent. */
+	static withReferent(referent: tg.Referent<tg.Symlink.Id>): tg.Symlink {
+		let symlink = tg.Symlink.withId(referent.item);
+		symlink.state.token = referent.options?.token ?? null;
+		return symlink;
+	}
+
 	/** Get a symlink with an ID. */
 	static withId(id: tg.Symlink.Id): tg.Symlink {
 		return new tg.Symlink({ id, stored: true });

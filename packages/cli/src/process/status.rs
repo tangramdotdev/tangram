@@ -11,7 +11,7 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Referent<tg::process::Id>,
 
 	#[command(flatten)]
 	pub timeout: Timeout,
@@ -44,16 +44,16 @@ impl Cli {
 	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let locations = args.locations.get();
+		let id = args.process.item;
 		let arg = tg::process::status::Arg {
 			location: locations,
 			timeout: args.timeout.get(),
+			token: args.process.options.token,
 		};
 		let stream = client
-			.get_process_status(&args.process, arg)
+			.get_process_status(&id, arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, id = %args.process, "failed to get the process status"),
-			)?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process status"))?;
 		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())
 	}

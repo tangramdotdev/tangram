@@ -163,21 +163,6 @@ impl Server {
 				return Err(tg::error!("failed to delete the destroyed sandbox"));
 			}
 		}
-		match self
-			.delete_sandbox_process_tokens_with_transaction(transaction, &entry.sandbox)
-			.await?
-		{
-			ControlFlow::Break(()) => {},
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-		match self
-			.delete_sandbox_tokens_with_transaction(transaction, &entry.sandbox)
-			.await?
-		{
-			ControlFlow::Break(()) => {},
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-
 		let statement = formatdoc!(
 			"
 				update sandbox_finalize_queue
