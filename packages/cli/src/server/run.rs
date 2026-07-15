@@ -164,7 +164,7 @@ impl Cli {
 					.build()
 					.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
 				let result = runtime.block_on(future);
-				runtime.shutdown_timeout(Duration::from_secs(5));
+				drop(runtime);
 				result
 			})
 			.await

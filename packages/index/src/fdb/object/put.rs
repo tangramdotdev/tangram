@@ -125,7 +125,7 @@ impl Index {
 			partition,
 			touched_at,
 			kind: ItemKind::Object,
-			id: tg::Either::Left(id.clone()),
+			id: id.clone().into(),
 		});
 		let key = Self::pack(subspace, &key);
 		txn.set(&key, &[]);

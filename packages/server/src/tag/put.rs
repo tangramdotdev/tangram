@@ -182,7 +182,7 @@ impl Session {
 						tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read)
 							.into(),
 					),
-					resource: tg::grant::Resource::Id(id.clone().into()),
+					resource: tg::Referent::with_item(tg::grant::Resource::Id(id.clone().into())),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
 					.await?;
@@ -194,7 +194,7 @@ impl Session {
 						tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Admin)
 							.into(),
 					),
-					resource: tg::grant::Resource::Id(id.clone().into()),
+					resource: tg::Referent::with_item(tg::grant::Resource::Id(id.clone().into())),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
 					.await?;

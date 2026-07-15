@@ -6,6 +6,7 @@ pub enum ItemKind {
 	CacheEntry = 0,
 	Object = 1,
 	Process = 2,
+	Sandbox = 3,
 }
 
 #[derive(Clone, Debug)]
@@ -14,6 +15,6 @@ pub enum Key {
 		partition: u64,
 		touched_at: i64,
 		kind: ItemKind,
-		id: tg::Either<tg::object::Id, tg::process::Id>,
+		id: tg::Id,
 	},
 }

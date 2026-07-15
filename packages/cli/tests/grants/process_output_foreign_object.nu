@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process cannot leak a private object by naming it as its output: building tg.File.withId of a file the builder cannot read must not grant the builder read access to that file.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
@@ -10,7 +10,7 @@ let eve = tg login --verbose eve | from json
 # Alice builds a private file.
 let alice_path = artifact { tangram.ts: 'export default function () { return tg.file("topsecret"); }' }
 let alice_process = tg --token $alice.token build --detach $alice_path | str trim
-let file = (tg --token $alice.token wait $alice_process | from json).output.value.id
+let file = (tg --token $alice.token wait $alice_process | from json).output.value | split row '?' | first
 
 # Eve cannot read Alice's private file.
 let denied = tg --token $eve.token get $file | complete
@@ -25,7 +25,7 @@ tg --token $eve.token wait $eve_process
 # Eve must not gain read access to Alice's private file by naming it as her process output.
 let leaked = tg --token $eve.token get $file | complete
 failure $leaked "Eve must not read Alice's private file after naming it as her process output."
-snapshot ($leaked.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $leaked.stderr '
 	error an error occurred
 	-> failed to load the object
 

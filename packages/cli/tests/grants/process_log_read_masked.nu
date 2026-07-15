@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process's log is masked from a principal without a grant: the owner reads it, but knowing the process id is not enough for another principal.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
@@ -14,7 +14,7 @@ tg --token $alice.token wait $process
 
 # The owner can read the log.
 let owner = tg --token $alice.token log $process | complete
-snapshot ($owner.stdout | redact) '
+snapshot --normalize $owner.stdout '
 	topsecret
 
 '
@@ -25,4 +25,4 @@ failure $denied "Eve should not read Alice's private process."
 
 # Eve must not read the process's log either.
 let leaked = tg --token $eve.token log $process | complete
-snapshot ($leaked.stdout | redact) ''
+snapshot --normalize $leaked.stdout ''

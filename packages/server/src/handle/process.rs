@@ -5,13 +5,6 @@ use {
 };
 
 impl tg::handle::Process for Server {
-	async fn list_processes(
-		&self,
-		arg: tg::process::list::Arg,
-	) -> tg::Result<tg::process::list::Output> {
-		self.session(&self.context).list_processes(arg).await
-	}
-
 	async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -61,14 +54,16 @@ impl tg::handle::Process for Server {
 
 	async fn try_get_process_control_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static>,
+		Option<(
+			tg::process::control::Output,
+			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+		)>,
 	> {
 		self.session(&self.context)
-			.try_get_process_control_stream_with_context(id, arg, stream)
+			.try_get_process_control_stream_with_context(arg, stream)
 			.await
 	}
 
@@ -147,16 +142,6 @@ impl tg::handle::Process for Server {
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context).try_touch_process(id, arg).await
-	}
-
-	async fn try_finish_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> tg::Result<Option<bool>> {
-		self.session(&self.context)
-			.try_finish_process(id, arg)
-			.await
 	}
 
 	async fn try_wait_process_future(

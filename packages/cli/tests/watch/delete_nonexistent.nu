@@ -8,10 +8,10 @@ let path = artifact 'test'
 
 let output = tg watch delete $path | complete
 failure $output
-snapshot ($output.stderr | redact $path) '
+snapshot --normalize --redact $path $output.stderr '
 	error an error occurred
 	-> failed to delete the watch
-	   path = <path>
+	   path = <redacted>
 	-> failed to find the watch
 
 '

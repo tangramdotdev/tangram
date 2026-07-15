@@ -75,7 +75,6 @@ impl Session {
 		let mut finished_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut hosts: Vec<String> = Vec::with_capacity(items.len());
 		let mut ids = Vec::with_capacity(items.len());
-		let mut lease_counts = Vec::with_capacity(items.len());
 		let mut logs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
@@ -101,7 +100,7 @@ impl Session {
 			);
 			errors.push(data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
-				tg::Either::Right(id) => id.clone().map_right(|id| id.id).into_inner().to_string(),
+				tg::Either::Right(id) => id.item.to_string(),
 			}));
 			error_codes.push(
 				data.error
@@ -118,12 +117,7 @@ impl Session {
 			finished_ats.push(data.finished_at);
 			hosts.push(data.host.clone());
 			ids.push(id.to_string());
-			lease_counts.push(0i64);
-			logs.push(
-				data.log
-					.as_ref()
-					.map(|log| log.clone().map_right(|log| log.id).into_inner().to_string()),
-			);
+			logs.push(data.log.as_ref().map(|log| log.item.to_string()));
 			outputs.push(
 				data.output
 					.as_ref()
@@ -161,7 +155,6 @@ impl Session {
 					finished_at,
 					host,
 					id,
-					lease_count,
 					log,
 					output,
 					retry,
@@ -189,19 +182,18 @@ impl Session {
 					unnest($10::int8[]),
 					unnest($11::text[]),
 					unnest($12::text[]),
-					unnest($13::int8[]),
+					unnest($13::text[]),
 					unnest($14::text[]),
-					unnest($15::text[]),
-					unnest($16::bool[]),
-					unnest($17::text[]),
-					unnest($18::int8[]),
+					unnest($15::bool[]),
+					unnest($16::text[]),
+					unnest($17::int8[]),
+					unnest($18::text[]),
 					unnest($19::text[]),
 					unnest($20::text[]),
 					unnest($21::text[]),
-					unnest($22::text[]),
-					unnest($23::int8[]),
-					unnest($24::text[]),
-					unnest($25::text[])
+					unnest($22::int8[]),
+					unnest($23::text[]),
+					unnest($24::text[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
 					cacheable = excluded.cacheable,
@@ -214,7 +206,6 @@ impl Session {
 					expected_checksum = excluded.expected_checksum,
 					finished_at = excluded.finished_at,
 					host = excluded.host,
-					lease_count = excluded.lease_count,
 					log = excluded.log,
 					output = excluded.output,
 					retry = excluded.retry,
@@ -246,7 +237,6 @@ impl Session {
 					&finished_ats,
 					&hosts,
 					&ids,
-					&lease_counts,
 					&logs,
 					&outputs,
 					&retries,
@@ -265,6 +255,27 @@ impl Session {
 			.map_err(db::postgres::Error::from);
 		crate::database::retry!(result, "failed to execute the statement");
 
+		let finalize_processes = items
+			.iter()
+			.filter(|(_, data)| Self::process_log_needs_compaction(data))
+			.map(|(id, _)| id.to_string())
+			.collect::<Vec<_>>();
+		if !finalize_processes.is_empty() {
+			let statement = indoc!(
+				"
+					insert into process_finalize_queue (created_at, process, status)
+					select $1, unnest($2::text[]), 'created'
+					on conflict (process) do nothing;
+				"
+			);
+			let result = transaction
+				.inner()
+				.execute(statement, &[&stored_at, &finalize_processes])
+				.await
+				.map_err(db::postgres::Error::from);
+			crate::database::retry!(result, "failed to execute the statement");
+		}
+
 		let mut child_processes = Vec::new();
 		let mut child_positions = Vec::new();
 		let mut child_cached = Vec::new();
@@ -277,15 +288,8 @@ impl Session {
 					child_processes.push(id.to_string());
 					child_positions.push(position.to_i64().unwrap());
 					child_cached.push(child.cached);
-					child_ids.push(
-						child
-							.process
-							.clone()
-							.map_right(|process| process.id)
-							.into_inner()
-							.to_string(),
-					);
-					child_options.push(serde_json::to_string(&child.options).unwrap());
+					child_ids.push(child.process.item.to_string());
+					child_options.push(serde_json::to_string(&child.process.options).unwrap());
 				}
 			}
 		}

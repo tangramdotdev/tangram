@@ -6,7 +6,7 @@ let server = spawn
 
 let output = tg health --fields bogus | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the health
 	-> the request failed

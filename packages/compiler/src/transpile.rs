@@ -52,7 +52,7 @@ impl Compiler {
 		}
 
 		// Generate the output code with source maps.
-		let name = module.to_string();
+		let name = module.without_token().to_string();
 		let options = oxc::codegen::CodegenOptions {
 			source_map_path: Some(PathBuf::from(name)),
 			..Default::default()
@@ -62,7 +62,12 @@ impl Compiler {
 			.with_source_text(text)
 			.build(&program);
 		let text = output.code;
-		let source_map = output.map.unwrap().to_json_string();
+
+		// Remove source contents so that generated capability-bearing source is not exposed.
+		let mut source_map = output.map.unwrap();
+		let source_count = source_map.get_sources().len();
+		source_map.set_source_contents(vec![None; source_count]);
+		let source_map = source_map.to_json_string();
 
 		Output {
 			diagnostics,

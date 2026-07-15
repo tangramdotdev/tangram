@@ -578,8 +578,7 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&reference, arg).await?;
-		let item = referent.item.clone().to_graph_edge()?;
-		let mut referent = referent.map(|_| item);
+		let mut referent = referent.into_graph_edge()?;
 
 		// Create the command builder.
 		let mut command_env = None;
@@ -634,7 +633,7 @@ impl Cli {
 							.await
 							.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
 						let item = tg::module::Item::Edge(item.into());
-						let referent = tg::Referent::with_item(item);
+						let referent = referent.clone().map(|_| item);
 						let module = tg::Module { kind, referent };
 						let export = reference.export().unwrap_or("default").to_owned();
 						let host = tg::host::current().to_owned();
@@ -672,7 +671,7 @@ impl Cli {
 						};
 						if let Some(kind) = kind {
 							let item = tg::module::Item::Edge(item);
-							let referent = tg::Referent::with_item(item);
+							let referent = referent.clone().map(|_| item);
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let host = tg::host::current().to_owned();

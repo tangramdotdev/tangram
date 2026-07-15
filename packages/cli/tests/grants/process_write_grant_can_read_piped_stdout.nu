@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process_write grant permits consuming piped stdout, while process_node does not.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 

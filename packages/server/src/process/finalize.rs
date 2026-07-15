@@ -163,15 +163,6 @@ impl Server {
 		}
 		let statement = formatdoc!(
 			"
-				delete from process_tokens
-				where process = {p}1;
-			"
-		);
-		let params = db::params![entry.process.to_string()];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-		let statement = formatdoc!(
-			"
 				delete from process_finalize_queue
 				where position = {p}1;
 			"
@@ -243,6 +234,7 @@ impl Server {
 			.try_get_process_local(id, false)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
+		let data = data.without_tokens();
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let error = data.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => {
@@ -251,7 +243,7 @@ impl Server {
 				children.into_iter().collect::<Vec<_>>()
 			},
 			tg::Either::Right(id) => {
-				let id = id.clone().map_right(|id| id.id).into_inner().into();
+				let id = id.item.clone().into();
 				vec![id]
 			},
 		});
@@ -268,24 +260,15 @@ impl Server {
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the children to be set"))?
 			.iter()
-			.map(|child| {
-				child
-					.process
-					.clone()
-					.map_right(|process| process.id)
-					.into_inner()
-			})
+			.map(|child| child.process.item.clone())
 			.collect();
 		let put_process_arg = tangram_index::process::put::Arg {
 			children: Some(children),
 			command: data.command.clone().into(),
+			data: Some(data.clone()),
 			error: Some(error),
 			id: id.clone(),
-			log: Some(
-				data.log
-					.clone()
-					.map(|log| log.map_right(|log| log.id).into_inner().into()),
-			),
+			log: Some(data.log.clone().map(|log| log.item.into())),
 			metadata: tg::process::Metadata::default(),
 			output: Some(output),
 			parent: None,

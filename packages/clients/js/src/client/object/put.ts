@@ -11,7 +11,10 @@ export async function putObject(
 	let uri = new Uri({
 		path: `/objects/${percentEncode(id)}`,
 		query: {
-			children: arg.children ?? null,
+			children:
+				arg.children?.map((child) =>
+					tg.Referent.toDataString(child, (id) => id),
+				) ?? null,
 			location:
 				arg.location === undefined || arg.location === null
 					? null
@@ -33,5 +36,11 @@ export async function putObject(
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return await response.json<tg.Object.Put.Output>();
+	let output = await response.json<{ object: string }>();
+	return {
+		object: tg.Referent.fromDataString(
+			output.object,
+			(id) => id as tg.Object.Id,
+		),
+	};
 }

@@ -65,7 +65,7 @@ impl State {
 			return id;
 		}
 		let object = inner.object.as_ref().unwrap();
-		let data = object.to_data();
+		let data = object.to_data().without_tokens();
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(data.kind(), &bytes);
 		drop(inner);
@@ -180,7 +180,7 @@ impl State {
 	pub async fn try_load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
-		arg: tg::object::get::Arg,
+		mut arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::Object>>
 	where
 		H: tg::Handle,
@@ -192,6 +192,9 @@ impl State {
 
 		// Get the id.
 		let id = self.0.read().unwrap().id.clone().unwrap();
+		if arg.token.is_none() {
+			arg.token = self.token();
+		}
 
 		// Load the object.
 		let Some(output) = handle.try_get_object(&id, arg).await? else {

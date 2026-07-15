@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An email is globally unique, so a second user cannot claim an email already in use.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 tg login alice --email shared@example.com
 

@@ -313,6 +313,7 @@ enum Command {
 
 	New(self::new::Args),
 
+	#[command(alias = "obj")]
 	Object(self::object::Args),
 
 	#[command(alias = "org")]
@@ -322,10 +323,10 @@ enum Command {
 
 	Output(self::process::output::Args),
 
+	#[command(alias = "pcs")]
 	Process(self::process::Args),
 
-	#[command(alias = "ps")]
-	Processes(self::process::list::Args),
+	Ps(self::sandbox::list::Args),
 
 	Publish(self::publish::Args),
 
@@ -351,6 +352,7 @@ enum Command {
 	#[command(alias = "r")]
 	Run(self::process::run::Args),
 
+	#[command(alias = "sbx")]
 	Sandbox(self::sandbox::Args),
 
 	#[command(name = "self")]
@@ -655,7 +657,7 @@ impl Cli {
 			Command::Outdated(args) => self.command_outdated(args).boxed_local(),
 			Command::Output(args) => self.command_process_output(args).boxed_local(),
 			Command::Process(args) => self.command_process(args).boxed_local(),
-			Command::Processes(args) => self.command_process_list(args).boxed_local(),
+			Command::Ps(args) => self.command_sandbox_list(args).boxed_local(),
 			Command::Publish(args) => self.command_publish(args).boxed_local(),
 			Command::Pull(args) => self.command_pull(args).boxed_local(),
 			Command::Push(args) => self.command_push(args).boxed_local(),

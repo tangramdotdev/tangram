@@ -13,6 +13,7 @@ mod object;
 mod organization;
 mod process;
 mod remote;
+mod runner;
 mod sandbox;
 mod tag;
 mod user;
@@ -32,14 +33,9 @@ impl Session {
 
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let sandbox = match &self.context.principal {
-			tg::Principal::Process(process) => self.server.sandboxes.iter().find_map(|sandbox| {
-				sandbox
-					.value()
-					.processes()
-					.into_iter()
-					.any(|process_| process_.id() == process)
-					.then(|| sandbox.key().clone())
-			}),
+			tg::Principal::Process(process) => {
+				self.server.runner.state.try_get_process_sandbox(process)
+			},
 			_ => None,
 		};
 		let Some(sandbox) = sandbox else {
@@ -47,9 +43,11 @@ impl Session {
 		};
 		let sandbox = self
 			.server
+			.runner
+			.state
 			.sandboxes
 			.get(&sandbox)
-			.map(|sandbox| sandbox.value().clone())
+			.and_then(|sandbox| sandbox.sandbox.clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
 		sandbox
 			.host_path_for_guest_path(path)
@@ -58,14 +56,9 @@ impl Session {
 
 	pub(crate) fn guest_path_for_host_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let sandbox = match &self.context.principal {
-			tg::Principal::Process(process) => self.server.sandboxes.iter().find_map(|sandbox| {
-				sandbox
-					.value()
-					.processes()
-					.into_iter()
-					.any(|process_| process_.id() == process)
-					.then(|| sandbox.key().clone())
-			}),
+			tg::Principal::Process(process) => {
+				self.server.runner.state.try_get_process_sandbox(process)
+			},
 			_ => None,
 		};
 		let Some(sandbox) = sandbox else {
@@ -73,9 +66,11 @@ impl Session {
 		};
 		let sandbox = self
 			.server
+			.runner
+			.state
 			.sandboxes
 			.get(&sandbox)
-			.map(|sandbox| sandbox.value().clone())
+			.and_then(|sandbox| sandbox.sandbox.clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
 		sandbox
 			.guest_path_for_host_path(path)

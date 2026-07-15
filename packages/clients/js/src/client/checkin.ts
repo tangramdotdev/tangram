@@ -110,5 +110,13 @@ export async function checkin(
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return tg.Progress.decode<tg.Checkin.Output>(response);
+	return tg.Progress.decode<tg.Checkin.Output>(response, (value) => {
+		let output = value as { artifact: string };
+		return {
+			artifact: tg.Referent.fromDataString(
+				output.artifact,
+				(id) => id as tg.Artifact.Id,
+			),
+		};
+	});
 }

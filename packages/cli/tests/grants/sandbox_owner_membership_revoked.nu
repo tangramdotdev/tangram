@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A group member loses get, list, and destroy on a group-owned sandbox once their membership is revoked.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json
@@ -33,3 +33,5 @@ failure (tg --token $bob.token sandbox destroy $sandbox | complete) "Bob must no
 
 # Alice administers the team, so her access is independent of Bob's membership.
 success (tg --token $alice.token sandbox get $sandbox | complete) "Alice should still get the sandbox she administers via the team"
+
+tg --token $alice.token sandbox destroy $sandbox

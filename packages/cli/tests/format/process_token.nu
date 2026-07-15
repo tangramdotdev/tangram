@@ -23,7 +23,7 @@ let dir = mktemp --directory
 'export default   "x"' | save ($dir | path join tangram.ts)
 let output = tg --token $token format $dir | complete
 failure $output
-snapshot ($output.stderr | redact $dir) '
+snapshot --normalize --redact $dir $output.stderr '
 	error an error occurred
 	-> failed to format
 	-> the request failed

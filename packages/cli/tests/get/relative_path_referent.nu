@@ -19,7 +19,7 @@ snapshot $output.stderr '
 
 let output = with-env { TANGRAM_QUIET: "false" } { tg get $pkg | complete }
 success $output
-snapshot ($output.stderr | redact $parent) '
-	info dir_01rvv5xmnmngm4xsyeg848w049fnsdf9vz9gqd2sgfqgwqqah13sgg?path=<path>/artifact
+snapshot --normalize --redact $parent $output.stderr '
+	info dir_01rvv5xmnmngm4xsyeg848w049fnsdf9vz9gqd2sgfqgwqqah13sgg?path=<redacted>/artifact
 
 '

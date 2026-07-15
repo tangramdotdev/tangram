@@ -38,6 +38,13 @@ export class Blob {
 		return this.#state;
 	}
 
+	/** Get a blob with a referent. */
+	static withReferent(referent: tg.Referent<tg.Blob.Id>): tg.Blob {
+		let blob = tg.Blob.withId(referent.item);
+		blob.state.token = referent.options?.token ?? null;
+		return blob;
+	}
+
 	/** Get a blob with an ID. */
 	static withId(id: tg.Blob.Id): tg.Blob {
 		return new tg.Blob({ id, stored: true });

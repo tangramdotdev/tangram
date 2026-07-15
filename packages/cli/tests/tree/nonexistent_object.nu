@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = spawn
 
 let output = tg tree fil_010000000000000000000000000000000000000000000000000000 | complete
-snapshot ($output.stdout | redact | normalize_ids) '
+snapshot --normalize-ids $output.stdout '
 	? failed to load the object
 
 '

@@ -48,35 +48,50 @@ impl Cli {
 		let timeout = args.timeout;
 
 		let referent = self.get_resolved_reference(&args.reference).await?;
-		match referent.item {
-			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
-				let args = crate::process::children::Args {
-					length: None,
-					locations,
-					position: None,
-					print,
-					process: id.try_into()?,
-					size: None,
-					timeout: crate::process::children::Timeout {
-						timeout: timeout.get(),
-						no_timeout: timeout.no_timeout,
-					},
-				};
-				self.command_process_children(args).await?;
-			},
-			item => {
-				let edge = item.to_graph_edge()?;
-				let object = edge
-					.try_unwrap_object()
-					.map_err(|_| tg::error!("expected an object"))?
-					.id();
-				let args = crate::object::children::Args {
-					locations: locations.clone(),
-					object,
-					print,
-				};
-				self.command_object_children(args).await?;
-			},
+		let is_process = matches!(
+			referent.item(),
+			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process
+		);
+		if is_process {
+			let process = referent.try_map::<tg::process::Id, _>(|item| match item {
+				tg::get::Item::Id(id) => id.try_into(),
+				tg::get::Item::Pointer(_) => unreachable!(),
+			})?;
+			let process = tg::Reference::with_item_and_token(
+				tg::reference::Item::Id(process.item.into()),
+				process.options.token,
+			);
+			let args = crate::process::children::Args {
+				length: None,
+				locations,
+				position: None,
+				print,
+				process,
+				size: None,
+				timeout: crate::process::children::Timeout {
+					timeout: timeout.get(),
+					no_timeout: timeout.no_timeout,
+				},
+			};
+			self.command_process_children(args).await?;
+		} else {
+			let object = referent
+				.into_graph_edge()?
+				.try_map::<tg::object::Id, _>(|edge| {
+					edge.try_unwrap_object()
+						.map(|object| object.id())
+						.map_err(|_| tg::error!("expected an object"))
+				})?;
+			let object = tg::Reference::with_item_and_token(
+				tg::reference::Item::Id(object.item.into()),
+				object.options.token,
+			);
+			let args = crate::object::children::Args {
+				locations,
+				object,
+				print,
+			};
+			self.command_object_children(args).await?;
 		}
 		Ok(())
 	}

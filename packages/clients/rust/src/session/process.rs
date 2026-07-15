@@ -4,13 +4,6 @@ use {
 };
 
 impl tg::handle::Process for tg::Session {
-	fn list_processes(
-		&self,
-		arg: tg::process::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::list::Output>> {
-		self.list_processes(arg)
-	}
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -58,17 +51,17 @@ impl tg::handle::Process for tg::Session {
 
 	fn try_get_process_control_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::control::RequestEvent>> + Send + 'static,
-			>,
+			Option<(
+				tg::process::control::Output,
+				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+			)>,
 		>,
 	> {
-		self.try_get_process_control_stream(id, arg, stream)
+		self.try_get_process_control_stream(arg, stream)
 	}
 
 	fn try_signal_process(
@@ -148,14 +141,6 @@ impl tg::handle::Process for tg::Session {
 		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		self.try_touch_process(id, arg)
-	}
-
-	fn try_finish_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		self.try_finish_process(id, arg)
 	}
 
 	fn try_wait_process_future(

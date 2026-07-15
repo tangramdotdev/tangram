@@ -70,4 +70,15 @@ impl Object {
 			Self::Error(error) => error.children(children),
 		}
 	}
+
+	#[must_use]
+	pub fn without_tokens(self) -> Self {
+		match self {
+			Self::Command(command) => Self::Command(command.without_tokens()),
+			Self::Error(error) => Self::Error(error.without_tokens()),
+			Self::File(file) => Self::File(file.without_tokens()),
+			Self::Graph(graph) => Self::Graph(graph.without_tokens()),
+			value @ (Self::Blob(_) | Self::Directory(_) | Self::Symlink(_)) => value,
+		}
+	}
 }

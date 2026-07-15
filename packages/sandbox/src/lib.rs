@@ -1,6 +1,5 @@
 use {
 	crate::client::Client,
-	dashmap::DashMap,
 	futures::{FutureExt as _, Stream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -36,8 +35,6 @@ pub mod vm;
 pub struct Sandbox(Arc<State>);
 
 pub struct State {
-	processes: DashMap<String, Process>,
-
 	arg: Arg,
 
 	client: Client,
@@ -52,19 +49,12 @@ pub struct State {
 
 #[derive(Clone, Debug)]
 pub struct Process {
-	creator: Option<tg::Principal>,
-	debug: Option<tg::process::Debug>,
 	id: tg::process::Id,
-	location: Option<tg::Location>,
-	retry: bool,
-	sandbox: tg::sandbox::Id,
-	token: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct SpawnArg {
 	pub command: Command,
-	pub creator: Option<tg::Principal>,
 	pub debug: Option<tg::process::Debug>,
 	pub id: tg::process::Id,
 	pub location: Option<tg::Location>,
@@ -346,7 +336,6 @@ impl Sandbox {
 		};
 
 		let sandbox = Self(Arc::new(State {
-			processes: DashMap::default(),
 			arg,
 			client,
 			#[cfg(target_os = "linux")]
@@ -510,36 +499,13 @@ impl Sandbox {
 			url: arg.url,
 		};
 		self.0.client.spawn(spawn_arg).await?;
-		let process = Process {
-			creator: arg.creator.clone(),
-			debug: arg.debug.clone(),
-			id: id.clone(),
-			location: arg.location.clone(),
-			retry: arg.retry,
-			sandbox: self.0.arg.id.clone(),
-			token: arg.token.clone(),
-		};
-		self.0
-			.processes
-			.insert(process.token.clone(), process.clone());
+		let process = Process { id };
 		Ok(process)
 	}
 
 	#[must_use]
 	pub fn creator(&self) -> Option<&tg::Principal> {
 		self.0.arg.creator.as_ref()
-	}
-
-	pub fn remove_process(&self, token: &str) {
-		self.0.processes.remove(token);
-	}
-
-	#[must_use]
-	pub fn get_process(&self, token: &str) -> Option<Process> {
-		self.0
-			.processes
-			.get(token)
-			.map(|process| process.value().clone())
 	}
 
 	#[must_use]
@@ -555,15 +521,6 @@ impl Sandbox {
 	#[must_use]
 	pub fn owner(&self) -> Option<&tg::Principal> {
 		self.0.arg.owner.as_ref()
-	}
-
-	#[must_use]
-	pub fn processes(&self) -> Vec<Process> {
-		self.0
-			.processes
-			.iter()
-			.map(|process| process.value().clone())
-			.collect()
 	}
 
 	#[must_use]
@@ -631,38 +588,8 @@ impl Sandbox {
 
 impl Process {
 	#[must_use]
-	pub fn creator(&self) -> Option<&tg::Principal> {
-		self.creator.as_ref()
-	}
-
-	#[must_use]
-	pub fn debug(&self) -> Option<&tg::process::Debug> {
-		self.debug.as_ref()
-	}
-
-	#[must_use]
 	pub fn id(&self) -> &tg::process::Id {
 		&self.id
-	}
-
-	#[must_use]
-	pub fn location(&self) -> Option<&tg::Location> {
-		self.location.as_ref()
-	}
-
-	#[must_use]
-	pub fn retry(&self) -> bool {
-		self.retry
-	}
-
-	#[must_use]
-	pub fn sandbox(&self) -> &tg::sandbox::Id {
-		&self.sandbox
-	}
-
-	#[must_use]
-	pub fn token(&self) -> &str {
-		&self.token
 	}
 }
 

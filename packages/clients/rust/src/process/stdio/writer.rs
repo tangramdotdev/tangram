@@ -70,10 +70,12 @@ impl Writer {
 		}
 		drop(fd);
 		if let Some(process) = process {
-			let (location, process) = ensure_process_with_handle(Some(process), handle).await?;
+			let (location, process, token) =
+				ensure_process_with_handle(Some(process), handle).await?;
 			let arg = tg::process::stdio::write::Arg {
 				location,
 				streams: vec![stream],
+				token,
 			};
 			let input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>> =
 				stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed();
@@ -107,10 +109,11 @@ impl Writer {
 		};
 		let stream = state.stream;
 		drop(state);
-		let (location, process) = ensure_process_with_handle(Some(process), handle).await?;
+		let (location, process, token) = ensure_process_with_handle(Some(process), handle).await?;
 		let arg = tg::process::stdio::write::Arg {
 			location,
 			streams: vec![stream],
+			token,
 		};
 		let event = tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
 			bytes: Bytes::copy_from_slice(input),
@@ -155,7 +158,11 @@ impl std::fmt::Debug for Writer {
 async fn ensure_process_with_handle<H>(
 	process: Option<Weak<tg::process::Inner>>,
 	handle: &H,
-) -> tg::Result<(Option<tg::location::Arg>, tg::process::Id)>
+) -> tg::Result<(
+	Option<tg::location::Arg>,
+	tg::process::Id,
+	Option<tg::grant::Token>,
+)>
 where
 	H: tg::Handle,
 {
@@ -165,11 +172,12 @@ where
 	let handle_process = crate::process::Process::<tg::Value>(process.clone(), PhantomData);
 	handle_process.ensure_location_with_handle(handle).await?;
 	let location = process.location.read().unwrap().clone();
+	let token = process.token.read().unwrap().clone();
 	let id = process
 		.id
 		.as_ref()
 		.right()
 		.cloned()
 		.ok_or_else(|| tg::error!("the process is not available"))?;
-	Ok((location, id))
+	Ok((location, id, token))
 }

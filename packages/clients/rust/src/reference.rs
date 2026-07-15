@@ -84,6 +84,9 @@ pub struct Options {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 impl Reference {
@@ -103,6 +106,15 @@ impl Reference {
 			options: Options::default(),
 			export: None,
 		}
+	}
+
+	#[must_use]
+	pub fn with_item_and_token(item: Item, token: Option<tg::grant::Token>) -> Self {
+		let options = Options {
+			token,
+			..Default::default()
+		};
+		Self::with_item_and_options(item, options)
 	}
 
 	#[must_use]
@@ -218,6 +230,21 @@ impl Reference {
 	pub fn is_solvable(&self) -> bool {
 		self.item().is_specifier()
 	}
+
+	#[must_use]
+	pub fn without_token(&self) -> Self {
+		let mut reference = self.clone();
+		reference.options.token.take();
+
+		reference
+	}
+
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.options.token.take();
+
+		self
+	}
 }
 
 impl std::fmt::Display for Reference {
@@ -287,6 +314,19 @@ impl std::str::FromStr for Item {
 			return Ok(Self::Specifier(specifier));
 		}
 		Err(tg::error!(%s, "invalid item"))
+	}
+}
+
+impl From<Options> for tg::referent::Options {
+	fn from(options: Options) -> Self {
+		Self {
+			artifact: options.artifact,
+			id: options.id,
+			name: options.name,
+			path: options.path,
+			tag: options.tag,
+			token: options.token,
+		}
 	}
 }
 

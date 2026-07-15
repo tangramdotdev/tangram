@@ -8,10 +8,10 @@ let blob = "hello, world!\n" | tg write
 
 let output = tg decompress $blob | complete
 failure $output
-snapshot ($output.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> invalid compression format
 
 '

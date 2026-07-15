@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Creating an organization returns its record, makes it retrievable, and grants the creator admin.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 

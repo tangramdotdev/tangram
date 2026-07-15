@@ -40,7 +40,7 @@ pub enum Data {
 	Map(BTreeMap<String, Data>),
 
 	#[tangram_serialize(id = 6)]
-	Object(tg::MaybeWithToken<tg::object::Id>),
+	Object(tg::Referent<tg::object::Id>),
 
 	#[tangram_serialize(id = 7)]
 	Bytes(Bytes),
@@ -110,17 +110,14 @@ impl Data {
 				}
 			},
 			Self::Object(object) => {
-				children.insert(match object {
-					tg::Either::Left(id) => id.clone(),
-					tg::Either::Right(object) => object.id.clone(),
-				});
+				children.insert(object.item.clone());
 			},
 			Self::Mutation(mutation) => mutation.children(children),
 			Self::Template(template) => template.children(children),
 		}
 	}
 
-	pub fn children_with_tokens(&self, children: &mut Vec<tg::MaybeWithToken<tg::object::Id>>) {
+	pub fn children_with_tokens(&self, children: &mut Vec<tg::Referent<tg::object::Id>>) {
 		match self {
 			Self::Null
 			| Self::Bool(_)
@@ -144,31 +141,29 @@ impl Data {
 		}
 	}
 
-	pub fn remove_tokens(&mut self) {
+	#[must_use]
+	pub fn without_tokens(self) -> Self {
 		match self {
 			Self::Array(array) => {
-				for value in array {
-					value.remove_tokens();
-				}
+				Self::Array(array.into_iter().map(Self::without_tokens).collect())
 			},
-			Self::Map(map) => {
-				for value in map.values_mut() {
-					value.remove_tokens();
-				}
+			Self::Map(map) => Self::Map(
+				map.into_iter()
+					.map(|(key, value)| (key, value.without_tokens()))
+					.collect(),
+			),
+			Self::Object(mut object) => {
+				object.options.token.take();
+				Self::Object(object)
 			},
-			Self::Object(object) => {
-				if let tg::Either::Right(with_token) = object {
-					*object = tg::Either::Left(with_token.id.clone());
-				}
-			},
-			Self::Mutation(mutation) => mutation.remove_tokens(),
-			Self::Template(template) => template.remove_tokens(),
-			Self::Null
+			Self::Mutation(mutation) => Self::Mutation(mutation.without_tokens()),
+			Self::Template(template) => Self::Template(template.without_tokens()),
+			value @ (Self::Null
 			| Self::Bool(_)
 			| Self::Number(_)
 			| Self::String(_)
 			| Self::Bytes(_)
-			| Self::Placeholder(_) => {},
+			| Self::Placeholder(_)) => value,
 		}
 	}
 
@@ -221,7 +216,7 @@ impl serde::Serialize for Data {
 			Self::Object(value) => {
 				let mut map = serializer.serialize_map(Some(2))?;
 				map.serialize_entry("kind", "object")?;
-				map.serialize_entry("value", value)?;
+				map.serialize_entry("value", &value.to_string())?;
 				map.end()
 			},
 			Self::Bytes(value) => {
@@ -364,7 +359,12 @@ impl<'de> serde::Deserialize<'de> for Data {
 							};
 							value = Some(match kind {
 								"map" => Data::Map(map.next_value()?),
-								"object" => Data::Object(map.next_value()?),
+								"object" => {
+									let string = map.next_value::<String>()?;
+									let referent =
+										string.parse().map_err(serde::de::Error::custom)?;
+									Data::Object(referent)
+								},
 								"bytes" => Data::Bytes(
 									data_encoding::BASE64
 										.decode(map.next_value::<String>()?.as_bytes())

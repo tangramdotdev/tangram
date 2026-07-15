@@ -82,7 +82,7 @@ success $output
 
 # Verify all packages are published.
 let tagged = $output.stderr | lines | where {|l| $l =~ 'info tagged'} | sort | str join "\n"
-snapshot ($tagged | normalize_ids) '
+snapshot --normalize-ids $tagged '
 	info tagged test-bottom/1.0.0 Object(tg::object::Id("dir_010000000000000000000000000000000000000000000000000000"))
 	info tagged test-left/1.0.0 Object(tg::object::Id("dir_011111111111111111111111111111111111111111111111111111"))
 	info tagged test-main/1.0.0 Object(tg::object::Id("dir_012222222222222222222222222222222222222222222222222222"))

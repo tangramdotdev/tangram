@@ -340,7 +340,9 @@ export let convertDiagnostic = (diagnostic: ts.Diagnostic): Diagnostic => {
 		diagnostic.length !== undefined
 	) {
 		// Get the diagnostic's module.
-		let module_ = moduleFromFileName(diagnostic.file.fileName);
+		let module_ = Module.withoutToken(
+			moduleFromFileName(diagnostic.file.fileName),
+		);
 
 		// Get the diagnostic's range.
 		let start = ts.getLineAndCharacterOfPosition(

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Destroying a sandbox requires access to it.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
@@ -14,3 +14,5 @@ failure $eve_destroy "Eve must not destroy a sandbox she cannot access"
 
 let alice_get = tg --token $alice.token sandbox get $sandbox | complete
 success $alice_get "Alice's sandbox should still exist after Eve's failed destroy"
+
+tg --token $alice.token sandbox destroy $sandbox

@@ -16,10 +16,10 @@ let path = artifact {
 
 let output = tg publish $path | complete
 failure $output
-snapshot ($output.stderr | redact $path) r#'
+snapshot --normalize --redact $path $output.stderr r#'
 	error an error occurred
 	-> failed to create publishing plan
 	-> metadata is missing the 'tag' field
-	   path = <path>/tangram.ts
+	   path = <redacted>/tangram.ts
 
 '#

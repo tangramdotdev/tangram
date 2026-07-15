@@ -33,7 +33,7 @@ import { output, Placeholder, placeholder } from "./placeholder.ts";
 import { Process, process, setProcess } from "./process.ts";
 import { Progress } from "./progress.ts";
 import type { Range } from "./range.ts";
-import type { Reference } from "./reference.ts";
+import { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
@@ -70,7 +70,6 @@ export type {
 	MaybeReferent,
 	MutationMap,
 	Range,
-	Reference,
 	Resolved,
 	ResolvedArgs,
 	ResolvedReturnValue,
@@ -110,6 +109,7 @@ export {
 	Placeholder,
 	Process,
 	Progress,
+	Reference,
 	Referent,
 	Request,
 	Response,

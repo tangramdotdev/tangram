@@ -58,9 +58,10 @@ pub fn host_import_module_dynamically_callback<'s>(
 			)),
 		})
 	} else {
-		let module: tg::module::Data = match resource_name.parse().map_err(
-			|error| tg::error!(!error, %resource_name, "failed to parse the resource name"),
-		) {
+		let module: tg::module::Data = match resource_name
+			.parse()
+			.map_err(|error| tg::error!(!error, "failed to parse the resource name"))
+		{
 			Ok(module) => module,
 			Err(error) => {
 				let exception = error::to_exception(scope, &error)?;
@@ -84,7 +85,12 @@ pub fn host_import_module_dynamically_callback<'s>(
 				import: import.clone(),
 			};
 			let output = handle.resolve_module(arg).await.map_err(|error| {
-				tg::error!(!error, ?referrer, ?import, "failed to resolve the module")
+				tg::error!(
+					!error,
+					import = ?import.without_token(),
+					referrer = ?referrer.as_ref().map(tg::module::Data::without_token),
+					"failed to resolve the module"
+				)
 			})?;
 			let module = output.module;
 			Ok(Serde(module))
@@ -117,7 +123,11 @@ pub fn host_import_module_dynamically_callback<'s>(
 							module: module.clone(),
 						};
 						let output = handle.load_module(arg).await.map_err(|error| {
-							tg::error!(!error, ?module, "failed to load the module")
+							tg::error!(
+								!error,
+								module = ?module.without_token(),
+								"failed to load the module"
+							)
 						})?;
 						Ok(Serde((module, output.text)))
 					}
@@ -294,10 +304,14 @@ fn resolve_module_sync(
 			sender.send(result).unwrap();
 		}
 	});
-	let result = receiver
-		.recv()
-		.unwrap()
-		.map_err(|error| tg::error!(!error, ?referrer, ?import, "failed to resolve"));
+	let result = receiver.recv().unwrap().map_err(|error| {
+		tg::error!(
+			!error,
+			import = ?import.without_token(),
+			referrer = ?referrer.without_token(),
+			"failed to resolve"
+		)
+	});
 	let module = match result {
 		Ok(module) => module,
 		Err(error) => {
@@ -323,10 +337,9 @@ fn load_module_sync(scope: &mut v8::PinScope, module: &tg::module::Data) -> Opti
 			sender.send(result).unwrap();
 		}
 	});
-	let result = receiver
-		.recv()
-		.unwrap()
-		.map_err(|error| tg::error!(!error, ?module, "failed to load the module"));
+	let result = receiver.recv().unwrap().map_err(
+		|error| tg::error!(!error, module = ?module.without_token(), "failed to load the module"),
+	);
 	let text = match result {
 		Ok(text) => text,
 		Err(error) => {

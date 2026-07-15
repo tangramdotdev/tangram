@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process owned by a group is readable by group members and hidden from outsiders, because reading a process requires reading its sandbox.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json
@@ -27,9 +27,9 @@ success (tg --token $carol.token get $process | complete) "a group member should
 failure (tg --token $carol.token get $private | complete) "a group member must not read another member's private process"
 let denied = tg --token $eve.token get $process | complete
 failure $denied "an outsider must not read a process owned by a group"
-snapshot ($denied.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $denied.stderr '
 	error an error occurred
 	-> failed to find the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 
 '

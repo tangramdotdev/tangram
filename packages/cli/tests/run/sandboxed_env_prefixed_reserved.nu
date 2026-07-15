@@ -16,13 +16,13 @@ let path = artifact {
 
 let output = tg run $path | complete
 failure $output
-snapshot ($output.stderr | redact $path | normalize_ids) '
+snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> the child process failed
-	   id = <process>
-	   ╭─[<path>/tangram.ts:2:9]
+	   id = pcs_0011111111111111111111111111
+	   ╭─[<redacted>/tangram.ts:2:9]
 	 1 │ export default async function () {
 	 2 │     return await tg.run(tg.file()).env({
 	   ·            ▲
@@ -30,7 +30,7 @@ snapshot ($output.stderr | redact $path | normalize_ids) '
 	 3 │         TANGRAM_ENV_FOO: 5,
 	   ╰────
 	-> failed to run the process
-	   process = <process>
+	   process = pcs_0011111111111111111111111111
 	-> env vars prefixed with TANGRAM_ENV_ are reserved
 	   key = TANGRAM_ENV_FOO
 

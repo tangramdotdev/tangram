@@ -90,6 +90,7 @@ fn new_index() -> (tempfile::TempDir, Index) {
 		},
 		map_size: 1 << 30,
 		max_items_per_transaction: 100_000,
+		max_process_depth: None,
 		path: dir.path().join("index"),
 	})
 	.unwrap();

@@ -10,7 +10,7 @@ let path = artifact {
 tg tag root $path
 
 let output = tg tree root --depth 1
-snapshot ($output | normalize_ids) '
+snapshot --normalize-ids $output '
 	root: dir_010000000000000000000000000000000000000000000000000000
 	└╴entries: map
 '

@@ -169,6 +169,13 @@ export class Command<
 		return this.#state;
 	}
 
+	/** Get a command with a referent. */
+	static withReferent(referent: tg.Referent<tg.Command.Id>): tg.Command {
+		let command = tg.Command.withId(referent.item);
+		command.state.token = referent.options?.token ?? null;
+		return command;
+	}
+
 	/** Get a command with an ID. */
 	static withId(id: tg.Command.Id): tg.Command {
 		return new tg.Command({ id, stored: true });
@@ -554,6 +561,25 @@ export namespace Command {
 			];
 		};
 
+		export let withoutTokens = (data: tg.Command.Data): tg.Command.Data => {
+			let output = { ...data };
+			if (data.args !== undefined) {
+				output.args = data.args.map(tg.Value.Data.withoutTokens);
+			}
+			if (data.env !== undefined) {
+				output.env = globalThis.Object.fromEntries(
+					globalThis.Object.entries(data.env).map(([key, value]) => [
+						key,
+						tg.Value.Data.withoutTokens(value),
+					]),
+				);
+			}
+			output.executable = tg.Command.Data.Executable.withoutTokens(
+				data.executable,
+			);
+			return output;
+		};
+
 		export type Executable =
 			| tg.Command.Data.Executable.Artifact
 			| tg.Command.Data.Executable.Module
@@ -584,6 +610,18 @@ export namespace Command {
 				} else {
 					return [];
 				}
+			};
+
+			export let withoutTokens = (
+				data: tg.Command.Data.Executable,
+			): tg.Command.Data.Executable => {
+				if ("module" in data) {
+					return {
+						...data,
+						module: tg.Module.Data.withoutTokens(data.module),
+					};
+				}
+				return { ...data };
 			};
 		}
 	}

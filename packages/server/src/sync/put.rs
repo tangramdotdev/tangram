@@ -50,10 +50,8 @@ impl Session {
 
 		// Enqueue the items.
 		for item in &state.arg.put {
-			let (item, token) = match item {
-				tg::Either::Left(item) => (item, None),
-				tg::Either::Right(item) => (&item.id, Some(item.token.clone())),
-			};
+			let token = item.options.token.clone();
+			let item = &item.item;
 			match item {
 				tg::Either::Left(object) => {
 					let item = super::queue::ObjectItem {

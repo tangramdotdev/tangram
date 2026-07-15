@@ -41,7 +41,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub get: Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>,
+	pub get: Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -60,7 +60,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub put: Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>,
+	pub put: Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -295,7 +295,7 @@ impl tg::Session {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let method = http::Method::POST;
-		let (arg_in_body, uri) = match Uri::builder().path("/sync").query_params(&arg) {
+		let (arg_in_body, uri) = match Uri::builder().path("/sync").query_params_strict(&arg) {
 			Ok(builder) => (false, builder.build().unwrap()),
 			Err(QueryParamsError::TooLarge) => {
 				let uri = Uri::builder().path("/sync").build().unwrap();

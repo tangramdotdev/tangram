@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Membership confers write but not admin, so a member cannot remove another member.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json
@@ -18,11 +18,11 @@ tg --token $bob.token group create team/bob-sub
 # Write does not confer admin, so bob cannot remove another member.
 let output = tg --token $bob.token group members remove team $carol.user.id | complete
 failure $output "a member without admin should not be able to remove another member"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to remove the group member
 	   group = team
-	   member = <user>
+	   member = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> unauthorized

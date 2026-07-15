@@ -53,9 +53,12 @@ where
 	where
 		T: serde::de::DeserializeOwned,
 	{
-		self.uri()
-			.query()
-			.map(|query| serde_qs::from_str(query).map_err(Into::into))
+		self.uri().query().map(|query| {
+			serde_qs::Config::new()
+				.use_form_encoding(true)
+				.deserialize_str(query)
+				.map_err(Into::into)
+		})
 	}
 
 	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>

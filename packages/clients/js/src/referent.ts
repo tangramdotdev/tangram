@@ -16,6 +16,17 @@ export namespace Referent {
 		token?: tg.Grant.Token | null;
 	};
 
+	export let withItemAndToken = <T>(
+		item: T,
+		token: tg.Grant.Token | null,
+	): tg.Referent<T> => {
+		let referent: tg.Referent<T> = { item };
+		if (token !== null) {
+			referent.options = { token };
+		}
+		return referent;
+	};
+
 	export let toData = <T, U>(
 		value: tg.Referent<T>,
 		f: (item: T) => U,
@@ -191,6 +202,17 @@ export namespace Referent {
 			item,
 			options,
 		};
+		return referent;
+	};
+
+	export let withoutToken = <T>(value: tg.Referent<T>): tg.Referent<T> => {
+		let referent: tg.Referent<T> = {
+			item: value.item,
+		};
+		if (value.options !== undefined) {
+			referent.options = { ...value.options };
+			delete referent.options.token;
+		}
 		return referent;
 	};
 

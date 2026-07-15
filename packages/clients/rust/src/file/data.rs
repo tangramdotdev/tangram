@@ -62,4 +62,12 @@ impl File {
 			Self::Node(node) => node.children(children),
 		}
 	}
+
+	#[must_use]
+	pub fn without_tokens(self) -> Self {
+		match self {
+			Self::Node(node) => Self::Node(node.without_tokens()),
+			Self::Pointer(pointer) => Self::Pointer(pointer),
+		}
+	}
 }

@@ -79,7 +79,6 @@ impl Session {
 					finished_at,
 					host,
 					id,
-					lease_count,
 					log,
 					output,
 					retry,
@@ -118,8 +117,7 @@ impl Session {
 					?21,
 					?22,
 					?23,
-					?24,
-					?25
+					?24
 				)
 				on conflict (id) do update set
 					actual_checksum = ?1,
@@ -133,19 +131,18 @@ impl Session {
 					expected_checksum = ?9,
 					finished_at = ?10,
 					host = ?11,
-					lease_count = ?13,
-					log = ?14,
-					output = ?15,
-					retry = ?16,
-					sandbox = ?17,
-					started_at = ?18,
-					status = ?19,
-					stderr = ?20,
-					stdin = ?21,
-					stdout = ?22,
-					stored_at = ?23,
-					creator = ?24,
-					tty = ?25
+					log = ?13,
+					output = ?14,
+					retry = ?15,
+					sandbox = ?16,
+					started_at = ?17,
+					status = ?18,
+					stderr = ?19,
+					stdin = ?20,
+					stdout = ?21,
+					stored_at = ?22,
+					creator = ?23,
+					tty = ?24
 			"
 		);
 		let children_statement = indoc!(
@@ -155,10 +152,17 @@ impl Session {
 				on conflict (process, child) do nothing;
 			"
 		);
+		let finalize_statement = indoc!(
+			"
+				insert into process_finalize_queue (created_at, process, status)
+				values (?1, ?2, 'created')
+				on conflict (process) do nothing;
+			"
+		);
 		for (id, data) in items {
 			let error_string = data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
-				tg::Either::Right(id) => id.clone().map_right(|id| id.id).into_inner().to_string(),
+				tg::Either::Right(id) => id.item.to_string(),
 			});
 			let error_code = data.error.as_ref().and_then(|e| match e {
 				tg::Either::Left(data) => data.code.map(|code| code.to_string()),
@@ -193,12 +197,7 @@ impl Session {
 						data.finished_at,
 						data.host,
 						id.to_string(),
-						0,
-						data.log.as_ref().map(|log| log
-							.clone()
-							.map_right(|log| log.id)
-							.into_inner()
-							.to_string()),
+						data.log.as_ref().map(|log| log.item.to_string()),
 						output_json,
 						data.retry,
 						data.sandbox.to_string(),
@@ -215,6 +214,16 @@ impl Session {
 				.await;
 			crate::database::retry!(result, "failed to execute the statement");
 
+			if Self::process_log_needs_compaction(data) {
+				let result = transaction
+					.execute(
+						finalize_statement.into(),
+						db::params![stored_at, id.to_string()],
+					)
+					.await;
+				crate::database::retry!(result, "failed to execute the statement");
+			}
+
 			if let Some(children) = &data.children {
 				for (position, child) in children.iter().enumerate() {
 					let result = transaction
@@ -224,13 +233,8 @@ impl Session {
 								id.to_string(),
 								position.to_i64().unwrap(),
 								child.cached,
-								child
-									.process
-									.clone()
-									.map_right(|process| process.id)
-									.into_inner()
-									.to_string(),
-								serde_json::to_string(&child.options).unwrap(),
+								child.process.item.to_string(),
+								serde_json::to_string(&child.process.options).unwrap(),
 							],
 						)
 						.await;

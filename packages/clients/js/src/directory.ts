@@ -28,6 +28,13 @@ export class Directory {
 		return this.#state;
 	}
 
+	/** Get a directory with a referent. */
+	static withReferent(referent: tg.Referent<tg.Directory.Id>): tg.Directory {
+		let directory = tg.Directory.withId(referent.item);
+		directory.state.token = referent.options?.token ?? null;
+		return directory;
+	}
+
 	/** Get a directory with an ID. */
 	static withId(id: tg.Directory.Id): tg.Directory {
 		return new tg.Directory({ id, stored: true });

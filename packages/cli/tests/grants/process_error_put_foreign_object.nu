@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Putting a process whose error names a foreign object does not leak it: tg process put grants the putter only the process node, which does not propagate to the error object.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
@@ -36,4 +36,4 @@ tg --token $eve.token index
 # Eve must not gain read access to Alice's error object by naming it as her process's error.
 let leaked = tg --token $eve.token get $alice_error | complete
 failure $leaked "Eve must not read Alice's error object after naming it as her process's error."
-snapshot ($leaked.stdout | redact | normalize_ids) ''
+snapshot --normalize-ids $leaked.stdout ''

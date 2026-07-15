@@ -3,7 +3,7 @@ use {
 	tangram_client::prelude::*, tangram_futures::stream::Ext as _,
 };
 
-/// Remove unused processes and objects.
+/// Remove unused sandboxes, processes, and objects.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -36,8 +36,8 @@ impl Cli {
 		let bytes = byte_unit::Byte::from_u64(output.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);
 		let message = format!(
-			"cleaned {} processes, {} objects, {} tags, {bytes:#.1}",
-			output.processes, output.objects, output.tags,
+			"cleaned {} sandboxes, {} processes, {} objects, {} tags, {bytes:#.1}",
+			output.sandboxes, output.processes, output.objects, output.tags,
 		);
 		self.print_info_message(&message);
 

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Cache reuse is owner-scoped: a different owner building the same deterministic command does not reuse the first owner's private cached process. Cross-principal reuse requires a public build.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

@@ -6,7 +6,7 @@ let server = spawn
 
 let output = tg get nonexistent-tag | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the reference
 	   reference = nonexistent-tag

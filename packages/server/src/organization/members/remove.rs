@@ -147,7 +147,7 @@ impl Session {
 				)
 				.into(),
 			),
-			resource: tg::grant::Resource::Id(organization.id.clone()),
+			resource: tg::Referent::with_item(tg::grant::Resource::Id(organization.id.clone())),
 		};
 		self.delete_grant_with_transaction(transaction, arg, batch)
 			.await?;

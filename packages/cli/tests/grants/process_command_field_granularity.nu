@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A grant on the process command field confers only the command object, leaving the process node and other fields masked.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

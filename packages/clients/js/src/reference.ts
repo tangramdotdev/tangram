@@ -19,6 +19,7 @@ export namespace Reference {
 		path?: string | null;
 		source?: string | null;
 		tag?: tg.Tag | null;
+		token?: tg.Grant.Token | null;
 	};
 
 	export let toData = <T, U>(
@@ -56,6 +57,9 @@ export namespace Reference {
 		}
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			options.tag = value.options.tag;
+		}
+		if (value.options?.token !== undefined && value.options.token !== null) {
+			options.token = value.options.token;
 		}
 		return {
 			item,
@@ -100,6 +104,9 @@ export namespace Reference {
 		if (data.options?.tag !== undefined && data.options.tag !== null) {
 			options.tag = data.options.tag;
 		}
+		if (data.options?.token !== undefined && data.options.token !== null) {
+			options.token = data.options.token;
+		}
 		return {
 			item,
 			options,
@@ -143,6 +150,9 @@ export namespace Reference {
 		}
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
+		}
+		if (value.options?.token !== undefined && value.options.token !== null) {
+			params.push(`token=${encodeURIComponent(value.options.token)}`);
 		}
 		if (params.length > 0) {
 			string += "?";
@@ -199,6 +209,10 @@ export namespace Reference {
 						options.tag = decodeURIComponent(value);
 						break;
 					}
+					case "token": {
+						options.token = decodeURIComponent(value);
+						break;
+					}
 					default: {
 						throw new Error("invalid key");
 					}
@@ -220,6 +234,26 @@ export namespace Reference {
 		  };
 
 	export namespace Data {
+		export let withoutTokens = <T>(
+			data: tg.Reference.Data<T>,
+		): tg.Reference.Data<T> => {
+			if (typeof data === "string") {
+				let reference = tg.Reference.fromDataString(data, (item) => item);
+				let options = { ...reference.options };
+				delete options.token;
+				return tg.Reference.toDataString(
+					{ ...reference, options },
+					(item) => item,
+				);
+			}
+			let output = { ...data };
+			if (output.options !== undefined) {
+				output.options = { ...output.options };
+				delete output.options.token;
+			}
+			return output;
+		};
+
 		export type Options = {
 			artifact?: tg.Artifact.Id | null;
 			get?: string | null;
@@ -229,6 +263,7 @@ export namespace Reference {
 			path?: string | null;
 			source?: string | null;
 			tag?: tg.Tag | null;
+			token?: tg.Grant.Token | null;
 		};
 	}
 }

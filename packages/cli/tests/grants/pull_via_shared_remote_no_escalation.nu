@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A user on a shared server must not inherit the server's configured service remote. The server-level remote and its token are isolated from authenticated users, so a user cannot ride the server's credentials to pull a private object from the source.
 
-let source = spawn --cloud --name source --config { authentication: { providers: { insecure: true } } }
+let source = spawn --cloud --name source --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice_s = tg --url $source.url login --verbose alice | from json
 
@@ -12,7 +12,7 @@ tg --url $source.url index
 
 # A shared server reaches the source via Alice's source token as its server-level remote.
 let shared = spawn --name shared --config {
-	authentication: { providers: { insecure: true } },
+	authentication: { users: { providers: { insecure: true } } },
 	remotes: { default: { url: $source.url, token: $alice_s.token } },
 }
 

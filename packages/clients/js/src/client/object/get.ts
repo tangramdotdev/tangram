@@ -1,12 +1,13 @@
 import * as tg from "../../index.ts";
-import { Request, percentEncode } from "../../http.ts";
+import { Request, Uri, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export async function getObject(
 	client: Client,
 	id: tg.Object.Id,
+	arg?: tg.Object.Get.Arg | null,
 ): Promise<tg.Object.Data> {
-	let output = await tryGetObject(client, id);
+	let output = await tryGetObject(client, id, arg);
 	if (output === null) {
 		throw new Error("failed to find the object");
 	}
@@ -16,9 +17,20 @@ export async function getObject(
 export async function tryGetObject(
 	client: Client,
 	id: tg.Object.Id,
+	arg?: tg.Object.Get.Arg | null,
 ): Promise<tg.Object.Data | null> {
 	let method = "GET";
-	let uri = `/objects/${percentEncode(id)}`;
+	let uri = new Uri({
+		path: `/objects/${percentEncode(id)}`,
+		query: {
+			location:
+				arg?.location === undefined || arg.location === null
+					? null
+					: tg.Location.Arg.toDataString(arg.location),
+			metadata: arg?.metadata === true ? true.toString() : null,
+			token: arg?.token ?? null,
+		},
+	});
 	let headers = {
 		accept: "application/json",
 	};

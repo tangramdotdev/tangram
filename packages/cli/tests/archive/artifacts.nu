@@ -23,7 +23,8 @@ def roundtrip [format: string, compression?: string] {
 	}
 	let blob_id = tg archive ...$args $id | str trim
 	let extracted_id = tg extract $blob_id | str trim
-	assert ($extracted_id == $id) $"roundtrip failed for format=($format) compression=($compression)"
+	let original_id = $id | split row '?' | first
+	assert ($extracted_id == $original_id) $"roundtrip failed for format=($format) compression=($compression)"
 }
 
 # Tar without compression.

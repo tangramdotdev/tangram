@@ -200,7 +200,7 @@ impl Session {
 					tg::grant::Permission::Group(tg::grant::permission::group::Permission::Admin)
 						.into(),
 				),
-				resource: tg::grant::Resource::Id(id.clone().into()),
+				resource: tg::Referent::with_item(tg::grant::Resource::Id(id.clone().into())),
 			};
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;

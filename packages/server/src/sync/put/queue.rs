@@ -107,11 +107,13 @@ impl Session {
 				tg::Either::Left(id) => crate::sync::graph::Id::Object(id),
 				tg::Either::Right(id) => crate::sync::graph::Id::Process(id),
 			});
-			let (inserted, stored) = state
-				.graph
-				.lock()
-				.unwrap()
-				.update_object_remote(&item.id, parent, item.kind, None);
+			let (inserted, stored) = {
+				let mut graph = state.graph.lock().unwrap();
+				if let Some(token) = &item.token {
+					graph.update_object_token(&item.id, token.clone());
+				}
+				graph.update_object_remote(&item.id, parent, item.kind, None)
+			};
 			let stored = stored.is_some_and(|stored| stored.subtree);
 			statuses.push((inserted, stored));
 		}
@@ -126,23 +128,15 @@ impl Session {
 			} else {
 				Self::sync_put_object_node_permissions()
 			};
-			let permissions = state
+			let authorization = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_object_local_permissions(&item.id, requested);
-			if permissions.contains(requested) {
+				.get_object_local_authorization(&item.id, requested);
+			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource = item.token.clone().map_or_else(
-				|| tg::Either::Left(item.id.clone()),
-				|token| {
-					tg::Either::Right(tg::WithToken {
-						id: item.id.clone(),
-						token,
-					})
-				},
-			);
+			let resource = tg::Referent::with_item_and_token(item.id.clone(), authorization.token);
 			authorization_args.push((resource, requested));
 			authorization_positions.push(position);
 		}
@@ -169,7 +163,8 @@ impl Session {
 				.graph
 				.lock()
 				.unwrap()
-				.get_object_local_permissions(&item.id, node);
+				.get_object_local_authorization(&item.id, node)
+				.permissions;
 			if !permissions.contains(node) {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(
 					tg::sync::PutMissingObjectMessage { id: item.id },
@@ -214,11 +209,13 @@ impl Session {
 		let mut statuses = Vec::with_capacity(items.len());
 		for item in &items {
 			let parent = item.parent.clone().map(crate::sync::graph::Id::Process);
-			let (inserted, stored) = state
-				.graph
-				.lock()
-				.unwrap()
-				.update_process_remote(&item.id, parent, None);
+			let (inserted, stored) = {
+				let mut graph = state.graph.lock().unwrap();
+				if let Some(token) = &item.token {
+					graph.update_process_token(&item.id, token.clone());
+				}
+				graph.update_process_remote(&item.id, parent, None)
+			};
 			let stored = stored.is_some_and(|stored| {
 				if state.arg.recursive {
 					stored.subtree
@@ -246,23 +243,15 @@ impl Session {
 			} else {
 				Self::sync_put_process_node_permissions()
 			};
-			let permissions = state
+			let authorization = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_permissions(&item.id, requested);
-			if permissions.contains(requested) {
+				.get_process_local_authorization(&item.id, requested);
+			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource = item.token.clone().map_or_else(
-				|| tg::Either::Left(item.id.clone()),
-				|token| {
-					tg::Either::Right(tg::WithToken {
-						id: item.id.clone(),
-						token,
-					})
-				},
-			);
+			let resource = tg::Referent::with_item_and_token(item.id.clone(), authorization.token);
 			authorization_args.push((resource, requested));
 			authorization_positions.push(position);
 		}
@@ -289,7 +278,8 @@ impl Session {
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_permissions(&item.id, node);
+				.get_process_local_authorization(&item.id, node)
+				.permissions;
 			if !permissions.contains(node) {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(
 					tg::sync::PutMissingProcessMessage { id: item.id },

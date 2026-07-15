@@ -330,6 +330,7 @@ impl Server {
 						principal: tg::Principal::Anonymous,
 						sandbox,
 						stopper: Some(stopper),
+						token: None,
 					};
 					let response = server.handle_request(request, context).await;
 					Ok::<_, Infallible>(response)
@@ -504,6 +505,7 @@ impl Server {
 		// Authenticate.
 		let token = request.token(None).map(str::to_owned);
 		let result = self.authenticate(context.sandbox, token.as_deref()).await;
+		context.token = token;
 		context.principal = match result {
 			Ok(authentication) => authentication,
 			Err(error) => {
@@ -621,7 +623,6 @@ impl Server {
 				.boxed(),
 
 			// Processes.
-			(http::Method::GET, ["processes"]) => session.list_processes_request(request).boxed(),
 			(http::Method::POST, ["processes", "spawn"]) => {
 				session.try_spawn_process_request(request).boxed()
 			},
@@ -637,11 +638,14 @@ impl Server {
 			(http::Method::POST, ["processes", process, "cancel"]) => {
 				session.try_cancel_process_request(request, process).boxed()
 			},
-			(http::Method::POST, ["processes", process, "control"]) => session
-				.try_get_process_control_stream_request(request, process)
+			(http::Method::POST, ["processes", "control"]) => session
+				.try_get_process_control_stream_request(request)
 				.boxed(),
 			(http::Method::POST, ["processes", process, "signal"]) => {
 				session.try_signal_process_request(request, process).boxed()
+			},
+			(http::Method::POST, ["runners", "control"]) => {
+				session.get_runner_control_stream_request(request).boxed()
 			},
 			(http::Method::GET, ["processes", process, "status"]) => session
 				.try_get_process_status_stream_request(request, process)
@@ -660,9 +664,6 @@ impl Server {
 				.boxed(),
 			(http::Method::POST, ["processes", process, "touch"]) => {
 				session.try_touch_process_request(request, process).boxed()
-			},
-			(http::Method::POST, ["processes", process, "finish"]) => {
-				session.try_finish_process_request(request, process).boxed()
 			},
 			(http::Method::POST, ["processes", process, "wait"]) => session
 				.try_wait_process_future_request(request, process)
@@ -683,21 +684,15 @@ impl Server {
 			// Sandboxes.
 			(http::Method::POST, ["sandboxes"]) => session.create_sandbox_request(request).boxed(),
 			(http::Method::GET, ["sandboxes"]) => session.list_sandboxes_request(request).boxed(),
-			(http::Method::POST, ["sandboxes", "dequeue"]) => {
-				session.try_dequeue_sandbox_request(request).boxed()
-			},
 			(http::Method::GET, ["sandboxes", sandbox]) => {
 				session.try_get_sandbox_request(request, sandbox).boxed()
 			},
-			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => session
-				.try_dequeue_sandbox_process_request(request, sandbox)
-				.boxed(),
 			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => session
 				.try_destroy_sandbox_request(request, sandbox)
 				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => session
-				.try_heartbeat_sandbox_request(request, sandbox)
-				.boxed(),
+			(http::Method::POST, ["sandboxes", "control"]) => {
+				session.get_sandbox_control_stream_request(request).boxed()
+			},
 			(http::Method::GET, ["sandboxes", sandbox, "status"]) => session
 				.try_get_sandbox_status_stream_request(request, sandbox)
 				.boxed(),

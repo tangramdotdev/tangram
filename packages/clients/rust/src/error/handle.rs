@@ -12,21 +12,21 @@ pub struct Error {
 }
 
 impl Error {
-	#[must_use]
-	pub fn with_state(state: tg::object::State) -> Self {
-		let source = state.object().and_then(|object| {
-			let object = object.try_unwrap_error_ref().ok()?;
-			object.source.as_ref().map(|source| match &source.item {
-				tg::Either::Left(object) => Box::new(Error::with_object(object.clone())),
-				tg::Either::Right(handle) => handle.clone(),
-			})
-		});
-		Self { state, source }
+	pub fn try_with_referent<T>(referent: tg::Referent<T>) -> std::result::Result<Self, T::Error>
+	where
+		T: TryInto<Id>,
+	{
+		let referent = referent.try_map(TryInto::try_into)?;
+
+		Ok(Self::with_referent(referent))
 	}
 
 	#[must_use]
-	pub fn state(&self) -> &tg::object::State {
-		&self.state
+	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
+		let error = Self::with_id(referent.item);
+		error.state().set_token(referent.options.token);
+
+		error
 	}
 
 	#[must_use]
@@ -48,6 +48,23 @@ impl Error {
 			state: tg::object::State::with_object(object),
 			source,
 		}
+	}
+
+	#[must_use]
+	pub fn with_state(state: tg::object::State) -> Self {
+		let source = state.object().and_then(|object| {
+			let object = object.try_unwrap_error_ref().ok()?;
+			object.source.as_ref().map(|source| match &source.item {
+				tg::Either::Left(object) => Box::new(Error::with_object(object.clone())),
+				tg::Either::Right(handle) => handle.clone(),
+			})
+		});
+		Self { state, source }
+	}
+
+	#[must_use]
+	pub fn state(&self) -> &tg::object::State {
+		&self.state
 	}
 
 	#[must_use]

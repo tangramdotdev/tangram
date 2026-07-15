@@ -1,8 +1,8 @@
 use {
 	crate::{Server, Session},
-	indoc::formatdoc,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::prelude::*,
+	tangram_index::prelude::*,
 	tangram_uri::Uri,
 };
 
@@ -62,7 +62,7 @@ impl Session {
 			tg::Principal::Organization(id) => Some(tg::grant::Principal::Organization(id)),
 			tg::Principal::Process(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::Root => None,
-			tg::Principal::Runner => return Err(tg::error!("unauthorized")),
+			tg::Principal::Runner(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::Sandbox(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::User(id) => Some(tg::grant::Principal::User(id)),
 		};
@@ -109,7 +109,7 @@ impl Session {
 				},
 				tg::grant::Principal::Process(_)
 				| tg::grant::Principal::Public
-				| tg::grant::Principal::Runner
+				| tg::grant::Principal::Runner(_)
 				| tg::grant::Principal::Sandbox(_) => Err(tg::error!("invalid remote principal")),
 			},
 			tg::principal::Selector::Specifier(specifier) => {
@@ -136,51 +136,70 @@ impl Session {
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<tg::Principal> {
-		let (statement, id) = match principal {
+		let owner = match principal {
+			tg::Principal::Process(id) => self
+				.server
+				.runner
+				.state
+				.try_get_process_sandbox(id)
+				.and_then(|sandbox| self.server.runner.state.try_get_sandbox(&sandbox))
+				.map(|sandbox| sandbox.owner),
+			tg::Principal::Sandbox(id) => self
+				.server
+				.runner
+				.state
+				.try_get_sandbox(id)
+				.map(|sandbox| sandbox.owner),
+			_ => None,
+		};
+		if let Some(owner) = owner {
+			return Ok(owner.unwrap_or(tg::Principal::Root));
+		}
+
+		let owner = match principal {
 			tg::Principal::Process(id) => {
-				let statement = formatdoc!(
-					"
-						select sandboxes.owner
-						from processes
-						join sandboxes on sandboxes.id = processes.sandbox
-						where processes.id = {{p}}1;
-					"
-				);
-				(statement, id.to_string())
+				let sandbox = self
+					.server
+					.index
+					.try_get_process(id)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to get the process from the index"),
+					)?
+					.and_then(|process| {
+						process
+							.sandbox
+							.or_else(|| process.data.map(|data| data.sandbox))
+					});
+				if let Some(sandbox) = sandbox {
+					self.server
+						.index
+						.try_get_sandbox(&sandbox)
+						.await
+						.map_err(
+							|error| tg::error!(!error, %sandbox, "failed to get the sandbox from the index"),
+						)?
+						.and_then(|sandbox| sandbox.data)
+						.map(|sandbox| sandbox.owner)
+				} else {
+					None
+				}
 			},
-			tg::Principal::Sandbox(id) => {
-				let statement = formatdoc!(
-					"
-						select owner
-						from sandboxes
-						where id = {{p}}1;
-					"
-				);
-				(statement, id.to_string())
-			},
+			tg::Principal::Sandbox(id) => self
+				.server
+				.index
+				.try_get_sandbox(id)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to get the sandbox from the index"),
+				)?
+				.and_then(|sandbox| sandbox.data)
+				.map(|sandbox| sandbox.owner),
 			_ => return Ok(principal.clone()),
 		};
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
-		let statement = statement.replace("{p}", p);
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			owner: Option<tg::Principal>,
-		}
-		let principal = connection
-			.query_optional_into::<Row>(statement.into(), db::params![id])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?
-			.owner
-			.unwrap_or(tg::Principal::Root);
-		Ok(principal)
+		let owner = owner.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
+
+		Ok(owner.unwrap_or(tg::Principal::Root))
 	}
 
 	pub async fn get_remote_session(&self, remote: &str) -> tg::Result<tg::Session> {

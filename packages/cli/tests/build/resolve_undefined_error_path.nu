@@ -17,10 +17,10 @@ let path = artifact {
 
 let output = tg build $path | complete
 failure $output
-snapshot ($output.stderr | redact $path | normalize_ids) '
+snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> invalid value to resolve at .foo[0].bar: undefined is not a value, use null instead
 
 '

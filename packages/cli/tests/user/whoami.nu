@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # whoami returns the logged-in user and reports not-logged-in for an anonymous client.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let me = tg user whoami | from json
@@ -13,7 +13,7 @@ let config = mktemp
 {} | to json | save -f $config
 let output = with-env { TANGRAM_CONFIG: $config } { tg user whoami | complete }
 failure $output "an anonymous client should not be logged in"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> not logged in
 

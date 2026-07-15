@@ -26,4 +26,6 @@ let second = tg build --detach --verbose $"($path)#second" | from json
 tg wait $second.process | complete
 let second_shared = tg process children $second.process | from json | get 0.process
 
-assert equal $first_shared $second_shared "the shared child should be reused across the two builds"
+let first_shared_id = $first_shared | split row '?' | first
+let second_shared_id = $second_shared | split row '?' | first
+assert equal $first_shared_id $second_shared_id "the shared child should be reused across the two builds"

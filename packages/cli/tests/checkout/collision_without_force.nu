@@ -15,7 +15,7 @@ tg checkout $id $path
 
 let output = tg checkout $id $path | complete
 failure $output
-snapshot ($output.stderr | redact $path $dir) '
+snapshot --normalize --redact [$path $dir] $output.stderr '
 	error an error occurred
 	-> failed to check out the artifact
 	   artifact = fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60

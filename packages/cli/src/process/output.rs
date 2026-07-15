@@ -11,23 +11,27 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_process_output(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let locations = args.locations.get();
+		let process = self.get_resolved_process(&args.process).await?;
+		let id = process.item;
 		let process = tg::Process::<tg::Value>::new(
-			args.process.clone(),
+			id.clone(),
 			tg::process::Options {
 				location: locations,
+				token: process.options.token,
 				..Default::default()
 			},
 		);
-		let output = process.output_with_handle(&client).await.map_err(
-			|error| tg::error!(!error, id = %args.process, "failed to get the process output"),
-		)?;
+		let output = process
+			.output_with_handle(&client)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process output"))?;
 		self.print_serde(output.to_data(), args.print).await?;
 		Ok(())
 	}

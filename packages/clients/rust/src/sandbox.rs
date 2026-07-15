@@ -11,11 +11,9 @@ pub use self::{
 	status::Status,
 };
 
+pub mod control;
 pub mod create;
 pub mod destroy;
 pub mod get;
-pub mod heartbeat;
 pub mod list;
-pub mod process;
-pub mod queue;
 pub mod status;

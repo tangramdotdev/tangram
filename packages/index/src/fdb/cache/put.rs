@@ -51,7 +51,7 @@ impl Index {
 			partition,
 			touched_at: arg.touched_at,
 			kind: ItemKind::CacheEntry,
-			id: tg::Either::Left(arg.id.clone().into()),
+			id: tg::object::Id::from(arg.id.clone()).into(),
 		});
 		let key = Self::pack(subspace, &key);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)

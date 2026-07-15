@@ -8,6 +8,7 @@ use {foundationdb_tuple as fdbt, num_traits::FromPrimitive as _};
 	num_derive::ToPrimitive,
 	derive_more::Display,
 	derive_more::FromStr,
+	derive_more::IsVariant,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,

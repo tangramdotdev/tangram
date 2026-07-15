@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # --public is idempotent: re-building a public command, and another owner building it, are cache hits that succeed without error rather than re-granting.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

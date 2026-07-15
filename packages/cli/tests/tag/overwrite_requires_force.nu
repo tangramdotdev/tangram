@@ -20,7 +20,7 @@ tg tag put test $id1 | complete | success $in
 # Overwriting the tag with a different item requires --force.
 let output = tg tag put test $id2 | complete
 failure $output "The tag command should fail without --force."
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to put the tag
 	-> the request failed

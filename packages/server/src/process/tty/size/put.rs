@@ -16,20 +16,27 @@ impl Session {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_set_process_tty_size_local(id, arg.size).await?
+				self.try_set_process_tty_size_local(id, arg.size, arg.token.as_ref())
+					.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.try_set_process_tty_size_region(id, arg.size, region)
+				self.try_set_process_tty_size_region(id, arg.size, region, arg.token.as_ref())
 					.await?
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
 			}) => {
-				self.try_set_process_tty_size_remote(id, arg.size, remote, region)
-					.await?
+				self.try_set_process_tty_size_remote(
+					id,
+					arg.size,
+					remote,
+					region,
+					arg.token.as_ref(),
+				)
+				.await?
 			},
 		};
 
@@ -40,34 +47,44 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		size: tg::process::tty::Size,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<()>> {
 		let Some(output) = self
-			.try_get_process_local(id, false)
+			.try_get_process_local(id, false, token)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 		else {
 			return Ok(None);
 		};
-		let has_tty = output.data.tty.is_some();
 
 		// Check if the process has a tty.
-		if !has_tty {
+		if output.data.tty.is_none() {
 			return Err(tg::error!(%id, "the process does not have a tty associated with it"));
+		}
+		if output.data.status.is_finished() {
+			return Ok(Some(()));
 		}
 
 		// Send the control request.
-		let request =
-			tg::process::control::RequestKind::Tty(tg::process::control::TtyRequest { size });
-		let max_retries = tangram_futures::retry::Options::default().max_retries;
-		let Some(response) = self
-			.try_send_process_control_request(id, request, max_retries)
-			.await?
-		else {
-			return Ok(Some(()));
-		};
-		let tg::process::control::ResponseKind::Tty = response.kind else {
-			return Err(tg::error!("expected a tty response"));
-		};
+		let request = tg::process::control::ServerRequestArg::Tty(
+			tg::process::control::TtyServerRequestArg { size },
+		);
+		let retry = tangram_futures::retry::Options::default();
+		let timeout = self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.map_or(std::time::Duration::from_secs(10), |runner| {
+				runner.stdio_drain_timeout
+			});
+		let options = crate::control::Options { retry, timeout };
+		let response = self
+			.send_process_control_request(id, request, options)
+			.await??;
+		response
+			.try_unwrap_tty()
+			.map_err(|_| tg::error!("expected a tty response"))?;
 
 		Ok(Some(()))
 	}
@@ -77,6 +94,7 @@ impl Session {
 		id: &tg::process::Id,
 		size: tg::process::tty::Size,
 		region: String,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
@@ -85,8 +103,9 @@ impl Session {
 			region: Some(region.clone()),
 		});
 		let arg = tg::process::tty::size::put::Arg {
-			size,
 			location: Some(location.into()),
+			size,
+			token: token.cloned(),
 		};
 		let Some(()) = client.try_set_process_tty_size(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to put the process tty"),
@@ -103,13 +122,15 @@ impl Session {
 		size: tg::process::tty::Size,
 		remote: String,
 		region: Option<String>,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::tty::size::put::Arg {
-			size,
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			size,
+			token: token.cloned(),
 		};
 		let Some(()) = client.try_set_process_tty_size(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to put the process tty"),

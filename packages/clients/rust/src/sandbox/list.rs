@@ -10,6 +10,9 @@ use {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub owner: Option<tg::Principal>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -56,7 +59,7 @@ impl tg::Session {
 		let method = http::Method::GET;
 		let uri = Uri::builder()
 			.path("/sandboxes")
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

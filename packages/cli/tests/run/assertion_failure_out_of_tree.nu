@@ -21,5 +21,4 @@ let path = artifact {
 let output = do { cd $path; tg run ./foo }| complete
 failure $output
 let stderr = $output.stderr
-let stderr = $stderr | redact | normalize_ids
-snapshot $stderr
+snapshot --normalize-ids $stderr

@@ -12,7 +12,7 @@ tg wait $process
 
 let output = tg cache $process | complete
 failure $output
-snapshot ($output.stderr | redact $path) '
+snapshot --normalize --redact $path $output.stderr '
 	error an error occurred
 	-> expected an object ID
 	   kind = pcs

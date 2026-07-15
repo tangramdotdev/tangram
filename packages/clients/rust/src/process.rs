@@ -36,10 +36,8 @@ pub mod data;
 pub mod debug;
 pub mod env;
 pub mod exec;
-pub mod finish;
 pub mod get;
 pub mod id;
-pub mod list;
 pub mod metadata;
 pub mod put;
 pub mod run;
@@ -135,6 +133,25 @@ pub struct SandboxCreateArg {
 }
 
 impl<O> Process<O> {
+	pub fn try_with_referent<T>(referent: tg::Referent<T>) -> std::result::Result<Self, T::Error>
+	where
+		T: TryInto<Id>,
+	{
+		let referent = referent.try_map(TryInto::try_into)?;
+
+		Ok(Self::with_referent(referent))
+	}
+
+	#[must_use]
+	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
+		let options = tg::process::Options {
+			token: referent.options.token,
+			..Default::default()
+		};
+
+		Self::new(referent.item, options)
+	}
+
 	#[must_use]
 	pub fn new(id: Id, options: tg::process::Options) -> Self {
 		let tg::process::Options {
@@ -292,6 +309,7 @@ impl<O> Process<O> {
 		let arg = tg::process::get::Arg {
 			location: self.location(),
 			metadata: false,
+			token: self.token(),
 		};
 		let Some(output) = handle.try_get_process(id, arg).await? else {
 			return Ok(None);
@@ -371,6 +389,7 @@ impl<O> Process<O> {
 		let arg = tg::process::signal::post::Arg {
 			location: self.location(),
 			signal,
+			token: self.token(),
 		};
 		let id = self.id().unwrap_right();
 		handle.signal_process(id, arg).await?;

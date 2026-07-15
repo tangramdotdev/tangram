@@ -50,7 +50,9 @@ export namespace Value {
 		} else if (value instanceof Array) {
 			return value.map(toData);
 		} else if (tg.Object.is(value)) {
-			return { kind: "object", value: objectWithToken(value) };
+			let referent = objectReferent(value);
+			let value_ = tg.Referent.toDataString(referent, (id) => id);
+			return { kind: "object", value: value_ };
 		} else if (value instanceof Uint8Array) {
 			return { kind: "bytes", value: tg.encoding.base64.encode(value) };
 		} else if (value instanceof tg.Mutation) {
@@ -90,15 +92,11 @@ export namespace Value {
 				]),
 			);
 		} else if (data.kind === "object") {
-			let id =
-				typeof data.value === "object" && "id" in data.value
-					? data.value.id
-					: data.value;
-			let object = tg.Object.withId(id);
-			if (typeof data.value !== "string") {
-				object.state.token = data.value.token;
-			}
-			return object;
+			let referent = tg.Referent.fromDataString(
+				data.value,
+				(id) => id as tg.Object.Id,
+			);
+			return tg.Object.withReferent(referent);
 		} else if (data.kind === "bytes") {
 			return tg.encoding.base64.decode(data.value);
 		} else if (data.kind === "mutation") {
@@ -217,10 +215,12 @@ export namespace Value {
 			if (object.state.object === null) {
 				continue;
 			}
-			let data = tg.Object.Object.toData(object.state.object);
+			let data = tg.Object.Data.withoutTokens(
+				tg.Object.Object.toData(object.state.object),
+			);
 			let id = tg.client.objectId(data);
 			let children = tg.Object.Object.children(object.state.object).map(
-				objectWithToken,
+				objectReferent,
 			);
 			object.state.id = id;
 			states.push(object.state);
@@ -246,25 +246,17 @@ export namespace Value {
 		}
 		for (let [index, item] of output.objects.entries()) {
 			let state = states[index]!;
-			if (typeof item === "string") {
-				if (state.id !== item) {
-					throw new Error("invalid object batch output");
-				}
-			} else {
-				if (state.id !== item.id) {
-					throw new Error("invalid object batch output");
-				}
-				state.token = item.token;
+			if (state.id !== item.item) {
+				throw new Error("invalid object batch output");
 			}
+			state.token = item.options?.token ?? null;
 		}
 	};
 
-	let objectWithToken = (
-		object: tg.Object,
-	): tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token } => {
+	let objectReferent = (object: tg.Object): tg.Referent<tg.Object.Id> => {
 		let id = object.state.id;
 		let token = object.state.token;
-		return token === null ? id : { id, token };
+		return tg.Referent.withItemAndToken(id, token);
 	};
 
 	export type Data =
@@ -274,7 +266,7 @@ export namespace Value {
 		| string
 		| Array<tg.Value.Data>
 		| { kind: "map"; value: { [key: string]: tg.Value.Data } }
-		| { kind: "object"; value: tg.Grant.MaybeWithToken<tg.Object.Id> }
+		| { kind: "object"; value: string }
 		| { kind: "bytes"; value: string }
 		| { kind: "mutation"; value: tg.Mutation.Data }
 		| { kind: "template"; value: tg.Template.Data }
@@ -294,11 +286,11 @@ export namespace Value {
 			} else if (data.kind === "map") {
 				return globalThis.Object.values(data.value).flatMap(children);
 			} else if (data.kind === "object") {
-				return [
-					typeof data.value === "object" && "id" in data.value
-						? data.value.id
-						: data.value,
-				];
+				let referent = tg.Referent.fromDataString(
+					data.value,
+					(id) => id as tg.Object.Id,
+				);
+				return [referent.item];
 			} else if (data.kind === "mutation") {
 				return tg.Mutation.Data.children(data.value);
 			} else if (data.kind === "template") {
@@ -308,27 +300,46 @@ export namespace Value {
 			}
 		};
 
-		export let removeTokens = (data: tg.Value.Data): void => {
+		export let withoutTokens = (data: tg.Value.Data): tg.Value.Data => {
 			if (data instanceof Array) {
-				for (let value of data) {
-					removeTokens(value);
-				}
+				return data.map(withoutTokens);
 			} else if (typeof data === "object" && data !== null) {
 				if (data.kind === "map") {
-					for (let value of globalThis.Object.values(data.value)) {
-						removeTokens(value);
-					}
+					return {
+						...data,
+						value: globalThis.Object.fromEntries(
+							globalThis.Object.entries(data.value).map(([key, value]) => [
+								key,
+								withoutTokens(value),
+							]),
+						),
+					};
 				} else if (data.kind === "object") {
-					data.value =
-						typeof data.value === "object" && "id" in data.value
-							? data.value.id
-							: data.value;
+					let referent = tg.Referent.fromDataString(
+						data.value,
+						(id) => id as tg.Object.Id,
+					);
+					return {
+						...data,
+						value: tg.Referent.toDataString(
+							tg.Referent.withoutToken(referent),
+							(id) => id,
+						),
+					};
 				} else if (data.kind === "mutation") {
-					tg.Mutation.Data.removeTokens(data.value);
+					return {
+						...data,
+						value: tg.Mutation.Data.withoutTokens(data.value),
+					};
 				} else if (data.kind === "template") {
-					tg.Template.Data.removeTokens(data.value);
+					return {
+						...data,
+						value: tg.Template.Data.withoutTokens(data.value),
+					};
 				}
+				return { ...data };
 			}
+			return data;
 		};
 	}
 }

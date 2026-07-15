@@ -6,13 +6,13 @@ let root_remote = spawn --name root-remote
 let alice_server = spawn --name alice-remote
 let bob_server = spawn --name bob-remote
 let auth_enabled = spawn --config {
-	authentication: { providers: { insecure: true } },
+	authentication: { users: { providers: { insecure: true } } },
 	remotes: { default: { url: $root_remote.url } },
 } --name auth-enabled
 
 let output = tg remote put default $alice_server.url | complete
 failure $output "An unauthenticated request should not be able to manage remotes."
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to put the remote
 	   name = default

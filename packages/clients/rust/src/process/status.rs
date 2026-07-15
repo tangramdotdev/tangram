@@ -27,8 +27,6 @@ use {
 #[from_str(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Status {
-	Created,
-	Dequeued,
 	Started,
 	Finished,
 }
@@ -42,6 +40,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
@@ -87,6 +88,7 @@ impl<O> tg::Process<O> {
 		let arg = tg::process::status::Arg {
 			location: self.location(),
 			timeout: None,
+			token: self.token(),
 		};
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
@@ -112,7 +114,7 @@ impl tg::Session {
 		let path = format!("/processes/{id}/status");
 		let uri = Uri::builder()
 			.path(&path)
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

@@ -53,11 +53,11 @@ impl Session {
 				.unwrap();
 
 		// Store the objects.
-		let principal = (!matches!(
-			self.context.principal,
-			tg::Principal::Anonymous | tg::Principal::Root
-		))
-		.then(|| self.context.principal.clone());
+		let grant_principal = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
+			tg::Principal::Root => None,
+			principal => Some(principal.try_to_grant_principal()?),
+		};
 		let put_args: Vec<_> = arg
 			.objects
 			.iter()
@@ -125,12 +125,15 @@ impl Session {
 				}
 				let children = object_children.get(&object.id).unwrap();
 				let children_with_tokens = object_children_with_tokens.get(&object.id).unwrap();
-				if self.post_object_batch_authorize(
-					children_with_tokens,
-					children,
-					&subtree_objects,
-					&batch_objects,
-				) {
+				if self
+					.post_object_batch_authorize(
+						children_with_tokens,
+						children,
+						&subtree_objects,
+						&batch_objects,
+					)
+					.await?
+				{
 					subtree_objects.insert(object.id.clone());
 					changed = true;
 				}
@@ -142,7 +145,7 @@ impl Session {
 
 		let mut put_grant_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
-			if let Some(principal) = &principal {
+			if let Some(grant_principal) = &grant_principal {
 				let permission = if subtree_objects.contains(&object.id) {
 					tg::grant::permission::object::Permission::Subtree
 				} else {
@@ -150,10 +153,10 @@ impl Session {
 				};
 				put_grant_args.push(tangram_index::grant::put::Arg {
 					created_at: now,
-					creator: Some(principal.clone()),
+					creator: Some(self.context.principal.clone()),
 					expires_at: Some(grant_expires_at),
 					permissions: tg::grant::Permission::Object(permission).into(),
-					principal: principal.try_to_grant_principal()?,
+					principal: grant_principal.clone(),
 					resource: object.id.clone().into(),
 					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 				});
@@ -196,14 +199,7 @@ impl Session {
 					vec![tg::grant::Permission::Object(permission)],
 					grant_expires_at,
 				)?;
-				let object = if let Some(token) = token {
-					tg::Either::Right(tg::WithToken {
-						id: object.id,
-						token,
-					})
-				} else {
-					tg::Either::Left(object.id)
-				};
+				let object = tg::Referent::with_item_and_token(object.id, token);
 				Ok(object)
 			})
 			.collect::<tg::Result<_>>()?;
@@ -211,48 +207,52 @@ impl Session {
 		Ok(tg::object::batch::Output { objects })
 	}
 
-	pub(crate) fn post_object_batch_authorize(
+	pub(crate) async fn post_object_batch_authorize(
 		&self,
-		children: &[tg::MaybeWithToken<tg::object::Id>],
+		children: &[tg::Referent<tg::object::Id>],
 		actual_children: &BTreeSet<tg::object::Id>,
 		batch_subtrees: &BTreeSet<tg::object::Id>,
 		batch_objects: &BTreeSet<tg::object::Id>,
-	) -> bool {
+	) -> tg::Result<bool> {
 		let mut children_map = std::collections::BTreeMap::new();
 		for child in children {
-			let id = match child {
-				tg::Either::Left(id) => id.clone(),
-				tg::Either::Right(child) => child.id.clone(),
-			};
+			let id = child.item.clone();
 			if !actual_children.contains(&id) {
 				continue;
 			}
 			if children_map.insert(id, child.clone()).is_some() {
-				return false;
+				return Ok(false);
 			}
 		}
+
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let mut authorization_args = Vec::new();
 		for child in actual_children {
 			if batch_objects.contains(child) {
 				if !batch_subtrees.contains(child) {
-					return false;
+					return Ok(false);
 				}
 				continue;
 			}
 			let Some(child) = children_map.get(child) else {
-				return false;
+				return Ok(false);
 			};
-			let child = child.clone();
-			let tg::Either::Right(child) = child else {
-				return false;
+			let Some(token) = child.options.token.as_ref() else {
+				return Ok(false);
 			};
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-			let resource = tg::grant::Resource::Id(child.id.into());
-			if !self.authorize_token(&resource, permission.into(), &child.token) {
-				return false;
+			let resource = tg::grant::Resource::Id(child.item.clone().into());
+			if !self.authorize_token(&resource, permission.into(), token) {
+				authorization_args.push((child.clone(), permission.into()));
 			}
 		}
-		true
+
+		let outputs = self.authorize_batch(authorization_args).await?;
+		let authorized = outputs
+			.into_iter()
+			.all(|output| output.is_some_and(|permissions| permissions.contains(permission)));
+
+		Ok(authorized)
 	}
 
 	async fn post_object_batch_region(

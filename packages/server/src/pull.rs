@@ -159,10 +159,7 @@ impl Session {
 }
 
 fn item_id(
-	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
 ) -> &tg::Either<tg::object::Id, tg::process::Id> {
-	match item {
-		tg::Either::Left(item) => item,
-		tg::Either::Right(item) => &item.id,
-	}
+	&item.item
 }

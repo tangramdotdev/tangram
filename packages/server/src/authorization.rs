@@ -10,7 +10,7 @@ impl Session {
 		permissions: Vec<tg::grant::Permission>,
 		expires_at: i64,
 	) -> tg::Result<Option<tg::grant::Token>> {
-		let Some(private_key) = self.server.tokens.private_key.as_ref() else {
+		let Some(private_key) = self.server.grant_tokens.private_key.as_ref() else {
 			return Ok(None);
 		};
 		let body = tg::grant::Body {
@@ -164,7 +164,12 @@ impl Session {
 	}
 
 	fn verify_token(&self, token: &tg::grant::Token) -> bool {
-		let Some(public_key) = self.server.tokens.public_keys.get(&token.metadata.key) else {
+		let Some(public_key) = self
+			.server
+			.grant_tokens
+			.public_keys
+			.get(&token.metadata.key)
+		else {
 			return false;
 		};
 		if token.verify(public_key).is_err() {
@@ -236,23 +241,11 @@ where
 	}
 }
 
-impl<T> IntoAuthorizationResource for tg::WithToken<T>
+impl<T> IntoAuthorizationResource for tg::Referent<T>
 where
 	T: IntoResource,
 {
 	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>) {
-		(self.id.into_resource(), Some(self.token))
-	}
-}
-
-impl<T> IntoAuthorizationResource for tg::MaybeWithToken<T>
-where
-	T: IntoResource,
-{
-	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>) {
-		match self {
-			tg::Either::Left(resource) => (resource.into_resource(), None),
-			tg::Either::Right(resource) => resource.into_authorization_resource(),
-		}
+		(self.item.into_resource(), self.options.token)
 	}
 }

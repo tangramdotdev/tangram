@@ -4,12 +4,11 @@ use {
 	std::{
 		os::unix::fs::PermissionsExt as _,
 		path::{Component, Path, PathBuf},
-		pin::pin,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		read::{Ext as _, shared_position_reader::SharedPositionReader},
-		stream::{Ext as _, TryExt as _},
+		stream::Ext as _,
 		task::Task,
 	},
 	tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _},
@@ -32,18 +31,13 @@ where
 	let input = args
 		.first()
 		.ok_or_else(|| tg::error!("invalid number of arguments"))?;
-	let blob = match input {
-		tg::value::Data::Object(id) => {
-			let object = tg::Object::with_id(id.clone().map_right(|object| object.id).into_inner());
-			match object {
-				tg::Object::Blob(blob) => blob,
-				tg::Object::File(file) => file.contents_with_handle(handle).await?,
-				_ => return Err(tg::error!("expected a blob or a file")),
-			}
-		},
-		_ => {
-			return Err(tg::error!("expected a blob or a file"));
-		},
+	let object = tg::Value::try_from_data(input.clone())?
+		.try_unwrap_object()
+		.map_err(|_| tg::error!("expected a blob or a file"))?;
+	let blob = match object {
+		tg::Object::Blob(blob) => blob,
+		tg::Object::File(file) => file.contents_with_handle(handle).await?,
+		_ => return Err(tg::error!("expected a blob or a file")),
 	};
 
 	// Create the reader.
@@ -112,8 +106,9 @@ where
 	}
 
 	// Check in the temp.
-	let stream = handle
-		.checkin(tg::checkin::Arg {
+	let artifact = tg::checkin::checkin_with_handle(
+		handle,
+		tg::checkin::Arg {
 			options: tg::checkin::Options {
 				destructive: true,
 				ignore: false,
@@ -123,14 +118,9 @@ where
 			},
 			path: temp.path().to_owned(),
 			updates: Vec::new(),
-		})
-		.await?;
-	let output = pin!(stream)
-		.try_last()
-		.await?
-		.and_then(|event| event.try_unwrap_output().ok())
-		.ok_or_else(|| tg::error!("stream ended without output"))?;
-	let artifact = tg::Artifact::with_id(output.artifact.item);
+		},
+	)
+	.await?;
 
 	// Abort the log task.
 	log_task.abort();

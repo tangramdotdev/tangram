@@ -11,8 +11,8 @@ def assert_cacheable_error [source: string] {
 
 	let output = tg build $path | complete
 	failure $output
-	let relevant = $output.stderr | lines | where {|l| $l =~ 'a build must be cacheable'} | sort | each {|l| $l | redact $path | normalize_ids }
-	snapshot $relevant '
+	let relevant = $output.stderr | lines | where {|l| $l =~ 'a build must be cacheable'} | sort
+	snapshot --normalize-ids --redact $path $relevant '
 		   ·            ╰── a build must be cacheable
 		-> a build must be cacheable
 
@@ -67,10 +67,10 @@ let checksum_path = artifact {
 
 let checksum_output = tg build $checksum_path | complete
 failure $checksum_output
-snapshot ($checksum_output.stderr | redact $checksum_path | normalize_ids) '
+snapshot --normalize-ids --redact $checksum_path $checksum_output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> failed to deserialize the request body
 	-> invalid algorithm at line 1 column 18
 
@@ -84,7 +84,7 @@ let cli_path = artifact {
 
 let cli_output = tg build --network=true $cli_path | complete
 failure $cli_output
-snapshot ($cli_output.stderr | redact $cli_path | normalize_ids) '
+snapshot --normalize-ids --redact $cli_path $cli_output.stderr '
 	error an error occurred
 	-> a build must be cacheable
 

@@ -35,7 +35,7 @@ export namespace Spawn {
 			if (arg.checksum !== undefined) {
 				output.checksum = arg.checksum;
 			}
-			output.command = tg.Referent.toData(arg.command, (id) => id);
+			output.command = tg.Referent.toDataString(arg.command, (id) => id);
 			if (arg.debug !== undefined) {
 				output.debug = arg.debug;
 			}

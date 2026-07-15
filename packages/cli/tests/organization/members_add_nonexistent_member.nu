@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Adding a member that does not exist fails.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 
@@ -14,10 +14,10 @@ tg --token $alice.token group delete disposable
 
 let output = tg --token $alice.token organization members add acme $gone.id | complete
 failure $output "adding a nonexistent member should fail"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to add the organization member
-	   member = <group>
+	   member = grp_0000000000000000000000000000
 	   organization = acme
 	-> the request failed
 	   status = 500 Internal Server Error

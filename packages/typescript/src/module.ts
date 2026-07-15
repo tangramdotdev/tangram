@@ -65,6 +65,12 @@ export namespace Module {
 		) {
 			params.push(`tag=${encodeURIComponent(value.referent.options.tag)}`);
 		}
+		if (
+			value.referent.options?.token !== undefined &&
+			value.referent.options.token !== null
+		) {
+			params.push(`token=${encodeURIComponent(value.referent.options.token)}`);
+		}
 		params.push(`kind=${encodeURIComponent(value.kind)}`);
 		string += "?";
 		string += params.join("&");
@@ -82,6 +88,10 @@ export namespace Module {
 					throw new Error("missing value");
 				}
 				switch (key) {
+					case "artifact": {
+						options.artifact = decodeURIComponent(value);
+						break;
+					}
 					case "id": {
 						options.id = decodeURIComponent(value);
 						break;
@@ -96,6 +106,10 @@ export namespace Module {
 					}
 					case "tag": {
 						options.tag = decodeURIComponent(value);
+						break;
+					}
+					case "token": {
+						options.token = decodeURIComponent(value);
 						break;
 					}
 					case "kind": {
@@ -119,6 +133,20 @@ export namespace Module {
 				options,
 			},
 		};
+		return module;
+	};
+
+	export let withoutToken = (value: Module): Module => {
+		let module: Module = {
+			kind: value.kind,
+			referent: {
+				item: value.referent.item,
+			},
+		};
+		if (value.referent.options !== undefined) {
+			module.referent.options = { ...value.referent.options };
+			delete module.referent.options.token;
+		}
 		return module;
 	};
 }

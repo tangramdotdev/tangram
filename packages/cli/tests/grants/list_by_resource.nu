@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Listing a resource's grants returns every grant on it, including the creator's admin grant.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

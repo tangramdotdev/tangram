@@ -10,11 +10,17 @@ export type Object =
 	| tg.Error;
 
 export namespace Object {
+	export namespace Get {
+		export type Arg = {
+			location?: tg.Location.Arg | null;
+			metadata?: boolean;
+			token?: tg.Grant.Token | null;
+		};
+	}
+
 	export namespace Batch {
 		export type Object = {
-			children?: Array<
-				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			> | null;
+			children?: Array<tg.Referent<tg.Object.Id>> | null;
 			id: tg.Object.Id;
 			data: tg.Object.Data;
 		};
@@ -25,23 +31,19 @@ export namespace Object {
 		};
 
 		export type Output = {
-			objects: Array<
-				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			>;
+			objects: Array<tg.Referent<tg.Object.Id>>;
 		};
 	}
 
 	export namespace Put {
 		export type Arg = {
-			children?: Array<
-				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			> | null;
+			children?: Array<tg.Referent<tg.Object.Id>> | null;
 			data: tg.Object.Data;
 			location?: tg.Location.Arg | null;
 		};
 
 		export type Output = {
-			object: tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token };
+			object: tg.Referent<tg.Object.Id>;
 		};
 	}
 
@@ -103,7 +105,9 @@ export namespace Object {
 			if (this.#id !== null) {
 				return this.#id;
 			}
-			let data = tg.Object.Object.toData(this.#object!);
+			let data = tg.Object.Data.withoutTokens(
+				tg.Object.Object.toData(this.#object!),
+			);
 			this.#id = tg.client.objectId(data);
 			return this.#id;
 		}
@@ -151,7 +155,8 @@ export namespace Object {
 
 		async load(): Promise<tg.Object.Object> {
 			if (this.#object === null) {
-				let data = await tg.client.getObject(this.#id!);
+				let arg = this.#token !== null ? { token: this.#token } : {};
+				let data = await tg.client.getObject(this.#id!, arg);
 				this.#object = tg.Object.Object.fromData(data);
 			}
 			return this.#object;
@@ -324,7 +329,50 @@ export namespace Object {
 				}
 			}
 		};
+
+		export let withoutTokens = (data: tg.Object.Data): tg.Object.Data => {
+			switch (data.kind) {
+				case "blob":
+				case "directory":
+				case "symlink": {
+					return { ...data };
+				}
+				case "command": {
+					return {
+						...data,
+						value: tg.Command.Data.withoutTokens(data.value),
+					};
+				}
+				case "error": {
+					return {
+						...data,
+						value: tg.Error.Data.withoutTokens(data.value),
+					};
+				}
+				case "file": {
+					return {
+						...data,
+						value: tg.File.Data.withoutTokens(data.value),
+					};
+				}
+				case "graph": {
+					return {
+						...data,
+						value: tg.Graph.Data.withoutTokens(data.value),
+					};
+				}
+			}
+		};
 	}
+
+	/** Get an object with a referent. */
+	export let withReferent = (
+		referent: tg.Referent<tg.Object.Id>,
+	): tg.Object => {
+		let object = withId(referent.item);
+		object.state.token = referent.options?.token ?? null;
+		return object;
+	};
 
 	/** Get an object with an ID. */
 	export let withId = (id: tg.Object.Id): tg.Object => {

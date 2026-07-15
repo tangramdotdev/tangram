@@ -93,6 +93,15 @@ export namespace Artifact {
 		};
 	}
 
+	/** Get an artifact with a referent. */
+	export let withReferent = (
+		referent: tg.Referent<tg.Artifact.Id>,
+	): tg.Artifact => {
+		let artifact = withId(referent.item);
+		artifact.state.token = referent.options?.token ?? null;
+		return artifact;
+	};
+
 	/** Get an artifact with an ID. */
 	export let withId = (id: tg.Artifact.Id): tg.Artifact => {
 		tg.assert(typeof id === "string", `expected a string: ${id}`);

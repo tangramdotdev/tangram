@@ -20,4 +20,4 @@ let path = artifact {
 }
 
 let output = tg build $path
-snapshot $output '"cycle detected"'
+snapshot $output '"cycle detected at .self"'

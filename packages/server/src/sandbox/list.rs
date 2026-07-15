@@ -1,10 +1,10 @@
 use {
 	crate::Session,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
-	indoc::formatdoc,
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -15,6 +15,7 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
+		let creator = self.context.principal.clone();
 
 		let mut output = tg::sandbox::list::Output { data: Vec::new() };
 
@@ -25,16 +26,23 @@ impl Session {
 
 		if let Some(local) = &locations.local {
 			if local.current {
-				output.data.extend(self.list_sandboxes_local().await?);
+				output.data.extend(
+					self.list_sandboxes_local(Some(&creator), arg.owner.as_ref())
+						.await?,
+				);
 			}
 
-			let region_outputs = self.list_sandboxes_regions(&local.regions).await?;
+			let region_outputs = self
+				.list_sandboxes_regions(&local.regions, arg.owner.as_ref())
+				.await?;
 			output
 				.data
 				.extend(region_outputs.into_iter().flat_map(|output| output.data));
 		}
 
-		let remote_outputs = self.list_sandboxes_remotes(&locations.remotes).await?;
+		let remote_outputs = self
+			.list_sandboxes_remotes(&locations.remotes, arg.owner.as_ref())
+			.await?;
 		output
 			.data
 			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
@@ -42,68 +50,93 @@ impl Session {
 		Ok(output)
 	}
 
-	pub(crate) async fn list_sandboxes_local(&self) -> tg::Result<Vec<tg::sandbox::list::Item>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::sandbox::Id,
-			cpu: Option<i64>,
-			hostname: Option<String>,
-			memory: Option<i64>,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
-			mounts: Option<Vec<tg::sandbox::Mount>>,
-			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Network>>")]
-			network: Option<tg::sandbox::Network>,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			owner: Option<tg::Principal>,
-			#[tangram_database(as = "db::value::FromStr")]
-			status: tg::sandbox::Status,
-			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
-			ttl: Option<std::time::Duration>,
-		}
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let statement = formatdoc!(
-			r"
-				select id, cpu, hostname, memory, mounts, network, owner, status, ttl
-				from sandboxes
-				where status != 'destroyed'
-				order by created_at;
-			"
-		);
-		let params = db::params![];
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let data = rows
+	pub(crate) async fn list_sandboxes_local(
+		&self,
+		creator: Option<&tg::Principal>,
+		owner: Option<&tg::Principal>,
+	) -> tg::Result<Vec<tg::sandbox::list::Item>> {
+		let mut sandboxes = if let Some(owner) = owner {
+			self.server
+				.index
+				.list_sandboxes_for_owner(owner)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %owner, "failed to list the sandboxes for the owner"),
+				)?
+		} else if let Some(creator) = creator {
+			let creator_sandboxes = self
+				.server
+				.index
+				.list_sandboxes_for_creator(creator)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %creator, "failed to list the sandboxes for the creator"),
+				)?;
+			let mut sandboxes = creator_sandboxes.into_iter().collect::<BTreeMap<_, _>>();
+			let principals = self
+				.server
+				.index
+				.get_requester_principals(creator)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %creator, "failed to get the requester principals"),
+				)?;
+			for owner in principals
+				.into_iter()
+				.filter_map(|principal| principal.try_to_principal().ok())
+			{
+				let owner_sandboxes = self
+					.server
+					.index
+					.list_sandboxes_for_owner(&owner)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %owner, "failed to list the sandboxes for the owner"),
+					)?;
+				sandboxes.extend(owner_sandboxes);
+			}
+			sandboxes.into_iter().collect()
+		} else {
+			self.server
+				.index
+				.list_sandboxes()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?
+		};
+		sandboxes.sort_by(|(id_a, sandbox_a), (id_b, sandbox_b)| {
+			sandbox_a
+				.created_at
+				.cmp(&sandbox_b.created_at)
+				.then_with(|| id_a.cmp(id_b))
+		});
+		let location = tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		});
+		let data = sandboxes
 			.into_iter()
-			.map(|row| {
-				Ok::<_, tg::Error>(tg::sandbox::list::Item {
-					id: row.id,
-					cpu: row
-						.cpu
-						.map(u64::try_from)
-						.transpose()
-						.map_err(|error| tg::error!(!error, "invalid sandbox cpu"))?,
-					hostname: row.hostname,
-					memory: row
-						.memory
-						.map(u64::try_from)
-						.transpose()
-						.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?,
-					mounts: row.mounts.unwrap_or_default(),
-					network: row.network,
-					owner: Some(row.owner.unwrap_or(tg::Principal::Root)),
-					status: row.status,
-					ttl: row.ttl,
+			.filter_map(|(id, sandbox)| {
+				let data = sandbox.data?;
+				if !data.status.is_started()
+					|| data
+						.location
+						.as_ref()
+						.is_some_and(|sandbox_location| sandbox_location != &location)
+				{
+					return None;
+				}
+				Some(tg::sandbox::list::Item {
+					cpu: data.cpu,
+					hostname: data.hostname,
+					id,
+					memory: data.memory,
+					mounts: data.mounts,
+					network: data.network,
+					owner: Some(data.owner.unwrap_or(tg::Principal::Root)),
+					status: data.status,
+					ttl: data.ttl,
 				})
 			})
-			.collect::<tg::Result<Vec<tg::sandbox::list::Item>>>()?;
+			.collect::<Vec<_>>();
 		let permission =
 			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
 		let authorizations = data
@@ -115,7 +148,10 @@ impl Session {
 				)
 			})
 			.collect::<Vec<_>>();
-		let authorizations = self.authorize_batch(authorizations).await?;
+		let authorizations = self
+			.authorize_batch(authorizations)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the sandboxes"))?;
 		let data = std::iter::zip(data, authorizations)
 			.filter_map(|(item, permissions)| {
 				permissions
@@ -129,17 +165,22 @@ impl Session {
 	async fn list_sandboxes_regions(
 		&self,
 		regions: &[String],
+		owner: Option<&tg::Principal>,
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
 		let outputs = regions
 			.iter()
-			.map(|region| self.list_sandboxes_region(region))
+			.map(|region| self.list_sandboxes_region(region, owner))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
 		Ok(outputs)
 	}
 
-	async fn list_sandboxes_region(&self, region: &str) -> tg::Result<tg::sandbox::list::Output> {
+	async fn list_sandboxes_region(
+		&self,
+		region: &str,
+		owner: Option<&tg::Principal>,
+	) -> tg::Result<tg::sandbox::list::Output> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -148,6 +189,7 @@ impl Session {
 		});
 		let arg = tg::sandbox::list::Arg {
 			location: Some(location.into()),
+			owner: owner.cloned(),
 		};
 		let output = client.list_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
@@ -158,10 +200,11 @@ impl Session {
 	async fn list_sandboxes_remotes(
 		&self,
 		remotes: &[crate::location::Remote],
+		owner: Option<&tg::Principal>,
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
 		let outputs = remotes
 			.iter()
-			.map(|remote| self.list_sandboxes_remote(remote))
+			.map(|remote| self.list_sandboxes_remote(remote, owner))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
@@ -171,6 +214,7 @@ impl Session {
 	async fn list_sandboxes_remote(
 		&self,
 		remote: &crate::location::Remote,
+		owner: Option<&tg::Principal>,
 	) -> tg::Result<tg::sandbox::list::Output> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -181,6 +225,7 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			owner: owner.cloned(),
 		};
 		let output = client.list_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to list the sandboxes"),

@@ -109,12 +109,10 @@ impl Session {
 
 	pub(crate) async fn compact_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
 		let output = self
-			.try_get_process_local(process, false)
+			.try_get_process_local(process, false, None)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
-		if output.data.log.is_some()
-			|| !(output.data.stdout.is_log() || output.data.stderr.is_log())
-		{
+		if !Self::process_log_needs_compaction(&output.data) {
 			return Ok(());
 		}
 
@@ -189,6 +187,12 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to update the process log"))?;
+		self.server
+			.runner
+			.state
+			.try_update_process(process, |state| {
+				state.data.log = Some(tg::Referent::with_item(blob.clone()));
+			});
 
 		self.server
 			.log_store
@@ -199,6 +203,10 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to delete the process log from store"))?;
 
 		Ok(())
+	}
+
+	pub(crate) fn process_log_needs_compaction(data: &tg::process::Data) -> bool {
+		data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log())
 	}
 
 	async fn update_process_log_with_transaction(
@@ -238,15 +246,11 @@ impl Session {
 			return Err(tg::error!("invalid stdio stream"));
 		}
 		let output = self
-			.try_get_process_local(id, false)
+			.try_get_process_local(id, false, None)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
-		let mut inner = if let Some(id) = output
-			.data
-			.log
-			.map(|log| log.map_right(|log| log.id).into_inner())
-		{
+		let mut inner = if let Some(id) = output.data.log.map(|log| log.item) {
 			let blob = tg::Blob::with_id(id);
 			let mut reader = crate::read::Reader::new(self, blob).await?;
 			let index = self.read_log_index_from_blob(&mut reader).await?;
@@ -357,11 +361,8 @@ impl Session {
 					&& let Inner::Store(inner) = &state.inner
 					&& let Some(output) = inner
 						.session
-						.try_get_process_local(&inner.process, false)
-						.await? && let Some(blob_id) = output
-					.data
-					.log
-					.map(|log| log.map_right(|log| log.id).into_inner())
+						.try_get_process_local(&inner.process, false, None)
+						.await? && let Some(blob_id) = output.data.log.map(|log| log.item)
 				{
 					let blob = tg::Blob::with_id(blob_id);
 					let mut reader = crate::read::Reader::new(&inner.session, blob).await?;

@@ -16,10 +16,10 @@ let path = artifact {
 
 let output = tg run $path | complete
 failure $output
-snapshot ($output.stderr | redact $path | normalize_ids) '
+snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> failed to find the executable in PATH
 	   executable = sh
 

@@ -50,7 +50,7 @@ impl Session {
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Edge(edge),
-						..
+						options,
 					},
 				..
 			} => {
@@ -64,6 +64,7 @@ impl Session {
 					},
 					|object| Ok(tg::Object::with_id(object.clone())),
 				)?;
+				object.state().set_token(options.token.clone());
 				let file = object
 					.try_unwrap_file()
 					.ok()
@@ -86,7 +87,7 @@ impl Session {
 					| tg::module::Kind::Symlink
 					| tg::module::Kind::Graph
 					| tg::module::Kind::Command,
-				referent: tg::Referent { item, .. },
+				referent: tg::Referent { item, options },
 				..
 			} => {
 				let class = match arg.module.kind {
@@ -100,22 +101,30 @@ impl Session {
 					tg::module::Kind::Command => "Command",
 					_ => unreachable!(),
 				};
+				let inherit_token = options.token.as_ref().map_or_else(String::new, |token| {
+					let token = serde_json::to_string(&token.to_string()).unwrap();
+					format!("tg.Object.inheritToken(object, {token});")
+				});
 				let text = match item {
 					tg::module::data::Item::Edge(edge) => match edge {
 						tg::graph::data::Edge::Pointer(pointer) => {
 							formatdoc!(
 								r#"
-									// @ts-nocheck
-									export default tg.{class}.withPointer(tg.Graph.Pointer.fromDataString("{pointer}")) as tg.{class};
-								"#
+										// @ts-nocheck
+										const object = tg.{class}.withPointer(tg.Graph.Pointer.fromDataString("{pointer}"));
+										{inherit_token}
+										export default object as tg.{class};
+									"#
 							)
 						},
 						tg::graph::data::Edge::Object(object) => {
 							formatdoc!(
 								r#"
-									// @ts-nocheck
-									export default tg.{class}.withId("{object}") as tg.{class};
-								"#
+										// @ts-nocheck
+										const object = tg.{class}.withId("{object}");
+										{inherit_token}
+										export default object as tg.{class};
+									"#
 							)
 						},
 					},

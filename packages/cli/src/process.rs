@@ -5,7 +5,6 @@ pub mod cancel;
 pub mod children;
 pub mod exec;
 pub mod get;
-pub mod list;
 pub mod metadata;
 pub mod output;
 pub mod put;
@@ -31,8 +30,6 @@ pub enum Command {
 	Children(self::children::Args),
 	Exec(self::exec::Args),
 	Get(self::get::Args),
-	#[command(alias = "ls")]
-	List(self::list::Args),
 	Log(self::stdio::read::Args),
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
@@ -61,9 +58,6 @@ impl Cli {
 			},
 			Command::Get(args) => {
 				self.command_process_get(args).await?;
-			},
-			Command::List(args) => {
-				self.command_process_list(args).await?;
 			},
 			Command::Log(args) => {
 				self.command_process_stdio_read(args).await?;

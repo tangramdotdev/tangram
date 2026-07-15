@@ -20,6 +20,13 @@ impl Location {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		self.module.children(children);
 	}
+
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.module = self.module.without_tokens();
+
+		self
+	}
 }
 
 impl std::fmt::Display for Location {

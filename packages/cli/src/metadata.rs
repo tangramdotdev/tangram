@@ -21,28 +21,43 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_resolved_reference(&args.reference).await?;
-		match referent.item {
-			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
-				let args = crate::process::metadata::Args {
-					locations,
-					print,
-					process: id.try_into()?,
-				};
-				self.command_process_metadata(args).await?;
-			},
-			item => {
-				let edge = item.to_graph_edge()?;
-				let object = edge
-					.try_unwrap_object()
-					.map_err(|_| tg::error!("expected an object"))?
-					.id();
-				let args = crate::object::metadata::Args {
-					locations: locations.clone(),
-					object,
-					print,
-				};
-				self.command_object_metadata(args).await?;
-			},
+		let is_process = matches!(
+			referent.item(),
+			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process
+		);
+		if is_process {
+			let process = referent.try_map::<tg::process::Id, _>(|item| match item {
+				tg::get::Item::Id(id) => id.try_into(),
+				tg::get::Item::Pointer(_) => unreachable!(),
+			})?;
+			let process = tg::Reference::with_item_and_token(
+				tg::reference::Item::Id(process.item.into()),
+				process.options.token,
+			);
+			let args = crate::process::metadata::Args {
+				locations,
+				print,
+				process,
+			};
+			self.command_process_metadata(args).await?;
+		} else {
+			let object = referent
+				.into_graph_edge()?
+				.try_map::<tg::object::Id, _>(|edge| {
+					edge.try_unwrap_object()
+						.map(|object| object.id())
+						.map_err(|_| tg::error!("expected an object"))
+				})?;
+			let object = tg::Reference::with_item_and_token(
+				tg::reference::Item::Id(object.item.into()),
+				object.options.token,
+			);
+			let args = crate::object::metadata::Args {
+				locations,
+				object,
+				print,
+			};
+			self.command_object_metadata(args).await?;
 		}
 
 		Ok(())

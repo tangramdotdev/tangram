@@ -285,7 +285,9 @@ impl Session {
 			if state.arg.options.unsolved_dependencies {
 				return Ok(());
 			}
-			return Err(tg::error!(%reference, "expected reference to be a specifier"));
+			return Err(
+				tg::error!(item = %reference.item(), "expected reference to be a specifier"),
+			);
 		};
 
 		self.checkin_solve_item_with_tag(state, checkpoint, item, reference.clone(), tag.clone())
@@ -1041,7 +1043,9 @@ impl Session {
 				for (reference, option) in &file.dependencies {
 					let Some(dependency) = option else {
 						if !reference.is_solvable() {
-							return Err(tg::error!(%reference, "unsolvable unsolved dependency"));
+							return Err(
+								tg::error!(item = %reference.item(), "unsolvable unsolved dependency"),
+							);
 						}
 						dependencies.insert(reference.clone(), None);
 						continue;

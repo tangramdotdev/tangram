@@ -8,7 +8,7 @@ let dir = tg put 'tg.directory({ "f": tg.file("x") })' | str trim
 
 let output = tg read $dir | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> expected a blob, file, or symlink that points to a file
 

@@ -136,50 +136,6 @@ impl Server {
 
 		let statement = formatdoc!(
 			"
-				delete from sandboxes
-				where id = {p}1 and status = {p}2;
-			"
-		);
-		let params = db::params![
-			entry.sandbox.to_string(),
-			tg::sandbox::Status::Destroyed.to_string()
-		];
-		let result = transaction.execute(statement.into(), params).await;
-		let n = crate::database::retry!(result, "failed to execute the statement");
-		if n == 0 {
-			let statement = formatdoc!(
-				"
-					select count(*) != 0
-					from sandboxes
-					where id = {p}1;
-				"
-			);
-			let params = db::params![entry.sandbox.to_string()];
-			let result = transaction
-				.query_one_value_into::<bool>(statement.into(), params)
-				.await;
-			let exists = crate::database::retry!(result, "failed to execute the statement");
-			if exists {
-				return Err(tg::error!("failed to delete the destroyed sandbox"));
-			}
-		}
-		match self
-			.delete_sandbox_process_tokens_with_transaction(transaction, &entry.sandbox)
-			.await?
-		{
-			ControlFlow::Break(()) => {},
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-		match self
-			.delete_sandbox_tokens_with_transaction(transaction, &entry.sandbox)
-			.await?
-		{
-			ControlFlow::Break(()) => {},
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-
-		let statement = formatdoc!(
-			"
 				update sandbox_finalize_queue
 				set
 					finished_at = {p}1,

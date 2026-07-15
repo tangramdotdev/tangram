@@ -110,9 +110,10 @@ export class Template {
 				} else {
 					let id = component.id;
 					let token = component.state.token;
+					let referent = tg.Referent.withItemAndToken(id, token);
 					return {
 						kind: "artifact",
-						value: token === null ? id : { id, token },
+						value: tg.Referent.toDataString(referent, (id) => id),
 					};
 				}
 			}),
@@ -127,17 +128,11 @@ export class Template {
 				} else if (component.kind === "placeholder") {
 					return tg.Placeholder.fromData(component.value);
 				} else {
-					let id =
-						typeof component.value === "object" &&
-						component.value !== null &&
-						"id" in component.value
-							? component.value.id
-							: component.value;
-					let artifact = tg.Artifact.withId(id);
-					if (typeof component.value !== "string") {
-						artifact.state.token = component.value.token;
-					}
-					return artifact;
+					let referent = tg.Referent.fromDataString(
+						component.value,
+						(id) => id as tg.Artifact.Id,
+					);
+					return tg.Artifact.withReferent(referent);
 				}
 			}),
 		);
@@ -254,37 +249,42 @@ export namespace Template {
 			| { kind: "string"; value: string }
 			| {
 					kind: "artifact";
-					value: tg.Grant.MaybeWithToken<tg.Artifact.Id>;
+					value: string;
 			  }
 			| { kind: "placeholder"; value: tg.Placeholder.Data };
 
 		export let children = (data: tg.Template.Data): Array<tg.Object.Id> => {
 			return data.components.flatMap((component) => {
 				if (component.kind === "artifact") {
-					return [
-						typeof component.value === "object" &&
-						component.value !== null &&
-						"id" in component.value
-							? component.value.id
-							: component.value,
-					];
+					let referent = tg.Referent.fromDataString(
+						component.value,
+						(id) => id as tg.Artifact.Id,
+					);
+					return [referent.item];
 				} else {
 					return [];
 				}
 			});
 		};
 
-		export let removeTokens = (data: tg.Template.Data): void => {
-			for (let component of data.components) {
+		export let withoutTokens = (data: tg.Template.Data): tg.Template.Data => {
+			let components = data.components.map((component) => {
 				if (component.kind === "artifact") {
-					component.value =
-						typeof component.value === "object" &&
-						component.value !== null &&
-						"id" in component.value
-							? component.value.id
-							: component.value;
+					let referent = tg.Referent.fromDataString(
+						component.value,
+						(id) => id as tg.Artifact.Id,
+					);
+					return {
+						...component,
+						value: tg.Referent.toDataString(
+							tg.Referent.withoutToken(referent),
+							(id) => id,
+						),
+					};
 				}
-			}
+				return component;
+			});
+			return { ...data, components };
 		};
 	}
 
