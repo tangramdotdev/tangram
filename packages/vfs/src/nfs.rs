@@ -17,27 +17,28 @@ use {
 			FATTR4_SPACE_USED, FATTR4_SUPPORTED_ATTRS, FATTR4_SYMLINK_SUPPORT, FATTR4_SYSTEM,
 			FATTR4_TIME_ACCESS, FATTR4_TIME_BACKUP, FATTR4_TIME_CREATE, FATTR4_TIME_DELTA,
 			FATTR4_TIME_METADATA, FATTR4_TIME_MODIFY, FATTR4_TYPE, FATTR4_UNIQUE_HANDLES,
-			GETATTR4args, GETATTR4res, GETATTR4resok, GETFH4res, GETFH4resok, ILLEGAL4res,
-			LOCK4args, LOCK4res, LOCK4resok, LOCKT4args, LOCKT4res, LOCKU4args, LOCKU4res,
-			LOOKUP4args, LOOKUP4res, LOOKUPP4res, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR, MODE4_XGRP,
-			MODE4_XOTH, MODE4_XUSR, NFS_PROG, NFS_VERS, NFS4_VERIFIER_SIZE, NVERIFY4res,
-			OPEN_CONFIRM4args, OPEN_CONFIRM4res, OPEN_CONFIRM4resok, OPEN4_RESULT_CONFIRM,
-			OPEN4_RESULT_LOCKTYPE_POSIX, OPEN4_SHARE_ACCESS_BOTH, OPEN4_SHARE_ACCESS_WRITE,
-			OPEN4args, OPEN4res, OPEN4resok, OPENATTR4args, OPENATTR4res, PUTFH4args, PUTFH4res,
-			PUTPUBFH4res, PUTROOTFH4res, READ_BYPASS_STATE_ID, READ4args, READ4res, READ4resok,
-			READDIR4args, READDIR4res, READDIR4resok, READLINK4res, READLINK4resok,
-			RELEASE_LOCKOWNER4args, RELEASE_LOCKOWNER4res, RENEW4args, RENEW4res, RESTOREFH4res,
-			RPC_VERS, SAVEFH4res, SECINFO4args, SECINFO4res, SETCLIENTID_CONFIRM4args,
-			SETCLIENTID_CONFIRM4res, SETCLIENTID4args, SETCLIENTID4res, SETCLIENTID4resok, bitmap4,
-			cb_client4, change_info4, dirlist4, entry4, fattr4, fs_locations4, fsid4, locker4,
-			nfs_argop4, nfs_fh4, nfs_ftype4, nfs_lock_type4, nfs_opnum4, nfs_resop4, nfsace4,
-			nfsstat4, nfstime4, open_claim4, open_delegation_type4, open_delegation4, pathname4,
-			specdata4, stateid4, verifier4,
+			FH4_VOLATILE_ANY, GETATTR4args, GETATTR4res, GETATTR4resok, GETFH4res, GETFH4resok,
+			ILLEGAL4res, LOCK4args, LOCK4res, LOCK4resok, LOCKT4args, LOCKT4res, LOCKU4args,
+			LOCKU4res, LOOKUP4args, LOOKUP4res, LOOKUPP4res, MODE4_RGRP, MODE4_ROTH, MODE4_RUSR,
+			MODE4_XGRP, MODE4_XOTH, MODE4_XUSR, NFS_PROG, NFS_VERS, NFS4_VERIFIER_SIZE,
+			NVERIFY4res, OPEN_CONFIRM4args, OPEN_CONFIRM4res, OPEN_CONFIRM4resok,
+			OPEN4_RESULT_CONFIRM, OPEN4_RESULT_LOCKTYPE_POSIX, OPEN4_SHARE_ACCESS_BOTH,
+			OPEN4_SHARE_ACCESS_READ, OPEN4_SHARE_ACCESS_WRITE, OPEN4_SHARE_DENY_BOTH, OPEN4args,
+			OPEN4res, OPEN4resok, OPENATTR4args, OPENATTR4res, PUTFH4args, PUTFH4res, PUTPUBFH4res,
+			PUTROOTFH4res, READ_BYPASS_STATE_ID, READ4args, READ4res, READ4resok, READDIR4args,
+			READDIR4res, READDIR4resok, READLINK4res, READLINK4resok, RELEASE_LOCKOWNER4args,
+			RELEASE_LOCKOWNER4res, RENEW4args, RENEW4res, RESTOREFH4res, RPC_VERS, SAVEFH4res,
+			SECINFO4args, SECINFO4res, SETCLIENTID_CONFIRM4args, SETCLIENTID_CONFIRM4res,
+			SETCLIENTID4args, SETCLIENTID4res, SETCLIENTID4resok, bitmap4, cb_client4,
+			change_info4, dirlist4, entry4, fattr4, fs_locations4, fsid4, locker4, nfs_argop4,
+			nfs_fh4, nfs_ftype4, nfs_lock_type4, nfs_opnum4, nfs_resop4, nfsace4, nfsstat4,
+			nfstime4, open_claim4, open_delegation4, openflag4, pathname4, specdata4, stateid4,
+			verifier4,
 		},
 	},
 	crate::{Attrs, AttrsInner, Provider as _},
-	dashmap::DashMap,
-	futures::{TryFutureExt as _, future},
+	dashmap::{DashMap, mapref::entry::Entry},
+	futures::{StreamExt as _, TryFutureExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{
 		io::Error,
@@ -61,18 +62,43 @@ pub mod types;
 pub mod xdr;
 
 const ROOT: nfs_fh4 = nfs_fh4(crate::ROOT_NODE_ID);
+const MAX_COMPOUND_OPERATIONS: usize = 128;
+const MAX_READ_SIZE: u32 = 2 * 1024 * 1024;
+const MAX_CONNECTIONS: usize = 64;
+const MAX_GLOBAL_IN_FLIGHT_REQUESTS: usize = 64;
+const MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: usize = 8;
+const MAX_PENDING_RESPONSES: usize = 1;
+const LEASE_REAPER_INTERVAL_SECONDS: u64 = 15;
+const LEASE_TIME_SECONDS: u32 = 60;
 
 pub struct Server<P>(Arc<State<P>>);
 
 pub struct State<P> {
 	client_index: AtomicU64,
 	clients: DashMap<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>,
+	clients_by_id: DashMap<u64, Arc<tokio::sync::RwLock<ClientData>>>,
+	connection_semaphore: Arc<tokio::sync::Semaphore>,
 	dns_sd: Mutex<Option<Child>>,
+	global_request_semaphore: Arc<tokio::sync::Semaphore>,
 	host: String,
+	open_index: AtomicU64,
+	open_mutex: tokio::sync::Mutex<()>,
+	opens: DashMap<u64, OpenState>,
 	path: PathBuf,
 	port: u16,
 	provider: Provider<P>,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
+}
+
+#[derive(Clone)]
+struct OpenState {
+	active: Arc<tokio::sync::RwLock<bool>>,
+	client_id: u64,
+	file_handle: nfs_fh4,
+	provider_handle: u64,
+	share_access: u32,
+	share_deny: u32,
+	stateid: stateid4,
 }
 
 struct ClientData {
@@ -80,6 +106,8 @@ struct ClientData {
 	callback_ident: u32,
 	client_verifier: verifier4,
 	confirmed: bool,
+	expired: bool,
+	last_activity: tokio::time::Instant,
 	server_id: u64,
 	server_verifier: verifier4,
 }
@@ -87,8 +115,6 @@ struct ClientData {
 #[derive(Clone, Debug)]
 struct Context {
 	current_file_handle: Option<nfs_fh4>,
-	#[expect(dead_code)]
-	minor_version: u32,
 	saved_file_handle: Option<nfs_fh4>,
 }
 
@@ -107,16 +133,25 @@ where
 		let server = Self(Arc::new(State {
 			client_index: AtomicU64::new(0),
 			clients: DashMap::default(),
+			clients_by_id: DashMap::default(),
+			connection_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS)),
 			dns_sd: Mutex::new(None),
+			global_request_semaphore: Arc::new(tokio::sync::Semaphore::new(
+				MAX_GLOBAL_IN_FLIGHT_REQUESTS,
+			)),
 			host: host.to_owned(),
+			open_index: AtomicU64::new(1),
+			open_mutex: tokio::sync::Mutex::new(()),
+			opens: DashMap::new(),
 			path: path.to_owned(),
 			port,
 			provider,
 			task: Mutex::new(None),
 		}));
 
-		// Listen.
-		let addr = format!("{host}:{port}");
+		// Listen. On macOS, the advertised host is registered with DNS-SD below and may not be
+		// resolvable yet, so bind directly to the advertised loopback address.
+		let addr = listen_addr(host, port);
 		let listener = TcpListener::bind(&addr).await?;
 
 		// Unmount.
@@ -129,10 +164,7 @@ where
 		let dns_sd = Self::spawn_dns_sd(&server.host, server.port);
 		*server.0.dns_sd.lock().unwrap() = dns_sd;
 
-		// Mount.
-		Self::mount(&server.path, &server.host, server.port).await?;
-
-		// Spawn the task.
+		// Spawn the request handler before mounting because the mount waits for an RPC response.
 		let request_handler_task = tangram_futures::task::Task::spawn(|stopper| {
 			let server = server.clone();
 			async move {
@@ -145,6 +177,15 @@ where
 					.ok();
 			}
 		});
+
+		// Mount.
+		if let Err(error) = Self::mount(&server.path, &server.host, server.port).await {
+			request_handler_task.stop();
+			request_handler_task.wait().await.unwrap();
+			server.stop_dns_sd().await;
+			unmount(&server.path).await.ok();
+			return Err(error);
+		}
 
 		let shutdown_server = server.clone();
 		let shutdown = async move {
@@ -213,8 +254,21 @@ where
 	) -> Result<(), std::io::Error> {
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
+		task_tracker.spawn({
+			let server = self.clone();
+			let stopper = stopper.clone();
+			async move {
+				server.lease_reaper_task(stopper).await;
+			}
+		});
 
 		loop {
+			let acquire = self.connection_semaphore.clone().acquire_owned();
+			let permit = match future::select(pin!(acquire), pin!(stopper.wait())).await {
+				future::Either::Left((result, _)) => result.unwrap(),
+				future::Either::Right(((), _)) => break,
+			};
+
 			// Accept.
 			let accept = listener.accept();
 			let stopper = stopper.clone();
@@ -235,6 +289,7 @@ where
 			task_tracker.spawn({
 				let server = self.clone();
 				async move {
+					let _permit = permit;
 					server
 						.handle_connection(stream, stopper)
 						.await
@@ -249,6 +304,7 @@ where
 		// Wait for all tasks to complete.
 		task_tracker.close();
 		task_tracker.wait().await;
+		self.drain_open_states().await;
 
 		// Unmount.
 		unmount(&self.path)
@@ -259,6 +315,109 @@ where
 			.ok();
 
 		Ok(())
+	}
+
+	async fn lease_reaper_task(&self, stopper: Stopper) {
+		let mut interval =
+			tokio::time::interval(Duration::from_secs(LEASE_REAPER_INTERVAL_SECONDS));
+		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+		loop {
+			let tick = interval.tick();
+			match future::select(pin!(tick), pin!(stopper.wait())).await {
+				future::Either::Left(_) => self.expire_clients().await,
+				future::Either::Right(_) => break,
+			}
+		}
+	}
+
+	async fn expire_clients(&self) {
+		let clients = self
+			.clients
+			.iter()
+			.map(|entry| (entry.key().clone(), entry.value().clone()))
+			.collect::<Vec<_>>();
+		for (client_key, client) in clients {
+			let now = tokio::time::Instant::now();
+			let should_expire = {
+				let client = client.read().await;
+				!client.expired
+					&& now.duration_since(client.last_activity)
+						>= Duration::from_secs(u64::from(LEASE_TIME_SECONDS))
+			};
+			if !should_expire {
+				continue;
+			}
+
+			let open_guard = self.open_mutex.lock().await;
+			let client_id = {
+				let mut client = client.write().await;
+				let now = tokio::time::Instant::now();
+				if client.expired
+					|| now.duration_since(client.last_activity)
+						< Duration::from_secs(u64::from(LEASE_TIME_SECONDS))
+				{
+					continue;
+				}
+				client.expired = true;
+				client.server_id
+			};
+
+			let remove_by_id = self
+				.clients_by_id
+				.get(&client_id)
+				.is_some_and(|current| Arc::ptr_eq(current.value(), &client));
+			if remove_by_id {
+				self.clients_by_id.remove(&client_id);
+			}
+			let remove_by_key = self
+				.clients
+				.get(&client_key)
+				.is_some_and(|current| Arc::ptr_eq(current.value(), &client));
+			if remove_by_key {
+				self.clients.remove(&client_key);
+			}
+
+			let indexes = self
+				.opens
+				.iter()
+				.filter_map(|state| (state.client_id == client_id).then_some(*state.key()))
+				.collect::<Vec<_>>();
+			let states = indexes
+				.into_iter()
+				.filter_map(|index| self.opens.remove(&index).map(|(_, state)| state))
+				.collect::<Vec<_>>();
+			drop(open_guard);
+
+			for state in states {
+				self.close_open_state(state).await;
+			}
+		}
+	}
+
+	async fn drain_open_states(&self) {
+		let open_guard = self.open_mutex.lock().await;
+		let indexes = self
+			.opens
+			.iter()
+			.map(|state| *state.key())
+			.collect::<Vec<_>>();
+		let states = indexes
+			.into_iter()
+			.filter_map(|index| self.opens.remove(&index).map(|(_, state)| state))
+			.collect::<Vec<_>>();
+		drop(open_guard);
+		for state in states {
+			self.close_open_state(state).await;
+		}
+	}
+
+	async fn close_open_state(&self, state: OpenState) {
+		let mut active = state.active.write().await;
+		if !*active {
+			return;
+		}
+		*active = false;
+		self.provider.close(state.provider_handle).await;
 	}
 
 	async fn mount(path: &Path, host: &str, port: u16) -> Result<(), std::io::Error> {
@@ -293,15 +452,18 @@ where
 
 		// Create the writer task.
 		let (message_sender, mut message_receiver) =
-			tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+			tokio::sync::mpsc::channel::<Vec<u8>>(MAX_PENDING_RESPONSES);
 		task_tracker.spawn(async move {
 			while let Some(message) = message_receiver.recv().await {
-				rpc::write_fragments(&mut writer, &message)
-					.await
-					.inspect_err(|error| tracing::error!(%error))
-					.ok();
+				if let Err(error) = rpc::write_fragments(&mut writer, &message).await {
+					tracing::error!(%error);
+					break;
+				}
 			}
 		});
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(
+			MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+		));
 
 		// Receive incoming message fragments.
 		loop {
@@ -312,24 +474,41 @@ where
 					break;
 				},
 			};
+			let acquire = semaphore.clone().acquire_owned();
+			let connection_permit = match future::select(pin!(acquire), pin!(stopper.wait())).await
+			{
+				future::Either::Left((result, _)) => result.unwrap(),
+				future::Either::Right(((), _)) => break,
+			};
+			let acquire = self.global_request_semaphore.clone().acquire_owned();
+			let global_permit = match future::select(pin!(acquire), pin!(stopper.wait())).await {
+				future::Either::Left((result, _)) => result.unwrap(),
+				future::Either::Right(((), _)) => break,
+			};
 
 			task_tracker.spawn({
 				let server = self.clone();
 				let message_sender = message_sender.clone();
 				async move {
+					let _permits = (connection_permit, global_permit);
 					let mut decoder = xdr::Decoder::from_bytes(&fragments);
+					let message = match decoder.decode::<rpc::Message>() {
+						Ok(message) => message,
+						Err(error) => {
+							tracing::error!(?error, "failed to decode an RPC message");
+							return;
+						},
+					};
 					let mut buffer = Vec::with_capacity(4096);
 					let mut encoder = xdr::Encoder::new(&mut buffer);
-					while let Ok(message) = decoder.decode::<rpc::Message>() {
-						let xid = message.xid;
-						let Some(body) = server.handle_message(message, &mut decoder).await else {
-							continue;
-						};
-						let body = rpc::MessageBody::Reply(body);
-						let message = rpc::Message { xid, body };
-						encoder.encode(&message).unwrap();
-					}
-					message_sender.send(buffer).unwrap();
+					let xid = message.xid;
+					let Some(body) = server.handle_message(message, &mut decoder).await else {
+						return;
+					};
+					let body = rpc::MessageBody::Reply(body);
+					let message = rpc::Message { xid, body };
+					encoder.encode(&message).unwrap();
+					message_sender.send(buffer).await.ok();
 				}
 			});
 		}
@@ -439,10 +618,29 @@ where
 			argarray,
 			..
 		} = args;
+		if minorversion != 0 {
+			return rpc::success(
+				verf,
+				COMPOUND4res {
+					status: nfsstat4::NFS4ERR_MINOR_VERS_MISMATCH,
+					tag,
+					resarray: Vec::new(),
+				},
+			);
+		}
+		if argarray.len() > MAX_COMPOUND_OPERATIONS {
+			return rpc::success(
+				verf,
+				COMPOUND4res {
+					status: nfsstat4::NFS4ERR_RESOURCE,
+					tag,
+					resarray: Vec::new(),
+				},
+			);
+		}
 
 		// Create the context.
 		let mut ctx = Context {
-			minor_version: minorversion,
 			current_file_handle: None,
 			saved_file_handle: None,
 		};
@@ -451,12 +649,7 @@ where
 		let mut status = nfsstat4::NFS4_OK;
 		for arg in argarray {
 			let opnum = arg.opnum();
-			let result = tokio::time::timeout(
-				Duration::from_secs(2),
-				self.handle_arg(&mut ctx, arg.clone()),
-			)
-			.await
-			.unwrap_or(nfs_resop4::Timeout(opnum));
+			let result = self.handle_arg(&mut ctx, arg.clone()).await;
 			resarray.push(result.clone());
 			if result.status() != nfsstat4::NFS4_OK {
 				status = result.status();
@@ -533,7 +726,7 @@ where
 			nfs_argop4::OP_READLINK => nfs_resop4::OP_READLINK(self.handle_readlink(ctx).await),
 			nfs_argop4::OP_REMOVE => nfs_resop4::OP_REMOVE,
 			nfs_argop4::OP_RENAME => nfs_resop4::OP_RENAME,
-			nfs_argop4::OP_RENEW(arg) => nfs_resop4::OP_RENEW(Self::handle_renew(arg)),
+			nfs_argop4::OP_RENEW(arg) => nfs_resop4::OP_RENEW(self.handle_renew(arg).await),
 			nfs_argop4::OP_RESTOREFH => {
 				nfs_resop4::OP_RESTOREFH(Self::handle_restore_file_handle(ctx))
 			},
@@ -578,7 +771,7 @@ where
 				inner: AttrsInner::Directory,
 				..
 			})
-			| ExtAttr::AttrDir(_) => ACCESS4_EXECUTE | ACCESS4_READ | ACCESS4_LOOKUP,
+			| ExtAttr::AttrDir => ACCESS4_EXECUTE | ACCESS4_READ | ACCESS4_LOOKUP,
 			ExtAttr::Normal(Attrs {
 				inner: AttrsInner::Symlink,
 				..
@@ -603,11 +796,27 @@ where
 	}
 
 	async fn handle_close(&self, ctx: &Context, arg: CLOSE4args) -> CLOSE4res {
-		let Some(_fh) = ctx.current_file_handle else {
+		let Some(fh) = ctx.current_file_handle else {
 			return CLOSE4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
+		let index = arg.open_stateid.index();
+		let Some(state) = self.opens.get(&index).map(|state| state.clone()) else {
+			return CLOSE4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		};
+		if arg.open_stateid.is_lock_set()
+			|| state.file_handle != fh
+			|| state.stateid != arg.open_stateid
+		{
+			return CLOSE4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		}
+		if self.renew_client(state.client_id).await.is_err() {
+			return CLOSE4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+		}
+		let Some((_, state)) = self.opens.remove(&index) else {
+			return CLOSE4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		};
+		self.close_open_state(state).await;
 		let mut stateid = arg.open_stateid;
-		self.provider.close(stateid.index()).await;
 		stateid.seqid = stateid.seqid.increment();
 		CLOSE4res::NFS4_OK(stateid)
 	}
@@ -648,55 +857,75 @@ where
 
 	async fn get_file_attr_data(&self, file_handle: nfs_fh4) -> Option<FileAttrData> {
 		if file_handle == ROOT {
-			return Some(FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX));
+			let attrs = Attrs::new(AttrsInner::Directory);
+			return Some(FileAttrData::new(
+				file_handle,
+				nfs_ftype4::NF4DIR,
+				0,
+				O_RX,
+				attrs,
+			));
 		}
 
-		let attr = self.provider.get_attr_ext(file_handle.0).await.ok()?;
+		let attr = match self.provider.get_attr_ext(file_handle.0).await {
+			Ok(attr) => attr,
+			Err(error) => {
+				tracing::error!(%error, ?file_handle, "failed to get attributes");
+				return None;
+			},
+		};
 		let data = match attr {
-			ExtAttr::Normal(Attrs {
-				inner: AttrsInner::Directory,
-				..
-			}) => {
-				let handle = self.provider.opendir(file_handle.0).await.ok()?;
-				let children = self.provider.readdir(handle).await.ok()?;
-				let len = children.len();
-				FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, len, O_RX)
+			ExtAttr::Normal(attrs) => match attrs.inner {
+				AttrsInner::Directory => {
+					FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs)
+				},
+				AttrsInner::File { size, executable } => {
+					let mode = if executable { O_RX } else { O_RDONLY };
+					FileAttrData::new(file_handle, nfs_ftype4::NF4REG, size, mode, attrs)
+				},
+				AttrsInner::Symlink => {
+					let target = match self.provider.readlink(file_handle.0).await {
+						Ok(target) => target,
+						Err(error) => {
+							tracing::error!(%error, ?file_handle, "failed to read a symlink");
+							return None;
+						},
+					};
+					let size = target.len().to_u64().unwrap();
+					FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, size, O_RDONLY, attrs)
+				},
 			},
-			ExtAttr::Normal(Attrs {
-				inner: AttrsInner::File { size, executable },
-				..
-			}) => {
-				let mode = if executable { O_RX } else { O_RDONLY };
-				FileAttrData::new(
-					file_handle,
-					nfs_ftype4::NF4REG,
-					size.to_usize().unwrap(),
-					mode,
-				)
-			},
-			ExtAttr::Normal(Attrs {
-				inner: AttrsInner::Symlink,
-				..
-			}) => FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, 1, O_RDONLY),
-			ExtAttr::AttrDir(len) => {
-				FileAttrData::new(file_handle, nfs_ftype4::NF4ATTRDIR, len, O_RX)
-			},
-			ExtAttr::AttrFile(len) => {
-				FileAttrData::new(file_handle, nfs_ftype4::NF4NAMEDATTR, len, O_RDONLY)
-			},
+			ExtAttr::AttrDir => FileAttrData::new(
+				file_handle,
+				nfs_ftype4::NF4ATTRDIR,
+				0,
+				O_RX,
+				Attrs::new(AttrsInner::Directory),
+			),
+			ExtAttr::AttrFile(len) => FileAttrData::new(
+				file_handle,
+				nfs_ftype4::NF4NAMEDATTR,
+				len.to_u64().unwrap(),
+				O_RDONLY,
+				Attrs::new(AttrsInner::File {
+					executable: false,
+					size: len.to_u64().unwrap(),
+				}),
+			),
 		};
 
 		Some(data)
 	}
 
-	async fn handle_lock(&self, _ctx: &mut Context, arg: LOCK4args) -> LOCK4res {
-		// Required overflow check.
-		if ![0, u64::MAX].contains(&arg.length) && (u64::MAX - arg.offset > arg.length) {
+	async fn handle_lock(&self, ctx: &mut Context, arg: LOCK4args) -> LOCK4res {
+		let Some(fh) = ctx.current_file_handle else {
+			return LOCK4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
+		};
+		if invalid_lock_range(arg.offset, arg.length) {
 			return LOCK4res::Error(nfsstat4::NFS4ERR_INVAL);
 		}
 
-		// Since we're a read only file system we need to check if the client is attempting to acquire an exlusive (write) lock and return the appropriate error code.
-		// NFS section 13.1.8.9 https://datatracker.ietf.org/doc/html/rfc7530#autoid-325
+		// Reject exclusive locks because the file system is read-only.
 		match arg.locktype {
 			nfs_lock_type4::WRITE_LT | nfs_lock_type4::WRITEW_LT => {
 				return LOCK4res::Error(nfsstat4::NFS4ERR_OPENMODE);
@@ -704,23 +933,39 @@ where
 			_ => (),
 		}
 
-		// Get the arguments we care about.
-		let stateid = match arg.locker {
-			locker4::TRUE(open_to_lock_owner) => open_to_lock_owner.open_stateid,
-			locker4::FALSE(exist_lock_owner) => exist_lock_owner.lock_stateid,
+		let (stateid, is_existing_lock) = match arg.locker {
+			locker4::TRUE(open_to_lock_owner) => (open_to_lock_owner.open_stateid, false),
+			locker4::FALSE(exist_lock_owner) => (exist_lock_owner.lock_stateid, true),
 		};
-
-		// Lookup the lock state.
 		let index = stateid.index();
+		let Some(state) = self.opens.get(&index).map(|state| state.clone()) else {
+			return LOCK4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		};
+		if state.file_handle != fh
+			|| (is_existing_lock && !stateid.is_lock_set())
+			|| (!is_existing_lock && state.stateid != stateid)
+		{
+			return LOCK4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		}
+		if self.renew_client(state.client_id).await.is_err() {
+			return LOCK4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+		}
+		let active = state.active.clone().read_owned().await;
+		if !*active {
+			return LOCK4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+		}
 
-		// Return with the new stateid.
 		let lock_stateid = stateid4::new(stateid.seqid.increment(), index, true);
+		drop(active);
 		let resok = LOCK4resok { lock_stateid };
 		LOCK4res::NFS4_OK(resok)
 	}
 
-	async fn handle_lockt(&self, _ctx: &mut Context, arg: LOCKT4args) -> LOCKT4res {
-		if ![0, u64::MAX].contains(&arg.length) && (u64::MAX - arg.offset > arg.length) {
+	async fn handle_lockt(&self, ctx: &mut Context, arg: LOCKT4args) -> LOCKT4res {
+		if ctx.current_file_handle.is_none() {
+			return LOCKT4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
+		}
+		if invalid_lock_range(arg.offset, arg.length) {
 			return LOCKT4res::Error(nfsstat4::NFS4ERR_INVAL);
 		}
 		match arg.locktype {
@@ -732,11 +977,32 @@ where
 		LOCKT4res::NFS4_OK
 	}
 
-	async fn handle_locku(&self, _ctx: &mut Context, arg: LOCKU4args) -> LOCKU4res {
+	async fn handle_locku(&self, ctx: &mut Context, arg: LOCKU4args) -> LOCKU4res {
+		let Some(fh) = ctx.current_file_handle else {
+			return LOCKU4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
+		};
+		let Some(state) = self
+			.opens
+			.get(&arg.lock_stateid.index())
+			.map(|state| state.clone())
+		else {
+			return LOCKU4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		};
+		if state.file_handle != fh || !arg.lock_stateid.is_lock_set() {
+			return LOCKU4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		}
+		if self.renew_client(state.client_id).await.is_err() {
+			return LOCKU4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+		}
+		let active = state.active.clone().read_owned().await;
+		if !*active {
+			return LOCKU4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+		}
 		let mut lock_stateid = arg.lock_stateid;
 
 		// Increment the seqid and return.
 		lock_stateid.seqid = lock_stateid.seqid.increment();
+		drop(active);
 		LOCKU4res::NFS4_OK(lock_stateid)
 	}
 
@@ -788,7 +1054,37 @@ where
 
 	fn next_client_id(&self) -> u64 {
 		self.client_index
-			.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+			.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+	}
+
+	async fn renew_client(&self, client_id: u64) -> Result<(), nfsstat4> {
+		let Some(client) = self
+			.clients_by_id
+			.get(&client_id)
+			.map(|client| client.clone())
+		else {
+			return Err(nfsstat4::NFS4ERR_STALE_CLIENTID);
+		};
+		let mut client = client.write().await;
+		if client.expired {
+			return Err(nfsstat4::NFS4ERR_EXPIRED);
+		}
+		if !client.confirmed {
+			return Err(nfsstat4::NFS4ERR_STALE_CLIENTID);
+		}
+		client.last_activity = tokio::time::Instant::now();
+		Ok(())
+	}
+
+	fn next_open_id(&self) -> u64 {
+		loop {
+			let id = self
+				.open_index
+				.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+			if ![0, u64::MAX].contains(&id) {
+				return id;
+			}
+		}
 	}
 
 	async fn handle_open(&self, ctx: &mut Context, arg: OPEN4args) -> OPEN4res {
@@ -796,12 +1092,26 @@ where
 			return OPEN4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
 
-		// RFC 7530 16.15.5: If the underlying file system at the server is only accessible in a read-only mode and the OPEN request has specified OPEN4_SHARE_ACCESS_WRITE or OPEN4_SHARE_ACCESS_BOTH the server with return NFS4ERR_ROFS to indicate a read-only file system
-		if (arg.share_access == OPEN4_SHARE_ACCESS_WRITE)
-			|| (arg.share_access == OPEN4_SHARE_ACCESS_BOTH)
+		if !matches!(
+			arg.share_access,
+			OPEN4_SHARE_ACCESS_READ | OPEN4_SHARE_ACCESS_WRITE | OPEN4_SHARE_ACCESS_BOTH
+		) || arg.share_deny > OPEN4_SHARE_DENY_BOTH
 		{
+			return OPEN4res::Error(nfsstat4::NFS4ERR_INVAL);
+		}
+		if matches!(
+			arg.share_access,
+			OPEN4_SHARE_ACCESS_WRITE | OPEN4_SHARE_ACCESS_BOTH
+		) {
 			tracing::error!(?arg, "share access violation");
 			return OPEN4res::Error(nfsstat4::NFS4ERR_ROFS);
+		}
+		if matches!(arg.openhow, openflag4::OPEN4_CREATE(_)) {
+			return OPEN4res::Error(nfsstat4::NFS4ERR_ROFS);
+		}
+		let client_id = arg.owner.clientid;
+		if let Err(status) = self.renew_client(client_id).await {
+			return OPEN4res::Error(status);
 		}
 
 		let (fh, confirm_flags) = match arg.claim {
@@ -814,7 +1124,9 @@ where
 					return OPEN4res::Error(e);
 				},
 			},
-			open_claim4::CLAIM_PREVIOUS(open_delegation_type4::OPEN_DELEGATE_NONE) => (fh, 0),
+			open_claim4::CLAIM_PREVIOUS(_) => {
+				return OPEN4res::Error(nfsstat4::NFS4ERR_NO_GRACE);
+			},
 			_ => {
 				tracing::error!(?arg, "unsupported open request");
 				return OPEN4res::Error(nfsstat4::NFS4ERR_NOTSUPP);
@@ -822,12 +1134,41 @@ where
 		};
 
 		ctx.current_file_handle = Some(fh);
+		let _open_guard = self.open_mutex.lock().await;
+		if let Err(status) = self.renew_client(client_id).await {
+			return OPEN4res::Error(status);
+		}
+		let share_conflict = self.opens.iter().any(|state| {
+			state.file_handle == fh
+				&& ((state.share_deny & arg.share_access) != 0
+					|| (arg.share_deny & state.share_access) != 0)
+		});
+		if share_conflict {
+			return OPEN4res::Error(nfsstat4::NFS4ERR_SHARE_DENIED);
+		}
 
 		// Open the file and create the state id.
-		let Ok(handle) = self.provider.open(fh.0).await else {
+		let Ok(provider_handle) = self.provider.open(fh.0).await else {
 			return OPEN4res::Error(nfsstat4::NFS4ERR_IO);
 		};
-		let stateid = stateid4::new(arg.seqid, handle, false);
+		if let Err(status) = self.renew_client(client_id).await {
+			self.provider.close(provider_handle).await;
+			return OPEN4res::Error(status);
+		}
+		let index = self.next_open_id();
+		let stateid = stateid4::new(arg.seqid, index, false);
+		self.opens.insert(
+			index,
+			OpenState {
+				active: Arc::new(tokio::sync::RwLock::new(true)),
+				client_id,
+				file_handle: fh,
+				provider_handle,
+				share_access: arg.share_access,
+				share_deny: arg.share_deny,
+				stateid,
+			},
+		);
 
 		let cinfo = change_info4 {
 			atomic: false,
@@ -875,15 +1216,44 @@ where
 
 	async fn handle_open_confirm(
 		&self,
-		_ctx: &mut Context,
+		ctx: &mut Context,
 		arg: OPEN_CONFIRM4args,
 	) -> OPEN_CONFIRM4res {
+		let Some(fh) = ctx.current_file_handle else {
+			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
+		};
+		let Some(state) = self
+			.opens
+			.get(&arg.open_stateid.index())
+			.map(|state| state.clone())
+		else {
+			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		};
+		if state.file_handle != fh || state.stateid != arg.open_stateid {
+			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		}
+		if self.renew_client(state.client_id).await.is_err() {
+			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+		}
+		let active = state.active.clone().read_owned().await;
+		if !*active {
+			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+		}
 		if arg.seqid != arg.open_stateid.seqid.increment() {
 			tracing::error!(?arg, "invalid seqid in open");
 			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_BAD_SEQID);
 		}
 		let mut open_stateid = arg.open_stateid;
 		open_stateid.seqid = arg.seqid;
+		let Some(mut state) = self.opens.get_mut(&arg.open_stateid.index()) else {
+			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		};
+		if state.stateid != arg.open_stateid {
+			return OPEN_CONFIRM4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+		}
+		state.stateid = open_stateid;
+		drop(state);
+		drop(active);
 		OPEN_CONFIRM4res::NFS4_OK(OPEN_CONFIRM4resok { open_stateid })
 	}
 
@@ -901,6 +1271,33 @@ where
 			tracing::error!(?arg, "invalid stateid");
 			return READ4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
 		}
+		let open_state = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid) {
+			None
+		} else {
+			let Some(state) = self
+				.opens
+				.get(&arg.stateid.index())
+				.map(|state| state.clone())
+			else {
+				return READ4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+			};
+			if state.file_handle != fh || (state.share_access & OPEN4_SHARE_ACCESS_READ) == 0 {
+				return READ4res::Error(nfsstat4::NFS4ERR_BAD_STATEID);
+			}
+			if self.renew_client(state.client_id).await.is_err() {
+				return READ4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+			}
+			Some(state)
+		};
+		let active_guard = if let Some(state) = open_state.as_ref() {
+			let active = state.active.clone().read_owned().await;
+			if !*active {
+				return READ4res::Error(nfsstat4::NFS4ERR_EXPIRED);
+			}
+			Some(active)
+		} else {
+			None
+		};
 
 		// RFC 7530 16.23.4:
 		// "if the current file handle is not a regular file, an error will be returned to the client. In the case where the current filehandle represents a directory, NFS4ERR_ISDIR is returned; otherwise, NFS4ERR_INVAL is returned"
@@ -913,7 +1310,7 @@ where
 				inner: AttrsInner::Directory,
 				..
 			})
-			| ExtAttr::AttrDir(_) => {
+			| ExtAttr::AttrDir => {
 				return READ4res::Error(nfsstat4::NFS4ERR_ISDIR);
 			},
 			ExtAttr::Normal(Attrs {
@@ -934,41 +1331,42 @@ where
 		}
 
 		// Compute the size of the read.
-		let read_size = arg
-			.count
-			.to_u64()
-			.unwrap()
+		let read_size = u64::from(arg.count.min(MAX_READ_SIZE))
 			.min(size - arg.offset)
 			.to_usize()
 			.unwrap();
 
-		// This fallback exists for special state ids that indicate a file has not been opened.
-		let (data, eof) = if [ANONYMOUS_STATE_ID, READ_BYPASS_STATE_ID].contains(&arg.stateid) {
+		// Open the file temporarily for special state IDs that do not refer to open state.
+		let bytes = if let Some(state) = open_state {
+			let Ok(bytes) = self
+				.provider
+				.read(
+					state.provider_handle,
+					arg.offset,
+					read_size.to_u64().unwrap(),
+				)
+				.await
+			else {
+				return READ4res::Error(nfsstat4::NFS4ERR_IO);
+			};
+			bytes
+		} else {
 			let Ok(read_handle) = self.provider.open(fh.0).await else {
 				return READ4res::Error(nfsstat4::NFS4ERR_IO);
 			};
-			let Ok(bytes) = self
+			let result = self
 				.provider
 				.read(read_handle, arg.offset, read_size.to_u64().unwrap())
-				.await
-			else {
-				return READ4res::Error(nfsstat4::NFS4ERR_IO);
-			};
+				.await;
 			self.provider.close(read_handle).await;
-			let eof = (arg.offset + arg.count.to_u64().unwrap()) >= size;
-			(bytes.to_vec(), eof)
-		} else {
-			let read_handle = arg.stateid.index();
-			let Ok(bytes) = self
-				.provider
-				.read(read_handle, arg.offset, read_size.to_u64().unwrap())
-				.await
-			else {
+			let Ok(bytes) = result else {
 				return READ4res::Error(nfsstat4::NFS4ERR_IO);
 			};
-			let eof = (arg.offset + arg.count.to_u64().unwrap()) >= size;
-			(bytes.to_vec(), eof)
+			bytes
 		};
+		let eof = arg.offset.saturating_add(bytes.len().to_u64().unwrap()) >= size;
+		let data = bytes.to_vec();
+		drop(active_guard);
 
 		READ4res::NFS4_OK(READ4resok { eof, data })
 	}
@@ -977,57 +1375,101 @@ where
 		let Some(fh) = ctx.current_file_handle else {
 			return READDIR4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE);
 		};
-
-		let mut handle = u64::from_be_bytes(arg.cookieverf);
-		if handle == 0 {
-			handle = match self.provider.opendir(fh.0).await {
-				Ok(handle) => handle,
-				Err(error) => {
-					return READDIR4res::Error(error.into());
-				},
-			};
+		if matches!(arg.cookie, 1 | 2) {
+			return READDIR4res::Error(nfsstat4::NFS4ERR_BAD_COOKIE);
 		}
-
-		let entries = match self.provider.readdir(handle).await {
-			Ok(entries) => entries,
-			Err(error) => {
-				return READDIR4res::Error(error.into());
-			},
+		let cookieverf = fh.0.to_be_bytes();
+		if arg.cookie != 0 && arg.cookieverf != cookieverf {
+			return READDIR4res::Error(nfsstat4::NFS4ERR_NOT_SAME);
+		}
+		let handle = match self.provider.opendir(fh.0).await {
+			Ok(handle) => handle,
+			Err(error) => return READDIR4res::Error(error.into()),
 		};
-
-		let mut reply = Vec::with_capacity(entries.len());
-		let mut count = 0;
-		let mut eof = true;
-		for (cookie, (name, id, _)) in entries
+		let entries = self.provider.readdir(handle).await;
+		self.provider.close(handle).await;
+		let entries = match entries {
+			Ok(entries) => entries,
+			Err(error) => return READDIR4res::Error(error.into()),
+		};
+		let entries = entries
 			.into_iter()
-			.enumerate()
-			.skip(arg.cookie.to_usize().unwrap())
-		{
-			let attrs = self
-				.get_attr(nfs_fh4(id), arg.attr_request.clone())
-				.await
-				.unwrap();
-			let cookie = cookie.to_u64().unwrap();
-
-			// Size of the cookie + size of the attr + size of the name
-			count += std::mem::size_of_val(&cookie); // u64
-			count += 4 + 4 * attrs.attrmask.0.len(); // bitmap4
-			count += 4 + attrs.attr_vals.len(); // opaque<>
-			count += 4 + name.len(); // utf8_cstr
-
-			if count > arg.dircount.to_usize().unwrap() {
-				eof = false;
+			.filter(|(name, _, _)| !matches!(name.as_str(), "." | ".."))
+			.collect::<Vec<_>>();
+		let start = if arg.cookie == 0 {
+			0
+		} else {
+			let Ok(start) = usize::try_from(arg.cookie - 2) else {
+				return READDIR4res::Error(nfsstat4::NFS4ERR_BAD_COOKIE);
+			};
+			if start > entries.len() {
+				return READDIR4res::Error(nfsstat4::NFS4ERR_BAD_COOKIE);
+			}
+			start
+		};
+		let maxcount = arg
+			.maxcount
+			.to_usize()
+			.unwrap()
+			.min(rpc::MAX_RECORD_SIZE.saturating_sub(4096));
+		let dircount = arg.dircount.to_usize().unwrap();
+		let mut encoded_size = 20;
+		if encoded_size > maxcount {
+			return READDIR4res::Error(nfsstat4::NFS4ERR_TOOSMALL);
+		}
+		let mut directory_size: usize = 4;
+		let mut reply = Vec::with_capacity(entries.len());
+		let attr_request = arg.attr_request;
+		let mut entry_stream = stream::iter(entries.iter().cloned().enumerate().skip(start))
+			.map(move |(index, (name, mut id, _))| {
+				let attr_request = attr_request.clone();
+				async move {
+					if id == 0 {
+						id = match self.provider.lookup(fh.0, &name).await {
+							Ok(Some(id)) => id,
+							Ok(None) => return Err(nfsstat4::NFS4ERR_NOENT),
+							Err(error) => return Err(error.into()),
+						};
+					}
+					let attrs =
+						self.get_attr(nfs_fh4(id), attr_request)
+							.await
+							.inspect_err(|status| {
+								tracing::error!(%id, %name, ?status, "failed to get directory entry attributes");
+							})?;
+					Ok((index, name, attrs))
+				}
+			})
+			.buffered(16);
+		while let Some(entry) = entry_stream.next().await {
+			let (index, name, attrs) = match entry {
+				Ok(entry) => entry,
+				Err(status) => return READDIR4res::Error(status),
+			};
+			let name_size = xdr_opaque_size(name.len());
+			let entry_directory_size = 4 + 8 + name_size;
+			let entry_encoded_size = entry_directory_size
+				+ 4 + 4 * attrs.attrmask.0.len()
+				+ xdr_opaque_size(attrs.attr_vals.len());
+			if encoded_size.saturating_add(entry_encoded_size) > maxcount {
+				if reply.is_empty() {
+					return READDIR4res::Error(nfsstat4::NFS4ERR_TOOSMALL);
+				}
 				break;
 			}
-
+			if !reply.is_empty() && directory_size.saturating_add(entry_directory_size) > dircount {
+				break;
+			}
+			encoded_size += entry_encoded_size;
+			directory_size += entry_directory_size;
 			let entry = entry4 {
-				cookie,
+				cookie: (index + 3).to_u64().unwrap(),
 				name,
 				attrs,
 			};
 			reply.push(entry);
 		}
-		let cookieverf = handle.to_be_bytes();
+		let eof = start + reply.len() == entries.len();
 		let reply = dirlist4 {
 			entries: reply,
 			eof,
@@ -1049,10 +1491,13 @@ where
 		}
 	}
 
-	fn handle_renew(_arg: RENEW4args) -> RENEW4res {
-		RENEW4res {
-			status: nfsstat4::NFS4_OK,
-		}
+	async fn handle_renew(&self, arg: RENEW4args) -> RENEW4res {
+		let status = self
+			.renew_client(arg.clientid)
+			.await
+			.err()
+			.unwrap_or(nfsstat4::NFS4_OK);
+		RENEW4res { status }
 	}
 
 	async fn handle_sec_info(&self, ctx: &Context, arg: SECINFO4args) -> SECINFO4res {
@@ -1066,40 +1511,42 @@ where
 	}
 
 	async fn handle_set_client_id(&self, arg: SETCLIENTID4args) -> SETCLIENTID4res {
-		let client = self
-			.clients
-			.get(&arg.client.id)
-			.map(|client| client.clone());
-		let Some(client) = client else {
-			let server_id = self.next_client_id();
-			let server_verifier = [0; NFS4_VERIFIER_SIZE];
-			let record = ClientData {
-				server_id,
-				client_verifier: arg.client.verifier,
-				server_verifier,
-				callback: arg.callback,
-				callback_ident: arg.callback_ident,
-				confirmed: false,
-			};
+		let client = match self.clients.entry(arg.client.id.clone()) {
+			Entry::Occupied(entry) => entry.get().clone(),
+			Entry::Vacant(entry) => {
+				let server_id = self.next_client_id();
+				let server_verifier = [0; NFS4_VERIFIER_SIZE];
+				let record = ClientData {
+					server_id,
+					client_verifier: arg.client.verifier,
+					server_verifier,
+					callback: arg.callback,
+					callback_ident: arg.callback_ident,
+					confirmed: false,
+					expired: false,
+					last_activity: tokio::time::Instant::now(),
+				};
+				let client = Arc::new(tokio::sync::RwLock::new(record));
+				self.clients_by_id.insert(server_id, client.clone());
+				entry.insert(client);
 
-			self.clients
-				.insert(arg.client.id, Arc::new(tokio::sync::RwLock::new(record)));
-
-			return SETCLIENTID4res::NFS4_OK(SETCLIENTID4resok {
-				clientid: server_id,
-				setclientid_confirm: server_verifier,
-			});
+				return SETCLIENTID4res::NFS4_OK(SETCLIENTID4resok {
+					clientid: server_id,
+					setclientid_confirm: server_verifier,
+				});
+			},
 		};
 
-		let client = client.read().await;
+		let mut client = client.write().await;
 		let conditions = [
-			client.confirmed,
+			!client.expired,
 			client.client_verifier == arg.client.verifier,
 			client.callback == arg.callback,
 			client.callback_ident == arg.callback_ident,
 		];
 
 		if conditions.into_iter().all(|c| c) {
+			client.last_activity = tokio::time::Instant::now();
 			let clientid = client.server_id;
 			let setclientid_confirm = client.server_verifier;
 			SETCLIENTID4res::NFS4_OK(SETCLIENTID4resok {
@@ -1116,33 +1563,44 @@ where
 		&self,
 		arg: SETCLIENTID_CONFIRM4args,
 	) -> SETCLIENTID_CONFIRM4res {
-		for client in &self.clients {
-			let mut client = client.write().await;
-			if client.server_id == arg.clientid {
-				if client.server_verifier != arg.setclientid_confirm {
-					return SETCLIENTID_CONFIRM4res {
-						status: nfsstat4::NFS4ERR_CLID_INUSE,
-					};
-				}
-				client.confirmed = true;
-				return SETCLIENTID_CONFIRM4res {
-					status: nfsstat4::NFS4_OK,
-				};
-			}
+		let Some(client) = self
+			.clients_by_id
+			.get(&arg.clientid)
+			.map(|client| client.clone())
+		else {
+			return SETCLIENTID_CONFIRM4res {
+				status: nfsstat4::NFS4ERR_STALE_CLIENTID,
+			};
+		};
+		let mut client = client.write().await;
+		if client.expired {
+			return SETCLIENTID_CONFIRM4res {
+				status: nfsstat4::NFS4ERR_STALE_CLIENTID,
+			};
 		}
+		if client.server_verifier != arg.setclientid_confirm {
+			return SETCLIENTID_CONFIRM4res {
+				status: nfsstat4::NFS4ERR_CLID_INUSE,
+			};
+		}
+		client.confirmed = true;
+		client.last_activity = tokio::time::Instant::now();
 		SETCLIENTID_CONFIRM4res {
-			status: nfsstat4::NFS4ERR_STALE_CLIENTID,
+			status: nfsstat4::NFS4_OK,
 		}
 	}
 
 	async fn handle_release_lockowner(
 		&self,
 		_context: &mut Context,
-		_arg: RELEASE_LOCKOWNER4args,
+		arg: RELEASE_LOCKOWNER4args,
 	) -> RELEASE_LOCKOWNER4res {
-		RELEASE_LOCKOWNER4res {
-			status: nfsstat4::NFS4_OK,
-		}
+		let status = self
+			.renew_client(arg.lock_owner.clientid)
+			.await
+			.err()
+			.unwrap_or(nfsstat4::NFS4_OK);
+		RELEASE_LOCKOWNER4res { status }
 	}
 
 	fn handle_put_file_handle(ctx: &mut Context, arg: &PUTFH4args) -> PUTFH4res {
@@ -1156,11 +1614,16 @@ where
 		if let Some(object) = ctx.current_file_handle {
 			GETFH4res::NFS4_OK(GETFH4resok { object })
 		} else {
-			GETFH4res::Error(nfsstat4::NFS4ERR_BADHANDLE)
+			GETFH4res::Error(nfsstat4::NFS4ERR_NOFILEHANDLE)
 		}
 	}
 
 	fn handle_save_file_handle(ctx: &mut Context) -> SAVEFH4res {
+		if ctx.current_file_handle.is_none() {
+			return SAVEFH4res {
+				status: nfsstat4::NFS4ERR_NOFILEHANDLE,
+			};
+		}
 		ctx.saved_file_handle = ctx.current_file_handle;
 		SAVEFH4res {
 			status: nfsstat4::NFS4_OK,
@@ -1168,11 +1631,32 @@ where
 	}
 
 	fn handle_restore_file_handle(ctx: &mut Context) -> RESTOREFH4res {
-		ctx.current_file_handle = ctx.saved_file_handle.take();
+		let Some(saved_file_handle) = ctx.saved_file_handle else {
+			return RESTOREFH4res {
+				status: nfsstat4::NFS4ERR_RESTOREFH,
+			};
+		};
+		ctx.current_file_handle = Some(saved_file_handle);
 		RESTOREFH4res {
 			status: nfsstat4::NFS4_OK,
 		}
 	}
+}
+
+fn listen_addr(host: &str, port: u16) -> String {
+	if cfg!(target_os = "macos") {
+		format!("[::1]:{port}")
+	} else {
+		format!("{host}:{port}")
+	}
+}
+
+fn invalid_lock_range(offset: u64, length: u64) -> bool {
+	length == 0 || (length != u64::MAX && offset.checked_add(length).is_none())
+}
+
+fn xdr_opaque_size(length: usize) -> usize {
+	4 + length + (4 - length % 4) % 4
 }
 
 impl<P> Clone for Server<P> {
@@ -1305,18 +1789,27 @@ pub struct FileAttrData {
 }
 
 impl FileAttrData {
-	fn new(file_handle: nfs_fh4, file_type: nfs_ftype4, size: usize, mode: u32) -> FileAttrData {
-		let size = size.to_u64().unwrap();
+	fn new(
+		file_handle: nfs_fh4,
+		file_type: nfs_ftype4,
+		size: u64,
+		mode: u32,
+		attrs: Attrs,
+	) -> FileAttrData {
 		let mut supported_attrs = bitmap4(Vec::new());
 		for attr in ALL_SUPPORTED_ATTRS {
 			supported_attrs.set(attr.to_usize().unwrap());
 		}
-		let change = nfstime4::now().seconds.to_u64().unwrap();
+		let change = attrs
+			.ctime
+			.secs
+			.saturating_mul(1_000_000_000)
+			.saturating_add(u64::from(attrs.ctime.nanos));
 		let named_attr = matches!(file_type, nfs_ftype4::NF4REG);
 		FileAttrData {
 			supported_attrs,
 			file_type,
-			expire_type: 0,
+			expire_type: FH4_VOLATILE_ANY,
 			change,
 			size,
 			link_support: true,
@@ -1324,7 +1817,7 @@ impl FileAttrData {
 			named_attr,
 			fsid: fsid4 { major: 0, minor: 1 },
 			unique_handles: true,
-			lease_time: 1000,
+			lease_time: LEASE_TIME_SECONDS,
 			rdattr_error: 0,
 			file_handle,
 			acl: Vec::new(),
@@ -1343,7 +1836,7 @@ impl FileAttrData {
 			maxfilesize: u64::MAX,
 			maxlink: u32::MAX,
 			maxname: 512,
-			maxread: u64::MAX,
+			maxread: u64::from(MAX_READ_SIZE),
 			maxwrite: 0,
 			mimetype: Vec::new(),
 			mode,
@@ -1353,8 +1846,8 @@ impl FileAttrData {
 			},
 			no_trunc: true,
 			numlinks: 1,
-			owner: "tangram@tangram".to_owned(),
-			owner_group: "tangram@tangram".to_owned(),
+			owner: format!("{}@tangram", attrs.uid),
+			owner_group: format!("{}@tangram", attrs.gid),
 			quota_avail_hard: 0,
 			quota_avail_soft: 0,
 			quota_used: 0,
@@ -1365,14 +1858,14 @@ impl FileAttrData {
 			space_avail: 0,
 			space_free: 0,
 			space_total: u64::MAX,
-			space_used: size.to_u64().unwrap(),
+			space_used: size,
 			system: false,
-			time_access: nfstime4::new(),
+			time_access: attrs.atime.into(),
 			time_backup: nfstime4::new(),
-			time_create: nfstime4::new(),
+			time_create: attrs.ctime.into(),
 			time_delta: nfstime4::new(),
-			time_metadata: nfstime4::new(),
-			time_modify: nfstime4::new(),
+			time_metadata: attrs.ctime.into(),
+			time_modify: attrs.mtime.into(),
 			mounted_on_fileid: file_handle.0,
 		}
 	}
@@ -1447,12 +1940,15 @@ impl FileAttrData {
 }
 
 pub async fn unmount(path: &Path) -> Result<(), std::io::Error> {
-	tokio::process::Command::new("umount")
+	let status = tokio::process::Command::new("umount")
 		.args(["-f"])
 		.arg(path)
 		.stdout(std::process::Stdio::null())
 		.stderr(std::process::Stdio::null())
 		.status()
 		.await?;
+	if !status.success() {
+		return Err(Error::other("failed to unmount"));
+	}
 	Ok(())
 }

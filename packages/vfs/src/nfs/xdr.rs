@@ -1,5 +1,7 @@
 use num::ToPrimitive as _;
 
+const MAX_ARRAY_LENGTH: usize = 65_536;
+
 pub trait Encode {
 	fn encode<W>(&self, encoder: &mut Encoder<W>) -> Result<(), Error>
 	where
@@ -139,8 +141,11 @@ impl<'d> Decoder<'d> {
 	}
 
 	pub fn decode_bool(&mut self) -> Result<bool, Error> {
-		let i = self.decode_int()?;
-		Ok(i == 1)
+		match self.decode_int()? {
+			0 => Ok(false),
+			1 => Ok(true),
+			value => Err(Error::Custom(format!("expected a boolean. Got {value}"))),
+		}
 	}
 
 	pub fn decode_bytes(&mut self, count: usize) -> Result<&'d [u8], Error> {
@@ -294,6 +299,9 @@ where
 {
 	fn decode(decoder: &mut Decoder<'_>) -> Result<Self, Error> {
 		let num_entities = decoder.decode_uint()?.to_usize().unwrap();
+		if num_entities > MAX_ARRAY_LENGTH {
+			return Err(Error::Custom("the XDR array is too large".into()));
+		}
 		let mut result = Vec::with_capacity(num_entities);
 		for _ in 0..num_entities {
 			result.push(decoder.decode()?);

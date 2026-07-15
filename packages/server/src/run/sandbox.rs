@@ -212,8 +212,7 @@ impl Session {
 		#[cfg(target_os = "linux")]
 		let _vfs = if let tangram_sandbox::Isolation::Vm(vm) = &isolation {
 			let socket = temp.path().join("vfs.sock");
-			let options = self.server.config.vfs.unwrap_or_default();
-			let vfs = crate::vfs::Server::start_virtiofs(&self.server, options, &socket, vm.dax)
+			let vfs = crate::vfs::Server::start_virtiofs(&self.server, &socket, vm.dax)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to start the artifacts vfs"))?;
 			Some(vfs)
@@ -630,8 +629,7 @@ impl Server {
 			})?;
 		let _vfs = {
 			let socket = temp.path().join("vfs.sock");
-			let options = self.config.vfs.unwrap_or_default();
-			crate::vfs::Server::start_virtiofs(self, options, &socket, vm.dax)
+			crate::vfs::Server::start_virtiofs(self, &socket, vm.dax)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to start the artifacts vfs"))?
 		};

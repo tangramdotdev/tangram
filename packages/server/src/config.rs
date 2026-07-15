@@ -998,10 +998,17 @@ pub struct SyncPutStore {
 	pub process_concurrency: usize,
 }
 
-#[serde_as]
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum Vfs {
+	Fuse(VfsFuse),
+
+	Nfs,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Vfs {
+pub struct VfsFuse {
 	pub io: VfsIo,
 
 	pub passthrough: VfsPassthrough,
@@ -1527,9 +1534,10 @@ impl Default for SyncPutStore {
 
 impl Default for Vfs {
 	fn default() -> Self {
-		Self {
-			io: VfsIo::Auto,
-			passthrough: VfsPassthrough::Auto,
+		if cfg!(target_os = "linux") {
+			Self::Fuse(VfsFuse::default())
+		} else {
+			Self::Nfs
 		}
 	}
 }

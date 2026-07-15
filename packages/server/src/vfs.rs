@@ -19,7 +19,6 @@ pub enum Server {
 impl Server {
 	pub async fn start(
 		server: &crate::Server,
-		kind: Kind,
 		path: &Path,
 		options: crate::config::Vfs,
 	) -> tg::Result<Self> {
@@ -30,12 +29,12 @@ impl Server {
 		tokio::fs::create_dir_all(path).await.ok();
 
 		// Create the provider.
-		let provider = Provider::new(server, options)
+		let provider = Provider::new(server)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 
-		let vfs = match kind {
-			Kind::Fuse => {
+		let vfs = match options {
+			crate::config::Vfs::Fuse(options) => {
 				#[cfg(target_os = "linux")]
 				{
 					let options = vfs::fuse::Options {
@@ -61,10 +60,11 @@ impl Server {
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
-					return Err(tg::error!("fuse is only supported on linux"));
+					let _ = options;
+					return Err(tg::error!("the FUSE VFS is only supported on Linux"));
 				}
 			},
-			Kind::Nfs => {
+			crate::config::Vfs::Nfs => {
 				let port = 8476;
 				let host = if cfg!(target_os = "macos") {
 					"Tangram"
@@ -84,11 +84,10 @@ impl Server {
 	#[cfg(target_os = "linux")]
 	pub async fn start_virtiofs(
 		server: &crate::Server,
-		options: crate::config::Vfs,
 		socket: &Path,
 		dax: Option<u64>,
 	) -> tg::Result<Self> {
-		let provider = Provider::new(server, options)
+		let provider = Provider::new(server)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 		let dax_window_size = dax.unwrap_or(0);
@@ -143,6 +142,15 @@ impl Server {
 			Server::Virtiofs(server) => {
 				server.wait().await;
 			},
+		}
+	}
+}
+
+impl From<crate::config::Vfs> for Kind {
+	fn from(value: crate::config::Vfs) -> Self {
+		match value {
+			crate::config::Vfs::Fuse(_) => Self::Fuse,
+			crate::config::Vfs::Nfs => Self::Nfs,
 		}
 	}
 }

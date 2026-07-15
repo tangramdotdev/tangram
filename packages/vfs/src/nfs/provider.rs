@@ -13,6 +13,7 @@ use {
 pub(super) struct Provider<P> {
 	inner: P,
 	attr_node_count: AtomicU64,
+	attr_mutex: tokio::sync::Mutex<()>,
 	open_attr_count: AtomicU64,
 	attrs: DashMap<u64, u64>,
 	files: DashMap<u64, Either<AttrDir, AttrFile>>,
@@ -21,7 +22,7 @@ pub(super) struct Provider<P> {
 
 pub(super) enum ExtAttr {
 	Normal(Attrs),
-	AttrDir(usize),
+	AttrDir,
 	AttrFile(usize),
 }
 
@@ -41,7 +42,7 @@ struct AttrDirHandle {
 }
 
 struct AttrFileHandle {
-	content: Vec<u8>,
+	content: Bytes,
 }
 
 impl<P> Provider<P>
@@ -52,6 +53,7 @@ where
 		Self {
 			inner: provider,
 			attr_node_count: AtomicU64::new(1 << 63),
+			attr_mutex: tokio::sync::Mutex::new(()),
 			open_attr_count: AtomicU64::new(1 << 63),
 			attrs: DashMap::new(),
 			files: DashMap::new(),
@@ -60,34 +62,40 @@ where
 	}
 
 	fn next_node_id(&self) -> u64 {
-		self.attr_node_count.fetch_add(1, Ordering::SeqCst)
+		self.attr_node_count.fetch_add(1, Ordering::Relaxed)
 	}
 
 	fn next_handle_id(&self) -> u64 {
-		self.open_attr_count.fetch_add(1, Ordering::SeqCst)
+		self.open_attr_count.fetch_add(1, Ordering::Relaxed)
 	}
 
 	pub(super) async fn get_attr_ext(&self, handle: u64) -> Result<ExtAttr> {
 		let attr = self.files.get(&handle);
-		if let Some(attr) = attr.as_ref() {
+		if let Some(attr) = attr {
 			match attr.as_ref() {
-				Either::Left(dir) => Ok(ExtAttr::AttrDir(dir.attrs.len())),
+				Either::Left(_) => return Ok(ExtAttr::AttrDir),
 				Either::Right(file) => {
+					let node = file.node;
+					let name = file.name.clone();
+					drop(attr);
 					let len = self
 						.inner
-						.getxattr(file.node, &file.name)
+						.getxattr(node, &name)
 						.await?
 						.map_or(0, |s| s.len());
-					Ok(ExtAttr::AttrFile(len))
+					return Ok(ExtAttr::AttrFile(len));
 				},
 			}
-		} else {
-			let attr = self.inner.getattr(handle).await?;
-			Ok(ExtAttr::Normal(attr))
 		}
+		let attr = self.inner.getattr(handle).await?;
+		Ok(ExtAttr::Normal(attr))
 	}
 
 	pub(super) async fn get_attr_dir(&self, handle: u64) -> Result<u64> {
+		if let Some(id) = self.attrs.get(&handle) {
+			return Ok(*id);
+		}
+		let _guard = self.attr_mutex.lock().await;
 		if let Some(id) = self.attrs.get(&handle) {
 			return Ok(*id);
 		}
@@ -109,6 +117,7 @@ where
 			attrs: children,
 		};
 		self.files.insert(dir_id, Either::Left(dir));
+		self.attrs.insert(handle, dir_id);
 		Ok(dir_id)
 	}
 }
@@ -198,9 +207,7 @@ where
 			.into_iter()
 			.map(|request| match request {
 				crate::Request::Close { handle } => {
-					if self.handles.contains_key(&handle) {
-						self.handles.remove(&handle);
-					} else {
+					if self.handles.remove(&handle).is_none() {
 						self.inner.close_sync(handle);
 					}
 					Ok(crate::Response::Unit)
@@ -260,15 +267,20 @@ where
 	}
 
 	async fn open(&self, handle: u64) -> Result<u64> {
-		let attr_file = self.files.get(&handle);
-		if let Some(Either::Right(attr_file)) = attr_file.as_ref().map(|attr| attr.as_ref()) {
+		let attr_file = self
+			.files
+			.get(&handle)
+			.and_then(|attr| match attr.as_ref() {
+				Either::Right(file) => Some((file.node, file.name.clone())),
+				Either::Left(_) => None,
+			});
+		if let Some((node, name)) = attr_file {
 			let id = self.next_handle_id();
 			let content = self
 				.inner
-				.getxattr(attr_file.node, &attr_file.name)
+				.getxattr(node, &name)
 				.await?
-				.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?
-				.into();
+				.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
 			let handle = AttrFileHandle { content };
 			self.handles.insert(id, Either::Right(handle));
 			Ok(id)
@@ -287,13 +299,16 @@ where
 	async fn read(&self, handle: u64, position: u64, length: u64) -> Result<Bytes> {
 		let handle_data = self.handles.get(&handle);
 		if let Some(Either::Right(handle)) = handle_data.as_ref().map(|h| h.as_ref()) {
-			let start = position.to_usize().unwrap().min(handle.content.len());
-			let end = (position + length)
+			let start = position
 				.to_usize()
-				.unwrap()
+				.unwrap_or(usize::MAX)
 				.min(handle.content.len());
-			let bytes = &handle.content[start..end];
-			Ok(bytes.to_vec().into())
+			let end = position
+				.saturating_add(length)
+				.to_usize()
+				.unwrap_or(usize::MAX)
+				.min(handle.content.len());
+			Ok(handle.content.slice(start..end))
 		} else {
 			self.inner.read(handle, position, length).await
 		}
@@ -345,9 +360,7 @@ where
 	}
 
 	async fn close(&self, handle: u64) {
-		if self.handles.contains_key(&handle) {
-			self.handles.remove(&handle);
-		} else {
+		if self.handles.remove(&handle).is_none() {
 			self.inner.close(handle).await;
 		}
 	}

@@ -48,7 +48,7 @@ struct ReaddirPlusPage {
 
 #[derive(Clone)]
 struct Node {
-	artifact: Option<tg::artifact::Id>,
+	artifact: Option<ArtifactInfo>,
 	attrs: Option<vfs::Attrs>,
 	children: BTreeMap<String, u64>,
 	depth: u64,
@@ -59,10 +59,16 @@ struct Node {
 
 #[derive(Clone)]
 struct NodeInfo {
-	artifact: Option<tg::artifact::Id>,
+	artifact: Option<ArtifactInfo>,
 	attrs: Option<vfs::Attrs>,
 	depth: u64,
 	parent: u64,
+}
+
+#[derive(Clone)]
+struct ArtifactInfo {
+	data: Option<tg::artifact::data::Artifact>,
+	id: tg::artifact::Id,
 }
 
 pub struct FileHandle {
@@ -77,7 +83,7 @@ type Transaction<'a> = ();
 const FUSE_DIRENT_PLUS_HEADER_SIZE: usize = 152;
 
 impl Provider {
-	pub async fn new(server: &Server, _options: crate::config::Vfs) -> tg::Result<Self> {
+	pub async fn new(server: &Server) -> tg::Result<Self> {
 		// Create the nodes.
 		let nodes = Nodes::new();
 
@@ -313,7 +319,7 @@ impl Provider {
 		let Some(artifact) = node.artifact else {
 			return Ok(None);
 		};
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			return Ok(None);
 		}
 		let (file, _) = self.file_node_inner(&artifact).await?;
@@ -349,7 +355,7 @@ impl Provider {
 		let Some(artifact) = node.artifact else {
 			return Ok(None);
 		};
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			return Ok(None);
 		}
 		let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
@@ -375,14 +381,18 @@ impl Provider {
 		let Some(artifact) = node.artifact else {
 			return Ok(Vec::new());
 		};
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			return Ok(Vec::new());
 		}
 		let (file, _) = self.file_node_inner(&artifact).await?;
-		if file.dependencies.is_empty() {
-			return Ok(Vec::new());
+		let mut names = Vec::with_capacity(2);
+		if !file.dependencies.is_empty() {
+			names.push(tg::file::DEPENDENCIES_XATTR_NAME.to_owned());
 		}
-		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
+		if file.module.is_some() {
+			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
+		}
+		Ok(names)
 	}
 
 	pub fn listxattrs_sync(&self, id: u64) -> std::io::Result<Vec<String>> {
@@ -398,14 +408,18 @@ impl Provider {
 		let Some(artifact) = node.artifact else {
 			return Ok(Vec::new());
 		};
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			return Ok(Vec::new());
 		}
 		let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
-		if file.dependencies.is_empty() {
-			return Ok(Vec::new());
+		let mut names = Vec::with_capacity(2);
+		if !file.dependencies.is_empty() {
+			names.push(tg::file::DEPENDENCIES_XATTR_NAME.to_owned());
 		}
-		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
+		if file.module.is_some() {
+			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
+		}
+		Ok(names)
 	}
 
 	pub async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
@@ -432,9 +446,10 @@ impl Provider {
 				.or_else(|| name.strip_suffix(".tg.js"))
 				.or_else(|| Path::new(name).file_stem().and_then(|s| s.to_str()))
 				.unwrap_or(name);
-			let Ok(artifact) = name.parse() else {
+			let Ok(id) = name.parse() else {
 				return Ok(None);
 			};
+			let artifact = ArtifactInfo { data: None, id };
 			Some((artifact, 1))
 		};
 
@@ -449,7 +464,7 @@ impl Provider {
 			let Some(artifact) = artifact else {
 				return Ok(None);
 			};
-			if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
+			if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) {
 				return Ok(None);
 			}
 			let artifact = self
@@ -504,9 +519,10 @@ impl Provider {
 				.or_else(|| name.strip_suffix(".tg.js"))
 				.or_else(|| Path::new(name).file_stem().and_then(|s| s.to_str()))
 				.unwrap_or(name);
-			let Ok(artifact) = name.parse() else {
+			let Ok(id) = name.parse() else {
 				return Ok(None);
 			};
+			let artifact = ArtifactInfo { data: None, id };
 			Some((artifact, 1))
 		};
 
@@ -521,7 +537,7 @@ impl Provider {
 			let Some(artifact) = artifact else {
 				return Ok(None);
 			};
-			if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
+			if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) {
 				return Ok(None);
 			}
 			let artifact =
@@ -558,7 +574,7 @@ impl Provider {
 		};
 
 		// Ensure it is a file.
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			tracing::error!(%id, "tried to open a non-regular file");
 			return Err(std::io::Error::other("expected a file"));
 		}
@@ -597,7 +613,7 @@ impl Provider {
 		};
 
 		// Ensure it is a file.
-		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			tracing::error!(%id, "tried to open a non-regular file");
 			return Err(std::io::Error::other("expected a file"));
 		}
@@ -623,7 +639,7 @@ impl Provider {
 		// Get the node.
 		let NodeInfo { artifact, .. } = self.get(id).await?;
 		match artifact {
-			Some(artifact) if !matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
@@ -636,7 +652,7 @@ impl Provider {
 		// Get the node.
 		let NodeInfo { artifact, .. } = self.get_sync(id)?;
 		match artifact {
-			Some(artifact) if !matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
@@ -717,7 +733,7 @@ impl Provider {
 			artifact, parent, ..
 		} = self.get(id).await?;
 		let directory = match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
 			},
 			None => None,
@@ -753,7 +769,7 @@ impl Provider {
 			artifact, parent, ..
 		} = self.get_sync(id)?;
 		let directory = match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
 			},
 			None => None,
@@ -789,7 +805,7 @@ impl Provider {
 			..
 		} = self.get(id).await?;
 		let directory = match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
 			},
 			None => None,
@@ -873,7 +889,7 @@ impl Provider {
 			..
 		} = self.get_sync(id)?;
 		let directory = match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
 			},
 			None => None,
@@ -947,7 +963,7 @@ impl Provider {
 		};
 
 		// Ensure it is a symlink.
-		if !matches!(artifact.kind(), tg::artifact::Kind::Symlink) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) {
 			tracing::error!(%id, "tried to readlink on an invalid file type");
 			return Err(std::io::Error::other("expected a symlink"));
 		}
@@ -955,7 +971,7 @@ impl Provider {
 		// Render the target.
 		let (symlink, graph) = self.symlink_node_inner(&artifact).await?;
 		let artifact = match symlink.artifact {
-			Some(edge) => Some(Self::artifact_id_from_edge_inner(edge, graph.as_ref())?),
+			Some(edge) => Some(Self::artifact_from_edge_inner(edge, graph.as_ref())?.id),
 			None => None,
 		};
 		Self::build_symlink_target(depth, artifact, symlink.path)
@@ -978,7 +994,7 @@ impl Provider {
 			tracing::error!(%id, "tried to readlink on an invalid file type");
 			return Err(std::io::Error::other("expected a symlink"));
 		};
-		if !matches!(artifact.kind(), tg::artifact::Kind::Symlink) {
+		if !matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) {
 			tracing::error!(%id, "tried to readlink on an invalid file type");
 			return Err(std::io::Error::other("expected a symlink"));
 		}
@@ -986,7 +1002,7 @@ impl Provider {
 		// Render the target.
 		let (symlink, graph) = self.symlink_node_sync_inner(&artifact, transaction)?;
 		let artifact = match symlink.artifact {
-			Some(edge) => Some(Self::artifact_id_from_edge_inner(edge, graph.as_ref())?),
+			Some(edge) => Some(Self::artifact_from_edge_inner(edge, graph.as_ref())?.id),
 			None => None,
 		};
 		Self::build_symlink_target(depth, artifact, symlink.path)
@@ -1037,10 +1053,10 @@ impl Provider {
 
 	async fn compute_attrs_from_artifact_inner(
 		&self,
-		artifact: Option<&tg::artifact::Id>,
+		artifact: Option<&ArtifactInfo>,
 	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::File) => {
 				let (file, _) = self.file_node_inner(artifact).await?;
 				let size = if let Some(contents) = file.contents.as_ref() {
 					self.blob_length_inner(contents).await?
@@ -1052,10 +1068,10 @@ impl Provider {
 					size,
 				}))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink))
 			},
 			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
@@ -1063,13 +1079,16 @@ impl Provider {
 		}
 	}
 
-	fn artifact_id_from_directory_edge_inner(
+	fn artifact_from_directory_edge_inner(
 		edge: tg::graph::data::Edge<tg::directory::Id>,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<tg::artifact::Id> {
+	) -> std::io::Result<ArtifactInfo> {
 		match edge {
-			tg::graph::data::Edge::Object(directory) => Ok(directory.into()),
-			tg::graph::data::Edge::Pointer(pointer) => Self::artifact_id_from_pointer_inner(
+			tg::graph::data::Edge::Object(directory) => Ok(ArtifactInfo {
+				data: None,
+				id: directory.into(),
+			}),
+			tg::graph::data::Edge::Pointer(pointer) => Self::artifact_from_pointer_inner(
 				&pointer,
 				default_graph,
 				Some(tg::artifact::Kind::Directory),
@@ -1077,23 +1096,23 @@ impl Provider {
 		}
 	}
 
-	fn artifact_id_from_edge_inner(
+	fn artifact_from_edge_inner(
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<tg::artifact::Id> {
+	) -> std::io::Result<ArtifactInfo> {
 		match edge {
-			tg::graph::data::Edge::Object(artifact) => Ok(artifact),
+			tg::graph::data::Edge::Object(id) => Ok(ArtifactInfo { data: None, id }),
 			tg::graph::data::Edge::Pointer(pointer) => {
-				Self::artifact_id_from_pointer_inner(&pointer, default_graph, None)
+				Self::artifact_from_pointer_inner(&pointer, default_graph, None)
 			},
 		}
 	}
 
-	fn artifact_id_from_pointer_inner(
+	fn artifact_from_pointer_inner(
 		pointer: &tg::graph::data::Pointer,
 		default_graph: Option<&tg::graph::Id>,
 		expected_kind: Option<tg::artifact::Kind>,
-	) -> std::io::Result<tg::artifact::Id> {
+	) -> std::io::Result<ArtifactInfo> {
 		if let Some(expected_kind) = expected_kind
 			&& pointer.kind != expected_kind
 		{
@@ -1111,28 +1130,35 @@ impl Provider {
 			tracing::error!(error = %error.trace(), "failed to serialize the pointer artifact data");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
-		Ok(tg::artifact::Id::new(kind, &bytes))
+		let id = tg::artifact::Id::new(kind, &bytes);
+		Ok(ArtifactInfo {
+			data: Some(data),
+			id,
+		})
 	}
 
 	async fn artifact_data_inner(
 		&self,
-		artifact: &tg::artifact::Id,
+		artifact: &ArtifactInfo,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
-		let id: tg::object::Id = artifact.clone().into();
+		if let Some(data) = &artifact.data {
+			return Ok(data.clone());
+		}
+		let id: tg::object::Id = artifact.id.clone().into();
 		let Some(data) = self.try_get_data_inner(&id).await? else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
 		data.try_into().map_err(|_| {
-			tracing::error!(%artifact, "expected artifact data");
+			tracing::error!(artifact = %artifact.id, "expected artifact data");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})
 	}
 
 	async fn directory_entries_inner(
 		&self,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactInfo,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
+	) -> std::io::Result<BTreeMap<String, ArtifactInfo>> {
 		let mut entries = BTreeMap::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned())];
 		while let Some((directory, default_graph)) = stack.pop() {
@@ -1141,13 +1167,13 @@ impl Provider {
 			match directory {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
-						let artifact = Self::artifact_id_from_edge_inner(edge, graph.as_ref())?;
+						let artifact = Self::artifact_from_edge_inner(edge, graph.as_ref())?;
 						entries.insert(name, artifact);
 					}
 				},
 				tg::graph::data::Directory::Branch(branch) => {
 					for child in branch.children.into_iter().rev() {
-						let artifact = Self::artifact_id_from_directory_edge_inner(
+						let artifact = Self::artifact_from_directory_edge_inner(
 							child.directory,
 							graph.as_ref(),
 						)?;
@@ -1161,10 +1187,10 @@ impl Provider {
 
 	async fn directory_lookup_entry_inner(
 		&self,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactInfo,
 		name: &str,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<Option<tg::artifact::Id>> {
+	) -> std::io::Result<Option<ArtifactInfo>> {
 		let mut directory = directory.clone();
 		let mut default_graph = default_graph.cloned();
 		loop {
@@ -1175,7 +1201,7 @@ impl Provider {
 					let Some(edge) = leaf.entries.get(name).cloned() else {
 						return Ok(None);
 					};
-					let artifact = Self::artifact_id_from_edge_inner(edge, graph.as_ref())?;
+					let artifact = Self::artifact_from_edge_inner(edge, graph.as_ref())?;
 					return Ok(Some(artifact));
 				},
 				tg::graph::data::Directory::Branch(branch) => {
@@ -1186,10 +1212,8 @@ impl Provider {
 					else {
 						return Ok(None);
 					};
-					directory = Self::artifact_id_from_directory_edge_inner(
-						child.directory,
-						graph.as_ref(),
-					)?;
+					directory =
+						Self::artifact_from_directory_edge_inner(child.directory, graph.as_ref())?;
 					default_graph = graph;
 				},
 			}
@@ -1198,7 +1222,7 @@ impl Provider {
 
 	async fn directory_node_inner(
 		&self,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactInfo,
 	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_inner(directory).await?;
 		let tg::artifact::data::Artifact::Directory(directory) = data else {
@@ -1220,7 +1244,7 @@ impl Provider {
 
 	async fn file_node_inner(
 		&self,
-		file: &tg::artifact::Id,
+		file: &ArtifactInfo,
 	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_inner(file).await?;
 		let tg::artifact::data::Artifact::File(file) = data else {
@@ -1313,7 +1337,7 @@ impl Provider {
 
 	async fn symlink_node_inner(
 		&self,
-		symlink: &tg::artifact::Id,
+		symlink: &ArtifactInfo,
 	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_inner(symlink).await?;
 		let tg::artifact::data::Artifact::Symlink(symlink) = data else {
@@ -1399,16 +1423,19 @@ impl Provider {
 
 	fn artifact_data_sync_inner(
 		&self,
-		artifact: &tg::artifact::Id,
+		artifact: &ArtifactInfo,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
-		let id: tg::object::Id = artifact.clone().into();
+		if let Some(data) = &artifact.data {
+			return Ok(data.clone());
+		}
+		let id: tg::object::Id = artifact.id.clone().into();
 		let output = self.try_get_data(&id, transaction)?;
 		let Some((_, data)) = output else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
 		data.try_into().map_err(|_| {
-			tracing::error!(%artifact, "expected artifact data");
+			tracing::error!(artifact = %artifact.id, "expected artifact data");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})
 	}
@@ -1482,7 +1509,7 @@ impl Provider {
 
 	fn directory_node_sync_inner(
 		&self,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactInfo,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_sync_inner(directory, transaction)?;
@@ -1620,7 +1647,7 @@ impl Provider {
 
 	fn file_node_sync_inner(
 		&self,
-		file: &tg::artifact::Id,
+		file: &ArtifactInfo,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_sync_inner(file, transaction)?;
@@ -1644,7 +1671,7 @@ impl Provider {
 
 	fn symlink_node_sync_inner(
 		&self,
-		symlink: &tg::artifact::Id,
+		symlink: &ArtifactInfo,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_sync_inner(symlink, transaction)?;
@@ -1668,10 +1695,10 @@ impl Provider {
 
 	fn directory_entries_sync_inner(
 		&self,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactInfo,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
+	) -> std::io::Result<BTreeMap<String, ArtifactInfo>> {
 		let mut entries = BTreeMap::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned())];
 		while let Some((directory, default_graph)) = stack.pop() {
@@ -1680,13 +1707,13 @@ impl Provider {
 			match directory {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
-						let artifact = Self::artifact_id_from_edge_inner(edge, graph.as_ref())?;
+						let artifact = Self::artifact_from_edge_inner(edge, graph.as_ref())?;
 						entries.insert(name, artifact);
 					}
 				},
 				tg::graph::data::Directory::Branch(branch) => {
 					for child in branch.children.into_iter().rev() {
-						let artifact = Self::artifact_id_from_directory_edge_inner(
+						let artifact = Self::artifact_from_directory_edge_inner(
 							child.directory,
 							graph.as_ref(),
 						)?;
@@ -1700,11 +1727,11 @@ impl Provider {
 
 	fn directory_lookup_entry_sync_inner(
 		&self,
-		directory: &tg::artifact::Id,
+		directory: &ArtifactInfo,
 		name: &str,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Option<tg::artifact::Id>> {
+	) -> std::io::Result<Option<ArtifactInfo>> {
 		let mut directory = directory.clone();
 		let mut default_graph = default_graph.cloned();
 		loop {
@@ -1716,7 +1743,7 @@ impl Provider {
 					let Some(edge) = leaf.entries.get(name).cloned() else {
 						return Ok(None);
 					};
-					let artifact = Self::artifact_id_from_edge_inner(edge, graph.as_ref())?;
+					let artifact = Self::artifact_from_edge_inner(edge, graph.as_ref())?;
 					return Ok(Some(artifact));
 				},
 				tg::graph::data::Directory::Branch(branch) => {
@@ -1727,10 +1754,8 @@ impl Provider {
 					else {
 						return Ok(None);
 					};
-					directory = Self::artifact_id_from_directory_edge_inner(
-						child.directory,
-						graph.as_ref(),
-					)?;
+					directory =
+						Self::artifact_from_directory_edge_inner(child.directory, graph.as_ref())?;
 					default_graph = graph;
 				},
 			}
@@ -1750,11 +1775,11 @@ impl Provider {
 
 	fn compute_attrs_from_artifact_sync_inner(
 		&self,
-		artifact: Option<&tg::artifact::Id>,
+		artifact: Option<&ArtifactInfo>,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::File) => {
 				let (file, _) = self.file_node_sync_inner(artifact, transaction)?;
 				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
 					self.blob_length_sync_inner(contents, transaction)
@@ -1764,10 +1789,10 @@ impl Provider {
 					size,
 				}))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) => {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink))
 			},
 			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
@@ -1862,13 +1887,13 @@ impl Provider {
 		std::io::Error::from_raw_os_error(libc::EIO)
 	}
 
-	fn attrs_from_artifact(artifact: Option<&tg::artifact::Id>) -> Option<vfs::Attrs> {
+	fn attrs_from_artifact(artifact: Option<&ArtifactInfo>) -> Option<vfs::Attrs> {
 		match artifact {
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => None,
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::File) => None,
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Some(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
-			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) => {
 				Some(vfs::Attrs::new(vfs::AttrsInner::Symlink))
 			},
 			None => Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
@@ -1876,8 +1901,8 @@ impl Provider {
 		}
 	}
 
-	fn entry_kind_from_artifact(artifact: &tg::artifact::Id) -> vfs::EntryKind {
-		match artifact.kind() {
+	fn entry_kind_from_artifact(artifact: &ArtifactInfo) -> vfs::EntryKind {
+		match artifact.id.kind() {
 			tg::artifact::Kind::Directory => vfs::EntryKind::Directory,
 			tg::artifact::Kind::File => vfs::EntryKind::File,
 			tg::artifact::Kind::Symlink => vfs::EntryKind::Symlink,
@@ -2061,7 +2086,7 @@ impl Nodes {
 		&self,
 		parent: u64,
 		name: &str,
-		artifact: tg::artifact::Id,
+		artifact: ArtifactInfo,
 		depth: u64,
 		attrs: Option<vfs::Attrs>,
 	) -> std::io::Result<u64> {

@@ -858,13 +858,8 @@ impl Server {
 		let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
 			Ok(exists) => exists,
 			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
-				if cfg!(target_os = "macos") {
-					self::vfs::Server::unmount(self::vfs::Kind::Nfs, &artifacts_path).await?;
-				} else if cfg!(target_os = "linux") {
-					self::vfs::Server::unmount(self::vfs::Kind::Fuse, &artifacts_path).await?;
-				} else {
-					return Err(tg::error!("unsupported operating system"));
-				}
+				let kind = server.config.vfs.unwrap_or_default().into();
+				self::vfs::Server::unmount(kind, &artifacts_path).await?;
 				true
 			},
 			Err(error) => {
@@ -891,23 +886,11 @@ impl Server {
 			tokio::fs::create_dir_all(&cache_path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
-			let kind = if cfg!(target_os = "macos") {
-				vfs::Kind::Nfs
-			} else if cfg!(target_os = "linux") {
-				vfs::Kind::Fuse
-			} else {
-				unreachable!()
-			};
 			let artifacts_path = server.artifacts_path();
-			let vfs = self::vfs::Server::start(&server, kind, &artifacts_path, options)
+			let vfs = self::vfs::Server::start(&server, &artifacts_path, options)
 				.await
-				.inspect_err(|error| {
-					tracing::error!(?error, "failed to start the VFS");
-				})
-				.ok();
-			if let Some(vfs) = vfs {
-				server.vfs.lock().unwrap().replace(vfs);
-			}
+				.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
+			server.vfs.lock().unwrap().replace(vfs);
 		} else {
 			if cache_exists {
 				tokio::fs::rename(&cache_path, &artifacts_path)

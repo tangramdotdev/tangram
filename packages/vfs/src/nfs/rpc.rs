@@ -1,8 +1,11 @@
 use {
 	super::xdr,
 	num::ToPrimitive as _,
+	std::io::{Error, ErrorKind},
 	tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _},
 };
+
+pub const MAX_RECORD_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct Auth {
@@ -409,7 +412,11 @@ where
 		let is_last_fragment = (header & 0x8000_0000) != 0;
 		let len = (header & 0x7fff_ffff).to_usize().unwrap();
 		let old_len = buf.len();
-		buf.resize_with(old_len + len, || 0);
+		let new_len = old_len
+			.checked_add(len)
+			.filter(|new_len| *new_len <= MAX_RECORD_SIZE)
+			.ok_or_else(|| Error::new(ErrorKind::InvalidData, "the RPC record is too large"))?;
+		buf.resize(new_len, 0);
 		stream.read_exact(&mut buf[old_len..]).await?;
 		if is_last_fragment {
 			break;
@@ -422,6 +429,12 @@ pub async fn write_fragments<S>(stream: &mut S, fragments: &[u8]) -> std::io::Re
 where
 	S: AsyncWrite + Unpin,
 {
+	if fragments.len() > MAX_RECORD_SIZE {
+		return Err(Error::new(
+			ErrorKind::InvalidData,
+			"the RPC record is too large",
+		));
+	}
 	let header = 0x8000_0000 | fragments.len().to_u32().unwrap();
 	stream.write_all(&header.to_be_bytes()).await?;
 	stream.write_all(fragments).await?;

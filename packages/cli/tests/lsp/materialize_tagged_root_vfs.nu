@@ -8,7 +8,7 @@ if $nu.os-info.name != 'linux' {
 }
 
 let server_path = mktemp --directory
-let server = spawn --directory $server_path --config { vfs: {} }
+let server = spawn --directory $server_path --config { vfs: true }
 
 if $nu.os-info.name == 'linux' {
 	let mount_exit_code = do --ignore-errors {
