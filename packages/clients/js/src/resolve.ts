@@ -106,9 +106,10 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 		path: string,
 	): Promise<Resolved<T>> => {
 		value = await value;
+		let location = path === "" ? "" : ` at ${path}`;
 		if (typeof value === "object" && value !== null) {
 			if (visited.has(value)) {
-				throw new Error(`cycle detected${at(path)}`);
+				throw new Error(`cycle detected${location}`);
 			}
 			visited = visited.add(value);
 		}
@@ -139,16 +140,19 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 		} else if (typeof value === "object") {
 			output = Object.fromEntries(
 				await Promise.all(
-					Object.entries(value).map(async ([key, value]) => {
-						value = await inner(value, visited, `${path}.${key}`);
-						return [key, value];
-					}),
+					Object.entries(value).map(async ([key, value]) => [
+						key,
+						await inner(value, visited, `${path}.${key}`),
+					]),
 				),
 			) as tg.Resolved<T>;
 		} else {
-			throw new Error(
-				`invalid value to resolve${at(path)}: ${typeof value === "undefined" ? "undefined is not a value, use null instead" : typeof value}`,
-			);
+			let type = typeof value;
+			let description =
+				type === "undefined"
+					? "undefined is not a value, use null instead"
+					: type;
+			throw new Error(`invalid value to resolve${location}: ${description}`);
 		}
 		if (typeof value === "object" && value !== null) {
 			visited = visited.delete(value);
@@ -157,6 +161,3 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 	};
 	return await inner(value, im.Set(), "");
 };
-
-/** Render a path within the value being resolved, for use in an error message. */
-let at = (path: string) => (path === "" ? "" : ` at ${path}`);
