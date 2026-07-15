@@ -11,7 +11,7 @@ let path = artifact {
 			let archive = await tg.archive(directory, "tar", null);
 			let prefix = await tg.Mutation.prefix("prefix", null);
 			let suffix = await tg.Mutation.suffix("suffix", null);
-			let error = tg.error({ values: null });
+			let error = tg.error.sync({ values: null });
 			let printed = tg.Value.print(null, { color: null });
 			return [
 				archive instanceof tg.Blob,

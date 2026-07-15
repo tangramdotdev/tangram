@@ -7,8 +7,8 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let cleared = tg.error("message", { stack: null });
-			let captured = tg.error("message");
+			let cleared = tg.error.sync("message", { stack: null });
+			let captured = tg.error.sync("message");
 			return (await cleared.stack) === null && (await captured.stack) !== null;
 		}
 	'

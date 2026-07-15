@@ -11,7 +11,7 @@ let path = artifact {
 		};
 
 		export function x() {
-			throw tg.error("oops");
+			throw tg.error.sync("oops");
 		}
 	'#
 }
@@ -83,11 +83,11 @@ snapshot (tg get $child_error --pretty | redact | normalize_ids) '
 	      "range": {
 	        "start": {
 	          "line": 5,
-	          "character": 10,
+	          "character": 16,
 	        },
 	        "end": {
 	          "line": 5,
-	          "character": 10,
+	          "character": 16,
 	        },
 	      },
 	      "symbol": "x",

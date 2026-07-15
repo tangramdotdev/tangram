@@ -7,7 +7,7 @@ use ./process.nu test
 let path = artifact {
 	tangram.ts: r#'
 		export default function () {
-			throw tg.error("whoops");
+			throw tg.error.sync("whoops");
 		}
 	'#
 }

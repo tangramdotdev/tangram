@@ -1,78 +1,79 @@
 import * as tg from "./index.ts";
 
 /** Create an error. */
-export function error(): tg.Error;
-export function error(message: string, arg?: tg.Error.Arg | null): tg.Error;
-export function error(arg: tg.Error.Arg): tg.Error;
 export function error(
-	firstArg?: string | tg.Error.Arg,
-	secondArg?: tg.Error.Arg | null,
-): tg.Error {
-	let object: tg.Error.Object = {
-		code: null,
-		diagnostics: null,
-		location: null,
-		message: null,
-		source: null,
-		stack: null,
-		values: {},
-	};
-	let stackWasSet = false;
-	if (firstArg !== null && typeof firstArg === "string") {
-		object.message = firstArg;
-		if (secondArg !== undefined && secondArg !== null) {
-			if (secondArg.code !== undefined) {
-				object.code = secondArg.code;
-			}
-			if (secondArg.diagnostics !== undefined) {
-				object.diagnostics = secondArg.diagnostics;
-			}
-			if (secondArg.location !== undefined) {
-				object.location = secondArg.location;
-			}
-			if (secondArg.message !== undefined) {
-				object.message = secondArg.message;
-			}
-			if (secondArg.source !== undefined) {
-				object.source = secondArg.source;
-			}
-			if (secondArg.stack !== undefined) {
-				object.stack = secondArg.stack;
-				stackWasSet = true;
-			}
-			if (secondArg.values !== undefined) {
-				object.values = secondArg.values ?? {};
-			}
-		}
-	} else if (firstArg !== null && typeof firstArg === "object") {
-		if (firstArg.code !== undefined) {
-			object.code = firstArg.code;
-		}
-		if (firstArg.diagnostics !== undefined) {
-			object.diagnostics = firstArg.diagnostics;
-		}
-		if (firstArg.location !== undefined) {
-			object.location = firstArg.location;
-		}
-		if (firstArg.message !== undefined) {
-			object.message = firstArg.message;
-		}
-		if (firstArg.source !== undefined) {
-			object.source = firstArg.source;
-		}
-		if (firstArg.stack !== undefined) {
-			object.stack = firstArg.stack;
-			stackWasSet = true;
-		}
-		if (firstArg.values !== undefined) {
-			object.values = firstArg.values ?? {};
-		}
-	}
-	if (!stackWasSet) {
+	strings: TemplateStringsArray,
+	...placeholders: tg.Args<string>
+): tg.Error.Builder;
+export function error(...args: tg.Args<tg.Error.Arg>): tg.Error.Builder;
+export function error(
+	firstArg?:
+		| TemplateStringsArray
+		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Error.Arg>>,
+	...args: tg.Args<tg.Error.Arg>
+): tg.Error.Builder {
+	return firstArg === undefined
+		? new tg.Error.Builder(...args)
+		: new tg.Error.Builder(firstArg, ...args);
+}
+
+export namespace error {
+	export function sync(): tg.Error;
+	export function sync(
+		message: string,
+		arg?: tg.Error.Arg.Object | null,
+	): tg.Error;
+	export function sync(arg: tg.Error.Arg.Object): tg.Error;
+	export function sync(
+		firstArg?: string | tg.Error.Arg.Object,
+		secondArg?: tg.Error.Arg.Object | null,
+	): tg.Error {
+		let stackObject: { stack: Array<tg.Error.Location> | null } = {
+			stack: null,
+		};
 		// @ts-expect-error
-		globalThis.Error.captureStackTrace(object, tg.error);
+		globalThis.Error.captureStackTrace(stackObject, tg.error.sync);
+		let object: tg.Error.Object = {
+			code: null,
+			diagnostics: null,
+			location: null,
+			message: null,
+			source: null,
+			stack: stackObject.stack,
+			values: {},
+		};
+		let args: Array<tg.Error.Arg.Object | null | undefined> =
+			typeof firstArg === "string"
+				? [{ message: firstArg }, secondArg]
+				: [firstArg];
+		for (let arg of args) {
+			if (arg === undefined || arg === null) {
+				continue;
+			}
+			if (arg.code !== undefined) {
+				object.code = arg.code;
+			}
+			if (arg.diagnostics !== undefined) {
+				object.diagnostics = arg.diagnostics;
+			}
+			if (arg.location !== undefined) {
+				object.location = arg.location;
+			}
+			if (arg.message !== undefined) {
+				object.message = arg.message;
+			}
+			if (arg.source !== undefined) {
+				object.source = arg.source;
+			}
+			if (arg.stack !== undefined) {
+				object.stack = arg.stack;
+			}
+			if (arg.values !== undefined) {
+				object.values = arg.values ?? {};
+			}
+		}
+		return tg.Error.withObject(object);
 	}
-	return tg.Error.withObject(object);
 }
 
 /** An error. */
@@ -112,6 +113,61 @@ export class Error {
 	/** Create an error from data. */
 	static fromData(data: tg.Error.Data): tg.Error {
 		return tg.Error.withObject(tg.Error.Object.fromData(data));
+	}
+
+	/** Create an error. */
+	static async new(...args: tg.Args<tg.Error.Arg>): Promise<tg.Error> {
+		let stackObject: { stack: Array<tg.Error.Location> | null } = {
+			stack: null,
+		};
+		// @ts-expect-error
+		globalThis.Error.captureStackTrace(stackObject, tg.Error.new);
+		let stack = stackObject.stack;
+		let arg = await tg.Error.arg({ stack }, ...args);
+		let object: tg.Error.Object = {
+			code: arg.code ?? null,
+			diagnostics: arg.diagnostics ?? null,
+			location: arg.location ?? null,
+			message: arg.message ?? null,
+			source: arg.source ?? null,
+			stack: arg.stack ?? null,
+			values: arg.values ?? {},
+		};
+		return tg.Error.withObject(object);
+	}
+
+	static async arg(
+		...args: tg.Args<tg.Error.Arg>
+	): Promise<tg.Error.Arg.Object> {
+		return await tg.Error.argResolved(
+			...(await Promise.all(args.map(tg.resolve))),
+		);
+	}
+
+	static async argResolved(
+		...args: Array<tg.ValueOrMaybeMutationMap<tg.Error.Arg>>
+	): Promise<tg.Error.Arg.Object> {
+		return await tg.Args.applyResolved<tg.Error.Arg, tg.Error.Arg.Object>({
+			args,
+			map: async (arg) => {
+				if (typeof arg === "string") {
+					return { message: arg };
+				} else if (arg instanceof tg.Error) {
+					return await arg.object();
+				} else {
+					return arg;
+				}
+			},
+			reduce: {
+				code: "set",
+				diagnostics: "set",
+				location: "set",
+				message: "set",
+				source: "set",
+				stack: "set",
+				values: "merge",
+			},
+		});
 	}
 
 	/** Convert an error to data. */
@@ -250,15 +306,121 @@ export class Error {
 export namespace Error {
 	export type Id = string;
 
-	export type Arg = {
-		code?: string | null;
-		diagnostics?: Array<tg.Diagnostic> | null;
-		location?: tg.Error.Location | null;
-		message?: string | null;
-		source?: tg.Referent<tg.Error.Object | tg.Error> | null;
-		stack?: Array<tg.Error.Location> | null;
-		values?: { [key: string]: string } | null;
-	};
+	export class Builder {
+		#args: tg.Args<tg.Error.Arg>;
+
+		constructor(
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<string>
+		);
+		constructor(
+			firstArg?:
+				| TemplateStringsArray
+				| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Error.Arg>>,
+			...args: tg.Args<tg.Error.Arg>
+		);
+		constructor(...args: tg.Args<tg.Error.Arg>);
+		constructor(...args: any[]) {
+			let firstArg = args[0];
+			if (Array.isArray(firstArg) && "raw" in firstArg) {
+				let strings = firstArg as TemplateStringsArray;
+				let placeholders = args.slice(1) as tg.Args<string>;
+				let components = [];
+				for (let i = 0; i < strings.length - 1; i++) {
+					let string = strings[i]!;
+					components.push(string);
+					let placeholder = placeholders[i]!;
+					components.push(placeholder);
+				}
+				components.push(strings[strings.length - 1]!);
+				let string = components.join("");
+				this.#args = [string];
+			} else {
+				this.#args = args;
+			}
+			let stackObject: { stack: Array<tg.Error.Location> | null } = {
+				stack: null,
+			};
+			// @ts-expect-error
+			globalThis.Error.captureStackTrace(stackObject, tg.Error.Builder);
+			let stack = stackObject.stack;
+			this.#args.unshift({ stack });
+		}
+
+		code(code: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
+			this.#args.push({ code });
+			return this;
+		}
+
+		diagnostics(
+			diagnostics: tg.Unresolved<tg.MaybeMutation<Array<tg.Diagnostic>> | null>,
+		): this {
+			this.#args.push({ diagnostics });
+			return this;
+		}
+
+		location(
+			location: tg.Unresolved<tg.MaybeMutation<tg.Error.Location> | null>,
+		): this {
+			this.#args.push({ location });
+			return this;
+		}
+
+		message(message: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
+			this.#args.push({ message });
+			return this;
+		}
+
+		source(
+			source: tg.Unresolved<tg.MaybeMutation<
+				tg.Referent<tg.Error.Object | tg.Error>
+			> | null>,
+		): this {
+			this.#args.push({ source });
+			return this;
+		}
+
+		stack(
+			stack: tg.Unresolved<tg.MaybeMutation<Array<tg.Error.Location>> | null>,
+		): this {
+			this.#args.push({ stack });
+			return this;
+		}
+
+		values(
+			values: tg.Unresolved<tg.MaybeMutation<{ [key: string]: string }> | null>,
+		): this {
+			this.#args.push({ values });
+			return this;
+		}
+
+		then<TResult1 = tg.Error, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Error) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return tg.Error.new(...this.#args).then(onfulfilled, onrejected);
+		}
+	}
+
+	export type Arg = string | tg.Error | tg.Error.Arg.Object;
+
+	export namespace Arg {
+		export type Object = {
+			code?: string | null;
+			diagnostics?: Array<tg.Diagnostic> | null;
+			location?: tg.Error.Location | null;
+			message?: string | null;
+			source?: tg.Referent<tg.Error.Object | tg.Error> | null;
+			stack?: Array<tg.Error.Location> | null;
+			values?: { [key: string]: string } | null;
+		};
+	}
 
 	export type Object = {
 		code: string | null;

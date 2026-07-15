@@ -520,13 +520,13 @@ export class Process<O extends tg.Value = tg.Value> {
 			if (this.#options.name !== undefined && this.#options.name !== null) {
 				values.name = this.#options.name;
 			}
-			throw tg.error("the child process failed", {
+			throw tg.error.sync("the child process failed", {
 				source,
 				values,
 			});
 		}
 		if (wait.exit >= 1 && wait.exit < 128) {
-			const error = tg.error(`the process exited with code ${wait.exit}`);
+			const error = tg.error.sync(`the process exited with code ${wait.exit}`);
 			const source = {
 				item: error,
 				options: this.#options,
@@ -537,13 +537,13 @@ export class Process<O extends tg.Value = tg.Value> {
 			if (this.#options.name !== undefined && this.#options.name !== null) {
 				values.name = this.#options.name;
 			}
-			throw tg.error("the child process failed", {
+			throw tg.error.sync("the child process failed", {
 				source,
 				values,
 			});
 		}
 		if (wait.exit >= 128) {
-			const error = tg.error(`the process exited with code ${wait.exit}`);
+			const error = tg.error.sync(`the process exited with code ${wait.exit}`);
 			const source = {
 				item: error,
 				options: this.#options,
@@ -554,7 +554,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			if (this.#options.name !== undefined && this.#options.name !== null) {
 				values.name = this.#options.name;
 			}
-			throw tg.error(
+			throw tg.error.sync(
 				`the child process exited with signal ${wait.exit - 128}`,
 				{
 					source,

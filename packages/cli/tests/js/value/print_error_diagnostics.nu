@@ -7,7 +7,7 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let error = tg.error("boom", {
+			let error = tg.error.sync("boom", {
 				diagnostics: [{ message: "diagmsg", severity: "error" }],
 			});
 			let output = tg.Value.print(error);

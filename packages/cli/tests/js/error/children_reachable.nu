@@ -18,7 +18,7 @@ let path = artifact {
 			let diagnosticFile = await tg.file("diagnostic");
 			let stackFile = await tg.file("stack");
 
-			let error = tg.error("boom", {
+			let error = tg.error.sync("boom", {
 				location: {
 					file: { kind: "module", value: makeModule(locationFile) },
 					range,
