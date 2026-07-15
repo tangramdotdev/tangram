@@ -8,7 +8,7 @@ export async function getObject(
 ): Promise<tg.Object.Data> {
 	let output = await tryGetObject(client, id);
 	if (output === null) {
-		throw new Error(`failed to find the object ${id}`);
+		throw new Error("failed to find the object");
 	}
 	return output;
 }
