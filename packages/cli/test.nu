@@ -1447,7 +1447,7 @@ def fdb_cluster [] {
 		return $system_cluster
 	}
 
-	let user_cluster = ($nu.home-path | path join '.foundationdb/fdb.cluster')
+	let user_cluster = ($nu.home-dir | path join '.foundationdb/fdb.cluster')
 	if ($user_cluster | path exists) {
 		return $user_cluster
 	}

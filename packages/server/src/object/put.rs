@@ -66,12 +66,15 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
-		let permission = if self.post_object_batch_authorize(
-			&arg.children,
-			&children,
-			&BTreeSet::new(),
-			&BTreeSet::new(),
-		) {
+		let permission = if self
+			.post_object_batch_authorize(
+				&arg.children,
+				&children,
+				&BTreeSet::new(),
+				&BTreeSet::new(),
+			)
+			.await?
+		{
 			tg::grant::permission::object::Permission::Subtree
 		} else {
 			tg::grant::permission::object::Permission::Node

@@ -120,29 +120,15 @@ impl Session {
 		let control_sender = control.sender();
 		let mut server_messages = server_messages;
 		let server_message_sender = control_sender.clone();
-		let server_messages_task = Task::spawn({
-			let id = id.clone();
-			let server = self.server.clone();
-			move |_| async move {
+		let server_messages_task =
+			Task::spawn(move |_| async move {
 				while let Some(message) = server_messages.try_next().await.map_err(|source| {
 					tg::error!(!source, "failed to get a sandbox server message")
 				})? {
-					let mut message = message.payload.0;
-					if let tg::sandbox::control::ServerMessage::Request(request) = &mut message
-						&& let tg::sandbox::control::ServerRequestArg::SpawnProcess(request) =
-							&mut request.arg && request.process.identity.is_none()
-					{
-						let process = tg::process::Id::new();
-						let token = server.create_process_authentication_token(process.clone())?;
-						request.process.data.sandbox = id.clone();
-						request.process.identity =
-							Some(tg::runner::control::ProcessIdentity { id: process, token });
-					}
-					server_message_sender.send(message).await?;
+					server_message_sender.send(message.payload.0).await?;
 				}
 				Ok::<_, tg::Error>(())
-			}
-		});
+			});
 
 		let control_task = Task::spawn({
 			let session = session.clone();
