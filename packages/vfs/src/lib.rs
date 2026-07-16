@@ -33,6 +33,10 @@ pub enum Request {
 		id: u64,
 		name: String,
 	},
+	LookupAndRemember {
+		id: u64,
+		name: String,
+	},
 	LookupParent {
 		id: u64,
 	},
@@ -280,6 +284,46 @@ pub trait Provider {
 	fn lookup_sync(&self, id: u64, name: &str) -> Result<Option<u64>> {
 		let response = self
 			.handle_batch_sync(vec![Request::Lookup {
+				id,
+				name: name.to_owned(),
+			}])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
+		match response {
+			Response::Lookup { id } => Ok(id),
+			_ => Err(Error::other("unexpected response variant")),
+		}
+	}
+
+	/// Look up a node and atomically acquire one kernel lookup reference.
+	fn lookup_and_remember(
+		&self,
+		id: u64,
+		name: &str,
+	) -> impl Future<Output = Result<Option<u64>>> + Send
+	where
+		Self: Sync,
+	{
+		let name = name.to_owned();
+		async move {
+			let response = self
+				.handle_batch(vec![Request::LookupAndRemember { id, name }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
+			match response {
+				Response::Lookup { id } => Ok(id),
+				_ => Err(Error::other("unexpected response variant")),
+			}
+		}
+	}
+
+	/// Look up a node and atomically acquire one kernel lookup reference synchronously.
+	fn lookup_and_remember_sync(&self, id: u64, name: &str) -> Result<Option<u64>> {
+		let response = self
+			.handle_batch_sync(vec![Request::LookupAndRemember {
 				id,
 				name: name.to_owned(),
 			}])

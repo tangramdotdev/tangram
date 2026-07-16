@@ -133,6 +133,10 @@ impl Provider {
 						.lookup(id, &name)
 						.await
 						.map(|id| vfs::Response::Lookup { id }),
+					vfs::Request::LookupAndRemember { id, name } => self
+						.lookup_and_remember(id, &name)
+						.await
+						.map(|id| vfs::Response::Lookup { id }),
 					vfs::Request::LookupParent { id } => self
 						.lookup_parent(id)
 						.await
@@ -229,7 +233,10 @@ impl Provider {
 					.listxattrs_sync_inner(id, transaction)
 					.map(|names| vfs::Response::ListXattrs { names }),
 				vfs::Request::Lookup { id, name } => self
-					.lookup_sync_inner(id, &name, transaction)
+					.lookup_sync_inner(id, &name, transaction, false)
+					.map(|id| vfs::Response::Lookup { id }),
+				vfs::Request::LookupAndRemember { id, name } => self
+					.lookup_and_remember_sync_inner(id, &name, transaction)
 					.map(|id| vfs::Response::Lookup { id }),
 				vfs::Request::LookupParent { id } => self
 					.lookup_parent_sync(id)
@@ -423,16 +430,45 @@ impl Provider {
 	}
 
 	pub async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		self.lookup_inner(parent, name, false).await
+	}
+
+	pub async fn lookup_and_remember(
+		&self,
+		parent: u64,
+		name: &str,
+	) -> std::io::Result<Option<u64>> {
+		self.lookup_inner(parent, name, true).await
+	}
+
+	async fn lookup_inner(
+		&self,
+		parent: u64,
+		name: &str,
+		remember: bool,
+	) -> std::io::Result<Option<u64>> {
 		// Handle "." and "..".
 		if name == "." {
+			if remember {
+				self.nodes.remember_existing(parent)?;
+			}
 			return Ok(Some(parent));
 		} else if name == ".." {
-			let id = self.lookup_parent(parent).await?;
+			let id = if remember {
+				self.nodes.lookup_parent_and_remember_sync(parent)?
+			} else {
+				self.lookup_parent(parent).await?
+			};
 			return Ok(Some(id));
 		}
 
 		// First, try to look up in the nodes storage.
-		if let Some(id) = self.nodes.lookup(parent, name).await? {
+		let id = if remember {
+			self.nodes.lookup_and_remember_sync(parent, name)
+		} else {
+			self.nodes.lookup(parent, name).await?
+		};
+		if let Some(id) = id {
 			return Ok(Some(id));
 		}
 
@@ -481,13 +517,30 @@ impl Provider {
 		let attrs = Self::attrs_from_artifact(Some(&artifact));
 		let id = self
 			.nodes
-			.get_or_insert_child(parent, name, artifact, depth, attrs)?;
+			.get_or_insert_child(parent, name, artifact, depth, attrs, remember)?;
 
 		Ok(Some(id))
 	}
 
 	pub fn lookup_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
-		self.lookup_sync_inner(parent, name, None)
+		self.lookup_sync_inner(parent, name, None, false)
+	}
+
+	pub fn lookup_and_remember_sync(
+		&self,
+		parent: u64,
+		name: &str,
+	) -> std::io::Result<Option<u64>> {
+		self.lookup_and_remember_sync_inner(parent, name, None)
+	}
+
+	fn lookup_and_remember_sync_inner(
+		&self,
+		parent: u64,
+		name: &str,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Option<u64>> {
+		self.lookup_sync_inner(parent, name, transaction, true)
 	}
 
 	fn lookup_sync_inner(
@@ -495,17 +548,30 @@ impl Provider {
 		parent: u64,
 		name: &str,
 		transaction: Option<&Transaction<'_>>,
+		remember: bool,
 	) -> std::io::Result<Option<u64>> {
 		// Handle "." and "..".
 		if name == "." {
+			if remember {
+				self.nodes.remember_existing(parent)?;
+			}
 			return Ok(Some(parent));
 		} else if name == ".." {
-			let id = self.lookup_parent_sync(parent)?;
+			let id = if remember {
+				self.nodes.lookup_parent_and_remember_sync(parent)?
+			} else {
+				self.lookup_parent_sync(parent)?
+			};
 			return Ok(Some(id));
 		}
 
 		// First, try to look up in the nodes storage.
-		if let Some(id) = self.nodes.lookup_sync(parent, name) {
+		let id = if remember {
+			self.nodes.lookup_and_remember_sync(parent, name)
+		} else {
+			self.nodes.lookup_sync(parent, name)
+		};
+		if let Some(id) = id {
 			return Ok(Some(id));
 		}
 
@@ -553,7 +619,7 @@ impl Provider {
 		let attrs = Self::attrs_from_artifact(Some(&artifact));
 		let id = self
 			.nodes
-			.get_or_insert_child(parent, name, artifact, depth, attrs)?;
+			.get_or_insert_child(parent, name, artifact, depth, attrs, remember)?;
 		Ok(Some(id))
 	}
 
@@ -833,6 +899,7 @@ impl Provider {
 			id,
 			attrs,
 		) {
+			self.remember_readdirplus_entries(&entries_with_attrs)?;
 			return Ok(entries_with_attrs);
 		}
 		let parent_attrs = self.getattr(parent).await?;
@@ -843,6 +910,7 @@ impl Provider {
 			parent,
 			parent_attrs,
 		) {
+			self.remember_readdirplus_entries(&entries_with_attrs)?;
 			return Ok(entries_with_attrs);
 		}
 		for (name, artifact) in entries {
@@ -856,13 +924,19 @@ impl Provider {
 			if Self::readdirplus_entry_size(name.len()) + page.size > page.length {
 				break;
 			}
-			let node_id =
-				self.nodes
-					.get_or_insert_child(id, &name, artifact, depth + 1, Some(attrs))?;
+			let node_id = self.nodes.get_or_insert_child(
+				id,
+				&name,
+				artifact,
+				depth + 1,
+				Some(attrs),
+				false,
+			)?;
 			page.size += Self::readdirplus_entry_size(name.len());
 			page.position += 1;
 			entries_with_attrs.push((name, node_id, attrs));
 		}
+		self.remember_readdirplus_entries(&entries_with_attrs)?;
 		Ok(entries_with_attrs)
 	}
 
@@ -917,6 +991,7 @@ impl Provider {
 			id,
 			attrs,
 		) {
+			self.remember_readdirplus_entries(&entries_with_attrs)?;
 			return Ok(entries_with_attrs);
 		}
 		let parent_attrs = self.getattr_sync_inner(parent, transaction)?;
@@ -927,6 +1002,7 @@ impl Provider {
 			parent,
 			parent_attrs,
 		) {
+			self.remember_readdirplus_entries(&entries_with_attrs)?;
 			return Ok(entries_with_attrs);
 		}
 		for (name, artifact) in entries {
@@ -939,13 +1015,19 @@ impl Provider {
 			if Self::readdirplus_entry_size(name.len()) + page.size > page.length {
 				break;
 			}
-			let node_id =
-				self.nodes
-					.get_or_insert_child(id, &name, artifact, depth + 1, Some(attrs))?;
+			let node_id = self.nodes.get_or_insert_child(
+				id,
+				&name,
+				artifact,
+				depth + 1,
+				Some(attrs),
+				false,
+			)?;
 			page.size += Self::readdirplus_entry_size(name.len());
 			page.position += 1;
 			entries_with_attrs.push((name, node_id, attrs));
 		}
+		self.remember_readdirplus_entries(&entries_with_attrs)?;
 		Ok(entries_with_attrs)
 	}
 
@@ -1930,6 +2012,14 @@ impl Provider {
 		false
 	}
 
+	fn remember_readdirplus_entries(
+		&self,
+		entries: &[(String, u64, vfs::Attrs)],
+	) -> std::io::Result<()> {
+		self.nodes
+			.remember_many(entries.iter().map(|(_, id, _)| *id))
+	}
+
 	fn readdirplus_entry_size(name_len: usize) -> usize {
 		let padding = (8 - (FUSE_DIRENT_PLUS_HEADER_SIZE + name_len) % 8) % 8;
 		FUSE_DIRENT_PLUS_HEADER_SIZE + name_len + padding
@@ -1976,6 +2066,17 @@ impl Nodes {
 			.and_then(|node| node.children.get(name).copied())
 	}
 
+	fn lookup_and_remember_sync(&self, parent: u64, name: &str) -> Option<u64> {
+		let mut state = self.state.lock().unwrap();
+		let id = state
+			.nodes
+			.get(&parent)
+			.and_then(|node| node.children.get(name).copied())?;
+		let node = state.nodes.get_mut(&id)?;
+		node.lookup_count = node.lookup_count.saturating_add(1);
+		Some(id)
+	}
+
 	fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
 		self.state
 			.lock()
@@ -1987,6 +2088,26 @@ impl Nodes {
 				tracing::error!(%id, "node not found");
 				std::io::Error::from_raw_os_error(libc::ENOENT)
 			})
+	}
+
+	fn lookup_parent_and_remember_sync(&self, id: u64) -> std::io::Result<u64> {
+		let mut state = self.state.lock().unwrap();
+		let parent = state
+			.nodes
+			.get(&id)
+			.map(|node| node.parent)
+			.ok_or_else(|| {
+				tracing::error!(%id, "node not found");
+				std::io::Error::from_raw_os_error(libc::ENOENT)
+			})?;
+		if parent != vfs::ROOT_NODE_ID {
+			let Some(node) = state.nodes.get_mut(&parent) else {
+				return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+			};
+			node.lookup_count = node.lookup_count.saturating_add(1);
+		}
+
+		Ok(parent)
 	}
 
 	fn get_sync(&self, id: u64) -> std::io::Result<NodeInfo> {
@@ -2016,14 +2137,40 @@ impl Nodes {
 	}
 
 	fn remember(&self, id: u64) {
+		self.remember_existing(id).ok();
+	}
+
+	fn remember_existing(&self, id: u64) -> std::io::Result<()> {
 		if id == vfs::ROOT_NODE_ID {
-			return;
+			return Ok(());
 		}
 		let mut state = self.state.lock().unwrap();
 		let Some(node) = state.nodes.get_mut(&id) else {
-			return;
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
 		node.lookup_count = node.lookup_count.saturating_add(1);
+
+		Ok(())
+	}
+
+	fn remember_many(&self, ids: impl IntoIterator<Item = u64>) -> std::io::Result<()> {
+		let ids = ids.into_iter().collect::<Vec<_>>();
+		let mut state = self.state.lock().unwrap();
+		if ids
+			.iter()
+			.any(|id| *id != vfs::ROOT_NODE_ID && !state.nodes.contains_key(id))
+		{
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		}
+		for id in ids {
+			if id == vfs::ROOT_NODE_ID {
+				continue;
+			}
+			let node = state.nodes.get_mut(&id).unwrap();
+			node.lookup_count = node.lookup_count.saturating_add(1);
+		}
+
+		Ok(())
 	}
 
 	fn forget(&self, id: u64, nlookup: u64) -> Vec<u64> {
@@ -2089,6 +2236,7 @@ impl Nodes {
 		artifact: ArtifactInfo,
 		depth: u64,
 		attrs: Option<vfs::Attrs>,
+		remember: bool,
 	) -> std::io::Result<u64> {
 		let mut state = self.state.lock().unwrap();
 		if let Some(id) = state
@@ -2096,6 +2244,10 @@ impl Nodes {
 			.get(&parent)
 			.and_then(|node| node.children.get(name).copied())
 		{
+			if remember {
+				let node = state.nodes.get_mut(&id).unwrap();
+				node.lookup_count = node.lookup_count.saturating_add(1);
+			}
 			return Ok(id);
 		}
 
@@ -2113,7 +2265,7 @@ impl Nodes {
 				attrs,
 				children: BTreeMap::new(),
 				depth,
-				lookup_count: 0,
+				lookup_count: u64::from(remember),
 				name: Some(name.to_owned()),
 				parent,
 			},
@@ -2149,6 +2301,14 @@ impl vfs::Provider for Provider {
 
 	fn lookup_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
 		Provider::lookup_sync(self, parent, name)
+	}
+
+	async fn lookup_and_remember(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		Provider::lookup_and_remember(self, parent, name).await
+	}
+
+	fn lookup_and_remember_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		Provider::lookup_and_remember_sync(self, parent, name)
 	}
 
 	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
@@ -2255,5 +2415,69 @@ impl vfs::Provider for Provider {
 
 	fn close_sync(&self, id: u64) {
 		Provider::close_sync(self, id);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use {
+		super::*,
+		std::sync::{Arc, Barrier},
+	};
+
+	#[test]
+	fn lookup_publication_is_atomic_with_forget() {
+		for _ in 0..128 {
+			let nodes = Arc::new(Nodes::new());
+			let child = 1000;
+			{
+				let mut state = nodes.state.lock().unwrap();
+				state.nodes.insert(
+					child,
+					Node {
+						artifact: None,
+						attrs: None,
+						children: BTreeMap::new(),
+						depth: 1,
+						lookup_count: 1,
+						name: Some("child".to_owned()),
+						parent: vfs::ROOT_NODE_ID,
+					},
+				);
+				state
+					.nodes
+					.get_mut(&vfs::ROOT_NODE_ID)
+					.unwrap()
+					.children
+					.insert("child".to_owned(), child);
+			}
+
+			let barrier = Arc::new(Barrier::new(3));
+			let lookup = {
+				let barrier = barrier.clone();
+				let nodes = nodes.clone();
+				std::thread::spawn(move || {
+					barrier.wait();
+					nodes.lookup_and_remember_sync(vfs::ROOT_NODE_ID, "child")
+				})
+			};
+			let forget = {
+				let barrier = barrier.clone();
+				let nodes = nodes.clone();
+				std::thread::spawn(move || {
+					barrier.wait();
+					nodes.forget(child, 1);
+				})
+			};
+			barrier.wait();
+			let lookup = lookup.join().unwrap();
+			forget.join().unwrap();
+
+			if lookup.is_some() {
+				assert_eq!(nodes.lookup_sync(vfs::ROOT_NODE_ID, "child"), Some(child),);
+			} else {
+				assert_eq!(nodes.lookup_sync(vfs::ROOT_NODE_ID, "child"), None);
+			}
+		}
 	}
 }

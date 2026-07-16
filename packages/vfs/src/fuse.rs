@@ -99,6 +99,7 @@ pub struct Server<P>(Arc<State<P>>);
 pub struct State<P> {
 	active_requests: Mutex<HashMap<u64, CancellationToken>>,
 	no_opendir_support: bool,
+	pending_publications: Mutex<HashMap<u64, Vec<u64>>>,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
 	passthrough_enabled: bool,
 	passthrough_permission_warning_emitted: AtomicBool,
@@ -173,7 +174,7 @@ enum Response {
 	OpenDir(sys::fuse_open_out),
 	Read(Bytes),
 	ReadDir(Vec<u8>),
-	ReadDirPlus(Vec<u8>),
+	ReadDirPlus { data: Vec<u8>, nodes: Vec<u64> },
 	ReadLink(CString),
 	Release,
 	ReleaseDir,
@@ -293,7 +294,9 @@ enum UringSlotState {
 		opcode: sys::fuse_opcode,
 		unique: u64,
 	},
-	Commit,
+	Commit {
+		unique: u64,
+	},
 	Register,
 	Request {
 		opcode: sys::fuse_opcode,
@@ -398,6 +401,7 @@ where
 		let server = Self(Arc::new(State {
 			active_requests: Mutex::new(HashMap::new()),
 			no_opendir_support: features.no_opendir_support,
+			pending_publications: Mutex::new(HashMap::new()),
 			passthrough_backing_ids: Mutex::new(HashMap::default()),
 			passthrough_enabled: features.passthrough,
 			passthrough_permission_warning_emitted: AtomicBool::new(false),
@@ -550,6 +554,7 @@ where
 			if let Some(read_write_dispatcher) = read_write_dispatcher {
 				read_write_dispatcher.await.ok();
 			}
+			shutdown_server.rollback_all_response_publications();
 			drop(sqpoll_ring);
 		};
 
@@ -900,6 +905,7 @@ where
 			for thread_handle in thread_handles.drain(..) {
 				thread_handle.join().ok();
 			}
+			self.rollback_all_response_publications();
 			while event_receiver.try_recv().is_ok() {}
 
 			return Err(error);
@@ -1125,6 +1131,56 @@ where
 		self.active_requests.lock().unwrap().remove(&unique);
 	}
 
+	fn register_response_publications(
+		&self,
+		unique: u64,
+		result: &Result<Option<Response>>,
+	) -> Result<()> {
+		let nodes = match result {
+			Ok(Some(Response::Lookup(response))) => vec![response.nodeid],
+			Ok(Some(Response::ReadDirPlus { nodes, .. })) => nodes.clone(),
+			_ => return Ok(()),
+		};
+		if nodes.is_empty() {
+			return Ok(());
+		}
+		let mut publications = self.pending_publications.lock().unwrap();
+		if publications.contains_key(&unique) {
+			drop(publications);
+			self.rollback_nodes(nodes);
+			return Err(Error::other(format!(
+				"a FUSE response with unique ID {unique} already has pending publications",
+			)));
+		}
+		publications.insert(unique, nodes);
+
+		Ok(())
+	}
+
+	fn commit_response_publications(&self, unique: u64) {
+		self.pending_publications.lock().unwrap().remove(&unique);
+	}
+
+	fn rollback_response_publications(&self, unique: u64) {
+		let nodes = self.pending_publications.lock().unwrap().remove(&unique);
+		if let Some(nodes) = nodes {
+			self.rollback_nodes(nodes);
+		}
+	}
+
+	fn rollback_all_response_publications(&self) {
+		let publications = std::mem::take(&mut *self.pending_publications.lock().unwrap());
+		for nodes in publications.into_values() {
+			self.rollback_nodes(nodes);
+		}
+	}
+
+	fn rollback_nodes(&self, nodes: Vec<u64>) {
+		for node in nodes {
+			self.provider.forget_sync(node, 1);
+		}
+	}
+
 	async fn handle_cancellable_request(
 		&self,
 		request: Request,
@@ -1213,10 +1269,13 @@ where
 			}
 		}
 		if let Err(error) = Self::write_response(fd.as_raw_fd(), unique, result) {
+			self.rollback_response_publications(unique);
 			match error.raw_os_error() {
 				Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
 				_ => return Err(error),
 			}
+		} else {
+			self.commit_response_publications(unique);
 		}
 
 		Ok(())
@@ -1408,6 +1467,9 @@ where
 
 					if completion.result() < 0 {
 						let error = -completion.result();
+						if let UringSlotState::Commit { unique } = slot_data.state {
+							self.rollback_response_publications(unique);
+						}
 						if error == libc::EAGAIN
 							&& matches!(slot_data.state, UringSlotState::Register)
 						{
@@ -1427,13 +1489,16 @@ where
 
 					if !matches!(
 						slot_data.state,
-						UringSlotState::Commit | UringSlotState::Register
+						UringSlotState::Commit { .. } | UringSlotState::Register
 					) {
 						return Err(Error::other(
 							"received an io_uring request completion for a busy slot",
 						));
 					}
 
+					if let UringSlotState::Commit { unique } = slot_data.state {
+						self.commit_response_publications(unique);
+					}
 					let request = Self::deserialize_uring_request(slot_data)?;
 					slot_data.state = UringSlotState::Request {
 						opcode: request.header.opcode,
@@ -1512,7 +1577,7 @@ where
 				});
 			}
 			for (slot, unique, result) in commits.drain(..) {
-				Self::submit_commit_and_fetch(
+				self.submit_commit_and_fetch(
 					&mut io_uring,
 					types::Fixed(THREAD_FIXED_FUSE_FD),
 					slot,
@@ -1523,7 +1588,7 @@ where
 			}
 
 			if saw_eventfd || !receiver.is_empty() {
-				Self::drain_async_responses(
+				self.drain_async_responses(
 					worker_id,
 					types::Fixed(THREAD_FIXED_FUSE_FD),
 					&mut io_uring,
@@ -1596,10 +1661,13 @@ where
 				}
 			}
 			if let Err(error) = Self::write_response(fd.as_raw_fd(), unique, result) {
+				self.rollback_response_publications(unique);
 				match error.raw_os_error() {
 					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
 					_ => return Err(error),
 				}
+			} else {
+				self.commit_response_publications(unique);
 			}
 		}
 	}
@@ -1669,6 +1737,7 @@ where
 	}
 
 	fn submit_commit_and_fetch(
+		&self,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		fixed_fuse_fd: types::Fixed,
 		slot: usize,
@@ -1692,7 +1761,10 @@ where
 				"attempted to commit the wrong io_uring request",
 			));
 		}
-		Self::prepare_uring_response(slot_data, unique, result)?;
+		if let Err(error) = Self::prepare_uring_response(slot_data, unique, result) {
+			self.rollback_response_publications(unique);
+			return Err(error);
+		}
 		let entry = Self::build_fuse_uring_cmd_entry(
 			fixed_fuse_fd,
 			sys::fuse_uring_cmd_FUSE_IO_URING_CMD_COMMIT_AND_FETCH,
@@ -1704,11 +1776,12 @@ where
 		);
 		let mut submission = io_uring.submission();
 		if unsafe { submission.push(&entry) }.is_err() {
+			self.rollback_response_publications(unique);
 			return Err(Error::other(
 				"failed to submit uring commit and fetch command",
 			));
 		}
-		slot_data.state = UringSlotState::Commit;
+		slot_data.state = UringSlotState::Commit { unique };
 		Ok(())
 	}
 
@@ -1815,10 +1888,10 @@ where
 			Response::Lookup(data) => data.as_bytes(),
 			Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
 			Response::Read(data) => data.as_ref(),
-			Response::ReadDir(data)
-			| Response::ReadDirPlus(data)
-			| Response::GetXattr(data)
-			| Response::ListXattr(data) => data.as_bytes(),
+			Response::ReadDir(data) | Response::GetXattr(data) | Response::ListXattr(data) => {
+				data.as_bytes()
+			},
+			Response::ReadDirPlus { data, .. } => data.as_bytes(),
 			Response::ReadLink(data) => data.as_bytes(),
 			Response::Statfs(data) => data.as_bytes(),
 			Response::Statx(data) => data.as_bytes(),
@@ -2036,6 +2109,7 @@ where
 	}
 
 	fn drain_async_responses(
+		&self,
 		worker_id: usize,
 		fixed_fuse_fd: types::Fixed,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
@@ -2067,7 +2141,7 @@ where
 					tracing::error!(?error, opcode = response.opcode, %worker_id, "unexpected error");
 				}
 			}
-			Self::submit_commit_and_fetch(
+			self.submit_commit_and_fetch(
 				io_uring,
 				fixed_fuse_fd,
 				response.slot,
@@ -2142,7 +2216,7 @@ where
 						.to_str()
 						.map_err(|_| Error::from_raw_os_error(libc::ENOENT))?
 						.to_owned();
-					provider_requests.push(ProviderRequest::Lookup {
+					provider_requests.push(ProviderRequest::LookupAndRemember {
 						id: request.header.nodeid,
 						name,
 					});
@@ -2271,9 +2345,12 @@ where
 
 		batch_results.clear();
 		batch_results.reserve(requests.len());
-		for action in actions {
+		for (action, request) in std::iter::zip(actions, requests) {
 			match action {
-				BatchAction::Ready(result) => batch_results.push(result),
+				BatchAction::Ready(result) => {
+					self.register_response_publications(request.request.header.unique, &result)?;
+					batch_results.push(result);
+				},
 				BatchAction::NeedsProvider => {
 					return Err(Error::other("missing provider batch result"));
 				},
@@ -2459,7 +2536,8 @@ where
 	}
 
 	async fn handle_request(&self, request: Request) -> Result<Option<Response>> {
-		match request.data {
+		let unique = request.header.unique;
+		let result = match request.data {
 			RequestData::BatchForget(data, entries) => {
 				self.handle_batch_forget_request(request.header, data, entries)
 					.await
@@ -2503,7 +2581,10 @@ where
 				self.handle_unsupported_request(request.header, opcode)
 					.await
 			},
-		}
+		};
+		self.register_response_publications(unique, &result)?;
+
+		result
 	}
 	async fn handle_batch_forget_request(
 		&self,
@@ -2657,7 +2738,7 @@ where
 			.map_err(|_| Error::from_raw_os_error(libc::ENOENT))?;
 		let node = self
 			.provider
-			.lookup(header.nodeid, name)
+			.lookup_and_remember(header.nodeid, name)
 			.await?
 			.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
 		let out = self.fuse_entry_out(node).await?;
@@ -2797,15 +2878,20 @@ where
 		entries: Vec<(String, u64, crate::Attrs)>,
 		request: fuse_read_in,
 	) -> Result<Response> {
-		let entries = entries.into_iter().enumerate();
+		let mut entries = entries.into_iter().enumerate();
+		let mut nodes = Vec::new();
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
-		for (offset, (name, node, attr)) in entries {
+		while let Some((offset, (name, node, attr))) = entries.next() {
 			let offset = request.offset.to_usize().unwrap() + offset;
 			let name = name.into_bytes();
 			let struct_size = std::mem::size_of::<FuseDirentPlusHeader>();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
 			let entry_size = struct_size + name.len() + padding;
 			if response.len() + entry_size > request.size.to_usize().unwrap() {
+				self.provider.forget_sync(node, 1);
+				for (_, (_, node, _)) in entries {
+					self.provider.forget_sync(node, 1);
+				}
 				break;
 			}
 
@@ -2822,10 +2908,6 @@ where
 				type_,
 			};
 
-			let _ = self
-				.provider
-				.handle_batch(vec![ProviderRequest::Remember { id: node }])
-				.await;
 			let entry = FuseDirentPlusHeader {
 				entry_out: Self::fuse_entry_out_from_attrs(node, attr),
 				dirent,
@@ -2833,9 +2915,13 @@ where
 			response.extend_from_slice(entry.as_bytes());
 			response.extend_from_slice(&name);
 			response.extend((0..padding).map(|_| 0));
+			nodes.push(node);
 		}
 
-		Ok(Response::ReadDirPlus(response))
+		Ok(Response::ReadDirPlus {
+			data: response,
+			nodes,
+		})
 	}
 
 	fn build_read_dir_plus_response_sync(
@@ -2843,15 +2929,20 @@ where
 		entries: Vec<(String, u64, crate::Attrs)>,
 		request: fuse_read_in,
 	) -> Response {
-		let entries = entries.into_iter().enumerate();
+		let mut entries = entries.into_iter().enumerate();
+		let mut nodes = Vec::new();
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
-		for (offset, (name, node, attr)) in entries {
+		while let Some((offset, (name, node, attr))) = entries.next() {
 			let offset = request.offset.to_usize().unwrap() + offset;
 			let name = name.into_bytes();
 			let struct_size = std::mem::size_of::<FuseDirentPlusHeader>();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
 			let entry_size = struct_size + name.len() + padding;
 			if response.len() + entry_size > request.size.to_usize().unwrap() {
+				self.provider.forget_sync(node, 1);
+				for (_, (_, node, _)) in entries {
+					self.provider.forget_sync(node, 1);
+				}
 				break;
 			}
 
@@ -2868,7 +2959,6 @@ where
 				type_,
 			};
 
-			self.provider.remember_sync(node);
 			let entry = FuseDirentPlusHeader {
 				entry_out: Self::fuse_entry_out_from_attrs(node, attr),
 				dirent,
@@ -2876,9 +2966,13 @@ where
 			response.extend_from_slice(entry.as_bytes());
 			response.extend_from_slice(&name);
 			response.extend((0..padding).map(|_| 0));
+			nodes.push(node);
 		}
 
-		Response::ReadDirPlus(response)
+		Response::ReadDirPlus {
+			data: response,
+			nodes,
+		}
 	}
 	async fn handle_read_link_request(&self, header: fuse_in_header) -> Result<Option<Response>> {
 		let target = self.provider.readlink(header.nodeid).await?;
@@ -3202,17 +3296,16 @@ where
 	}
 
 	fn fuse_entry_out_sync(&self, node: u64) -> Result<fuse_entry_out> {
-		let attr = self.provider.getattr_sync(node)?;
-		self.provider.remember_sync(node);
+		let attr = self.provider.getattr_sync(node).inspect_err(|_| {
+			self.provider.forget_sync(node, 1);
+		})?;
 		Ok(Self::fuse_entry_out_from_attrs(node, attr))
 	}
 
 	async fn fuse_entry_out(&self, node: u64) -> Result<fuse_entry_out> {
-		let attr = self.provider.getattr(node).await?;
-		let _ = self
-			.provider
-			.handle_batch(vec![ProviderRequest::Remember { id: node }])
-			.await;
+		let attr = self.provider.getattr(node).await.inspect_err(|_| {
+			self.provider.forget_sync(node, 1);
+		})?;
 		Ok(Self::fuse_entry_out_from_attrs(node, attr))
 	}
 

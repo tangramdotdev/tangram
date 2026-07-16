@@ -106,6 +106,10 @@ impl tangram_vfs::Provider for Provider {
 						.lookup(id, &name)
 						.await
 						.map(|id| tangram_vfs::Response::Lookup { id }),
+					tangram_vfs::Request::LookupAndRemember { id, name } => self
+						.lookup(id, &name)
+						.await
+						.map(|id| tangram_vfs::Response::Lookup { id }),
 					tangram_vfs::Request::LookupParent { id } => self
 						.lookup_parent(id)
 						.await

@@ -158,6 +158,8 @@ where
 						.lookup(id, &name)
 						.await
 						.map(|id| crate::Response::Lookup { id }),
+					crate::Request::LookupAndRemember { .. }
+					| crate::Request::ReadDirPlus { .. } => Err(Error::from_raw_os_error(libc::ENOSYS)),
 					crate::Request::LookupParent { id } => self
 						.lookup_parent(id)
 						.await
@@ -184,9 +186,6 @@ where
 						.readdir(handle)
 						.await
 						.map(|entries| crate::Response::ReadDir { entries }),
-					crate::Request::ReadDirPlus { .. } => {
-						Err(Error::from_raw_os_error(libc::ENOSYS))
-					},
 					crate::Request::ReadLink { id } => self
 						.readlink(id)
 						.await
