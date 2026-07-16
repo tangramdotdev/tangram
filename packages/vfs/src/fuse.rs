@@ -35,12 +35,16 @@ use {
 		},
 	},
 	sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in},
+	tokio::task::JoinSet,
 	zerocopy::{FromBytes as _, IntoBytes as _},
 };
 
 pub mod sys;
 
 const REQUEST_BUFFER_SIZE: usize = 1024 * 1024 + 4096;
+const READ_WRITE_ASYNC_CONCURRENCY: usize = 64;
+const READ_WRITE_ASYNC_QUEUE_DEPTH: usize = 64;
+const READ_WRITE_MAX_READER_COUNT: usize = 8;
 const IO_URING_ENTRIES: u32 = 256;
 const THREAD_READ_DEPTH: usize = 16;
 const THREAD_CQE_BATCH_SIZE: usize = 64;
@@ -107,6 +111,16 @@ struct Request {
 struct PendingRequest {
 	slot: usize,
 	request: Request,
+}
+
+struct ReadWriteRequest {
+	fd: Arc<OwnedFd>,
+	request: Request,
+}
+
+enum WorkerEvent {
+	Failed { error: Error, worker: String },
+	Ready,
 }
 
 /// A request's data.
@@ -291,7 +305,10 @@ where
 		}));
 
 		let runtime = tokio::runtime::Handle::current();
+		let (worker_event_sender, mut worker_event_receiver) =
+			tokio::sync::mpsc::unbounded_channel();
 		let mut thread_handles = Vec::new();
+		let mut read_write_dispatcher = None;
 		if features.over_io_uring {
 			let sqpoll_wq_fd = sqpoll_ring.as_ref().unwrap().as_raw_fd();
 
@@ -323,6 +340,7 @@ where
 			for thread_id in 0..thread_count {
 				let server = server.clone();
 				let runtime = runtime.clone();
+				let worker_event_sender = worker_event_sender.clone();
 				let thread_fd: Arc<OwnedFd> = if thread_id == 0 {
 					fd.clone()
 				} else if thread_id == 1 {
@@ -343,31 +361,75 @@ where
 							tracing::debug!(%error, %thread_id, "thread exited during shutdown");
 						} else {
 							tracing::error!(%error, %thread_id, "thread failed");
+							worker_event_sender
+								.send(WorkerEvent::Failed {
+									error,
+									worker: format!("io_uring reader {thread_id}"),
+								})
+								.ok();
 						}
 					}
 				});
 				thread_handles.push(thread);
 			}
 		} else {
-			if options.io == Io::Auto {
-				tracing::warn!(
-					"fuse over io_uring is unavailable; falling back to legacy fuse read/write transport"
-				);
-			}
-			let server = server.clone();
-			let runtime = runtime.clone();
-			let thread_fd = fd.clone();
-			let thread = std::thread::spawn(move || {
-				if let Err(error) = server.thread_loop_legacy(thread_fd.as_ref(), &runtime) {
-					if error.raw_os_error() == Some(libc::ENOTCONN) {
-						tracing::debug!(%error, "thread exited during shutdown");
-					} else {
-						tracing::error!(%error, "thread failed");
+			let reader_fds = match Self::clone_read_write_fds(&fd) {
+				Ok(reader_fds) => reader_fds,
+				Err(error) => {
+					drop(fd);
+					Self::unmount(path).await.ok();
+					return Err(error);
+				},
+			};
+			let reader_count = reader_fds.len();
+			let (request_sender, request_receiver) =
+				tokio::sync::mpsc::channel(READ_WRITE_ASYNC_QUEUE_DEPTH);
+			read_write_dispatcher = Some(
+				server.spawn_read_write_dispatcher(request_receiver, worker_event_sender.clone()),
+			);
+			tracing::info!(
+				async_concurrency = READ_WRITE_ASYNC_CONCURRENCY,
+				async_queue_depth = READ_WRITE_ASYNC_QUEUE_DEPTH,
+				reader_count,
+				"started the FUSE ReadWrite transport",
+			);
+			for (reader_id, reader_fd) in reader_fds.into_iter().enumerate() {
+				let request_sender = request_sender.clone();
+				let server = server.clone();
+				let worker_event_sender = worker_event_sender.clone();
+				let thread = std::thread::spawn(move || {
+					worker_event_sender.send(WorkerEvent::Ready).ok();
+					if let Err(error) = server.thread_loop_read_write(&reader_fd, &request_sender) {
+						if error.raw_os_error() == Some(libc::ENOTCONN) {
+							tracing::debug!(%error, %reader_id, "ReadWrite reader exited during shutdown");
+						} else {
+							tracing::error!(%error, %reader_id, "ReadWrite reader failed");
+							worker_event_sender
+								.send(WorkerEvent::Failed {
+									error,
+									worker: format!("ReadWrite reader {reader_id}"),
+								})
+								.ok();
+						}
 					}
+				});
+				thread_handles.push(thread);
+			}
+			drop(request_sender);
+
+			for _ in 0..reader_count {
+				match worker_event_receiver.recv().await {
+					Some(WorkerEvent::Ready) => {},
+					Some(WorkerEvent::Failed { error, worker }) => {
+						return Err(Error::other(format!(
+							"{worker} failed during startup: {error}"
+						)));
+					},
+					None => return Err(Error::other("a ReadWrite reader failed during startup")),
 				}
-			});
-			thread_handles.push(thread);
+			}
 		}
+		drop(worker_event_sender);
 
 		let path = path.to_owned();
 		let shutdown = async move {
@@ -379,12 +441,22 @@ where
 			for thread_handle in thread_handles {
 				thread_handle.join().ok();
 			}
+			if let Some(read_write_dispatcher) = read_write_dispatcher {
+				read_write_dispatcher.await.ok();
+			}
 			drop(sqpoll_ring);
 		};
 
 		// Spawn the task.
 		let task = tangram_futures::task::Shared::spawn(|stop| async move {
-			stop.wait().await;
+			tokio::select! {
+				() = stop.wait() => {},
+				event = worker_event_receiver.recv() => {
+					if let Some(WorkerEvent::Failed { error, worker }) = event {
+						tracing::error!(%error, %worker, "a FUSE transport worker failed");
+					}
+				},
+			}
 			shutdown.await;
 		});
 		server.task.lock().unwrap().replace(task);
@@ -635,6 +707,114 @@ where
 		Ok(cloned)
 	}
 
+	fn clone_read_write_fds(fd: &Arc<OwnedFd>) -> Result<Vec<Arc<OwnedFd>>> {
+		let reader_count = std::thread::available_parallelism()
+			.map_or(1, std::num::NonZero::get)
+			.clamp(1, READ_WRITE_MAX_READER_COUNT);
+		let mut fds = Vec::with_capacity(reader_count);
+		fds.push(fd.clone());
+		for reader_id in 1..reader_count {
+			match Self::clone_thread_fd(fd) {
+				Ok(fd) => fds.push(Arc::new(fd)),
+				Err(error) if Self::is_clone_not_supported_error(&error) => {
+					tracing::warn!(
+						?error,
+						%reader_id,
+						"FUSE fd cloning is not supported; using the available ReadWrite readers",
+					);
+					break;
+				},
+				Err(error) => {
+					return Err(Error::other(format!(
+						"failed to clone the ReadWrite reader fd {reader_id}: {error}",
+					)));
+				},
+			}
+		}
+
+		Ok(fds)
+	}
+
+	fn spawn_read_write_dispatcher(
+		&self,
+		mut receiver: tokio::sync::mpsc::Receiver<ReadWriteRequest>,
+		worker_event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
+	) -> tokio::task::JoinHandle<()> {
+		let semaphore = Arc::new(tokio::sync::Semaphore::new(READ_WRITE_ASYNC_CONCURRENCY));
+		let server = self.clone();
+		tokio::spawn(async move {
+			let mut tasks = JoinSet::new();
+			loop {
+				tokio::select! {
+					request = receiver.recv() => {
+						let Some(request) = request else {
+							break;
+						};
+						let permit = semaphore.clone().acquire_owned().await.unwrap();
+						let server = server.clone();
+						tasks.spawn(async move {
+							let _permit = permit;
+							server.handle_read_write_request(request).await
+						});
+					},
+					result = tasks.join_next(), if !tasks.is_empty() => {
+						if let Some(result) = result {
+							Self::handle_read_write_task_result(result, &worker_event_sender);
+						}
+					},
+				}
+			}
+			tasks.abort_all();
+			while let Some(result) = tasks.join_next().await {
+				if result
+					.as_ref()
+					.is_err_and(tokio::task::JoinError::is_cancelled)
+				{
+					continue;
+				}
+				Self::handle_read_write_task_result(result, &worker_event_sender);
+			}
+		})
+	}
+
+	fn handle_read_write_task_result(
+		result: std::result::Result<Result<()>, tokio::task::JoinError>,
+		worker_event_sender: &tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
+	) {
+		let error = match result {
+			Ok(Ok(())) => return,
+			Ok(Err(error)) => error,
+			Err(error) => Error::other(format!("a ReadWrite request task failed: {error}")),
+		};
+		tracing::error!(%error, "a ReadWrite request task failed");
+		worker_event_sender
+			.send(WorkerEvent::Failed {
+				error,
+				worker: "ReadWrite request dispatcher".to_owned(),
+			})
+			.ok();
+	}
+
+	async fn handle_read_write_request(&self, request: ReadWriteRequest) -> Result<()> {
+		let unique = request.request.header.unique;
+		let opcode = request.request.header.opcode;
+		let result = self.handle_request(request.request).await;
+		if let Err(error) = &result {
+			let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
+			if !Self::is_expected_error(opcode, error_code) {
+				tracing::error!(?error, ?opcode, "unexpected error");
+			}
+		}
+		if let Err(error) = Self::write_response(request.fd.as_raw_fd(), unique, result) {
+			match error.raw_os_error() {
+				Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
+				_ => return Err(error),
+			}
+		}
+
+		Ok(())
+	}
+
 	fn thread_loop(
 		&self,
 		thread_id: usize,
@@ -854,12 +1034,16 @@ where
 		}
 	}
 
-	fn thread_loop_legacy(&self, fd: &OwnedFd, runtime: &tokio::runtime::Handle) -> Result<()> {
+	fn thread_loop_read_write(
+		&self,
+		fd: &Arc<OwnedFd>,
+		request_sender: &tokio::sync::mpsc::Sender<ReadWriteRequest>,
+	) -> Result<()> {
 		let mut buffer = vec![0u8; REQUEST_BUFFER_SIZE];
 		let mut batch_results = Vec::<Result<Option<Response>>>::with_capacity(1);
 		loop {
 			let size = loop {
-				match rustix::io::read(fd, &mut buffer) {
+				match rustix::io::read(fd.as_ref(), &mut buffer) {
 					Ok(size) => break size,
 					Err(Errno::INTR) => {},
 					Err(Errno::NOTCONN) => return Ok(()),
@@ -881,16 +1065,25 @@ where
 			let result = batch_results
 				.pop()
 				.ok_or_else(|| Error::other("missing sync batch result"))?;
-			let result = match result {
-				Ok(None) => runtime.block_on(self.handle_request(request)),
+			let deferred = match &result {
+				Ok(None) => true,
 				Err(error)
 					if error.raw_os_error() == Some(libc::ENOSYS)
 						&& opcode != sys::fuse_opcode_FUSE_OPENDIR =>
 				{
-					runtime.block_on(self.handle_request(request))
+					true
 				},
-				result => result,
+				_ => false,
 			};
+			if deferred {
+				request_sender
+					.blocking_send(ReadWriteRequest {
+						fd: fd.clone(),
+						request,
+					})
+					.map_err(|_| Error::other("the ReadWrite request dispatcher stopped"))?;
+				continue;
+			}
 			if let Err(error) = &result {
 				let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
 				if !Self::is_expected_error(opcode, error_code) {
