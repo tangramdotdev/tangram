@@ -182,8 +182,12 @@ where
 						.read(handle, position, length)
 						.await
 						.map(|bytes| crate::Response::Read { bytes }),
-					crate::Request::ReadDir { handle } => self
-						.readdir(handle)
+					crate::Request::ReadDir {
+						handle,
+						length,
+						offset,
+					} => self
+						.readdir(handle, offset, length)
 						.await
 						.map(|entries| crate::Response::ReadDir { entries }),
 					crate::Request::ReadLink { id } => self
@@ -348,13 +352,18 @@ where
 		}
 	}
 
-	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64, crate::EntryKind)>> {
+	async fn readdir(
+		&self,
+		handle: u64,
+		offset: u64,
+		length: u64,
+	) -> Result<Vec<(String, u64, crate::EntryKind)>> {
 		let handle_data = self.handles.get(&handle);
 		if let Some(Either::Left(handle)) = handle_data.as_ref().map(|attr| attr.as_ref()) {
 			let content = handle.content.clone();
 			Ok(content)
 		} else {
-			self.inner.readdir(handle).await
+			self.inner.readdir(handle, offset, length).await
 		}
 	}
 

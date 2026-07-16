@@ -2315,12 +2315,20 @@ where
 					if self.no_opendir_support {
 						let result = self
 							.provider
-							.readdir_node_sync(request.header.nodeid)
+							.readdir_node_sync(
+								request.header.nodeid,
+								data.offset,
+								data.size.to_u64().unwrap(),
+							)
 							.map(|entries| Self::build_read_dir_response_sync(entries, *data))
 							.map(Some);
 						actions.push(BatchAction::Ready(result));
 					} else {
-						provider_requests.push(ProviderRequest::ReadDir { handle: data.fh });
+						provider_requests.push(ProviderRequest::ReadDir {
+							handle: data.fh,
+							length: data.size.to_u64().unwrap(),
+							offset: data.offset,
+						});
 						actions.push(BatchAction::NeedsProvider);
 					}
 				},
@@ -2889,17 +2897,22 @@ where
 		}
 
 		let entries = if self.no_opendir_support {
-			self.provider.readdir_node(header.nodeid).await?
+			self.provider
+				.readdir_node(
+					header.nodeid,
+					request.offset,
+					request.size.to_u64().unwrap(),
+				)
+				.await?
 		} else {
-			self.provider.readdir(request.fh).await?
+			self.provider
+				.readdir(request.fh, request.offset, request.size.to_u64().unwrap())
+				.await?
 		};
 
 		let struct_size = std::mem::size_of::<FuseDirentHeader>();
 
-		let entries = entries
-			.into_iter()
-			.enumerate()
-			.skip(request.offset.to_usize().unwrap());
+		let entries = entries.into_iter().enumerate();
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node, inner)) in entries {
 			let type_ = Self::fuse_dirent_type(inner);
@@ -2910,9 +2923,10 @@ where
 				break;
 			}
 
+			let offset = request.offset.saturating_add(offset.to_u64().unwrap());
 			let dirent = FuseDirentHeader {
 				ino: node,
-				off: offset.to_u64().unwrap() + 1,
+				off: offset.saturating_add(1),
 				namelen: name.len().to_u32().unwrap(),
 				type_,
 			};
@@ -2928,10 +2942,7 @@ where
 		entries: Vec<(String, u64, crate::EntryKind)>,
 		request: fuse_read_in,
 	) -> Response {
-		let entries = entries
-			.into_iter()
-			.enumerate()
-			.skip(request.offset.to_usize().unwrap());
+		let entries = entries.into_iter().enumerate();
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node, type_)) in entries {
 			let type_ = Self::fuse_dirent_type(type_);
@@ -2943,9 +2954,10 @@ where
 				break;
 			}
 
+			let offset = request.offset.saturating_add(offset.to_u64().unwrap());
 			let dirent = FuseDirentHeader {
 				ino: node,
-				off: offset.to_u64().unwrap() + 1,
+				off: offset.saturating_add(1),
 				namelen: name.len().to_u32().unwrap(),
 				type_,
 			};

@@ -38,8 +38,9 @@ struct InodeFd {
 }
 
 pub struct DirIter {
-	entries: Vec<Item>,
 	cursor: usize,
+	entries: Vec<Item>,
+	offset: u64,
 }
 
 struct Item {
@@ -262,10 +263,10 @@ where
 		_ctx: virtiofsd::filesystem::Context,
 		_inode: u64,
 		handle: u64,
-		_size: u32,
+		size: u32,
 		offset: u64,
 	) -> Result<DirIter> {
-		let entries = self.0.readdir_sync(handle)?;
+		let entries = self.0.readdir_sync(handle, offset, u64::from(size))?;
 		let items = entries
 			.into_iter()
 			.map(|(name, id, typ)| {
@@ -278,10 +279,10 @@ where
 				})
 			})
 			.collect::<Result<Vec<_>>>()?;
-		let cursor = usize::try_from(offset).unwrap_or(0).min(items.len());
 		Ok(DirIter {
+			cursor: 0,
 			entries: items,
-			cursor,
+			offset,
 		})
 	}
 
@@ -374,7 +375,7 @@ impl virtiofsd::filesystem::DirectoryIterator for DirIter {
 		self.cursor += 1;
 		Some(virtiofsd::filesystem::DirEntry {
 			ino: entry.ino as libc::ino64_t,
-			offset: self.cursor as u64,
+			offset: self.offset + self.cursor as u64,
 			type_: entry.type_,
 			name: entry.name.as_c_str(),
 		})

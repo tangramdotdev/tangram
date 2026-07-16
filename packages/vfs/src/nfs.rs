@@ -1378,7 +1378,7 @@ where
 			Ok(handle) => handle,
 			Err(error) => return READDIR4res::Error(error.into()),
 		};
-		let entries = self.provider.readdir(handle).await;
+		let entries = self.provider.readdir(handle, 0, u64::MAX).await;
 		self.provider.close(handle).await;
 		let entries = match entries {
 			Ok(entries) => entries,

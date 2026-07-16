@@ -55,6 +55,8 @@ pub enum Request {
 	},
 	ReadDir {
 		handle: u64,
+		length: u64,
+		offset: u64,
 	},
 	ReadDirPlus {
 		handle: u64,
@@ -499,13 +501,19 @@ pub trait Provider {
 	fn readdir(
 		&self,
 		handle: u64,
+		offset: u64,
+		length: u64,
 	) -> impl Future<Output = Result<Vec<(String, u64, EntryKind)>>> + Send
 	where
 		Self: Sync,
 	{
 		async move {
 			let response = self
-				.handle_batch(vec![Request::ReadDir { handle }])
+				.handle_batch(vec![Request::ReadDir {
+					handle,
+					length,
+					offset,
+				}])
 				.await
 				.into_iter()
 				.next()
@@ -518,9 +526,18 @@ pub trait Provider {
 	}
 
 	/// Read from a directory synchronously.
-	fn readdir_sync(&self, handle: u64) -> Result<Vec<(String, u64, EntryKind)>> {
+	fn readdir_sync(
+		&self,
+		handle: u64,
+		offset: u64,
+		length: u64,
+	) -> Result<Vec<(String, u64, EntryKind)>> {
 		let response = self
-			.handle_batch_sync(vec![Request::ReadDir { handle }])
+			.handle_batch_sync(vec![Request::ReadDir {
+				handle,
+				length,
+				offset,
+			}])
 			.into_iter()
 			.next()
 			.ok_or_else(|| Error::other("expected exactly one response"))??;
@@ -534,13 +551,15 @@ pub trait Provider {
 	fn readdir_node(
 		&self,
 		id: u64,
+		offset: u64,
+		length: u64,
 	) -> impl Future<Output = Result<Vec<(String, u64, EntryKind)>>> + Send
 	where
 		Self: Sync,
 	{
 		async move {
 			let handle = self.opendir(id).await?;
-			let result = self.readdir(handle).await;
+			let result = self.readdir(handle, offset, length).await;
 			self.close(handle).await;
 
 			result
@@ -548,9 +567,14 @@ pub trait Provider {
 	}
 
 	/// Read from a directory without an open handle synchronously.
-	fn readdir_node_sync(&self, id: u64) -> Result<Vec<(String, u64, EntryKind)>> {
+	fn readdir_node_sync(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> Result<Vec<(String, u64, EntryKind)>> {
 		let handle = self.opendir_sync(id)?;
-		let result = self.readdir_sync(handle);
+		let result = self.readdir_sync(handle, offset, length);
 		self.close_sync(handle);
 
 		result

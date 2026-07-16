@@ -89,6 +89,7 @@ type Transaction<'a> = lmdb::RoTxn<'a>;
 #[cfg(not(feature = "lmdb"))]
 type Transaction<'a> = ();
 
+const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 const FUSE_DIRENT_PLUS_HEADER_SIZE: usize = 152;
 const DIRECTORY_SNAPSHOT_CACHE_CAPACITY: usize = 64 * 1024 * 1024;
 const DIRECTORY_SNAPSHOT_CACHE_ENTRY_OVERHEAD: usize = 256;
@@ -176,8 +177,12 @@ impl Provider {
 						.read(handle, position, length)
 						.await
 						.map(|bytes| vfs::Response::Read { bytes }),
-					vfs::Request::ReadDir { handle } => self
-						.readdir(handle)
+					vfs::Request::ReadDir {
+						handle,
+						length,
+						offset,
+					} => self
+						.readdir(handle, offset, length)
 						.await
 						.map(|entries| vfs::Response::ReadDir { entries }),
 					vfs::Request::ReadDirPlus {
@@ -271,8 +276,12 @@ impl Provider {
 				} => self
 					.read_sync_inner(handle, position, length, transaction)
 					.map(|bytes| vfs::Response::Read { bytes }),
-				vfs::Request::ReadDir { handle } => self
-					.readdir_sync(handle)
+				vfs::Request::ReadDir {
+					handle,
+					length,
+					offset,
+				} => self
+					.readdir_sync(handle, offset, length)
 					.map(|entries| vfs::Response::ReadDir { entries }),
 				vfs::Request::ReadDirPlus {
 					handle,
@@ -939,28 +948,39 @@ impl Provider {
 	pub async fn readdir(
 		&self,
 		handle: u64,
+		offset: u64,
+		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		self.readdir_sync(handle)
+		self.readdir_sync(handle, offset, length)
 	}
 
-	pub fn readdir_sync(&self, handle: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+	pub fn readdir_sync(
+		&self,
+		handle: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let snapshot = self.directory_handle(handle)?;
 
-		Ok(Self::read_directory_snapshot(&snapshot))
+		Ok(Self::read_directory_snapshot(&snapshot, offset, length))
 	}
 
 	pub async fn readdir_node(
 		&self,
 		id: u64,
+		offset: u64,
+		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let snapshot = self.directory_snapshot(id).await?;
 
-		Ok(Self::read_directory_snapshot(&snapshot))
+		Ok(Self::read_directory_snapshot(&snapshot, offset, length))
 	}
 
 	pub fn readdir_node_sync(
 		&self,
 		id: u64,
+		offset: u64,
+		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		#[cfg(feature = "lmdb")]
 		if let crate::object::Store::Lmdb(store) = &self.server.object_store {
@@ -968,28 +988,45 @@ impl Provider {
 				tracing::error!(?error, "failed to begin an lmdb read transaction");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-			return self.readdir_node_sync_inner(id, Some(&transaction));
+			return self.readdir_node_sync_inner(id, offset, length, Some(&transaction));
 		}
 
-		self.readdir_node_sync_inner(id, None)
+		self.readdir_node_sync_inner(id, offset, length, None)
 	}
 
 	fn readdir_node_sync_inner(
 		&self,
 		id: u64,
+		offset: u64,
+		length: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let snapshot = self.directory_snapshot_sync_inner(id, transaction)?;
 
-		Ok(Self::read_directory_snapshot(&snapshot))
+		Ok(Self::read_directory_snapshot(&snapshot, offset, length))
 	}
 
-	fn read_directory_snapshot(snapshot: &DirectorySnapshot) -> Vec<(String, u64, vfs::EntryKind)> {
-		snapshot
+	fn read_directory_snapshot(
+		snapshot: &DirectorySnapshot,
+		offset: u64,
+		length: u64,
+	) -> Vec<(String, u64, vfs::EntryKind)> {
+		let mut entries = Vec::new();
+		let mut size = 0;
+		for entry in snapshot
 			.entries
 			.iter()
-			.map(|entry| (entry.name.clone(), entry.node, entry.kind))
-			.collect()
+			.skip(offset.to_usize().unwrap_or(usize::MAX))
+		{
+			let entry_size = Self::readdir_entry_size(entry.name.len());
+			if entry_size.saturating_add(size) > length.to_usize().unwrap_or(usize::MAX) {
+				break;
+			}
+			size = size.saturating_add(entry_size);
+			entries.push((entry.name.clone(), entry.node, entry.kind));
+		}
+
+		entries
 	}
 
 	pub async fn readdirplus(
@@ -2131,6 +2168,11 @@ impl Provider {
 			.remember_many(entries.iter().map(|(_, id, _)| *id))
 	}
 
+	fn readdir_entry_size(name_len: usize) -> usize {
+		let padding = (8 - (FUSE_DIRENT_HEADER_SIZE + name_len) % 8) % 8;
+		FUSE_DIRENT_HEADER_SIZE + name_len + padding
+	}
+
 	fn readdirplus_entry_size(name_len: usize) -> usize {
 		let padding = (8 - (FUSE_DIRENT_PLUS_HEADER_SIZE + name_len) % 8) % 8;
 		FUSE_DIRENT_PLUS_HEADER_SIZE + name_len + padding
@@ -2518,20 +2560,40 @@ impl vfs::Provider for Provider {
 		Provider::opendir_sync(self, id)
 	}
 
-	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		Provider::readdir(self, id).await
+	async fn readdir(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		Provider::readdir(self, id, offset, length).await
 	}
 
-	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		Provider::readdir_sync(self, id)
+	fn readdir_sync(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		Provider::readdir_sync(self, id, offset, length)
 	}
 
-	async fn readdir_node(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		Provider::readdir_node(self, id).await
+	async fn readdir_node(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		Provider::readdir_node(self, id, offset, length).await
 	}
 
-	fn readdir_node_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		Provider::readdir_node_sync(self, id)
+	fn readdir_node_sync(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		Provider::readdir_node_sync(self, id, offset, length)
 	}
 
 	async fn readdirplus(
@@ -2585,6 +2647,25 @@ mod tests {
 		super::*,
 		std::sync::{Arc, Barrier},
 	};
+
+	#[test]
+	fn directory_snapshots_are_paged_before_cloning() {
+		let entries = ["a", "b", "c"].map(|name| DirectorySnapshotEntry {
+			artifact: None,
+			kind: vfs::EntryKind::File,
+			name: name.to_owned(),
+			node: 0,
+		});
+		let snapshot = DirectorySnapshot {
+			depth: 0,
+			entries: Arc::from(entries),
+			node: vfs::ROOT_NODE_ID,
+		};
+
+		let entries = Provider::read_directory_snapshot(&snapshot, 1, 32);
+		assert_eq!(entries.len(), 1);
+		assert_eq!(entries[0].0, "b");
+	}
 
 	#[test]
 	fn lookup_publication_is_atomic_with_forget() {
