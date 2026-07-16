@@ -21,7 +21,7 @@ use {
 		},
 	},
 	std::{
-		collections::{BTreeSet, HashMap},
+		collections::{BTreeSet, HashMap, VecDeque},
 		ffi::{CString, OsString},
 		io::Error,
 		mem::{MaybeUninit, size_of},
@@ -51,6 +51,7 @@ const READ_WRITE_ASYNC_QUEUE_DEPTH: usize = 64;
 const READ_WRITE_MAX_READER_COUNT: usize = 8;
 const IO_URING_ENTRIES: u32 = 256;
 const IO_URING_MAX_READER_COUNT: usize = 8;
+const IO_URING_MAX_RETIRED_SLOTS_PER_WORKER: usize = 8;
 const IO_URING_MAX_SLOTS_PER_QUEUE: usize = 4;
 const IO_URING_PAYLOAD_MEMORY_BUDGET: usize = 256 * 1024 * 1024;
 const IO_URING_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -315,7 +316,6 @@ enum UringSlotState {
 }
 
 struct UringSlot {
-	decode: Vec<u8>,
 	header: Box<sys::fuse_uring_req_header>,
 	iovecs: [libc::iovec; URING_IOVEC_COUNT as usize],
 	payload: Vec<u8>,
@@ -1626,8 +1626,11 @@ where
 			})?;
 		let mut slots = queue_ids
 			.iter()
-			.flat_map(|&qid| (0..slots_per_queue).map(move |_| UringSlot::new(qid, payload_size)))
+			.flat_map(|&qid| {
+				(0..slots_per_queue).map(move |_| Box::new(UringSlot::new(qid, payload_size)))
+			})
 			.collect::<Vec<_>>();
+		let mut retired_slots = VecDeque::new();
 		let async_notification_pending = Arc::new(AtomicBool::new(false));
 		let mut eventfd_inflight = false;
 		let mut eventfd_buffer = [0u8; size_of::<u64>()];
@@ -1638,6 +1641,7 @@ where
 			Vec::<(usize, u64, Result<Option<Response>>)>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut deferred = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut register_retries = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
+		let mut stale_commits = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let registered_buffers = [libc::iovec {
 			iov_base: eventfd_buffer.as_mut_ptr().cast(),
 			iov_len: eventfd_buffer.len(),
@@ -1712,6 +1716,7 @@ where
 			let mut saw_eventfd = false;
 			batch_requests.clear();
 			register_retries.clear();
+			stale_commits.clear();
 			{
 				let mut completion = io_uring.completion();
 				for completion in completion.by_ref().take(THREAD_CQE_BATCH_SIZE) {
@@ -1738,6 +1743,12 @@ where
 							&& matches!(slot_data.state, UringSlotState::Register)
 						{
 							register_retries.push(slot);
+							continue;
+						}
+						if error == libc::ENOENT
+							&& matches!(slot_data.state, UringSlotState::Commit { .. })
+						{
+							stale_commits.push(slot);
 							continue;
 						}
 						if matches!(error, libc::ECONNABORTED | libc::ENODEV | libc::ENOTCONN) {
@@ -1772,6 +1783,15 @@ where
 				}
 			}
 			for slot in register_retries.drain(..) {
+				Self::submit_register(
+					&mut io_uring,
+					types::Fixed(THREAD_FIXED_FUSE_FD),
+					slot,
+					slots.get_mut(slot).unwrap(),
+				)?;
+			}
+			for slot in stale_commits.drain(..) {
+				Self::replace_stale_uring_slot(&mut slots, &mut retired_slots, payload_size, slot)?;
 				Self::submit_register(
 					&mut io_uring,
 					types::Fixed(THREAD_FIXED_FUSE_FD),
@@ -2002,6 +2022,35 @@ where
 		Ok(())
 	}
 
+	fn replace_stale_uring_slot(
+		slots: &mut [Box<UringSlot>],
+		retired_slots: &mut VecDeque<Box<UringSlot>>,
+		payload_size: usize,
+		slot: usize,
+	) -> Result<()> {
+		if retired_slots.len() >= IO_URING_MAX_RETIRED_SLOTS_PER_WORKER {
+			return Err(Error::other(
+				"the io_uring stale slot retirement limit was exhausted",
+			));
+		}
+		let slot_data = slots
+			.get_mut(slot)
+			.ok_or_else(|| Error::other(format!("invalid stale io_uring slot {slot}")))?;
+		if !matches!(slot_data.state, UringSlotState::Commit { .. }) {
+			return Err(Error::other(format!(
+				"attempted to replace io_uring slot {slot} in state {:?}",
+				slot_data.state,
+			)));
+		}
+		let qid = slot_data.qid;
+		let replacement = Box::new(UringSlot::new(qid, payload_size));
+		let retired = std::mem::replace(slot_data, replacement);
+		retired_slots.push_back(retired);
+		tracing::debug!(%slot, %qid, "replaced a stale io_uring slot");
+
+		Ok(())
+	}
+
 	fn submit_commit_and_fetch(
 		&self,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
@@ -2175,7 +2224,7 @@ where
 			|| matches!(error_code, libc::EINTR | libc::ENOSYS)
 	}
 
-	fn deserialize_uring_request(slot: &mut UringSlot) -> Result<Request> {
+	fn deserialize_uring_request(slot: &UringSlot) -> Result<Request> {
 		let in_out = unsafe {
 			std::slice::from_raw_parts(
 				slot.header.in_out.as_ptr().cast::<u8>(),
@@ -2215,11 +2264,10 @@ where
 		if op_data_len > op_in.len() {
 			return Err(Error::other("failed to deserialize request data"));
 		}
-		slot.decode.clear();
-		slot.decode.extend_from_slice(&op_in[..op_data_len]);
-		slot.decode
-			.extend_from_slice(&slot.payload.as_slice()[..payload_size]);
-		let data = Self::parse_request_data(&header, &slot.decode)?;
+		let mut bytes = Vec::with_capacity(request_data_len);
+		bytes.extend_from_slice(&op_in[..op_data_len]);
+		bytes.extend_from_slice(&slot.payload.as_slice()[..payload_size]);
+		let data = Self::parse_request_data(&header, &bytes)?;
 		let request = Request { header, data };
 		Ok(request)
 	}
@@ -2385,7 +2433,7 @@ where
 		worker_id: usize,
 		response_fd: RawFd,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
-		slots: &mut [UringSlot],
+		slots: &mut [Box<UringSlot>],
 		receiver: &crossbeam_channel::Receiver<AsyncResponse>,
 	) -> Result<()> {
 		while let Ok(response) = receiver.try_recv() {
@@ -3713,7 +3761,6 @@ impl UringSlot {
 			},
 		];
 		Self {
-			decode: Vec::new(),
 			header,
 			iovecs,
 			payload,
@@ -3909,6 +3956,24 @@ mod tests {
 		let error = Server::<TestProvider>::read_link_response(Bytes::from_static(b"bad\0target"))
 			.unwrap_err();
 		assert_eq!(error.raw_os_error(), Some(libc::EIO));
+	}
+
+	#[test]
+	fn stale_uring_slots_are_replaced_with_distinct_buffers() {
+		let mut slots = vec![Box::new(UringSlot::new(7, 4096))];
+		slots[0].state = UringSlotState::Commit { unique: 42 };
+		let header = std::ptr::from_ref(slots[0].header.as_ref());
+		let payload = slots[0].payload.as_ptr();
+		let mut retired_slots = VecDeque::new();
+
+		Server::<TestProvider>::replace_stale_uring_slot(&mut slots, &mut retired_slots, 4096, 0)
+			.unwrap();
+
+		assert_eq!(retired_slots.len(), 1);
+		assert_eq!(slots[0].qid, 7);
+		assert!(matches!(slots[0].state, UringSlotState::Register));
+		assert_ne!(std::ptr::from_ref(slots[0].header.as_ref()), header);
+		assert_ne!(slots[0].payload.as_ptr(), payload);
 	}
 
 	#[test]
