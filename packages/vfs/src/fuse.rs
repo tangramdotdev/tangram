@@ -99,6 +99,7 @@ pub struct Server<P>(Arc<State<P>>);
 pub struct State<P> {
 	active_requests: Mutex<HashMap<u64, CancellationToken>>,
 	no_opendir_support: bool,
+	pending_handles: Mutex<HashMap<u64, u64>>,
 	pending_publications: Mutex<HashMap<u64, Vec<u64>>>,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
 	passthrough_enabled: bool,
@@ -403,6 +404,7 @@ where
 		let server = Self(Arc::new(State {
 			active_requests: Mutex::new(HashMap::new()),
 			no_opendir_support: features.no_opendir_support,
+			pending_handles: Mutex::new(HashMap::new()),
 			pending_publications: Mutex::new(HashMap::new()),
 			passthrough_backing_ids: Mutex::new(HashMap::default()),
 			passthrough_enabled: features.passthrough,
@@ -554,14 +556,14 @@ where
 				.await
 				.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
 				.ok();
-			drop(fd);
 			for thread_handle in thread_handles {
 				thread_handle.join().ok();
 			}
 			if let Some(read_write_dispatcher) = read_write_dispatcher {
 				read_write_dispatcher.await.ok();
 			}
-			shutdown_server.rollback_all_response_publications();
+			shutdown_server.rollback_all_response_resources(fd.as_raw_fd());
+			drop(fd);
 			drop(sqpoll_ring);
 		};
 
@@ -912,7 +914,7 @@ where
 			for thread_handle in thread_handles.drain(..) {
 				thread_handle.join().ok();
 			}
-			self.rollback_all_response_publications();
+			self.rollback_all_response_resources(fd.as_raw_fd());
 			while event_receiver.try_recv().is_ok() {}
 
 			return Err(error);
@@ -1146,7 +1148,7 @@ where
 		self.active_requests.lock().unwrap().remove(&unique);
 	}
 
-	fn register_response_publications(
+	fn register_response_resources(
 		&self,
 		unique: u64,
 		result: &Result<Option<Response>>,
@@ -1154,26 +1156,53 @@ where
 		let nodes = match result {
 			Ok(Some(Response::Lookup(response))) => vec![response.nodeid],
 			Ok(Some(Response::ReadDirPlus { nodes, .. })) => nodes.clone(),
-			_ => return Ok(()),
+			_ => Vec::new(),
 		};
-		if nodes.is_empty() {
+		let handle = match result {
+			Ok(Some(Response::Open(response) | Response::OpenDir(response))) => Some(response.fh),
+			_ => None,
+		};
+		if nodes.is_empty() && handle.is_none() {
 			return Ok(());
 		}
-		let mut publications = self.pending_publications.lock().unwrap();
-		if publications.contains_key(&unique) {
-			drop(publications);
-			self.rollback_nodes(nodes);
-			return Err(Error::other(format!(
-				"a FUSE response with unique ID {unique} already has pending publications",
-			)));
+		if !nodes.is_empty() {
+			let mut publications = self.pending_publications.lock().unwrap();
+			if publications.contains_key(&unique) {
+				drop(publications);
+				self.rollback_nodes(nodes);
+				return Err(Error::other(format!(
+					"a FUSE response with unique ID {unique} already has pending publications",
+				)));
+			}
+			publications.insert(unique, nodes);
 		}
-		publications.insert(unique, nodes);
+		if let Some(handle) = handle {
+			let mut handles = self.pending_handles.lock().unwrap();
+			if handles.contains_key(&unique) {
+				drop(handles);
+				self.provider.close_sync(handle);
+				return Err(Error::other(format!(
+					"a FUSE response with unique ID {unique} already has a pending handle",
+				)));
+			}
+			handles.insert(unique, handle);
+		}
 
 		Ok(())
 	}
 
-	fn commit_response_publications(&self, unique: u64) {
+	fn commit_response_resources(&self, unique: u64) {
+		self.pending_handles.lock().unwrap().remove(&unique);
 		self.pending_publications.lock().unwrap().remove(&unique);
+	}
+
+	fn rollback_response_resources(&self, fd: RawFd, unique: u64) {
+		let handle = self.pending_handles.lock().unwrap().remove(&unique);
+		if let Some(handle) = handle {
+			self.close_passthrough_backing(fd, handle);
+			self.provider.close_sync(handle);
+		}
+		self.rollback_response_publications(unique);
 	}
 
 	fn rollback_response_publications(&self, unique: u64) {
@@ -1183,7 +1212,12 @@ where
 		}
 	}
 
-	fn rollback_all_response_publications(&self) {
+	fn rollback_all_response_resources(&self, fd: RawFd) {
+		let handles = std::mem::take(&mut *self.pending_handles.lock().unwrap());
+		for handle in handles.into_values() {
+			self.close_passthrough_backing(fd, handle);
+			self.provider.close_sync(handle);
+		}
 		let publications = std::mem::take(&mut *self.pending_publications.lock().unwrap());
 		for nodes in publications.into_values() {
 			self.rollback_nodes(nodes);
@@ -1284,13 +1318,13 @@ where
 			}
 		}
 		if let Err(error) = Self::write_response(fd.as_raw_fd(), unique, result) {
-			self.rollback_response_publications(unique);
+			self.rollback_response_resources(fd.as_raw_fd(), unique);
 			match error.raw_os_error() {
 				Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
 				_ => return Err(error),
 			}
 		} else {
-			self.commit_response_publications(unique);
+			self.commit_response_resources(unique);
 		}
 
 		Ok(())
@@ -1483,7 +1517,7 @@ where
 					if completion.result() < 0 {
 						let error = -completion.result();
 						if let UringSlotState::Commit { unique } = slot_data.state {
-							self.rollback_response_publications(unique);
+							self.rollback_response_resources(fd.as_raw_fd(), unique);
 						}
 						if error == libc::EAGAIN
 							&& matches!(slot_data.state, UringSlotState::Register)
@@ -1512,7 +1546,7 @@ where
 					}
 
 					if let UringSlotState::Commit { unique } = slot_data.state {
-						self.commit_response_publications(unique);
+						self.commit_response_resources(unique);
 					}
 					let request = Self::deserialize_uring_request(slot_data)?;
 					slot_data.state = UringSlotState::Request {
@@ -1594,7 +1628,7 @@ where
 			for (slot, unique, result) in commits.drain(..) {
 				self.submit_commit_and_fetch(
 					&mut io_uring,
-					types::Fixed(THREAD_FIXED_FUSE_FD),
+					fd.as_raw_fd(),
 					slot,
 					slots.get_mut(slot).unwrap(),
 					unique,
@@ -1605,7 +1639,7 @@ where
 			if saw_eventfd || !receiver.is_empty() {
 				self.drain_async_responses(
 					worker_id,
-					types::Fixed(THREAD_FIXED_FUSE_FD),
+					fd.as_raw_fd(),
 					&mut io_uring,
 					&mut slots,
 					&receiver,
@@ -1676,13 +1710,13 @@ where
 				}
 			}
 			if let Err(error) = Self::write_response(fd.as_raw_fd(), unique, result) {
-				self.rollback_response_publications(unique);
+				self.rollback_response_resources(fd.as_raw_fd(), unique);
 				match error.raw_os_error() {
 					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
 					_ => return Err(error),
 				}
 			} else {
-				self.commit_response_publications(unique);
+				self.commit_response_resources(unique);
 			}
 		}
 	}
@@ -1754,7 +1788,7 @@ where
 	fn submit_commit_and_fetch(
 		&self,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
-		fixed_fuse_fd: types::Fixed,
+		response_fd: RawFd,
 		slot: usize,
 		slot_data: &mut UringSlot,
 		unique: u64,
@@ -1777,11 +1811,11 @@ where
 			));
 		}
 		if let Err(error) = Self::prepare_uring_response(slot_data, unique, result) {
-			self.rollback_response_publications(unique);
+			self.rollback_response_resources(response_fd, unique);
 			return Err(error);
 		}
 		let entry = Self::build_fuse_uring_cmd_entry(
-			fixed_fuse_fd,
+			types::Fixed(THREAD_FIXED_FUSE_FD),
 			sys::fuse_uring_cmd_FUSE_IO_URING_CMD_COMMIT_AND_FETCH,
 			unique,
 			slot_data.qid,
@@ -1791,7 +1825,7 @@ where
 		);
 		let mut submission = io_uring.submission();
 		if unsafe { submission.push(&entry) }.is_err() {
-			self.rollback_response_publications(unique);
+			self.rollback_response_resources(response_fd, unique);
 			return Err(Error::other(
 				"failed to submit uring commit and fetch command",
 			));
@@ -2126,7 +2160,7 @@ where
 	fn drain_async_responses(
 		&self,
 		worker_id: usize,
-		fixed_fuse_fd: types::Fixed,
+		response_fd: RawFd,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		slots: &mut [UringSlot],
 		receiver: &crossbeam_channel::Receiver<AsyncResponse>,
@@ -2158,7 +2192,7 @@ where
 			}
 			self.submit_commit_and_fetch(
 				io_uring,
-				fixed_fuse_fd,
+				response_fd,
 				response.slot,
 				slot_data,
 				response.unique,
@@ -2381,7 +2415,7 @@ where
 		for (action, request) in std::iter::zip(actions, requests) {
 			match action {
 				BatchAction::Ready(result) => {
-					self.register_response_publications(request.request.header.unique, &result)?;
+					self.register_response_resources(request.request.header.unique, &result)?;
 					batch_results.push(result);
 				},
 				BatchAction::NeedsProvider => {
@@ -2617,7 +2651,7 @@ where
 					.await
 			},
 		};
-		self.register_response_publications(unique, &result)?;
+		self.register_response_resources(unique, &result)?;
 
 		result
 	}
@@ -3470,6 +3504,7 @@ mod tests {
 		Server(Arc::new(State {
 			active_requests: Mutex::new(HashMap::new()),
 			no_opendir_support: false,
+			pending_handles: Mutex::new(HashMap::new()),
 			pending_publications: Mutex::new(HashMap::new()),
 			passthrough_backing_ids: Mutex::new(HashMap::new()),
 			passthrough_enabled,
@@ -3614,6 +3649,27 @@ mod tests {
 			.unwrap_err();
 
 		assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP));
+		assert_eq!(closes.load(Ordering::Relaxed), 1);
+	}
+
+	#[test]
+	fn failed_open_response_closes_provider_handle() {
+		let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+		let server = server_with_provider(
+			PassthroughProvider {
+				closes: closes.clone(),
+			},
+			false,
+			false,
+		);
+		let result = Ok(Some(Response::Open(fuse_open_out {
+			backing_id: -1,
+			fh: 11,
+			open_flags: 0,
+		})));
+		server.register_response_resources(1, &result).unwrap();
+		server.rollback_response_resources(-1, 1);
+
 		assert_eq!(closes.load(Ordering::Relaxed), 1);
 	}
 
