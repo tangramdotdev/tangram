@@ -11,11 +11,7 @@ export let directory = (
 export class Directory {
 	#state: tg.Object.State;
 
-	constructor(arg: {
-		id?: tg.Directory.Id;
-		object?: tg.Directory.Object;
-		stored: boolean;
-	}) {
+	constructor(arg: tg.Directory.ConstructorArg) {
 		let object =
 			arg.object !== undefined
 				? { kind: "directory" as const, value: arg.object }
@@ -24,6 +20,7 @@ export class Directory {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
+			...(arg.token !== undefined ? { token: arg.token } : {}),
 		});
 	}
 
@@ -397,6 +394,12 @@ export class Directory {
 
 export namespace Directory {
 	export type Id = string;
+	export type ConstructorArg = {
+		id?: tg.Directory.Id;
+		object?: tg.Directory.Object;
+		stored: boolean;
+		token?: tg.Grant.Token | null;
+	};
 
 	export class Builder {
 		#args: Array<tg.Unresolved<tg.Directory.Arg>>;

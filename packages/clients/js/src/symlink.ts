@@ -13,11 +13,7 @@ export let symlink = (
 export class Symlink {
 	#state: tg.Object.State;
 
-	constructor(arg: {
-		id?: tg.Symlink.Id;
-		object?: tg.Symlink.Object;
-		stored: boolean;
-	}) {
+	constructor(arg: tg.Symlink.ConstructorArg) {
 		let object =
 			arg.object !== undefined
 				? { kind: "symlink" as const, value: arg.object }
@@ -26,6 +22,7 @@ export class Symlink {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
+			...(arg.token !== undefined ? { token: arg.token } : {}),
 		});
 	}
 
@@ -253,6 +250,12 @@ export class Symlink {
 
 export namespace Symlink {
 	export type Id = string;
+	export type ConstructorArg = {
+		id?: tg.Symlink.Id;
+		object?: tg.Symlink.Object;
+		stored: boolean;
+		token?: tg.Grant.Token | null;
+	};
 
 	export class Builder {
 		#args: Array<tg.Unresolved<tg.Symlink.Arg>>;

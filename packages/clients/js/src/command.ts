@@ -152,11 +152,7 @@ export class Command<
 		});
 	}
 
-	constructor(arg: {
-		id?: tg.Command.Id;
-		object?: tg.Command.Object;
-		stored: boolean;
-	}) {
+	constructor(arg: tg.Command.ConstructorArg) {
 		let object =
 			arg.object !== undefined
 				? { kind: "command" as const, value: arg.object }
@@ -165,6 +161,7 @@ export class Command<
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
+			...(arg.token !== undefined ? { token: arg.token } : {}),
 		});
 	}
 
@@ -301,6 +298,12 @@ export class Command<
 
 export namespace Command {
 	export type Id = string;
+	export type ConstructorArg = {
+		id?: tg.Command.Id;
+		object?: tg.Command.Object;
+		stored: boolean;
+		token?: tg.Grant.Token | null;
+	};
 
 	export type Arg =
 		| string

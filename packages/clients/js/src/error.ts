@@ -80,11 +80,7 @@ export namespace error {
 export class Error {
 	#state: tg.Object.State;
 
-	constructor(arg: {
-		id?: tg.Error.Id;
-		object?: tg.Error.Object;
-		stored: boolean;
-	}) {
+	constructor(arg: tg.Error.ConstructorArg) {
 		let object =
 			arg.object !== undefined
 				? { kind: "error" as const, value: arg.object }
@@ -93,6 +89,7 @@ export class Error {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
+			...(arg.token !== undefined ? { token: arg.token } : {}),
 		});
 	}
 
@@ -305,6 +302,12 @@ export class Error {
 
 export namespace Error {
 	export type Id = string;
+	export type ConstructorArg = {
+		id?: tg.Error.Id;
+		object?: tg.Error.Object;
+		stored: boolean;
+		token?: tg.Grant.Token | null;
+	};
 
 	export class Builder {
 		#args: tg.Args<tg.Error.Arg>;

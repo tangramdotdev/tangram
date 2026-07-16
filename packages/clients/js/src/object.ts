@@ -92,12 +92,7 @@ export namespace Object {
 		#stored: boolean;
 		#token: tg.Grant.Token | null;
 
-		constructor(arg: {
-			id?: tg.Object.Id | null;
-			object?: tg.Object.Object | null;
-			stored: boolean;
-			token?: tg.Grant.Token | null;
-		}) {
+		constructor(arg: tg.Object.State.ConstructorArg) {
 			this.#id = arg.id ?? null;
 			this.#object = arg.object ?? null;
 			this.#stored = arg.stored;
@@ -180,6 +175,15 @@ export namespace Object {
 				return children;
 			})();
 		}
+	}
+
+	export namespace State {
+		export type ConstructorArg = {
+			id?: tg.Object.Id | null;
+			object?: tg.Object.Object | null;
+			stored: boolean;
+			token?: tg.Grant.Token | null;
+		};
 	}
 
 	export type Object =

@@ -9,11 +9,7 @@ export let graph = (...args: tg.Args<tg.Graph.Arg>): tg.Graph.Builder => {
 export class Graph {
 	#state: tg.Object.State;
 
-	constructor(arg: {
-		id?: tg.Graph.Id;
-		object?: tg.Graph.Object;
-		stored: boolean;
-	}) {
+	constructor(arg: tg.Graph.ConstructorArg) {
 		let object =
 			arg.object !== undefined
 				? { kind: "graph" as const, value: arg.object }
@@ -22,6 +18,7 @@ export class Graph {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
+			...(arg.token !== undefined ? { token: arg.token } : {}),
 		});
 	}
 
@@ -340,6 +337,12 @@ export class Graph {
 
 export namespace Graph {
 	export type Id = string;
+	export type ConstructorArg = {
+		id?: tg.Graph.Id;
+		object?: tg.Graph.Object;
+		stored: boolean;
+		token?: tg.Grant.Token | null;
+	};
 
 	export class Builder {
 		#args: tg.Args<tg.Graph.Arg>;

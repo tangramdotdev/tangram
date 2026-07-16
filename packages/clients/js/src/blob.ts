@@ -21,11 +21,7 @@ export function blob(
 export class Blob {
 	#state: tg.Object.State;
 
-	constructor(arg: {
-		id?: tg.Blob.Id;
-		object?: tg.Blob.Object;
-		stored: boolean;
-	}) {
+	constructor(arg: tg.Blob.ConstructorArg) {
 		let object =
 			arg.object !== undefined
 				? { kind: "blob" as const, value: arg.object }
@@ -34,6 +30,7 @@ export class Blob {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
+			...(arg.token !== undefined ? { token: arg.token } : {}),
 		});
 	}
 
@@ -193,6 +190,12 @@ export class Blob {
 
 export namespace Blob {
 	export type Id = string;
+	export type ConstructorArg = {
+		id?: tg.Blob.Id;
+		object?: tg.Blob.Object;
+		stored: boolean;
+		token?: tg.Grant.Token | null;
+	};
 
 	export class Builder {
 		#args: Array<any>;

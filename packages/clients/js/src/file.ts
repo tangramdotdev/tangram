@@ -22,11 +22,7 @@ export function file(
 export class File {
 	#state: tg.Object.State;
 
-	constructor(arg: {
-		id?: tg.File.Id;
-		object?: tg.File.Object;
-		stored: boolean;
-	}) {
+	constructor(arg: tg.File.ConstructorArg) {
 		let object =
 			arg.object !== undefined
 				? { kind: "file" as const, value: arg.object }
@@ -35,6 +31,7 @@ export class File {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
+			...(arg.token !== undefined ? { token: arg.token } : {}),
 		});
 	}
 
@@ -394,6 +391,12 @@ export class File {
 
 export namespace File {
 	export type Id = string;
+	export type ConstructorArg = {
+		id?: tg.File.Id;
+		object?: tg.File.Object;
+		stored: boolean;
+		token?: tg.Grant.Token | null;
+	};
 
 	export class Builder {
 		#args: tg.Args<tg.File.Arg>;
