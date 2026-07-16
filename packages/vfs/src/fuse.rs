@@ -231,6 +231,16 @@ struct RingWorkerConfig {
 	worker_id: usize,
 }
 
+struct RingStartupContext<'a> {
+	event_receiver: &'a mut tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>,
+	event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
+	fd: Arc<OwnedFd>,
+	path: &'a Path,
+	ring_config: RingConfig,
+	runtime: tokio::runtime::Handle,
+	sqpoll_wq_fd: RawFd,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 struct FuseInitInV7p1 {
@@ -311,7 +321,7 @@ where
 	pub async fn start(provider: P, path: &Path, options: Options) -> Result<Self> {
 		let mut options = options;
 		let page_size = rustix::param::page_size();
-		let ring_config = if options.io == Io::ReadWrite {
+		let mut ring_config = if options.io == Io::ReadWrite {
 			None
 		} else {
 			match Self::ring_config(page_size) {
@@ -327,11 +337,11 @@ where
 				Err(error) => return Err(error),
 			}
 		};
-		let limits = match ring_config {
+		let mut limits = match ring_config {
 			Some(config) => config.limits,
 			None => Self::request_limits(page_size, DEFAULT_MAX_WRITE)?,
 		};
-		let (fd, features, sqpoll_ring) = loop {
+		let (mut fd, mut features, mut sqpoll_ring) = loop {
 			// Unmount.
 			Self::unmount(path).await.ok();
 
@@ -341,9 +351,16 @@ where
 				.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
 			// Complete INIT before entering io_uring command mode.
-			let features = Self::init_handshake(fd.as_ref(), options, limits).map_err(|error| {
-				Error::other(format!("failed to complete init handshake: {error}"))
-			})?;
+			let features = match Self::init_handshake(fd.as_ref(), options, limits) {
+				Ok(features) => features,
+				Err(error) => {
+					drop(fd);
+					Self::unmount(path).await.ok();
+					return Err(Error::other(format!(
+						"failed to complete init handshake: {error}",
+					)));
+				},
+			};
 
 			if !features.over_io_uring {
 				break (fd, features, None);
@@ -364,8 +381,12 @@ where
 					drop(fd);
 					Self::unmount(path).await.ok();
 					options.io = Io::ReadWrite;
+					ring_config = None;
+					limits = Self::request_limits(page_size, DEFAULT_MAX_WRITE)?;
 				},
 				Err(error) => {
+					drop(fd);
+					Self::unmount(path).await.ok();
 					return Err(Error::other(format!(
 						"failed to build sqpoll ring: {error}"
 					)));
@@ -390,121 +411,67 @@ where
 			tokio::sync::mpsc::unbounded_channel();
 		let mut thread_handles = Vec::new();
 		let mut read_write_dispatcher = None;
-		if features.over_io_uring {
-			let ring_config = ring_config.unwrap();
-			let control_fd = match Self::clone_thread_fd(fd.as_ref()) {
-				Ok(control_fd) => Arc::new(control_fd),
-				Err(error) => {
-					Self::unmount(path).await.ok();
+		loop {
+			if features.over_io_uring {
+				let Some(config) = ring_config else {
 					drop(fd);
-					drop(sqpoll_ring);
-					return Err(Error::other(format!(
-						"failed to clone the io_uring control fd: {error}",
-					)));
-				},
-			};
-			let sqpoll_wq_fd = sqpoll_ring.as_ref().unwrap().as_raw_fd();
-			tracing::info!(
-				payload_memory = ring_config.queue_count
-					* ring_config.slots_per_queue
-					* ring_config.limits.payload_size,
-				payload_size = ring_config.limits.payload_size,
-				queue_count = ring_config.queue_count,
-				slots_per_queue = ring_config.slots_per_queue,
-				worker_count = ring_config.worker_count,
-				"starting the FUSE io_uring transport",
-			);
-
-			for worker_id in 0..ring_config.worker_count {
-				let queue_ids = (worker_id..ring_config.queue_count)
-					.step_by(ring_config.worker_count)
-					.map(|queue_id| queue_id.to_u16().unwrap())
-					.collect::<Vec<_>>();
-				let server = server.clone();
-				let runtime = runtime.clone();
-				let worker_event_sender = worker_event_sender.clone();
-				let thread_fd = fd.clone();
-				let worker_config = RingWorkerConfig {
-					event_sender: worker_event_sender,
-					payload_size: ring_config.limits.payload_size,
-					queue_ids,
-					slots_per_queue: ring_config.slots_per_queue,
-					sqpoll_wq_fd,
-					worker_id,
+					Self::unmount(path).await.ok();
+					return Err(Error::other("missing the io_uring transport configuration"));
 				};
-				let thread = std::thread::spawn(move || {
-					let worker_event_sender = worker_config.event_sender.clone();
-					if let Err(error) =
-						server.thread_loop(thread_fd.as_ref(), &runtime, worker_config)
-					{
-						if error.raw_os_error() == Some(libc::ENOTCONN) {
-							tracing::debug!(%error, %worker_id, "io_uring worker exited during shutdown");
-						} else {
-							tracing::error!(%error, %worker_id, "io_uring worker failed");
-							worker_event_sender
-								.send(WorkerEvent::Failed {
-									error,
-									worker: format!("io_uring worker {worker_id}"),
-								})
-								.ok();
+				let context = RingStartupContext {
+					event_receiver: &mut worker_event_receiver,
+					event_sender: worker_event_sender.clone(),
+					fd: fd.clone(),
+					path,
+					ring_config: config,
+					runtime: runtime.clone(),
+					sqpoll_wq_fd: sqpoll_ring.as_ref().unwrap().as_raw_fd(),
+				};
+				match server.start_ring_transport(context).await {
+					Ok(handles) => {
+						thread_handles = handles;
+						break;
+					},
+					Err(error) if options.io == Io::Auto => {
+						tracing::warn!(
+							%error,
+							"failed to start the FUSE io_uring transport; falling back to ReadWrite",
+						);
+						drop(sqpoll_ring.take());
+						drop(fd);
+						options.io = Io::ReadWrite;
+						ring_config = None;
+						limits = Self::request_limits(page_size, DEFAULT_MAX_WRITE)?;
+						fd = Self::mount(path).await?;
+						features = match Self::init_handshake(fd.as_ref(), options, limits) {
+							Ok(features) => features,
+							Err(error) => {
+								drop(fd);
+								Self::unmount(path).await.ok();
+								return Err(Error::other(format!(
+									"failed to complete the ReadWrite fallback init handshake: {error}",
+								)));
+							},
+						};
+						if features.no_opendir_support != server.no_opendir_support
+							|| features.passthrough != server.passthrough_enabled
+						{
+							drop(fd);
+							Self::unmount(path).await.ok();
+							return Err(Error::other(
+								"the ReadWrite fallback negotiated different FUSE features",
+							));
 						}
-					}
-				});
-				thread_handles.push(thread);
+						continue;
+					},
+					Err(error) => {
+						drop(fd);
+						drop(sqpoll_ring);
+						return Err(error);
+					},
+				}
 			}
 
-			let startup = async {
-				for _ in 0..ring_config.worker_count {
-					match worker_event_receiver.recv().await {
-						Some(WorkerEvent::Ready) => {},
-						Some(WorkerEvent::Failed { error, worker }) => {
-							return Err(Error::other(format!(
-								"{worker} failed during startup: {error}",
-							)));
-						},
-						None => {
-							return Err(Error::other("an io_uring worker failed during startup"));
-						},
-					}
-				}
-
-				Self::probe_io_uring(path).await
-			};
-			let startup = tokio::time::timeout(IO_URING_STARTUP_TIMEOUT, startup)
-				.await
-				.map_err(|_| Error::other("timed out waiting for the io_uring transport"))
-				.and_then(std::convert::identity);
-			if let Err(error) = startup {
-				Self::unmount(path).await.ok();
-				drop(fd);
-				for thread_handle in thread_handles {
-					thread_handle.join().ok();
-				}
-				drop(sqpoll_ring);
-				return Err(error);
-			}
-
-			let server = server.clone();
-			let worker_event_sender = worker_event_sender.clone();
-			let thread = std::thread::spawn(move || {
-				if let Err(error) =
-					server.thread_loop_control(&control_fd, ring_config.limits.request_buffer_size)
-				{
-					if matches!(error.raw_os_error(), Some(libc::ENODEV | libc::ENOTCONN)) {
-						tracing::debug!(%error, "io_uring control reader exited during shutdown");
-					} else {
-						tracing::error!(%error, "io_uring control reader failed");
-						worker_event_sender
-							.send(WorkerEvent::Failed {
-								error,
-								worker: "io_uring control reader".to_owned(),
-							})
-							.ok();
-					}
-				}
-			});
-			thread_handles.push(thread);
-		} else {
 			let reader_fds = match Self::clone_read_write_fds(&fd) {
 				Ok(reader_fds) => reader_fds,
 				Err(error) => {
@@ -564,6 +531,7 @@ where
 					None => return Err(Error::other("a ReadWrite reader failed during startup")),
 				}
 			}
+			break;
 		}
 		drop(worker_event_sender);
 
@@ -807,6 +775,137 @@ where
 		})
 		.await
 		.map_err(|error| Error::other(format!("the io_uring readiness probe failed: {error}")))?
+	}
+
+	async fn start_ring_transport(
+		&self,
+		context: RingStartupContext<'_>,
+	) -> Result<Vec<std::thread::JoinHandle<()>>> {
+		let RingStartupContext {
+			event_receiver,
+			event_sender,
+			fd,
+			path,
+			ring_config,
+			runtime,
+			sqpoll_wq_fd,
+		} = context;
+		let mut thread_handles = Vec::new();
+		let startup = async {
+			let control_fd = Self::clone_thread_fd(fd.as_ref())
+				.map(Arc::new)
+				.map_err(|error| {
+					Error::other(format!("failed to clone the io_uring control fd: {error}"))
+				})?;
+			tracing::info!(
+				payload_memory = ring_config.queue_count
+					* ring_config.slots_per_queue
+					* ring_config.limits.payload_size,
+				payload_size = ring_config.limits.payload_size,
+				queue_count = ring_config.queue_count,
+				slots_per_queue = ring_config.slots_per_queue,
+				worker_count = ring_config.worker_count,
+				"starting the FUSE io_uring transport",
+			);
+
+			for worker_id in 0..ring_config.worker_count {
+				let queue_ids = (worker_id..ring_config.queue_count)
+					.step_by(ring_config.worker_count)
+					.map(|queue_id| queue_id.to_u16().unwrap())
+					.collect::<Vec<_>>();
+				let server = self.clone();
+				let runtime = runtime.clone();
+				let worker_event_sender = event_sender.clone();
+				let thread_fd = fd.clone();
+				let worker_config = RingWorkerConfig {
+					event_sender: worker_event_sender,
+					payload_size: ring_config.limits.payload_size,
+					queue_ids,
+					slots_per_queue: ring_config.slots_per_queue,
+					sqpoll_wq_fd,
+					worker_id,
+				};
+				let thread = std::thread::spawn(move || {
+					let worker_event_sender = worker_config.event_sender.clone();
+					if let Err(error) =
+						server.thread_loop(thread_fd.as_ref(), &runtime, worker_config)
+					{
+						if error.raw_os_error() == Some(libc::ENOTCONN) {
+							tracing::debug!(%error, %worker_id, "io_uring worker exited during shutdown");
+						} else {
+							tracing::error!(%error, %worker_id, "io_uring worker failed");
+							worker_event_sender
+								.send(WorkerEvent::Failed {
+									error,
+									worker: format!("io_uring worker {worker_id}"),
+								})
+								.ok();
+						}
+					}
+				});
+				thread_handles.push(thread);
+			}
+
+			for _ in 0..ring_config.worker_count {
+				match event_receiver.recv().await {
+					Some(WorkerEvent::Ready) => {},
+					Some(WorkerEvent::Failed { error, worker }) => {
+						return Err(Error::other(format!(
+							"{worker} failed during startup: {error}",
+						)));
+					},
+					None => return Err(Error::other("an io_uring worker failed during startup")),
+				}
+			}
+
+			Self::probe_io_uring(path).await?;
+			while let Ok(event) = event_receiver.try_recv() {
+				if let WorkerEvent::Failed { error, worker } = event {
+					return Err(Error::other(format!(
+						"{worker} failed during startup: {error}",
+					)));
+				}
+			}
+
+			let server = self.clone();
+			let worker_event_sender = event_sender.clone();
+			let thread = std::thread::spawn(move || {
+				if let Err(error) =
+					server.thread_loop_control(&control_fd, ring_config.limits.request_buffer_size)
+				{
+					if matches!(error.raw_os_error(), Some(libc::ENODEV | libc::ENOTCONN)) {
+						tracing::debug!(%error, "io_uring control reader exited during shutdown");
+					} else {
+						tracing::error!(%error, "io_uring control reader failed");
+						worker_event_sender
+							.send(WorkerEvent::Failed {
+								error,
+								worker: "io_uring control reader".to_owned(),
+							})
+							.ok();
+					}
+				}
+			});
+			thread_handles.push(thread);
+
+			Ok(())
+		};
+		let startup = tokio::time::timeout(IO_URING_STARTUP_TIMEOUT, startup)
+			.await
+			.map_err(|_| Error::other("timed out waiting for the io_uring transport"))
+			.and_then(std::convert::identity);
+		if let Err(error) = startup {
+			self.cancel_async_requests();
+			Self::unmount(path).await.ok();
+			for thread_handle in thread_handles.drain(..) {
+				thread_handle.join().ok();
+			}
+			while event_receiver.try_recv().is_ok() {}
+
+			return Err(error);
+		}
+
+		Ok(thread_handles)
 	}
 
 	fn init_handshake(fd: &OwnedFd, options: Options, limits: RequestLimits) -> Result<Features> {
