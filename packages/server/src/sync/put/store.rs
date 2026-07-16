@@ -113,7 +113,8 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_object_local_permissions(&item.id, required);
+					.get_object_local_authorization(&item.id, required)
+					.permissions;
 				output.metadata =
 					Self::mask_object_metadata_with_permissions(metadata, permissions);
 			}
@@ -197,7 +198,8 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_process_local_permissions(&item.id, required);
+					.get_process_local_authorization(&item.id, required)
+					.permissions;
 				if !permissions.contains(permission) {
 					return Err(tg::error!("unauthorized"));
 				}
@@ -238,7 +240,8 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_process_local_permissions(&item.id, required);
+					.get_process_local_authorization(&item.id, required)
+					.permissions;
 				output.metadata =
 					Self::mask_process_metadata_with_permissions(&metadata, permissions);
 			}

@@ -73,6 +73,7 @@ pub struct ObjectNode {
 	pub remote_requested: bool,
 	pub remote_stored: Option<tangram_index::object::Stored>,
 	pub requested: Option<Requested>,
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -89,11 +90,17 @@ pub struct ProcessNode {
 	pub remote_requested: bool,
 	pub remote_stored: Option<tangram_index::process::Stored>,
 	pub requested: Option<Requested>,
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Requested {
 	pub eager: bool,
+}
+
+pub struct Authorization {
+	pub permissions: tg::grant::permission::Set,
+	pub token: Option<tg::grant::Token>,
 }
 
 pub struct UpdateObjectLocalArg<'a> {
@@ -123,26 +130,35 @@ impl Graph {
 		local_roots: &[tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>],
 		remote_roots: &[tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>],
 	) -> Self {
-		let local_roots = local_roots
-			.iter()
-			.map(|id| match id.as_ref().map_right(|id| &id.id).into_inner() {
-				tg::Either::Left(id) => Id::Object(id.clone()),
-				tg::Either::Right(id) => Id::Process(id.clone()),
-			})
-			.collect();
-		let remote_roots = remote_roots
-			.iter()
-			.map(|id| match id.as_ref().map_right(|id| &id.id).into_inner() {
-				tg::Either::Left(id) => Id::Object(id.clone()),
-				tg::Either::Right(id) => Id::Process(id.clone()),
-			})
-			.collect();
-		Graph {
-			nodes: IndexMap::default(),
-			local_roots,
-			remote_roots,
+		let mut graph = Graph {
 			get_end_received: false,
+			local_roots: local_roots
+				.iter()
+				.map(|id| match id.as_ref().map_right(|id| &id.id).into_inner() {
+					tg::Either::Left(id) => Id::Object(id.clone()),
+					tg::Either::Right(id) => Id::Process(id.clone()),
+				})
+				.collect(),
+			nodes: IndexMap::default(),
+			remote_roots: remote_roots
+				.iter()
+				.map(|id| match id.as_ref().map_right(|id| &id.id).into_inner() {
+					tg::Either::Left(id) => Id::Object(id.clone()),
+					tg::Either::Right(id) => Id::Process(id.clone()),
+				})
+				.collect(),
+		};
+		for root in local_roots.iter().chain(remote_roots) {
+			let tg::Either::Right(root) = root else {
+				continue;
+			};
+			match &root.id {
+				tg::Either::Left(id) => graph.update_object_token(id, root.token.clone()),
+				tg::Either::Right(id) => graph.update_process_token(id, root.token.clone()),
+			}
 		}
+
+		graph
 	}
 
 	pub fn mark_get_end_received(&mut self) {
@@ -846,28 +862,52 @@ impl Graph {
 		}
 	}
 
-	pub fn get_object_local_permissions(
+	pub fn get_object_local_authorization(
 		&mut self,
 		id: &tg::object::Id,
 		required: tg::grant::permission::Set,
-	) -> tg::grant::permission::Set {
+	) -> Authorization {
 		let Some(index) = self.nodes.get_index_of(&Id::Object(id.clone())) else {
-			return tg::grant::permission::Set::Object(tg::grant::permission::object::Set::empty());
+			let permissions =
+				tg::grant::permission::Set::Object(tg::grant::permission::object::Set::empty());
+			return Authorization {
+				permissions,
+				token: None,
+			};
 		};
-		self.get_local_permissions(index, required)
+		self.get_local_authorization(index, required)
 	}
 
-	pub fn get_process_local_permissions(
+	pub fn get_process_local_authorization(
 		&mut self,
 		id: &tg::process::Id,
 		required: tg::grant::permission::Set,
-	) -> tg::grant::permission::Set {
+	) -> Authorization {
 		let Some(index) = self.nodes.get_index_of(&Id::Process(id.clone())) else {
-			return tg::grant::permission::Set::Process(
-				tg::grant::permission::process::Set::empty(),
-			);
+			let permissions =
+				tg::grant::permission::Set::Process(tg::grant::permission::process::Set::empty());
+			return Authorization {
+				permissions,
+				token: None,
+			};
 		};
-		self.get_local_permissions(index, required)
+		self.get_local_authorization(index, required)
+	}
+
+	pub fn update_object_token(&mut self, id: &tg::object::Id, token: tg::grant::Token) {
+		let node = self
+			.nodes
+			.entry(id.clone().into())
+			.or_insert_with(|| Node::Object(ObjectNode::default()));
+		node.unwrap_object_mut().token.get_or_insert(token);
+	}
+
+	pub fn update_process_token(&mut self, id: &tg::process::Id, token: tg::grant::Token) {
+		let node = self
+			.nodes
+			.entry(id.clone().into())
+			.or_insert_with(|| Node::Process(ProcessNode::default()));
+		node.unwrap_process_mut().token.get_or_insert(token);
 	}
 
 	pub fn update_object_local_permissions(
@@ -978,22 +1018,30 @@ impl Graph {
 		})
 	}
 
-	fn get_local_permissions(
+	fn get_local_authorization(
 		&mut self,
 		index: usize,
 		required: tg::grant::permission::Set,
-	) -> tg::grant::permission::Set {
+	) -> Authorization {
 		let permissions = self
 			.nodes
 			.get_index(index)
 			.and_then(|(_, node)| node.local_permissions())
 			.map_or_else(|| required.empty_like(), Self::normalize_permissions);
 		if permissions.contains(required) {
-			return permissions;
+			return Authorization {
+				permissions,
+				token: None,
+			};
 		}
 
 		let mut predecessors = HashMap::new();
 		let mut queue = VecDeque::new();
+		let mut token = self
+			.nodes
+			.get_index(index)
+			.and_then(|(_, node)| node.token())
+			.cloned();
 		let mut visited = HashSet::new();
 		for permission in required
 			.iter()
@@ -1005,6 +1053,13 @@ impl Graph {
 		}
 
 		while let Some(state) = queue.pop_front() {
+			if token.is_none() {
+				token = self
+					.nodes
+					.get_index(state.index)
+					.and_then(|(_, node)| node.token())
+					.cloned();
+			}
 			let permissions = self
 				.nodes
 				.get_index(state.index)
@@ -1018,7 +1073,10 @@ impl Graph {
 					.and_then(|(_, node)| node.local_permissions())
 					.map_or_else(|| required.empty_like(), Self::normalize_permissions);
 				if permissions.contains(required) {
-					return permissions;
+					return Authorization {
+						permissions,
+						token: None,
+					};
 				}
 				continue;
 			}
@@ -1040,10 +1098,13 @@ impl Graph {
 			}
 		}
 
-		self.nodes
+		let permissions = self
+			.nodes
 			.get_index(index)
 			.and_then(|(_, node)| node.local_permissions())
-			.map_or_else(|| required.empty_like(), Self::normalize_permissions)
+			.map_or_else(|| required.empty_like(), Self::normalize_permissions);
+
+		Authorization { permissions, token }
 	}
 
 	fn cache_local_permission_path(
@@ -1758,6 +1819,13 @@ impl Node {
 		match self {
 			Self::Object(node) => node.local_permissions,
 			Self::Process(node) => node.local_permissions,
+		}
+	}
+
+	fn token(&self) -> Option<&tg::grant::Token> {
+		match self {
+			Self::Object(node) => node.token.as_ref(),
+			Self::Process(node) => node.token.as_ref(),
 		}
 	}
 

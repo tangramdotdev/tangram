@@ -69,6 +69,16 @@ impl Session {
 		state: &State,
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
+		// Store the provided tokens.
+		{
+			let mut graph = state.graph.lock().unwrap();
+			for item in &items {
+				if let Some(token) = &item.token {
+					graph.update_object_token(&item.id, token.clone());
+				}
+			}
+		}
+
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
@@ -80,7 +90,6 @@ impl Session {
 			self.sync_get_touch_authorized_objects(
 				&state.graph,
 				&ids,
-				&state.arg,
 				touched_at,
 				self.server.config.object.time_to_touch,
 			)
@@ -224,6 +233,16 @@ impl Session {
 		state: &State,
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
+		// Store the provided tokens.
+		{
+			let mut graph = state.graph.lock().unwrap();
+			for item in &items {
+				if let Some(token) = &item.token {
+					graph.update_process_token(&item.id, token.clone());
+				}
+			}
+		}
+
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 

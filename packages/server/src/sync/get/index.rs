@@ -79,7 +79,6 @@ impl Session {
 			.sync_get_touch_authorized_objects(
 				&state.graph,
 				&ids,
-				&state.arg,
 				touched_at,
 				self.server.config.object.time_to_touch,
 			)

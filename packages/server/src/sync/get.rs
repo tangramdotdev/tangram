@@ -6,10 +6,7 @@ use {
 	},
 	crate::Session,
 	futures::{future, stream::BoxStream},
-	std::{
-		collections::BTreeSet,
-		sync::{Arc, Mutex},
-	},
+	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_index::prelude::*,
@@ -194,14 +191,13 @@ impl Session {
 		&self,
 		graph: &Arc<Mutex<Graph>>,
 		ids: &[tg::object::Id],
-		arg: &tg::sync::Arg,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<(
 		Vec<Option<tangram_index::object::Object>>,
 		Vec<Option<tg::grant::permission::Set>>,
 	)> {
-		let mut permissions = self.sync_get_authorize_objects(graph, ids, arg).await?;
+		let mut permissions = self.sync_get_authorize_objects(graph, ids).await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
@@ -230,10 +226,9 @@ impl Session {
 		&self,
 		graph: &Arc<Mutex<Graph>>,
 		ids: &[tg::object::Id],
-		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
 		let required = Self::sync_get_object_permissions();
-		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required, arg)
+		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required)
 			.await
 	}
 
@@ -289,7 +284,7 @@ impl Session {
 			return Ok(vec![None; ids.len()]);
 		};
 
-		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required, arg)
+		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required)
 			.await
 	}
 
@@ -337,14 +332,8 @@ impl Session {
 		graph: &Arc<Mutex<Graph>>,
 		ids: impl IntoIterator<Item = GraphId>,
 		required: tg::grant::permission::Set,
-		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
 		let ids = ids.into_iter().collect::<Vec<_>>();
-		let tokens = arg
-			.get
-			.iter()
-			.filter_map(|item| item.as_ref().right().map(|item| item.token.clone()))
-			.collect::<BTreeSet<_>>();
 
 		// Collect the items whose permissions cannot be proven by the graph.
 		let mut args = Vec::<(tg::MaybeWithToken<tg::Id>, tg::grant::permission::Set)>::new();
@@ -353,28 +342,24 @@ impl Session {
 		{
 			let mut graph = graph.lock().unwrap();
 			for (position, id) in ids.iter().enumerate() {
-				let permissions = match id {
-					GraphId::Object(id) => graph.get_object_local_permissions(id, required),
-					GraphId::Process(id) => graph.get_process_local_permissions(id, required),
+				let authorization = match id {
+					GraphId::Object(id) => graph.get_object_local_authorization(id, required),
+					GraphId::Process(id) => graph.get_process_local_authorization(id, required),
 				};
-				if permissions.contains(required) {
-					outputs[position] = Some(permissions);
+				if authorization.permissions.contains(required) {
+					outputs[position] = Some(authorization.permissions);
 					continue;
 				}
 				let id = match id {
 					GraphId::Object(id) => tg::Id::from(id.clone()),
 					GraphId::Process(id) => tg::Id::from(id.clone()),
 				};
-				args.push((tg::Either::Left(id.clone()), required));
+				let resource = match authorization.token {
+					Some(token) => tg::Either::Right(tg::WithToken { id, token }),
+					None => tg::Either::Left(id),
+				};
+				args.push((resource, required));
 				positions.push(position);
-				for token in &tokens {
-					let resource = tg::WithToken {
-						id: id.clone(),
-						token: token.clone(),
-					};
-					args.push((tg::Either::Right(resource), required));
-					positions.push(position);
-				}
 			}
 		}
 
@@ -401,12 +386,12 @@ impl Session {
 			}
 		}
 		for (position, id) in ids.iter().enumerate() {
-			let permissions = match id {
-				GraphId::Object(id) => graph.get_object_local_permissions(id, required),
-				GraphId::Process(id) => graph.get_process_local_permissions(id, required),
+			let authorization = match id {
+				GraphId::Object(id) => graph.get_object_local_authorization(id, required),
+				GraphId::Process(id) => graph.get_process_local_authorization(id, required),
 			};
-			if permissions.contains(required) {
-				outputs[position] = Some(permissions);
+			if authorization.permissions.contains(required) {
+				outputs[position] = Some(authorization.permissions);
 			}
 		}
 

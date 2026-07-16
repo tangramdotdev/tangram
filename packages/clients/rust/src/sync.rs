@@ -6,8 +6,8 @@ use {
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::body::BodyStream,
 	tangram_http::response::Ext as _,
-	tangram_uri::Uri,
-	tangram_util::serde::{is_default, is_false},
+	tangram_uri::{Uri, builder::QueryParamsError},
+	tangram_util::serde::{CommaSeparatedString, is_default, is_false},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::StreamReader,
@@ -39,6 +39,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 
+	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub get: Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>,
 
@@ -57,6 +58,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 
+	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub put: Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>,
 
@@ -293,7 +295,14 @@ impl tg::Session {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let method = http::Method::POST;
-		let uri = Uri::builder().path("/sync").build().unwrap();
+		let (arg_in_body, uri) = match Uri::builder().path("/sync").query_params(&arg) {
+			Ok(builder) => (false, builder.build().unwrap()),
+			Err(QueryParamsError::TooLarge) => {
+				let uri = Uri::builder().path("/sync").build().unwrap();
+				(true, uri)
+			},
+			Err(error) => return Err(tg::error!(!error, "failed to serialize the arg")),
+		};
 
 		// Create the body.
 		let stream = stream.then(move |result| async move {
@@ -329,9 +338,11 @@ impl tg::Session {
 			};
 			Ok::<_, tg::Error>(frame)
 		});
-		let body = tangram_http::body::Boxed::with_stream(stream);
-		let body = tangram_http::body::arg::set(body, &arg)
-			.map_err(|error| tg::error!(!error, "failed to add the sync arg"))?;
+		let mut body = tangram_http::body::Boxed::with_stream(stream);
+		if arg_in_body {
+			body = tangram_http::body::arg::set(body, &arg)
+				.map_err(|error| tg::error!(!error, "failed to add the sync arg"))?;
+		}
 
 		// Send the request.
 		let mut request = http::request::Builder::default();
@@ -343,7 +354,9 @@ impl tg::Session {
 				http::header::CONTENT_TYPE,
 				tg::sync::CONTENT_TYPE.to_string(),
 			);
-		request = request.header(tangram_http::body::arg::HEADER, "true");
+		if arg_in_body {
+			request = request.header(tangram_http::body::arg::HEADER, "true");
+		}
 		let request = request.body(body).unwrap();
 		let response = self
 			.send(request)
