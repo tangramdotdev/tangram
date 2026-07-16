@@ -200,6 +200,8 @@ struct AsyncRequestContext {
 	sender: crossbeam_channel::Sender<AsyncResponse>,
 	slot: usize,
 	token: CancellationToken,
+	worker_event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
+	worker_id: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1733,6 +1735,8 @@ where
 					sender: sender.clone(),
 					slot,
 					token,
+					worker_event_sender: event_sender.clone(),
+					worker_id,
 				});
 			}
 			for (slot, unique, result) in commits.drain(..) {
@@ -2241,6 +2245,8 @@ where
 			sender,
 			slot,
 			token,
+			worker_event_sender,
+			worker_id,
 		} = context;
 		let server = self.clone();
 		runtime.spawn(async move {
@@ -2261,13 +2267,14 @@ where
 				slot,
 				unique,
 			};
-			if sender.send(response).is_ok()
-				&& !async_notification_pending.swap(true, Ordering::AcqRel)
-				&& let Err(error) = signal_eventfd(eventfd.as_raw_fd())
-			{
-				async_notification_pending.store(false, Ordering::Release);
-				tracing::error!(?error, "failed to signal eventfd");
-			}
+			notify_async_response(
+				&async_notification_pending,
+				eventfd.as_raw_fd(),
+				response,
+				&sender,
+				&worker_event_sender,
+				worker_id,
+			);
 		});
 	}
 
@@ -3506,10 +3513,39 @@ where
 	}
 }
 
+fn notify_async_response(
+	async_notification_pending: &AtomicBool,
+	eventfd: RawFd,
+	response: AsyncResponse,
+	sender: &crossbeam_channel::Sender<AsyncResponse>,
+	worker_event_sender: &tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
+	worker_id: usize,
+) {
+	if sender.send(response).is_err() || async_notification_pending.swap(true, Ordering::AcqRel) {
+		return;
+	}
+	if let Err(error) = signal_eventfd(eventfd) {
+		async_notification_pending.store(false, Ordering::Release);
+		tracing::error!(?error, %worker_id, "failed to signal the io_uring eventfd");
+		worker_event_sender
+			.send(WorkerEvent::Failed {
+				error,
+				worker: format!("io_uring worker {worker_id} async notifier"),
+			})
+			.ok();
+	}
+}
+
 fn signal_eventfd(fd: RawFd) -> Result<()> {
 	let value = 1u64.to_ne_bytes();
 	let fd = unsafe { BorrowedFd::borrow_raw(fd) };
-	let ret = rustix::io::write(fd, &value).map_err(Error::from)?;
+	let ret = loop {
+		match rustix::io::write(fd, &value) {
+			Ok(ret) => break ret,
+			Err(Errno::INTR) => {},
+			Err(error) => return Err(error.into()),
+		}
+	};
 	if ret != value.len() {
 		return Err(Error::other("failed to signal eventfd"));
 	}
@@ -4072,5 +4108,34 @@ mod tests {
 			.unwrap();
 		assert!(matches!(response, Some(Response::Interrupt)));
 		assert!(token.is_cancelled());
+	}
+
+	#[test]
+	fn eventfd_failures_are_reported_to_the_supervisor() {
+		let eventfd: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
+		let pending = AtomicBool::new(false);
+		let (sender, receiver) = crossbeam_channel::unbounded();
+		let (worker_event_sender, mut worker_event_receiver) =
+			tokio::sync::mpsc::unbounded_channel();
+		let response = AsyncResponse {
+			opcode: sys::fuse_opcode_FUSE_GETATTR,
+			result: Err(Error::from_raw_os_error(libc::EIO)),
+			slot: 0,
+			unique: 1,
+		};
+
+		notify_async_response(
+			&pending,
+			eventfd.as_raw_fd(),
+			response,
+			&sender,
+			&worker_event_sender,
+			0,
+		);
+
+		assert!(receiver.try_recv().is_ok());
+		assert!(!pending.load(Ordering::Acquire));
+		let event = worker_event_receiver.try_recv().unwrap();
+		assert!(matches!(event, WorkerEvent::Failed { .. }));
 	}
 }
