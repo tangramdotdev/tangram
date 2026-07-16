@@ -124,7 +124,7 @@ impl Cli {
 		Ok(())
 	}
 
-	pub(crate) fn print_id(id: &impl std::fmt::Display) {
+	pub(crate) fn print_id(id: &tg::Id) {
 		println!("{id}");
 	}
 

@@ -69,12 +69,11 @@ impl Module {
 	pub fn to_uri(&self) -> Uri {
 		let path = self.referent.item.to_string();
 		let mut builder = Uri::builder().path(&path);
-		let config = serde_qs::Config::new().use_form_encoding(true);
-		let mut query = config.serialize_string(&self.referent.options).unwrap();
+		let mut query = serde_qs::to_string(&self.referent.options).unwrap();
 		if !query.is_empty() {
 			query.push('&');
 		}
-		let kind = config.serialize_string(&Query { kind: self.kind }).unwrap();
+		let kind = serde_qs::to_string(&Query { kind: self.kind }).unwrap();
 		query.push_str(&kind);
 		builder = builder.query_raw(&query);
 		builder.build().unwrap()

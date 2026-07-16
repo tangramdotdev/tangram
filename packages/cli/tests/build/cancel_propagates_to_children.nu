@@ -22,7 +22,7 @@ let parent = tg build --detach --verbose $path | from json
 
 # Wait for the child process to spawn.
 wait_until { (tg process children $parent.process | from json | length) > 0 } "the child should spawn"
-let child = tg process children $parent.process | from json | get 0.process.item
+let child = tg process children $parent.process | from json | get 0.process
 
 # Cancel the parent.
 tg cancel $parent.process $parent.lease

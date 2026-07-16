@@ -145,9 +145,23 @@ impl Builder {
 	where
 		T: serde::Serialize,
 	{
+		let query = serde_qs::to_string(value)?;
+		self = self.query_params_inner(query)?;
+		Ok(self)
+	}
+
+	pub fn query_params_strict<T>(mut self, value: &T) -> Result<Self, QueryParamsError>
+	where
+		T: serde::Serialize,
+	{
 		let query = serde_qs::Config::new()
 			.use_form_encoding(true)
 			.serialize_string(value)?;
+		self = self.query_params_inner(query)?;
+		Ok(self)
+	}
+
+	fn query_params_inner(mut self, query: String) -> Result<Self, QueryParamsError> {
 		if query.len() > QUERY_PARAMS_LENGTH_THRESHOLD {
 			return Err(QueryParamsError::TooLarge);
 		}

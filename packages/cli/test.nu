@@ -1329,9 +1329,11 @@ export def normalize_ids [value?: string, --prefixes: list<string> = [blb cmd di
 		$output = ($output | str replace --all $id $replacement)
 	}
 
-	$output = ($output | str replace --all --regex '([?&]token=|"token":\s*")[A-Za-z0-9._~+/=-]+' '${1}<token>')
+	$output | normalize_tokens
+}
 
-	$output
+export def normalize_tokens [] {
+	$in | str replace --all --regex '([?&]token=|"token":\s*")[A-Za-z0-9._~+/=-]+' '${1}<token>'
 }
 
 def server_exit_path [temp_path: string, job_id: int] {

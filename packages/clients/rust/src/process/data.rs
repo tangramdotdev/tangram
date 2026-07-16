@@ -38,6 +38,7 @@ pub struct Data {
 	pub debug: Option<tg::process::Debug>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Error>")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 
@@ -119,6 +120,8 @@ pub struct Child {
 	pub process: tg::Referent<tg::process::Id>,
 }
 
+struct Error;
+
 impl Data {
 	pub fn remove_tokens(&mut self) {
 		if let Some(children) = &mut self.children {
@@ -141,6 +144,43 @@ impl Data {
 impl Child {
 	pub fn remove_tokens(&mut self) {
 		self.process.options.token.take();
+	}
+}
+
+impl serde_with::SerializeAs<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>> for Error {
+	fn serialize_as<S>(
+		source: &tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>,
+		serializer: S,
+	) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		match source {
+			tg::Either::Left(data) => serde::Serialize::serialize(data, serializer),
+			tg::Either::Right(referent) => serializer.collect_str(referent),
+		}
+	}
+}
+
+impl<'de> serde_with::DeserializeAs<'de, tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>
+	for Error
+{
+	fn deserialize_as<D>(
+		deserializer: D,
+	) -> Result<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let value = tg::Either::<tg::error::Data, String>::deserialize(deserializer)?;
+		let value = match value {
+			tg::Either::Left(data) => tg::Either::Left(data),
+			tg::Either::Right(value) => {
+				let referent = value.parse().map_err(serde::de::Error::custom)?;
+				tg::Either::Right(referent)
+			},
+		};
+
+		Ok(value)
 	}
 }
 

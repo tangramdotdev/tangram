@@ -25,7 +25,7 @@ impl tg::Session {
 	) -> tg::Result<tg::user::login::wait::Output> {
 		let uri = Uri::builder()
 			.path("/login/wait")
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

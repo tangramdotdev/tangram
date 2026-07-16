@@ -57,7 +57,7 @@ impl Session {
 	) -> tg::Result<Option<()>> {
 		if let Some(result) = self.server.runner.state.try_update_process(id, |process| {
 			if process.data.status.is_finished() {
-				return Err(tg::error!("the process is already finished"));
+				return Ok(());
 			}
 			if !process.leases.remove(&arg.lease) {
 				return Err(tg::error!("the process lease was not found"));
@@ -91,7 +91,7 @@ impl Session {
 					return Ok(None);
 				};
 				if process.data.status.is_finished() {
-					return Err(tg::error!("the process is already finished"));
+					return Ok(Some(()));
 				}
 				release_future.await
 			},

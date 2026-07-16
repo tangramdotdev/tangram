@@ -100,7 +100,7 @@ impl Session {
 			.state
 			.try_update_process(id, |process| {
 				if process.data.status.is_finished() {
-					return Err(tg::error!("the process is already finished"));
+					return Ok(tg::process::control::ReleaseLeaseClientResponseOutput {});
 				}
 				if !process.leases.remove(&arg.lease) {
 					return Err(tg::error!("the process lease was not found"));

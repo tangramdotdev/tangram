@@ -180,7 +180,7 @@ impl tg::Session {
 		let path = "/runners/control";
 		let uri = Uri::builder()
 			.path(path)
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

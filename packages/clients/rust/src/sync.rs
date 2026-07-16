@@ -295,7 +295,7 @@ impl tg::Session {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let method = http::Method::POST;
-		let (arg_in_body, uri) = match Uri::builder().path("/sync").query_params(&arg) {
+		let (arg_in_body, uri) = match Uri::builder().path("/sync").query_params_strict(&arg) {
 			Ok(builder) => (false, builder.build().unwrap()),
 			Err(QueryParamsError::TooLarge) => {
 				let uri = Uri::builder().path("/sync").build().unwrap();

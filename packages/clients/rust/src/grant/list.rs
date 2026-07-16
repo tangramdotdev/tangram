@@ -29,7 +29,7 @@ impl tg::Session {
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		let uri = Uri::builder()
 			.path("/grants")
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();
