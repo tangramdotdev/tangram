@@ -637,7 +637,7 @@ where
 		let commfd_raw = fuse_commfd.as_raw_fd();
 		let uid = rustix::process::getuid().as_raw();
 		let gid = rustix::process::getgid().as_raw();
-		let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions");
+		let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
 		// Safety: The pre_exec closure only calls async-signal-safe operations.
 		let mut child = unsafe {
 			std::process::Command::new("fusermount3")
@@ -2062,6 +2062,10 @@ where
 			|| (opcode == sys::fuse_opcode_FUSE_GETXATTR
 				&& (error_code == libc::ENODATA || error_code == libc::ERANGE))
 			|| (opcode == sys::fuse_opcode_FUSE_LISTXATTR && error_code == libc::ERANGE)
+			|| (matches!(
+				opcode,
+				sys::fuse_opcode_FUSE_OPEN | sys::fuse_opcode_FUSE_OPENDIR
+			) && error_code == libc::EROFS)
 			|| matches!(error_code, libc::EINTR | libc::ENOSYS)
 	}
 
@@ -2387,14 +2391,20 @@ where
 					});
 					actions.push(BatchAction::NeedsProvider);
 				},
-				RequestData::Open(_) => {
-					provider_requests.push(ProviderRequest::Open {
-						id: request.header.nodeid,
-					});
-					actions.push(BatchAction::NeedsProvider);
+				RequestData::Open(data) => {
+					if let Err(error) = Self::validate_open_request(*data) {
+						actions.push(BatchAction::Ready(Err(error)));
+					} else {
+						provider_requests.push(ProviderRequest::Open {
+							id: request.header.nodeid,
+						});
+						actions.push(BatchAction::NeedsProvider);
+					}
 				},
-				RequestData::OpenDir(_) => {
-					if self.no_opendir_support {
+				RequestData::OpenDir(data) => {
+					if let Err(error) = Self::validate_open_request(*data) {
+						actions.push(BatchAction::Ready(Err(error)));
+					} else if self.no_opendir_support {
 						actions.push(BatchAction::Ready(Err(Error::from_raw_os_error(
 							libc::ENOSYS,
 						))));
@@ -2934,8 +2944,9 @@ where
 	async fn handle_open_request(
 		&self,
 		header: fuse_in_header,
-		_request: fuse_open_in,
+		request: fuse_open_in,
 	) -> Result<Option<Response>> {
+		Self::validate_open_request(request)?;
 		let fh = self.provider.open(header.nodeid).await?;
 		if self.passthrough_required {
 			self.provider.close(fh).await;
@@ -2951,8 +2962,9 @@ where
 	async fn handle_open_dir_request(
 		&self,
 		header: fuse_in_header,
-		_request: fuse_open_in,
+		request: fuse_open_in,
 	) -> Result<Option<Response>> {
+		Self::validate_open_request(request)?;
 		if self.no_opendir_support {
 			return Err(Error::from_raw_os_error(libc::ENOSYS));
 		}
@@ -2964,6 +2976,16 @@ where
 		};
 		Ok(Some(Response::OpenDir(out)))
 	}
+
+	fn validate_open_request(request: fuse_open_in) -> Result<()> {
+		let access_mode = request.flags & libc::O_ACCMODE.to_u32().unwrap();
+		if access_mode != libc::O_RDONLY.to_u32().unwrap() {
+			return Err(Error::from_raw_os_error(libc::EROFS));
+		}
+
+		Ok(())
+	}
+
 	async fn handle_read_request(
 		&self,
 		_header: fuse_in_header,
@@ -3909,6 +3931,22 @@ mod tests {
 		assert_eq!(statx.stat.ctime.tv_nsec, 6);
 		assert_eq!(statx.stat.size, 513);
 		assert_eq!(statx.stat.blocks, 2);
+	}
+
+	#[test]
+	fn writable_opens_return_erofs() {
+		let request = |flags| fuse_open_in {
+			flags,
+			open_flags: 0,
+		};
+		Server::<TestProvider>::validate_open_request(request(libc::O_RDONLY.to_u32().unwrap()))
+			.unwrap();
+		for flags in [libc::O_WRONLY, libc::O_RDWR] {
+			let error =
+				Server::<TestProvider>::validate_open_request(request(flags.to_u32().unwrap()))
+					.unwrap_err();
+			assert_eq!(error.raw_os_error(), Some(libc::EROFS));
+		}
 	}
 
 	#[tokio::test]
