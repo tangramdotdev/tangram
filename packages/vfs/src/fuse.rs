@@ -2634,11 +2634,12 @@ where
 				}
 			},
 			RequestData::Lookup(_) => {
-				let ProviderResponse::Lookup { id } = response else {
+				let ProviderResponse::Lookup { attrs, id } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
 				let node = id.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
-				let out = self.fuse_entry_out_sync(node)?;
+				let attrs = attrs.ok_or_else(|| Error::from_raw_os_error(libc::EIO))?;
+				let out = Self::fuse_entry_out_from_attrs(node, attrs);
 				Ok(Some(Response::Lookup(out)))
 			},
 			RequestData::Open(_) => {
@@ -2955,12 +2956,12 @@ where
 		let name = request
 			.to_str()
 			.map_err(|_| Error::from_raw_os_error(libc::ENOENT))?;
-		let node = self
+		let (node, attrs) = self
 			.provider
 			.lookup_and_remember(header.nodeid, name)
 			.await?
 			.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
-		let out = self.fuse_entry_out(node).await?;
+		let out = Self::fuse_entry_out_from_attrs(node, attrs);
 		Ok(Some(Response::Lookup(out)))
 	}
 	async fn handle_open_request(
@@ -3490,20 +3491,6 @@ where
 			},
 			dummy: 0,
 		}
-	}
-
-	fn fuse_entry_out_sync(&self, node: u64) -> Result<fuse_entry_out> {
-		let attr = self.provider.getattr_sync(node).inspect_err(|_| {
-			self.provider.forget_sync(node, 1);
-		})?;
-		Ok(Self::fuse_entry_out_from_attrs(node, attr))
-	}
-
-	async fn fuse_entry_out(&self, node: u64) -> Result<fuse_entry_out> {
-		let attr = self.provider.getattr(node).await.inspect_err(|_| {
-			self.provider.forget_sync(node, 1);
-		})?;
-		Ok(Self::fuse_entry_out_from_attrs(node, attr))
 	}
 
 	fn fuse_entry_out_from_attrs(node: u64, attr: crate::Attrs) -> fuse_entry_out {

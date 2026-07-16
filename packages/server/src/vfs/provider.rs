@@ -80,7 +80,7 @@ struct ArtifactInfo {
 	id: tg::artifact::Id,
 }
 
-struct UnpublishedNodes<'a> {
+struct PendingNodes<'a> {
 	committed: bool,
 	ids: Vec<u64>,
 	provider: &'a Provider,
@@ -156,11 +156,13 @@ impl Provider {
 					vfs::Request::Lookup { id, name } => self
 						.lookup(id, &name)
 						.await
-						.map(|id| vfs::Response::Lookup { id }),
-					vfs::Request::LookupAndRemember { id, name } => self
-						.lookup_and_remember(id, &name)
-						.await
-						.map(|id| vfs::Response::Lookup { id }),
+						.map(|id| vfs::Response::Lookup { attrs: None, id }),
+					vfs::Request::LookupAndRemember { id, name } => {
+						self.lookup_and_remember(id, &name).await.map(|entry| {
+							let (id, attrs) = entry.unzip();
+							vfs::Response::Lookup { attrs, id }
+						})
+					},
 					vfs::Request::LookupParent { id } => self
 						.lookup_parent(id)
 						.await
@@ -262,10 +264,13 @@ impl Provider {
 					.map(|names| vfs::Response::ListXattrs { names }),
 				vfs::Request::Lookup { id, name } => self
 					.lookup_sync_inner(id, &name, transaction, false)
-					.map(|id| vfs::Response::Lookup { id }),
+					.map(|id| vfs::Response::Lookup { attrs: None, id }),
 				vfs::Request::LookupAndRemember { id, name } => self
 					.lookup_and_remember_sync_inner(id, &name, transaction)
-					.map(|id| vfs::Response::Lookup { id }),
+					.map(|entry| {
+						let (id, attrs) = entry.unzip();
+						vfs::Response::Lookup { attrs, id }
+					}),
 				vfs::Request::LookupParent { id } => self
 					.lookup_parent_sync(id)
 					.map(|id| vfs::Response::LookupParent { id }),
@@ -471,8 +476,16 @@ impl Provider {
 		&self,
 		parent: u64,
 		name: &str,
-	) -> std::io::Result<Option<u64>> {
-		self.lookup_inner(parent, name, true).await
+	) -> std::io::Result<Option<(u64, vfs::Attrs)>> {
+		let Some(id) = self.lookup_inner(parent, name, true).await? else {
+			return Ok(None);
+		};
+		let mut pending = PendingNodes::new(self);
+		pending.push_acquired(id);
+		let attrs = self.getattr(id).await?;
+		pending.commit();
+
+		Ok(Some((id, attrs)))
 	}
 
 	async fn lookup_inner(
@@ -564,7 +577,7 @@ impl Provider {
 		&self,
 		parent: u64,
 		name: &str,
-	) -> std::io::Result<Option<u64>> {
+	) -> std::io::Result<Option<(u64, vfs::Attrs)>> {
 		self.lookup_and_remember_sync_inner(parent, name, None)
 	}
 
@@ -573,8 +586,16 @@ impl Provider {
 		parent: u64,
 		name: &str,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Option<u64>> {
-		self.lookup_sync_inner(parent, name, transaction, true)
+	) -> std::io::Result<Option<(u64, vfs::Attrs)>> {
+		let Some(id) = self.lookup_sync_inner(parent, name, transaction, true)? else {
+			return Ok(None);
+		};
+		let mut pending = PendingNodes::new(self);
+		pending.push_acquired(id);
+		let attrs = self.getattr_sync_inner(id, transaction)?;
+		pending.commit();
+
+		Ok(Some((id, attrs)))
 	}
 
 	fn lookup_sync_inner(
@@ -1064,7 +1085,7 @@ impl Provider {
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let mut entries = Vec::new();
-		let mut publications = UnpublishedNodes::new(self);
+		let mut pending = PendingNodes::new(self);
 		let mut size = 0;
 		for entry in directory
 			.entries
@@ -1085,17 +1106,18 @@ impl Provider {
 					artifact.clone(),
 					directory.depth + 1,
 					Some(attrs),
-					false,
+					true,
 				)?;
+				pending.push_acquired(node);
 				(node, attrs)
 			} else {
+				pending.acquire(entry.node)?;
 				(entry.node, self.getattr(entry.node).await?)
 			};
-			publications.push(node);
 			size = size.saturating_add(entry_size);
 			entries.push((entry.name.clone(), node, attrs));
 		}
-		publications.commit()?;
+		pending.commit();
 
 		Ok(entries)
 	}
@@ -1159,7 +1181,7 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let mut entries = Vec::new();
-		let mut publications = UnpublishedNodes::new(self);
+		let mut pending = PendingNodes::new(self);
 		let mut size = 0;
 		for entry in directory
 			.entries
@@ -1182,20 +1204,21 @@ impl Provider {
 					artifact.clone(),
 					directory.depth + 1,
 					Some(attrs),
-					false,
+					true,
 				)?;
+				pending.push_acquired(node);
 				(node, attrs)
 			} else {
+				pending.acquire(entry.node)?;
 				(
 					entry.node,
 					self.getattr_sync_inner(entry.node, transaction)?,
 				)
 			};
-			publications.push(node);
 			size = size.saturating_add(entry_size);
 			entries.push((entry.name.clone(), node, attrs));
 		}
-		publications.commit()?;
+		pending.commit();
 
 		Ok(entries)
 	}
@@ -2209,7 +2232,7 @@ impl DirectorySnapshot {
 	}
 }
 
-impl<'a> UnpublishedNodes<'a> {
+impl<'a> PendingNodes<'a> {
 	fn new(provider: &'a Provider) -> Self {
 		Self {
 			committed: false,
@@ -2218,29 +2241,29 @@ impl<'a> UnpublishedNodes<'a> {
 		}
 	}
 
-	fn push(&mut self, id: u64) {
+	fn acquire(&mut self, id: u64) -> std::io::Result<()> {
+		self.provider.nodes.remember_existing(id)?;
 		self.ids.push(id);
-	}
-
-	fn commit(mut self) -> std::io::Result<()> {
-		self.provider
-			.nodes
-			.remember_many(self.ids.iter().copied())?;
-		self.committed = true;
 
 		Ok(())
 	}
+
+	fn push_acquired(&mut self, id: u64) {
+		self.ids.push(id);
+	}
+
+	fn commit(mut self) {
+		self.committed = true;
+	}
 }
 
-impl Drop for UnpublishedNodes<'_> {
+impl Drop for PendingNodes<'_> {
 	fn drop(&mut self) {
 		if self.committed {
 			return;
 		}
-		let removed = self.provider.nodes.prune_unpublished(&self.ids);
-		let mut cache = self.provider.directory_snapshots.lock().unwrap();
-		for id in removed {
-			cache.remove(&id);
+		for &id in self.ids.iter().rev() {
+			self.provider.forget_sync(id, 1);
 		}
 	}
 }
@@ -2370,42 +2393,6 @@ impl Nodes {
 		node.lookup_count = node.lookup_count.saturating_add(1);
 
 		Ok(())
-	}
-
-	fn remember_many(&self, ids: impl IntoIterator<Item = u64>) -> std::io::Result<()> {
-		let ids = ids.into_iter().collect::<Vec<_>>();
-		let mut state = self.state.lock().unwrap();
-		if ids
-			.iter()
-			.any(|id| *id != vfs::ROOT_NODE_ID && !state.nodes.contains_key(id))
-		{
-			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
-		}
-		for id in ids {
-			if id == vfs::ROOT_NODE_ID {
-				continue;
-			}
-			let node = state.nodes.get_mut(&id).unwrap();
-			node.lookup_count = node.lookup_count.saturating_add(1);
-		}
-
-		Ok(())
-	}
-
-	fn prune_unpublished(&self, ids: &[u64]) -> Vec<u64> {
-		let mut state = self.state.lock().unwrap();
-		let mut removed = Vec::new();
-		for &id in ids.iter().rev() {
-			let should_prune = state
-				.nodes
-				.get(&id)
-				.is_some_and(|node| node.lookup_count == 0 && node.children.is_empty());
-			if should_prune {
-				Self::prune(&mut state, id, &mut removed);
-			}
-		}
-
-		removed
 	}
 
 	fn forget(&self, id: u64, nlookup: u64) -> Vec<u64> {
@@ -2542,11 +2529,19 @@ impl vfs::Provider for Provider {
 		Provider::lookup_sync(self, parent, name)
 	}
 
-	async fn lookup_and_remember(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+	async fn lookup_and_remember(
+		&self,
+		parent: u64,
+		name: &str,
+	) -> std::io::Result<Option<(u64, vfs::Attrs)>> {
 		Provider::lookup_and_remember(self, parent, name).await
 	}
 
-	fn lookup_and_remember_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+	fn lookup_and_remember_sync(
+		&self,
+		parent: u64,
+		name: &str,
+	) -> std::io::Result<Option<(u64, vfs::Attrs)>> {
 		Provider::lookup_and_remember_sync(self, parent, name)
 	}
 
@@ -2730,40 +2725,34 @@ mod tests {
 	}
 
 	#[test]
-	fn unpublished_nodes_are_pruned_without_touching_published_nodes() {
+	fn pending_node_references_are_independent() {
 		let nodes = Nodes::new();
-		let unpublished = 1000;
-		let published = 1001;
+		let child = 1000;
 		let mut state = nodes.state.lock().unwrap();
-		for (id, lookup_count, name) in
-			[(unpublished, 0, "unpublished"), (published, 1, "published")]
-		{
-			state.nodes.insert(
-				id,
-				Node {
-					artifact: None,
-					attrs: None,
-					children: BTreeMap::new(),
-					depth: 1,
-					lookup_count,
-					name: Some(name.to_owned()),
-					parent: vfs::ROOT_NODE_ID,
-				},
-			);
-			state
-				.nodes
-				.get_mut(&vfs::ROOT_NODE_ID)
-				.unwrap()
-				.children
-				.insert(name.to_owned(), id);
-		}
+		state.nodes.insert(
+			child,
+			Node {
+				artifact: None,
+				attrs: None,
+				children: BTreeMap::new(),
+				depth: 1,
+				lookup_count: 2,
+				name: Some("child".to_owned()),
+				parent: vfs::ROOT_NODE_ID,
+			},
+		);
+		state
+			.nodes
+			.get_mut(&vfs::ROOT_NODE_ID)
+			.unwrap()
+			.children
+			.insert("child".to_owned(), child);
 		drop(state);
 
-		let removed = nodes.prune_unpublished(&[unpublished, published]);
-		assert_eq!(removed, vec![unpublished]);
-		let state = nodes.state.lock().unwrap();
-		assert!(!state.nodes.contains_key(&unpublished));
-		assert!(state.nodes.contains_key(&published));
+		assert!(nodes.forget(child, 1).is_empty());
+		assert_eq!(nodes.lookup_sync(vfs::ROOT_NODE_ID, "child"), Some(child));
+		assert_eq!(nodes.forget(child, 1), vec![child]);
+		assert_eq!(nodes.lookup_sync(vfs::ROOT_NODE_ID, "child"), None);
 	}
 
 	#[test]

@@ -83,6 +83,7 @@ pub enum Response {
 		names: Vec<String>,
 	},
 	Lookup {
+		attrs: Option<Attrs>,
 		id: Option<u64>,
 	},
 	LookupParent {
@@ -284,7 +285,7 @@ pub trait Provider {
 				.next()
 				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
-				Response::Lookup { id } => Ok(id),
+				Response::Lookup { id, .. } => Ok(id),
 				_ => Err(Error::other("unexpected response variant")),
 			}
 		}
@@ -301,7 +302,7 @@ pub trait Provider {
 			.next()
 			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
-			Response::Lookup { id } => Ok(id),
+			Response::Lookup { id, .. } => Ok(id),
 			_ => Err(Error::other("unexpected response variant")),
 		}
 	}
@@ -311,7 +312,7 @@ pub trait Provider {
 		&self,
 		id: u64,
 		name: &str,
-	) -> impl Future<Output = Result<Option<u64>>> + Send
+	) -> impl Future<Output = Result<Option<(u64, Attrs)>>> + Send
 	where
 		Self: Sync,
 	{
@@ -324,14 +325,18 @@ pub trait Provider {
 				.next()
 				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
-				Response::Lookup { id } => Ok(id),
+				Response::Lookup { attrs, id } => match (attrs, id) {
+					(Some(attrs), Some(id)) => Ok(Some((id, attrs))),
+					(None, None) => Ok(None),
+					_ => Err(Error::other("invalid lookup-and-remember response")),
+				},
 				_ => Err(Error::other("unexpected response variant")),
 			}
 		}
 	}
 
 	/// Look up a node and atomically acquire one kernel lookup reference synchronously.
-	fn lookup_and_remember_sync(&self, id: u64, name: &str) -> Result<Option<u64>> {
+	fn lookup_and_remember_sync(&self, id: u64, name: &str) -> Result<Option<(u64, Attrs)>> {
 		let response = self
 			.handle_batch_sync(vec![Request::LookupAndRemember {
 				id,
@@ -341,7 +346,11 @@ pub trait Provider {
 			.next()
 			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
-			Response::Lookup { id } => Ok(id),
+			Response::Lookup { attrs, id } => match (attrs, id) {
+				(Some(attrs), Some(id)) => Ok(Some((id, attrs))),
+				(None, None) => Ok(None),
+				_ => Err(Error::other("invalid lookup-and-remember response")),
+			},
 			_ => Err(Error::other("unexpected response variant")),
 		}
 	}

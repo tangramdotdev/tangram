@@ -135,13 +135,10 @@ where
 		let name = name
 			.to_str()
 			.map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
-		let id = self
+		let (id, attrs) = self
 			.0
 			.lookup_and_remember_sync(parent, name)?
 			.ok_or_else(|| io::Error::from_raw_os_error(libc::ENOENT))?;
-		let attrs = self.0.getattr_sync(id).inspect_err(|_| {
-			self.0.forget_sync(id, 1);
-		})?;
 		Ok(virtiofsd::filesystem::Entry {
 			inode: id,
 			generation: 0,
