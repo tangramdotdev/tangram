@@ -34,10 +34,10 @@ pub struct Provider {
 
 #[derive(Clone)]
 struct DirectorySnapshot {
-	artifact: Option<ArtifactInfo>,
 	depth: u64,
 	entries: Option<Arc<[DirectorySnapshotEntry]>>,
 	node: u64,
+	pageable: bool,
 	parent: u64,
 }
 
@@ -822,7 +822,8 @@ impl Provider {
 			},
 			None => Some(BTreeMap::new()),
 		};
-		let snapshot = Self::create_directory_snapshot(id, parent, depth, artifact, entries);
+		let pageable = artifact.is_some();
+		let snapshot = Self::create_directory_snapshot(id, parent, depth, entries, pageable);
 		let snapshot = if snapshot.weight() > DIRECTORY_SNAPSHOT_CACHE_CAPACITY {
 			snapshot.paged()
 		} else {
@@ -873,7 +874,8 @@ impl Provider {
 			},
 			None => Some(BTreeMap::new()),
 		};
-		let snapshot = Self::create_directory_snapshot(id, parent, depth, artifact, entries);
+		let pageable = artifact.is_some();
+		let snapshot = Self::create_directory_snapshot(id, parent, depth, entries, pageable);
 		let snapshot = if snapshot.weight() > DIRECTORY_SNAPSHOT_CACHE_CAPACITY {
 			snapshot.paged()
 		} else {
@@ -893,8 +895,8 @@ impl Provider {
 		node: u64,
 		parent: u64,
 		depth: u64,
-		artifact: Option<ArtifactInfo>,
 		entries: Option<BTreeMap<String, ArtifactInfo>>,
+		pageable: bool,
 	) -> DirectorySnapshot {
 		let entries = entries.map(|entries| {
 			let mut snapshot = Vec::with_capacity(entries.len() + 2);
@@ -924,10 +926,10 @@ impl Provider {
 		let entries = entries.map(Arc::from);
 
 		DirectorySnapshot {
-			artifact,
 			depth,
 			entries,
 			node,
+			pageable,
 			parent,
 		}
 	}
@@ -1205,14 +1207,15 @@ impl Provider {
 
 			return Ok(entries);
 		}
-		let Some(artifact) = &snapshot.artifact else {
-			return Ok(Vec::new());
+		let NodeInfo { artifact, .. } = self.get(snapshot.node).await?;
+		let Some(artifact) = artifact else {
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
 		let mut entries = snapshot.virtual_entries(offset, limit);
 		let offset = offset.saturating_sub(2);
 		let limit = limit.saturating_sub(entries.len());
 		let artifact_entries = self
-			.directory_entries_range_inner(artifact, None, offset, limit)
+			.directory_entries_range_inner(&artifact, None, offset, limit)
 			.await?;
 		entries.extend(artifact_entries.into_iter().map(|(name, artifact)| {
 			let kind = Self::entry_kind_from_artifact(&artifact);
@@ -1244,14 +1247,15 @@ impl Provider {
 
 			return Ok(entries);
 		}
-		let Some(artifact) = &snapshot.artifact else {
-			return Ok(Vec::new());
+		let NodeInfo { artifact, .. } = self.get_sync(snapshot.node)?;
+		let Some(artifact) = artifact else {
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
 		let mut entries = snapshot.virtual_entries(offset, limit);
 		let offset = offset.saturating_sub(2);
 		let limit = limit.saturating_sub(entries.len());
 		let artifact_entries =
-			self.directory_entries_range_sync_inner(artifact, None, offset, limit, transaction)?;
+			self.directory_entries_range_sync_inner(&artifact, None, offset, limit, transaction)?;
 		entries.extend(artifact_entries.into_iter().map(|(name, artifact)| {
 			let kind = Self::entry_kind_from_artifact(&artifact);
 			DirectorySnapshotEntry {
@@ -2516,14 +2520,14 @@ impl Provider {
 
 impl DirectorySnapshot {
 	fn paged(&self) -> Self {
-		if self.artifact.is_none() || self.entries.is_none() {
+		if !self.pageable || self.entries.is_none() {
 			return self.clone();
 		}
 		Self {
-			artifact: self.artifact.clone(),
 			depth: self.depth,
 			entries: None,
 			node: self.node,
+			pageable: self.pageable,
 			parent: self.parent,
 		}
 	}
@@ -3080,13 +3084,10 @@ mod tests {
 			node: 0,
 		});
 		let snapshot = DirectorySnapshot {
-			artifact: Some(ArtifactInfo {
-				data: None,
-				id: tg::directory::Id::new(b"directory").into(),
-			}),
 			depth: 0,
 			entries: Some(Arc::from(entries)),
 			node: vfs::ROOT_NODE_ID,
+			pageable: true,
 			parent: vfs::ROOT_NODE_ID,
 		};
 
