@@ -323,6 +323,7 @@ where
 {
 	pub async fn start(provider: P, path: &Path, options: Options) -> Result<Self> {
 		let mut options = options;
+		let supports_no_opendir = provider.supports_no_opendir();
 		let page_size = rustix::param::page_size();
 		let mut ring_config = if options.io == Io::ReadWrite {
 			None
@@ -354,16 +355,17 @@ where
 				.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
 			// Complete INIT before entering io_uring command mode.
-			let features = match Self::init_handshake(fd.as_ref(), options, limits) {
-				Ok(features) => features,
-				Err(error) => {
-					drop(fd);
-					Self::unmount(path).await.ok();
-					return Err(Error::other(format!(
-						"failed to complete init handshake: {error}",
-					)));
-				},
-			};
+			let features =
+				match Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir) {
+					Ok(features) => features,
+					Err(error) => {
+						drop(fd);
+						Self::unmount(path).await.ok();
+						return Err(Error::other(format!(
+							"failed to complete init handshake: {error}",
+						)));
+					},
+				};
 
 			if !features.over_io_uring {
 				break (fd, features, None);
@@ -447,7 +449,12 @@ where
 						ring_config = None;
 						limits = Self::request_limits(page_size, DEFAULT_MAX_WRITE)?;
 						fd = Self::mount(path).await?;
-						features = match Self::init_handshake(fd.as_ref(), options, limits) {
+						features = match Self::init_handshake(
+							fd.as_ref(),
+							options,
+							limits,
+							supports_no_opendir,
+						) {
 							Ok(features) => features,
 							Err(error) => {
 								drop(fd);
@@ -914,7 +921,12 @@ where
 		Ok(thread_handles)
 	}
 
-	fn init_handshake(fd: &OwnedFd, options: Options, limits: RequestLimits) -> Result<Features> {
+	fn init_handshake(
+		fd: &OwnedFd,
+		options: Options,
+		limits: RequestLimits,
+		supports_no_opendir: bool,
+	) -> Result<Features> {
 		const FUSE_PASSTHROUGH_FLAGS2: u32 = (sys::FUSE_PASSTHROUGH >> 32) as u32;
 		const FUSE_OVER_IO_URING_FLAGS2: u32 = (sys::FUSE_OVER_IO_URING >> 32) as u32;
 		const REQUIRED_FLAGS: u32 = 0;
@@ -923,7 +935,6 @@ where
 			| sys::FUSE_READDIRPLUS_AUTO
 			| sys::FUSE_PARALLEL_DIROPS
 			| sys::FUSE_CACHE_SYMLINKS
-			| sys::FUSE_NO_OPENDIR_SUPPORT
 			| sys::FUSE_SPLICE_MOVE
 			| sys::FUSE_SPLICE_READ
 			| sys::FUSE_MAX_PAGES
@@ -932,6 +943,10 @@ where
 		const MAP_ALIGNMENT: u16 = 12;
 		// The kernel requires a non-zero max_stack_depth to enable FUSE_PASSTHROUGH.
 		const MAX_STACK_DEPTH: u32 = 2;
+		let mut negotiated_flags = NEGOTIATED_FLAGS;
+		if supports_no_opendir {
+			negotiated_flags |= sys::FUSE_NO_OPENDIR_SUPPORT;
+		}
 		let mut required_flags2 = 0;
 		if options.io == Io::IoUring {
 			required_flags2 |= FUSE_OVER_IO_URING_FLAGS2;
@@ -982,7 +997,7 @@ where
 			}
 
 			let minor = init.minor.min(FUSE_KERNEL_MINOR_VERSION);
-			let flags = NEGOTIATED_FLAGS & init.flags;
+			let flags = negotiated_flags & init.flags;
 			let flags2 = negotiated_flags2 & init_flags2;
 			let max_pages = if (flags & sys::FUSE_MAX_PAGES) != 0 {
 				limits.max_pages
@@ -2249,26 +2264,38 @@ where
 					actions.push(BatchAction::NeedsProvider);
 				},
 				RequestData::ReadDir(data) => {
-					let handle = if self.no_opendir_support {
-						request.header.nodeid
+					if self.no_opendir_support {
+						let result = self
+							.provider
+							.readdir_node_sync(request.header.nodeid)
+							.map(|entries| Self::build_read_dir_response_sync(entries, *data))
+							.map(Some);
+						actions.push(BatchAction::Ready(result));
 					} else {
-						data.fh
-					};
-					provider_requests.push(ProviderRequest::ReadDir { handle });
-					actions.push(BatchAction::NeedsProvider);
+						provider_requests.push(ProviderRequest::ReadDir { handle: data.fh });
+						actions.push(BatchAction::NeedsProvider);
+					}
 				},
 				RequestData::ReadDirPlus(data) => {
-					let handle = if self.no_opendir_support {
-						request.header.nodeid
+					if self.no_opendir_support {
+						let result = self
+							.provider
+							.readdirplus_node_sync(
+								request.header.nodeid,
+								data.offset.to_u64().unwrap(),
+								data.size.to_u64().unwrap(),
+							)
+							.map(|entries| self.build_read_dir_plus_response_sync(entries, *data))
+							.map(Some);
+						actions.push(BatchAction::Ready(result));
 					} else {
-						data.fh
-					};
-					provider_requests.push(ProviderRequest::ReadDirPlus {
-						handle,
-						length: data.size.to_u64().unwrap(),
-						offset: data.offset.to_u64().unwrap(),
-					});
-					actions.push(BatchAction::NeedsProvider);
+						provider_requests.push(ProviderRequest::ReadDirPlus {
+							handle: data.fh,
+							length: data.size.to_u64().unwrap(),
+							offset: data.offset.to_u64().unwrap(),
+						});
+						actions.push(BatchAction::NeedsProvider);
+					}
 				},
 				RequestData::ReadLink => {
 					provider_requests.push(ProviderRequest::ReadLink {
@@ -2790,26 +2817,28 @@ where
 		request: fuse_read_in,
 		plus: bool,
 	) -> Result<Option<Response>> {
-		let handle = if self.no_opendir_support {
-			header.nodeid
-		} else {
-			request.fh
-		};
 		if plus {
-			let entries = self
-				.provider
-				.readdirplus(
-					handle,
-					request.offset.to_u64().unwrap(),
-					request.size.to_u64().unwrap(),
-				)
-				.await?;
+			let offset = request.offset.to_u64().unwrap();
+			let length = request.size.to_u64().unwrap();
+			let entries = if self.no_opendir_support {
+				self.provider
+					.readdirplus_node(header.nodeid, offset, length)
+					.await?
+			} else {
+				self.provider
+					.readdirplus(request.fh, offset, length)
+					.await?
+			};
 			return Ok(Some(
 				self.build_read_dir_plus_response(entries, request).await?,
 			));
 		}
 
-		let entries = self.provider.readdir(handle).await?;
+		let entries = if self.no_opendir_support {
+			self.provider.readdir_node(header.nodeid).await?
+		} else {
+			self.provider.readdir(request.fh).await?
+		};
 
 		let struct_size = std::mem::size_of::<FuseDirentHeader>();
 

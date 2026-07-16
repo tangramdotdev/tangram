@@ -14,7 +14,7 @@ use {
 		path::{Path, PathBuf},
 		pin::pin,
 		sync::{
-			Mutex,
+			Arc, Mutex,
 			atomic::{AtomicU64, Ordering},
 		},
 	},
@@ -24,10 +24,27 @@ use {
 };
 
 pub struct Provider {
-	file_handle_count: AtomicU64,
+	directory_handles: DashMap<u64, DirectorySnapshot, fnv::FnvBuildHasher>,
+	directory_snapshots: Mutex<vfs::cache::WeightedLruCache<u64, DirectorySnapshot>>,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
+	handle_count: AtomicU64,
 	nodes: Nodes,
 	server: Server,
+}
+
+#[derive(Clone)]
+struct DirectorySnapshot {
+	depth: u64,
+	entries: Arc<[DirectorySnapshotEntry]>,
+	node: u64,
+}
+
+#[derive(Clone)]
+struct DirectorySnapshotEntry {
+	artifact: Option<ArtifactInfo>,
+	kind: vfs::EntryKind,
+	name: String,
+	node: u64,
 }
 
 struct Nodes {
@@ -37,13 +54,6 @@ struct Nodes {
 struct State {
 	next: u64,
 	nodes: BTreeMap<u64, Node>,
-}
-
-struct ReaddirPlusPage {
-	length: usize,
-	offset: usize,
-	position: usize,
-	size: usize,
 }
 
 #[derive(Clone)]
@@ -81,6 +91,8 @@ type Transaction<'a> = lmdb::RoTxn<'a>;
 type Transaction<'a> = ();
 
 const FUSE_DIRENT_PLUS_HEADER_SIZE: usize = 152;
+const DIRECTORY_SNAPSHOT_CACHE_CAPACITY: usize = 64 * 1024 * 1024;
+const DIRECTORY_SNAPSHOT_CACHE_ENTRY_OVERHEAD: usize = 256;
 
 impl Provider {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
@@ -88,12 +100,18 @@ impl Provider {
 		let nodes = Nodes::new();
 
 		// Create the provider.
-		let file_handle_count = AtomicU64::new(1000);
+		let directory_handles = DashMap::default();
+		let directory_snapshots = Mutex::new(vfs::cache::WeightedLruCache::new(
+			DIRECTORY_SNAPSHOT_CACHE_CAPACITY,
+		));
 		let file_handles = DashMap::default();
+		let handle_count = AtomicU64::new(1000);
 		let server = server.clone();
 		let provider = Self {
-			file_handle_count,
+			directory_handles,
+			directory_snapshots,
 			file_handles,
+			handle_count,
 			nodes,
 			server,
 		};
@@ -245,7 +263,7 @@ impl Provider {
 					.open_sync_inner(id, transaction)
 					.map(|(handle, backing_fd)| vfs::Response::Open { handle, backing_fd }),
 				vfs::Request::OpenDir { id } => self
-					.opendir_sync(id)
+					.opendir_sync_inner(id, transaction)
 					.map(|handle| vfs::Response::OpenDir { handle }),
 				vfs::Request::Read {
 					handle,
@@ -255,7 +273,7 @@ impl Provider {
 					.read_sync_inner(handle, position, length, transaction)
 					.map(|bytes| vfs::Response::Read { bytes }),
 				vfs::Request::ReadDir { handle } => self
-					.readdir_sync_inner(handle, transaction)
+					.readdir_sync(handle)
 					.map(|entries| vfs::Response::ReadDir { entries }),
 				vfs::Request::ReadDirPlus {
 					handle,
@@ -278,19 +296,21 @@ impl Provider {
 	}
 
 	pub async fn close(&self, id: u64) {
-		if self.file_handles.contains_key(&id) {
-			self.file_handles.remove(&id);
-		}
+		self.directory_handles.remove(&id);
+		self.file_handles.remove(&id);
 	}
 
 	pub fn close_sync(&self, id: u64) {
-		if self.file_handles.contains_key(&id) {
-			self.file_handles.remove(&id);
-		}
+		self.directory_handles.remove(&id);
+		self.file_handles.remove(&id);
 	}
 
 	pub fn forget_sync(&self, id: u64, nlookup: u64) {
-		drop(self.nodes.forget(id, nlookup));
+		let removed = self.nodes.forget(id, nlookup);
+		let mut cache = self.directory_snapshots.lock().unwrap();
+		for id in removed {
+			cache.remove(&id);
+		}
 	}
 
 	pub async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
@@ -656,7 +676,7 @@ impl Provider {
 		let file_handle = FileHandle { blob };
 
 		// Insert the file handle.
-		let id = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
+		let id = self.handle_count.fetch_add(1, Ordering::Relaxed);
 		self.file_handles.insert(id, file_handle);
 
 		Ok(id)
@@ -695,36 +715,149 @@ impl Provider {
 		let backing_fd = self.try_open_backing_fd_sync_inner(&blob, transaction)?;
 
 		// Insert the file handle.
-		let id = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
+		let id = self.handle_count.fetch_add(1, Ordering::Relaxed);
 		self.file_handles.insert(id, FileHandle { blob });
 
 		Ok((id, backing_fd))
 	}
 
 	pub async fn opendir(&self, id: u64) -> std::io::Result<u64> {
-		// Get the node.
-		let NodeInfo { artifact, .. } = self.get(id).await?;
-		match artifact {
-			Some(artifact) if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
-				tracing::error!(%id, "called opendir on a file or symlink");
-				return Err(std::io::Error::other("expected a directory"));
-			},
-			_ => {},
-		}
-		Ok(id)
+		let snapshot = self.directory_snapshot(id).await?;
+		let handle = self.insert_directory_handle(snapshot);
+
+		Ok(handle)
 	}
 
 	pub fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
+		self.opendir_sync_inner(id, None)
+	}
+
+	fn opendir_sync_inner(
+		&self,
+		id: u64,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<u64> {
+		let snapshot = self.directory_snapshot_sync_inner(id, transaction)?;
+		let handle = self.insert_directory_handle(snapshot);
+
+		Ok(handle)
+	}
+
+	async fn directory_snapshot(&self, id: u64) -> std::io::Result<DirectorySnapshot> {
+		if let Some(snapshot) = self.directory_snapshots.lock().unwrap().get(&id) {
+			return Ok(snapshot);
+		}
+
 		// Get the node.
-		let NodeInfo { artifact, .. } = self.get_sync(id)?;
-		match artifact {
-			Some(artifact) if !matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
+		let NodeInfo {
+			artifact,
+			depth,
+			parent,
+			..
+		} = self.get(id).await?;
+		let entries = match artifact {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
+				Some(self.directory_entries_inner(&artifact, None).await?)
+			},
+			Some(_) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
-			_ => {},
+			None => None,
+		};
+		let snapshot = Self::create_directory_snapshot(id, parent, depth, entries);
+		let weight = snapshot.weight();
+		let snapshot = self
+			.directory_snapshots
+			.lock()
+			.unwrap()
+			.insert(id, snapshot, weight);
+
+		Ok(snapshot)
+	}
+
+	fn directory_snapshot_sync_inner(
+		&self,
+		id: u64,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<DirectorySnapshot> {
+		if let Some(snapshot) = self.directory_snapshots.lock().unwrap().get(&id) {
+			return Ok(snapshot);
 		}
-		Ok(id)
+
+		// Get the node.
+		let NodeInfo {
+			artifact,
+			depth,
+			parent,
+			..
+		} = self.get_sync(id)?;
+		let entries = match artifact {
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
+				Some(self.directory_entries_sync_inner(&artifact, None, transaction)?)
+			},
+			Some(_) => {
+				tracing::error!(%id, "called opendir on a file or symlink");
+				return Err(std::io::Error::other("expected a directory"));
+			},
+			None => None,
+		};
+		let snapshot = Self::create_directory_snapshot(id, parent, depth, entries);
+		let weight = snapshot.weight();
+		let snapshot = self
+			.directory_snapshots
+			.lock()
+			.unwrap()
+			.insert(id, snapshot, weight);
+
+		Ok(snapshot)
+	}
+
+	fn create_directory_snapshot(
+		node: u64,
+		parent: u64,
+		depth: u64,
+		entries: Option<BTreeMap<String, ArtifactInfo>>,
+	) -> DirectorySnapshot {
+		let entries = entries.map_or_else(Vec::new, |entries| {
+			let mut snapshot = Vec::with_capacity(entries.len() + 2);
+			snapshot.push(DirectorySnapshotEntry {
+				artifact: None,
+				kind: vfs::EntryKind::Directory,
+				name: ".".to_owned(),
+				node,
+			});
+			snapshot.push(DirectorySnapshotEntry {
+				artifact: None,
+				kind: vfs::EntryKind::Directory,
+				name: "..".to_owned(),
+				node: parent,
+			});
+			for (name, artifact) in entries {
+				let kind = Self::entry_kind_from_artifact(&artifact);
+				snapshot.push(DirectorySnapshotEntry {
+					artifact: Some(artifact),
+					kind,
+					name,
+					node: 0,
+				});
+			}
+			snapshot
+		});
+		let entries = Arc::from(entries);
+
+		DirectorySnapshot {
+			depth,
+			entries,
+			node,
+		}
+	}
+
+	fn insert_directory_handle(&self, snapshot: DirectorySnapshot) -> u64 {
+		let handle = self.handle_count.fetch_add(1, Ordering::Relaxed);
+		self.directory_handles.insert(handle, snapshot);
+
+		handle
 	}
 
 	pub async fn read(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
@@ -794,241 +927,220 @@ impl Provider {
 		Ok(bytes.into())
 	}
 
-	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		let NodeInfo {
-			artifact, parent, ..
-		} = self.get(id).await?;
-		let directory = match artifact {
-			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
-				Some(artifact)
-			},
-			None => None,
-			Some(_) => {
-				tracing::error!(%id, "called readdir on a file or symlink");
-				return Err(std::io::Error::other("expected a directory"));
-			},
-		};
-		let Some(directory) = directory else {
-			return Ok(Vec::new());
-		};
-		let entries = self.directory_entries_inner(&directory, None).await?;
-		let mut result = Vec::with_capacity(entries.len() + 2);
-		result.push((".".to_owned(), id, vfs::EntryKind::Directory));
-		result.push(("..".to_owned(), parent, vfs::EntryKind::Directory));
-		for (name, artifact) in entries {
-			let kind = Self::entry_kind_from_artifact(&artifact);
-			result.push((name, 0, kind));
+	fn directory_handle(&self, handle: u64) -> std::io::Result<DirectorySnapshot> {
+		self.directory_handles
+			.get(&handle)
+			.map(|handle| handle.clone())
+			.ok_or_else(|| {
+				tracing::error!(%handle, "tried to read from an invalid directory handle");
+				std::io::Error::from_raw_os_error(libc::ENOENT)
+			})
+	}
+
+	pub async fn readdir(
+		&self,
+		handle: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		self.readdir_sync(handle)
+	}
+
+	pub fn readdir_sync(&self, handle: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		let snapshot = self.directory_handle(handle)?;
+
+		Ok(Self::read_directory_snapshot(&snapshot))
+	}
+
+	pub async fn readdir_node(
+		&self,
+		id: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		let snapshot = self.directory_snapshot(id).await?;
+
+		Ok(Self::read_directory_snapshot(&snapshot))
+	}
+
+	pub fn readdir_node_sync(
+		&self,
+		id: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		#[cfg(feature = "lmdb")]
+		if let crate::object::Store::Lmdb(store) = &self.server.object_store {
+			let transaction = store.env().read_txn().map_err(|error| {
+				tracing::error!(?error, "failed to begin an lmdb read transaction");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			return self.readdir_node_sync_inner(id, Some(&transaction));
 		}
-		Ok(result)
+
+		self.readdir_node_sync_inner(id, None)
 	}
 
-	pub fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		self.readdir_sync_inner(id, None)
-	}
-
-	fn readdir_sync_inner(
+	fn readdir_node_sync_inner(
 		&self,
 		id: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		let NodeInfo {
-			artifact, parent, ..
-		} = self.get_sync(id)?;
-		let directory = match artifact {
-			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
-				Some(artifact)
-			},
-			None => None,
-			Some(_) => {
-				tracing::error!(%id, "called readdir on a file or symlink");
-				return Err(std::io::Error::other("expected a directory"));
-			},
-		};
-		let Some(directory) = directory else {
-			return Ok(Vec::new());
-		};
-		let entries = self.directory_entries_sync_inner(&directory, None, transaction)?;
-		let mut result = Vec::with_capacity(entries.len() + 2);
-		result.push((".".to_owned(), id, vfs::EntryKind::Directory));
-		result.push(("..".to_owned(), parent, vfs::EntryKind::Directory));
-		for (name, artifact) in entries {
-			let kind = Self::entry_kind_from_artifact(&artifact);
-			result.push((name, 0, kind));
-		}
-		Ok(result)
+		let snapshot = self.directory_snapshot_sync_inner(id, transaction)?;
+
+		Ok(Self::read_directory_snapshot(&snapshot))
+	}
+
+	fn read_directory_snapshot(snapshot: &DirectorySnapshot) -> Vec<(String, u64, vfs::EntryKind)> {
+		snapshot
+			.entries
+			.iter()
+			.map(|entry| (entry.name.clone(), entry.node, entry.kind))
+			.collect()
 	}
 
 	pub async fn readdirplus(
 		&self,
-		id: u64,
+		handle: u64,
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		let NodeInfo {
-			artifact,
-			depth,
-			parent,
-			..
-		} = self.get(id).await?;
-		let directory = match artifact {
-			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
-				Some(artifact)
-			},
-			None => None,
-			Some(_) => {
-				tracing::error!(%id, "called readdirplus on a file or symlink");
-				return Err(std::io::Error::other("expected a directory"));
-			},
-		};
-		let Some(directory) = directory else {
-			return Ok(Vec::new());
-		};
-		let entries = self.directory_entries_inner(&directory, None).await?;
-		let mut page = ReaddirPlusPage {
-			length: length.to_usize().unwrap(),
-			offset: offset.to_usize().unwrap(),
-			position: 0,
-			size: 0,
-		};
-		let mut entries_with_attrs = Vec::new();
-		let attrs = self.getattr(id).await?;
-		if Self::push_readdirplus_entry(
-			&mut entries_with_attrs,
-			&mut page,
-			".".to_owned(),
-			id,
-			attrs,
-		) {
-			self.remember_readdirplus_entries(&entries_with_attrs)?;
-			return Ok(entries_with_attrs);
-		}
-		let parent_attrs = self.getattr(parent).await?;
-		if Self::push_readdirplus_entry(
-			&mut entries_with_attrs,
-			&mut page,
-			"..".to_owned(),
-			parent,
-			parent_attrs,
-		) {
-			self.remember_readdirplus_entries(&entries_with_attrs)?;
-			return Ok(entries_with_attrs);
-		}
-		for (name, artifact) in entries {
-			if page.position < page.offset {
-				page.position += 1;
-				continue;
-			}
-			let attrs = self
-				.compute_attrs_from_artifact_inner(Some(&artifact))
-				.await?;
-			if Self::readdirplus_entry_size(name.len()) + page.size > page.length {
-				break;
-			}
-			let node_id = self.nodes.get_or_insert_child(
-				id,
-				&name,
-				artifact,
-				depth + 1,
-				Some(attrs),
-				false,
-			)?;
-			page.size += Self::readdirplus_entry_size(name.len());
-			page.position += 1;
-			entries_with_attrs.push((name, node_id, attrs));
-		}
-		self.remember_readdirplus_entries(&entries_with_attrs)?;
-		Ok(entries_with_attrs)
+		let directory = self.directory_handle(handle)?;
+
+		self.readdirplus_inner(&directory, offset, length).await
 	}
 
-	pub fn readdirplus_sync(
+	pub async fn readdirplus_node(
 		&self,
 		id: u64,
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		self.readdirplus_sync_inner(id, offset, length, None)
+		let directory = self.directory_snapshot(id).await?;
+
+		self.readdirplus_inner(&directory, offset, length).await
 	}
 
-	fn readdirplus_sync_inner(
+	async fn readdirplus_inner(
+		&self,
+		directory: &DirectorySnapshot,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let mut entries = Vec::new();
+		let mut size = 0;
+		for entry in directory.entries.iter().skip(offset.to_usize().unwrap()) {
+			let entry_size = Self::readdirplus_entry_size(entry.name.len());
+			if entry_size + size > length.to_usize().unwrap() {
+				break;
+			}
+			let (node, attrs) = if let Some(artifact) = &entry.artifact {
+				let attrs = self
+					.compute_attrs_from_artifact_inner(Some(artifact))
+					.await?;
+				let node = self.nodes.get_or_insert_child(
+					directory.node,
+					&entry.name,
+					artifact.clone(),
+					directory.depth + 1,
+					Some(attrs),
+					false,
+				)?;
+				(node, attrs)
+			} else {
+				(entry.node, self.getattr(entry.node).await?)
+			};
+			size += entry_size;
+			entries.push((entry.name.clone(), node, attrs));
+		}
+		self.remember_readdirplus_entries(&entries)?;
+
+		Ok(entries)
+	}
+
+	pub fn readdirplus_sync(
+		&self,
+		handle: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		self.readdirplus_sync_inner(handle, offset, length, None)
+	}
+
+	pub fn readdirplus_node_sync(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		#[cfg(feature = "lmdb")]
+		if let crate::object::Store::Lmdb(store) = &self.server.object_store {
+			let transaction = store.env().read_txn().map_err(|error| {
+				tracing::error!(?error, "failed to begin an lmdb read transaction");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			return self.readdirplus_node_sync_inner(id, offset, length, Some(&transaction));
+		}
+
+		self.readdirplus_node_sync_inner(id, offset, length, None)
+	}
+
+	fn readdirplus_node_sync_inner(
 		&self,
 		id: u64,
 		offset: u64,
 		length: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		let NodeInfo {
-			artifact,
-			depth,
-			parent,
-			..
-		} = self.get_sync(id)?;
-		let directory = match artifact {
-			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
-				Some(artifact)
-			},
-			None => None,
-			Some(_) => {
-				tracing::error!(%id, "called readdirplus on a file or symlink");
-				return Err(std::io::Error::other("expected a directory"));
-			},
-		};
-		let Some(directory) = directory else {
-			return Ok(Vec::new());
-		};
-		let entries = self.directory_entries_sync_inner(&directory, None, transaction)?;
-		let mut page = ReaddirPlusPage {
-			length: length.to_usize().unwrap(),
-			offset: offset.to_usize().unwrap(),
-			position: 0,
-			size: 0,
-		};
-		let mut entries_with_attrs = Vec::new();
-		let attrs = self.getattr_sync_inner(id, transaction)?;
-		if Self::push_readdirplus_entry(
-			&mut entries_with_attrs,
-			&mut page,
-			".".to_owned(),
-			id,
-			attrs,
-		) {
-			self.remember_readdirplus_entries(&entries_with_attrs)?;
-			return Ok(entries_with_attrs);
-		}
-		let parent_attrs = self.getattr_sync_inner(parent, transaction)?;
-		if Self::push_readdirplus_entry(
-			&mut entries_with_attrs,
-			&mut page,
-			"..".to_owned(),
-			parent,
-			parent_attrs,
-		) {
-			self.remember_readdirplus_entries(&entries_with_attrs)?;
-			return Ok(entries_with_attrs);
-		}
-		for (name, artifact) in entries {
-			if page.position < page.offset {
-				page.position += 1;
-				continue;
-			}
-			let attrs =
-				self.compute_attrs_from_artifact_sync_inner(Some(&artifact), transaction)?;
-			if Self::readdirplus_entry_size(name.len()) + page.size > page.length {
+		let directory = self.directory_snapshot_sync_inner(id, transaction)?;
+
+		self.read_directory_plus_snapshot_sync_inner(&directory, offset, length, transaction)
+	}
+
+	fn readdirplus_sync_inner(
+		&self,
+		handle: u64,
+		offset: u64,
+		length: u64,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let directory = self.directory_handle(handle)?;
+
+		self.read_directory_plus_snapshot_sync_inner(&directory, offset, length, transaction)
+	}
+
+	fn read_directory_plus_snapshot_sync_inner(
+		&self,
+		directory: &DirectorySnapshot,
+		offset: u64,
+		length: u64,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let mut entries = Vec::new();
+		let mut size = 0;
+		for entry in directory.entries.iter().skip(offset.to_usize().unwrap()) {
+			let entry_size = Self::readdirplus_entry_size(entry.name.len());
+			if entry_size + size > length.to_usize().unwrap() {
 				break;
 			}
-			let node_id = self.nodes.get_or_insert_child(
-				id,
-				&name,
-				artifact,
-				depth + 1,
-				Some(attrs),
-				false,
-			)?;
-			page.size += Self::readdirplus_entry_size(name.len());
-			page.position += 1;
-			entries_with_attrs.push((name, node_id, attrs));
+			let (node, attrs) = if let Some(artifact) = &entry.artifact {
+				let attrs =
+					self.compute_attrs_from_artifact_sync_inner(Some(artifact), transaction)?;
+				let node = self.nodes.get_or_insert_child(
+					directory.node,
+					&entry.name,
+					artifact.clone(),
+					directory.depth + 1,
+					Some(attrs),
+					false,
+				)?;
+				(node, attrs)
+			} else {
+				(
+					entry.node,
+					self.getattr_sync_inner(entry.node, transaction)?,
+				)
+			};
+			size += entry_size;
+			entries.push((entry.name.clone(), node, attrs));
 		}
-		self.remember_readdirplus_entries(&entries_with_attrs)?;
-		Ok(entries_with_attrs)
+		self.remember_readdirplus_entries(&entries)?;
+
+		Ok(entries)
 	}
 
 	pub async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
@@ -1991,27 +2103,6 @@ impl Provider {
 		}
 	}
 
-	fn push_readdirplus_entry(
-		entries: &mut Vec<(String, u64, vfs::Attrs)>,
-		page: &mut ReaddirPlusPage,
-		name: String,
-		id: u64,
-		attrs: vfs::Attrs,
-	) -> bool {
-		if page.position < page.offset {
-			page.position += 1;
-			return false;
-		}
-		let entry_size = Self::readdirplus_entry_size(name.len());
-		if page.size + entry_size > page.length {
-			return true;
-		}
-		page.position += 1;
-		page.size += entry_size;
-		entries.push((name, id, attrs));
-		false
-	}
-
 	fn remember_readdirplus_entries(
 		&self,
 		entries: &[(String, u64, vfs::Attrs)],
@@ -2023,6 +2114,26 @@ impl Provider {
 	fn readdirplus_entry_size(name_len: usize) -> usize {
 		let padding = (8 - (FUSE_DIRENT_PLUS_HEADER_SIZE + name_len) % 8) % 8;
 		FUSE_DIRENT_PLUS_HEADER_SIZE + name_len + padding
+	}
+}
+
+impl DirectorySnapshot {
+	fn weight(&self) -> usize {
+		let mut weight = DIRECTORY_SNAPSHOT_CACHE_ENTRY_OVERHEAD
+			.saturating_add(std::mem::size_of::<Self>())
+			.saturating_add(std::mem::size_of_val(self.entries.as_ref()));
+		for entry in self.entries.iter() {
+			weight = weight.saturating_add(entry.name.capacity());
+			let data_length = entry
+				.artifact
+				.as_ref()
+				.and_then(|artifact| artifact.data.as_ref())
+				.and_then(|data| data.serialize().ok())
+				.map_or(0, |data| data.len());
+			weight = weight.saturating_add(data_length);
+		}
+
+		weight
 	}
 }
 
@@ -2295,6 +2406,10 @@ impl vfs::Provider for Provider {
 		Provider::handle_batch_sync(self, requests)
 	}
 
+	fn supports_no_opendir(&self) -> bool {
+		true
+	}
+
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
 		Provider::lookup(self, parent, name).await
 	}
@@ -2391,6 +2506,14 @@ impl vfs::Provider for Provider {
 		Provider::readdir_sync(self, id)
 	}
 
+	async fn readdir_node(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		Provider::readdir_node(self, id).await
+	}
+
+	fn readdir_node_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		Provider::readdir_node_sync(self, id)
+	}
+
 	async fn readdirplus(
 		&self,
 		id: u64,
@@ -2407,6 +2530,24 @@ impl vfs::Provider for Provider {
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		Provider::readdirplus_sync(self, id, offset, length)
+	}
+
+	async fn readdirplus_node(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		Provider::readdirplus_node(self, id, offset, length).await
+	}
+
+	fn readdirplus_node_sync(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		Provider::readdirplus_node_sync(self, id, offset, length)
 	}
 
 	async fn close(&self, id: u64) {

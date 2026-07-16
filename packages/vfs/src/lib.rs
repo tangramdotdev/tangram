@@ -1,5 +1,7 @@
 use {bytes::Bytes, futures::Future, std::io::Error, std::os::fd::OwnedFd};
 
+#[doc(hidden)]
+pub mod cache;
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod nfs;
@@ -145,7 +147,13 @@ pub trait Provider {
 
 	fn handle_batch_sync(&self, requests: Vec<Request>) -> Vec<Result<Response>>;
 
-	/// Close an open file handle.
+	/// Determine whether the provider supports directory reads without open handles.
+	#[must_use]
+	fn supports_no_opendir(&self) -> bool {
+		false
+	}
+
+	/// Close an open file or directory handle.
 	fn close(&self, handle: u64) -> impl Future<Output = ()> + Send
 	where
 		Self: Sync,
@@ -155,7 +163,7 @@ pub trait Provider {
 		}
 	}
 
-	/// Close an open file handle synchronously.
+	/// Close an open file or directory handle synchronously.
 	fn close_sync(&self, handle: u64) {
 		let _ = self.handle_batch_sync(vec![Request::Close { handle }]);
 	}
@@ -522,6 +530,32 @@ pub trait Provider {
 		}
 	}
 
+	/// Read from a directory without an open handle.
+	fn readdir_node(
+		&self,
+		id: u64,
+	) -> impl Future<Output = Result<Vec<(String, u64, EntryKind)>>> + Send
+	where
+		Self: Sync,
+	{
+		async move {
+			let handle = self.opendir(id).await?;
+			let result = self.readdir(handle).await;
+			self.close(handle).await;
+
+			result
+		}
+	}
+
+	/// Read from a directory without an open handle synchronously.
+	fn readdir_node_sync(&self, id: u64) -> Result<Vec<(String, u64, EntryKind)>> {
+		let handle = self.opendir_sync(id)?;
+		let result = self.readdir_sync(handle);
+		self.close_sync(handle);
+
+		result
+	}
+
 	/// Read from a directory with attributes.
 	fn readdirplus(
 		&self,
@@ -570,6 +604,39 @@ pub trait Provider {
 			Response::ReadDirPlus { entries } => Ok(entries),
 			_ => Err(Error::other("unexpected response variant")),
 		}
+	}
+
+	/// Read from a directory with attributes without an open handle.
+	fn readdirplus_node(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> impl Future<Output = Result<Vec<(String, u64, Attrs)>>> + Send
+	where
+		Self: Sync,
+	{
+		async move {
+			let handle = self.opendir(id).await?;
+			let result = self.readdirplus(handle, offset, length).await;
+			self.close(handle).await;
+
+			result
+		}
+	}
+
+	/// Read from a directory with attributes without an open handle synchronously.
+	fn readdirplus_node_sync(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> Result<Vec<(String, u64, Attrs)>> {
+		let handle = self.opendir_sync(id)?;
+		let result = self.readdirplus_sync(handle, offset, length);
+		self.close_sync(handle);
+
+		result
 	}
 
 	/// Read from a symlink.
