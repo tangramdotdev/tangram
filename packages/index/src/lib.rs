@@ -134,6 +134,11 @@ pub trait Index {
 		limit: usize,
 	) -> impl Future<Output = tg::Result<Vec<tg::process::Id>>> + Send;
 
+	fn get_requester_principals(
+		&self,
+		principal: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<tg::grant::Principal>>> + Send;
+
 	fn list_sandboxes_for_creator(
 		&self,
 		creator: &tg::Principal,

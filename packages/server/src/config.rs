@@ -1898,7 +1898,7 @@ fn default_scheduler_max_create_sandbox_requests_per_runner() -> usize {
 }
 
 fn default_scheduler_memory() -> u64 {
-	1024 * 1024 * 1024
+	1_000_000_000
 }
 
 #[expect(clippy::unnecessary_wraps)]

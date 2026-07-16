@@ -21,14 +21,14 @@ let token = tg log $parent.process | str trim
 # Touching a process with a process token is unauthorized.
 let output = tg --token $token process touch $parent.process | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to touch the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to touch the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> unauthorized
 
 '

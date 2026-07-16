@@ -24,7 +24,7 @@ failure $denied "a node-only reader must not read a live log."
 # Granting Eve the log permission restores access.
 tg --token $alice.token grant $eve.user.id process_node_log $process | ignore
 let allowed = tg --token $eve.token log $process | complete
-snapshot ($allowed.stdout | redact) '
+snapshot --normalize $allowed.stdout '
 	loghello
 
 '

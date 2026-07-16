@@ -12,7 +12,7 @@ let auth_enabled = spawn --config {
 
 let output = tg remote put default $alice_server.url | complete
 failure $output "An unauthenticated request should not be able to manage remotes."
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to put the remote
 	   name = default

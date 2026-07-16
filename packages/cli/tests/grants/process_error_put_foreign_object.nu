@@ -36,4 +36,4 @@ tg --token $eve.token index
 # Eve must not gain read access to Alice's error object by naming it as her process's error.
 let leaked = tg --token $eve.token get $alice_error | complete
 failure $leaked "Eve must not read Alice's error object after naming it as her process's error."
-snapshot ($leaked.stdout | redact | normalize_ids) ''
+snapshot --normalize-ids $leaked.stdout ''

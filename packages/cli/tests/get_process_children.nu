@@ -29,8 +29,8 @@ snapshot $output '{"exit":0,"output":["foo","bar"]}'
 
 let children = tg process children $process.process | from json
 
-let foo = $children | get 0 | to json | normalize_ids
-snapshot $foo '
+let foo = $children | get 0 | to json
+snapshot --normalize-ids $foo '
 	{
 	  "cached": true,
 	  "options": {
@@ -41,8 +41,8 @@ snapshot $foo '
 	}
 '
 
-let bar = $children | get 1 | to json | normalize_ids
-snapshot $bar '
+let bar = $children | get 1 | to json
+snapshot --normalize-ids $bar '
 	{
 	  "options": {
 	    "name": "bar",

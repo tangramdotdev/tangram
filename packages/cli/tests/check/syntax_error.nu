@@ -9,9 +9,9 @@ let dir = mktemp --directory
 
 let output = tg check $dir | complete
 failure $output
-snapshot ($output.stderr | redact $dir) '
+snapshot --normalize --redact $dir $output.stderr '
 	error Expression expected.
-	   ╭─[<path>/tangram.ts:1:20]
+	   ╭─[<redacted>/tangram.ts:1:20]
 	 1 │ export default ((((
 	   ╰────
 	error an error occurred

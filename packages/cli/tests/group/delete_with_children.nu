@@ -10,7 +10,7 @@ tg --token $alice.token group create parent/child
 
 let output = tg --token $alice.token group delete parent | complete
 failure $output "a group with children should not be deletable"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to delete the group
 	   group = parent

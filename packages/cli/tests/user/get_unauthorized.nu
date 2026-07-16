@@ -9,9 +9,9 @@ let eve = tg login --verbose eve | from json
 
 let output = tg --token $eve.token user get $alice.user.id | complete
 failure $output "a user without read permission should not be able to get another user"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the user
-	   user = <user>
+	   user = usr_0000000000000000000000000000
 
 '

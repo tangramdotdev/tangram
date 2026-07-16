@@ -6,9 +6,9 @@ let server = spawn
 
 let output = tg log pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the process stdio
-	   id = <process>
+	   id = pcs_010000000000000000000000000000000000000000000000000000
 
 '

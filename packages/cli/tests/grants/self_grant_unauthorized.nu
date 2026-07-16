@@ -17,7 +17,7 @@ failure $output "an adversary should not be able to grant herself a permission"
 # The failed attempt confers nothing: eve still cannot see the resource.
 let check = tg --token $eve.token group get secret | complete
 failure $check "the failed self-grant should not have conferred any access"
-snapshot ($check.stderr | redact) '
+snapshot --normalize $check.stderr '
 	error an error occurred
 	-> failed to find the group
 

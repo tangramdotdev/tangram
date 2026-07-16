@@ -30,12 +30,12 @@ tg cancel $parent.process $parent.lease
 # The child is canceled.
 let output = tg output $child | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the process output
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> failed to run the process
-	   process = <process>
+	   process = pcs_0000000000000000000000000000
 	-> the process was canceled
 
 '

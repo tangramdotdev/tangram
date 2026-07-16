@@ -21,7 +21,7 @@ let token = tg log $parent.process | str trim
 # The full health is unauthorized for a process token.
 let output = tg --token $token health | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the health
 	-> the request failed

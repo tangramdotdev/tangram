@@ -1,8 +1,8 @@
 error an error occurred
 -> the process failed
-   id = <process>
+   id = pcs_0000000000000000000000000000
 -> the child process failed
-   id = <process>
+   id = pcs_0011111111111111111111111111
 -> failed assertion
    ╭─[./bar/tangram.ts:1:40]
  1 │ export default function () { return tg.assert(false); }

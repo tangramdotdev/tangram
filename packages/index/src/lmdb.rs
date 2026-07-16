@@ -266,6 +266,13 @@ impl crate::Index for Index {
 		self.get_process_depth_detections(limit).await
 	}
 
+	async fn get_requester_principals(
+		&self,
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<tg::grant::Principal>> {
+		self.get_requester_principals(principal).await
+	}
+
 	async fn list_sandboxes_for_creator(
 		&self,
 		creator: &tg::Principal,

@@ -17,7 +17,7 @@ tg --token $carol.token grant $bob.user.id write team
 # Alice, though also an admin, did not create Carol's grant, so her revoke finds nothing of her own to remove.
 let output = tg --token $alice.token revoke $bob.user.id write team | complete
 failure $output "an admin should not be able to revoke a grant another grantor created"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the grant
 

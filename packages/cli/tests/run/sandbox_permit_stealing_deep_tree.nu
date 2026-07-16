@@ -1,12 +1,13 @@
 use ../../test.nu *
 
-# A deep chain of sandboxed builds completes with a single runner permit.
+# A deep chain of sandboxed builds completes with a single runner allocation.
 # Each parent process waits for a sandboxed child, so the child must be able
-# to borrow the parent's permit.
+# to borrow the parent's capacity.
 
 let server = spawn --config {
 	runner: {
-		permits: 1,
+		cpus: 1,
+		memory: (1e9 | into int),
 	},
 }
 
@@ -26,4 +27,4 @@ let path = artifact {
 }
 
 let output = timeout 15s tg build $path | complete
-success $output "a deep sandboxed process tree should complete by borrowing parent permits"
+success $output "a deep sandboxed process tree should complete by borrowing parent capacity"

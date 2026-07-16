@@ -6,7 +6,7 @@ let server = spawn
 
 let output = tg object touch fil_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to touch the object
 	   id = fil_010000000000000000000000000000000000000000000000000000

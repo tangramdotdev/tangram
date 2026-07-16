@@ -6,7 +6,7 @@ let server = spawn --config { authentication: { users: { providers: { insecure: 
 
 let output = tg login "alice/bob" | complete
 failure $output "a multi-component user specifier should be rejected"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to start the login
 	-> the request failed

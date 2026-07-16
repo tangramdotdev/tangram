@@ -24,7 +24,7 @@ failure $first_output
 let first_child = tg process children $first.process | from json | get 0.process
 let first_error = tg get $first_child | from json | get error
 let first_error_pretty = tg get $first_error --pretty
-snapshot ($first_error_pretty | redact $path | normalize_ids) '
+snapshot --normalize-ids --redact $path $first_error_pretty '
 	tg.error({
 	  "code": "internal",
 	  "message": "failed to run the process",
@@ -35,7 +35,7 @@ snapshot ($first_error_pretty | redact $path | normalize_ids) '
 	    },
 	  }),
 	  "values": {
-	    "process": "<process>",
+	    "process": "pcs_0000000000000000000000000000",
 	  },
 	})
 '

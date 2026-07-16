@@ -8,7 +8,7 @@ let path = ($env.TMPDIR? | default '/tmp') | path join 'checkout_nonexistent'
 
 let output = tg checkout dir_0000000000000000000000000000 $path | complete
 failure $output
-snapshot ($output.stderr | redact $path | normalize_ids) '
+snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred
 	-> failed to check out the artifact
 	   artifact = dir_0000000000000000000000000000

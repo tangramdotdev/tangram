@@ -12,7 +12,7 @@ let config = mktemp
 {} | to json | save -f $config
 let output = with-env { TANGRAM_CONFIG: $config } { tg group create anon | complete }
 failure $output "an anonymous client should not be able to create a group"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the group
 	   specifier = anon
@@ -26,7 +26,7 @@ snapshot ($output.stderr | redact) '
 tg --token $alice.token group create alice-project
 let output = tg --token $eve.token group create alice-project/eve | complete
 failure $output "a user with no grant should not be able to create a child group"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the group
 	   specifier = alice-project/eve

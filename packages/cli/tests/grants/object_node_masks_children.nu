@@ -28,7 +28,7 @@ success $dir_read "Bob should read the directory node he was granted."
 # Bob cannot read the child file: a node grant does not confer the subtree.
 let child_read = tg --url $remote.url --token $bob.token get $file | complete
 failure $child_read "an object_node grant must not confer read on the children."
-snapshot ($child_read.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $child_read.stderr '
 	error an error occurred
 	-> failed to load the object
 

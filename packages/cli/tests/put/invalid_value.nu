@@ -6,7 +6,7 @@ let server = spawn
 
 let output = tg put 'tg.bogus(((' | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to parse the value
 	-> 

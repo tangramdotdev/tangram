@@ -9,7 +9,7 @@ let local = spawn --name local --config {
 
 let output = tg pull nonexistent/1.0.0 | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the reference
 	   reference = nonexistent/1.0.0

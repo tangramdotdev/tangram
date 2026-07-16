@@ -28,10 +28,10 @@ tg --url $remote.url index
 # Eve cannot read Alice's private process; it is masked as not found rather than reported as unauthorized.
 let denied = tg --url $remote.url --token $eve.token get $process | complete
 failure $denied "Eve should not read Alice's private process."
-snapshot ($denied.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $denied.stderr '
 	error an error occurred
 	-> failed to find the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 
 '
 

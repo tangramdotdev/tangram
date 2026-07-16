@@ -43,7 +43,7 @@ let id2 = tg checkin $path2
 
 let output = tg publish $path2 | complete
 failure $output "The publish command should fail without --force."
-snapshot ($output.stderr | redact $path1 $path2) '
+snapshot --normalize --redact [$path1 $path2] $output.stderr '
 	error an error occurred
 	-> failed to put local tag
 	   tag = test-pkg/1.0.0

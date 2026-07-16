@@ -8,10 +8,10 @@ let dir = tg put 'tg.directory({ "f": tg.file({ "contents": tg.blob("x"), "depen
 
 let output = tg checksum $dir | complete
 failure $output
-snapshot ($output.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> cannot checksum a file with dependencies
 
 '

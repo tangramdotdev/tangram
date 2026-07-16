@@ -8,5 +8,5 @@ let path = artifact {
 	tangram.ts: 'export default async function () { return tg.Value.toData(await tg.file("hi")); }'
 }
 
-let output = tg build $path | normalize_ids
-snapshot $output '{"kind":"object","value":"fil_010000000000000000000000000000000000000000000000000000"}'
+let output = tg build $path
+snapshot --normalize-ids $output '{"kind":"object","value":"fil_010000000000000000000000000000000000000000000000000000"}'

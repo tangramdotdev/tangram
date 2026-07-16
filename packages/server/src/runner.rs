@@ -291,7 +291,10 @@ impl Session {
 	async fn runner_heartbeat_task(&self, sender: RunnerSender, interval: Duration) {
 		let mut interval = tokio::time::interval(interval);
 		loop {
-			interval.tick().await;
+			tokio::select! {
+				_ = interval.tick() => {},
+				() = self.server.runner.state.capacity.wait_for_change() => {},
+			}
 			let message = tg::runner::control::ClientMessage::Notification(
 				tg::runner::control::ClientNotification::Heartbeat(self.create_runner_heartbeat()),
 			);
@@ -337,6 +340,21 @@ impl Session {
 impl State {
 	pub fn id(&self) -> Option<tg::runner::Id> {
 		self.id.lock().unwrap().clone()
+	}
+
+	pub fn started_process_count(&self) -> u64 {
+		self.sandboxes
+			.iter()
+			.map(|sandbox| {
+				sandbox
+					.processes
+					.values()
+					.filter(|process| process.data.status == tg::process::Status::Started)
+					.count()
+			})
+			.sum::<usize>()
+			.try_into()
+			.unwrap()
 	}
 
 	pub fn try_get_sandbox(&self, id: &tg::sandbox::Id) -> Option<tg::sandbox::get::Output> {

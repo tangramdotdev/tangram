@@ -255,27 +255,32 @@ impl Session {
 		position: u64,
 		length: u64,
 	) -> tg::Result<tg::process::control::GetChildrenClientResponseOutput> {
-		if let Some(output) = self
+		let mut output = if let Some(output) = self
 			.server
 			.runner
 			.state
 			.try_get_process_children(id, position, length)
 		{
-			return Ok(output);
+			output
+		} else {
+			let control_future = self
+				.get_process_children_from_control(id, position, length)
+				.boxed();
+			let process_store_future = self
+				.try_get_process_children_from_process_store(id, position, length)
+				.boxed();
+			match future::select(control_future, process_store_future).await {
+				future::Either::Left((result, _)) => result,
+				future::Either::Right((result, control_future)) => match result? {
+					Some(output) => Ok(output),
+					None => control_future.await,
+				},
+			}?
+		};
+		for child in &mut output.children {
+			child.remove_tokens();
 		}
-		let control_future = self
-			.get_process_children_from_control(id, position, length)
-			.boxed();
-		let process_store_future = self
-			.try_get_process_children_from_process_store(id, position, length)
-			.boxed();
-		match future::select(control_future, process_store_future).await {
-			future::Either::Left((result, _)) => result,
-			future::Either::Right((result, control_future)) => match result? {
-				Some(output) => Ok(output),
-				None => control_future.await,
-			},
-		}
+		Ok(output)
 	}
 
 	async fn get_process_children_from_control(

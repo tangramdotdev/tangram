@@ -21,7 +21,7 @@ assert equal $data.owner $acme.id "the --organization alias should resolve an or
 # A group is not an organization, so --organization must reject it.
 let group = tg --token $bob.token sandbox create --organization team --no-network | complete
 failure $group "--organization must reject a group"
-snapshot ($group.stderr | redact) '
+snapshot --normalize $group.stderr '
 	error an error occurred
 	-> failed to resolve the owner as an organization
 
@@ -30,7 +30,7 @@ snapshot ($group.stderr | redact) '
 # A user is not an organization, so --organization must reject it.
 let user = tg --token $bob.token sandbox create --organization $alice.user.id --no-network | complete
 failure $user "--organization must reject a user"
-snapshot ($user.stderr | redact) '
+snapshot --normalize $user.stderr '
 	error an error occurred
 	-> the owner is not an organization
 

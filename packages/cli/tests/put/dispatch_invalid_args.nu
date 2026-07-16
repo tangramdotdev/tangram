@@ -6,7 +6,7 @@ let server = spawn
 
 let output = tg put --id pcs_010000000000000000000000000000000000000000000000000000 --kind blb "x" | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> invalid args
 

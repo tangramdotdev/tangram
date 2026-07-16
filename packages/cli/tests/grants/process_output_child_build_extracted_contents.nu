@@ -19,5 +19,5 @@ let path = artifact {
 let process = tg --token $alice.token build --detach $path | str trim
 let result = tg --token $alice.token wait $process | from json
 assert ($result.exit == 0) "the build should succeed."
-let contents = tg --token $alice.token cat $result.output.value.id | str trim
+let contents = tg --token $alice.token cat $result.output.value | str trim
 assert ($contents == "hello") "the builder should read the file contents extracted from the child build's output."

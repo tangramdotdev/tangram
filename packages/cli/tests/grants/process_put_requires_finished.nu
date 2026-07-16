@@ -17,14 +17,14 @@ let process_data = {
 
 let output = tg --token $alice.token process put $process ($process_data | to json) | complete
 failure $output "putting unfinished process data through the public API should fail."
-snapshot ($output.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $output.stderr '
 	error an error occurred
 	-> failed to put the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to put the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> expected a finished process
 
 '

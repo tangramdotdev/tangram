@@ -44,12 +44,12 @@ documents the exact behavior and fails when anything drifts:
 assert ($output.stderr | str contains 'the process is already finished') "…"
 
 # This — run with --accept to fill the body:
-snapshot ($output.stderr | redact $path) '
+snapshot --normalize --redact $path $output.stderr '
 	-> the process is already finished
 '
 ```
 
-Normalize first with `redact` and `normalize_ids` (see the next convention) so
+Use the snapshot normalization and redaction flags (see the next convention) so
 the snapshot is stable. A check for the *absence* of a string becomes a snapshot
 of the whole output, which verifies the absence implicitly: if the output no
 longer contains the string, the snapshot will not either.
@@ -69,33 +69,35 @@ that selects lines. It is the *assertion* that must be a snapshot.
 
 ### 4. Normalize nondeterministic output before snapshotting
 
-Never hand-roll `str replace` normalization before a snapshot. Two helpers from
-`test.nu` cover the two kinds of nondeterminism, and they compose.
+Never hand-roll `str replace` normalization before a snapshot. The snapshot
+flags cover the different kinds of nondeterminism, and they compose.
 
-The `redact` helper collapses the data that genuinely varies from run to run:
-runtime IDs that the server assigns (`pcs_…` becomes `<process>`, `err_…`
-becomes `<error>`, and likewise for sandboxes, users, groups, and
-organizations), numeric process IDs in `id = …` lines, and the paths passed as
-arguments (which become `<path>`):
-
-```nushell
-let stderr = $output.stderr | redact $path
-```
-
-The `normalize_ids` helper canonicalizes the content-addressed object IDs that
-are deterministic but noisy and brittle — files, directories, commands, and so
-on. It rewrites each distinct ID to a stable per-kind token such as `fil_0100`,
-preserving identity (the same ID renders the same token) while staying robust to
-the serialization changes that churn the underlying hashes. Use it for
-snapshots that surface object IDs, such as tree views or error stacks:
+Use `--normalize` for data that genuinely varies from run to run: runtime IDs
+that the server assigns (`pcs_…` becomes a stable `pcs_0000…`, and likewise
+for errors, sandboxes, users, groups, and organizations), numeric process IDs
+in `id = …` lines, and tokens. Distinct IDs remain distinct. This deliberately
+preserves content-addressed object IDs so tests can snapshot them exactly:
 
 ```nushell
-let stderr = $output.stderr | redact $path | normalize_ids
+snapshot --normalize $output.stderr '…'
 ```
 
-Reach for `redact` alone when the output has no object IDs worth showing,
-`normalize_ids` alone for pure structure such as a tree, and the pipeline above
-when a snapshot carries both.
+Use `--normalize-ids` only when exact IDs are not part of the behavior under
+test. It applies the same normalization to runtime data and additionally
+rewrites content-addressed IDs to stable values such as `fil_0100…`, preserving
+identity while staying robust to changes that churn the underlying hashes:
+
+```nushell
+snapshot --normalize-ids $output.stderr '…'
+```
+
+Use `--redact` only for specific literal values such as temporary paths. It
+accepts a string or a list of strings and replaces each with `<redacted>`:
+
+```nushell
+snapshot --normalize --redact $path $output.stderr '…'
+snapshot --normalize --redact [$path $server.directory] $output.stderr '…'
+```
 
 ### 5. Synchronize with `wait_until`, not `sleep`
 

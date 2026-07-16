@@ -8,10 +8,10 @@ let target = $dir | path join "target"
 
 let output = tg init $target | complete
 failure $output
-snapshot ($output.stderr | redact $target) '
+snapshot --normalize --redact $target $output.stderr '
 	error an error occurred
 	-> failed to create the directory
-	   path = "<path>"
+	   path = "<redacted>"
 	-> File exists (os error 17)
 
 '

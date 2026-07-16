@@ -12,9 +12,9 @@ success $output
 wait_until { (tg sandbox get $id | complete | get exit_code) != 0 } --timeout 15sec "the sandbox should expire"
 let output = tg sandbox get $id | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the sandbox
-	   sandbox = <sandbox>
+	   sandbox = sbx_0000000000000000000000000000
 
 '

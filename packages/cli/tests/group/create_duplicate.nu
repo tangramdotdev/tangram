@@ -9,7 +9,7 @@ let alice = tg login --verbose alice | from json
 tg --token $alice.token group create project
 let output = tg --token $alice.token group create project | complete
 failure $output "creating a duplicate group should be rejected"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the group
 	   specifier = project

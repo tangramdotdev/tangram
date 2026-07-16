@@ -24,7 +24,7 @@ wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
 
 let output = tg publish $path | complete
 failure $output
-snapshot ($output.stderr | redact $path $remote.url $remote.directory) '
+snapshot --normalize --redact [$path $remote.url $remote.directory ($remote.directory | path expand)] $output.stderr '
 	error an error occurred
 	-> failed to push items
 	-> failed to create the pull stream
@@ -32,7 +32,7 @@ snapshot ($output.stderr | redact $path $remote.url $remote.directory) '
 	   remote = default
 	-> failed to send the request
 	-> failed to resolve the socket path
-	   path = <path>/socket
+	   path = <redacted>/socket
 	-> No such file or directory (os error 2)
 
 '

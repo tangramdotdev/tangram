@@ -21,7 +21,7 @@ let token = tg log $parent.process | str trim
 # Cleaning with a process token is unauthorized.
 let output = tg --token $token clean | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to clean
 	-> the request failed

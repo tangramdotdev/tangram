@@ -9,7 +9,7 @@ let dir = mktemp --directory
 
 let output = tg check $dir | complete
 failure $output
-snapshot ($output.stderr | redact $dir) '
+snapshot --normalize --redact $dir $output.stderr '
 	error an error occurred
 	-> failed to find a root module
 	   directory = dir_01me3xkeh1893mtxbmxsqhv8kxsds7y2hayhwy3ecqrfxvpzy2pz8g

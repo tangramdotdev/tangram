@@ -11,7 +11,7 @@ tg --token $alice.token group delete leaf
 
 let output = tg --token $alice.token group get leaf | complete
 failure $output "the group should not exist after deletion"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the group
 

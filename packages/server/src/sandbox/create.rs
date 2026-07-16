@@ -48,8 +48,7 @@ impl Session {
 		let owner = arg
 			.owner
 			.clone()
-			.or_else(|| Some(creator.clone()))
-			.filter(|owner| !matches!(owner, tg::Principal::Root));
+			.or_else(|| (!matches!(creator, tg::Principal::Root)).then(|| creator.clone()));
 		arg.owner.clone_from(&owner);
 		let isolation = self.server.resolve_sandbox_isolation()?;
 		Server::validate_sandbox_resources(

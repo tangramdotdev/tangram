@@ -6,10 +6,10 @@ let server = spawn
 
 let output = tg process children pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the process children
-	   id = <process>
+	   id = pcs_010000000000000000000000000000000000000000000000000000
 	-> failed to get the process
 
 '

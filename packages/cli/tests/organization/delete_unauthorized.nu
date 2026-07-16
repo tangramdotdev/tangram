@@ -17,7 +17,7 @@ tg --token $bob.token tag acme/foo $id
 # But write does not confer admin, so bob cannot delete the organization.
 let output = tg --token $bob.token organization delete acme | complete
 failure $output "a write user should not be able to delete the organization"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to delete the organization
 	   organization = acme

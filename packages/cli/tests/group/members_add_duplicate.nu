@@ -12,11 +12,11 @@ tg --token $alice.token group members add team $bob.user.id
 
 let output = tg --token $alice.token group members add team $bob.user.id | complete
 failure $output "adding a member that already exists should fail"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to add the group member
 	   group = team
-	   member = <user>
+	   member = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> database error

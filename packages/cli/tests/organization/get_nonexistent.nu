@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 
 let output = tg --token $alice.token organization get ghost | complete
 failure $output "getting a nonexistent organization should fail"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the organization
 

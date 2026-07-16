@@ -10,7 +10,7 @@ tg --token $alice.token organization create acme
 
 let output = tg --token $alice.token organization create acme | complete
 failure $output "a duplicate organization should be rejected"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the organization
 	   specifier = acme

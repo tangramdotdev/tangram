@@ -8,7 +8,7 @@ let alice = tg login --verbose alice | from json
 
 let output = tg --token $alice.token organization create acme/sub | complete
 failure $output "a multi-component organization specifier should be rejected"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the organization
 	   specifier = acme/sub

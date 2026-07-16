@@ -25,16 +25,16 @@ tg cancel $first.process $first.lease
 # Reusing the first token fails because the lease no longer exists.
 let output = tg cancel $first.process $first.lease | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to cancel the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to cancel the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> failed to cancel the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> the process lease was not found
 
 '

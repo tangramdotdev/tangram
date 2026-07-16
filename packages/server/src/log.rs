@@ -112,9 +112,7 @@ impl Session {
 			.try_get_process_local(process, false, None)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
-		if output.data.log.is_some()
-			|| !(output.data.stdout.is_log() || output.data.stderr.is_log())
-		{
+		if !Self::process_log_needs_compaction(&output.data) {
 			return Ok(());
 		}
 
@@ -189,6 +187,12 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to update the process log"))?;
+		self.server
+			.runner
+			.state
+			.try_update_process(process, |state| {
+				state.data.log = Some(tg::Referent::with_item(blob.clone()));
+			});
 
 		self.server
 			.log_store
@@ -199,6 +203,10 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to delete the process log from store"))?;
 
 		Ok(())
+	}
+
+	pub(crate) fn process_log_needs_compaction(data: &tg::process::Data) -> bool {
+		data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log())
 	}
 
 	async fn update_process_log_with_transaction(

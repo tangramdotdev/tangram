@@ -21,7 +21,7 @@ tg --url $remote.url index
 # Eve cannot read Alice's private file; it is masked as not found rather than reported as unauthorized, so its existence is not revealed.
 let denied = tg --url $remote.url --token $eve.token get $file | complete
 failure $denied "Eve should not read Alice's private file."
-snapshot ($denied.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $denied.stderr '
 	error an error occurred
 	-> failed to load the object
 

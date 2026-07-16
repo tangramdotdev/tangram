@@ -17,7 +17,7 @@ tg --token $bob.token group get resource
 tg --token $alice.token revoke $bob.user.id read resource
 let output = tg --token $bob.token group get resource | complete
 failure $output "revoking the grant should remove the principal's access"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the group
 

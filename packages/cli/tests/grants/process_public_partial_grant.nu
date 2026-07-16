@@ -11,7 +11,7 @@ let path = artifact { tangram.ts: 'export default function () { return tg.file("
 
 # Alice builds and gets the output file, then grants the public principal only the subtree (node), not the output.
 let alice_build = tg --token $alice.token build --detach --verbose $path | from json
-let file = (tg --token $alice.token wait $alice_build.process | from json).output.value.id
+let file = (tg --token $alice.token wait $alice_build.process | from json).output.value | split row '?' | first
 tg --token $alice.token grant public process_subtree $alice_build.process | ignore
 
 # Eve cannot read the output object yet, since only the node is public.

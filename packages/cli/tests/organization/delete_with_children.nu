@@ -14,7 +14,7 @@ tg --token $alice.token tag acme/foo $id
 
 let output = tg --token $alice.token organization delete acme | complete
 failure $output "an organization with children should not be deletable"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to delete the organization
 	   organization = acme

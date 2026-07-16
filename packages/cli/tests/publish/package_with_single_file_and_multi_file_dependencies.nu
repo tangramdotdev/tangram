@@ -78,7 +78,7 @@ assert equal $publish_count 3 $expected_msg
 
 # Verify the correct packages are published.
 let tagged = $output.stderr | lines | where {|l| $l =~ 'info tagged'} | sort | str join "\n"
-snapshot ($tagged | normalize_ids) '
+snapshot --normalize-ids $tagged '
 	info tagged test-main/1.0.0 Object(tg::object::Id("dir_010000000000000000000000000000000000000000000000000000"))
 	info tagged test-multi-file/1.0.0 Object(tg::object::Id("dir_011111111111111111111111111111111111111111111111111111"))
 	info tagged test-single-file/1.0.0 Object(tg::object::Id("fil_010000000000000000000000000000000000000000000000000000"))

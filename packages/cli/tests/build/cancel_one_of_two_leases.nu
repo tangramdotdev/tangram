@@ -28,12 +28,12 @@ assert equal (tg status --timeout 0 $first.process | from json) ["started"] "the
 tg cancel $second.process $second.lease
 let output = tg output $second.process | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the process output
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> failed to run the process
-	   process = <process>
+	   process = pcs_0000000000000000000000000000
 	-> the process was canceled
 
 '

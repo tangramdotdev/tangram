@@ -12,6 +12,11 @@ use {
 	},
 };
 
+struct LocalOutput {
+	output: tg::sandbox::get::Output,
+	requires_existence_check: bool,
+}
+
 impl Session {
 	pub(crate) async fn try_get_sandbox(
 		&self,
@@ -80,10 +85,17 @@ impl Session {
 					return Ok(None);
 				}
 				match get_or_exists_future.await {
-					future::Either::Left((output, _)) => Some(output?),
+					future::Either::Left((output, exists_future)) => {
+						let output = output?;
+						if output.requires_existence_check && !exists_future.await? {
+							None
+						} else {
+							Some(output.output)
+						}
+					},
 					future::Either::Right((exists, get_future)) => {
 						if exists? {
-							Some(get_future.await?)
+							Some(get_future.await?.output)
 						} else {
 							None
 						}
@@ -91,15 +103,21 @@ impl Session {
 				}
 			},
 			future::Either::Right((get_or_exists, authorize_future)) => match get_or_exists {
-				future::Either::Left((output, _)) => {
+				future::Either::Left((output, exists_future)) => {
 					let output = output?;
-					authorize_future.await?.then_some(output)
+					if !authorize_future.await?
+						|| output.requires_existence_check && !exists_future.await?
+					{
+						None
+					} else {
+						Some(output.output)
+					}
 				},
 				future::Either::Right((exists, get_future)) => {
 					if !exists? || !authorize_future.await? {
 						None
 					} else {
-						Some(get_future.await?)
+						Some(get_future.await?.output)
 					}
 				},
 			},
@@ -107,25 +125,47 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn get_sandbox_local(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<tg::sandbox::get::Output> {
+	async fn get_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<LocalOutput> {
 		if let Some(data) = self.server.runner.state.try_get_sandbox(id) {
-			return Ok(data);
+			let requires_existence_check = data.status.is_destroyed();
+			let output = LocalOutput {
+				output: data,
+				requires_existence_check,
+			};
+			return Ok(output);
 		}
 
 		let control_future = self.get_sandbox_from_control(id);
 		let process_store_future = self.try_get_sandbox_from_process_store(id);
-		let output = match future::select(pin!(control_future), pin!(process_store_future)).await {
-			future::Either::Left((result, _)) => result?,
-			future::Either::Right((result, control_future)) => match result? {
-				Some(output) => output,
-				None => control_future.await?,
-			},
-		};
+		match future::select(pin!(control_future), pin!(process_store_future)).await {
+			future::Either::Left((result, _)) => {
+				let output = result?;
+				let requires_existence_check = output.status.is_destroyed();
+				let output = LocalOutput {
+					output,
+					requires_existence_check,
+				};
 
-		Ok(output)
+				Ok(output)
+			},
+			future::Either::Right((result, control_future)) => {
+				if let Some(output) = result? {
+					Ok(LocalOutput {
+						output,
+						requires_existence_check: false,
+					})
+				} else {
+					let output = control_future.await?;
+					let requires_existence_check = output.status.is_destroyed();
+					let output = LocalOutput {
+						output,
+						requires_existence_check,
+					};
+
+					Ok(output)
+				}
+			},
+		}
 	}
 
 	pub(crate) async fn get_sandbox_from_control(

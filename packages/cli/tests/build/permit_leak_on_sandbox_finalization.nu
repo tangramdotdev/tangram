@@ -11,7 +11,10 @@ use ../../test.nu *
 let server = spawn --config {
 	index: { map_size: 104_857_600 },
 	tokio_single_threaded: false,
-	runner: { permits: 8 }
+	runner: {
+		cpus: 8,
+		memory: (8e9 | into int),
+	}
 }
 
 for round in 1..20 {

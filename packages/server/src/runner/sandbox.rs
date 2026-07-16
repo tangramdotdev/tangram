@@ -1,7 +1,7 @@
 use {
 	super::process::{SpawnProcessTaskArg, Started as ProcessStarted},
 	crate::{Context, Server, Session, temp::Temp},
-	futures::{FutureExt as _, StreamExt as _, future},
+	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
 	std::{collections::HashMap, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
@@ -460,6 +460,7 @@ impl Session {
 		let sender = control.sender();
 
 		// Create the process tasks.
+		let mut process_exit_receivers = FuturesUnordered::new();
 		let mut process_tasks = JoinSet::new();
 		let process_stopper = Stopper::new();
 
@@ -469,7 +470,7 @@ impl Session {
 
 		let process = if let Some(process) = process {
 			let process = Self::prepare_process(process, &id)?;
-			let started = self.spawn_process_task(SpawnProcessTaskArg {
+			let task = self.spawn_process_task(SpawnProcessTaskArg {
 				guest_url: &guest_url,
 				location: location.clone(),
 				process,
@@ -478,7 +479,9 @@ impl Session {
 				retention_stopper: stopper.clone(),
 				sandbox: &sandbox,
 			});
-			let started = started
+			process_exit_receivers.push(task.exited);
+			let started = task
+				.started
 				.await
 				.map_err(|_| tg::error!(%id, "the process start sender was dropped"))??;
 			Some(started)
@@ -565,7 +568,7 @@ impl Session {
 
 							// Spawn the process task.
 							let process = Self::prepare_process(request.process, &id)?;
-							let started = self.spawn_process_task(SpawnProcessTaskArg {
+							let task = self.spawn_process_task(SpawnProcessTaskArg {
 								guest_url: &guest_url,
 								location: location.clone(),
 								process,
@@ -574,7 +577,9 @@ impl Session {
 								retention_stopper: stopper.clone(),
 								sandbox: &sandbox,
 							});
-							let started = started
+							process_exit_receivers.push(task.exited);
+							let started = task
+								.started
 								.await
 								.map_err(|_| tg::error!(%id, "the process start sender was dropped"))??;
 							let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
@@ -597,15 +602,19 @@ impl Session {
 					}
 				},
 
-				// If a process finishes and there are no processes, then start the timer.
+				// Destroy the sandbox when its last underlying process exits.
+				_ = process_exit_receivers.next(), if !process_exit_receivers.is_empty() => {
+					if process_exit_receivers.is_empty() {
+						break;
+					}
+				},
+
+				// Reap a process task after its retained state expires.
 				output = process_tasks.join_next(), if !process_tasks.is_empty() => {
 					output
 						.unwrap()
 						.map_err(|error| tg::error!(!error, "a process task panicked"))?
 						.map_err(|error| tg::error!(!error, "a process task failed"))?;
-					if process_tasks.is_empty() && let Some(ttl) = ttl {
-						timer.replace(tokio::time::sleep(ttl).boxed());
-					}
 				},
 
 				// If the timer fires, then break and destroy the sandbox.
@@ -615,17 +624,13 @@ impl Session {
 			}
 		}
 
-		// Release the sandbox's capacity.
+		// Stop and await the underlying processes.
+		process_stopper.stop();
+		while process_exit_receivers.next().await.is_some() {}
+
+		// Release the sandbox's capacity once all of its underlying processes have exited.
 		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut(&id) {
 			state.allocation.take();
-		}
-
-		// Stop and await the process tasks.
-		process_stopper.stop();
-		while let Some(result) = process_tasks.join_next().await {
-			result
-				.map_err(|error| tg::error!(!error, "a process task panicked"))?
-				.map_err(|error| tg::error!(!error, "a process task failed"))?;
 		}
 
 		// Stop and await the serve task.
@@ -698,6 +703,13 @@ impl Session {
 			}
 		}
 		destroyed.send(()).ok();
+
+		// Await the process tasks while they retain their state and control streams.
+		while let Some(result) = process_tasks.join_next().await {
+			result
+				.map_err(|error| tg::error!(!error, "a process task panicked"))?
+				.map_err(|error| tg::error!(!error, "a process task failed"))?;
+		}
 
 		let retention_ttl = self
 			.server

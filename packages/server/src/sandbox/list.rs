@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
@@ -63,13 +64,38 @@ impl Session {
 					|error| tg::error!(!error, %owner, "failed to list the sandboxes for the owner"),
 				)?
 		} else if let Some(creator) = creator {
-			self.server
+			let creator_sandboxes = self
+				.server
 				.index
 				.list_sandboxes_for_creator(creator)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %creator, "failed to list the sandboxes for the creator"),
-				)?
+				)?;
+			let mut sandboxes = creator_sandboxes.into_iter().collect::<BTreeMap<_, _>>();
+			let principals = self
+				.server
+				.index
+				.get_requester_principals(creator)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %creator, "failed to get the requester principals"),
+				)?;
+			for owner in principals
+				.into_iter()
+				.filter_map(|principal| principal.try_to_principal().ok())
+			{
+				let owner_sandboxes = self
+					.server
+					.index
+					.list_sandboxes_for_owner(&owner)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %owner, "failed to list the sandboxes for the owner"),
+					)?;
+				sandboxes.extend(owner_sandboxes);
+			}
+			sandboxes.into_iter().collect()
 		} else {
 			self.server
 				.index

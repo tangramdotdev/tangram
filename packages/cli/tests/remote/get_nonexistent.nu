@@ -6,7 +6,7 @@ let server = spawn
 
 let output = tg remote get nonexistent | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the remote
 	   name = nonexistent

@@ -262,12 +262,14 @@ impl Cli {
 		let reference = tg::Reference::with_item_and_options(item, options);
 
 		// Get the reference.
-		let stream = client.get(&reference, arg).await.map_err(
-			|error| tg::error!(!error, item = %reference.item(), "failed to get the reference"),
-		)?;
-		let mut referent = self.render_progress_stream(stream).await.map_err(
-			|error| tg::error!(!error, item = %reference.item(), "failed to get the reference"),
-		)?;
+		let stream = client
+			.get(&reference, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
+		let mut referent = self
+			.render_progress_stream(stream)
+			.await
+			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
 		if relative && let Some(path) = referent.path() {

@@ -22,10 +22,10 @@ tg --url $remote.url index
 # Eve cannot see Alice's private file, so granting on it reports a missing resource rather than that it exists.
 let output = tg --url $remote.url --token $eve.token grant $bob.user.id object_subtree $file | complete
 failure $output "Eve should not grant a permission on a file she cannot see."
-snapshot ($output.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $output.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = <user>
+	   principal = usr_0000000000000000000000000000
 	   resource = fil_010000000000000000000000000000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error

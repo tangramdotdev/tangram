@@ -9,7 +9,7 @@ tg --token $alice.token group create shared
 
 let output = tg login shared | complete
 failure $output "logging in with a specifier claimed by a group should be rejected"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to start the login
 	-> the request failed

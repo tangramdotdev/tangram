@@ -52,8 +52,7 @@ assert ($stdout == ([
 	"stdout zzzzzzzzzzzzzzzzzzzz",
 ] | str join "\n"))
 let stderr = $output.stderr
-let stderr = $stderr | redact | normalize_ids
-snapshot $stderr '
+snapshot --normalize-ids $stderr '
 	stderr aaaaaaaaaaaaaaaaaaaa
 	stderr bbbbbbbbbbbbbbbbbbbb
 	stderr cccccccccccccccccccc

@@ -15,4 +15,4 @@ let output = do { cd $path; tg document } | complete
 success $output
 
 let json = $output.stdout | from json
-snapshot ($json | to json --indent 2 | normalize_tokens)
+snapshot --normalize ($json | to json --indent 2)

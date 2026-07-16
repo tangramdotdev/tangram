@@ -26,14 +26,14 @@ let module = artifact {
 }
 let output = tg --token $token document $module | complete
 failure $output
-snapshot ($output.stderr | redact $module) '
+snapshot --normalize --redact $module $output.stderr '
 	error an error occurred
 	-> failed to get the reference
-	   reference = <path>
+	   reference = <redacted>
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to get the reference
-	   reference = <path>
+	   reference = <redacted>
 	-> unauthorized
 
 '

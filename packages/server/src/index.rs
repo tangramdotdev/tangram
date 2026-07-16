@@ -157,6 +157,18 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn get_requester_principals(
+		&self,
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<tg::grant::Principal>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_requester_principals(principal).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_requester_principals(principal).await,
+		}
+	}
+
 	async fn list_sandboxes_for_creator(
 		&self,
 		creator: &tg::Principal,

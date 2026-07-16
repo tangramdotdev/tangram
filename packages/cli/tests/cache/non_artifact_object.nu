@@ -14,7 +14,7 @@ let command = tg get $process | from json | get command
 
 let output = tg cache $command | complete
 failure $output
-snapshot ($output.stderr | redact $path | normalize_ids) '
+snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred
 	-> expected an artifact
 

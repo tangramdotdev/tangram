@@ -157,6 +157,17 @@ impl Session {
 		let mut children_statement =
 			crate::database::retry!(result, "failed to prepare the statement");
 
+		let finalize_statement = indoc!(
+			"
+				insert into process_finalize_queue (created_at, process, status)
+				values (?1, ?2, 'created')
+				on conflict (process) do nothing;
+			"
+		);
+		let result = cache.get(transaction, finalize_statement.into());
+		let mut finalize_statement =
+			crate::database::retry!(result, "failed to prepare the statement");
+
 		for (id, data) in items {
 			let error_string = data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
@@ -210,6 +221,14 @@ impl Session {
 				.map_err(db::sqlite::Error::from);
 			crate::database::retry!(result, "failed to execute the statement");
 
+			if Self::process_log_needs_compaction(data) {
+				let params = sqlite::params![stored_at, id.to_string()];
+				let result = finalize_statement
+					.execute(params)
+					.map_err(db::sqlite::Error::from);
+				crate::database::retry!(result, "failed to execute the statement");
+			}
+
 			if let Some(children) = &data.children {
 				for (position, child) in children.iter().enumerate() {
 					let params = sqlite::params![
@@ -229,6 +248,7 @@ impl Session {
 
 		drop(process_statement);
 		drop(children_statement);
+		drop(finalize_statement);
 
 		Ok(ControlFlow::Break(()))
 	}

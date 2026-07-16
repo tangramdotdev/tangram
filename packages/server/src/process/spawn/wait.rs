@@ -177,11 +177,10 @@ impl Session {
 				},
 			}
 		} else {
-			let mut local_arg = arg.clone();
-			local_arg.cached = Some(true);
-			self.spawn_process_get_or_create_local_process(&local_arg, parent_sandbox, true)
+			self.try_get_cached_process_local(arg, parent_sandbox)
 				.boxed()
-				.await?
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get a cached process"))?
 				.map(|output| -> tg::Result<_> {
 					let mut output = Self::spawn_process_output(output, None)?;
 					if let Some(location) = location {

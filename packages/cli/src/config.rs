@@ -192,28 +192,14 @@ impl Config {
 }
 
 impl Format {
-	fn from_path(path: &Path) -> tg::Result<Self> {
-		let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
-			return Err(tg::error!(
-				path = %path.display(),
-				"the config file is missing an extension"
-			));
-		};
-		let format = match extension {
-			"json" => Self::Json,
-			"maml" => Self::Maml,
-			"toml" => Self::Toml,
-			"yaml" | "yml" => Self::Yaml,
-			_ => {
-				return Err(tg::error!(
-					%extension,
-					path = %path.display(),
-					"the config file has an unsupported extension"
-				));
-			},
-		};
-
-		Ok(format)
+	fn from_path(path: &Path) -> Self {
+		let extension = path.extension().and_then(|extension| extension.to_str());
+		match extension {
+			Some("maml") => Self::Maml,
+			Some("toml") => Self::Toml,
+			Some("yaml") => Self::Yaml,
+			None | Some(_) => Self::Json,
+		}
 	}
 }
 
@@ -233,7 +219,7 @@ impl Cli {
 				);
 			},
 		};
-		let format = Format::from_path(&path)?;
+		let format = Format::from_path(&path);
 		let config = Config::deserialize(&config, format)?;
 		Ok(Some(config))
 	}
@@ -253,14 +239,14 @@ impl Cli {
 				));
 			},
 		};
-		let format = Format::from_path(&path)?;
+		let format = Format::from_path(&path);
 
 		Config::deserialize(&config, format)
 	}
 
 	pub(crate) fn write_config(&self, config: &Config) -> tg::Result<()> {
 		let path = self.config_path();
-		let format = Format::from_path(&path)?;
+		let format = Format::from_path(&path);
 		let config = config.serialize(format)?;
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)

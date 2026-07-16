@@ -8,7 +8,10 @@ def run_source [source: string] {
 	let path = artifact { tangram.ts: $source }
 	let output = tg run $path | complete
 	failure $output
-	$output.stderr | redact $path
+	{
+		path: $path,
+		stderr: $output.stderr,
+	}
 }
 
 let stdin = run_source '
@@ -21,12 +24,12 @@ let stdin = run_source '
 		await process.stdin.write(input);
 	}
 '
-snapshot ($stdin | redact | normalize_ids) '
+snapshot --normalize-ids --redact $stdin.path $stdin.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> stdin is not available
-	   ╭─[<path>/tangram.ts:7:22]
+	   ╭─[<redacted>/tangram.ts:7:22]
 	 6 │     let input = tg.encoding.utf8.encode("hello");
 	 7 │     await process.stdin.write(input);
 	   ·                         ▲
@@ -45,12 +48,12 @@ let stdout = run_source '
 		await process.stdout.read();
 	}
 '
-snapshot ($stdout | redact | normalize_ids) '
+snapshot --normalize-ids --redact $stdout.path $stdout.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> stdout is not available
-	   ╭─[<path>/tangram.ts:6:23]
+	   ╭─[<redacted>/tangram.ts:6:23]
 	 5 │         .sandbox();
 	 6 │     await process.stdout.read();
 	   ·                          ▲
@@ -69,12 +72,12 @@ let stderr = run_source '
 		await process.stderr.read();
 	}
 '
-snapshot ($stderr | redact | normalize_ids) '
+snapshot --normalize-ids --redact $stderr.path $stderr.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> stderr is not available
-	   ╭─[<path>/tangram.ts:6:23]
+	   ╭─[<redacted>/tangram.ts:6:23]
 	 5 │         .sandbox();
 	 6 │     await process.stderr.read();
 	   ·                          ▲

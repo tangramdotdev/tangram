@@ -36,7 +36,11 @@ impl Session {
 		arg: &tg::process::spawn::Arg,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 	) -> tg::Result<Option<super::local::Output>> {
-		let owner = self.cached_process_owner(arg, parent_sandbox)?;
+		let principal = if arg.public && arg.cached == Some(true) {
+			tg::Principal::Anonymous
+		} else {
+			self.cached_process_owner(arg, parent_sandbox)?
+		};
 		let candidates = self
 			.server
 			.index
@@ -47,7 +51,6 @@ impl Session {
 			})?;
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		let principal = owner.clone().unwrap_or(tg::Principal::Root);
 		let authorizations = self
 			.server
 			.index
@@ -110,16 +113,22 @@ impl Session {
 		};
 		for (source, process) in candidates {
 			let data = process.data.as_ref().unwrap();
-			if !data.cacheable
+			if !data.cacheable {
+				continue;
+			}
+			let Some(actual_checksum) = &data.actual_checksum else {
+				continue;
+			};
+			let Some(source_expected_checksum) = &data.expected_checksum else {
+				continue;
+			};
+			if source_expected_checksum == actual_checksum
 				|| !matches!(
 					self.cached_process_error_code(data).await?,
 					Some(tg::error::Code::ChecksumMismatch)
 				) {
 				continue;
 			}
-			let Some(actual_checksum) = &data.actual_checksum else {
-				continue;
-			};
 			if actual_checksum.algorithm() != expected_checksum.algorithm() {
 				continue;
 			}
@@ -196,9 +205,9 @@ impl Session {
 			)?;
 		if cycle {
 			return Err(tg::error!(
-				%parent,
 				%child,
-				"a cache hit would create a process cycle"
+				%parent,
+				"adding this child process creates a cycle"
 			));
 		}
 		Ok(())
@@ -208,7 +217,7 @@ impl Session {
 		&self,
 		arg: &tg::process::spawn::Arg,
 		parent_sandbox: Option<&tg::sandbox::Id>,
-	) -> tg::Result<Option<tg::Principal>> {
+	) -> tg::Result<tg::Principal> {
 		let owner = match &arg.sandbox {
 			Some(tg::Either::Left(sandbox)) => sandbox.owner.clone(),
 			Some(tg::Either::Right(sandbox)) => {
@@ -221,8 +230,8 @@ impl Session {
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		};
-		if owner.is_some() {
-			return Ok(owner.filter(|owner| !matches!(owner, tg::Principal::Root)));
+		if let Some(owner) = owner {
+			return Ok(owner);
 		}
 		if let Some(parent_sandbox) = parent_sandbox
 			&& let Some(owner) = self
@@ -232,9 +241,9 @@ impl Session {
 				.try_get_sandbox(parent_sandbox)
 				.and_then(|sandbox| sandbox.owner)
 		{
-			return Ok(Some(owner));
+			return Ok(owner);
 		}
-		Ok(None)
+		Ok(self.context.principal.clone())
 	}
 
 	async fn cached_process_error_code(

@@ -14,11 +14,11 @@ let path = artifact {
 
 let output = tg exec $path | complete
 success $output
-snapshot (($output.stdout | str trim) | redact $path) 'cli-exec'
+snapshot --normalize --redact $path (($output.stdout | str trim)) 'cli-exec'
 
 let output = tg process exec $path | complete
 success $output
-snapshot (($output.stdout | str trim) | redact $path) 'cli-exec'
+snapshot --normalize --redact $path (($output.stdout | str trim)) 'cli-exec'
 
 let js_path = artifact {
 	tangram.ts: '
@@ -31,7 +31,7 @@ let js_path = artifact {
 
 let output = tg run $js_path | complete
 success $output
-snapshot (($output.stdout | str trim) | redact $path) 'js-client-exec'
+snapshot --normalize --redact $path (($output.stdout | str trim)) 'js-client-exec'
 
 let js_output_path = artifact {
 	tangram.ts: '
@@ -53,7 +53,7 @@ assert ($output == { message: "js-client-exec-output" })
 
 let output = tg exec --sandbox $path | complete
 failure $output
-snapshot ($output.stderr | redact $path) '
+snapshot --normalize --redact $path $output.stderr '
 	error an error occurred
 	-> an exec must not be sandboxed
 
@@ -61,7 +61,7 @@ snapshot ($output.stderr | redact $path) '
 
 let output = tg exec --stdout pipe $path | complete
 failure $output
-snapshot ($output.stderr | redact $path) '
+snapshot --normalize --redact $path $output.stderr '
 	error an error occurred
 	-> stdio must be inherit or null for an exec
 	   stream = stdout

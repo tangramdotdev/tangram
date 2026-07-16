@@ -31,6 +31,11 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub sandbox: &'a tangram_sandbox::Sandbox,
 }
 
+pub(super) struct SpawnProcessTask {
+	pub exited: tokio::sync::oneshot::Receiver<()>,
+	pub started: tokio::sync::oneshot::Receiver<tg::Result<Started>>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Started {
 	pub grant: Option<tg::grant::Token>,
@@ -39,6 +44,7 @@ pub(crate) struct Started {
 }
 
 struct ProcessTaskArg {
+	exited: tokio::sync::oneshot::Sender<()>,
 	guest_url: tangram_uri::Uri,
 	location: tg::Location,
 	process: tg::runner::control::Process,
@@ -67,10 +73,8 @@ impl Session {
 		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
 	}
 
-	pub(super) fn spawn_process_task(
-		&self,
-		arg: SpawnProcessTaskArg<'_>,
-	) -> tokio::sync::oneshot::Receiver<tg::Result<Started>> {
+	pub(super) fn spawn_process_task(&self, arg: SpawnProcessTaskArg<'_>) -> SpawnProcessTask {
+		let (exited_sender, exited_receiver) = tokio::sync::oneshot::channel();
 		let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
 		let session = self.clone();
 		let process = arg.process;
@@ -84,6 +88,7 @@ impl Session {
 			let result = session
 				.process_task(
 					ProcessTaskArg {
+						exited: exited_sender,
 						guest_url,
 						location,
 						process,
@@ -102,7 +107,10 @@ impl Session {
 			}
 			result
 		});
-		started_receiver
+		SpawnProcessTask {
+			exited: exited_receiver,
+			started: started_receiver,
+		}
 	}
 
 	async fn process_task(
@@ -111,6 +119,7 @@ impl Session {
 		started_sender: &mut Option<tokio::sync::oneshot::Sender<tg::Result<Started>>>,
 	) -> tg::Result<()> {
 		let ProcessTaskArg {
+			exited,
 			guest_url,
 			location,
 			process,
@@ -328,6 +337,7 @@ impl Session {
 			})
 			.boxed()
 			.await;
+		exited.send(()).ok();
 
 		let finish = {
 			let mut sandbox = session

@@ -1,9 +1,7 @@
 use {
 	crate::{Session, database::Database},
-	indoc::indoc,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -38,37 +36,13 @@ impl Session {
 		let include_version = include_field("version");
 
 		let processes = if include_processes {
-			// Get a process store connection.
-			let connection = self
-				.server
-				.process_store
-				.connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-
 			// Get the process health.
 			let capacity = if self.server.config.runner.is_some() {
 				Some(self.server.runner.state.capacity.get())
 			} else {
 				None
 			};
-
-			#[derive(db::row::Deserialize)]
-			struct Row {
-				started: u64,
-			}
-			let statement = indoc!(
-				"
-					select count(*) as started
-					from processes
-					where status = 'started';
-				"
-			);
-			let params = db::params![];
-			let Row { started } = connection
-				.query_one_into::<Row>(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let started = self.server.runner.state.started_process_count();
 
 			Some(tg::health::Processes { capacity, started })
 		} else {

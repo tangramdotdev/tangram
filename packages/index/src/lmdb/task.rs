@@ -179,6 +179,10 @@ impl Index {
 						Self::task_delete_organizations(db, subspace, &mut transaction, &ids)
 							.map(|()| Response::Unit)
 					},
+					Request::DeleteSandboxes(ids) => {
+						Self::task_delete_sandboxes(db, subspace, &mut transaction, &ids)
+							.map(|()| Response::Unit)
+					},
 					Request::DeleteUsers(ids) => {
 						Self::task_delete_users(db, subspace, &mut transaction, &ids)
 							.map(|()| Response::Unit)
@@ -396,6 +400,7 @@ impl Index {
 			| Request::DeleteGroups(_)
 			| Request::DeleteOrganizationMembers(_)
 			| Request::DeleteOrganizations(_)
+			| Request::DeleteSandboxes(_)
 			| Request::DeleteTags(_)
 			| Request::DeleteUsers(_)
 			| Request::PutCacheEntries(_)
@@ -457,6 +462,10 @@ impl Index {
 			Request::DeleteOrganizations(ids) => {
 				let items = ids.into_iter().map(Item::DeleteOrganization).collect();
 				(items, Kind::DeleteOrganizations)
+			},
+			Request::DeleteSandboxes(ids) => {
+				let items = ids.into_iter().map(Item::DeleteSandbox).collect();
+				(items, Kind::DeleteSandboxes)
 			},
 			Request::DeleteTags(tags) => {
 				let items = tags.into_iter().map(Item::DeleteTag).collect();
@@ -624,6 +633,16 @@ impl Index {
 					})
 					.collect();
 				Request::DeleteOrganizations(ids)
+			},
+			Kind::DeleteSandboxes => {
+				let ids = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteSandbox(id) => id,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteSandboxes(ids)
 			},
 			Kind::DeleteTags => {
 				let tags = items

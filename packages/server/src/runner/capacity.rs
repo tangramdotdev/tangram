@@ -15,6 +15,7 @@ pub struct Allocation {
 
 struct State {
 	available: Mutex<tg::runner::Capacity>,
+	changed: tokio::sync::Notify,
 	total: tg::runner::Capacity,
 }
 
@@ -30,6 +31,7 @@ impl Pool {
 		Self {
 			state: Arc::new(State {
 				available: Mutex::new(total),
+				changed: tokio::sync::Notify::new(),
 				total,
 			}),
 		}
@@ -51,16 +53,23 @@ impl Pool {
 		available.cpus -= capacity.cpus;
 		available.memory -= capacity.memory;
 		drop(available);
+		self.state.changed.notify_one();
 		Some(Allocation {
 			capacity,
 			source: AllocationSource::Pool(self.clone()),
 		})
 	}
 
+	pub async fn wait_for_change(&self) {
+		self.state.changed.notified().await;
+	}
+
 	fn release(&self, capacity: tg::runner::Capacity) {
 		let mut available = self.state.available.lock().unwrap();
 		available.cpus += capacity.cpus;
 		available.memory += capacity.memory;
+		drop(available);
+		self.state.changed.notify_one();
 	}
 }
 

@@ -15,6 +15,6 @@ tg --token $alice.token wait $alice_build.process | complete
 
 # Eve reuses it and reads the output contents.
 let eve_build = tg --token $eve.token build --detach --verbose $path | from json
-let eve_output = (tg --token $eve.token wait $eve_build.process | from json).output.value.id
+let eve_output = (tg --token $eve.token wait $eve_build.process | from json).output.value
 let contents = tg --token $eve.token cat $eve_output | str trim
 assert ($contents == "publicsecret") "Eve should read the public build's output contents."

@@ -14,6 +14,7 @@ impl Index {
 			.await?;
 		self.delete_groups(&arg.delete_groups).await?;
 		self.delete_organizations(&arg.delete_organizations).await?;
+		self.delete_sandboxes(&arg.delete_sandboxes).await?;
 		self.delete_tags(&arg.delete_tags).await?;
 		self.delete_users(&arg.delete_users).await?;
 		if !arg.put_cache_entries.is_empty() {

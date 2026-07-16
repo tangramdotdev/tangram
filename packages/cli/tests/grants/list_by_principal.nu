@@ -14,7 +14,7 @@ assert (($own | length) == 0) "a user should be able to list their own grants"
 # Eve cannot list Alice's grants without admin on Alice.
 let output = tg --token $eve.token grants list --principal $alice.user.id | complete
 failure $output "a user should not be able to list another user's grants"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the principal
 

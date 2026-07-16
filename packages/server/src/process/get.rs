@@ -19,6 +19,11 @@ mod sqlite;
 #[cfg(feature = "turso")]
 mod turso;
 
+struct LocalOutput {
+	output: tg::process::get::Output,
+	requires_existence_check: bool,
+}
+
 impl Session {
 	pub async fn try_get_process(
 		&self,
@@ -78,7 +83,7 @@ impl Session {
 		}
 		.boxed();
 		let exists_future = self.exists(id.clone(), permission).boxed();
-		let get_future = self.get_process_local(id, metadata).boxed();
+		let get_future = self.get_process_local_with_existence(id, metadata).boxed();
 		let get_or_exists_future = future::select(get_future, exists_future).boxed();
 		let output = match future::select(authorize_future, get_or_exists_future).await {
 			future::Either::Left((authorized, get_or_exists_future)) => {
@@ -86,10 +91,17 @@ impl Session {
 					return Ok(None);
 				}
 				match get_or_exists_future.await {
-					future::Either::Left((output, _)) => Some(output?),
+					future::Either::Left((output, exists_future)) => {
+						let output = output?;
+						if output.requires_existence_check && !exists_future.await? {
+							None
+						} else {
+							Some(output.output)
+						}
+					},
 					future::Either::Right((exists, get_future)) => {
 						if exists? {
-							Some(get_future.await?)
+							Some(get_future.await?.output)
 						} else {
 							None
 						}
@@ -97,15 +109,21 @@ impl Session {
 				}
 			},
 			future::Either::Right((get_or_exists, authorize_future)) => match get_or_exists {
-				future::Either::Left((output, _)) => {
+				future::Either::Left((output, exists_future)) => {
 					let output = output?;
-					authorize_future.await?.then_some(output)
+					if !authorize_future.await?
+						|| output.requires_existence_check && !exists_future.await?
+					{
+						None
+					} else {
+						Some(output.output)
+					}
 				},
 				future::Either::Right((exists, get_future)) => {
 					if !exists? || !authorize_future.await? {
 						None
 					} else {
-						Some(get_future.await?)
+						Some(get_future.await?.output)
 					}
 				},
 			},
@@ -122,26 +140,35 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	pub(crate) async fn get_process_local(
+	async fn get_process_local_with_existence(
 		&self,
 		id: &tg::process::Id,
 		metadata: bool,
-	) -> tg::Result<tg::process::get::Output> {
+	) -> tg::Result<LocalOutput> {
 		let data_future = async {
-			let output = if let Some(data) = self.server.runner.state.try_get_process(id) {
-				data
-			} else {
-				let control_future = self.get_process_from_control(id);
-				let process_store_future = self.try_get_process_from_process_store(id);
-				match future::select(pin!(control_future), pin!(process_store_future)).await {
-					future::Either::Left((result, _)) => result?,
-					future::Either::Right((result, control_future)) => match result? {
-						Some(output) => output.data,
-						None => control_future.await?,
-					},
-				}
-			};
-			Ok::<_, tg::Error>(output)
+			if let Some(data) = self.server.runner.state.try_get_process(id) {
+				let requires_existence_check = data.status.is_finished();
+				return Ok::<_, tg::Error>((data, requires_existence_check));
+			}
+
+			let control_future = self.get_process_from_control(id);
+			let process_store_future = self.try_get_process_from_process_store(id);
+			match future::select(pin!(control_future), pin!(process_store_future)).await {
+				future::Either::Left((result, _)) => {
+					let data = result?;
+					let requires_existence_check = data.status.is_finished();
+					Ok((data, requires_existence_check))
+				},
+				future::Either::Right((result, control_future)) => {
+					if let Some(output) = result? {
+						Ok((output.data, false))
+					} else {
+						let data = control_future.await?;
+						let requires_existence_check = data.status.is_finished();
+						Ok((data, requires_existence_check))
+					}
+				},
+			}
 		};
 		let metadata_future = async {
 			if metadata {
@@ -157,7 +184,8 @@ impl Session {
 			}
 		};
 		let (data, metadata) = future::join(data_future, metadata_future).boxed().await;
-		let data = data?;
+		let (mut data, requires_existence_check) = data?;
+		data.remove_tokens();
 		let location = self.server.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {
@@ -172,6 +200,24 @@ impl Session {
 			location: Some(location),
 			metadata,
 		};
+		let output = LocalOutput {
+			output,
+			requires_existence_check,
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn get_process_local(
+		&self,
+		id: &tg::process::Id,
+		metadata: bool,
+	) -> tg::Result<tg::process::get::Output> {
+		let output = self
+			.get_process_local_with_existence(id, metadata)
+			.await?
+			.output;
+
 		Ok(output)
 	}
 

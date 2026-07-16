@@ -192,9 +192,7 @@ pub trait Handle:
 					},
 					tg::progress::Event::Output(output) => output
 						.map(|output| tg::progress::Event::Output(output.referent))
-						.ok_or_else(
-							|| tg::error!(item = %reference.item(), "failed to get the reference"),
-						),
+						.ok_or_else(|| tg::error!(%reference, "failed to get the reference")),
 				})
 			});
 			Ok(stream)

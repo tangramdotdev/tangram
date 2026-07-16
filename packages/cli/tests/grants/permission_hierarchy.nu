@@ -24,7 +24,7 @@ tg --token $dave.token group create team/dave-sub
 # Write does not imply admin, so a write user cannot list grants.
 let dave_output = tg --token $dave.token grants list --resource team | complete
 failure $dave_output "write permission should not allow listing grants"
-snapshot ($dave_output.stderr | redact) '
+snapshot --normalize $dave_output.stderr '
 	error an error occurred
 	-> failed to list the grants
 	-> the request failed
@@ -38,7 +38,7 @@ tg --token $alice.token grant $carol.user.id read team
 tg --token $carol.token group get team
 let carol_write = tg --token $carol.token group create team/carol-sub | complete
 failure $carol_write "read permission should not allow creating a subgroup"
-snapshot ($carol_write.stderr | redact) '
+snapshot --normalize $carol_write.stderr '
 	error an error occurred
 	-> failed to create the group
 	   specifier = team/carol-sub
@@ -50,7 +50,7 @@ snapshot ($carol_write.stderr | redact) '
 # Read does not imply admin, so a read user cannot list grants.
 let carol_output = tg --token $carol.token grants list --resource team | complete
 failure $carol_output "read permission should not allow listing grants"
-snapshot ($carol_output.stderr | redact) '
+snapshot --normalize $carol_output.stderr '
 	error an error occurred
 	-> failed to list the grants
 	-> the request failed

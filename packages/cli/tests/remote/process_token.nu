@@ -37,7 +37,7 @@ assert equal $remote.url $alice_remote.url
 # Putting a remote with a process token is unauthorized.
 let output = tg --token $token remote put upstream "http://localhost:9999" | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to put the remote
 	   name = upstream

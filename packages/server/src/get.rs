@@ -369,9 +369,10 @@ impl Session {
 			.unwrap_or_default();
 		let reference = tg::Reference::with_item_and_options(item, arg.options.clone());
 
-		let stream = self.try_get(&reference, arg).await.map_err(
-			|error| tg::error!(!error, item = %reference.item(), "failed to get the reference"),
-		)?;
+		let stream = self
+			.try_get(&reference, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()
