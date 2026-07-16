@@ -80,6 +80,12 @@ struct ArtifactInfo {
 	id: tg::artifact::Id,
 }
 
+struct UnpublishedNodes<'a> {
+	committed: bool,
+	ids: Vec<u64>,
+	provider: &'a Provider,
+}
+
 pub struct FileHandle {
 	blob: tg::blob::Id,
 }
@@ -1058,10 +1064,15 @@ impl Provider {
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let mut entries = Vec::new();
+		let mut publications = UnpublishedNodes::new(self);
 		let mut size = 0;
-		for entry in directory.entries.iter().skip(offset.to_usize().unwrap()) {
+		for entry in directory
+			.entries
+			.iter()
+			.skip(offset.to_usize().unwrap_or(usize::MAX))
+		{
 			let entry_size = Self::readdirplus_entry_size(entry.name.len());
-			if entry_size + size > length.to_usize().unwrap() {
+			if entry_size.saturating_add(size) > length.to_usize().unwrap_or(usize::MAX) {
 				break;
 			}
 			let (node, attrs) = if let Some(artifact) = &entry.artifact {
@@ -1080,10 +1091,11 @@ impl Provider {
 			} else {
 				(entry.node, self.getattr(entry.node).await?)
 			};
-			size += entry_size;
+			publications.push(node);
+			size = size.saturating_add(entry_size);
 			entries.push((entry.name.clone(), node, attrs));
 		}
-		self.remember_readdirplus_entries(&entries)?;
+		publications.commit()?;
 
 		Ok(entries)
 	}
@@ -1147,10 +1159,15 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let mut entries = Vec::new();
+		let mut publications = UnpublishedNodes::new(self);
 		let mut size = 0;
-		for entry in directory.entries.iter().skip(offset.to_usize().unwrap()) {
+		for entry in directory
+			.entries
+			.iter()
+			.skip(offset.to_usize().unwrap_or(usize::MAX))
+		{
 			let entry_size = Self::readdirplus_entry_size(entry.name.len());
-			if entry_size + size > length.to_usize().unwrap() {
+			if entry_size.saturating_add(size) > length.to_usize().unwrap_or(usize::MAX) {
 				break;
 			}
 			let (node, attrs) = if let Some(artifact) = &entry.artifact {
@@ -1174,10 +1191,11 @@ impl Provider {
 					self.getattr_sync_inner(entry.node, transaction)?,
 				)
 			};
-			size += entry_size;
+			publications.push(node);
+			size = size.saturating_add(entry_size);
 			entries.push((entry.name.clone(), node, attrs));
 		}
-		self.remember_readdirplus_entries(&entries)?;
+		publications.commit()?;
 
 		Ok(entries)
 	}
@@ -2160,14 +2178,6 @@ impl Provider {
 		}
 	}
 
-	fn remember_readdirplus_entries(
-		&self,
-		entries: &[(String, u64, vfs::Attrs)],
-	) -> std::io::Result<()> {
-		self.nodes
-			.remember_many(entries.iter().map(|(_, id, _)| *id))
-	}
-
 	fn readdir_entry_size(name_len: usize) -> usize {
 		let padding = (8 - (FUSE_DIRENT_HEADER_SIZE + name_len) % 8) % 8;
 		FUSE_DIRENT_HEADER_SIZE + name_len + padding
@@ -2196,6 +2206,42 @@ impl DirectorySnapshot {
 		}
 
 		weight
+	}
+}
+
+impl<'a> UnpublishedNodes<'a> {
+	fn new(provider: &'a Provider) -> Self {
+		Self {
+			committed: false,
+			ids: Vec::new(),
+			provider,
+		}
+	}
+
+	fn push(&mut self, id: u64) {
+		self.ids.push(id);
+	}
+
+	fn commit(mut self) -> std::io::Result<()> {
+		self.provider
+			.nodes
+			.remember_many(self.ids.iter().copied())?;
+		self.committed = true;
+
+		Ok(())
+	}
+}
+
+impl Drop for UnpublishedNodes<'_> {
+	fn drop(&mut self) {
+		if self.committed {
+			return;
+		}
+		let removed = self.provider.nodes.prune_unpublished(&self.ids);
+		let mut cache = self.provider.directory_snapshots.lock().unwrap();
+		for id in removed {
+			cache.remove(&id);
+		}
 	}
 }
 
@@ -2344,6 +2390,22 @@ impl Nodes {
 		}
 
 		Ok(())
+	}
+
+	fn prune_unpublished(&self, ids: &[u64]) -> Vec<u64> {
+		let mut state = self.state.lock().unwrap();
+		let mut removed = Vec::new();
+		for &id in ids.iter().rev() {
+			let should_prune = state
+				.nodes
+				.get(&id)
+				.is_some_and(|node| node.lookup_count == 0 && node.children.is_empty());
+			if should_prune {
+				Self::prune(&mut state, id, &mut removed);
+			}
+		}
+
+		removed
 	}
 
 	fn forget(&self, id: u64, nlookup: u64) -> Vec<u64> {
@@ -2665,6 +2727,43 @@ mod tests {
 		let entries = Provider::read_directory_snapshot(&snapshot, 1, 32);
 		assert_eq!(entries.len(), 1);
 		assert_eq!(entries[0].0, "b");
+	}
+
+	#[test]
+	fn unpublished_nodes_are_pruned_without_touching_published_nodes() {
+		let nodes = Nodes::new();
+		let unpublished = 1000;
+		let published = 1001;
+		let mut state = nodes.state.lock().unwrap();
+		for (id, lookup_count, name) in
+			[(unpublished, 0, "unpublished"), (published, 1, "published")]
+		{
+			state.nodes.insert(
+				id,
+				Node {
+					artifact: None,
+					attrs: None,
+					children: BTreeMap::new(),
+					depth: 1,
+					lookup_count,
+					name: Some(name.to_owned()),
+					parent: vfs::ROOT_NODE_ID,
+				},
+			);
+			state
+				.nodes
+				.get_mut(&vfs::ROOT_NODE_ID)
+				.unwrap()
+				.children
+				.insert(name.to_owned(), id);
+		}
+		drop(state);
+
+		let removed = nodes.prune_unpublished(&[unpublished, published]);
+		assert_eq!(removed, vec![unpublished]);
+		let state = nodes.state.lock().unwrap();
+		assert!(!state.nodes.contains_key(&unpublished));
+		assert!(state.nodes.contains_key(&published));
 	}
 
 	#[test]
