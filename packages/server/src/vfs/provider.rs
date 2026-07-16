@@ -24,6 +24,7 @@ use {
 
 pub struct Provider {
 	directory_handles: DashMap<u64, DirectorySnapshot, fnv::FnvBuildHasher>,
+	directory_snapshot_loads: DashMap<u64, Arc<tokio::sync::Mutex<()>>, fnv::FnvBuildHasher>,
 	directory_snapshots: Mutex<vfs::cache::WeightedLruCache<u64, DirectorySnapshot>>,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	handle_count: AtomicU64,
@@ -33,9 +34,11 @@ pub struct Provider {
 
 #[derive(Clone)]
 struct DirectorySnapshot {
+	artifact: Option<ArtifactInfo>,
 	depth: u64,
-	entries: Arc<[DirectorySnapshotEntry]>,
+	entries: Option<Arc<[DirectorySnapshotEntry]>>,
 	node: u64,
+	parent: u64,
 }
 
 #[derive(Clone)]
@@ -86,6 +89,12 @@ struct PendingNodes<'a> {
 	provider: &'a Provider,
 }
 
+struct SnapshotLoad<'a> {
+	id: u64,
+	loads: &'a DashMap<u64, Arc<tokio::sync::Mutex<()>>, fnv::FnvBuildHasher>,
+	mutex: Arc<tokio::sync::Mutex<()>>,
+}
+
 pub struct FileHandle {
 	blob: tg::blob::Id,
 }
@@ -98,7 +107,9 @@ type Transaction<'a> = ();
 const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 const FUSE_DIRENT_PLUS_HEADER_SIZE: usize = 152;
 const DIRECTORY_SNAPSHOT_CACHE_CAPACITY: usize = 64 * 1024 * 1024;
-const DIRECTORY_SNAPSHOT_CACHE_ENTRY_OVERHEAD: usize = 256;
+const DIRECTORY_SNAPSHOT_ENTRY_OVERHEAD: usize = 256;
+const DIRECTORY_SNAPSHOT_OVERHEAD: usize = 256;
+const DIRECTORY_SNAPSHOT_READ_ENTRY_LIMIT: usize = 65_536;
 
 impl Provider {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
@@ -107,6 +118,7 @@ impl Provider {
 
 		// Create the provider.
 		let directory_handles = DashMap::default();
+		let directory_snapshot_loads = DashMap::default();
 		let directory_snapshots = Mutex::new(vfs::cache::WeightedLruCache::new(
 			DIRECTORY_SNAPSHOT_CACHE_CAPACITY,
 		));
@@ -115,6 +127,7 @@ impl Provider {
 		let server = server.clone();
 		let provider = Self {
 			directory_handles,
+			directory_snapshot_loads,
 			directory_snapshots,
 			file_handles,
 			handle_count,
@@ -758,7 +771,7 @@ impl Provider {
 
 	pub async fn opendir(&self, id: u64) -> std::io::Result<u64> {
 		let snapshot = self.directory_snapshot(id).await?;
-		let handle = self.insert_directory_handle(snapshot);
+		let handle = self.insert_directory_handle(&snapshot);
 
 		Ok(handle)
 	}
@@ -773,12 +786,17 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<u64> {
 		let snapshot = self.directory_snapshot_sync_inner(id, transaction)?;
-		let handle = self.insert_directory_handle(snapshot);
+		let handle = self.insert_directory_handle(&snapshot);
 
 		Ok(handle)
 	}
 
 	async fn directory_snapshot(&self, id: u64) -> std::io::Result<DirectorySnapshot> {
+		if let Some(snapshot) = self.directory_snapshots.lock().unwrap().get(&id) {
+			return Ok(snapshot);
+		}
+		let load = SnapshotLoad::new(&self.directory_snapshot_loads, id);
+		let _guard = load.mutex.clone().lock_owned().await;
 		if let Some(snapshot) = self.directory_snapshots.lock().unwrap().get(&id) {
 			return Ok(snapshot);
 		}
@@ -790,17 +808,26 @@ impl Provider {
 			parent,
 			..
 		} = self.get(id).await?;
-		let entries = match artifact {
+		let entries = match &artifact {
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
-				Some(self.directory_entries_inner(&artifact, None).await?)
+				if self.should_page_directory_inner(artifact).await? {
+					None
+				} else {
+					Some(self.directory_entries_inner(artifact, None).await?)
+				}
 			},
 			Some(_) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
-			None => None,
+			None => Some(BTreeMap::new()),
 		};
-		let snapshot = Self::create_directory_snapshot(id, parent, depth, entries);
+		let snapshot = Self::create_directory_snapshot(id, parent, depth, artifact, entries);
+		let snapshot = if snapshot.weight() > DIRECTORY_SNAPSHOT_CACHE_CAPACITY {
+			snapshot.paged()
+		} else {
+			snapshot
+		};
 		let weight = snapshot.weight();
 		let snapshot = self
 			.directory_snapshots
@@ -819,6 +846,11 @@ impl Provider {
 		if let Some(snapshot) = self.directory_snapshots.lock().unwrap().get(&id) {
 			return Ok(snapshot);
 		}
+		let load = SnapshotLoad::new(&self.directory_snapshot_loads, id);
+		let _guard = futures::executor::block_on(load.mutex.clone().lock_owned());
+		if let Some(snapshot) = self.directory_snapshots.lock().unwrap().get(&id) {
+			return Ok(snapshot);
+		}
 
 		// Get the node.
 		let NodeInfo {
@@ -827,17 +859,26 @@ impl Provider {
 			parent,
 			..
 		} = self.get_sync(id)?;
-		let entries = match artifact {
+		let entries = match &artifact {
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
-				Some(self.directory_entries_sync_inner(&artifact, None, transaction)?)
+				if self.should_page_directory_sync_inner(artifact, transaction)? {
+					None
+				} else {
+					Some(self.directory_entries_sync_inner(artifact, None, transaction)?)
+				}
 			},
 			Some(_) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
-			None => None,
+			None => Some(BTreeMap::new()),
 		};
-		let snapshot = Self::create_directory_snapshot(id, parent, depth, entries);
+		let snapshot = Self::create_directory_snapshot(id, parent, depth, artifact, entries);
+		let snapshot = if snapshot.weight() > DIRECTORY_SNAPSHOT_CACHE_CAPACITY {
+			snapshot.paged()
+		} else {
+			snapshot
+		};
 		let weight = snapshot.weight();
 		let snapshot = self
 			.directory_snapshots
@@ -852,9 +893,10 @@ impl Provider {
 		node: u64,
 		parent: u64,
 		depth: u64,
+		artifact: Option<ArtifactInfo>,
 		entries: Option<BTreeMap<String, ArtifactInfo>>,
 	) -> DirectorySnapshot {
-		let entries = entries.map_or_else(Vec::new, |entries| {
+		let entries = entries.map(|entries| {
 			let mut snapshot = Vec::with_capacity(entries.len() + 2);
 			snapshot.push(DirectorySnapshotEntry {
 				artifact: None,
@@ -879,17 +921,79 @@ impl Provider {
 			}
 			snapshot
 		});
-		let entries = Arc::from(entries);
+		let entries = entries.map(Arc::from);
 
 		DirectorySnapshot {
+			artifact,
 			depth,
 			entries,
 			node,
+			parent,
 		}
 	}
 
-	fn insert_directory_handle(&self, snapshot: DirectorySnapshot) -> u64 {
+	async fn should_page_directory_inner(&self, artifact: &ArtifactInfo) -> std::io::Result<bool> {
+		let (directory, _) = self.directory_node_inner(artifact).await?;
+
+		Ok(Self::directory_requires_paging(&directory))
+	}
+
+	fn should_page_directory_sync_inner(
+		&self,
+		artifact: &ArtifactInfo,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<bool> {
+		let (directory, _) = self.directory_node_sync_inner(artifact, transaction)?;
+
+		Ok(Self::directory_requires_paging(&directory))
+	}
+
+	fn directory_requires_paging(directory: &tg::graph::data::Directory) -> bool {
+		let count = match directory {
+			tg::graph::data::Directory::Branch(branch) => branch
+				.children
+				.iter()
+				.fold(0u64, |count, child| count.saturating_add(child.count)),
+			tg::graph::data::Directory::Leaf(leaf) => leaf.entries.len().to_u64().unwrap(),
+		};
+		let entry_weight = std::mem::size_of::<DirectorySnapshotEntry>()
+			.saturating_add(DIRECTORY_SNAPSHOT_ENTRY_OVERHEAD)
+			.saturating_add(libc::NAME_MAX.to_usize().unwrap());
+		let estimated_weight = count
+			.to_usize()
+			.unwrap_or(usize::MAX)
+			.saturating_mul(entry_weight)
+			.saturating_add(DIRECTORY_SNAPSHOT_OVERHEAD);
+
+		estimated_weight > DIRECTORY_SNAPSHOT_CACHE_CAPACITY
+	}
+
+	fn directory_children_range(
+		children: Vec<tg::graph::data::DirectoryChild>,
+		mut offset: u64,
+		mut limit: u64,
+	) -> Vec<(tg::graph::data::Edge<tg::directory::Id>, u64)> {
+		let mut output = Vec::new();
+		for child in children {
+			if offset >= child.count {
+				offset -= child.count;
+				continue;
+			}
+			let count = child.count.saturating_sub(offset);
+			output.push((child.directory, offset));
+			if count >= limit {
+				break;
+			}
+			limit -= count;
+			offset = 0;
+		}
+
+		output
+	}
+
+	fn insert_directory_handle(&self, snapshot: &DirectorySnapshot) -> u64 {
 		let handle = self.handle_count.fetch_add(1, Ordering::Relaxed);
+		let snapshot = snapshot.paged();
 		self.directory_handles.insert(handle, snapshot);
 
 		handle
@@ -978,7 +1082,10 @@ impl Provider {
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
-		self.readdir_sync(handle, offset, length)
+		let snapshot = self.directory_handle(handle)?;
+
+		self.read_directory_snapshot(&snapshot, offset, length)
+			.await
 	}
 
 	pub fn readdir_sync(
@@ -989,7 +1096,7 @@ impl Provider {
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let snapshot = self.directory_handle(handle)?;
 
-		Ok(Self::read_directory_snapshot(&snapshot, offset, length))
+		self.read_directory_snapshot_sync_inner(&snapshot, offset, length, None)
 	}
 
 	pub async fn readdir_node(
@@ -1000,7 +1107,8 @@ impl Provider {
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let snapshot = self.directory_snapshot(id).await?;
 
-		Ok(Self::read_directory_snapshot(&snapshot, offset, length))
+		self.read_directory_snapshot(&snapshot, offset, length)
+			.await
 	}
 
 	pub fn readdir_node_sync(
@@ -1030,30 +1138,131 @@ impl Provider {
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let snapshot = self.directory_snapshot_sync_inner(id, transaction)?;
 
-		Ok(Self::read_directory_snapshot(&snapshot, offset, length))
+		self.read_directory_snapshot_sync_inner(&snapshot, offset, length, transaction)
 	}
 
-	fn read_directory_snapshot(
+	async fn read_directory_snapshot(
+		&self,
 		snapshot: &DirectorySnapshot,
 		offset: u64,
 		length: u64,
-	) -> Vec<(String, u64, vfs::EntryKind)> {
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		let limit = Self::directory_snapshot_entry_limit(length, FUSE_DIRENT_HEADER_SIZE);
+		let snapshot_entries = self
+			.directory_snapshot_entries_inner(snapshot, offset, limit)
+			.await?;
 		let mut entries = Vec::new();
 		let mut size = 0;
-		for entry in snapshot
-			.entries
-			.iter()
-			.skip(offset.to_usize().unwrap_or(usize::MAX))
-		{
+		for entry in snapshot_entries {
 			let entry_size = Self::readdir_entry_size(entry.name.len());
 			if entry_size.saturating_add(size) > length.to_usize().unwrap_or(usize::MAX) {
 				break;
 			}
 			size = size.saturating_add(entry_size);
-			entries.push((entry.name.clone(), entry.node, entry.kind));
+			entries.push((entry.name, entry.node, entry.kind));
 		}
 
-		entries
+		Ok(entries)
+	}
+
+	fn read_directory_snapshot_sync_inner(
+		&self,
+		snapshot: &DirectorySnapshot,
+		offset: u64,
+		length: u64,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		let limit = Self::directory_snapshot_entry_limit(length, FUSE_DIRENT_HEADER_SIZE);
+		let snapshot_entries =
+			self.directory_snapshot_entries_sync_inner(snapshot, offset, limit, transaction)?;
+		let mut entries = Vec::new();
+		let mut size = 0;
+		for entry in snapshot_entries {
+			let entry_size = Self::readdir_entry_size(entry.name.len());
+			if entry_size.saturating_add(size) > length.to_usize().unwrap_or(usize::MAX) {
+				break;
+			}
+			size = size.saturating_add(entry_size);
+			entries.push((entry.name, entry.node, entry.kind));
+		}
+
+		Ok(entries)
+	}
+
+	async fn directory_snapshot_entries_inner(
+		&self,
+		snapshot: &DirectorySnapshot,
+		offset: u64,
+		limit: usize,
+	) -> std::io::Result<Vec<DirectorySnapshotEntry>> {
+		if let Some(entries) = &snapshot.entries {
+			let entries = entries
+				.iter()
+				.skip(offset.to_usize().unwrap_or(usize::MAX))
+				.take(limit)
+				.cloned()
+				.collect();
+
+			return Ok(entries);
+		}
+		let Some(artifact) = &snapshot.artifact else {
+			return Ok(Vec::new());
+		};
+		let mut entries = snapshot.virtual_entries(offset, limit);
+		let offset = offset.saturating_sub(2);
+		let limit = limit.saturating_sub(entries.len());
+		let artifact_entries = self
+			.directory_entries_range_inner(artifact, None, offset, limit)
+			.await?;
+		entries.extend(artifact_entries.into_iter().map(|(name, artifact)| {
+			let kind = Self::entry_kind_from_artifact(&artifact);
+			DirectorySnapshotEntry {
+				artifact: Some(artifact),
+				kind,
+				name,
+				node: 0,
+			}
+		}));
+
+		Ok(entries)
+	}
+
+	fn directory_snapshot_entries_sync_inner(
+		&self,
+		snapshot: &DirectorySnapshot,
+		offset: u64,
+		limit: usize,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Vec<DirectorySnapshotEntry>> {
+		if let Some(entries) = &snapshot.entries {
+			let entries = entries
+				.iter()
+				.skip(offset.to_usize().unwrap_or(usize::MAX))
+				.take(limit)
+				.cloned()
+				.collect();
+
+			return Ok(entries);
+		}
+		let Some(artifact) = &snapshot.artifact else {
+			return Ok(Vec::new());
+		};
+		let mut entries = snapshot.virtual_entries(offset, limit);
+		let offset = offset.saturating_sub(2);
+		let limit = limit.saturating_sub(entries.len());
+		let artifact_entries =
+			self.directory_entries_range_sync_inner(artifact, None, offset, limit, transaction)?;
+		entries.extend(artifact_entries.into_iter().map(|(name, artifact)| {
+			let kind = Self::entry_kind_from_artifact(&artifact);
+			DirectorySnapshotEntry {
+				artifact: Some(artifact),
+				kind,
+				name,
+				node: 0,
+			}
+		}));
+
+		Ok(entries)
 	}
 
 	pub async fn readdirplus(
@@ -1084,14 +1293,14 @@ impl Provider {
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let limit = Self::directory_snapshot_entry_limit(length, FUSE_DIRENT_PLUS_HEADER_SIZE);
+		let snapshot_entries = self
+			.directory_snapshot_entries_inner(directory, offset, limit)
+			.await?;
 		let mut entries = Vec::new();
 		let mut pending = PendingNodes::new(self);
 		let mut size = 0;
-		for entry in directory
-			.entries
-			.iter()
-			.skip(offset.to_usize().unwrap_or(usize::MAX))
-		{
+		for entry in snapshot_entries {
 			let entry_size = Self::readdirplus_entry_size(entry.name.len());
 			if entry_size.saturating_add(size) > length.to_usize().unwrap_or(usize::MAX) {
 				break;
@@ -1115,7 +1324,7 @@ impl Provider {
 				(entry.node, self.getattr(entry.node).await?)
 			};
 			size = size.saturating_add(entry_size);
-			entries.push((entry.name.clone(), node, attrs));
+			entries.push((entry.name, node, attrs));
 		}
 		pending.commit();
 
@@ -1180,14 +1389,13 @@ impl Provider {
 		length: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let limit = Self::directory_snapshot_entry_limit(length, FUSE_DIRENT_PLUS_HEADER_SIZE);
+		let snapshot_entries =
+			self.directory_snapshot_entries_sync_inner(directory, offset, limit, transaction)?;
 		let mut entries = Vec::new();
 		let mut pending = PendingNodes::new(self);
 		let mut size = 0;
-		for entry in directory
-			.entries
-			.iter()
-			.skip(offset.to_usize().unwrap_or(usize::MAX))
-		{
+		for entry in snapshot_entries {
 			let entry_size = Self::readdirplus_entry_size(entry.name.len());
 			if entry_size.saturating_add(size) > length.to_usize().unwrap_or(usize::MAX) {
 				break;
@@ -1216,7 +1424,7 @@ impl Provider {
 				)
 			};
 			size = size.saturating_add(entry_size);
-			entries.push((entry.name.clone(), node, attrs));
+			entries.push((entry.name, node, attrs));
 		}
 		pending.commit();
 
@@ -1464,6 +1672,48 @@ impl Provider {
 				},
 			}
 		}
+		Ok(entries)
+	}
+
+	async fn directory_entries_range_inner(
+		&self,
+		directory: &ArtifactInfo,
+		default_graph: Option<&tg::graph::Id>,
+		offset: u64,
+		limit: usize,
+	) -> std::io::Result<Vec<(String, ArtifactInfo)>> {
+		let mut entries = Vec::new();
+		let mut stack = vec![(directory.clone(), default_graph.cloned(), offset)];
+		while entries.len() < limit {
+			let Some((directory, default_graph, offset)) = stack.pop() else {
+				break;
+			};
+			let (directory, graph) = self.directory_node_inner(&directory).await?;
+			let graph = graph.or(default_graph);
+			match directory {
+				tg::graph::data::Directory::Leaf(leaf) => {
+					let offset = offset.to_usize().unwrap_or(usize::MAX);
+					let limit = limit.saturating_sub(entries.len());
+					for (name, edge) in leaf.entries.into_iter().skip(offset).take(limit) {
+						let artifact = Self::artifact_from_edge_inner(edge, graph.as_ref())?;
+						entries.push((name, artifact));
+					}
+				},
+				tg::graph::data::Directory::Branch(branch) => {
+					let limit = limit.saturating_sub(entries.len()).to_u64().unwrap();
+					let mut children = Vec::new();
+					for (directory, offset) in
+						Self::directory_children_range(branch.children, offset, limit)
+					{
+						let artifact =
+							Self::artifact_from_directory_edge_inner(directory, graph.as_ref())?;
+						children.push((artifact, graph.clone(), offset));
+					}
+					stack.extend(children.into_iter().rev());
+				},
+			}
+		}
+
 		Ok(entries)
 	}
 
@@ -2011,6 +2261,49 @@ impl Provider {
 		Ok(entries)
 	}
 
+	fn directory_entries_range_sync_inner(
+		&self,
+		directory: &ArtifactInfo,
+		default_graph: Option<&tg::graph::Id>,
+		offset: u64,
+		limit: usize,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Vec<(String, ArtifactInfo)>> {
+		let mut entries = Vec::new();
+		let mut stack = vec![(directory.clone(), default_graph.cloned(), offset)];
+		while entries.len() < limit {
+			let Some((directory, default_graph, offset)) = stack.pop() else {
+				break;
+			};
+			let (directory, graph) = self.directory_node_sync_inner(&directory, transaction)?;
+			let graph = graph.or(default_graph);
+			match directory {
+				tg::graph::data::Directory::Leaf(leaf) => {
+					let offset = offset.to_usize().unwrap_or(usize::MAX);
+					let limit = limit.saturating_sub(entries.len());
+					for (name, edge) in leaf.entries.into_iter().skip(offset).take(limit) {
+						let artifact = Self::artifact_from_edge_inner(edge, graph.as_ref())?;
+						entries.push((name, artifact));
+					}
+				},
+				tg::graph::data::Directory::Branch(branch) => {
+					let limit = limit.saturating_sub(entries.len()).to_u64().unwrap();
+					let mut children = Vec::new();
+					for (directory, offset) in
+						Self::directory_children_range(branch.children, offset, limit)
+					{
+						let artifact =
+							Self::artifact_from_directory_edge_inner(directory, graph.as_ref())?;
+						children.push((artifact, graph.clone(), offset));
+					}
+					stack.extend(children.into_iter().rev());
+				},
+			}
+		}
+
+		Ok(entries)
+	}
+
 	fn directory_lookup_entry_sync_inner(
 		&self,
 		directory: &ArtifactInfo,
@@ -2210,25 +2503,98 @@ impl Provider {
 		let padding = (8 - (FUSE_DIRENT_PLUS_HEADER_SIZE + name_len) % 8) % 8;
 		FUSE_DIRENT_PLUS_HEADER_SIZE + name_len + padding
 	}
+
+	fn directory_snapshot_entry_limit(length: u64, header_size: usize) -> usize {
+		length
+			.to_usize()
+			.unwrap_or(usize::MAX)
+			.checked_div(header_size)
+			.unwrap()
+			.min(DIRECTORY_SNAPSHOT_READ_ENTRY_LIMIT)
+	}
 }
 
 impl DirectorySnapshot {
+	fn paged(&self) -> Self {
+		if self.artifact.is_none() || self.entries.is_none() {
+			return self.clone();
+		}
+		Self {
+			artifact: self.artifact.clone(),
+			depth: self.depth,
+			entries: None,
+			node: self.node,
+			parent: self.parent,
+		}
+	}
+
+	fn virtual_entries(&self, offset: u64, limit: usize) -> Vec<DirectorySnapshotEntry> {
+		let entries = [
+			DirectorySnapshotEntry {
+				artifact: None,
+				kind: vfs::EntryKind::Directory,
+				name: ".".to_owned(),
+				node: self.node,
+			},
+			DirectorySnapshotEntry {
+				artifact: None,
+				kind: vfs::EntryKind::Directory,
+				name: "..".to_owned(),
+				node: self.parent,
+			},
+		];
+
+		entries
+			.into_iter()
+			.skip(offset.to_usize().unwrap_or(usize::MAX))
+			.take(limit)
+			.collect()
+	}
+
 	fn weight(&self) -> usize {
-		let mut weight = DIRECTORY_SNAPSHOT_CACHE_ENTRY_OVERHEAD
-			.saturating_add(std::mem::size_of::<Self>())
-			.saturating_add(std::mem::size_of_val(self.entries.as_ref()));
-		for entry in self.entries.iter() {
+		let mut weight = DIRECTORY_SNAPSHOT_OVERHEAD.saturating_add(std::mem::size_of::<Self>());
+		let Some(entries) = &self.entries else {
+			return weight;
+		};
+		weight = weight.saturating_add(std::mem::size_of_val(entries.as_ref()));
+		for entry in entries.iter() {
 			weight = weight.saturating_add(entry.name.capacity());
 			let data_length = entry
 				.artifact
 				.as_ref()
 				.and_then(|artifact| artifact.data.as_ref())
-				.and_then(|data| data.serialize().ok())
-				.map_or(0, |data| data.len());
-			weight = weight.saturating_add(data_length);
+				.map_or(0, |data| {
+					data.serialize()
+						.map_or(DIRECTORY_SNAPSHOT_CACHE_CAPACITY, |data| data.len())
+				});
+			weight = weight
+				.saturating_add(DIRECTORY_SNAPSHOT_ENTRY_OVERHEAD)
+				.saturating_add(data_length);
 		}
 
 		weight
+	}
+}
+
+impl<'a> SnapshotLoad<'a> {
+	fn new(
+		loads: &'a DashMap<u64, Arc<tokio::sync::Mutex<()>>, fnv::FnvBuildHasher>,
+		id: u64,
+	) -> Self {
+		let mutex = loads
+			.entry(id)
+			.or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+			.clone();
+
+		Self { id, loads, mutex }
+	}
+}
+
+impl Drop for SnapshotLoad<'_> {
+	fn drop(&mut self) {
+		self.loads.remove_if(&self.id, |_, mutex| {
+			Arc::ptr_eq(mutex, &self.mutex) && Arc::strong_count(mutex) == 2
+		});
 	}
 }
 
@@ -2706,7 +3072,7 @@ mod tests {
 	};
 
 	#[test]
-	fn directory_snapshots_are_paged_before_cloning() {
+	fn directory_snapshots_discard_entries_for_handles() {
 		let entries = ["a", "b", "c"].map(|name| DirectorySnapshotEntry {
 			artifact: None,
 			kind: vfs::EntryKind::File,
@@ -2714,14 +3080,73 @@ mod tests {
 			node: 0,
 		});
 		let snapshot = DirectorySnapshot {
+			artifact: Some(ArtifactInfo {
+				data: None,
+				id: tg::directory::Id::new(b"directory").into(),
+			}),
 			depth: 0,
-			entries: Arc::from(entries),
+			entries: Some(Arc::from(entries)),
 			node: vfs::ROOT_NODE_ID,
+			parent: vfs::ROOT_NODE_ID,
 		};
 
-		let entries = Provider::read_directory_snapshot(&snapshot, 1, 32);
-		assert_eq!(entries.len(), 1);
-		assert_eq!(entries[0].0, "b");
+		let snapshot = snapshot.paged();
+		assert!(snapshot.entries.is_none());
+		let entries = snapshot.virtual_entries(1, 1);
+		assert_eq!(entries[0].name, "..");
+	}
+
+	#[test]
+	fn directory_snapshot_loads_are_removed_after_the_last_user() {
+		let loads = DashMap::default();
+		let first = SnapshotLoad::new(&loads, 1);
+		let second = SnapshotLoad::new(&loads, 1);
+		assert!(Arc::ptr_eq(&first.mutex, &second.mutex));
+		drop(first);
+		assert!(loads.contains_key(&1));
+		drop(second);
+		assert!(loads.is_empty());
+	}
+
+	#[test]
+	fn directory_branch_ranges_cross_child_boundaries() {
+		let children = [3, 4, 5]
+			.into_iter()
+			.enumerate()
+			.map(|(index, count)| tg::graph::data::DirectoryChild {
+				count,
+				directory: tg::graph::data::Edge::Object(tg::directory::Id::new(&[index
+					.to_u8()
+					.unwrap()])),
+				last: index.to_string(),
+			})
+			.collect();
+
+		let children = Provider::directory_children_range(children, 2, 6);
+		let offsets = children
+			.into_iter()
+			.map(|(_, offset)| offset)
+			.collect::<Vec<_>>();
+		assert_eq!(offsets, vec![2, 0, 0]);
+	}
+
+	#[test]
+	fn large_directory_branches_are_paged() {
+		let entry_weight = std::mem::size_of::<DirectorySnapshotEntry>()
+			+ DIRECTORY_SNAPSHOT_ENTRY_OVERHEAD
+			+ libc::NAME_MAX.to_usize().unwrap();
+		let count = (DIRECTORY_SNAPSHOT_CACHE_CAPACITY / entry_weight + 1)
+			.to_u64()
+			.unwrap();
+		let directory = tg::graph::data::Directory::Branch(tg::graph::data::DirectoryBranch {
+			children: vec![tg::graph::data::DirectoryChild {
+				count,
+				directory: tg::graph::data::Edge::Object(tg::directory::Id::new(b"directory")),
+				last: "z".to_owned(),
+			}],
+		});
+
+		assert!(Provider::directory_requires_paging(&directory));
 	}
 
 	#[test]

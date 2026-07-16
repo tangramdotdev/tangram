@@ -1374,31 +1374,6 @@ where
 		if arg.cookie != 0 && arg.cookieverf != cookieverf {
 			return READDIR4res::Error(nfsstat4::NFS4ERR_NOT_SAME);
 		}
-		let handle = match self.provider.opendir(fh.0).await {
-			Ok(handle) => handle,
-			Err(error) => return READDIR4res::Error(error.into()),
-		};
-		let entries = self.provider.readdir(handle, 0, u64::MAX).await;
-		self.provider.close(handle).await;
-		let entries = match entries {
-			Ok(entries) => entries,
-			Err(error) => return READDIR4res::Error(error.into()),
-		};
-		let entries = entries
-			.into_iter()
-			.filter(|(name, _, _)| !matches!(name.as_str(), "." | ".."))
-			.collect::<Vec<_>>();
-		let start = if arg.cookie == 0 {
-			0
-		} else {
-			let Ok(start) = usize::try_from(arg.cookie - 2) else {
-				return READDIR4res::Error(nfsstat4::NFS4ERR_BAD_COOKIE);
-			};
-			if start > entries.len() {
-				return READDIR4res::Error(nfsstat4::NFS4ERR_BAD_COOKIE);
-			}
-			start
-		};
 		let maxcount = arg
 			.maxcount
 			.to_usize()
@@ -1409,10 +1384,32 @@ where
 		if encoded_size > maxcount {
 			return READDIR4res::Error(nfsstat4::NFS4ERR_TOOSMALL);
 		}
+		let provider_offset = if arg.cookie == 0 { 2 } else { arg.cookie };
+		let provider_length = maxcount.saturating_add(288).to_u64().unwrap();
+		let handle = match self.provider.opendir(fh.0).await {
+			Ok(handle) => handle,
+			Err(error) => return READDIR4res::Error(error.into()),
+		};
+		let entries = self
+			.provider
+			.readdir(handle, provider_offset, provider_length)
+			.await;
+		self.provider.close(handle).await;
+		let entries = match entries {
+			Ok(entries) => entries,
+			Err(error) => return READDIR4res::Error(error.into()),
+		};
+		let entries_encoded_size = entries.iter().fold(0usize, |size, (name, _, _)| {
+			let entry_size = 24usize.saturating_add(name.len());
+			let padding = (8 - entry_size % 8) % 8;
+			size.saturating_add(entry_size).saturating_add(padding)
+		});
+		let provider_eof = entries_encoded_size < provider_length.to_usize().unwrap();
+		let entries_len = entries.len();
 		let mut directory_size: usize = 4;
 		let mut reply = Vec::with_capacity(entries.len());
 		let attr_request = arg.attr_request;
-		let mut entry_stream = stream::iter(entries.iter().cloned().enumerate().skip(start))
+		let mut entry_stream = stream::iter(entries.iter().cloned().enumerate())
 			.map(move |(index, (name, mut id, _))| {
 				let attr_request = attr_request.clone();
 				async move {
@@ -1455,13 +1452,15 @@ where
 			encoded_size += entry_encoded_size;
 			directory_size += entry_directory_size;
 			let entry = entry4 {
-				cookie: (index + 3).to_u64().unwrap(),
+				cookie: provider_offset
+					.saturating_add(index.to_u64().unwrap())
+					.saturating_add(1),
 				name,
 				attrs,
 			};
 			reply.push(entry);
 		}
-		let eof = start + reply.len() == entries.len();
+		let eof = provider_eof && reply.len() == entries_len;
 		let reply = dirlist4 {
 			entries: reply,
 			eof,
