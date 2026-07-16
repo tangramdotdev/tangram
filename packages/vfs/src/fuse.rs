@@ -177,7 +177,7 @@ enum Response {
 	Read(Bytes),
 	ReadDir(Vec<u8>),
 	ReadDirPlus { data: Vec<u8>, nodes: Vec<u64> },
-	ReadLink(CString),
+	ReadLink(Bytes),
 	Release,
 	ReleaseDir,
 	Statfs(sys::fuse_statfs_out),
@@ -2052,19 +2052,17 @@ where
 	}
 
 	fn write_response(fd: RawFd, unique: u64, result: Result<Option<Response>>) -> Result<()> {
-		let mut payload_storage = None;
-		let error = match result {
+		let (error, response) = match result {
 			Ok(Some(response)) => {
 				if !Self::requires_response(&response) {
 					return Ok(());
 				}
-				payload_storage = Some(Self::response_bytes(&response).to_vec());
-				0
+				(0, Some(response))
 			},
-			Ok(None) => 0,
-			Err(error) => error.raw_os_error().unwrap_or(libc::ENOSYS),
+			Ok(None) => (0, None),
+			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), None),
 		};
-		let payload = payload_storage.as_deref().unwrap_or(&[]);
+		let payload = response.as_ref().map_or(&[][..], Self::response_bytes);
 		let len = size_of::<fuse_out_header>() + payload.len();
 		let header = fuse_out_header {
 			unique,
@@ -2828,9 +2826,7 @@ where
 				let ProviderResponse::ReadLink { target } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
-				let target = CString::new(target.to_vec())
-					.map_err(|_| Error::from_raw_os_error(libc::EIO))?;
-				Ok(Some(Response::ReadLink(target)))
+				Self::read_link_response(target).map(Some)
 			},
 			_ => Err(Error::other("unexpected provider batch request")),
 		}
@@ -3307,8 +3303,15 @@ where
 	}
 	async fn handle_read_link_request(&self, header: fuse_in_header) -> Result<Option<Response>> {
 		let target = self.provider.readlink(header.nodeid).await?;
-		let target = CString::new(target.to_vec()).unwrap();
-		Ok(Some(Response::ReadLink(target)))
+		Self::read_link_response(target).map(Some)
+	}
+
+	fn read_link_response(target: Bytes) -> Result<Response> {
+		if target.contains(&0) {
+			return Err(Error::from_raw_os_error(libc::EIO));
+		}
+
+		Ok(Response::ReadLink(target))
 	}
 	async fn handle_release_request(
 		&self,
@@ -3891,6 +3894,21 @@ mod tests {
 			16,
 		);
 		assert!(Server::<TestProvider>::parse_possible_cpu_count("0-3,8-11").is_err());
+	}
+
+	#[test]
+	fn readlink_responses_validate_targets_without_copying() {
+		let target = Bytes::from_static(b"target");
+		let pointer = target.as_ptr();
+		let response = Server::<TestProvider>::read_link_response(target).unwrap();
+		let Response::ReadLink(target) = response else {
+			panic!("expected a readlink response");
+		};
+		assert_eq!(target.as_ptr(), pointer);
+
+		let error = Server::<TestProvider>::read_link_response(Bytes::from_static(b"bad\0target"))
+			.unwrap_err();
+		assert_eq!(error.raw_os_error(), Some(libc::EIO));
 	}
 
 	#[test]
