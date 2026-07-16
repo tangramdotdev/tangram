@@ -1130,11 +1130,14 @@ where
 		Ok(token)
 	}
 
-	fn cancel_async_request(&self, unique: u64) {
+	fn cancel_async_request(&self, unique: u64) -> bool {
 		let token = self.active_requests.lock().unwrap().get(&unique).cloned();
 		if let Some(token) = token {
 			token.cancel();
+			return true;
 		}
+
+		false
 	}
 
 	fn cancel_async_requests(&self) {
@@ -1354,7 +1357,12 @@ where
 					self.handle_forget_request_sync(request.header, data);
 				},
 				RequestData::Interrupt(data) => {
-					self.cancel_async_request(data.unique);
+					let result = if self.cancel_async_request(data.unique) {
+						Ok(Some(Response::Interrupt))
+					} else {
+						Err(Error::from_raw_os_error(libc::EAGAIN))
+					};
+					Self::write_response(fd.as_raw_fd(), request.header.unique, result)?;
 				},
 				_ => {
 					return Err(Error::other(format!(
@@ -2369,9 +2377,9 @@ where
 					))));
 				},
 				RequestData::Interrupt(data) => {
-					actions.push(BatchAction::Ready(Ok(Some(
+					actions.push(BatchAction::Ready(
 						self.handle_interrupt_request_sync(request.header, *data),
-					))));
+					));
 				},
 				RequestData::Unsupported(opcode) => {
 					actions.push(BatchAction::Ready(Self::sync_result_from_response(
@@ -3260,16 +3268,22 @@ where
 		_header: fuse_in_header,
 		request: fuse_interrupt_in,
 	) -> Result<Option<Response>> {
-		self.cancel_async_request(request.unique);
+		if !self.cancel_async_request(request.unique) {
+			return Err(Error::from_raw_os_error(libc::EAGAIN));
+		}
+
 		Ok(Some(Response::Interrupt))
 	}
 	fn handle_interrupt_request_sync(
 		&self,
 		_header: fuse_in_header,
 		request: fuse_interrupt_in,
-	) -> Response {
-		self.cancel_async_request(request.unique);
-		Response::Interrupt
+	) -> Result<Option<Response>> {
+		if !self.cancel_async_request(request.unique) {
+			return Err(Error::from_raw_os_error(libc::EAGAIN));
+		}
+
+		Ok(Some(Response::Interrupt))
 	}
 	async fn handle_unsupported_request(
 		&self,
@@ -3869,7 +3883,7 @@ mod tests {
 		tokio::time::timeout(Duration::from_secs(2), started.notified())
 			.await
 			.unwrap();
-		server.cancel_async_request(3);
+		assert!(server.cancel_async_request(3));
 		let response = read_response(response_reader.clone()).await;
 		assert_eq!(response.unique, 3);
 		assert_eq!(response.error, -libc::EINTR);
@@ -3888,5 +3902,23 @@ mod tests {
 
 		drop(request_sender);
 		dispatcher.await.unwrap();
+	}
+
+	#[test]
+	fn unmatched_interrupts_return_eagain() {
+		let server = server_with_provider(TestProvider, false, false);
+		let header = request_header(sys::fuse_opcode_FUSE_INTERRUPT, 2);
+		let request = fuse_interrupt_in { unique: 1 };
+		let error = server
+			.handle_interrupt_request_sync(header, request)
+			.unwrap_err();
+		assert_eq!(error.raw_os_error(), Some(libc::EAGAIN));
+
+		let token = server.register_async_request(1).unwrap();
+		let response = server
+			.handle_interrupt_request_sync(header, request)
+			.unwrap();
+		assert!(matches!(response, Some(Response::Interrupt)));
+		assert!(token.is_cancelled());
 	}
 }
