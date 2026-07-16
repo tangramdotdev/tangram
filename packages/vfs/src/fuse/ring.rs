@@ -264,7 +264,7 @@ where
 			let disconnected = Self::disconnect_transport(path, connection_id).await;
 			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if disconnected {
-				self.rollback_all_response_resources(fd.as_raw_fd());
+				self.rollback_all_response_resources(fd.as_ref());
 			}
 			while event_receiver.try_recv().is_ok() {}
 
@@ -309,6 +309,17 @@ where
 			.max(32)
 			.to_u32()
 			.ok_or_else(|| Error::other("the io_uring entry count is out of range"))?;
+
+		// Allocate the buffers before the ring so they outlive it under Rust's reverse drop order.
+		let mut eventfd_buffer = [0u8; size_of::<u64>()];
+		let mut retired_slots = VecDeque::new();
+		let mut slots = queue_ids
+			.iter()
+			.flat_map(|&qid| {
+				(0..slots_per_queue).map(move |_| Box::new(UringSlot::new(qid, payload_size)))
+			})
+			.collect::<Vec<_>>();
+
 		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
 		builder.setup_attach_wq(sqpoll_wq_fd).setup_no_sqarray();
 		let mut io_uring = builder
@@ -320,16 +331,8 @@ where
 			.map_err(|error| {
 				Error::other(format!("failed to register the thread files: {error}"))
 			})?;
-		let mut slots = queue_ids
-			.iter()
-			.flat_map(|&qid| {
-				(0..slots_per_queue).map(move |_| Box::new(UringSlot::new(qid, payload_size)))
-			})
-			.collect::<Vec<_>>();
-		let mut retired_slots = VecDeque::new();
 		let async_notification_pending = Arc::new(AtomicBool::new(false));
 		let mut eventfd_inflight = false;
-		let mut eventfd_buffer = [0u8; size_of::<u64>()];
 		let mut batch_requests = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut batch_results =
 			Vec::<Result<Option<Response>>>::with_capacity(THREAD_CQE_BATCH_SIZE);
@@ -342,6 +345,7 @@ where
 			iov_base: eventfd_buffer.as_mut_ptr().cast(),
 			iov_len: eventfd_buffer.len(),
 		}];
+		// SAFETY: The eventfd buffer is not moved or resized and outlives the ring registration.
 		unsafe {
 			io_uring
 				.submitter()
@@ -363,6 +367,8 @@ where
 					slot.to_u64().unwrap(),
 					0,
 				);
+				// SAFETY: Each entry references a boxed slot that remains allocated until the ring is
+				// destroyed or is retained in `retired_slots`.
 				if unsafe { submission.push(&entry) }.is_err() {
 					return Err(Error::other("failed to submit uring register command"));
 				}
@@ -387,6 +393,7 @@ where
 					.build()
 					.user_data(EVENTFD_USER_DATA)
 					.into();
+					// SAFETY: The fixed eventfd buffer remains allocated until the ring is destroyed.
 					if unsafe { submission.push(&entry) }.is_ok() {
 						eventfd_inflight = true;
 					}
@@ -433,7 +440,7 @@ where
 					if completion.result() < 0 {
 						let error = -completion.result();
 						if let UringSlotState::Commit { unique } = slot_data.state {
-							self.rollback_response_resources(fd.as_raw_fd(), unique);
+							self.rollback_response_resources(fd, unique);
 						}
 						if error == libc::EAGAIN
 							&& matches!(slot_data.state, UringSlotState::Register)
@@ -495,7 +502,7 @@ where
 					slots.get_mut(slot).unwrap(),
 				)?;
 			}
-			self.handle_request_sync_batch(fd.as_raw_fd(), &batch_requests, &mut batch_results)?;
+			self.handle_request_sync_batch(fd, &batch_requests, &mut batch_results)?;
 			commits.clear();
 			deferred.clear();
 			for (pending_request, result) in
@@ -561,7 +568,7 @@ where
 			for (slot, unique, result) in commits.drain(..) {
 				self.submit_commit_and_fetch(
 					&mut io_uring,
-					fd.as_raw_fd(),
+					fd,
 					slot,
 					slots.get_mut(slot).unwrap(),
 					unique,
@@ -570,13 +577,7 @@ where
 			}
 
 			if saw_eventfd || !receiver.is_empty() {
-				self.drain_async_responses(
-					worker_id,
-					fd.as_raw_fd(),
-					&mut io_uring,
-					&mut slots,
-					&receiver,
-				)?;
+				self.drain_async_responses(worker_id, fd, &mut io_uring, &mut slots, &receiver)?;
 			}
 		}
 	}
@@ -611,6 +612,8 @@ where
 		iovecs: *const libc::iovec,
 	) {
 		let sqe = std::ptr::from_mut(entry).cast::<IoUringSqePrefix>();
+		// SAFETY: `Entry128` begins with the kernel's stable `io_uring_sqe` prefix, and the
+		// pointer is valid and exclusively borrowed for these field writes.
 		unsafe {
 			(*sqe).addr = iovecs as u64;
 			(*sqe).len = URING_IOVEC_COUNT;
@@ -636,6 +639,8 @@ where
 			0,
 		);
 		let mut submission = io_uring.submission();
+		// SAFETY: The entry references a boxed slot that remains allocated until the ring is
+		// destroyed or is retained in the retired-slot queue.
 		if unsafe { submission.push(&entry) }.is_err() {
 			return Err(Error::other(
 				"failed to submit an io_uring register command",
@@ -677,7 +682,7 @@ where
 	fn submit_commit_and_fetch(
 		&self,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
-		response_fd: RawFd,
+		response_fd: &OwnedFd,
 		slot: usize,
 		slot_data: &mut UringSlot,
 		unique: u64,
@@ -713,6 +718,8 @@ where
 			0,
 		);
 		let mut submission = io_uring.submission();
+		// SAFETY: The entry references `slot_data`, which remains boxed and allocated through
+		// completion or is retained in the retired-slot queue.
 		if unsafe { submission.push(&entry) }.is_err() {
 			self.rollback_response_resources(response_fd, unique);
 			return Err(Error::other(
@@ -728,12 +735,7 @@ where
 		unique: u64,
 		result: Result<Option<Response>>,
 	) -> Result<()> {
-		let in_out = unsafe {
-			std::slice::from_raw_parts_mut(
-				slot_data.header.in_out.as_mut_ptr().cast::<u8>(),
-				slot_data.header.in_out.len(),
-			)
-		};
+		let in_out = slot_data.header.in_out.as_mut_bytes();
 		in_out.fill(0);
 		let (error, payload_len, needs_header) = match result {
 			Ok(Some(response)) => {
@@ -803,7 +805,7 @@ where
 			};
 			notify_async_response(
 				&async_notification_pending,
-				eventfd.as_raw_fd(),
+				eventfd.as_ref(),
 				response,
 				&sender,
 				&worker_event_sender,
@@ -815,7 +817,7 @@ where
 	fn drain_async_responses(
 		&self,
 		worker_id: usize,
-		response_fd: RawFd,
+		response_fd: &OwnedFd,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		slots: &mut [Box<UringSlot>],
 		receiver: &crossbeam_channel::Receiver<AsyncResponse>,
@@ -860,7 +862,7 @@ where
 
 impl UringSlot {
 	pub(super) fn new(qid: u16, payload_size: usize) -> Self {
-		let mut header = Box::new(unsafe { std::mem::zeroed::<sys::fuse_uring_req_header>() });
+		let mut header = Box::new(sys::fuse_uring_req_header::new_zeroed());
 		let mut payload = vec![0u8; payload_size];
 		let iovecs = [
 			libc::iovec {

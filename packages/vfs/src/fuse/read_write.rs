@@ -81,8 +81,8 @@ where
 				tracing::error!(?error, ?opcode, "unexpected error");
 			}
 		}
-		if let Err(error) = Self::write_response(fd.as_raw_fd(), unique, result) {
-			self.rollback_response_resources(fd.as_raw_fd(), unique);
+		if let Err(error) = Self::write_response(fd.as_ref(), unique, result) {
+			self.rollback_response_resources(fd.as_ref(), unique);
 			match error.raw_os_error() {
 				Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
 				_ => return Err(error),
@@ -122,7 +122,7 @@ where
 				slot: 0,
 				request: request.clone(),
 			};
-			self.handle_request_sync_batch(fd.as_raw_fd(), &[pending_request], &mut batch_results)?;
+			self.handle_request_sync_batch(fd.as_ref(), &[pending_request], &mut batch_results)?;
 			let result = batch_results
 				.pop()
 				.ok_or_else(|| Error::other("missing sync batch result"))?;
@@ -155,8 +155,8 @@ where
 					tracing::error!(?error, ?opcode, "unexpected error");
 				}
 			}
-			if let Err(error) = Self::write_response(fd.as_raw_fd(), unique, result) {
-				self.rollback_response_resources(fd.as_raw_fd(), unique);
+			if let Err(error) = Self::write_response(fd.as_ref(), unique, result) {
+				self.rollback_response_resources(fd.as_ref(), unique);
 				match error.raw_os_error() {
 					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
 					_ => return Err(error),

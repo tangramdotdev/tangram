@@ -6,7 +6,7 @@ where
 {
 	pub(super) fn handle_request_sync_batch(
 		&self,
-		fd: RawFd,
+		fd: &OwnedFd,
 		requests: &[PendingRequest],
 		batch_results: &mut Vec<Result<Option<Response>>>,
 	) -> Result<()> {
@@ -244,7 +244,7 @@ where
 
 	pub(super) fn map_provider_batch_response(
 		&self,
-		fd: RawFd,
+		fd: &OwnedFd,
 		request: &Request,
 		response: ProviderResponse,
 	) -> Result<Option<Response>> {
@@ -902,7 +902,7 @@ where
 	}
 	fn handle_release_request_sync(
 		&self,
-		fd: RawFd,
+		fd: &OwnedFd,
 		_header: fuse_in_header,
 		request: fuse_release_in,
 	) -> Response {
@@ -923,7 +923,7 @@ where
 	}
 	fn handle_release_dir_request_sync(
 		&self,
-		fd: RawFd,
+		fd: &OwnedFd,
 		_header: fuse_in_header,
 		request: fuse_release_in,
 	) -> Response {
@@ -936,7 +936,7 @@ where
 	}
 	fn register_passthrough_backing(
 		&self,
-		fd: RawFd,
+		fd: &OwnedFd,
 		fh: u64,
 		backing_fd: &OwnedFd,
 	) -> Result<i32> {
@@ -945,7 +945,8 @@ where
 			flags: 0,
 			padding: 0,
 		};
-		let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+		// SAFETY: The ioctl receives a valid backing map for the duration of the call, and both
+		// descriptors remain open while the kernel consumes it.
 		let backing_id = unsafe {
 			ioctl::ioctl(
 				fd,
@@ -963,13 +964,14 @@ where
 		Ok(backing_id)
 	}
 
-	pub(super) fn close_passthrough_backing(&self, fd: RawFd, fh: u64) {
+	pub(super) fn close_passthrough_backing(&self, fd: &OwnedFd, fh: u64) {
 		let backing_id = self.passthrough_backing_ids.lock().unwrap().remove(&fh);
 		let Some(backing_id) = backing_id else {
 			return;
 		};
 		let mut backing_id = backing_id;
-		let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+		// SAFETY: The ioctl receives a valid pointer to the registered backing ID, and the FUSE
+		// descriptor remains open for the duration of the call.
 		let ret = unsafe {
 			ioctl::ioctl(
 				fd,

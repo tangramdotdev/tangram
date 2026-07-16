@@ -5,12 +5,7 @@ where
 	P: Provider + Send + Sync + 'static,
 {
 	pub(super) fn deserialize_uring_request(slot: &UringSlot) -> Result<Request> {
-		let in_out = unsafe {
-			std::slice::from_raw_parts(
-				slot.header.in_out.as_ptr().cast::<u8>(),
-				slot.header.in_out.len(),
-			)
-		};
+		let in_out = slot.header.in_out.as_bytes();
 		let (header, _) = sys::fuse_in_header::read_from_prefix(in_out)
 			.map_err(|_| Error::other("failed to deserialize the request header"))?;
 		let header_len = size_of::<sys::fuse_in_header>();
@@ -35,12 +30,7 @@ where
 			return Err(Error::other("failed to deserialize request data"));
 		}
 		let op_data_len = request_data_len - payload_size;
-		let op_in = unsafe {
-			std::slice::from_raw_parts(
-				slot.header.op_in.as_ptr().cast::<u8>(),
-				slot.header.op_in.len(),
-			)
-		};
+		let op_in = slot.header.op_in.as_bytes();
 		if op_data_len > op_in.len() {
 			return Err(Error::other("failed to deserialize request data"));
 		}

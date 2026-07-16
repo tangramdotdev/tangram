@@ -12,7 +12,6 @@ use {
 	num::ToPrimitive as _,
 	rustix::{
 		event::EventfdFlags,
-		fd::BorrowedFd,
 		io::{Errno, FdFlags, IoSlice, IoSliceMut},
 		ioctl,
 		net::{
@@ -38,7 +37,7 @@ use {
 	},
 	sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in},
 	tokio_util::sync::CancellationToken,
-	zerocopy::{FromBytes as _, IntoBytes as _},
+	zerocopy::{FromBytes as _, FromZeros as _, IntoBytes as _},
 };
 
 mod protocol;
@@ -605,7 +604,7 @@ where
 					dispatcher.await.ok();
 				}
 				if disconnected {
-					server.rollback_all_response_resources(fd.as_raw_fd());
+					server.rollback_all_response_resources(fd.as_ref());
 				}
 				drop(fd);
 				drop(sqpoll_ring);
@@ -628,7 +627,7 @@ where
 				read_write_dispatcher.await.ok();
 			}
 			if disconnected {
-				shutdown_server.rollback_all_response_resources(fd.as_raw_fd());
+				shutdown_server.rollback_all_response_resources(fd.as_ref());
 			}
 			drop(fd);
 			drop(sqpoll_ring);
@@ -664,7 +663,7 @@ where
 		let uid = rustix::process::getuid().as_raw();
 		let gid = rustix::process::getgid().as_raw();
 		let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
-		// Safety: The pre_exec closure only calls async-signal-safe operations.
+		// SAFETY: The pre_exec closure only calls async-signal-safe operations.
 		let mut child = unsafe {
 			std::process::Command::new("fusermount3")
 				.args(["-o", &options, "--"])
@@ -675,13 +674,11 @@ where
 				.stderr(std::process::Stdio::null())
 				.pre_exec(move || {
 					// Clear CLOEXEC on the comm fd so fusermount3 inherits it.
-					let fd = BorrowedFd::borrow_raw(commfd_raw);
-					rustix::io::fcntl_setfd(fd, FdFlags::empty()).map_err(Error::from)?;
+					rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
 					Ok(())
 				})
 				.spawn()?
 		};
-		drop(fuse_commfd);
 
 		let mut read_buffer = [0u8; 8];
 		let mut iovecs = [IoSliceMut::new(&mut read_buffer)];
@@ -1004,6 +1001,8 @@ where
 			.as_raw_fd()
 			.to_u32()
 			.ok_or_else(|| Error::other("invalid source fuse fd"))?;
+		// SAFETY: The ioctl receives a valid pointer to the source descriptor number, and both
+		// descriptors remain open for the duration of the call.
 		unsafe {
 			ioctl::ioctl(
 				&cloned,
@@ -1124,7 +1123,7 @@ where
 		self.pending_publications.lock().unwrap().remove(&unique);
 	}
 
-	fn rollback_response_resources(&self, fd: RawFd, unique: u64) {
+	fn rollback_response_resources(&self, fd: &OwnedFd, unique: u64) {
 		let handle = self.pending_handles.lock().unwrap().remove(&unique);
 		if let Some(handle) = handle {
 			self.close_passthrough_backing(fd, handle);
@@ -1140,7 +1139,7 @@ where
 		}
 	}
 
-	fn rollback_all_response_resources(&self, fd: RawFd) {
+	fn rollback_all_response_resources(&self, fd: &OwnedFd) {
 		let handles = std::mem::take(&mut *self.pending_handles.lock().unwrap());
 		for handle in handles.into_values() {
 			self.close_passthrough_backing(fd, handle);
@@ -1204,7 +1203,7 @@ where
 						Err(Error::from_raw_os_error(libc::EAGAIN))
 					};
 					if let Err(error) =
-						Self::write_response(fd.as_raw_fd(), request.header.unique, result)
+						Self::write_response(fd.as_ref(), request.header.unique, result)
 					{
 						match error.raw_os_error() {
 							Some(libc::EAGAIN | libc::EINTR | libc::ENOENT) => {},
@@ -1222,7 +1221,7 @@ where
 		}
 	}
 
-	fn write_response(fd: RawFd, unique: u64, result: Result<Option<Response>>) -> Result<()> {
+	fn write_response(fd: &OwnedFd, unique: u64, result: Result<Option<Response>>) -> Result<()> {
 		let (error, response) = match result {
 			Ok(Some(response)) => {
 				if !Self::requires_response(&response) {
@@ -1241,7 +1240,6 @@ where
 			error: -error,
 		};
 		let iov = [IoSlice::new(header.as_bytes()), IoSlice::new(payload)];
-		let fd = unsafe { BorrowedFd::borrow_raw(fd) };
 		let written = loop {
 			match rustix::io::writev(fd, &iov) {
 				Ok(written) => break written,
@@ -1302,7 +1300,7 @@ where
 
 fn notify_async_response(
 	async_notification_pending: &AtomicBool,
-	eventfd: RawFd,
+	eventfd: &OwnedFd,
 	response: AsyncResponse,
 	sender: &crossbeam_channel::Sender<AsyncResponse>,
 	worker_event_sender: &tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
@@ -1323,9 +1321,8 @@ fn notify_async_response(
 	}
 }
 
-fn signal_eventfd(fd: RawFd) -> Result<()> {
+fn signal_eventfd(fd: &OwnedFd) -> Result<()> {
 	let value = 1u64.to_ne_bytes();
-	let fd = unsafe { BorrowedFd::borrow_raw(fd) };
 	let ret = loop {
 		match rustix::io::write(fd, &value) {
 			Ok(ret) => break ret,
@@ -1359,6 +1356,8 @@ impl<'a, const OPCODE: rustix::ioctl::Opcode, T> IoctlPointerInt<'a, OPCODE, T> 
 	}
 }
 
+// SAFETY: The wrapper exposes a valid mutable pointer for the duration of each ioctl call. Its
+// constructor is private so each call site must pair the pointer type with the kernel opcode.
 unsafe impl<const OPCODE: rustix::ioctl::Opcode, T> ioctl::Ioctl
 	for IoctlPointerInt<'_, OPCODE, T>
 {
@@ -1503,6 +1502,10 @@ mod tests {
 
 	fn server() -> Server<TestProvider> {
 		server_with_provider(TestProvider, false, false)
+	}
+
+	fn test_fd() -> OwnedFd {
+		std::fs::File::open("/dev/null").unwrap().into()
 	}
 
 	fn request_header(opcode: sys::fuse_opcode, unique: u64) -> fuse_in_header {
@@ -1665,8 +1668,9 @@ mod tests {
 			},
 		];
 		let mut results = Vec::new();
+		let fd = test_fd();
 		server
-			.handle_request_sync_batch(-1, &requests, &mut results)
+			.handle_request_sync_batch(&fd, &requests, &mut results)
 			.unwrap();
 
 		assert_eq!(results.len(), 3);
@@ -1713,8 +1717,9 @@ mod tests {
 			backing_fd: None,
 			handle: 7,
 		};
+		let fd = test_fd();
 		let error = server
-			.map_provider_batch_response(-1, &request, response)
+			.map_provider_batch_response(&fd, &request, response)
 			.unwrap_err();
 
 		assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP));
@@ -1737,7 +1742,8 @@ mod tests {
 			open_flags: 0,
 		})));
 		server.register_response_resources(1, &result).unwrap();
-		server.rollback_response_resources(-1, 1);
+		let fd = test_fd();
+		server.rollback_response_resources(&fd, 1);
 
 		assert_eq!(closes.load(Ordering::Relaxed), 1);
 	}
@@ -1925,7 +1931,7 @@ mod tests {
 
 		notify_async_response(
 			&pending,
-			eventfd.as_raw_fd(),
+			&eventfd,
 			response,
 			&sender,
 			&worker_event_sender,
