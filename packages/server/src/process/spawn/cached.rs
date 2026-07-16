@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -98,7 +98,11 @@ impl Session {
 			self.check_cached_process_cycle(arg.parent.as_ref(), id)
 				.await?;
 			let output = self.cached_process_output(id.clone(), data.clone())?;
-			return self.acquire_cached_process_lease(output).await.map(Some);
+			return self
+				.acquire_cached_process_lease(output)
+				.boxed()
+				.await
+				.map(Some);
 		}
 
 		let Some(expected_checksum) = &arg.checksum else {

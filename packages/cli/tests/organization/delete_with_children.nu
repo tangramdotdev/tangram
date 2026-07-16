@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An organization with children cannot be deleted.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 

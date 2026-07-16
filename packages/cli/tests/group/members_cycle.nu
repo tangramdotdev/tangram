@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A group cannot be added as a member of one of its own members, which would form a cycle.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 

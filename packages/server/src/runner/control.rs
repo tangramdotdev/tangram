@@ -16,24 +16,34 @@ pub(crate) struct ServerMessage(pub(crate) tg::runner::control::ServerMessage);
 impl Session {
 	pub(crate) async fn get_runner_control_stream_with_context(
 		&self,
-		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
+		match &self.context.principal {
+			tg::Principal::Root => (),
+			tg::Principal::Runner(runner) if runner == &arg.id => (),
+			tg::Principal::Runner(runner) => {
+				return Err(tg::error!(
+					runner = %runner,
+					id = %arg.id,
+					"invalid runner"
+				));
+			},
+			_ => return Err(tg::error!("unauthorized")),
+		}
 		let location = self.server.location(arg.location.as_ref())?;
 		let stream = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.get_runner_control_stream_local(id, arg, stream)
-					.await?
+				self.get_runner_control_stream_local(arg, stream).await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.get_runner_control_stream_region(id, arg, stream, region)
+				self.get_runner_control_stream_region(arg, stream, region)
 					.await?
 			},
 			tg::Location::Remote(tg::location::Remote { name, region }) => {
-				self.get_runner_control_stream_remote(id, arg, stream, name, region)
+				self.get_runner_control_stream_remote(arg, stream, name, region)
 					.await?
 			},
 		};
@@ -42,10 +52,10 @@ impl Session {
 
 	async fn get_runner_control_stream_local(
 		&self,
-		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
+		let id = arg.id.clone();
 		let server_messages = self
 			.server
 			.messenger
@@ -151,11 +161,11 @@ impl Session {
 
 	async fn get_runner_control_stream_region(
 		&self,
-		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 		region: String,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
+		let id = arg.id.clone();
 		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
@@ -167,7 +177,7 @@ impl Session {
 			..arg
 		};
 		let stream = client
-			.get_runner_control_stream(id, arg, stream)
+			.get_runner_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
@@ -178,12 +188,12 @@ impl Session {
 
 	async fn get_runner_control_stream_remote(
 		&self,
-		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
+		let id = arg.id.clone();
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
 		)?;
@@ -192,7 +202,7 @@ impl Session {
 			..arg
 		};
 		let stream = client
-			.get_runner_control_stream(id, arg, stream)
+			.get_runner_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
@@ -204,7 +214,6 @@ impl Session {
 	pub(crate) async fn get_runner_control_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -221,30 +230,12 @@ impl Session {
 			},
 		}
 
-		// Parse the ID.
-		let id = id
-			.parse::<tg::runner::Id>()
-			.map_err(|error| tg::error!(!error, "failed to parse the runner id"))?;
-
-		match &self.context.principal {
-			tg::Principal::Runner(runner) if runner == &id => (),
-			tg::Principal::Runner(runner) => {
-				return Err(tg::error!(
-					runner = %runner,
-					id = %id,
-					"invalid runner"
-				));
-			},
-			tg::Principal::Root if self.server.config().authentication.is_none() => (),
-			_ => return Err(tg::error!("unauthorized")),
-		}
-
 		// Parse the arg.
 		let arg = request
-			.query_params()
+			.query_params::<tg::runner::control::Arg>()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+			.ok_or_else(|| tg::error!("missing the query params"))?;
 
 		// Create the client message stream.
 		let stream = request
@@ -266,7 +257,7 @@ impl Session {
 
 		// Get the server message stream.
 		let stream = self
-			.get_runner_control_stream_with_context(&id, arg, stream)
+			.get_runner_control_stream_with_context(arg, stream)
 			.await?;
 
 		// Create the body.

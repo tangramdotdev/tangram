@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Granting a permission on a resource requires admin on it, so a write user cannot grant.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

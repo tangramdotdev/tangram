@@ -638,15 +638,15 @@ impl Server {
 			(http::Method::POST, ["processes", process, "cancel"]) => {
 				session.try_cancel_process_request(request, process).boxed()
 			},
-			(http::Method::POST, ["processes", process, "control"]) => session
-				.try_get_process_control_stream_request(request, process)
+			(http::Method::POST, ["processes", "control"]) => session
+				.try_get_process_control_stream_request(request)
 				.boxed(),
 			(http::Method::POST, ["processes", process, "signal"]) => {
 				session.try_signal_process_request(request, process).boxed()
 			},
-			(http::Method::POST, ["runner", id, "control"]) => session
-				.get_runner_control_stream_request(request, id)
-				.boxed(),
+			(http::Method::POST, ["runners", "control"]) => {
+				session.get_runner_control_stream_request(request).boxed()
+			},
 			(http::Method::GET, ["processes", process, "status"]) => session
 				.try_get_process_status_stream_request(request, process)
 				.boxed(),
@@ -690,9 +690,9 @@ impl Server {
 			(http::Method::POST, ["sandboxes", sandbox, "destroy"]) => session
 				.try_destroy_sandbox_request(request, sandbox)
 				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "control"]) => session
-				.get_sandbox_control_stream_request(request, sandbox)
-				.boxed(),
+			(http::Method::POST, ["sandboxes", "control"]) => {
+				session.get_sandbox_control_stream_request(request).boxed()
+			},
 			(http::Method::GET, ["sandboxes", sandbox, "status"]) => session
 				.try_get_sandbox_status_stream_request(request, sandbox)
 				.boxed(),

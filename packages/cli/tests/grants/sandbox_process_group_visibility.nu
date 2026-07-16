@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process owned by a group is readable by group members and hidden from outsiders, because reading a process requires reading its sandbox.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

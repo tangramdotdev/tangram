@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An admin cannot revoke a grant another grantor created; revocation only affects the actor's own grant.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A public build is reusable across owners: a build owned by public carries a public grant, so a different owner building the same deterministic command reuses the cached result.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

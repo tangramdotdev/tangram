@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Deleting a leaf group removes it.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 

@@ -33,36 +33,73 @@ pub(crate) fn connected_subject(id: &tg::process::Id) -> String {
 impl Session {
 	pub(crate) async fn try_get_process_control_stream_with_context(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>> {
+	) -> tg::Result<
+		Option<(
+			tg::process::control::Output,
+			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+		)>,
+	> {
 		let location = self.server.location(arg.location.as_ref())?;
-		let stream = match location {
+		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_get_process_control_stream_local(id, arg, stream)
+				self.try_get_process_control_stream_local(arg, stream)
 					.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.try_get_process_control_stream_region(id, arg, stream, region)
+				self.try_get_process_control_stream_region(arg, stream, region)
 					.await?
 			},
 			tg::Location::Remote(tg::location::Remote { name, region }) => {
-				self.try_get_process_control_stream_remote(id, arg, stream, name, region)
+				self.try_get_process_control_stream_remote(arg, stream, name, region)
 					.await?
 			},
 		};
-		Ok(stream)
+		Ok(output)
 	}
 
 	async fn try_get_process_control_stream_local(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::control::Arg,
+		mut arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>> {
+	) -> tg::Result<
+		Option<(
+			tg::process::control::Output,
+			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+		)>,
+	> {
+		let assign = arg.id.is_none();
+		let (id, token) = if let Some(id) = arg.id.take() {
+			match &self.context.principal {
+				tg::Principal::Process(process) if process == &id => (),
+				tg::Principal::Process(process) => {
+					return Err(tg::error!(process = %process, %id, "invalid process"));
+				},
+				_ => return Err(tg::error!("unauthorized")),
+			}
+			(id, self.context.token.clone())
+		} else {
+			if !matches!(
+				self.context.principal,
+				tg::Principal::Root | tg::Principal::Runner(_)
+			) {
+				return Err(tg::error!("unauthorized"));
+			}
+			let id = tg::process::Id::new();
+			let token = self
+				.server
+				.create_process_authentication_token(id.clone())?;
+			(id, Some(token))
+		};
+		let context = crate::Context {
+			principal: tg::Principal::Process(id.clone()),
+			token: token.clone(),
+			..self.context.clone()
+		};
+		let session = self.server.session(&context);
 		let data = arg.data;
 		let lease = arg.lease;
 		let parent = arg.parent;
@@ -91,7 +128,7 @@ impl Session {
 		});
 
 		let response_task = Task::spawn({
-			let session = self.clone();
+			let session = session.clone();
 			let id = id.clone();
 			move |_| async move {
 				while let Some(message) = control.recv().await? {
@@ -175,7 +212,7 @@ impl Session {
 			.attach(request_task)
 			.attach(response_task)
 			.map(Ok)
-			.with_stopper(self.context.stopper.clone())
+			.with_stopper(session.context.stopper.clone())
 			.boxed();
 
 		if let Some(data) = data {
@@ -192,12 +229,13 @@ impl Session {
 					parent,
 					sandbox: Some(data.sandbox.clone()),
 					stored: tangram_index::process::Stored::default(),
-					time_to_touch: self.server.config.process.time_to_touch,
+					time_to_touch: session.server.config.process.time_to_touch,
 					touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
 				}],
 				..Default::default()
 			};
-			self.server
+			session
+				.server
 				.index_tasks
 				.spawn(|_| {
 					let server = self.server.clone();
@@ -211,15 +249,24 @@ impl Session {
 				.detach();
 		}
 
-		self.server
+		session
+			.server
 			.messenger
-			.publish(connected_subject(id), Connected { lease })
+			.publish(connected_subject(&id), Connected { lease })
 			.await
 			.map_err(|error| {
 				tg::error!(!error, "failed to publish the process control connection")
 			})?;
 
-		Ok(Some(stream))
+		let grant = if assign {
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			session.create_process_wait_token(&id, now)?
+		} else {
+			None
+		};
+		let output = tg::process::control::Output { grant, id, token };
+
+		Ok(Some((output, stream)))
 	}
 
 	fn process_control_server_response(
@@ -245,13 +292,18 @@ impl Session {
 
 	async fn try_get_process_control_stream_region(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 		region: String,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>> {
+	) -> tg::Result<
+		Option<(
+			tg::process::control::Output,
+			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+		)>,
+	> {
+		let id = arg.id.clone();
 		let client = self.get_region_session(&region).await.map_err(
-			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, ?id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
@@ -260,45 +312,58 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let stream = client
-			.try_get_process_control_stream(id, arg, stream)
+		let output = client
+			.try_get_process_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
 			)?;
-		let stream = stream.map(|stream| stream.with_stopper(self.context.stopper.clone()).boxed());
-		Ok(stream)
+		let output = output.map(|(output, stream)| {
+			let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+			(output, stream)
+		});
+		Ok(output)
 	}
 
 	async fn try_get_process_control_stream_remote(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>> {
-		let client = self.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
+	) -> tg::Result<
+		Option<(
+			tg::process::control::Output,
+			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+		)>,
+	> {
+		let id = arg.id.clone();
+		let session = self.get_remote_session(&remote).await.map_err(
+			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
 		)?;
+		let context = session.context().clone();
+		context.set_token(self.context.token.clone());
+		let session = session.client().session(&context);
 		let arg = tg::process::control::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let stream = client
-			.try_get_process_control_stream(id, arg, stream)
+		let output = session
+			.try_get_process_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
-		let stream = stream.map(|stream| stream.with_stopper(self.context.stopper.clone()).boxed());
-		Ok(stream)
+		let output = output.map(|(output, stream)| {
+			let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+			(output, stream)
+		});
+		Ok(output)
 	}
 
 	pub(crate) async fn try_get_process_control_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -314,11 +379,6 @@ impl Session {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
 		}
-
-		// Parse the ID.
-		let id = id
-			.parse::<tg::process::Id>()
-			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Parse the arg.
 		let arg = request
@@ -344,8 +404,8 @@ impl Session {
 			.boxed();
 
 		// Get the request stream.
-		let Some(stream) = self
-			.try_get_process_control_stream_with_context(&id, arg, stream)
+		let Some((output, stream)) = self
+			.try_get_process_control_stream_with_context(arg, stream)
 			.await?
 		else {
 			return Ok(http::Response::builder()
@@ -362,10 +422,13 @@ impl Session {
 			Err(error) => error.try_into(),
 		});
 		let body = BoxBody::with_sse_stream(stream);
+		let body = tangram_http::body::output::set(body, &output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
 
 		// Create the response.
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
+			.header(tangram_http::body::output::HEADER, "true")
 			.body(body)
 			.unwrap();
 

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A user cannot log in with a specifier already claimed by a group.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 tg --token $alice.token group create shared

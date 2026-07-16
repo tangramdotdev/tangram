@@ -55,14 +55,14 @@ impl tg::handle::Sandbox for Server {
 
 	async fn get_sandbox_control_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
 		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-	> {
+	)> {
 		self.session(&self.context)
-			.get_sandbox_control_stream_with_context(id, arg, stream)
+			.get_sandbox_control_stream_with_context(arg, stream)
 			.await
 	}
 }

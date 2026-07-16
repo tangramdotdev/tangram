@@ -218,7 +218,14 @@ impl Session {
 		{
 			output.allocation = allocation;
 		}
-
+		if cache_location.is_some_and(tg::Location::is_remote)
+			&& let Some(output) = &mut output
+			&& !output.cached
+		{
+			output.process_token = None;
+			output.sandbox_token = None;
+			output.token = None;
+		}
 		// Wake the watchdog if the process is active.
 		self.spawn_process_wake_watchdog_if_needed(output.as_ref());
 
@@ -233,9 +240,7 @@ impl Session {
 			.await?
 		} else {
 			// Start the local process.
-			self.spawn_process_start_local(&arg, output.as_mut())
-				.boxed()
-				.await?;
+			let output = self.spawn_process_start_local(&arg, output).boxed().await?;
 
 			// Wait for the local process or get a cached process.
 			self.spawn_process_wait_or_get_cached(&arg, output, cacheable)

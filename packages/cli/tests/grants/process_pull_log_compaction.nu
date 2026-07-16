@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Pulling a process with its logs must not let a node-only reader obtain a live log. The sync send path compacts a live log on demand, granting the caller the resulting blob, so it must require the log permission first. The process is kept running so its log stays live.
 
-let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } } }
+let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let eve = tg --url $remote.url login --verbose eve | from json

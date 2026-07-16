@@ -80,7 +80,7 @@ impl Session {
 
 		let Some(arg) = arg else {
 			if matches!(self.context.principal, tg::Principal::Anonymous)
-				&& self.server.config().authentication.is_some()
+				&& self.server.config().authentication.users.is_some()
 			{
 				return Ok(Output {
 					local: Some(Local {

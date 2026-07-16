@@ -102,15 +102,20 @@ pub struct Capacity {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ProcessIdentity {
+	pub id: tg::process::Id,
+	pub token: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Process {
 	pub data: tg::process::Data,
 
-	pub id: tg::process::Id,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub identity: Option<ProcessIdentity>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
-
-	pub token: String,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -148,11 +153,13 @@ pub struct SandboxDestroyedClientNotification {
 	pub sandbox: tg::sandbox::Id,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub heartbeat: HeartbeatClientNotification,
 
 	pub host: String,
+
+	pub id: tg::runner::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -161,7 +168,6 @@ pub struct Arg {
 impl tg::Session {
 	pub async fn get_runner_control_stream(
 		&self,
-		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> tg::Result<
@@ -171,9 +177,9 @@ impl tg::Session {
 		+ use<>,
 	> {
 		let method = http::Method::POST;
-		let path = format!("/runner/{id}/control");
+		let path = "/runners/control";
 		let uri = Uri::builder()
-			.path(&path)
+			.path(path)
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # At most one of the owner, user, group, and organization options may be provided.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 

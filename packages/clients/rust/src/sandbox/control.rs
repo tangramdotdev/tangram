@@ -128,7 +128,20 @@ pub struct SpawnProcessServerRequestArg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SpawnProcessClientResponseOutput {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub grant: Option<tg::grant::Token>,
+
+	pub lease: String,
+
 	pub process: tg::process::Id,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Data {
+	pub arg: tg::sandbox::create::Arg,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub creator: Option<tg::Principal>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -137,7 +150,10 @@ pub struct Arg {
 	pub created_at: Option<i64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub data: Option<tg::sandbox::get::Output>,
+	pub data: Option<Data>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::sandbox::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -146,22 +162,28 @@ pub struct Arg {
 	pub runner: Option<tg::runner::Id>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub id: tg::sandbox::Id,
+	pub token: Option<String>,
+}
+
 impl tg::Session {
 	pub async fn get_sandbox_control_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
 		impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
 		+ Send
 		+ 'static
 		+ use<>,
-	> {
+	)> {
 		let method = http::Method::POST;
-		let path = format!("/sandboxes/{id}/control");
+		let path = "/sandboxes/control";
 		let uri = Uri::builder()
-			.path(&path)
+			.path(path)
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
@@ -196,6 +218,11 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
+		let output_in_body = tangram_http::body::output::get_header(response.headers())
+			.map_err(|error| tg::error!(!error, "failed to parse the output in body header"))?;
+		if !output_in_body {
+			return Err(tg::error!("missing the output in body header"));
+		}
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
@@ -207,8 +234,12 @@ impl tg::Session {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = response
-			.sse()
+		let mut reader = response.reader();
+		let output =
+			tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
+		let stream = tangram_http::sse::decode(reader)
 			.map_err(|error| tg::error!(!error, "failed to read a message"))
 			.and_then(|event| {
 				future::ready(
@@ -221,7 +252,7 @@ impl tg::Session {
 					},
 				)
 			});
-		Ok(stream)
+		Ok((output, stream))
 	}
 }
 

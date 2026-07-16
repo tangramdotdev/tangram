@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{FutureExt as _, Stream, TryFutureExt as _, stream::BoxStream},
+	futures::{FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, stream::BoxStream},
 };
 
 impl<L, R> tg::handle::Process for tg::Either<L, R>
@@ -76,24 +76,24 @@ where
 
 	fn try_get_process_control_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
+			Option<(
+				tg::process::control::Output,
 				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-			>,
+			)>,
 		>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_get_process_control_stream(id, arg, stream)
-				.map_ok(|option| option.map(futures::StreamExt::left_stream))
+				.try_get_process_control_stream(arg, stream)
+				.map_ok(|option| option.map(|(output, stream)| (output, stream.left_stream())))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_get_process_control_stream(id, arg, stream)
-				.map_ok(|option| option.map(futures::StreamExt::right_stream))
+				.try_get_process_control_stream(arg, stream)
+				.map_ok(|option| option.map(|(output, stream)| (output, stream.right_stream())))
 				.right_future(),
 		}
 	}

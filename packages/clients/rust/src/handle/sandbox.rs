@@ -64,13 +64,13 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 
 	fn get_sandbox_control_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::sandbox::control::Output,
 			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-		>,
+		)>,
 	> + Send;
 }
 
@@ -121,14 +121,14 @@ impl tg::handle::Sandbox for tg::Client {
 
 	async fn get_sandbox_control_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
 		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-	> {
+	)> {
 		self.session(&self.context)
-			.get_sandbox_control_stream(id, arg, stream)
+			.get_sandbox_control_stream(arg, stream)
 			.await
 	}
 }

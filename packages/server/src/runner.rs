@@ -13,7 +13,11 @@ mod sandbox;
 
 mod cleanup;
 
-pub(crate) use self::{capacity::Allocation, sandbox::SpawnSandboxTaskArg};
+pub(crate) use self::{
+	capacity::Allocation,
+	process::Started as ProcessStarted,
+	sandbox::{SandboxIdentity, SpawnSandboxTaskArg, Started as SandboxStarted},
+};
 
 pub mod control;
 
@@ -149,10 +153,11 @@ impl Session {
 		let arg = tg::runner::control::Arg {
 			heartbeat,
 			host,
+			id: id.clone(),
 			location,
 		};
 		let output_stream = self
-			.get_runner_control_stream_all(id, arg, input_stream)
+			.get_runner_control_stream_all(arg, input_stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the scheduler"))?
 			.boxed();
@@ -219,27 +224,25 @@ impl Session {
 			};
 			// Spawn the sandbox task.
 			let sandbox = request.sandbox.clone();
-			let data = tg::sandbox::get::Output {
-				cpu: request.arg.cpu,
-				creator: request.creator,
-				hostname: request.arg.hostname,
-				id: sandbox.clone(),
-				isolation: request.arg.isolation,
-				location: Some(location.clone()),
-				memory: request.arg.memory,
-				mounts: request.arg.mounts,
-				network: request.arg.network,
-				owner: request.arg.owner,
-				status: tg::sandbox::Status::Started,
-				ttl: request.arg.ttl,
+			let Some(token) = request.token else {
+				let message = Self::create_runner_control_response(
+					id.clone(),
+					Err(tg::error!(%sandbox, "missing the sandbox authentication token")),
+				);
+				sender.send(message).await.ok();
+				continue;
 			};
-			let destroyed = self.server.spawn_sandbox_task(SpawnSandboxTaskArg {
-				allocation,
-				data,
+			let identity = Some(SandboxIdentity {
 				id: sandbox.clone(),
+				token,
+			});
+			let task = self.server.spawn_sandbox_task(SpawnSandboxTaskArg {
+				allocation,
+				arg: request.arg,
+				creator: request.creator,
+				identity,
 				location: location.clone(),
 				process: request.process,
-				token: request.token.clone(),
 			});
 
 			// Send the response.
@@ -256,7 +259,7 @@ impl Session {
 			tokio::spawn({
 				let sender = sender.clone();
 				async move {
-					destroyed.await.ok();
+					task.destroyed.await.ok();
 					let id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 					let notification = tg::runner::control::ClientNotification::SandboxDestroyed(
 						tg::runner::control::SandboxDestroyedClientNotification { id, sandbox },

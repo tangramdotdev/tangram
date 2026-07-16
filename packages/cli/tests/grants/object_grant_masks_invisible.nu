@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Granting an object permission the actor cannot see is masked as a missing resource, so it is not an existence oracle.
 
-let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } } }
+let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let bob = tg --url $remote.url login --verbose bob | from json

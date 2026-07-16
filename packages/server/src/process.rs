@@ -41,15 +41,6 @@ pub struct Child {
 	pub process: tg::process::Id,
 }
 
-impl Server {
-	pub(crate) fn create_process_token_string() -> String {
-		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
-			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
-		};
-		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
-	}
-}
-
 impl Session {
 	pub(crate) fn process_permission_for_data(
 		&self,

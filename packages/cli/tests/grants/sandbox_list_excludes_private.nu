@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Listing sandboxes is scoped to the principal's visible sandboxes.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

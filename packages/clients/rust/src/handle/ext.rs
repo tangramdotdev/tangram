@@ -375,7 +375,6 @@ pub trait Ext: tg::Handle {
 
 	fn get_runner_control_stream_all(
 		&self,
-		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
@@ -385,7 +384,6 @@ pub trait Ext: tg::Handle {
 	> + Send {
 		async move {
 			let handle = self.clone();
-			let id = id.clone();
 
 			// Create a channel for buffering events from the input.
 			let (input_sender, input_receiver) = async_channel::bounded(1);
@@ -403,7 +401,7 @@ pub trait Ext: tg::Handle {
 
 			// Get the initial output stream.
 			let output = handle
-				.get_runner_control_stream(&id, arg.clone(), input_receiver.clone().boxed())
+				.get_runner_control_stream(arg.clone(), input_receiver.clone().boxed())
 				.await?;
 
 			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
@@ -417,7 +415,6 @@ pub trait Ext: tg::Handle {
 			};
 			let stream = stream::unfold(state, move |mut state| {
 				let handle = handle.clone();
-				let id = id.clone();
 				let arg = arg.clone();
 				let input_receiver = input_receiver.clone();
 				async move {
@@ -433,7 +430,6 @@ pub trait Ext: tg::Handle {
 							retries.next().await?;
 							match handle
 								.get_runner_control_stream(
-									&id,
 									arg.clone(),
 									input_receiver.clone().boxed(),
 								)
@@ -471,17 +467,16 @@ pub trait Ext: tg::Handle {
 
 	fn get_sandbox_control_stream_all(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::sandbox::control::Output,
 			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-		>,
+		)>,
 	> + Send {
 		async move {
 			let handle = self.clone();
-			let id = id.clone();
 
 			// Create a channel for buffering events from the input.
 			let (input_sender, input_receiver) = async_channel::bounded(1);
@@ -498,8 +493,8 @@ pub trait Ext: tg::Handle {
 			input_task.detach();
 
 			// Get the initial output stream.
-			let output = handle
-				.get_sandbox_control_stream(&id, arg.clone(), input_receiver.clone().boxed())
+			let (output, output_stream) = handle
+				.get_sandbox_control_stream(arg.clone(), input_receiver.clone().boxed())
 				.await?;
 
 			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
@@ -509,11 +504,10 @@ pub trait Ext: tg::Handle {
 			}
 			let state = State {
 				retries: None,
-				stream: Some(output.boxed()),
+				stream: Some(output_stream.boxed()),
 			};
 			let stream = stream::unfold(state, move |mut state| {
 				let handle = handle.clone();
-				let id = id.clone();
 				let arg = arg.clone();
 				let input_receiver = input_receiver.clone();
 				async move {
@@ -529,13 +523,12 @@ pub trait Ext: tg::Handle {
 							retries.next().await?;
 							match handle
 								.get_sandbox_control_stream(
-									&id,
 									arg.clone(),
 									input_receiver.clone().boxed(),
 								)
 								.await
 							{
-								Ok(stream) => {
+								Ok((_, stream)) => {
 									state.stream.replace(stream.boxed());
 								},
 								Err(error) => {
@@ -561,25 +554,24 @@ pub trait Ext: tg::Handle {
 				}
 			});
 
-			Ok(stream)
+			Ok((output, stream))
 		}
 	}
 
 	fn try_get_process_control_stream_all(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
+			Option<(
+				tg::process::control::Output,
 				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-			>,
+			)>,
 		>,
 	> + Send {
 		async move {
 			let handle = self.clone();
-			let id = id.clone();
 
 			// Create a channel for buffering events from the input.
 			let (response_sender, response_receiver) = async_channel::bounded(1);
@@ -596,8 +588,8 @@ pub trait Ext: tg::Handle {
 			input_task.detach();
 
 			// Get the initial output stream.
-			let Some(output) = handle
-				.try_get_process_control_stream(&id, arg.clone(), response_receiver.clone().boxed())
+			let Some((output, output_stream)) = handle
+				.try_get_process_control_stream(arg.clone(), response_receiver.clone().boxed())
 				.await?
 			else {
 				input_task.abort();
@@ -611,11 +603,10 @@ pub trait Ext: tg::Handle {
 			}
 			let state = State {
 				retries: None,
-				stream: Some(output.boxed()),
+				stream: Some(output_stream.boxed()),
 			};
 			let stream = stream::unfold(state, move |mut state| {
 				let handle = handle.clone();
-				let id = id.clone();
 				let arg = arg.clone();
 				let response_receiver = response_receiver.clone();
 				async move {
@@ -631,13 +622,12 @@ pub trait Ext: tg::Handle {
 							retries.next().await?;
 							match handle
 								.try_get_process_control_stream(
-									&id,
 									arg.clone(),
 									response_receiver.clone().boxed(),
 								)
 								.await
 							{
-								Ok(Some(stream)) => {
+								Ok(Some((_, stream))) => {
 									state.stream.replace(stream.boxed());
 								},
 								Ok(None) => {
@@ -667,7 +657,7 @@ pub trait Ext: tg::Handle {
 				}
 			});
 
-			Ok(Some(stream))
+			Ok(Some((output, stream)))
 		}
 	}
 

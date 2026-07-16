@@ -1,8 +1,5 @@
 use {
-	super::local::Output,
-	crate::Session,
-	futures::{FutureExt as _, TryStreamExt as _, future},
-	tangram_client::prelude::*,
+	super::local::Output, crate::Session, futures::TryStreamExt as _, tangram_client::prelude::*,
 	tangram_messenger::Messenger as _,
 };
 
@@ -10,72 +7,110 @@ impl Session {
 	pub(super) async fn spawn_process_start_local(
 		&self,
 		arg: &tg::process::spawn::Arg,
-		output: Option<&mut Output>,
-	) -> tg::Result<()> {
-		let Some(output) = output else {
-			return Ok(());
+		mut output: Option<Output>,
+	) -> tg::Result<Option<Output>> {
+		let Some(process) = output.as_mut() else {
+			return Ok(output);
 		};
-		if output.cached || output.data.status.is_finished() {
-			return Ok(());
+		if process.cached || process.data.status.is_finished() {
+			return Ok(output);
 		}
-		let mut connected = self
-			.server
-			.messenger
-			.subscribe::<crate::process::control::Connected>(
-				crate::process::control::connected_subject(&output.id),
-			)
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					process = %output.id,
-					"failed to subscribe to the process control connection"
-				)
-			})?;
-		let process = output.id.clone();
-		let start_future = async {
-			match &arg.sandbox {
-				Some(tg::Either::Left(_)) => self.spawn_process_in_new_sandbox(output).await?,
-				Some(tg::Either::Right(_)) => {
-					self.spawn_process_in_existing_sandbox(output).await?;
-				},
-				None => return Err(tg::error!("expected the sandbox to be set")),
-			}
-			Ok::<_, tg::Error>(())
-		};
-		let connect_future = async {
-			let connected = connected
-				.try_next()
-				.await
-				.map_err(|error| {
-					tg::error!(!error, process = %process, "failed to receive the process control connection")
-				})?
-				.ok_or_else(|| tg::error!("the process control connection stream ended"))?;
-			Ok::<_, tg::Error>(connected.payload.lease)
-		};
-		let ((), lease) = future::try_join(start_future, connect_future)
-			.boxed()
-			.await?;
-		output.lease = Some(lease);
-		Ok(())
-	}
 
-	fn spawn_process_runner_arg(output: &Output) -> tg::Result<tg::runner::control::Process> {
-		let token = output
-			.process_token
-			.clone()
-			.ok_or_else(|| tg::error!("missing the process token"))?;
-		let output = tg::runner::control::Process {
-			data: output.data.clone(),
-			id: output.id.clone(),
-			parent: output.parent.clone(),
-			token,
-		};
+		match &arg.sandbox {
+			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
+				let started = self
+					.spawn_process_in_new_sandbox(process)
+					.await?
+					.ok_or_else(|| tg::error!("expected the sandbox to be started"))?;
+				let process_started = started
+					.process
+					.ok_or_else(|| tg::error!("expected the process to be started"))?;
+				process.data.sandbox = started.sandbox;
+				Self::spawn_process_apply_started(process, process_started)?;
+			},
+			Some(tg::Either::Left(_)) => {
+				let id = process.id.clone();
+				let mut connected = self
+					.server
+					.messenger
+					.subscribe::<crate::process::control::Connected>(
+						crate::process::control::connected_subject(&id),
+					)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							process = %id,
+							"failed to subscribe to the process control connection"
+						)
+					})?;
+				self.spawn_process_in_new_sandbox(process).await?;
+				let connected = connected
+					.try_next()
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							process = %id,
+							"failed to receive the process control connection"
+						)
+					})?
+					.ok_or_else(|| tg::error!("the process control connection stream ended"))?;
+				process.lease = Some(connected.payload.lease);
+			},
+			Some(tg::Either::Right(_)) => {
+				let started = self.spawn_process_in_existing_sandbox(process).await?;
+				Self::spawn_process_apply_started(process, started)?;
+			},
+			None => return Err(tg::error!("expected the sandbox to be set")),
+		}
+
 		Ok(output)
 	}
 
-	async fn spawn_process_in_existing_sandbox(&self, output: &Output) -> tg::Result<()> {
-		let process = Self::spawn_process_runner_arg(output)?;
+	fn spawn_process_apply_started(
+		output: &mut Output,
+		started: crate::runner::ProcessStarted,
+	) -> tg::Result<()> {
+		let assigned = output.process_token.is_some();
+		if !assigned && started.grant.is_none() {
+			return Err(tg::error!(
+				process = %started.id,
+				"missing the process grant"
+			));
+		}
+		output.id = started.id;
+		output.lease = Some(started.lease);
+		if let Some(grant) = started.grant {
+			output.token = Some(grant);
+		}
+		Ok(())
+	}
+
+	fn spawn_process_runner_arg(output: &Output) -> tg::runner::control::Process {
+		let identity =
+			output
+				.process_token
+				.clone()
+				.map(|token| tg::runner::control::ProcessIdentity {
+					id: output.id.clone(),
+					token,
+				});
+		tg::runner::control::Process {
+			data: output.data.clone(),
+			identity,
+			parent: output.parent.clone(),
+		}
+	}
+
+	async fn spawn_process_in_existing_sandbox(
+		&self,
+		output: &Output,
+	) -> tg::Result<crate::runner::ProcessStarted> {
+		let process = Self::spawn_process_runner_arg(output);
+		let id = output.id.clone();
+		let assigned = process.identity.is_some();
+		let sandbox = output.data.sandbox.clone();
 		let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(
 			tg::sandbox::control::SpawnProcessServerRequestArg { process },
 		);
@@ -84,52 +119,67 @@ impl Session {
 			timeout: std::time::Duration::from_secs(10),
 		};
 		let response = self
-			.send_sandbox_control_request(&output.data.sandbox, request, options)
+			.send_sandbox_control_request(&sandbox, request, options)
 			.await
-			.map_err(|error| {
-				tg::error!(!error, sandbox = %output.data.sandbox, process = %output.id, "failed to send the spawn process request")
-			})?
-			.map_err(|error| {
-				tg::error!(!error, sandbox = %output.data.sandbox, process = %output.id, "the spawn process request failed")
-			})?;
-		response
+			.map_err(
+				|error| tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request"),
+			)?
+			.map_err(
+				|error| tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
+			)?;
+		let output = response
 			.try_unwrap_spawn_process()
 			.map_err(|_| tg::error!("expected a spawn process response"))?;
-		Ok(())
+		if assigned && output.process != id {
+			return Err(tg::error!(
+				actual = %output.process,
+				expected = %id,
+				"the runner returned an invalid process"
+			));
+		}
+		let started = crate::runner::ProcessStarted {
+			grant: output.grant,
+			id: output.process,
+			lease: output.lease,
+		};
+
+		Ok(started)
 	}
 
-	async fn spawn_process_in_new_sandbox(&self, output: &mut Output) -> tg::Result<()> {
+	async fn spawn_process_in_new_sandbox(
+		&self,
+		output: &mut Output,
+	) -> tg::Result<Option<crate::runner::SandboxStarted>> {
 		let arg = output
 			.sandbox_arg
 			.clone()
 			.ok_or_else(|| tg::error!("missing the sandbox arg"))?;
-		let process = Self::spawn_process_runner_arg(output)?;
+		let process = Self::spawn_process_runner_arg(output);
 		if let Some(allocation) = output.allocation.take() {
 			let location = self.server.location(arg.location.as_ref())?;
-			let data = tg::sandbox::get::Output {
-				cpu: arg.cpu,
-				creator: Some(self.context.principal.clone()),
-				hostname: arg.hostname,
-				id: output.data.sandbox.clone(),
-				isolation: arg.isolation,
-				location: Some(location.clone()),
-				memory: arg.memory,
-				mounts: arg.mounts,
-				network: arg.network,
-				owner: arg.owner,
-				status: tg::sandbox::Status::Started,
-				ttl: arg.ttl,
-			};
-			self.server
+			let identity =
+				output
+					.sandbox_token
+					.clone()
+					.map(|token| crate::runner::SandboxIdentity {
+						id: output.data.sandbox.clone(),
+						token,
+					});
+			let task = self
+				.server
 				.spawn_sandbox_task(crate::runner::SpawnSandboxTaskArg {
 					allocation,
-					data,
-					id: output.data.sandbox.clone(),
+					arg,
+					creator: Some(self.context.principal.clone()),
+					identity,
 					location,
 					process: Some(process),
-					token: output.sandbox_token.clone(),
 				});
-			return Ok(());
+			let started = task
+				.started
+				.await
+				.map_err(|_| tg::error!("the sandbox start sender was dropped"))??;
+			return Ok(Some(started));
 		}
 		let request = crate::scheduler::CreateSandboxRequestArg {
 			arg,
@@ -139,11 +189,9 @@ impl Session {
 			sandbox: output.data.sandbox.clone(),
 			token: output.sandbox_token.clone(),
 		};
-		self.enqueue_sandbox(request)
-			.await
-			.map_err(|error| {
-				tg::error!(!error, sandbox = %output.data.sandbox, process = %output.id, "failed to enqueue the sandbox")
-			})?;
-		Ok(())
+		self.enqueue_sandbox(request).await.map_err(|error| {
+			tg::error!(!error, sandbox = %output.data.sandbox, process = %output.id, "failed to enqueue the sandbox")
+		})?;
+		Ok(None)
 	}
 }

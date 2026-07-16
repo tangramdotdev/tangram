@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A checksum-mismatch cache reuse must not confer read access to another principal's process: building the same command with a different checksum must not copy an unauthorized principal's checksum-mismatch process subtree.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

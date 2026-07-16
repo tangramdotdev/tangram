@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let team_remote = spawn --name team-remote
 let org_remote = spawn --name org-remote
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

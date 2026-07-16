@@ -60,7 +60,9 @@ impl Session {
 		)?;
 
 		let id = tg::sandbox::Id::new();
-		let token = Self::create_sandbox_token_string();
+		let token = self
+			.server
+			.create_sandbox_authentication_token(id.clone())?;
 
 		let mut connected = self
 			.server

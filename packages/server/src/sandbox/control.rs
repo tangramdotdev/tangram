@@ -23,40 +23,85 @@ pub(crate) fn connected_subject(id: &tg::sandbox::Id) -> String {
 impl Session {
 	pub(crate) async fn get_sandbox_control_stream_with_context(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>> {
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
+		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
+	)> {
 		let location = self.server.location(arg.location.as_ref())?;
-		let stream = match location {
+		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.get_sandbox_control_stream_local(id, arg, stream)
-					.await?
+				self.get_sandbox_control_stream_local(arg, stream).await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.get_sandbox_control_stream_region(id, arg, stream, region)
+				self.get_sandbox_control_stream_region(arg, stream, region)
 					.await?
 			},
 			tg::Location::Remote(tg::location::Remote { name, region }) => {
-				self.get_sandbox_control_stream_remote(id, arg, stream, name, region)
+				self.get_sandbox_control_stream_remote(arg, stream, name, region)
 					.await?
 			},
 		};
-		Ok(stream)
+		Ok(output)
 	}
 
 	async fn get_sandbox_control_stream_local(
 		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::control::Arg,
+		mut arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>> {
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
+		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
+	)> {
+		let (id, token) = if let Some(id) = arg.id.take() {
+			match &self.context.principal {
+				tg::Principal::Sandbox(sandbox) if sandbox == &id => (),
+				tg::Principal::Sandbox(sandbox) => {
+					return Err(tg::error!(sandbox = %sandbox, %id, "invalid sandbox"));
+				},
+				_ => return Err(tg::error!("unauthorized")),
+			}
+			(id, self.context.token.clone())
+		} else {
+			if !matches!(
+				self.context.principal,
+				tg::Principal::Root | tg::Principal::Runner(_)
+			) {
+				return Err(tg::error!("unauthorized"));
+			}
+			let id = tg::sandbox::Id::new();
+			let token = self
+				.server
+				.create_sandbox_authentication_token(id.clone())?;
+			(id, Some(token))
+		};
+		let context = crate::Context {
+			principal: tg::Principal::Sandbox(id.clone()),
+			token: token.clone(),
+			..self.context.clone()
+		};
+		let session = self.server.session(&context);
 		let created_at = arg
 			.created_at
 			.unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp());
-		let data = arg.data;
+		let location = self.server.location(arg.location.as_ref())?;
+		let data = arg.data.map(|data| tg::sandbox::get::Output {
+			cpu: data.arg.cpu,
+			creator: data.creator,
+			hostname: data.arg.hostname,
+			id: id.clone(),
+			isolation: data.arg.isolation,
+			location: Some(location),
+			memory: data.arg.memory,
+			mounts: data.arg.mounts,
+			network: data.arg.network,
+			owner: data.arg.owner,
+			status: tg::sandbox::Status::Started,
+			ttl: data.arg.ttl,
+		});
 		let runner = arg.runner;
 		let server_messages = self
 			.server
@@ -75,18 +120,32 @@ impl Session {
 		let control_sender = control.sender();
 		let mut server_messages = server_messages;
 		let server_message_sender = control_sender.clone();
-		let server_messages_task =
-			Task::spawn(move |_| async move {
+		let server_messages_task = Task::spawn({
+			let id = id.clone();
+			let server = self.server.clone();
+			move |_| async move {
 				while let Some(message) = server_messages.try_next().await.map_err(|source| {
 					tg::error!(!source, "failed to get a sandbox server message")
 				})? {
-					server_message_sender.send(message.payload.0).await?;
+					let mut message = message.payload.0;
+					if let tg::sandbox::control::ServerMessage::Request(request) = &mut message
+						&& let tg::sandbox::control::ServerRequestArg::SpawnProcess(request) =
+							&mut request.arg && request.process.identity.is_none()
+					{
+						let process = tg::process::Id::new();
+						let token = server.create_process_authentication_token(process.clone())?;
+						request.process.data.sandbox = id.clone();
+						request.process.identity =
+							Some(tg::runner::control::ProcessIdentity { id: process, token });
+					}
+					server_message_sender.send(message).await?;
 				}
 				Ok::<_, tg::Error>(())
-			});
+			}
+		});
 
 		let control_task = Task::spawn({
-			let session = self.clone();
+			let session = session.clone();
 			let id = id.clone();
 			let runner = runner.clone();
 			move |_| async move {
@@ -145,7 +204,7 @@ impl Session {
 			.attach(server_messages_task)
 			.attach(control_task)
 			.map(Ok)
-			.with_stopper(self.context.stopper.clone())
+			.with_stopper(session.context.stopper.clone())
 			.boxed();
 
 		if let Some(data) = data {
@@ -172,15 +231,18 @@ impl Session {
 				.detach();
 		}
 
-		self.server
+		session
+			.server
 			.messenger
-			.publish(connected_subject(id), ())
+			.publish(connected_subject(&id), ())
 			.await
 			.map_err(|error| {
 				tg::error!(!error, "failed to publish the sandbox control connection")
 			})?;
 
-		Ok(stream)
+		let output = tg::sandbox::control::Output { id, token };
+
+		Ok((output, stream))
 	}
 
 	fn sandbox_control_server_response(
@@ -206,13 +268,16 @@ impl Session {
 
 	async fn get_sandbox_control_stream_region(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 		region: String,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>> {
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
+		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
+	)> {
+		let id = arg.id.clone();
 		let client = self.get_region_session(&region).await.map_err(
-			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
+			|error| tg::error!(!error, region = %region, ?id, "failed to get the region client"),
 		)?;
 		let arg = tg::sandbox::control::Arg {
 			location: Some(
@@ -223,45 +288,50 @@ impl Session {
 			),
 			..arg
 		};
-		let stream = client
-			.get_sandbox_control_stream(id, arg, stream)
+		let (output, stream) = client
+			.get_sandbox_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
 			)?;
 		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok(stream)
+		Ok((output, stream))
 	}
 
 	async fn get_sandbox_control_stream_remote(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>> {
-		let client = self.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
+		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
+	)> {
+		let id = arg.id.clone();
+		let session = self.get_remote_session(&remote).await.map_err(
+			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
 		)?;
+		let context = session.context().clone();
+		context.set_token(self.context.token.clone());
+		let session = session.client().session(&context);
 		let arg = tg::sandbox::control::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let stream = client
-			.get_sandbox_control_stream(id, arg, stream)
+		let (output, stream) = session
+			.get_sandbox_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
 		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok(stream)
+		Ok((output, stream))
 	}
 
 	pub(crate) async fn get_sandbox_control_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -275,23 +345,6 @@ impl Session {
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
-		}
-
-		let id = id
-			.parse::<tg::sandbox::Id>()
-			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
-
-		match &self.context.principal {
-			tg::Principal::Sandbox(sandbox) if sandbox == &id => (),
-			tg::Principal::Sandbox(sandbox) => {
-				return Err(tg::error!(
-					sandbox = %sandbox,
-					id = %id,
-					"invalid sandbox"
-				));
-			},
-			tg::Principal::Root if self.server.config().authentication.is_none() => (),
-			_ => return Err(tg::error!("unauthorized")),
 		}
 
 		let arg = request
@@ -316,8 +369,8 @@ impl Session {
 			})
 			.boxed();
 
-		let stream = self
-			.get_sandbox_control_stream_with_context(&id, arg, stream)
+		let (output, stream) = self
+			.get_sandbox_control_stream_with_context(arg, stream)
 			.await?;
 
 		let content_type = mime::TEXT_EVENT_STREAM;
@@ -326,8 +379,11 @@ impl Session {
 			Err(error) => error.try_into(),
 		});
 		let body = BoxBody::with_sse_stream(stream);
+		let body = tangram_http::body::output::set(body, &output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
+			.header(tangram_http::body::output::HEADER, "true")
 			.body(body)
 			.unwrap();
 

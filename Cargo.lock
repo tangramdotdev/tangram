@@ -8091,6 +8091,7 @@ dependencies = [
  "async-broadcast",
  "async-channel",
  "async-nats",
+ "aws-lc-rs",
  "bytes",
  "crossterm",
  "dashmap",

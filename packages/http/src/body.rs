@@ -12,6 +12,7 @@ use {
 pub mod and_then_frame;
 pub mod arg;
 pub mod compression;
+pub mod output;
 
 pub use http_body_util::BodyStream;
 

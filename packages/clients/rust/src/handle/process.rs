@@ -99,14 +99,14 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_get_process_control_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
+			Option<(
+				tg::process::control::Output,
 				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-			>,
+			)>,
 		>,
 	> + Send;
 
@@ -307,16 +307,16 @@ impl tg::handle::Process for tg::Client {
 
 	async fn try_get_process_control_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<
+		Option<(
+			tg::process::control::Output,
 			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-		>,
+		)>,
 	> {
 		self.session(&self.context)
-			.try_get_process_control_stream(id, arg, stream)
+			.try_get_process_control_stream(arg, stream)
 			.await
 	}
 

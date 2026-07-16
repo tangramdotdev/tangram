@@ -221,8 +221,7 @@ impl Session {
 				let authorized = matches!(
 					&self.context.principal,
 					tg::Principal::Process(process) if process == id
-				) || (matches!(self.context.principal, tg::Principal::Root)
-					&& self.server.config.authentication.is_none());
+				);
 				if !authorized {
 					return Err(tg::error!("unauthorized"));
 				}

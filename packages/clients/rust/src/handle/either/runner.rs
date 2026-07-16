@@ -10,7 +10,6 @@ where
 {
 	fn get_runner_control_stream(
 		&self,
-		id: &tg::runner::Id,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
@@ -20,11 +19,11 @@ where
 	> + Send {
 		match self {
 			tg::Either::Left(s) => s
-				.get_runner_control_stream(id, arg, stream)
+				.get_runner_control_stream(arg, stream)
 				.map_ok(futures::StreamExt::left_stream)
 				.left_future(),
 			tg::Either::Right(s) => s
-				.get_runner_control_stream(id, arg, stream)
+				.get_runner_control_stream(arg, stream)
 				.map_ok(futures::StreamExt::right_stream)
 				.right_future(),
 		}

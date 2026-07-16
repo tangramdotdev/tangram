@@ -50,15 +50,15 @@ impl tg::handle::Process for Session {
 
 	async fn try_get_process_control_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<
+		Option<(
+			tg::process::control::Output,
 			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
-		>,
+		)>,
 	> {
-		self.try_get_process_control_stream_with_context(id, arg, stream)
+		self.try_get_process_control_stream_with_context(arg, stream)
 			.await
 	}
 

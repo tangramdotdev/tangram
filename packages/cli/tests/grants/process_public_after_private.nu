@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # --public publicizes a process even on a cache hit: building privately and then --public the same command must make the output publicly readable.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

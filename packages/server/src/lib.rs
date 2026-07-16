@@ -92,6 +92,7 @@ pub struct Owned {
 pub struct Server(Arc<State>);
 
 pub struct State {
+	authentication_tokens: Tokens,
 	cache_graph_tasks: self::cache::GraphTasks,
 	cache_tasks: self::cache::Tasks,
 	checkin_tasks: self::checkin::Tasks,
@@ -99,6 +100,7 @@ pub struct State {
 	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
+	grant_tokens: Tokens,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
 	#[cfg(target_os = "linux")]
@@ -126,7 +128,6 @@ pub struct State {
 	runner: self::runner::Runner,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
-	pub tokens: Tokens,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
 	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
@@ -723,76 +724,13 @@ impl Server {
 		let watches = DashMap::default();
 
 		// Create the token keys.
-		let private_key = match &config.authorization.tokens {
-			Some(tokens) => match &tokens.private_key {
-				Some(config) => {
-					let bytes = match &config.path {
-						Some(path) => match config.algorithm {
-							tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
-								|error| tg::error!(!error, path = %path.display(), "failed to read the private key"),
-							)?,
-						},
-						None => match config.algorithm {
-							tg::grant::Algorithm::Ed25519 => {
-								tg::grant::PrivateKey::generate(
-									config.name.clone(),
-									config.algorithm,
-								)?
-								.bytes
-							},
-						},
-					};
-					Some(tg::grant::PrivateKey::new(
-						config.name.clone(),
-						config.algorithm,
-						bytes,
-					))
-				},
-				None => None,
-			},
-			None => None,
-		};
-		let mut public_keys = BTreeMap::new();
-		if let Some(tokens) = &config.authorization.tokens {
-			for config in &tokens.public_keys {
-				let bytes = match &config.path {
-					Some(path) => match config.algorithm {
-						tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
-							|error| tg::error!(!error, path = %path.display(), "failed to read the public key"),
-						)?,
-					},
-					None => match config.algorithm {
-						tg::grant::Algorithm::Ed25519 => {
-							let matching_private_key = private_key.as_ref().filter(|private_key| {
-								private_key.name == config.name
-									&& private_key.algorithm == config.algorithm
-							});
-							let key = if let Some(private_key) = matching_private_key {
-								tg::grant::PublicKey::from_private_key(private_key)?
-							} else {
-								let private_key = tg::grant::PrivateKey::generate(
-									config.name.clone(),
-									config.algorithm,
-								)?;
-								tg::grant::PublicKey::from_private_key(&private_key)?
-							};
-							key.bytes
-						},
-					},
-				};
-				let key = tg::grant::PublicKey::new(config.name.clone(), config.algorithm, bytes);
-				if public_keys.insert(config.name.clone(), key).is_some() {
-					return Err(tg::error!(name = %config.name, "duplicate public key"));
-				}
-			}
-		}
-		let tokens = Tokens {
-			private_key,
-			public_keys,
-		};
+		let authentication_tokens =
+			load_token_keys(Some(&config.authentication.tokens.keys)).await?;
+		let grant_tokens = load_token_keys(config.grants.tokens.as_ref()).await?;
 
 		// Create the server.
 		let server = Self(Arc::new(State {
+			authentication_tokens,
 			cache_graph_tasks,
 			cache_tasks,
 			checkin_tasks,
@@ -800,6 +738,7 @@ impl Server {
 			context,
 			database,
 			diagnostics,
+			grant_tokens,
 			index,
 			index_tasks,
 			#[cfg(target_os = "linux")]
@@ -827,7 +766,6 @@ impl Server {
 			runner,
 			tangram_path,
 			temps,
-			tokens,
 			version,
 			vfs,
 			watches,
@@ -1573,4 +1511,70 @@ impl Drop for Owned {
 		self.vfs.lock().unwrap().take();
 		self.watches.clear();
 	}
+}
+
+async fn load_token_keys(config: Option<&config::TokenKeys>) -> tg::Result<Tokens> {
+	let private_key = match config.and_then(|config| config.private_key.as_ref()) {
+		Some(config) => {
+			let bytes = match &config.path {
+				Some(path) => match config.algorithm {
+					tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
+						|error| tg::error!(!error, path = %path.display(), "failed to read the private key"),
+					)?,
+				},
+				None => match config.algorithm {
+					tg::grant::Algorithm::Ed25519 => {
+						tg::grant::PrivateKey::generate(config.name.clone(), config.algorithm)?
+							.bytes
+					},
+				},
+			};
+			Some(tg::grant::PrivateKey::new(
+				config.name.clone(),
+				config.algorithm,
+				bytes,
+			))
+		},
+		None => None,
+	};
+	let mut public_keys = BTreeMap::new();
+	if let Some(config) = config {
+		for config in &config.public_keys {
+			let bytes = match &config.path {
+				Some(path) => match config.algorithm {
+					tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
+						|error| tg::error!(!error, path = %path.display(), "failed to read the public key"),
+					)?,
+				},
+				None => match config.algorithm {
+					tg::grant::Algorithm::Ed25519 => {
+						let matching_private_key = private_key.as_ref().filter(|private_key| {
+							private_key.name == config.name
+								&& private_key.algorithm == config.algorithm
+						});
+						let key = if let Some(private_key) = matching_private_key {
+							tg::grant::PublicKey::from_private_key(private_key)?
+						} else {
+							let private_key = tg::grant::PrivateKey::generate(
+								config.name.clone(),
+								config.algorithm,
+							)?;
+							tg::grant::PublicKey::from_private_key(&private_key)?
+						};
+						key.bytes
+					},
+				},
+			};
+			let key = tg::grant::PublicKey::new(config.name.clone(), config.algorithm, bytes);
+			if public_keys.insert(config.name.clone(), key).is_some() {
+				return Err(tg::error!(name = %config.name, "duplicate public key"));
+			}
+		}
+	}
+	let tokens = Tokens {
+		private_key,
+		public_keys,
+	};
+
+	Ok(tokens)
 }

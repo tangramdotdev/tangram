@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session},
+	crate::Server,
 	dashmap::DashMap,
 	std::{collections::HashMap, sync::Arc},
 	tangram_client::prelude::*,
@@ -26,16 +26,7 @@ pub struct State {
 	pub token: Option<String>,
 }
 
-pub type Tasks = tangram_futures::task::Map<tg::sandbox::Id, (), (), tg::id::BuildHasher>;
-
-impl Session {
-	pub(super) fn create_sandbox_token_string() -> String {
-		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
-			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
-		};
-		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
-	}
-}
+pub type Tasks = tangram_futures::task::Map<String, ()>;
 
 impl Server {
 	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {

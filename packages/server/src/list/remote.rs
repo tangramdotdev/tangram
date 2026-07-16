@@ -26,7 +26,7 @@ impl Session {
 			arg: remote_arg.clone(),
 		};
 		let key_json = serde_json::to_string(&key).unwrap();
-		let use_cache = self.server.config().authentication.is_none();
+		let use_cache = self.server.config().authentication.users.is_none();
 		if use_cache
 			&& arg.ttl != Some(Duration::ZERO)
 			&& let Some((cached_output, timestamp)) = self
@@ -83,7 +83,7 @@ impl Session {
 			.list(arg.clone())
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?;
-		if self.server.config().authentication.is_none() {
+		if self.server.config().authentication.users.is_none() {
 			let key = serde_json::to_string(&Key { remote, arg }).unwrap();
 			let output_json = serde_json::to_string(&output.data).unwrap();
 			let now = OffsetDateTime::now_utc().unix_timestamp();

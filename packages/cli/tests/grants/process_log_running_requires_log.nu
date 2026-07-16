@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A running (not yet finalized) process's log is the live process stream. Reading it requires the log permission, just as reading the log once compacted to a blob does: the owner reads it, a principal holding only the process node is denied, and granting the log permission restores access. This guards the live-log read path, which a node-only reader must not use to read a log it could not read once compacted.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

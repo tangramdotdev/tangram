@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # --public reconciles a partial existing grant: if the process already has some public read permissions but not all, --public adds the missing ones without error.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

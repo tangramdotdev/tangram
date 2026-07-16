@@ -11,27 +11,31 @@ impl Session {
 	pub(super) async fn spawn_process_start_or_get_cached(
 		&self,
 		arg: &tg::process::spawn::Arg,
-		mut output: Option<Output>,
+		output: Option<Output>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let local_id = output.as_ref().map(|output| output.id.clone());
-		let local_token = output.as_ref().and_then(|output| output.token.clone());
+		let candidate = output.as_ref().map(|output| output.id.clone());
 		let scheduled_sandbox = output.as_ref().and_then(|output| {
 			(output.sandbox_arg.is_some() && output.allocation.is_none())
 				.then(|| output.data.sandbox.clone())
 		});
-		let cache_future =
-			self.spawn_process_get_cached_process(arg, parent_sandbox, location, local_id.as_ref());
-		let start_future = self.spawn_process_start_local(arg, output.as_mut());
-		let (cache, wait) = match future::select(pin!(start_future), pin!(cache_future)).await {
+		let cache_future = self.spawn_process_get_cached_process(
+			arg,
+			parent_sandbox,
+			location,
+			candidate.as_ref(),
+		);
+		let start_future = self.spawn_process_start_local(arg, output).boxed();
+		let (cache, wait, output) = match future::select(start_future, pin!(cache_future)).await {
 			future::Either::Left((result, cache_future)) => {
-				result?;
-				let wait_future =
-					self.spawn_process_wait_local(local_id.clone(), local_token, None, false);
+				let output = result?;
+				let local_id = output.as_ref().map(|output| output.id.clone());
+				let local_token = output.as_ref().and_then(|output| output.token.clone());
+				let wait_future = self.spawn_process_wait_local(local_id, local_token, None, false);
 				match future::select(pin!(wait_future), cache_future).await {
-					future::Either::Left((result, _)) => (None, result?),
-					future::Either::Right((result, _)) => (result?, None),
+					future::Either::Left((result, _)) => (None, result?, output),
+					future::Either::Right((result, _)) => (result?, None, output),
 				}
 			},
 			future::Either::Right((result, start_future)) => {
@@ -43,12 +47,18 @@ impl Session {
 						.await?;
 					return Ok(cache.map(cached::Output::into_output));
 				}
-				start_future.await?;
-				(cache, None)
+				let output = start_future.await?;
+				(cache, None, output)
 			},
 		};
+		let cache = cache.filter(|cache| {
+			output
+				.as_ref()
+				.is_none_or(|output| cache.process() != Some(&output.id))
+		});
 		if let Some(cache) = cache {
-			self.spawn_process_cancel_candidate(output.as_ref().unwrap())
+			let output = output.as_ref().unwrap();
+			self.spawn_process_cancel_candidate(output.id.clone(), output.lease.clone())
 				.await?;
 			return Ok(Some(cache.into_output()));
 		}
@@ -98,7 +108,11 @@ impl Session {
 					if let Some(output) = &output
 						&& !output.cached && output.lease.is_some()
 					{
-						self.spawn_process_cancel_candidate(output).await?;
+						self.spawn_process_cancel_candidate(
+							output.id.clone(),
+							output.lease.clone(),
+						)
+						.await?;
 					}
 					cached_output.into_output()
 				} else {
@@ -195,21 +209,20 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn spawn_process_cancel_candidate(&self, output: &Output) -> tg::Result<()> {
-		let lease = output
-			.lease
-			.clone()
-			.ok_or_else(|| tg::error!("missing the process lease"))?;
+	async fn spawn_process_cancel_candidate(
+		&self,
+		id: tg::process::Id,
+		lease: Option<String>,
+	) -> tg::Result<()> {
+		let lease = lease.ok_or_else(|| tg::error!("missing the process lease"))?;
 		let arg = tg::process::cancel::Arg {
 			lease,
 			location: None,
 		};
-		self.try_cancel_process_local(&output.id, arg)
+		self.try_cancel_process_local(&id, arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, process = %output.id, "failed to cancel the process"),
-			)?
-			.ok_or_else(|| tg::error!(process = %output.id, "failed to find the process"))?;
+			.map_err(|error| tg::error!(!error, process = %id, "failed to cancel the process"))?
+			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;
 		Ok(())
 	}
 

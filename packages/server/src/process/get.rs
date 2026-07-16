@@ -2,7 +2,7 @@ use {
 	crate::{Server, Session, database::Database},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
-		stream::{self, FuturesOrdered, FuturesUnordered},
+		stream::{self, FuturesUnordered},
 	},
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -218,47 +218,6 @@ impl Session {
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let output = self.server.try_get_process_local(id, false).await?;
 		Ok(output)
-	}
-
-	pub async fn try_get_process_batch_local(
-		&self,
-		ids: &[tg::process::Id],
-		metadata: bool,
-	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let outputs = self
-			.server
-			.try_get_process_batch_local(ids, metadata)
-			.await?;
-
-		let outputs = std::iter::zip(ids, outputs)
-			.map(|(id, output)| async move {
-				if output.is_none() {
-					return Ok::<_, tg::Error>(None);
-				}
-				let resource = tg::grant::Resource::Id(id.clone().into());
-				let permission = tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Node,
-				);
-				if !self
-					.authorize(resource, permission)
-					.await?
-					.is_some_and(|permissions| permissions.contains(permission))
-				{
-					return Ok(None);
-				}
-				let mut output = output;
-				if let Some(output) = &mut output
-					&& let Some(metadata) = output.metadata.take()
-				{
-					output.metadata = self.mask_process_metadata(id, metadata, None).await?;
-				}
-				Ok::<_, tg::Error>(output)
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-
-		Ok(outputs)
 	}
 
 	async fn try_get_process_regions(

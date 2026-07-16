@@ -248,7 +248,9 @@ impl Session {
 		let id = tg::process::Id::new();
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let token = self.create_process_wait_token(&id, now)?;
-		let process_token = crate::Server::create_process_token_string();
+		let process_token = self
+			.server
+			.create_process_authentication_token(id.clone())?;
 		let (sandbox, sandbox_arg, sandbox_token) = match &arg.sandbox {
 			Some(tg::Either::Left(sandbox_arg)) => {
 				let mut sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
@@ -263,7 +265,9 @@ impl Session {
 					sandbox_arg.hostname.as_deref(),
 				)?;
 				let sandbox = tg::sandbox::Id::new();
-				let token = Self::create_sandbox_token_string();
+				let token = self
+					.server
+					.create_sandbox_authentication_token(sandbox.clone())?;
 				(sandbox, Some(sandbox_arg), Some(token))
 			},
 			Some(tg::Either::Right(sandbox)) => (sandbox.clone(), None, None),

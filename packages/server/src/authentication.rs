@@ -5,6 +5,8 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
+mod token;
+
 #[derive(Clone)]
 pub(crate) struct Process {
 	pub debug: Option<tg::process::Debug>,
@@ -199,45 +201,66 @@ impl Session {
 }
 
 impl Server {
+	pub(crate) fn create_process_authentication_token(
+		&self,
+		id: tg::process::Id,
+	) -> tg::Result<String> {
+		self.create_authentication_token(token::Principal::Process(id))
+	}
+
+	pub(crate) fn create_sandbox_authentication_token(
+		&self,
+		id: tg::sandbox::Id,
+	) -> tg::Result<String> {
+		self.create_authentication_token(token::Principal::Sandbox(id))
+	}
+
+	fn create_authentication_token(&self, principal: token::Principal) -> tg::Result<String> {
+		let private_key = self
+			.authentication_tokens
+			.private_key
+			.as_ref()
+			.ok_or_else(|| tg::error!("missing the authentication token private key"))?;
+		let issued_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let ttl = i64::try_from(self.config.authentication.tokens.ttl.as_secs())
+			.map_err(|_| tg::error!("invalid authentication token ttl"))?;
+		let expires_at = issued_at
+			.checked_add(ttl)
+			.ok_or_else(|| tg::error!("invalid authentication token expiration"))?;
+		let body = token::Body {
+			expires_at,
+			issued_at,
+			principal,
+		};
+		let token = token::Token::sign(body, private_key)?;
+
+		Ok(token.to_string())
+	}
+
 	pub(crate) async fn authenticate(
 		&self,
 		sandbox: bool,
 		token: Option<&str>,
 	) -> tg::Result<tg::Principal> {
-		if sandbox {
-			let Some(token) = token else {
+		if let Some(value) = token.filter(|value| token::Token::has_prefix(value)) {
+			let principal = self
+				.authenticate_token(value)
+				.unwrap_or(tg::Principal::Anonymous);
+			if sandbox && !matches!(principal, tg::Principal::Process(_)) {
 				return Ok(tg::Principal::Anonymous);
-			};
-			return Ok(self
-				.authenticate_process(token)
-				.await?
-				.map_or(tg::Principal::Anonymous, tg::Principal::Process));
+			}
+
+			return Ok(principal);
+		}
+
+		if sandbox {
+			return Ok(tg::Principal::Anonymous);
 		}
 
 		if let Some(token) = token {
-			match self.authenticate_process(token).await {
-				Ok(Some(process)) => {
-					return Ok(tg::Principal::Process(process));
-				},
-				Ok(None) => (),
-				Err(error) => {
-					return Err(error);
-				},
-			}
-
 			match self.authenticate_runner(token).await {
 				Ok(Some(runner)) => {
 					return Ok(tg::Principal::Runner(runner));
-				},
-				Ok(None) => (),
-				Err(error) => {
-					return Err(error);
-				},
-			}
-
-			match self.authenticate_sandbox(token).await {
-				Ok(Some(sandbox)) => {
-					return Ok(tg::Principal::Sandbox(sandbox));
 				},
 				Ok(None) => (),
 				Err(error) => {
@@ -256,27 +279,49 @@ impl Server {
 			}
 		}
 
-		if self.config().authentication.is_none() {
+		if self.config().authentication.users.is_none() {
 			return Ok(tg::Principal::Root);
 		}
 
 		Ok(tg::Principal::Anonymous)
 	}
 
-	pub(crate) async fn authenticate_process(
-		&self,
-		token: &str,
-	) -> tg::Result<Option<tg::process::Id>> {
-		if let Some(process) = self.runner.state.sandboxes.iter().find_map(|sandbox| {
-			sandbox
+	fn authenticate_token(&self, value: &str) -> Option<tg::Principal> {
+		let token = value.parse::<token::Token>().ok()?;
+		token.validate().ok()?;
+		let principal = token.body.principal.clone().into();
+		let matches = match &principal {
+			tg::Principal::Process(id) => self
+				.runner
+				.state
 				.processes
-				.iter()
-				.find_map(|(id, process)| (process.token == token).then(|| id.clone()))
-		}) {
-			return Ok(Some(process));
+				.get(id)
+				.and_then(|sandbox| self.runner.state.sandboxes.get(sandbox.value()))
+				.and_then(|sandbox| {
+					sandbox
+						.processes
+						.get(id)
+						.map(|process| process.token == value)
+				})
+				.unwrap_or(false),
+			tg::Principal::Sandbox(id) => self
+				.runner
+				.state
+				.sandboxes
+				.get(id)
+				.is_some_and(|sandbox| sandbox.token.as_deref() == Some(value)),
+			_ => false,
+		};
+		if matches {
+			return Some(principal);
 		}
+		let public_key = self
+			.authentication_tokens
+			.public_keys
+			.get(&token.metadata.key)?;
+		token.verify(public_key).ok()?;
 
-		Ok(None)
+		Some(principal)
 	}
 
 	pub(crate) async fn authenticate_runner(
@@ -313,20 +358,6 @@ impl Server {
 		};
 
 		Ok(Some(row.runner))
-	}
-
-	pub(crate) async fn authenticate_sandbox(
-		&self,
-		token: &str,
-	) -> tg::Result<Option<tg::sandbox::Id>> {
-		if let Some(sandbox) = self.runner.state.sandboxes.iter().find_map(|sandbox| {
-			let sandbox = sandbox.value();
-			(sandbox.token.as_deref() == Some(token)).then(|| sandbox.data.id.clone())
-		}) {
-			return Ok(Some(sandbox));
-		}
-
-		Ok(None)
 	}
 
 	pub(crate) async fn authenticate_user(

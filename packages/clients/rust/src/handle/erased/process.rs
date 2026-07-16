@@ -40,12 +40,16 @@ pub trait Process: Send + Sync + 'static {
 
 	fn try_get_process_control_stream<'a>(
 		&'a self,
-		id: &'a tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>>,
+		tg::Result<
+			Option<(
+				tg::process::control::Output,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+		>,
 	>;
 
 	fn try_signal_process<'a>(
@@ -162,15 +166,19 @@ where
 
 	fn try_get_process_control_stream<'a>(
 		&'a self,
-		id: &'a tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>>>,
+		tg::Result<
+			Option<(
+				tg::process::control::Output,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+		>,
 	> {
-		self.try_get_process_control_stream(id, arg, stream)
-			.map_ok(|option| option.map(futures::StreamExt::boxed))
+		self.try_get_process_control_stream(arg, stream)
+			.map_ok(|option| option.map(|(output, stream)| (output, stream.boxed())))
 			.boxed()
 	}
 

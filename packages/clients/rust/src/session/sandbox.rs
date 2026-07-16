@@ -48,14 +48,14 @@ impl tg::handle::Sandbox for tg::Session {
 
 	fn get_sandbox_control_stream(
 		&self,
-		id: &tg::sandbox::Id,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::sandbox::control::Output,
 			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
-		>,
+		)>,
 	> {
-		self.get_sandbox_control_stream(id, arg, stream)
+		self.get_sandbox_control_stream(arg, stream)
 	}
 }

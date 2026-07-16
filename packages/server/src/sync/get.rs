@@ -233,13 +233,8 @@ impl Session {
 		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
 		let required = Self::sync_get_object_permissions();
-		self.sync_get_authorize(
-			graph,
-			ids.iter().cloned().map(GraphId::from),
-			required,
-			arg,
-		)
-		.await
+		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required, arg)
+			.await
 	}
 
 	fn sync_get_object_permissions() -> tg::grant::permission::Set {
@@ -294,13 +289,8 @@ impl Session {
 			return Ok(vec![None; ids.len()]);
 		};
 
-		self.sync_get_authorize(
-			graph,
-			ids.iter().cloned().map(GraphId::from),
-			required,
-			arg,
-		)
-		.await
+		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required, arg)
+			.await
 	}
 
 	fn sync_get_process_permissions(arg: &tg::sync::Arg) -> Option<tg::grant::permission::Set> {

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A subtree grant on one file confers neither its parent directory nor its sibling files.
 
-let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } } }
+let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let eve = tg --url $remote.url login --verbose eve | from json

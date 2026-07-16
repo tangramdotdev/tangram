@@ -13,12 +13,11 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub advanced: Advanced,
 
-	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default, skip_serializing_if = "is_default")]
-	pub authentication: Option<Authentication>,
+	pub authentication: Authentication,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	pub authorization: Authorization,
+	pub grants: Grants,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: Checkin,
@@ -123,10 +122,33 @@ pub struct Advanced {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 #[serde(deny_unknown_fields)]
 pub struct Authentication {
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub tokens: AuthenticationTokens,
+
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub users: Option<UserAuthentication>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuthenticationTokens {
+	#[serde(flatten)]
+	pub keys: TokenKeys,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub ttl: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UserAuthentication {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	#[serde(default = "default_login_interval", skip_serializing_if = "is_default")]
 	pub interval: Duration,
@@ -175,28 +197,28 @@ pub struct Github {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Authorization {
+pub struct Grants {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(
-		default = "default_authorization_tokens",
-		skip_serializing_if = "is_default_authorization_tokens"
+		default = "default_grant_tokens",
+		skip_serializing_if = "is_default_grant_tokens"
 	)]
-	pub tokens: Option<AuthorizationTokens>,
+	pub tokens: Option<TokenKeys>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationTokens {
+pub struct TokenKeys {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub private_key: Option<AuthorizationPrivateKey>,
+	pub private_key: Option<TokenPrivateKey>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub public_keys: Vec<AuthorizationPublicKey>,
+	pub public_keys: Vec<TokenPublicKey>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationPrivateKey {
+pub struct TokenPrivateKey {
 	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
@@ -207,7 +229,7 @@ pub struct AuthorizationPrivateKey {
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationPublicKey {
+pub struct TokenPublicKey {
 	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
@@ -216,23 +238,32 @@ pub struct AuthorizationPublicKey {
 	pub path: Option<PathBuf>,
 }
 
-impl Default for Authorization {
+impl Default for AuthenticationTokens {
 	fn default() -> Self {
 		Self {
-			tokens: default_authorization_tokens(),
+			keys: TokenKeys::default(),
+			ttl: default_authentication_token_ttl(),
 		}
 	}
 }
 
-impl Default for AuthorizationTokens {
+impl Default for Grants {
 	fn default() -> Self {
 		Self {
-			private_key: Some(AuthorizationPrivateKey {
+			tokens: default_grant_tokens(),
+		}
+	}
+}
+
+impl Default for TokenKeys {
+	fn default() -> Self {
+		Self {
+			private_key: Some(TokenPrivateKey {
 				algorithm: tg::grant::Algorithm::Ed25519,
 				name: "default".to_owned(),
 				path: None,
 			}),
-			public_keys: vec![AuthorizationPublicKey {
+			public_keys: vec![TokenPublicKey {
 				algorithm: tg::grant::Algorithm::Ed25519,
 				name: "default".to_owned(),
 				path: None,
@@ -1143,12 +1174,12 @@ impl Default for Config {
 	fn default() -> Self {
 		Self {
 			advanced: Advanced::default(),
-			authentication: None,
-			authorization: Authorization::default(),
+			authentication: Authentication::default(),
 			checkin: Checkin::default(),
 			cleaner: None,
 			database: Database::default(),
 			directory: None,
+			grants: Grants::default(),
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
@@ -1184,7 +1215,7 @@ impl Default for Advanced {
 	}
 }
 
-impl Default for Authentication {
+impl Default for UserAuthentication {
 	fn default() -> Self {
 		Self {
 			interval: default_login_interval(),
@@ -1812,6 +1843,10 @@ fn default_login_ttl() -> Duration {
 	Duration::from_mins(15)
 }
 
+fn default_authentication_token_ttl() -> Duration {
+	Duration::from_hours(24)
+}
+
 fn default_sync_max_frame_size() -> u64 {
 	tg::sync::Config::default().max_frame_size
 }
@@ -1827,8 +1862,8 @@ fn sync_retry_default() -> Retry {
 }
 
 #[expect(clippy::unnecessary_wraps)]
-fn default_authorization_tokens() -> Option<AuthorizationTokens> {
-	Some(AuthorizationTokens::default())
+fn default_grant_tokens() -> Option<TokenKeys> {
+	Some(TokenKeys::default())
 }
 
 #[expect(clippy::unnecessary_wraps)]
@@ -1889,8 +1924,8 @@ where
 }
 
 #[expect(clippy::ref_option)]
-fn is_default_authorization_tokens(value: &Option<AuthorizationTokens>) -> bool {
-	is_serialized_default(value, default_authorization_tokens())
+fn is_default_grant_tokens(value: &Option<TokenKeys>) -> bool {
+	is_serialized_default(value, default_grant_tokens())
 }
 
 #[expect(clippy::ref_option)]

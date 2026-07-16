@@ -13,6 +13,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub data: Option<tg::process::Data>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::process::Id>,
+
 	pub lease: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -20,6 +23,15 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub grant: Option<tg::grant::Token>,
+
+	pub id: tg::process::Id,
+	pub token: Option<String>,
 }
 
 #[derive(
@@ -589,21 +601,21 @@ pub struct TtyClientResponseOutput {}
 impl tg::Session {
 	pub async fn try_get_process_control_stream(
 		&self,
-		id: &tg::process::Id,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
-		Option<
+		Option<(
+			tg::process::control::Output,
 			impl futures::Stream<Item = tg::Result<tg::process::control::ServerMessage>>
 			+ Send
 			+ 'static
 			+ use<>,
-		>,
+		)>,
 	> {
 		let method = http::Method::POST;
-		let path = format!("/processes/{id}/control");
+		let path = "/processes/control";
 		let uri = Uri::builder()
-			.path(&path)
+			.path(path)
 			.query_params(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
@@ -641,6 +653,11 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
+		let output_in_body = tangram_http::body::output::get_header(response.headers())
+			.map_err(|error| tg::error!(!error, "failed to parse the output in body header"))?;
+		if !output_in_body {
+			return Err(tg::error!("missing the output in body header"));
+		}
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
@@ -652,8 +669,12 @@ impl tg::Session {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = response
-			.sse()
+		let mut reader = response.reader();
+		let output =
+			tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
+		let stream = tangram_http::sse::decode(reader)
 			.map_err(|error| tg::error!(!error, "failed to read a message"))
 			.and_then(|event| {
 				future::ready(
@@ -666,7 +687,7 @@ impl tg::Session {
 					},
 				)
 			});
-		Ok(Some(stream))
+		Ok(Some((output, stream)))
 	}
 }
 
