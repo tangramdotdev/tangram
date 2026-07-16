@@ -145,7 +145,9 @@ impl Builder {
 	where
 		T: serde::Serialize,
 	{
-		let query = serde_qs::to_string(value)?;
+		let query = serde_qs::Config::new()
+			.use_form_encoding(true)
+			.serialize_string(value)?;
 		if query.len() > QUERY_PARAMS_LENGTH_THRESHOLD {
 			return Err(QueryParamsError::TooLarge);
 		}

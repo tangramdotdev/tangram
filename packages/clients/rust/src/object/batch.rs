@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	bytes::Bytes,
-	serde_with::serde_as,
+	serde_with::{DisplayFromStr, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::BytesBase64,
 };
@@ -37,14 +37,17 @@ pub struct Object {
 	pub bytes: Bytes,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[serde_as(as = "Vec<DisplayFromStr>")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
-	pub children: Vec<tg::MaybeWithToken<tg::object::Id>>,
+	pub children: Vec<tg::Referent<tg::object::Id>>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde_as(as = "Vec<DisplayFromStr>")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub objects: Vec<tg::MaybeWithToken<tg::object::Id>>,
+	pub objects: Vec<tg::Referent<tg::object::Id>>,
 }
 
 impl Arg {
@@ -91,7 +94,8 @@ impl<'de> serde::Deserialize<'de> for Object {
 			data: Option<tg::object::Data>,
 
 			#[serde(default)]
-			children: Vec<tg::MaybeWithToken<tg::object::Id>>,
+			#[serde_as(as = "Vec<DisplayFromStr>")]
+			children: Vec<tg::Referent<tg::object::Id>>,
 		}
 
 		let helper = Helper::deserialize(deserializer)?;

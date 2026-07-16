@@ -27,7 +27,7 @@ impl Output {
 		let error = self.data.error.clone().map(|error| match error {
 			tg::Either::Left(data) => tg::Either::Left(data),
 			tg::Either::Right(id) => {
-				let id = id.map_right(|id| id.id).into_inner();
+				let id = id.item;
 				tg::Either::Right(id)
 			},
 		});
@@ -132,12 +132,7 @@ impl Session {
 	) -> tg::Result<()> {
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let command = tg::object::Id::from(arg.command.item.clone());
-		let command = if let Some(token) = arg.command.options.token.clone() {
-			tg::Either::Right(tg::WithToken { id: command, token })
-		} else {
-			tg::Either::Left(command)
-		};
+		let command = arg.command.clone().map(tg::object::Id::from);
 		if !self
 			.authorize(command, permission)
 			.await?

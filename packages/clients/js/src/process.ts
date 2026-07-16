@@ -1049,76 +1049,34 @@ export namespace Process {
 
 	export namespace Child {
 		export let toData = (value: tg.Process.Child): tg.Process.Data.Child => {
-			let options: tg.Referent.Data.Options = {};
-			if (
-				value.options.artifact !== undefined &&
-				value.options.artifact !== null
-			) {
-				options.artifact = value.options.artifact;
-			}
-			if (value.options.id !== undefined && value.options.id !== null) {
-				options.id = value.options.id;
-			}
-			if (
-				value.options.location !== undefined &&
-				value.options.location !== null
-			) {
-				options.location = tg.Location.Arg.toDataString(value.options.location);
-			}
-			if (value.options.name !== undefined && value.options.name !== null) {
-				options.name = value.options.name;
-			}
-			if (value.options.path !== undefined && value.options.path !== null) {
-				options.path = value.options.path;
-			}
-			if (value.options.tag !== undefined && value.options.tag !== null) {
-				options.tag = value.options.tag;
-			}
 			let process = value.process.id;
 			if (typeof process !== "string") {
 				throw new Error("expected a sandboxed process id");
 			}
 			let token = value.process.token;
+			let options = {
+				...value.options,
+				...(token === null ? {} : { token }),
+			};
+			let referent = { item: process, options };
 			return {
 				cached: value.cached,
-				options,
-				process: token === null ? process : { id: process, token },
+				process: tg.Referent.toDataString(referent, (id) => id),
 			};
 		};
 
 		export let fromData = (data: tg.Process.Data.Child): tg.Process.Child => {
-			let options: tg.Referent.Options = {};
-			if (
-				data.options.artifact !== undefined &&
-				data.options.artifact !== null
-			) {
-				options.artifact = data.options.artifact;
-			}
-			if (data.options.id !== undefined && data.options.id !== null) {
-				options.id = data.options.id;
-			}
-			if (
-				data.options.location !== undefined &&
-				data.options.location !== null
-			) {
-				options.location = tg.Location.Arg.fromDataString(
-					data.options.location,
-				);
-			}
-			if (data.options.name !== undefined && data.options.name !== null) {
-				options.name = data.options.name;
-			}
-			if (data.options.path !== undefined && data.options.path !== null) {
-				options.path = data.options.path;
-			}
-			if (data.options.tag !== undefined && data.options.tag !== null) {
-				options.tag = data.options.tag;
-			}
+			let referent = tg.Referent.fromDataString(
+				data.process,
+				(id) => id as tg.Process.Id,
+			);
+			let options = { ...referent.options };
+			delete options.token;
 			return {
 				cached: data.cached ?? false,
 				options,
 				process: new tg.Process({
-					id: typeof data.process === "string" ? data.process : data.process.id,
+					id: referent.item,
 					stderr: new tg.Process.Stdio.Reader({
 						stream: "stderr",
 					}),
@@ -1128,10 +1086,9 @@ export namespace Process {
 					stdout: new tg.Process.Stdio.Reader({
 						stream: "stdout",
 					}),
-					...(typeof data.process !== "string" &&
-					data.process.token !== undefined &&
-					data.process.token !== null
-						? { token: data.process.token }
+					...(referent.options?.token !== undefined &&
+					referent.options.token !== null
+						? { token: referent.options.token }
 						: {}),
 				}),
 			};
@@ -1192,8 +1149,8 @@ export namespace Process {
 			}
 			if (value.log !== null) {
 				let token = value.log.state.token;
-				output.log =
-					token === null ? value.log.id : { id: value.log.id, token };
+				let referent = tg.Referent.withItemAndToken(value.log.id, token);
+				output.log = tg.Referent.toDataString(referent, (id) => id);
 			}
 			if (value.output !== undefined) {
 				output.output = tg.Value.toData(value.output);
@@ -1232,16 +1189,16 @@ export namespace Process {
 				debug: data.debug ?? null,
 				error:
 					data.error !== undefined && data.error !== null
-						? typeof data.error === "string" || "id" in data.error
+						? typeof data.error === "string" || "item" in data.error
 							? (() => {
-									let error =
+									let referent =
 										typeof data.error === "string"
-											? tg.Error.withId(data.error)
-											: tg.Error.withId(data.error.id);
-									if (typeof data.error !== "string") {
-										error.state.token = data.error.token;
-									}
-									return error;
+											? tg.Referent.fromDataString(
+													data.error,
+													(id) => id as tg.Error.Id,
+												)
+											: tg.Referent.fromData(data.error, (id) => id);
+									return tg.Error.withReferent(referent);
 								})()
 							: tg.Error.fromData(data.error)
 						: null,
@@ -1252,14 +1209,11 @@ export namespace Process {
 				log:
 					data.log !== undefined && data.log !== null
 						? (() => {
-								let blob =
-									typeof data.log === "string"
-										? tg.Blob.withId(data.log)
-										: tg.Blob.withId(data.log.id);
-								if (typeof data.log !== "string") {
-									blob.state.token = data.log.token;
-								}
-								return blob;
+								let referent = tg.Referent.fromDataString(
+									data.log,
+									(id) => id as tg.Blob.Id,
+								);
+								return tg.Blob.withReferent(referent);
 							})()
 						: null,
 				retry: data.retry ?? false,
@@ -1321,12 +1275,12 @@ export namespace Process {
 		command: tg.Command.Id;
 		created_at: number;
 		debug?: tg.Process.Debug | null;
-		error?: tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id> | null;
+		error?: tg.Error.Data | tg.Referent.Data<tg.Error.Id> | null;
 		exit?: number | null;
 		expected_checksum?: tg.Checksum | null;
 		finished_at?: number | null;
 		host: string;
-		log?: tg.Grant.MaybeWithToken<tg.Blob.Id> | null;
+		log?: string | null;
 		output?: tg.Value.Data;
 		retry?: boolean;
 		sandbox: string;
@@ -1341,32 +1295,49 @@ export namespace Process {
 	export namespace Data {
 		export type Child = {
 			cached?: boolean;
-			options: tg.Referent.Data.Options;
-			process: tg.Grant.MaybeWithToken<tg.Process.Id>;
+			process: string;
 		};
 
 		export let removeTokens = (data: tg.Process.Data): tg.Process.Data => {
 			if (data.children !== undefined && data.children !== null) {
 				for (let child of data.children) {
-					if (typeof child.process !== "string") {
-						child.process = child.process.id;
-					}
+					let referent = tg.Referent.fromDataString(
+						child.process,
+						(id) => id as tg.Process.Id,
+					);
+					child.process = tg.Referent.toDataString(
+						tg.Referent.withoutToken(referent),
+						(id) => id,
+					);
 				}
 			}
-			if (
-				data.error !== undefined &&
-				data.error !== null &&
-				typeof data.error !== "string" &&
-				"id" in data.error
-			) {
-				data.error = data.error.id;
+			if (data.error !== undefined && data.error !== null) {
+				if (typeof data.error === "string") {
+					let referent = tg.Referent.fromDataString(
+						data.error,
+						(id) => id as tg.Error.Id,
+					);
+					data.error = tg.Referent.toDataString(
+						tg.Referent.withoutToken(referent),
+						(id) => id,
+					);
+				} else if ("item" in data.error) {
+					let referent = tg.Referent.fromData(data.error, (id) => id);
+					data.error = tg.Referent.toData(
+						tg.Referent.withoutToken(referent),
+						(id) => id,
+					);
+				}
 			}
-			if (
-				data.log !== undefined &&
-				data.log !== null &&
-				typeof data.log !== "string"
-			) {
-				data.log = data.log.id;
+			if (data.log !== undefined && data.log !== null) {
+				let referent = tg.Referent.fromDataString(
+					data.log,
+					(id) => id as tg.Blob.Id,
+				);
+				data.log = tg.Referent.toDataString(
+					tg.Referent.withoutToken(referent),
+					(id) => id,
+				);
 			}
 			if (data.output !== undefined) {
 				tg.Value.Data.removeTokens(data.output);

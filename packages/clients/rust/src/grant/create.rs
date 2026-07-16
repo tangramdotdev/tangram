@@ -1,13 +1,16 @@
 use {
 	crate::prelude::*,
+	serde_with::{DisplayFromStr, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub principal: tg::principal::Selector,
 	pub permissions: tg::Either<tg::grant::permission::Set, String>,
-	pub resource: tg::grant::Resource,
+	#[serde_as(as = "DisplayFromStr")]
+	pub resource: tg::Referent<tg::grant::Resource>,
 }
 
 impl tg::Session {

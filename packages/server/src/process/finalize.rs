@@ -242,7 +242,7 @@ impl Server {
 				children.into_iter().collect::<Vec<_>>()
 			},
 			tg::Either::Right(id) => {
-				let id = id.clone().map_right(|id| id.id).into_inner().into();
+				let id = id.item.clone().into();
 				vec![id]
 			},
 		});
@@ -267,11 +267,7 @@ impl Server {
 			data: Some(data.clone()),
 			error: Some(error),
 			id: id.clone(),
-			log: Some(
-				data.log
-					.clone()
-					.map(|log| log.map_right(|log| log.id).into_inner().into()),
-			),
+			log: Some(data.log.clone().map(|log| log.item.into())),
 			metadata: tg::process::Metadata::default(),
 			output: Some(output),
 			parent: None,

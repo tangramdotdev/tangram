@@ -127,14 +127,14 @@ pub struct UpdateProcessLocalArg<'a> {
 
 impl Graph {
 	pub fn new(
-		local_roots: &[tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>],
-		remote_roots: &[tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>],
+		local_roots: &[tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>],
+		remote_roots: &[tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>],
 	) -> Self {
 		let mut graph = Graph {
 			get_end_received: false,
 			local_roots: local_roots
 				.iter()
-				.map(|id| match id.as_ref().map_right(|id| &id.id).into_inner() {
+				.map(|id| match id.item() {
 					tg::Either::Left(id) => Id::Object(id.clone()),
 					tg::Either::Right(id) => Id::Process(id.clone()),
 				})
@@ -142,19 +142,19 @@ impl Graph {
 			nodes: IndexMap::default(),
 			remote_roots: remote_roots
 				.iter()
-				.map(|id| match id.as_ref().map_right(|id| &id.id).into_inner() {
+				.map(|id| match id.item() {
 					tg::Either::Left(id) => Id::Object(id.clone()),
 					tg::Either::Right(id) => Id::Process(id.clone()),
 				})
 				.collect(),
 		};
 		for root in local_roots.iter().chain(remote_roots) {
-			let tg::Either::Right(root) = root else {
+			let Some(token) = root.options.token.clone() else {
 				continue;
 			};
-			match &root.id {
-				tg::Either::Left(id) => graph.update_object_token(id, root.token.clone()),
-				tg::Either::Right(id) => graph.update_process_token(id, root.token.clone()),
+			match &root.item {
+				tg::Either::Left(id) => graph.update_object_token(id, token),
+				tg::Either::Right(id) => graph.update_process_token(id, token),
 			}
 		}
 
@@ -366,7 +366,7 @@ impl Graph {
 						}
 					},
 					tg::Either::Right(error_id) => {
-						let error_id = error_id.clone().map_right(|error| error.id).into_inner();
+						let error_id = error_id.item.clone();
 						let error_entry = self.nodes.entry(tg::object::Id::from(error_id).into());
 						let error_index = error_entry.index();
 						let error_node =
@@ -383,11 +383,7 @@ impl Graph {
 				}
 			}
 
-			if let Some(log) = data
-				.log
-				.clone()
-				.map(|log| log.map_right(|log| log.id).into_inner())
-			{
+			if let Some(log) = data.log.clone().map(|log| log.item) {
 				let log_entry = self.nodes.entry(tg::object::Id::from(log).into());
 				let log_index = log_entry.index();
 				let log_node = log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));

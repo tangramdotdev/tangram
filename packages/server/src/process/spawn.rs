@@ -398,14 +398,9 @@ impl Session {
 		let push_arg = tg::push::Arg {
 			commands: true,
 			destination: location,
-			items: vec![command.token().map_or_else(
-				|| tg::Either::Left(tg::Either::Left(command.item.clone().into())),
-				|token| {
-					tg::Either::Right(tg::WithToken {
-						id: tg::Either::Left(command.item.clone().into()),
-						token: token.clone(),
-					})
-				},
+			items: vec![tg::Referent::with_item_and_token(
+				tg::Either::Left(command.item.clone().into()),
+				command.token().cloned(),
 			)],
 			..Default::default()
 		};

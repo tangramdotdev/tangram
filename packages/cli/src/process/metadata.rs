@@ -11,16 +11,17 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub process: tg::Referent<tg::process::Id>,
+	pub process: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_process_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let id = args.process.item;
+		let process = self.get_resolved_process(&args.process).await?;
+		let id = process.item;
 		let arg = tg::process::metadata::Arg {
 			location: args.locations.get(),
-			token: args.process.options.token,
+			token: process.options.token,
 		};
 		let output = client
 			.try_get_process_metadata(&id, arg)

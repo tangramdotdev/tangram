@@ -1,9 +1,11 @@
 use {
 	crate::prelude::*,
 	serde::Deserialize as _,
+	serde_with::{DisplayFromStr, serde_as},
 	tangram_util::serde::{is_default, is_false},
 };
 
+#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -37,7 +39,7 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Either<tg::error::Data, tg::MaybeWithToken<tg::error::Id>>>,
+	pub error: Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
@@ -55,8 +57,9 @@ pub struct Data {
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DisplayFromStr>")]
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
-	pub log: Option<tg::MaybeWithToken<tg::blob::Id>>,
+	pub log: Option<tg::Referent<tg::blob::Id>>,
 
 	#[tangram_serialize(id = 11)]
 	pub sandbox: tg::sandbox::Id,
@@ -97,6 +100,7 @@ pub struct Data {
 	pub tty: Option<tg::process::Tty>,
 }
 
+#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -111,6 +115,7 @@ pub struct Child {
 	pub cached: bool,
 
 	#[tangram_serialize(id = 2)]
+	#[serde_as(as = "DisplayFromStr")]
 	pub process: tg::Referent<tg::process::Id>,
 }
 
@@ -121,13 +126,11 @@ impl Data {
 				child.remove_tokens();
 			}
 		}
-		if let Some(tg::Either::Right(error)) = &mut self.error
-			&& let tg::Either::Right(error_with_token) = error
-		{
-			*error = tg::Either::Left(error_with_token.id.clone());
+		if let Some(tg::Either::Right(error)) = &mut self.error {
+			error.options.token.take();
 		}
-		if let Some(tg::Either::Right(log)) = &self.log {
-			self.log = Some(tg::Either::Left(log.id.clone()));
+		if let Some(log) = &mut self.log {
+			log.options.token.take();
 		}
 		if let Some(output) = &mut self.output {
 			output.remove_tokens();

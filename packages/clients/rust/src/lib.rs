@@ -25,7 +25,7 @@ pub use {
 		directory::Handle as Directory,
 		error::{Error, Result, ok},
 		file::Handle as File,
-		grant::{Grant, MaybeWithToken, WithToken},
+		grant::Grant,
 		graph::Handle as Graph,
 		group::Group,
 		handle::{HANDLE, Handle, init, init_with, try_handle},

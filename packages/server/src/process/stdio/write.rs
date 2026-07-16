@@ -202,15 +202,7 @@ impl Session {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::Write,
 				);
-				let resource = token.map_or_else(
-					|| tg::Either::Left(id.clone()),
-					|token| {
-						tg::Either::Right(tg::WithToken {
-							id: id.clone(),
-							token: token.clone(),
-						})
-					},
-				);
+				let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
 				let authorized = self.authorize(resource, permission).await?;
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));

@@ -62,26 +62,18 @@ impl State {
 		let created_at = self.created_at;
 		let debug = self.debug.clone();
 		let error = self.error.as_ref().map(|error| {
-			error.to_data_or_id().map_right(|id| {
-				if let Some(token) = error.state().token() {
-					tg::Either::Right(tg::WithToken { id, token })
-				} else {
-					tg::Either::Left(id)
-				}
-			})
+			error
+				.to_data_or_id()
+				.map_right(|id| tg::Referent::with_item_and_token(id, error.state().token()))
 		});
 		let exit = self.exit;
 		let expected_checksum = self.expected_checksum.clone();
 		let finished_at = self.finished_at;
 		let host = self.host.clone();
-		let log = self.log.as_ref().map(|log| {
-			let id = log.id();
-			if let Some(token) = log.state().token() {
-				tg::Either::Right(tg::WithToken { id, token })
-			} else {
-				tg::Either::Left(id)
-			}
-		});
+		let log = self
+			.log
+			.as_ref()
+			.map(|log| tg::Referent::with_item_and_token(log.id(), log.state().token()));
 		let sandbox = self.sandbox.clone();
 		let output = self.output.as_ref().map(tg::Value::to_data);
 		let retry = self.retry;
@@ -138,30 +130,14 @@ impl State {
 					let object = tg::error::Object::try_from_data(data)?;
 					Ok::<_, tg::Error>(tg::Error::with_object(object))
 				},
-				tg::Either::Right(error) => {
-					let (id, token) = match error {
-						tg::Either::Left(id) => (id, None),
-						tg::Either::Right(error) => (error.id, Some(error.token)),
-					};
-					let state = tg::object::State::with_id(id);
-					state.set_token(token);
-					Ok(tg::Error::with_state(state))
-				},
+				tg::Either::Right(error) => Ok(tg::Error::with_referent(error)),
 			})
 			.transpose()?;
 		let exit = value.exit;
 		let expected_checksum = value.expected_checksum;
 		let finished_at = value.finished_at;
 		let host = value.host;
-		let log = value.log.map(|log| {
-			let (id, token) = match log {
-				tg::Either::Left(id) => (id, None),
-				tg::Either::Right(log) => (log.id, Some(log.token)),
-			};
-			let state = tg::object::State::with_id(id);
-			state.set_token(token);
-			tg::Blob::with_state(state)
-		});
+		let log = value.log.map(tg::Blob::with_referent);
 		let output = value.output.map(tg::Value::try_from_data).transpose()?;
 		let retry = value.retry;
 		let sandbox = value.sandbox;

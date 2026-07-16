@@ -54,7 +54,7 @@ impl Session {
 			self.create_grant(tg::grant::create::Arg {
 				principal: tg::principal::Selector::Principal(tg::grant::Principal::Public),
 				permissions: tg::Either::Left(tg::grant::permission::Set::Process(missing)),
-				resource: tg::grant::Resource::Id(resource),
+				resource: tg::Referent::with_item(tg::grant::Resource::Id(resource)),
 			})
 			.await?;
 		}

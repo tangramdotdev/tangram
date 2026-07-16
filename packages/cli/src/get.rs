@@ -76,10 +76,14 @@ impl Cli {
 					| tg::id::Kind::Error
 			)
 		}) {
-			let object = referent.try_map(|item| match item {
+			let object = referent.try_map::<tg::object::Id, _>(|item| match item {
 				tg::get::Item::Id(id) => id.try_into(),
 				tg::get::Item::Pointer(_) => unreachable!(),
 			})?;
+			let object = tg::Reference::with_item_and_token(
+				tg::reference::Item::Id(object.item.into()),
+				object.options.token,
+			);
 			let args = crate::object::get::Args {
 				bytes: args.bytes,
 				locations,
@@ -92,10 +96,14 @@ impl Cli {
 			return Ok(());
 		}
 		if kind == Some(tg::id::Kind::Process) {
-			let process = referent.try_map(|item| match item {
+			let process = referent.try_map::<tg::process::Id, _>(|item| match item {
 				tg::get::Item::Id(id) => id.try_into(),
 				tg::get::Item::Pointer(_) => unreachable!(),
 			})?;
+			let process = tg::Reference::with_item_and_token(
+				tg::reference::Item::Id(process.item.into()),
+				process.options.token,
+			);
 			let args = crate::process::get::Args {
 				locations,
 				metadata: args.metadata,
@@ -169,19 +177,66 @@ impl Cli {
 		self.get_reference_with_arg(reference, arg).boxed().await
 	}
 
+	pub(crate) async fn get_resolved_artifact(
+		&mut self,
+		reference: &tg::Reference,
+	) -> tg::Result<tg::Referent<tg::artifact::Id>> {
+		let referent = self.get_resolved_reference(reference).await?;
+		let referent = referent.try_map(|item| match item {
+			tg::get::Item::Id(id) => id
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact")),
+			tg::get::Item::Pointer(_) => Err(tg::error!("expected an artifact")),
+		})?;
+		Ok(referent)
+	}
+
+	pub(crate) async fn get_resolved_object(
+		&mut self,
+		reference: &tg::Reference,
+	) -> tg::Result<tg::Referent<tg::object::Id>> {
+		let referent = self.get_resolved_reference(reference).await?;
+		let referent = referent.try_map(|item| match item {
+			tg::get::Item::Id(id) => id.try_into().map_err(|_| tg::error!("expected an object")),
+			tg::get::Item::Pointer(_) => Err(tg::error!("expected an object")),
+		})?;
+		Ok(referent)
+	}
+
+	pub(crate) async fn get_resolved_process(
+		&mut self,
+		reference: &tg::Reference,
+	) -> tg::Result<tg::Referent<tg::process::Id>> {
+		let referent = self.get_resolved_reference(reference).await?;
+		let referent = referent.try_map(|item| match item {
+			tg::get::Item::Id(id) => id.try_into().map_err(|_| tg::error!("expected a process")),
+			tg::get::Item::Pointer(_) => Err(tg::error!("expected a process")),
+		})?;
+		Ok(referent)
+	}
+
 	pub(crate) async fn get_reference_with_arg(
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
 	) -> tg::Result<tg::Referent<tg::get::Item>> {
-		if reference.options() == &tg::reference::Options::default() {
+		let token = reference.options().token.clone();
+		let direct_reference =
+			tg::Reference::with_item_and_token(reference.item().clone(), token.clone());
+		if reference == &direct_reference {
 			match reference.item() {
 				tg::reference::Item::Id(id) => {
-					let referent = tg::Referent::with_item(tg::get::Item::Id(id.clone()));
+					let referent = tg::Referent::with_item_and_token(
+						tg::get::Item::Id(id.clone()),
+						token.clone(),
+					);
 					return Ok(referent);
 				},
 				tg::reference::Item::Pointer(pointer) => {
-					let referent = tg::Referent::with_item(tg::get::Item::Pointer(pointer.clone()));
+					let referent = tg::Referent::with_item_and_token(
+						tg::get::Item::Pointer(pointer.clone()),
+						token,
+					);
 					return Ok(referent);
 				},
 				_ => (),

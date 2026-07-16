@@ -183,11 +183,12 @@ export class Error {
 
 	static toDataOrId(
 		value: tg.Error,
-	): tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id> {
+	): tg.Error.Data | tg.Referent.Data<tg.Error.Id> {
 		if (value.state.stored) {
 			let id = value.state.id as tg.Error.Id;
 			let token = value.state.token;
-			return token === null ? id : { id, token };
+			let referent = tg.Referent.withItemAndToken(id, token);
+			return tg.Referent.toData(referent, (id) => id);
 		}
 		return tg.Error.toData(value);
 	}

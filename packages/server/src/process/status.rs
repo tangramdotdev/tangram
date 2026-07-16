@@ -36,15 +36,7 @@ impl Session {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::Node,
 				);
-				let resource = arg.token.as_ref().map_or_else(
-					|| tg::Either::Left(id.clone()),
-					|token| {
-						tg::Either::Right(tg::WithToken {
-							id: id.clone(),
-							token: token.clone(),
-						})
-					},
-				);
+				let resource = tg::Referent::with_item_and_token(id.clone(), arg.token.clone());
 				let authorize_future = self.authorize(resource, permission).boxed();
 				let exists_future = self.exists(id.clone(), permission).boxed();
 				let check_future = async {

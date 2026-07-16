@@ -22,15 +22,8 @@ impl Cli {
 					.try_unwrap_object()
 					.map_err(|_| tg::error!("expected an object"))?;
 				let artifact = tg::Artifact::try_from(object)?;
-				let artifact = artifact.state().token().map_or_else(
-					|| tg::Either::Left(artifact.id()),
-					|token| {
-						tg::Either::Right(tg::WithToken {
-							id: artifact.id(),
-							token,
-						})
-					},
-				);
+				let artifact =
+					tg::Referent::with_item_and_token(artifact.id(), artifact.state().token());
 				Ok(artifact)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;

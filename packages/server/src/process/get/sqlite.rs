@@ -142,7 +142,7 @@ impl Server {
 						.map_err(|error| tg::error!(!error, %id, "failed to deserialize the error"))
 				} else {
 					s.parse()
-						.map(tg::Either::Left)
+						.map(tg::Referent::with_item)
 						.map(tg::Either::Right)
 						.map_err(|error| tg::error!(!error, %id, "failed to parse the error id"))
 				}
@@ -244,7 +244,7 @@ impl Server {
 			expected_checksum,
 			finished_at: row.finished_at,
 			host: row.host,
-			log: log.map(tg::Either::Left),
+			log: log.map(tg::Referent::with_item),
 			output,
 			retry,
 			sandbox,

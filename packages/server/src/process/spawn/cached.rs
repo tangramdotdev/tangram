@@ -247,8 +247,7 @@ impl Session {
 		match error {
 			tg::Either::Left(data) => Ok(data.code),
 			tg::Either::Right(id) => {
-				let id = id.clone().map_right(|id| id.id).into_inner();
-				let data = tg::Error::with_id(id)
+				let data = tg::Error::with_referent(id.clone())
 					.data_with_handle(self)
 					.await
 					.map_err(|error| {

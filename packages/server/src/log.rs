@@ -242,11 +242,7 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
-		let mut inner = if let Some(id) = output
-			.data
-			.log
-			.map(|log| log.map_right(|log| log.id).into_inner())
-		{
+		let mut inner = if let Some(id) = output.data.log.map(|log| log.item) {
 			let blob = tg::Blob::with_id(id);
 			let mut reader = crate::read::Reader::new(self, blob).await?;
 			let index = self.read_log_index_from_blob(&mut reader).await?;
@@ -358,10 +354,7 @@ impl Session {
 					&& let Some(output) = inner
 						.session
 						.try_get_process_local(&inner.process, false, None)
-						.await? && let Some(blob_id) = output
-					.data
-					.log
-					.map(|log| log.map_right(|log| log.id).into_inner())
+						.await? && let Some(blob_id) = output.data.log.map(|log| log.item)
 				{
 					let blob = tg::Blob::with_id(blob_id);
 					let mut reader = crate::read::Reader::new(&inner.session, blob).await?;

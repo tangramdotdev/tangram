@@ -8,16 +8,17 @@ pub struct Args {
 	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub process: tg::Referent<tg::process::Id>,
+	pub process: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_process_touch(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let id = args.process.item;
+		let process = self.get_resolved_process(&args.process).await?;
+		let id = process.item;
 		let arg = tg::process::touch::Arg {
 			location: args.locations.get(),
-			token: args.process.options.token,
+			token: process.options.token,
 		};
 		client
 			.touch_process(&id, arg)

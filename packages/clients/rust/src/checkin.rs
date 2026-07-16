@@ -93,8 +93,10 @@ pub enum Lock {
 	File,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde_as(as = "DisplayFromStr")]
 	pub artifact: tg::Referent<tg::artifact::Id>,
 }
 

@@ -22,7 +22,7 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub process: tg::Referent<tg::process::Id>,
+	pub process: tg::Reference,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -58,8 +58,9 @@ impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let locations = args.locations.get();
-		let id = args.process.item;
-		let token = args.process.options.token;
+		let process = self.get_resolved_process(&args.process).await?;
+		let id = process.item;
+		let token = process.options.token;
 		let process = tg::Process::<tg::Value>::new(
 			id.clone(),
 			tg::process::Options {

@@ -1,14 +1,17 @@
 use {
 	crate::tg,
 	futures::{Stream, StreamExt as _, TryStreamExt as _},
+	serde_with::{DisplayFromStr, serde_as},
 	std::future,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub artifacts: Vec<tg::MaybeWithToken<tg::artifact::Id>>,
+	#[serde_as(as = "Vec<DisplayFromStr>")]
+	pub artifacts: Vec<tg::Referent<tg::artifact::Id>>,
 }
 
 pub async fn cache(arg: Arg) -> tg::Result<()> {

@@ -20,9 +20,7 @@ export namespace Object {
 
 	export namespace Batch {
 		export type Object = {
-			children?: Array<
-				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			> | null;
+			children?: Array<tg.Referent<tg.Object.Id>> | null;
 			id: tg.Object.Id;
 			data: tg.Object.Data;
 		};
@@ -33,23 +31,19 @@ export namespace Object {
 		};
 
 		export type Output = {
-			objects: Array<
-				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			>;
+			objects: Array<tg.Referent<tg.Object.Id>>;
 		};
 	}
 
 	export namespace Put {
 		export type Arg = {
-			children?: Array<
-				tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token }
-			> | null;
+			children?: Array<tg.Referent<tg.Object.Id>> | null;
 			data: tg.Object.Data;
 			location?: tg.Location.Arg | null;
 		};
 
 		export type Output = {
-			object: tg.Object.Id | { id: tg.Object.Id; token: tg.Grant.Token };
+			object: tg.Referent<tg.Object.Id>;
 		};
 	}
 

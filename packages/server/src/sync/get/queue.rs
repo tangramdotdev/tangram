@@ -457,11 +457,7 @@ impl Session {
 				tg::Either::Right(error) => {
 					let item = ObjectItem {
 						eager: state.arg.eager,
-						id: error
-							.clone()
-							.map_right(|error| error.id)
-							.into_inner()
-							.into(),
+						id: error.clone().item.into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
 						parent: Some(tg::Either::Right(id.clone())),
 						token: token.cloned(),
@@ -478,7 +474,7 @@ impl Session {
 		{
 			let item = ObjectItem {
 				eager: state.arg.eager,
-				id: log.map_right(|log| log.id).into_inner().into(),
+				id: log.item.into(),
 				kind: Some(crate::sync::queue::ObjectKind::Log),
 				parent: Some(tg::Either::Right(id.clone())),
 				token: token.cloned(),

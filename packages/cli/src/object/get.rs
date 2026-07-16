@@ -17,7 +17,7 @@ pub struct Args {
 
 	/// The object to print.
 	#[arg(index = 1)]
-	pub object: tg::Referent<tg::object::Id>,
+	pub object: tg::Reference,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -26,8 +26,9 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_get(&mut self, mut args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let id = args.object.item.clone();
-		let token = args.object.options.token.clone();
+		let object = self.get_resolved_object(&args.object).await?;
+		let id = object.item.clone();
+		let token = object.options.token.clone();
 		if args.bytes {
 			let arg = tg::object::get::Arg {
 				location: args.locations.get(),
@@ -50,7 +51,7 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to write to stdout"))?;
 			return Ok(());
 		}
-		let object = tg::Object::with_referent(args.object);
+		let object = tg::Object::with_referent(object);
 		let value = tg::Value::Object(object);
 		args.print
 			.depth

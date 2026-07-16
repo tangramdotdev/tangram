@@ -90,7 +90,7 @@ impl Session {
 
 	fn process_error_grants_subtree(
 		&self,
-		error: Option<&tg::Either<tg::error::Data, tg::MaybeWithToken<tg::error::Id>>>,
+		error: Option<&tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 	) -> bool {
 		let Some(error) = error else {
 			return true;
@@ -105,7 +105,7 @@ impl Session {
 		}
 	}
 
-	fn process_log_grants_subtree(&self, log: Option<&tg::MaybeWithToken<tg::blob::Id>>) -> bool {
+	fn process_log_grants_subtree(&self, log: Option<&tg::Referent<tg::blob::Id>>) -> bool {
 		log.is_none_or(|log| self.object_token_grants_subtree_for_process(log))
 	}
 
@@ -164,17 +164,17 @@ impl Session {
 		})
 	}
 
-	fn object_token_grants_subtree_for_process<T>(&self, object: &tg::MaybeWithToken<T>) -> bool
+	fn object_token_grants_subtree_for_process<T>(&self, object: &tg::Referent<T>) -> bool
 	where
 		T: Clone + Into<tg::Id>,
 	{
-		let tg::Either::Right(object) = object else {
+		let Some(token) = object.options.token.as_ref() else {
 			return false;
 		};
-		let resource = tg::grant::Resource::Id(object.id.clone().into());
+		let resource = tg::grant::Resource::Id(object.item.clone().into());
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		self.authorize_token(&resource, permission.into(), &object.token)
+		self.authorize_token(&resource, permission.into(), token)
 	}
 }
 

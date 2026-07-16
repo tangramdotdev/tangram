@@ -12,7 +12,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub process: tg::Referent<tg::process::Id>,
+	pub process: tg::Reference,
 
 	#[arg(long, value_delimiter = ',', visible_alias = "stream")]
 	pub streams: Vec<tg::process::stdio::Stream>,
@@ -21,12 +21,13 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_stdio_write(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let id = args.process.item;
+		let process = self.get_resolved_process(&args.process).await?;
+		let id = process.item;
 		let process = tg::Process::<tg::Value>::new(
 			id.clone(),
 			tg::process::Options {
 				location: args.location.get(),
-				token: args.process.options.token.clone(),
+				token: process.options.token,
 				..Default::default()
 			},
 		);

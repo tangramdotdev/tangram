@@ -117,15 +117,7 @@ impl Session {
 		let mut permissions = tg::grant::permission::process::Set::NODE;
 		permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
 		let permissions = tg::grant::permission::Set::Process(permissions);
-		let resource = token.map_or_else(
-			|| tg::Either::Left(id.clone()),
-			|token| {
-				tg::Either::Right(tg::WithToken {
-					id: id.clone(),
-					token,
-				})
-			},
-		);
+		let resource = tg::Referent::with_item_and_token(id.clone(), token);
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
 		let authorize_future = self.authorize(resource, permissions).boxed();
@@ -193,9 +185,10 @@ impl Session {
 				.exit
 				.ok_or_else(|| tg::error!("expected the exit to be set"))?;
 			let mut output = tg::process::wait::Output {
-				error: process.data.error.map(|error| {
-					error.map_right(|error| error.map_right(|error| error.id).into_inner())
-				}),
+				error: process
+					.data
+					.error
+					.map(|error| error.map_right(|error| error.item)),
 				exit,
 				output: process.data.output,
 			};

@@ -109,6 +109,15 @@ impl Reference {
 	}
 
 	#[must_use]
+	pub fn with_item_and_token(item: Item, token: Option<tg::grant::Token>) -> Self {
+		let options = Options {
+			token,
+			..Default::default()
+		};
+		Self::with_item_and_options(item, options)
+	}
+
+	#[must_use]
 	pub fn with_item_and_options(item: Item, options: Options) -> Self {
 		Self {
 			item,

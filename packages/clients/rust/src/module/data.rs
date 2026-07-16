@@ -51,6 +51,11 @@ pub enum Item {
 	Path(PathBuf),
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+struct Query {
+	kind: Kind,
+}
+
 impl Module {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		if let Item::Edge(edge) = &self.referent.item {
@@ -64,111 +69,29 @@ impl Module {
 	pub fn to_uri(&self) -> Uri {
 		let path = self.referent.item.to_string();
 		let mut builder = Uri::builder().path(&path);
-		let mut query = Vec::new();
-		if let Some(artifact) = &self.referent.options.artifact {
-			let artifact = artifact.to_string();
-			let artifact = tangram_uri::encode_query_value(&artifact);
-			let artifact = format!("artifact={artifact}");
-			query.push(artifact);
+		let config = serde_qs::Config::new().use_form_encoding(true);
+		let mut query = config.serialize_string(&self.referent.options).unwrap();
+		if !query.is_empty() {
+			query.push('&');
 		}
-		if let Some(id) = &self.referent.options.id {
-			let id = id.to_string();
-			let id = tangram_uri::encode_query_value(&id);
-			let id = format!("id={id}");
-			query.push(id);
-		}
-		if let Some(name) = &self.referent.options.name {
-			let name = tangram_uri::encode_query_value(name);
-			let name = format!("name={name}");
-			query.push(name);
-		}
-		if let Some(path) = &self.referent.options.path {
-			let path = path.to_string_lossy();
-			let path = tangram_uri::encode_query_value(&path);
-			let path = format!("path={path}");
-			query.push(path);
-		}
-		if let Some(tag) = &self.referent.options.tag {
-			let tag = tag.to_string();
-			let tag = tangram_uri::encode_query_value(&tag);
-			let tag = format!("tag={tag}");
-			query.push(tag);
-		}
-		if let Some(token) = &self.referent.options.token {
-			let token = token.to_string();
-			let token = tangram_uri::encode_query_value(&token);
-			let token = format!("token={token}");
-			query.push(token);
-		}
-		let kind = self.kind.to_string();
-		let kind = tangram_uri::encode_query_value(&kind);
-		let kind = format!("kind={kind}");
-		query.push(kind);
-		let query = query.join("&");
+		let kind = config.serialize_string(&Query { kind: self.kind }).unwrap();
+		query.push_str(&kind);
 		builder = builder.query_raw(&query);
 		builder.build().unwrap()
 	}
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		let mut kind = None;
 		let item = uri
 			.path()
 			.parse()
 			.map_err(|_| tg::error!("failed to parse the item"))?;
-		let mut options = tg::referent::Options::default();
-		if let Some(query) = uri.query_raw() {
-			for param in query.split('&') {
-				if let Some((key, value)) = param.split_once('=') {
-					let value = tangram_uri::decode_query_value(value)
-						.map_err(|_| tg::error!("failed to decode the value"))?;
-					match key {
-						"artifact" => {
-							options.artifact.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the id"))?,
-							);
-						},
-						"id" => {
-							options.id.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the id"))?,
-							);
-						},
-						"name" => {
-							options.name.replace(value.into_owned());
-						},
-						"path" => {
-							options.path.replace(value.into_owned().into());
-						},
-						"tag" => {
-							options.tag.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the tag"))?,
-							);
-						},
-						"token" => {
-							options.token.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the token"))?,
-							);
-						},
-						"kind" => {
-							kind.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the kind"))?,
-							);
-						},
-						_ => {},
-					}
-				}
-			}
-		}
-		let kind = kind.ok_or_else(|| tg::error!("expected the kind to be set"))?;
+		let query = uri
+			.query_raw()
+			.ok_or_else(|| tg::error!("expected the query to be set"))?;
+		let options = serde_qs::from_str(query)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the referent options"))?;
+		let Query { kind } = serde_qs::from_str(query)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the module options"))?;
 		Ok(Self {
 			kind,
 			referent: tg::Referent { item, options },

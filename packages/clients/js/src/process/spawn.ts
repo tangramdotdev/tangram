@@ -621,7 +621,7 @@ async function checkoutArtifacts(
 	let output = new Map<tg.Artifact.Id, string>();
 	for (let artifact of artifacts) {
 		let stream = await tg.client.checkout({
-			artifact: token === null ? artifact : { id: artifact, token },
+			artifact: tg.Referent.withItemAndToken(artifact, token),
 			dependencies: true,
 			force: false,
 		});

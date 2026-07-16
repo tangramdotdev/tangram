@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future},
+	serde_with::{DisplayFromStr, serde_as},
 	std::path::PathBuf,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
@@ -9,9 +10,11 @@ use {
 
 pub use crate::checkin::Lock;
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub artifact: tg::MaybeWithToken<tg::artifact::Id>,
+	#[serde_as(as = "DisplayFromStr")]
+	pub artifact: tg::Referent<tg::artifact::Id>,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub dependencies: bool,

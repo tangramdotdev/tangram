@@ -158,14 +158,7 @@ impl Session {
 			vec![tg::grant::Permission::Object(permission)],
 			grant_expires_at,
 		)?;
-		let object = if let Some(token) = token {
-			tg::Either::Right(tg::WithToken {
-				id: id.clone(),
-				token,
-			})
-		} else {
-			tg::Either::Left(id.clone())
-		};
+		let object = tg::Referent::with_item_and_token(id.clone(), token);
 
 		Ok(tg::object::put::Output { object })
 	}

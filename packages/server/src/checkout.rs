@@ -48,10 +48,7 @@ impl Session {
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path)?;
 		}
-		let artifact = match &arg.artifact {
-			tg::Either::Left(artifact) => artifact.clone(),
-			tg::Either::Right(artifact) => artifact.id.clone(),
-		};
+		let artifact = arg.artifact.item.clone();
 
 		// If the path is not provided, then cache.
 		if arg.path.is_none() {
@@ -126,10 +123,7 @@ impl Session {
 		let task = Task::spawn({
 			let session = self.clone();
 			let artifact = arg.artifact.clone();
-			let artifact_id = match &artifact {
-				tg::Either::Left(artifact) => artifact.clone(),
-				tg::Either::Right(artifact) => artifact.id.clone(),
-			};
+			let artifact_id = artifact.item.clone();
 			let arg = arg.clone();
 			let progress = progress.clone();
 			move |_| async move {
@@ -210,13 +204,10 @@ impl Session {
 
 	pub(crate) async fn checkout_ensure_stored_and_authorized(
 		&self,
-		artifact: &tg::MaybeWithToken<tg::artifact::Id>,
+		artifact: &tg::Referent<tg::artifact::Id>,
 		progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<()> {
-		let id = match artifact {
-			tg::Either::Left(artifact) => artifact,
-			tg::Either::Right(artifact) => &artifact.id,
-		};
+		let id = &artifact.item;
 		let stored = self
 			.server
 			.index
@@ -282,15 +273,11 @@ impl Session {
 		// Pull.
 		let stream = self
 			.pull(tg::pull::Arg {
-				items: vec![match artifact {
-					tg::Either::Left(artifact) => {
-						tg::Either::Left(tg::Either::Left(artifact.clone().into()))
-					},
-					tg::Either::Right(artifact) => tg::Either::Right(tg::WithToken {
-						id: tg::Either::Left(artifact.id.clone().into()),
-						token: artifact.token.clone(),
-					}),
-				}],
+				items: vec![
+					artifact
+						.clone()
+						.map(|artifact| tg::Either::Left(artifact.into())),
+				],
 				..Default::default()
 			})
 			.await

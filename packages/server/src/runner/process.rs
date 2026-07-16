@@ -395,7 +395,7 @@ impl Session {
 		let mut error = if let Some(error) = &output.error {
 			let error = error.to_data_or_id();
 			let error = session.store_process_error(error).await;
-			Some(error.map_right(tg::Either::<_, tg::WithToken<_>>::Left))
+			Some(error.map_right(tg::Referent::with_item))
 		} else {
 			None
 		};
@@ -411,7 +411,7 @@ impl Session {
 				value.children(&mut objects);
 			}
 			if let Some(tg::Either::Right(id)) = &error {
-				let id = id.clone().map_right(|id| id.id).into_inner();
+				let id = id.item.clone();
 				objects.insert(tg::object::Id::Error(id));
 			}
 			if !objects.is_empty() {
@@ -425,11 +425,7 @@ impl Session {
 						.into_iter()
 						.map(|object| {
 							let item = tg::Either::Left(object);
-							if let Some(token) = token.clone() {
-								tg::Either::Right(tg::WithToken { id: item, token })
-							} else {
-								tg::Either::Left(item)
-							}
+							tg::Referent::with_item_and_token(item, token.clone())
 						})
 						.collect(),
 					..Default::default()
@@ -1000,11 +996,7 @@ impl Session {
 			.into_iter()
 			.filter_map(|object| {
 				let id = object.id().try_into().ok()?;
-				let artifact = if let Some(token) = object.state().token() {
-					tg::Either::Right(tg::WithToken { id, token })
-				} else {
-					tg::Either::Left(id)
-				};
+				let artifact = tg::Referent::with_item_and_token(id, object.state().token());
 				Some(artifact)
 			})
 			.collect::<Vec<_>>();
@@ -1110,13 +1102,7 @@ fn render_value_string(
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path
-				.join(
-					artifact
-						.clone()
-						.map_right(|artifact| artifact.id)
-						.into_inner()
-						.to_string(),
-				)
+				.join(artifact.item.to_string())
 				.to_str()
 				.unwrap()
 				.to_owned()

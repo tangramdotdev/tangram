@@ -5,7 +5,7 @@ use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub artifact: tg::artifact::Id,
+	pub artifact: tg::Reference,
 
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
@@ -14,7 +14,8 @@ pub struct Args {
 impl Cli {
 	pub async fn command_bundle(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let artifact = tg::Artifact::with_id(args.artifact);
+		let artifact = self.get_resolved_artifact(&args.artifact).await?;
+		let artifact = tg::Artifact::with_referent(artifact);
 		let command = tg::builtin::bundle_command(&artifact);
 		let command = command
 			.store_with_handle(&client)

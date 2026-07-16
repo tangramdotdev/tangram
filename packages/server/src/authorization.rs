@@ -241,23 +241,11 @@ where
 	}
 }
 
-impl<T> IntoAuthorizationResource for tg::WithToken<T>
+impl<T> IntoAuthorizationResource for tg::Referent<T>
 where
 	T: IntoResource,
 {
 	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>) {
-		(self.id.into_resource(), Some(self.token))
-	}
-}
-
-impl<T> IntoAuthorizationResource for tg::MaybeWithToken<T>
-where
-	T: IntoResource,
-{
-	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>) {
-		match self {
-			tg::Either::Left(resource) => (resource.into_resource(), None),
-			tg::Either::Right(resource) => resource.into_authorization_resource(),
-		}
+		(self.item.into_resource(), self.options.token)
 	}
 }

@@ -15,17 +15,18 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub process: tg::Referent<tg::process::Id>,
+	pub process: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_process_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let id = args.process.item;
+		let process = self.get_resolved_process(&args.process).await?;
+		let id = process.item;
 		let arg = tg::process::get::Arg {
 			location: args.locations.get(),
 			metadata: args.metadata,
-			token: args.process.options.token,
+			token: process.options.token,
 		};
 		let output = client
 			.try_get_process(&id, arg)

@@ -67,15 +67,7 @@ impl Session {
 		metadata: bool,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let resource = token.map_or_else(
-			|| tg::Either::Left(id.clone()),
-			|token| {
-				tg::Either::Right(tg::WithToken {
-					id: id.clone(),
-					token: token.clone(),
-				})
-			},
-		);
+		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
 		let authorize_future = async {

@@ -467,7 +467,7 @@ impl Session {
 		}
 
 		progress.spinner("dependencies", "caching dependencies");
-		let artifacts = artifacts.into_iter().map(tg::Either::Left).collect();
+		let artifacts = artifacts.into_iter().map(tg::Referent::with_item).collect();
 		let stream = self
 			.cache(tg::cache::Arg { artifacts })
 			.await

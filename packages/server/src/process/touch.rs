@@ -61,15 +61,7 @@ impl Session {
 	) -> tg::Result<Option<()>> {
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		let resource = token.map_or_else(
-			|| tg::Either::Left(id.clone()),
-			|token| {
-				tg::Either::Right(tg::WithToken {
-					id: id.clone(),
-					token: token.clone(),
-				})
-			},
-		);
+		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
 		if !self
 			.authorize(resource, permission)
 			.await?

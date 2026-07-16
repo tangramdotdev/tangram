@@ -100,7 +100,7 @@ impl Session {
 			);
 			errors.push(data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
-				tg::Either::Right(id) => id.clone().map_right(|id| id.id).into_inner().to_string(),
+				tg::Either::Right(id) => id.item.to_string(),
 			}));
 			error_codes.push(
 				data.error
@@ -117,11 +117,7 @@ impl Session {
 			finished_ats.push(data.finished_at);
 			hosts.push(data.host.clone());
 			ids.push(id.to_string());
-			logs.push(
-				data.log
-					.as_ref()
-					.map(|log| log.clone().map_right(|log| log.id).into_inner().to_string()),
-			);
+			logs.push(data.log.as_ref().map(|log| log.item.to_string()));
 			outputs.push(
 				data.output
 					.as_ref()

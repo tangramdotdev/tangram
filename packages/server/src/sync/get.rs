@@ -55,10 +55,8 @@ impl Session {
 
 		// Enqueue the items.
 		for item in &state.arg.get {
-			let (item, token) = match item {
-				tg::Either::Left(item) => (item, None),
-				tg::Either::Right(item) => (&item.id, Some(item.token.clone())),
-			};
+			let token = item.options.token.clone();
+			let item = &item.item;
 			match item {
 				tg::Either::Left(object) => {
 					let item = super::queue::ObjectItem {
@@ -336,7 +334,7 @@ impl Session {
 		let ids = ids.into_iter().collect::<Vec<_>>();
 
 		// Collect the items whose permissions cannot be proven by the graph.
-		let mut args = Vec::<(tg::MaybeWithToken<tg::Id>, tg::grant::permission::Set)>::new();
+		let mut args = Vec::<(tg::Referent<tg::Id>, tg::grant::permission::Set)>::new();
 		let mut positions = Vec::new();
 		let mut outputs = vec![None; ids.len()];
 		{
@@ -354,10 +352,7 @@ impl Session {
 					GraphId::Object(id) => tg::Id::from(id.clone()),
 					GraphId::Process(id) => tg::Id::from(id.clone()),
 				};
-				let resource = match authorization.token {
-					Some(token) => tg::Either::Right(tg::WithToken { id, token }),
-					None => tg::Either::Left(id),
-				};
+				let resource = tg::Referent::with_item_and_token(id, authorization.token);
 				args.push((resource, required));
 				positions.push(position);
 			}

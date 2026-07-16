@@ -16,6 +16,17 @@ export namespace Referent {
 		token?: tg.Grant.Token | null;
 	};
 
+	export let withItemAndToken = <T>(
+		item: T,
+		token: tg.Grant.Token | null,
+	): tg.Referent<T> => {
+		let referent: tg.Referent<T> = { item };
+		if (token !== null) {
+			referent.options = { token };
+		}
+		return referent;
+	};
+
 	export let toData = <T, U>(
 		value: tg.Referent<T>,
 		f: (item: T) => U,

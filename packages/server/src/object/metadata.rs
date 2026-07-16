@@ -71,15 +71,7 @@ impl Session {
 		metadata: tg::object::Metadata,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let resource = token.map_or_else(
-			|| tg::Either::Left(id.clone()),
-			|token| {
-				tg::Either::Right(tg::WithToken {
-					id: id.clone(),
-					token: token.clone(),
-				})
-			},
-		);
+		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
 		let subtree =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 		if self

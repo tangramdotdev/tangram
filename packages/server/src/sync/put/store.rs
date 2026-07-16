@@ -322,7 +322,7 @@ impl Session {
 					tg::Either::Right(id) => {
 						let item = crate::sync::queue::ObjectItem {
 							eager: item.eager,
-							id: id.clone().map_right(|error| error.id).into_inner().into(),
+							id: id.item.clone().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							parent: Some(tg::Either::Right(item.id.clone())),
 							token: None,
@@ -339,7 +339,7 @@ impl Session {
 			{
 				let item = crate::sync::queue::ObjectItem {
 					eager: item.eager,
-					id: log.map_right(|log| log.id).into_inner().into(),
+					id: log.item.into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					parent: Some(tg::Either::Right(item.id.clone())),
 					token: None,

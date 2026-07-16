@@ -199,14 +199,7 @@ impl Session {
 					vec![tg::grant::Permission::Object(permission)],
 					grant_expires_at,
 				)?;
-				let object = if let Some(token) = token {
-					tg::Either::Right(tg::WithToken {
-						id: object.id,
-						token,
-					})
-				} else {
-					tg::Either::Left(object.id)
-				};
+				let object = tg::Referent::with_item_and_token(object.id, token);
 				Ok(object)
 			})
 			.collect::<tg::Result<_>>()?;
@@ -216,17 +209,14 @@ impl Session {
 
 	pub(crate) async fn post_object_batch_authorize(
 		&self,
-		children: &[tg::MaybeWithToken<tg::object::Id>],
+		children: &[tg::Referent<tg::object::Id>],
 		actual_children: &BTreeSet<tg::object::Id>,
 		batch_subtrees: &BTreeSet<tg::object::Id>,
 		batch_objects: &BTreeSet<tg::object::Id>,
 	) -> tg::Result<bool> {
 		let mut children_map = std::collections::BTreeMap::new();
 		for child in children {
-			let id = match child {
-				tg::Either::Left(id) => id.clone(),
-				tg::Either::Right(child) => child.id.clone(),
-			};
+			let id = child.item.clone();
 			if !actual_children.contains(&id) {
 				continue;
 			}
@@ -248,11 +238,11 @@ impl Session {
 			let Some(child) = children_map.get(child) else {
 				return Ok(false);
 			};
-			let tg::Either::Right(child_with_token) = child else {
+			let Some(token) = child.options.token.as_ref() else {
 				return Ok(false);
 			};
-			let resource = tg::grant::Resource::Id(child_with_token.id.clone().into());
-			if !self.authorize_token(&resource, permission.into(), &child_with_token.token) {
+			let resource = tg::grant::Resource::Id(child.item.clone().into());
+			if !self.authorize_token(&resource, permission.into(), token) {
 				authorization_args.push((child.clone(), permission.into()));
 			}
 		}

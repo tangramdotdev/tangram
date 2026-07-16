@@ -4,7 +4,7 @@ use {
 		Stream, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	serde_with::serde_as,
+	serde_with::{DisplayFromStr, serde_as},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		future::Future,
@@ -30,6 +30,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
+	#[serde_as(as = "DisplayFromStr")]
 	pub command: tg::Referent<tg::command::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -816,19 +817,11 @@ where
 		.collect::<BTreeSet<tg::artifact::Id>>();
 	let mut output = BTreeMap::new();
 	for artifact in artifacts {
-		let artifact_with_token = token.map_or_else(
-			|| tg::Either::Left(artifact.clone()),
-			|token| {
-				tg::Either::Right(tg::WithToken {
-					id: artifact.clone(),
-					token: token.clone(),
-				})
-			},
-		);
+		let referent = tg::Referent::with_item_and_token(artifact.clone(), token.cloned());
 		let path = tg::checkout::checkout_with_handle(
 			handle,
 			tg::checkout::Arg {
-				artifact: artifact_with_token,
+				artifact: referent,
 				dependencies: true,
 				extension: None,
 				force: false,
@@ -1038,19 +1031,8 @@ fn render_value_string(
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
-		tg::value::Data::Object(object)
-			if object
-				.clone()
-				.map_right(|object| object.id)
-				.into_inner()
-				.is_artifact() =>
-		{
-			let artifact: tg::artifact::Id = object
-				.clone()
-				.map_right(|object| object.id)
-				.into_inner()
-				.try_into()
-				.unwrap();
+		tg::value::Data::Object(object) if object.item.is_artifact() => {
+			let artifact: tg::artifact::Id = object.item.clone().try_into().unwrap();
 			Ok(artifacts
 				.get(&artifact)
 				.ok_or_else(|| tg::error!("failed to find the artifact path"))?
@@ -1060,12 +1042,7 @@ fn render_value_string(
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts
-				.get(
-					&artifact
-						.clone()
-						.map_right(|artifact| artifact.id)
-						.into_inner(),
-				)
+				.get(&artifact.item)
 				.ok_or_else(|| tg::error!("failed to find the artifact path"))?
 				.to_string_lossy()
 				.into_owned()

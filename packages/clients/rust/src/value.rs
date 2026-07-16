@@ -140,7 +140,7 @@ impl Value {
 				let children = object_
 					.children()
 					.iter()
-					.map(Self::object_with_token)
+					.map(Self::object_referent)
 					.collect();
 				objects.push(tg::object::batch::Object {
 					id,
@@ -214,7 +214,7 @@ impl Value {
 				let children = object_
 					.children()
 					.iter()
-					.map(Self::object_with_token)
+					.map(Self::object_referent)
 					.collect();
 				objects.push(tg::object::batch::Object {
 					id,
@@ -255,11 +255,8 @@ impl Value {
 			),
 			Self::Object(object) => {
 				let id = object.id();
-				if let Some(token) = object.state().token() {
-					Data::Object(tg::Either::Right(tg::WithToken { id, token }))
-				} else {
-					Data::Object(tg::Either::Left(id))
-				}
+				let token = object.state().token();
+				Data::Object(tg::Referent::with_item_and_token(id, token))
 			},
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
@@ -276,30 +273,18 @@ impl Value {
 			return Err(tg::error!("invalid object batch output"));
 		}
 		for (state, object) in states.iter().zip(output.objects) {
-			match object {
-				tg::Either::Left(id) => {
-					if state.id() != id {
-						return Err(tg::error!("invalid object batch output"));
-					}
-				},
-				tg::Either::Right(object) => {
-					if state.id() != object.id {
-						return Err(tg::error!("invalid object batch output"));
-					}
-					state.set_token(Some(object.token));
-				},
+			if state.id() != object.item {
+				return Err(tg::error!("invalid object batch output"));
 			}
+			state.set_token(object.options.token);
 		}
 		Ok(())
 	}
 
-	fn object_with_token(object: &tg::Object) -> tg::MaybeWithToken<tg::object::Id> {
+	fn object_referent(object: &tg::Object) -> tg::Referent<tg::object::Id> {
 		let id = object.id();
-		if let Some(token) = object.state().token() {
-			tg::Either::Right(tg::WithToken { id, token })
-		} else {
-			tg::Either::Left(id)
-		}
+		let token = object.state().token();
+		tg::Referent::with_item_and_token(id, token)
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
@@ -319,14 +304,7 @@ impl Value {
 					.map(|(key, value)| Ok::<_, tg::Error>((key, Self::try_from_data(value)?)))
 					.collect::<tg::Result<_>>()?,
 			),
-			Data::Object(object) => match object {
-				tg::Either::Left(id) => Self::Object(tg::object::Handle::with_id(id)),
-				tg::Either::Right(object) => {
-					let handle = tg::object::Handle::with_id(object.id);
-					handle.state().set_token(Some(object.token));
-					Self::Object(handle)
-				},
-			},
+			Data::Object(object) => Self::Object(tg::object::Handle::with_referent(object)),
 			Data::Bytes(bytes) => Self::Bytes(bytes),
 			Data::Mutation(mutation) => Self::Mutation(tg::Mutation::try_from_data(mutation)?),
 			Data::Template(template) => Self::Template(tg::Template::try_from_data(template)?),

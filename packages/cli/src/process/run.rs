@@ -337,16 +337,8 @@ impl Cli {
 			} else {
 				None
 			};
-			let artifact_id = artifact.id();
-			let artifact = artifact.state().token().map_or_else(
-				|| tg::Either::Left(artifact_id.clone()),
-				|token| {
-					tg::Either::Right(tg::WithToken {
-						id: artifact_id.clone(),
-						token,
-					})
-				},
-			);
+			let artifact =
+				tg::Referent::with_item_and_token(artifact.id(), artifact.state().token());
 			let arg = tg::checkout::Arg {
 				artifact: artifact.clone(),
 				dependencies: path.is_some(),
@@ -356,11 +348,11 @@ impl Cli {
 				path,
 			};
 			let stream = client.checkout(arg).await.map_err(
-				|error| tg::error!(!error, artifact = %artifact_id, "failed to check out the artifact"),
+				|error| tg::error!(!error, artifact = %artifact.item, "failed to check out the artifact"),
 			)?;
 			let tg::checkout::Output { path, .. } =
 				self.render_progress_stream(stream).await.map_err(
-					|error| tg::error!(!error, artifact = %artifact_id, "failed to check out the artifact"),
+					|error| tg::error!(!error, artifact = %artifact.item, "failed to check out the artifact"),
 				)?;
 			let value = path.display().to_string().into();
 			return Ok(value);

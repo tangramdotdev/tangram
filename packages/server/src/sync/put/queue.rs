@@ -136,13 +136,7 @@ impl Session {
 			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource = match authorization.token {
-				Some(token) => tg::Either::Right(tg::WithToken {
-					id: item.id.clone(),
-					token,
-				}),
-				None => tg::Either::Left(item.id.clone()),
-			};
+			let resource = tg::Referent::with_item_and_token(item.id.clone(), authorization.token);
 			authorization_args.push((resource, requested));
 			authorization_positions.push(position);
 		}
@@ -257,13 +251,7 @@ impl Session {
 			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource = match authorization.token {
-				Some(token) => tg::Either::Right(tg::WithToken {
-					id: item.id.clone(),
-					token,
-				}),
-				None => tg::Either::Left(item.id.clone()),
-			};
+			let resource = tg::Referent::with_item_and_token(item.id.clone(), authorization.token);
 			authorization_args.push((resource, requested));
 			authorization_positions.push(position);
 		}
