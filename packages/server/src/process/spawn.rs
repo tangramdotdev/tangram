@@ -633,7 +633,7 @@ impl Session {
 		let push_arg = tg::push::Arg {
 			commands: true,
 			destination: location,
-			items: vec![tg::Either::Left(command.clone().into())],
+			items: vec![tg::Either::Left(tg::Either::Left(command.clone().into()))],
 			..Default::default()
 		};
 		let stream = self

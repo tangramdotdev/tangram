@@ -50,21 +50,27 @@ impl Session {
 
 		// Enqueue the items.
 		for item in &state.arg.put {
+			let (item, token) = match item {
+				tg::Either::Left(item) => (item, None),
+				tg::Either::Right(item) => (&item.id, Some(item.token.clone())),
+			};
 			match item {
 				tg::Either::Left(object) => {
 					let item = super::queue::ObjectItem {
-						parent: None,
+						eager: state.arg.eager,
 						id: object.clone(),
 						kind: None,
-						eager: state.arg.eager,
+						parent: None,
+						token,
 					};
 					state.queue.enqueue_object(item);
 				},
 				tg::Either::Right(process) => {
 					let item = super::queue::ProcessItem {
-						parent: None,
-						id: process.clone(),
 						eager: state.arg.eager,
+						id: process.clone(),
+						parent: None,
+						token,
 					};
 					state.queue.enqueue_process(item);
 				},

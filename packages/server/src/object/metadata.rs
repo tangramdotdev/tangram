@@ -92,6 +92,21 @@ impl Session {
 		Ok(None)
 	}
 
+	pub(crate) fn mask_object_metadata_with_permissions(
+		metadata: tg::object::Metadata,
+		permissions: tg::grant::permission::Set,
+	) -> Option<tg::object::Metadata> {
+		let subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		if permissions.contains(subtree) {
+			return Some(metadata);
+		}
+		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		permissions
+			.contains(node)
+			.then(tg::object::Metadata::default)
+	}
+
 	async fn try_get_object_metadata_regions(
 		&self,
 		id: &tg::object::Id,

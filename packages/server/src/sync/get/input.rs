@@ -71,7 +71,13 @@ impl Session {
 						})?;
 					} else {
 						// Enqueue the children.
-						Self::sync_get_enqueue_object_children(state, &message.id, &data, None);
+						Self::sync_get_enqueue_object_children(
+							state,
+							&message.id,
+							&data,
+							None,
+							None,
+						);
 					}
 
 					// Send to the store task.
@@ -135,6 +141,7 @@ impl Session {
 							&message.id,
 							&data,
 							Some(&visible),
+							None,
 						);
 					}
 

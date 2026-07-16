@@ -7,14 +7,14 @@ use {
 };
 
 pub struct ObjectItem {
+	pub eager: bool,
 	pub id: tg::object::Id,
 	pub kind: Option<crate::sync::queue::ObjectKind>,
-	pub eager: bool,
 }
 
 pub struct ProcessItem {
-	pub id: tg::process::Id,
 	pub eager: bool,
+	pub id: tg::process::Id,
 }
 
 impl Session {
@@ -71,6 +71,7 @@ impl Session {
 		// Get the objects.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 		let outputs = self
+			.server
 			.try_get_object_batch_local(&ids, state.arg.metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects"))?;
@@ -78,7 +79,7 @@ impl Session {
 		// Handle the objects.
 		for (item, output) in std::iter::zip(items, outputs) {
 			// If the object is missing, then send a missing message.
-			let Some(output) = output else {
+			let Some(mut output) = output else {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(
 					tg::sync::PutMissingObjectMessage {
 						id: item.id.clone(),
@@ -87,6 +88,35 @@ impl Session {
 				state.sender.send(Ok(message)).await.ok();
 				continue;
 			};
+
+			// Deserialize the object and update the graph.
+			let data = tg::object::Data::deserialize(item.id.kind(), output.bytes.clone())
+				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+			let update = crate::sync::graph::UpdateObjectLocalArg {
+				data: Some(&data),
+				id: &item.id,
+				marked: None,
+				metadata: None,
+				permissions: None,
+				requested: None,
+				stored: None,
+			};
+			state.graph.lock().unwrap().update_object_local(update);
+
+			// Mask the metadata with the permissions already proven by the graph.
+			if let Some(metadata) = output.metadata.take() {
+				let required =
+					tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Subtree,
+					));
+				let permissions = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_object_local_permissions(&item.id, required);
+				output.metadata =
+					Self::mask_object_metadata_with_permissions(metadata, permissions);
+			}
 
 			// Send the object.
 			let message = tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(
@@ -110,18 +140,16 @@ impl Session {
 
 			// Enqueue the children.
 			if item.eager {
-				let bytes = output.bytes;
-				let data = tg::object::Data::deserialize(item.id.kind(), bytes.clone())
-					.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 				let mut children = BTreeSet::new();
 				data.children(&mut children);
 				let items = children
 					.into_iter()
 					.map(|child| crate::sync::queue::ObjectItem {
-						parent: Some(tg::Either::Left(item.id.clone())),
+						eager: item.eager,
 						id: child,
 						kind: item.kind,
-						eager: item.eager,
+						parent: Some(tg::Either::Left(item.id.clone())),
+						token: None,
 					});
 				state.queue.enqueue_objects(items);
 			}
@@ -142,6 +170,7 @@ impl Session {
 		// Get the processes.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 		let outputs = self
+			.server
 			.try_get_process_batch_local(&ids, state.arg.metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the processes"))?;
@@ -160,12 +189,16 @@ impl Session {
 
 			// Compact the log if needed before sending the process data.
 			if state.arg.logs && output.data.log.is_none() {
-				// Authorize.
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::NodeLog,
 				);
-				let authorized = self.authorize(item.id.clone(), permission).await?;
-				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				let required = tg::grant::permission::Set::from_permission(permission);
+				let permissions = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_process_local_permissions(&item.id, required);
+				if !permissions.contains(permission) {
 					return Err(tg::error!("unauthorized"));
 				}
 
@@ -176,11 +209,37 @@ impl Session {
 
 				// Get the process again.
 				output = self
-					.try_get_process_local(&item.id, true)
+					.server
+					.try_get_process_local(&item.id, state.arg.metadata)
 					.await?
 					.ok_or_else(
 						|| tg::error!(process = %item.id, "failed to get the process after compaction"),
 					)?;
+			}
+
+			// Update the graph.
+			let update = crate::sync::graph::UpdateProcessLocalArg {
+				data: Some(&output.data),
+				id: &item.id,
+				marked: None,
+				metadata: None,
+				permissions: None,
+				requested: None,
+				stored: None,
+			};
+			state.graph.lock().unwrap().update_process_local(update);
+
+			// Mask the metadata with the permissions already proven by the graph.
+			if let Some(metadata) = output.metadata.take() {
+				let required =
+					tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
+				let permissions = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_process_local_permissions(&item.id, required);
+				output.metadata =
+					Self::mask_process_metadata_with_permissions(&metadata, permissions);
 			}
 
 			// Send the process.
@@ -215,13 +274,14 @@ impl Session {
 				let items = children
 					.iter()
 					.map(|child| crate::sync::queue::ProcessItem {
-						parent: Some(item.id.clone()),
+						eager: item.eager,
 						id: child
 							.process
 							.clone()
 							.map_right(|process| process.id)
 							.into_inner(),
-						eager: item.eager,
+						parent: Some(item.id.clone()),
+						token: None,
 					});
 				state.queue.enqueue_processes(items);
 			}
@@ -229,10 +289,11 @@ impl Session {
 			// Enqueue the command.
 			if item.eager && state.arg.commands {
 				let item = crate::sync::queue::ObjectItem {
-					parent: Some(tg::Either::Right(item.id.clone())),
+					eager: item.eager,
 					id: output.data.command.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
-					eager: item.eager,
+					parent: Some(tg::Either::Right(item.id.clone())),
+					token: None,
 				};
 				state.queue.enqueue_object(item);
 			}
@@ -250,19 +311,21 @@ impl Session {
 							children
 								.into_iter()
 								.map(|child| crate::sync::queue::ObjectItem {
-									parent: Some(tg::Either::Right(item.id.clone())),
+									eager: item.eager,
 									id: child,
 									kind: Some(crate::sync::queue::ObjectKind::Error),
-									eager: item.eager,
+									parent: Some(tg::Either::Right(item.id.clone())),
+									token: None,
 								});
 						state.queue.enqueue_objects(items);
 					},
 					tg::Either::Right(id) => {
 						let item = crate::sync::queue::ObjectItem {
-							parent: Some(tg::Either::Right(item.id.clone())),
+							eager: item.eager,
 							id: id.clone().map_right(|error| error.id).into_inner().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
-							eager: item.eager,
+							parent: Some(tg::Either::Right(item.id.clone())),
+							token: None,
 						};
 						state.queue.enqueue_object(item);
 					},
@@ -275,10 +338,11 @@ impl Session {
 				&& let Some(log) = output.data.log.clone()
 			{
 				let item = crate::sync::queue::ObjectItem {
-					parent: Some(tg::Either::Right(item.id.clone())),
+					eager: item.eager,
 					id: log.map_right(|log| log.id).into_inner().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
-					eager: item.eager,
+					parent: Some(tg::Either::Right(item.id.clone())),
+					token: None,
 				};
 				state.queue.enqueue_object(item);
 			}
@@ -293,10 +357,11 @@ impl Session {
 				let items = children
 					.into_iter()
 					.map(|child| crate::sync::queue::ObjectItem {
-						parent: Some(tg::Either::Right(item.id.clone())),
+						eager: item.eager,
 						id: child,
 						kind: Some(crate::sync::queue::ObjectKind::Output),
-						eager: item.eager,
+						parent: Some(tg::Either::Right(item.id.clone())),
+						token: None,
 					});
 				state.queue.enqueue_objects(items);
 			}

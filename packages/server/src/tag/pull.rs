@@ -37,7 +37,7 @@ impl Session {
 				Some(async move {
 					let arg = tg::pull::Arg {
 						source: Some(location),
-						items: vec![tg::Either::Left(directory.into())],
+						items: vec![tg::Either::Left(tg::Either::Left(directory.into()))],
 						..Default::default()
 					};
 					let stream = session.pull(arg).await?;

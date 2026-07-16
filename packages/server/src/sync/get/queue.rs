@@ -119,8 +119,9 @@ impl Session {
 					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Object(
 						tg::sync::GetItemObjectMessage {
+							eager: item.eager,
 							id: item.id.clone(),
-							eager: state.arg.eager,
+							token: item.token,
 						},
 					));
 					state
@@ -192,7 +193,13 @@ impl Session {
 						};
 						state.graph.lock().unwrap().update_object_local(arg);
 
-						Self::sync_get_enqueue_object_children(state, &item.id, &data, item.kind);
+						Self::sync_get_enqueue_object_children(
+							state,
+							&item.id,
+							&data,
+							item.kind,
+							item.token.as_ref(),
+						);
 
 						// Increment the progress.
 						state.progress.increment_skipped(0, 1, metadata.node.size);
@@ -265,8 +272,9 @@ impl Session {
 					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(
 						tg::sync::GetItemProcessMessage {
+							eager: item.eager,
 							id: item.id.clone(),
-							eager: state.arg.eager,
+							token: item.token,
 						},
 					));
 					state
@@ -306,7 +314,13 @@ impl Session {
 						.get_process_local_visible(&item.id);
 
 					// Enqueue the children as necessary.
-					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&visible));
+					Self::sync_get_enqueue_process_children(
+						state,
+						&item.id,
+						&data,
+						Some(&visible),
+						item.token.as_ref(),
+					);
 
 					// Send a stored message if the process is visible.
 					if Graph::process_visible_any(&visible) {
@@ -346,16 +360,18 @@ impl Session {
 		id: &tg::object::Id,
 		data: &tg::object::Data,
 		kind: Option<crate::sync::queue::ObjectKind>,
+		token: Option<&tg::grant::Token>,
 	) {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		state
 			.queue
 			.enqueue_objects(children.into_iter().map(|object| ObjectItem {
-				parent: Some(tg::Either::Left(id.clone())),
+				eager: state.arg.eager,
 				id: object,
 				kind,
-				eager: state.arg.eager,
+				parent: Some(tg::Either::Left(id.clone())),
+				token: token.cloned(),
 			}));
 	}
 
@@ -364,6 +380,7 @@ impl Session {
 		id: &tg::process::Id,
 		data: &tg::process::Data,
 		stored: Option<&tangram_index::process::Stored>,
+		token: Option<&tg::grant::Token>,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.recursive
@@ -376,13 +393,14 @@ impl Session {
 		{
 			for child in children {
 				state.queue.enqueue_process(ProcessItem {
-					parent: Some(id.clone()),
+					eager: state.arg.eager,
 					id: child
 						.process
 						.clone()
 						.map_right(|process| process.id)
 						.into_inner(),
-					eager: state.arg.eager,
+					parent: Some(id.clone()),
+					token: token.cloned(),
 				});
 			}
 		}
@@ -390,10 +408,11 @@ impl Session {
 		// Enqueue the command if necessary.
 		if state.arg.commands && !stored.is_some_and(|stored| stored.node_command) {
 			let item = ObjectItem {
-				parent: Some(tg::Either::Right(id.clone())),
+				eager: state.arg.eager,
 				id: data.command.clone().into(),
 				kind: Some(crate::sync::queue::ObjectKind::Command),
-				eager: state.arg.eager,
+				parent: Some(tg::Either::Right(id.clone())),
+				token: token.cloned(),
 			};
 			state.queue.enqueue_object(item);
 		}
@@ -410,22 +429,24 @@ impl Session {
 					state
 						.queue
 						.enqueue_objects(children.into_iter().map(|object| ObjectItem {
-							parent: Some(tg::Either::Right(id.clone())),
+							eager: state.arg.eager,
 							id: object,
 							kind: Some(crate::sync::queue::ObjectKind::Error),
-							eager: state.arg.eager,
+							parent: Some(tg::Either::Right(id.clone())),
+							token: token.cloned(),
 						}));
 				},
 				tg::Either::Right(error) => {
 					let item = ObjectItem {
-						parent: Some(tg::Either::Right(id.clone())),
+						eager: state.arg.eager,
 						id: error
 							.clone()
 							.map_right(|error| error.id)
 							.into_inner()
 							.into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
-						eager: state.arg.eager,
+						parent: Some(tg::Either::Right(id.clone())),
+						token: token.cloned(),
 					};
 					state.queue.enqueue_object(item);
 				},
@@ -438,10 +459,11 @@ impl Session {
 			&& let Some(log) = data.log.clone()
 		{
 			let item = ObjectItem {
-				parent: Some(tg::Either::Right(id.clone())),
+				eager: state.arg.eager,
 				id: log.map_right(|log| log.id).into_inner().into(),
 				kind: Some(crate::sync::queue::ObjectKind::Log),
-				eager: state.arg.eager,
+				parent: Some(tg::Either::Right(id.clone())),
+				token: token.cloned(),
 			};
 			state.queue.enqueue_object(item);
 		}
@@ -455,10 +477,11 @@ impl Session {
 			state
 				.queue
 				.enqueue_objects(children.into_iter().map(|object| ObjectItem {
-					parent: Some(tg::Either::Right(id.clone())),
+					eager: state.arg.eager,
 					id: object,
 					kind: Some(crate::sync::queue::ObjectKind::Output),
-					eager: state.arg.eager,
+					parent: Some(tg::Either::Right(id.clone())),
+					token: token.cloned(),
 				}));
 		}
 	}

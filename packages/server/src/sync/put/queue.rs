@@ -100,7 +100,9 @@ impl Session {
 		index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
 		store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
 	) -> tg::Result<()> {
-		for item in items {
+		// Update the graph.
+		let mut statuses = Vec::with_capacity(items.len());
+		for item in &items {
 			let parent = item.parent.clone().map(|either| match either {
 				tg::Either::Left(id) => crate::sync::graph::Id::Object(id),
 				tg::Either::Right(id) => crate::sync::graph::Id::Process(id),
@@ -111,6 +113,70 @@ impl Session {
 				.unwrap()
 				.update_object_remote(&item.id, parent, item.kind, None);
 			let stored = stored.is_some_and(|stored| stored.subtree);
+			statuses.push((inserted, stored));
+		}
+
+		// Collect the objects requiring authorization.
+		let required = Self::sync_put_object_permissions();
+		let mut authorization_args = Vec::new();
+		let mut authorization_positions = Vec::new();
+		for (position, (item, (inserted, _))) in std::iter::zip(&items, &statuses).enumerate() {
+			let requested = if *inserted {
+				required
+			} else {
+				Self::sync_put_object_node_permissions()
+			};
+			let permissions = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_object_local_permissions(&item.id, requested);
+			if permissions.contains(requested) {
+				continue;
+			}
+			let resource = item.token.clone().map_or_else(
+				|| tg::Either::Left(item.id.clone()),
+				|token| {
+					tg::Either::Right(tg::WithToken {
+						id: item.id.clone(),
+						token,
+					})
+				},
+			);
+			authorization_args.push((resource, requested));
+			authorization_positions.push(position);
+		}
+
+		// Authorize the objects.
+		let outputs = self
+			.authorize_batch(authorization_args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
+		for (position, output) in std::iter::zip(authorization_positions, outputs) {
+			if let Some(permissions) = output {
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.update_object_local_permissions(&items[position].id, permissions);
+			}
+		}
+
+		// Route the objects.
+		let node = Self::sync_put_object_node_permissions();
+		for (item, (inserted, stored)) in std::iter::zip(items, statuses) {
+			let permissions = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_object_local_permissions(&item.id, node);
+			if !permissions.contains(node) {
+				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(
+					tg::sync::PutMissingObjectMessage { id: item.id },
+				));
+				state.sender.send(Ok(message)).await.ok();
+				continue;
+			}
 			if !inserted || stored {
 				let item = super::index::ObjectItem { id: item.id };
 				index_object_sender
@@ -119,9 +185,9 @@ impl Session {
 					.map_err(|_| tg::error!("failed to send the object to the index task"))?;
 			} else {
 				let item = super::store::ObjectItem {
+					eager: item.eager,
 					id: item.id,
 					kind: item.kind,
-					eager: item.eager,
 				};
 				store_object_sender
 					.send(item)
@@ -144,7 +210,9 @@ impl Session {
 		index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
 		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
 	) -> tg::Result<()> {
-		for item in items {
+		// Update the graph.
+		let mut statuses = Vec::with_capacity(items.len());
+		for item in &items {
 			let parent = item.parent.clone().map(crate::sync::graph::Id::Process);
 			let (inserted, stored) = state
 				.graph
@@ -165,6 +233,70 @@ impl Session {
 						&& (!state.arg.outputs || stored.node_output)
 				}
 			});
+			statuses.push((inserted, stored));
+		}
+
+		// Collect the processes requiring authorization.
+		let required = Self::sync_put_process_permissions(&state.arg);
+		let mut authorization_args = Vec::new();
+		let mut authorization_positions = Vec::new();
+		for (position, (item, (inserted, _))) in std::iter::zip(&items, &statuses).enumerate() {
+			let requested = if *inserted {
+				required
+			} else {
+				Self::sync_put_process_node_permissions()
+			};
+			let permissions = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_process_local_permissions(&item.id, requested);
+			if permissions.contains(requested) {
+				continue;
+			}
+			let resource = item.token.clone().map_or_else(
+				|| tg::Either::Left(item.id.clone()),
+				|token| {
+					tg::Either::Right(tg::WithToken {
+						id: item.id.clone(),
+						token,
+					})
+				},
+			);
+			authorization_args.push((resource, requested));
+			authorization_positions.push(position);
+		}
+
+		// Authorize the processes.
+		let outputs = self
+			.authorize_batch(authorization_args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
+		for (position, output) in std::iter::zip(authorization_positions, outputs) {
+			if let Some(permissions) = output {
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.update_process_local_permissions(&items[position].id, permissions);
+			}
+		}
+
+		// Route the processes.
+		let node = Self::sync_put_process_node_permissions();
+		for (item, (inserted, stored)) in std::iter::zip(items, statuses) {
+			let permissions = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_process_local_permissions(&item.id, node);
+			if !permissions.contains(node) {
+				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(
+					tg::sync::PutMissingProcessMessage { id: item.id },
+				));
+				state.sender.send(Ok(message)).await.ok();
+				continue;
+			}
 			if !inserted || stored {
 				let item = super::index::ProcessItem { id: item.id };
 				index_process_sender
@@ -173,8 +305,8 @@ impl Session {
 					.map_err(|_| tg::error!("failed to send the process to the index task"))?;
 			} else {
 				let item = super::store::ProcessItem {
-					id: item.id,
 					eager: item.eager,
+					id: item.id,
 				};
 				store_process_sender
 					.send(item)
@@ -188,5 +320,67 @@ impl Session {
 		}
 
 		Ok(())
+	}
+
+	fn sync_put_object_node_permissions() -> tg::grant::permission::Set {
+		tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
+			tg::grant::permission::object::Permission::Node,
+		))
+	}
+
+	fn sync_put_object_permissions() -> tg::grant::permission::Set {
+		let mut permissions = Self::sync_put_object_node_permissions();
+		permissions.insert(tg::grant::permission::Set::from_permission(
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree),
+		));
+		permissions
+	}
+
+	fn sync_put_process_node_permissions() -> tg::grant::permission::Set {
+		tg::grant::permission::Set::from_permission(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::Node,
+		))
+	}
+
+	fn sync_put_process_permissions(arg: &tg::sync::Arg) -> tg::grant::permission::Set {
+		let mut permissions = Self::sync_put_process_node_permissions();
+		let mut insert = |permission| {
+			permissions.insert(tg::grant::permission::Set::from_permission(
+				tg::grant::Permission::Process(permission),
+			));
+		};
+		if arg.recursive {
+			insert(tg::grant::permission::process::Permission::Subtree);
+		}
+		for (enabled, node, subtree) in [
+			(
+				arg.commands,
+				tg::grant::permission::process::Permission::NodeCommand,
+				tg::grant::permission::process::Permission::SubtreeCommand,
+			),
+			(
+				arg.errors,
+				tg::grant::permission::process::Permission::NodeError,
+				tg::grant::permission::process::Permission::SubtreeError,
+			),
+			(
+				arg.logs,
+				tg::grant::permission::process::Permission::NodeLog,
+				tg::grant::permission::process::Permission::SubtreeLog,
+			),
+			(
+				arg.outputs,
+				tg::grant::permission::process::Permission::NodeOutput,
+				tg::grant::permission::process::Permission::SubtreeOutput,
+			),
+		] {
+			if enabled {
+				insert(node);
+				if arg.recursive {
+					insert(subtree);
+				}
+			}
+		}
+		permissions
 	}
 }

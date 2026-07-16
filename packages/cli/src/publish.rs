@@ -209,7 +209,7 @@ impl Cli {
 			eager: true,
 			errors: true,
 			force: false,
-			items,
+			items: items.into_iter().map(tg::Either::Left).collect(),
 			logs: false,
 			metadata: false,
 			outputs: true,

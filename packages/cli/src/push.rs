@@ -110,12 +110,22 @@ impl Cli {
 		let referents = self.get_references(&args.references).await?;
 		let items: Vec<_> = referents
 			.into_iter()
-			.map(|referent| match referent.item {
-				tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
-					Ok::<_, tg::Error>(tg::Either::Right(id.try_into()?))
-				},
-				tg::get::Item::Id(id) => Ok(tg::Either::Left(id.try_into()?)),
-				tg::get::Item::Pointer(_) => Err(tg::error!("expected an object or process id")),
+			.map(|referent| {
+				let item = match referent.item {
+					tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
+						tg::Either::Right(id.try_into()?)
+					},
+					tg::get::Item::Id(id) => tg::Either::Left(id.try_into()?),
+					tg::get::Item::Pointer(_) => {
+						return Err(tg::error!("expected an object or process id"));
+					},
+				};
+				let item = if let Some(token) = referent.options.token {
+					tg::Either::Right(tg::WithToken { id: item, token })
+				} else {
+					tg::Either::Left(item)
+				};
+				Ok::<_, tg::Error>(item)
 			})
 			.try_collect()?;
 
@@ -158,7 +168,7 @@ impl Cli {
 				if let Ok(specifier) = reference.item().try_unwrap_specifier_ref() {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
-						item: tag_item_from_item(item.clone()),
+						item: tag_item_from_item(item),
 						location: location.clone().map(Into::into),
 						public: false,
 						specifier: specifier.clone().try_into()?,
@@ -173,6 +183,7 @@ impl Cli {
 		.await?;
 		for (reference, item) in std::iter::zip(&args.references, &items) {
 			if reference.item().is_specifier() {
+				let item = item_id(item);
 				let message = format!("tagged {reference} {item}");
 				self.print_info_message(&message);
 			}
@@ -182,6 +193,17 @@ impl Cli {
 	}
 }
 
-fn tag_item_from_item(item: tg::Either<tg::object::Id, tg::process::Id>) -> tg::tag::data::Item {
-	item.into()
+fn item_id(
+	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+) -> &tg::Either<tg::object::Id, tg::process::Id> {
+	match item {
+		tg::Either::Left(item) => item,
+		tg::Either::Right(item) => &item.id,
+	}
+}
+
+fn tag_item_from_item(
+	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+) -> tg::tag::data::Item {
+	item_id(item).clone().into()
 }

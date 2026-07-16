@@ -227,7 +227,7 @@ impl Session {
 			.pull(tg::pull::Arg {
 				items: artifacts
 					.iter()
-					.map(|artifact| tg::Either::Left(artifact.clone().into()))
+					.map(|artifact| tg::Either::Left(tg::Either::Left(artifact.clone().into())))
 					.collect(),
 				..Default::default()
 			})

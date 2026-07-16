@@ -272,7 +272,7 @@ impl Session {
 		// Pull.
 		let stream = self
 			.pull(tg::pull::Arg {
-				items: vec![tg::Either::Left(artifact.clone().into())],
+				items: vec![tg::Either::Left(tg::Either::Left(artifact.clone().into()))],
 				..Default::default()
 			})
 			.await

@@ -75,6 +75,16 @@ impl Session {
 		let Some(permissions) = self.authorize(resource, requested).await? else {
 			return Ok(None);
 		};
+		Ok(Self::mask_process_metadata_with_permissions(
+			&metadata,
+			permissions,
+		))
+	}
+
+	pub(crate) fn mask_process_metadata_with_permissions(
+		metadata: &tg::process::Metadata,
+		permissions: tg::grant::permission::Set,
+	) -> Option<tg::process::Metadata> {
 		let mut output = tg::process::Metadata::default();
 		let mut authorized = false;
 
@@ -144,10 +154,10 @@ impl Session {
 		}
 
 		if !authorized {
-			return Ok(None);
+			return None;
 		}
 
-		Ok(Some(output))
+		Some(output)
 	}
 
 	async fn try_get_process_metadata_regions(

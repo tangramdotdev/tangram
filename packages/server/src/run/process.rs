@@ -214,7 +214,10 @@ impl Session {
 						name: remote.name.clone(),
 						region: remote.region.clone(),
 					})),
-					items: objects.into_iter().map(tg::Either::Left).collect(),
+					items: objects
+						.into_iter()
+						.map(|object| tg::Either::Left(tg::Either::Left(object)))
+						.collect(),
 					..Default::default()
 				};
 				let stream = self

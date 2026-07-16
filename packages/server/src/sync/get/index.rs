@@ -152,7 +152,7 @@ impl Session {
 					state.graph.lock().unwrap().update_object_local(arg);
 
 					// Enqueue the children.
-					Self::sync_get_enqueue_object_children(state, &item.id, &data, None);
+					Self::sync_get_enqueue_object_children(state, &item.id, &data, None, None);
 				}
 			}
 		}
@@ -257,7 +257,13 @@ impl Session {
 				state.graph.lock().unwrap().update_process_local(arg);
 
 				// Enqueue the children.
-				Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&visible));
+				Self::sync_get_enqueue_process_children(
+					state,
+					&item.id,
+					&data,
+					Some(&visible),
+					None,
+				);
 			}
 		}
 

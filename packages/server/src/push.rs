@@ -44,7 +44,7 @@ impl Session {
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
-		if arg.items.iter().any(tg::Either::is_right) {
+		if arg.items.iter().any(|item| item_id(item).is_right()) {
 			progress.start(
 				"processes".to_owned(),
 				"processes".to_owned(),
@@ -135,7 +135,7 @@ impl Session {
 				let source = source.clone();
 				async move {
 					loop {
-						match item {
+						match item_id(item) {
 							tg::Either::Left(object) => {
 								let metadata_arg = tg::object::metadata::Arg {
 									location: Some(source.clone().into()),
@@ -422,8 +422,8 @@ impl Session {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		arg.items
 			.iter()
-			.cloned()
 			.map(|item| {
+				let item = item_id(item).clone();
 				let (resource, permissions, expires_at) = match &item {
 					tg::Either::Left(object) => (
 						tg::grant::Resource::Id(object.clone().into()),
@@ -536,5 +536,14 @@ impl Session {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+fn item_id(
+	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+) -> &tg::Either<tg::object::Id, tg::process::Id> {
+	match item {
+		tg::Either::Left(item) => item,
+		tg::Either::Right(item) => &item.id,
 	}
 }

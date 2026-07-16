@@ -343,6 +343,36 @@ impl std::str::FromStr for Token {
 	}
 }
 
+impl<T> std::fmt::Display for WithToken<T>
+where
+	T: std::fmt::Display,
+{
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}&token={}", self.id, self.token)
+	}
+}
+
+impl<T> std::str::FromStr for WithToken<T>
+where
+	T: std::str::FromStr,
+	T::Err: std::error::Error + Send + Sync + 'static,
+{
+	type Err = tg::Error;
+
+	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
+		let (id, token) = value
+			.split_once("&token=")
+			.ok_or_else(|| tg::error!("missing the token"))?;
+		let id = id
+			.parse()
+			.map_err(|error| tg::error!(!error, "failed to parse the id"))?;
+		let token = token
+			.parse()
+			.map_err(|error| tg::error!(!error, "failed to parse the token"))?;
+		Ok(Self { id, token })
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use crate as tg;

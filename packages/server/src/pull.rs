@@ -45,7 +45,7 @@ impl Session {
 		let object_ids = arg
 			.items
 			.iter()
-			.filter_map(|item| match item {
+			.filter_map(|item| match item_id(item) {
 				tg::Either::Left(object) => Some(object.clone()),
 				tg::Either::Right(_) => None,
 			})
@@ -53,7 +53,7 @@ impl Session {
 		let process_ids = arg
 			.items
 			.iter()
-			.filter_map(|item| match item {
+			.filter_map(|item| match item_id(item) {
 				tg::Either::Left(_) => None,
 				tg::Either::Right(process) => Some(process.clone()),
 			})
@@ -155,5 +155,14 @@ impl Session {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+fn item_id(
+	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+) -> &tg::Either<tg::object::Id, tg::process::Id> {
+	match item {
+		tg::Either::Left(item) => item,
+		tg::Either::Right(item) => &item.id,
 	}
 }

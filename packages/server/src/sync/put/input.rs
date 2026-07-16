@@ -22,10 +22,11 @@ impl Session {
 				tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Object(message)) => {
 					tracing::trace!(id = %message.id, "received get object");
 					let item = ObjectItem {
-						parent: None,
+						eager: message.eager,
 						id: message.id,
 						kind: None,
-						eager: message.eager,
+						parent: None,
+						token: message.token,
 					};
 					state.queue.enqueue_object(item);
 				},
@@ -33,9 +34,10 @@ impl Session {
 				tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(message)) => {
 					tracing::trace!(id = %message.id, "received get process");
 					let item = ProcessItem {
-						parent: None,
-						id: message.id,
 						eager: message.eager,
+						id: message.id,
+						parent: None,
+						token: message.token,
 					};
 					state.queue.enqueue_process(item);
 				},

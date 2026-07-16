@@ -10,15 +10,17 @@ pub struct ObjectItem {
 	pub id: tg::object::Id,
 	pub kind: Option<ObjectKind>,
 	pub parent: Option<tg::Either<tg::object::Id, tg::process::Id>>,
+	pub token: Option<tg::grant::Token>,
 }
 
 pub struct ProcessItem {
 	pub eager: bool,
 	pub id: tg::process::Id,
 	pub parent: Option<tg::process::Id>,
+	pub token: Option<tg::grant::Token>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ObjectKind {
 	Command,
 	Error,

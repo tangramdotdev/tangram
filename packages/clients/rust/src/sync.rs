@@ -41,7 +41,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub get: Vec<tg::Either<tg::object::Id, tg::process::Id>>,
+	pub get: Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -60,7 +60,7 @@ pub struct Arg {
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub put: Vec<tg::Either<tg::object::Id, tg::process::Id>>,
+	pub put: Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -111,20 +111,26 @@ pub enum GetItemMessage {
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct GetItemObjectMessage {
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
+	pub eager: bool,
+
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
-	pub eager: bool,
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct GetItemProcessMessage {
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
+	pub eager: bool,
+
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
-	pub eager: bool,
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
