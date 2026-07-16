@@ -1,5 +1,9 @@
 use {
-	super::{graph::Graph, progress::Progress, queue::Queue},
+	super::{
+		graph::{Graph, Id as GraphId},
+		progress::Progress,
+		queue::Queue,
+	},
 	crate::Session,
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
@@ -183,17 +187,9 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_authorize_objects(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
-		let permissions = Self::sync_get_object_permissions();
-		self.sync_get_authorize(ids.iter().cloned().map(tg::Id::from), permissions)
-			.await
-	}
-
 	async fn sync_get_touch_authorized_objects(
 		&self,
+		graph: &Arc<Mutex<Graph>>,
 		ids: &[tg::object::Id],
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
@@ -201,7 +197,7 @@ impl Session {
 		Vec<Option<tangram_index::object::Object>>,
 		Vec<Option<tg::grant::permission::Set>>,
 	)> {
-		let mut permissions = self.sync_get_authorize_objects(ids).await?;
+		let mut permissions = self.sync_get_authorize_objects(graph, ids).await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
@@ -226,26 +222,25 @@ impl Session {
 		Ok((outputs, permissions))
 	}
 
+	async fn sync_get_authorize_objects(
+		&self,
+		graph: &Arc<Mutex<Graph>>,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
+		let required = Self::sync_get_object_permissions();
+		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required)
+			.await
+	}
+
 	fn sync_get_object_permissions() -> tg::grant::permission::Set {
 		tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
 			tg::grant::permission::object::Permission::Subtree,
 		))
 	}
 
-	async fn sync_get_authorize_processes(
-		&self,
-		ids: &[tg::process::Id],
-		arg: &tg::sync::Arg,
-	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
-		let Some(permissions) = Self::sync_get_process_permissions(arg) else {
-			return Ok(vec![None; ids.len()]);
-		};
-		self.sync_get_authorize(ids.iter().cloned().map(tg::Id::from), permissions)
-			.await
-	}
-
 	async fn sync_get_touch_authorized_processes(
 		&self,
+		graph: &Arc<Mutex<Graph>>,
 		ids: &[tg::process::Id],
 		arg: &tg::sync::Arg,
 		touched_at: i64,
@@ -254,7 +249,7 @@ impl Session {
 		Vec<Option<tangram_index::process::Process>>,
 		Vec<Option<tg::grant::permission::Set>>,
 	)> {
-		let mut permissions = self.sync_get_authorize_processes(ids, arg).await?;
+		let mut permissions = self.sync_get_authorize_processes(graph, ids, arg).await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
@@ -279,37 +274,18 @@ impl Session {
 		Ok((outputs, permissions))
 	}
 
-	async fn sync_get_authorize(
+	async fn sync_get_authorize_processes(
 		&self,
-		ids: impl IntoIterator<Item = tg::Id>,
-		required: tg::grant::permission::Set,
+		graph: &Arc<Mutex<Graph>>,
+		ids: &[tg::process::Id],
+		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
-		let ids = ids.into_iter().collect::<Vec<_>>();
-		let args = ids
-			.iter()
-			.map(|id| tangram_index::authorize::Arg {
-				resource: tg::grant::Resource::Id(id.clone()),
-				permissions: required,
-				token: None,
-			})
-			.collect::<Vec<_>>();
+		let Some(required) = Self::sync_get_process_permissions(arg) else {
+			return Ok(vec![None; ids.len()]);
+		};
 
-		let mut permissions = vec![None; ids.len()];
-		if args.is_empty() {
-			return Ok(permissions);
-		}
-		let outputs = self
-			.server
-			.index
-			.authorize_batch(&args, &self.context.principal)
+		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize the sync items"))?;
-		for (permissions, output) in std::iter::zip(&mut permissions, outputs) {
-			*permissions = output
-				.map(|output| output.permissions)
-				.filter(|permissions| permissions.contains(required));
-		}
-		Ok(permissions)
 	}
 
 	fn sync_get_process_permissions(arg: &tg::sync::Arg) -> Option<tg::grant::permission::Set> {
@@ -349,5 +325,74 @@ impl Session {
 			}
 		}
 		(!permissions.is_empty()).then_some(permissions)
+	}
+
+	async fn sync_get_authorize(
+		&self,
+		graph: &Arc<Mutex<Graph>>,
+		ids: impl IntoIterator<Item = GraphId>,
+		required: tg::grant::permission::Set,
+	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
+		let ids = ids.into_iter().collect::<Vec<_>>();
+
+		// Collect the items whose permissions cannot be proven by the graph.
+		let mut args = Vec::new();
+		let mut positions = Vec::new();
+		let mut outputs = vec![None; ids.len()];
+		{
+			let mut graph = graph.lock().unwrap();
+			for (position, id) in ids.iter().enumerate() {
+				let permissions = match id {
+					GraphId::Object(id) => graph.get_object_local_permissions(id, required),
+					GraphId::Process(id) => graph.get_process_local_permissions(id, required),
+				};
+				if permissions.contains(required) {
+					outputs[position] = Some(permissions);
+					continue;
+				}
+				let id = match id {
+					GraphId::Object(id) => tg::Id::from(id.clone()),
+					GraphId::Process(id) => tg::Id::from(id.clone()),
+				};
+				let arg = tangram_index::authorize::Arg {
+					permissions: required,
+					resource: tg::grant::Resource::Id(id),
+					token: None,
+				};
+				args.push(arg);
+				positions.push(position);
+			}
+		}
+
+		if args.is_empty() {
+			return Ok(outputs);
+		}
+
+		// Authorize the remaining items.
+		let authorization_outputs = self
+			.server
+			.index
+			.authorize_batch(&args, &self.context.principal)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to authorize the sync items"))?;
+		let mut graph = graph.lock().unwrap();
+		for (position, output) in std::iter::zip(positions, authorization_outputs) {
+			let permissions = output
+				.map(|output| output.permissions)
+				.filter(|permissions| permissions.contains(required));
+			if let Some(permissions) = permissions {
+				match &ids[position] {
+					GraphId::Object(id) => {
+						graph.update_object_local_permissions(id, permissions);
+					},
+					GraphId::Process(id) => {
+						graph.update_process_local_permissions(id, permissions);
+					},
+				}
+				outputs[position] = Some(permissions);
+			}
+		}
+
+		Ok(outputs)
 	}
 }

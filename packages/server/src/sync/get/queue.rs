@@ -78,6 +78,7 @@ impl Session {
 			(vec![None; ids.len()], vec![None; ids.len()])
 		} else {
 			self.sync_get_touch_authorized_objects(
+				&state.graph,
 				&ids,
 				touched_at,
 				self.server.config.object.time_to_touch,
@@ -230,6 +231,7 @@ impl Session {
 			(vec![None; ids.len()], vec![None; ids.len()])
 		} else {
 			self.sync_get_touch_authorized_processes(
+				&state.graph,
 				&ids,
 				&state.arg,
 				touched_at,
