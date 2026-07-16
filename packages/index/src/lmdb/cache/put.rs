@@ -52,7 +52,7 @@ impl Index {
 		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 			touched_at,
 			kind: ItemKind::CacheEntry,
-			id: tg::Either::Left(arg.id.clone().into()),
+			id: tg::object::Id::from(arg.id.clone()).into(),
 		});
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])

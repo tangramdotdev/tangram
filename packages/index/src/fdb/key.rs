@@ -418,10 +418,7 @@ impl fdbt::TuplePack for Key {
 				partition.pack(w, tuple_depth)?;
 				touched_at.pack(w, tuple_depth)?;
 				kind.to_i32().unwrap().pack(w, tuple_depth)?;
-				let id = match &id {
-					tg::Either::Left(id) => id.to_bytes(),
-					tg::Either::Right(id) => id.to_bytes(),
-				};
+				let id = id.to_bytes();
 				id.as_ref().pack(w, tuple_depth)
 			},
 
@@ -1121,13 +1118,6 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
-					tg::Either::Right(id)
-				} else if let Ok(id) = tg::object::Id::try_from(id) {
-					tg::Either::Left(id)
-				} else {
-					return Err(fdbt::PackError::Message("invalid id".into()));
-				};
 				let key = Key::Clean(crate::fdb::clean::Key::Clean {
 					partition,
 					touched_at,

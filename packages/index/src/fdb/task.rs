@@ -242,6 +242,7 @@ impl Index {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
+				max_sandbox_touched_at,
 				now,
 				partition_count,
 				partition_start,
@@ -252,6 +253,7 @@ impl Index {
 					Kind::Clean {
 						max_object_touched_at,
 						max_process_touched_at,
+						max_sandbox_touched_at,
 						now,
 						partition_count,
 						partition_start,
@@ -405,6 +407,7 @@ impl Index {
 			Kind::Clean {
 				max_object_touched_at,
 				max_process_touched_at,
+				max_sandbox_touched_at,
 				now,
 				partition_count,
 				partition_start,
@@ -412,6 +415,7 @@ impl Index {
 				batch_size: items.len(),
 				max_object_touched_at: *max_object_touched_at,
 				max_process_touched_at: *max_process_touched_at,
+				max_sandbox_touched_at: *max_sandbox_touched_at,
 				now: *now,
 				partition_count: *partition_count,
 				partition_start: *partition_start,
@@ -841,20 +845,22 @@ impl Index {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
+				max_sandbox_touched_at,
 				now,
 				partition_count,
 				partition_start,
 			}) => {
 				let arg = super::clean::TaskCleanArg {
-					txn,
-					subspace,
-					now: *now,
+					batch_size: *batch_size,
 					max_object_touched_at: *max_object_touched_at,
 					max_process_touched_at: *max_process_touched_at,
-					batch_size: *batch_size,
-					partition_start: *partition_start,
+					max_sandbox_touched_at: *max_sandbox_touched_at,
+					now: *now,
 					partition_count: *partition_count,
+					partition_start: *partition_start,
 					partition_total,
+					subspace,
+					txn,
 				};
 				Self::task_clean(arg).await.map(Response::CleanOutput)
 			},
@@ -928,7 +934,7 @@ impl Index {
 				Ok(Response::Unit)
 			},
 			Request::PutSandboxes(args) => {
-				Self::task_put_sandboxes(txn, subspace, args).await?;
+				Self::task_put_sandboxes(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutTags(args) => Self::task_put_tags(txn, subspace, args, partition_total)

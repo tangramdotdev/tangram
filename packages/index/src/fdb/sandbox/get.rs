@@ -75,7 +75,7 @@ impl Index {
 		.await
 	}
 
-	pub(super) async fn try_get_sandbox_with_transaction(
+	pub(crate) async fn try_get_sandbox_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &foundationdb_tuple::Subspace,
 		id: &tg::sandbox::Id,

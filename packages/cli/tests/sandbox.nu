@@ -2,7 +2,7 @@ use ../test.nu *
 
 # A sandbox can be created with hostname, mount, and network options, listed with those options reflected, and destroyed so that it is eventually finalized and no longer found.
 
-let server = spawn
+let server = spawn --config { cleaner: {}, sandbox: { ttl: 0 } }
 
 let create = if $nu.os-info.name == 'linux' {
 	tg sandbox create --hostname sandbox-test --mount /tmp:/sandbox,ro --no-network

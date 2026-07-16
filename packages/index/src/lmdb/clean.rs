@@ -19,23 +19,37 @@ enum Item {
 	CacheEntry(tg::artifact::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
+	Sandbox(tg::sandbox::Id),
+}
+
+pub(super) struct TaskCleanArg<'a, 'b> {
+	pub batch_size: usize,
+	pub db: &'a Db,
+	pub max_object_touched_at: i64,
+	pub max_process_touched_at: i64,
+	pub max_sandbox_touched_at: i64,
+	pub now: i64,
+	pub subspace: &'a fdbt::Subspace,
+	pub transaction: &'a mut lmdb::RwTxn<'b>,
 }
 
 impl Index {
-	pub async fn clean(
-		&self,
-		now: i64,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-		_partition_start: u64,
-		_partition_count: u64,
-	) -> tg::Result<crate::clean::Output> {
+	pub async fn clean(&self, arg: crate::clean::Arg) -> tg::Result<crate::clean::Output> {
+		let crate::clean::Arg {
+			batch_size,
+			max_object_touched_at,
+			max_process_touched_at,
+			max_sandbox_touched_at,
+			now,
+			partition_count: _,
+			partition_start: _,
+		} = arg;
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Clean(crate::lmdb::Clean {
 			batch_size,
 			max_object_touched_at,
 			max_process_touched_at,
+			max_sandbox_touched_at,
 			now,
 		});
 		self.sender_low
@@ -52,15 +66,17 @@ impl Index {
 		}
 	}
 
-	pub(super) fn task_clean(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &mut lmdb::RwTxn<'_>,
-		now: i64,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-	) -> tg::Result<crate::clean::Output> {
+	pub(super) fn task_clean(arg: TaskCleanArg<'_, '_>) -> tg::Result<crate::clean::Output> {
+		let TaskCleanArg {
+			batch_size,
+			db,
+			max_object_touched_at,
+			max_process_touched_at,
+			max_sandbox_touched_at,
+			now,
+			subspace,
+			transaction,
+		} = arg;
 		let grants = Self::delete_expired_grants(db, subspace, transaction, now, batch_size)?;
 		let mut output = crate::clean::Output {
 			grants,
@@ -92,30 +108,34 @@ impl Index {
 			let max_touched_at = match kind {
 				ItemKind::CacheEntry | ItemKind::Object => max_object_touched_at,
 				ItemKind::Process => max_process_touched_at,
+				ItemKind::Sandbox => max_sandbox_touched_at,
 			};
 			if touched_at > max_touched_at {
 				continue;
 			}
 			let item = match kind {
 				ItemKind::CacheEntry => {
-					let tg::Either::Left(id) = id else {
-						return Err(tg::error!("expected object id for cache entry"));
-					};
+					let id = tg::object::Id::try_from(id).map_err(|error| {
+						tg::error!(!error, "expected object id for cache entry")
+					})?;
 					let id = tg::artifact::Id::try_from(id)
 						.map_err(|error| tg::error!(!error, "invalid artifact id"))?;
 					Item::CacheEntry(id)
 				},
 				ItemKind::Object => {
-					let tg::Either::Left(id) = id else {
-						return Err(tg::error!("expected object id for object"));
-					};
+					let id = tg::object::Id::try_from(id)
+						.map_err(|error| tg::error!(!error, "expected object id for object"))?;
 					Item::Object(id)
 				},
 				ItemKind::Process => {
-					let tg::Either::Right(id) = id else {
-						return Err(tg::error!("expected process id for process"));
-					};
+					let id = tg::process::Id::try_from(id)
+						.map_err(|error| tg::error!(!error, "expected process id for process"))?;
 					Item::Process(id)
+				},
+				ItemKind::Sandbox => {
+					let id = tg::sandbox::Id::try_from(id)
+						.map_err(|error| tg::error!(!error, "expected sandbox id for sandbox"))?;
+					Item::Sandbox(id)
 				},
 			};
 			candidates.push(Candidate { touched_at, item });
@@ -137,6 +157,9 @@ impl Index {
 				},
 				Item::Process(id) => {
 					Self::compute_process_reference_count(db, subspace, transaction, id)?
+				},
+				Item::Sandbox(id) => {
+					Self::compute_sandbox_reference_count(db, subspace, transaction, id)?
 				},
 			};
 
@@ -161,6 +184,7 @@ impl Index {
 					Item::CacheEntry(id) => output.cache_entries.push(id),
 					Item::Object(id) => output.objects.push(id),
 					Item::Process(id) => output.processes.push(id),
+					Item::Sandbox(id) => output.sandboxes.push(id),
 				}
 			}
 		}
@@ -271,6 +295,14 @@ impl Index {
 						)?;
 				Ok(process.touched_at)
 			},
+			Item::Sandbox(id) => {
+				let sandbox =
+					Self::try_get_sandbox_with_transaction(db, subspace, transaction, id)?
+						.ok_or_else(
+							|| tg::error!(%id, "the clean key referenced a missing sandbox"),
+						)?;
+				Ok(sandbox.touched_at)
+			},
 		}
 	}
 
@@ -284,17 +316,22 @@ impl Index {
 			Item::CacheEntry(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 				touched_at: candidate.touched_at,
 				kind: ItemKind::CacheEntry,
-				id: tg::Either::Left(id.clone().into()),
+				id: tg::object::Id::from(id.clone()).into(),
 			}),
 			Item::Object(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 				touched_at: candidate.touched_at,
 				kind: ItemKind::Object,
-				id: tg::Either::Left(id.clone()),
+				id: id.clone().into(),
 			}),
 			Item::Process(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 				touched_at: candidate.touched_at,
 				kind: ItemKind::Process,
-				id: tg::Either::Right(id.clone()),
+				id: id.clone().into(),
+			}),
+			Item::Sandbox(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+				touched_at: candidate.touched_at,
+				kind: ItemKind::Sandbox,
+				id: id.clone().into(),
 			}),
 		};
 		let key = Self::pack(subspace, &key);
@@ -388,6 +425,24 @@ impl Index {
 		Ok(child_process_count + item_tag_count)
 	}
 
+	fn compute_sandbox_reference_count(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RwTxn<'_>,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<u64> {
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::SandboxProcess.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			),
+		);
+		let count = Self::count_keys_with_prefix(db, transaction, &prefix)?;
+
+		Ok(count)
+	}
+
 	fn count_keys_with_prefix(
 		db: &Db,
 		transaction: &lmdb::RwTxn<'_>,
@@ -454,6 +509,20 @@ impl Index {
 						.map_err(|error| tg::error!(!error, "failed to put process"))?;
 				}
 			},
+			Item::Sandbox(id) => {
+				let key = crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(id.clone()));
+				let key = Self::pack(subspace, &key);
+				if let Some(bytes) = db
+					.get(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to get sandbox"))?
+				{
+					let mut sandbox = crate::sandbox::Sandbox::deserialize(bytes)?;
+					sandbox.reference_count = reference_count;
+					let bytes = sandbox.serialize()?;
+					db.put(transaction, &key, &bytes)
+						.map_err(|error| tg::error!(!error, "failed to put sandbox"))?;
+				}
+			},
 		}
 		Ok(())
 	}
@@ -468,6 +537,7 @@ impl Index {
 			Item::CacheEntry(id) => Self::delete_cache_entry(db, subspace, transaction, id),
 			Item::Object(id) => Self::delete_object(db, subspace, transaction, id),
 			Item::Process(id) => Self::delete_process(db, subspace, transaction, id),
+			Item::Sandbox(id) => Self::delete_sandbox(db, subspace, transaction, id),
 		}
 	}
 
@@ -614,6 +684,12 @@ impl Index {
 	) -> tg::Result<()> {
 		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
+		let sandbox = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get process"))?
+			.map(crate::process::Process::deserialize)
+			.transpose()?
+			.and_then(|process| process.sandbox);
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
 		let key =
@@ -711,7 +787,36 @@ impl Index {
 			Self::decrement_object_reference_count(db, subspace, transaction, &object)?;
 		}
 
+		if let Some(sandbox) = sandbox {
+			let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessSandbox {
+				process: id.clone(),
+				sandbox: sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete process sandbox"))?;
+
+			let key = crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
+				process: id.clone(),
+				sandbox: sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete sandbox process"))?;
+
+			Self::decrement_sandbox_reference_count(db, subspace, transaction, &sandbox)?;
+		}
+
 		Ok(())
+	}
+
+	fn delete_sandbox(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		Self::task_delete_sandboxes(db, subspace, transaction, std::slice::from_ref(id))
 	}
 
 	fn decrement_cache_entry_reference_count(
@@ -742,7 +847,7 @@ impl Index {
 				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 					touched_at: entry.touched_at,
 					kind: ItemKind::CacheEntry,
-					id: tg::Either::Left(id.clone().into()),
+					id: tg::object::Id::from(id.clone()).into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
@@ -780,7 +885,7 @@ impl Index {
 				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 					touched_at: object.touched_at,
 					kind: ItemKind::Object,
-					id: tg::Either::Left(id.clone()),
+					id: id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
@@ -818,13 +923,52 @@ impl Index {
 				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 					touched_at: process.touched_at,
 					kind: ItemKind::Process,
-					id: tg::Either::Right(id.clone()),
+					id: id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
 					.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
 			}
 		}
+		Ok(())
+	}
+
+	pub(super) fn decrement_sandbox_reference_count(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		let key = crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(id.clone()));
+		let key = Self::pack(subspace, &key);
+		let Some(bytes) = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get sandbox"))?
+		else {
+			return Ok(());
+		};
+		let mut sandbox = crate::sandbox::Sandbox::deserialize(bytes)?;
+		sandbox.reference_count = sandbox.reference_count.saturating_sub(1);
+		let bytes = sandbox.serialize()?;
+		db.put(transaction, &key, &bytes)
+			.map_err(|error| tg::error!(!error, "failed to put sandbox"))?;
+
+		if sandbox.reference_count == 0
+			&& sandbox
+				.data
+				.as_ref()
+				.is_some_and(|data| data.status.is_destroyed())
+		{
+			let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+				touched_at: sandbox.touched_at,
+				kind: ItemKind::Sandbox,
+				id: id.clone().into(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.put(transaction, &key, &[])
+				.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
+		}
+
 		Ok(())
 	}
 }

@@ -300,12 +300,7 @@ pub trait Index {
 
 	fn clean(
 		&self,
-		now: i64,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-		partition_start: u64,
-		partition_count: u64,
+		arg: crate::clean::Arg,
 	) -> impl Future<Output = tg::Result<crate::clean::Output>> + Send;
 
 	fn get_transaction_id(&self) -> impl Future<Output = tg::Result<u64>> + Send;

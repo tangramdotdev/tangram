@@ -200,6 +200,7 @@ impl Session {
 					data: Some(data),
 					id: id.clone(),
 					runner,
+					touched_at: created_at,
 				}],
 				..Default::default()
 			};

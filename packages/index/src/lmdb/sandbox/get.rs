@@ -77,7 +77,7 @@ impl Index {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
-	pub(super) fn try_get_sandbox_with_transaction(
+	pub(crate) fn try_get_sandbox_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,

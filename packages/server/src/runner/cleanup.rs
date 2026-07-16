@@ -146,6 +146,7 @@ impl Server {
 					data: indexed.data,
 					id: id.clone(),
 					runner: indexed.runner,
+					touched_at: now,
 				}],
 				..Default::default()
 			})

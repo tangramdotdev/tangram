@@ -421,25 +421,8 @@ impl crate::Index for Index {
 		Index::update_batch(self, batch_size, partition_start, partition_count).await
 	}
 
-	async fn clean(
-		&self,
-		now: i64,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-		partition_start: u64,
-		partition_count: u64,
-	) -> tg::Result<crate::clean::Output> {
-		Index::clean(
-			self,
-			now,
-			max_object_touched_at,
-			max_process_touched_at,
-			batch_size,
-			partition_start,
-			partition_count,
-		)
-		.await
+	async fn clean(&self, arg: crate::clean::Arg) -> tg::Result<crate::clean::Output> {
+		Index::clean(self, arg).await
 	}
 
 	async fn get_transaction_id(&self) -> tg::Result<u64> {

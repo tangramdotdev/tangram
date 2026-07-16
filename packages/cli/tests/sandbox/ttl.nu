@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A sandbox created with a ttl is destroyed after the ttl expires.
 
-let server = spawn
+let server = spawn --config { cleaner: {}, sandbox: { ttl: 0 } }
 
 let id = tg sandbox create --ttl 1s | str trim
 

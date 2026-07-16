@@ -8,6 +8,74 @@ use {
 };
 
 impl Server {
+	pub(crate) async fn clean_sandboxes_turso(
+		&self,
+		process_store: &db::turso::Database,
+		sandboxes: &[tg::sandbox::Id],
+		max_finished_at: i64,
+	) -> tg::Result<()> {
+		if sandboxes.is_empty() {
+			return Ok(());
+		}
+
+		for sandbox in sandboxes {
+			let sandbox = sandbox.to_string();
+			process_store
+				.run(|transaction| {
+					let sandbox = sandbox.clone();
+					async move {
+						Self::clean_sandboxes_turso_with_transaction(
+							transaction,
+							&sandbox,
+							max_finished_at,
+						)
+						.await
+					}
+					.boxed()
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "failed to clean the sandbox"))?;
+		}
+
+		Ok(())
+	}
+
+	async fn clean_sandboxes_turso_with_transaction(
+		transaction: &db::turso::Transaction<'_>,
+		sandbox: &str,
+		max_finished_at: i64,
+	) -> tg::Result<ControlFlow<(), db::turso::Error>> {
+		let statement = indoc!(
+			"
+				delete from sandboxes
+				where id = ?1 and status = 'destroyed' and finished_at <= ?2;
+			"
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![sandbox.to_owned(), max_finished_at],
+			)
+			.await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		if n == 0 {
+			return Ok(ControlFlow::Break(()));
+		}
+
+		let statement = indoc!(
+			"
+				delete from sandbox_finalize_queue
+				where sandbox = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement.into(), db::params![sandbox.to_owned()])
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
+	}
+
 	pub(crate) async fn clean_processes_turso(
 		&self,
 		process_store: &db::turso::Database,

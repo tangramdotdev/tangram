@@ -411,10 +411,7 @@ impl fdbt::TuplePack for Key {
 				Kind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
 				touched_at.pack(w, tuple_depth)?;
 				kind.to_i32().unwrap().pack(w, tuple_depth)?;
-				let id = match &id {
-					tg::Either::Left(id) => id.to_bytes(),
-					tg::Either::Right(id) => id.to_bytes(),
-				};
+				let id = id.to_bytes();
 				id.as_ref().pack(w, tuple_depth)
 			},
 
@@ -1115,19 +1112,6 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let id = match kind {
-					crate::lmdb::clean::ItemKind::CacheEntry
-					| crate::lmdb::clean::ItemKind::Object => {
-						let id = tg::object::Id::try_from(id)
-							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-						tg::Either::Left(id)
-					},
-					crate::lmdb::clean::ItemKind::Process => {
-						let id = tg::process::Id::try_from(id)
-							.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-						tg::Either::Right(id)
-					},
-				};
 				let key = Key::Clean(crate::lmdb::clean::Key::Clean {
 					touched_at,
 					kind,

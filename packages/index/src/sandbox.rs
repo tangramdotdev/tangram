@@ -6,7 +6,9 @@ pub mod put;
 pub struct Sandbox {
 	pub created_at: i64,
 	pub data: Option<tg::sandbox::get::Output>,
+	pub reference_count: u64,
 	pub runner: Option<tg::runner::Id>,
+	pub touched_at: i64,
 }
 
 impl Sandbox {

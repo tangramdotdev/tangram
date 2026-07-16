@@ -50,6 +50,7 @@ impl Session {
 			data: Some(arg.data),
 			id: id.clone(),
 			runner,
+			touched_at: now,
 		};
 		self.server
 			.index_tasks

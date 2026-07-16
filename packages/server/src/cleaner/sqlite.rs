@@ -8,6 +8,65 @@ use {
 };
 
 impl Server {
+	pub(crate) async fn clean_sandboxes_sqlite(
+		&self,
+		process_store: &db::sqlite::Database,
+		sandboxes: &[tg::sandbox::Id],
+		max_finished_at: i64,
+	) -> tg::Result<()> {
+		if sandboxes.is_empty() {
+			return Ok(());
+		}
+
+		let sandboxes = sandboxes
+			.iter()
+			.map(ToString::to_string)
+			.collect::<Vec<_>>();
+		for sandbox in sandboxes {
+			process_store
+				.run(move |transaction, _cache| {
+					Self::clean_sandboxes_sqlite_sync(transaction, &sandbox, max_finished_at)
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "failed to clean the sandbox"))?;
+		}
+
+		Ok(())
+	}
+
+	fn clean_sandboxes_sqlite_sync(
+		transaction: &sqlite::Transaction<'_>,
+		sandbox: &str,
+		max_finished_at: i64,
+	) -> tg::Result<ControlFlow<(), db::sqlite::Error>> {
+		let statement = indoc!(
+			"
+				delete from sandboxes
+				where id = ?1 and status = 'destroyed' and finished_at <= ?2;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![sandbox, max_finished_at])
+			.map_err(db::sqlite::Error::from);
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		if n == 0 {
+			return Ok(ControlFlow::Break(()));
+		}
+
+		let statement = indoc!(
+			"
+				delete from sandbox_finalize_queue
+				where sandbox = ?1;
+			"
+		);
+		let result = transaction
+			.execute(statement, sqlite::params![sandbox])
+			.map_err(db::sqlite::Error::from);
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
+	}
+
 	pub(crate) async fn clean_processes_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,

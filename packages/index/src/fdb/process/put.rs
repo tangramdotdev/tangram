@@ -71,6 +71,10 @@ impl Index {
 				.as_ref()
 				.and_then(|existing| existing.sandbox.clone())
 		});
+		let sandbox_changed = existing
+			.as_ref()
+			.and_then(|existing| existing.sandbox.as_ref())
+			!= sandbox.as_ref();
 		let changed = parent_changed
 			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
@@ -96,9 +100,10 @@ impl Index {
 		.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 		txn.set(&key, &value);
 
-		if let Some(existing_sandbox) = existing
-			.as_ref()
-			.and_then(|existing| existing.sandbox.as_ref())
+		if sandbox_changed
+			&& let Some(existing_sandbox) = existing
+				.as_ref()
+				.and_then(|existing| existing.sandbox.as_ref())
 		{
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
 				sandbox: existing_sandbox.clone(),
@@ -113,11 +118,18 @@ impl Index {
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
+
+			Self::decrement_sandbox_reference_count(
+				txn,
+				subspace,
+				existing_sandbox,
+				partition_total,
+			)
+			.await
+			.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 		}
 
-		if data.as_ref().is_some_and(|data| data.status.is_started())
-			&& let Some(sandbox) = &sandbox
-		{
+		if sandbox_changed && let Some(sandbox) = &sandbox {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
 				sandbox: sandbox.clone(),
 				process: id.clone(),
@@ -247,7 +259,7 @@ impl Index {
 			partition,
 			touched_at,
 			kind: ItemKind::Process,
-			id: tg::Either::Right(id.clone()),
+			id: id.clone().into(),
 		});
 		let key = Self::pack(subspace, &key);
 		txn.set(&key, &[]);

@@ -6,4 +6,5 @@ pub struct Arg {
 	pub data: Option<tg::sandbox::get::Output>,
 	pub id: tg::sandbox::Id,
 	pub runner: Option<tg::runner::Id>,
+	pub touched_at: i64,
 }

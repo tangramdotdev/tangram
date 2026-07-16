@@ -103,7 +103,7 @@ impl Index {
 				partition,
 				touched_at: process.touched_at,
 				kind: ItemKind::Process,
-				id: tg::Either::Right(id.clone()),
+				id: id.clone().into(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)

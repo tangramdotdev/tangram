@@ -78,6 +78,7 @@ impl Session {
 			cache_entries: 0,
 			objects: 0,
 			processes: 0,
+			sandboxes: 0,
 			tags: 0,
 		};
 		let batch_size = self
@@ -89,6 +90,7 @@ impl Session {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let object_time_to_live = Duration::from_secs(0);
 		let process_time_to_live = Duration::from_secs(0);
+		let sandbox_time_to_live = Duration::from_secs(0);
 		progress.start(
 			"cache_entries".into(),
 			"cache entries".into(),
@@ -110,20 +112,28 @@ impl Session {
 			Some(0),
 			None,
 		);
+		progress.start(
+			"sandboxes".into(),
+			"sandboxes".into(),
+			tangram_client::progress::IndicatorFormat::Normal,
+			Some(0),
+			None,
+		);
 
 		// For manual cleaning, process all partitions.
 		let partition_total = self.server.index.partition_total();
 		loop {
 			let inner_output = match self
 				.server
-				.cleaner_task_inner(
+				.cleaner_task_inner(crate::cleaner::CleanerTaskInnerArg {
+					n: batch_size,
 					now,
 					object_time_to_live,
+					partition_count: partition_total,
+					partition_start: 0,
 					process_time_to_live,
-					batch_size,
-					0,
-					partition_total,
-				)
+					sandbox_time_to_live,
+				})
 				.await
 			{
 				Ok(inner_output) => inner_output,
@@ -138,13 +148,16 @@ impl Session {
 			let cache_entries = inner_output.cache_entries.len().to_u64().unwrap();
 			let objects = inner_output.objects.len().to_u64().unwrap();
 			let processes = inner_output.processes.len().to_u64().unwrap();
+			let sandboxes = inner_output.sandboxes.len().to_u64().unwrap();
 			output.bytes += bytes;
 			output.cache_entries += cache_entries;
 			output.objects += objects;
 			output.processes += processes;
+			output.sandboxes += sandboxes;
 			progress.increment("cache_entries", cache_entries);
 			progress.increment("objects", objects);
 			progress.increment("processes", processes);
+			progress.increment("sandboxes", sandboxes);
 			if inner_output.done {
 				break;
 			}

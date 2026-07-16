@@ -455,42 +455,12 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn clean(
-		&self,
-		now: i64,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-		partition_start: u64,
-		partition_count: u64,
-	) -> tg::Result<index::clean::Output> {
+	async fn clean(&self, arg: index::clean::Arg) -> tg::Result<index::clean::Output> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => {
-				index
-					.clean(
-						now,
-						max_object_touched_at,
-						max_process_touched_at,
-						batch_size,
-						partition_start,
-						partition_count,
-					)
-					.await
-			},
+			Self::Fdb(index) => index.clean(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.clean(
-						now,
-						max_object_touched_at,
-						max_process_touched_at,
-						batch_size,
-						partition_start,
-						partition_count,
-					)
-					.await
-			},
+			Self::Lmdb(index) => index.clean(arg).await,
 		}
 	}
 

@@ -71,6 +71,10 @@ impl Index {
 				.as_ref()
 				.and_then(|existing| existing.sandbox.clone())
 		});
+		let sandbox_changed = existing
+			.as_ref()
+			.and_then(|existing| existing.sandbox.as_ref())
+			!= sandbox.as_ref();
 		let changed = parent_changed
 			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
@@ -96,9 +100,10 @@ impl Index {
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 
-		if let Some(existing_sandbox) = existing
-			.as_ref()
-			.and_then(|existing| existing.sandbox.as_ref())
+		if sandbox_changed
+			&& let Some(existing_sandbox) = existing
+				.as_ref()
+				.and_then(|existing| existing.sandbox.as_ref())
 		{
 			let key = Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
 				sandbox: existing_sandbox.clone(),
@@ -115,11 +120,11 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the process sandbox"))?;
+
+			Self::decrement_sandbox_reference_count(db, subspace, transaction, existing_sandbox)?;
 		}
 
-		if data.as_ref().is_some_and(|data| data.status.is_started())
-			&& let Some(sandbox) = &sandbox
-		{
+		if sandbox_changed && let Some(sandbox) = &sandbox {
 			let key = Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
 				sandbox: sandbox.clone(),
 				process: id.clone(),
@@ -239,7 +244,7 @@ impl Index {
 		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 			touched_at,
 			kind: ItemKind::Process,
-			id: tg::Either::Right(id.clone()),
+			id: id.clone().into(),
 		});
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])

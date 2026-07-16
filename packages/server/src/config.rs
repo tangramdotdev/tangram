@@ -824,6 +824,10 @@ pub struct Sandbox {
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub spawn_process_timeout: Duration,
+
+	#[serde(alias = "ttl", default = "default_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_live: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1494,6 +1498,7 @@ impl Default for Sandbox {
 			network: SandboxNetwork::default(),
 			nice: 5,
 			spawn_process_timeout: Duration::from_secs(10),
+			time_to_live: default_time_to_live(),
 		}
 	}
 }

@@ -22,35 +22,39 @@ enum Item {
 	CacheEntry(tg::artifact::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
+	Sandbox(tg::sandbox::Id),
 }
 
 pub(super) struct TaskCleanArg<'a> {
-	pub txn: &'a fdb::Transaction,
-	pub subspace: &'a Subspace,
-	pub now: i64,
+	pub batch_size: usize,
 	pub max_object_touched_at: i64,
 	pub max_process_touched_at: i64,
-	pub batch_size: usize,
-	pub partition_start: u64,
+	pub max_sandbox_touched_at: i64,
+	pub now: i64,
 	pub partition_count: u64,
+	pub partition_start: u64,
 	pub partition_total: u64,
+	pub subspace: &'a Subspace,
+	pub txn: &'a fdb::Transaction,
 }
 
 impl Index {
-	pub async fn clean(
-		&self,
-		now: i64,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-		partition_start: u64,
-		partition_count: u64,
-	) -> tg::Result<crate::clean::Output> {
+	pub async fn clean(&self, arg: crate::clean::Arg) -> tg::Result<crate::clean::Output> {
+		let crate::clean::Arg {
+			batch_size,
+			max_object_touched_at,
+			max_process_touched_at,
+			max_sandbox_touched_at,
+			now,
+			partition_count,
+			partition_start,
+		} = arg;
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Clean(crate::fdb::Clean {
 			batch_size,
 			max_object_touched_at,
 			max_process_touched_at,
+			max_sandbox_touched_at,
 			now,
 			partition_count,
 			partition_start,
@@ -69,15 +73,16 @@ impl Index {
 
 	pub(super) async fn task_clean(arg: TaskCleanArg<'_>) -> tg::Result<crate::clean::Output> {
 		let TaskCleanArg {
-			txn,
-			subspace,
-			now,
+			batch_size,
 			max_object_touched_at,
 			max_process_touched_at,
-			batch_size,
-			partition_start,
+			max_sandbox_touched_at,
+			now,
 			partition_count,
+			partition_start,
 			partition_total,
+			subspace,
+			txn,
 		} = arg;
 		let grants = Self::delete_expired_grants(
 			txn,
@@ -97,7 +102,9 @@ impl Index {
 		let mut candidates = Vec::new();
 
 		let key_kind = Kind::Clean.to_i32().unwrap();
-		let max_touched_at = max_object_touched_at.max(max_process_touched_at);
+		let max_touched_at = max_object_touched_at
+			.max(max_process_touched_at)
+			.max(max_sandbox_touched_at);
 		let partition_end = partition_start.saturating_add(partition_count);
 		for partition in partition_start..partition_end {
 			let begin = Self::pack(subspace, &(key_kind, partition, 0i64));
@@ -135,30 +142,34 @@ impl Index {
 				let max_touched_at = match kind {
 					ItemKind::CacheEntry | ItemKind::Object => max_object_touched_at,
 					ItemKind::Process => max_process_touched_at,
+					ItemKind::Sandbox => max_sandbox_touched_at,
 				};
 				if touched_at > max_touched_at {
 					continue;
 				}
 				let item = match kind {
 					ItemKind::CacheEntry => {
-						let tg::Either::Left(object_id) = id else {
-							return Err(tg::error!("expected object id for cache entry"));
-						};
+						let object_id = tg::object::Id::try_from(id).map_err(|error| {
+							tg::error!(!error, "expected object id for cache entry")
+						})?;
 						let artifact_id = tg::artifact::Id::try_from(object_id)
 							.map_err(|error| tg::error!(!error, "invalid artifact id"))?;
 						Item::CacheEntry(artifact_id)
 					},
 					ItemKind::Object => {
-						let tg::Either::Left(object_id) = id else {
-							return Err(tg::error!("expected object id"));
-						};
+						let object_id = tg::object::Id::try_from(id)
+							.map_err(|error| tg::error!(!error, "expected object id"))?;
 						Item::Object(object_id)
 					},
 					ItemKind::Process => {
-						let tg::Either::Right(process_id) = id else {
-							return Err(tg::error!("expected process id"));
-						};
+						let process_id = tg::process::Id::try_from(id)
+							.map_err(|error| tg::error!(!error, "expected process id"))?;
 						Item::Process(process_id)
+					},
+					ItemKind::Sandbox => {
+						let sandbox_id = tg::sandbox::Id::try_from(id)
+							.map_err(|error| tg::error!(!error, "expected sandbox id"))?;
+						Item::Sandbox(sandbox_id)
 					},
 				};
 				candidates.push(Candidate {
@@ -184,6 +195,9 @@ impl Index {
 				Item::Process(id) => {
 					Self::compute_process_reference_count(txn, subspace, id).await?
 				},
+				Item::Sandbox(id) => {
+					Self::compute_sandbox_reference_count(txn, subspace, id).await?
+				},
 			};
 
 			let item = if reference_count > 0 {
@@ -201,6 +215,7 @@ impl Index {
 					Item::CacheEntry(id) => output.cache_entries.push(id),
 					Item::Object(id) => output.objects.push(id),
 					Item::Process(id) => output.processes.push(id),
+					Item::Sandbox(id) => output.sandboxes.push(id),
 				}
 			}
 		}
@@ -326,6 +341,12 @@ impl Index {
 					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing process"))?;
 				Ok(process.touched_at)
 			},
+			Item::Sandbox(id) => {
+				let sandbox = Self::try_get_sandbox_with_transaction(txn, subspace, id)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing sandbox"))?;
+				Ok(sandbox.touched_at)
+			},
 		}
 	}
 
@@ -335,19 +356,25 @@ impl Index {
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
 				kind: ItemKind::CacheEntry,
-				id: tg::Either::Left(id.clone().into()),
+				id: tg::object::Id::from(id.clone()).into(),
 			}),
 			Item::Object(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
 				kind: ItemKind::Object,
-				id: tg::Either::Left(id.clone()),
+				id: id.clone().into(),
 			}),
 			Item::Process(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
 				kind: ItemKind::Process,
-				id: tg::Either::Right(id.clone()),
+				id: id.clone().into(),
+			}),
+			Item::Sandbox(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+				partition: candidate.partition,
+				touched_at: candidate.touched_at,
+				kind: ItemKind::Sandbox,
+				id: id.clone().into(),
 			}),
 		};
 		let key = Self::pack(subspace, &key);
@@ -520,6 +547,30 @@ impl Index {
 		Ok(count)
 	}
 
+	async fn compute_sandbox_reference_count(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<u64> {
+		let id = id.to_bytes();
+		let prefix = (Kind::SandboxProcess.to_i32().unwrap(), id.as_ref());
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+		let count = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get range"))?
+			.len()
+			.to_u64()
+			.unwrap();
+
+		Ok(count)
+	}
+
 	async fn set_reference_count(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
@@ -569,6 +620,20 @@ impl Index {
 					txn.set(&key, &bytes);
 				}
 			},
+			Item::Sandbox(id) => {
+				let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
+				let key = Self::pack(subspace, &key);
+				if let Some(bytes) = txn
+					.get(&key, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get sandbox"))?
+				{
+					let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;
+					sandbox.reference_count = reference_count;
+					let bytes = sandbox.serialize()?;
+					txn.set(&key, &bytes);
+				}
+			},
 		}
 		Ok(())
 	}
@@ -585,6 +650,7 @@ impl Index {
 			},
 			Item::Object(id) => Self::delete_object(txn, subspace, id, partition_total).await,
 			Item::Process(id) => Self::delete_process(txn, subspace, id, partition_total).await,
+			Item::Sandbox(id) => Self::delete_sandbox(txn, subspace, id),
 		}
 	}
 
@@ -744,6 +810,13 @@ impl Index {
 	) -> tg::Result<()> {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
+		let sandbox = txn
+			.get(&key, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get process"))?
+			.map(|bytes| crate::process::Process::deserialize(&bytes))
+			.transpose()?
+			.and_then(|process| process.sandbox);
 		txn.clear(&key);
 		let key =
 			crate::fdb::Key::Process(crate::fdb::process::Key::ProcessDepthDetection(id.clone()));
@@ -841,7 +914,34 @@ impl Index {
 			Self::decrement_object_reference_count(txn, subspace, &object, partition_total).await?;
 		}
 
+		if let Some(sandbox) = sandbox {
+			let key = crate::fdb::Key::Process(crate::fdb::process::Key::ProcessSandbox {
+				process: id.clone(),
+				sandbox: sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+
+			let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
+				process: id.clone(),
+				sandbox: sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+
+			Self::decrement_sandbox_reference_count(txn, subspace, &sandbox, partition_total)
+				.await?;
+		}
+
 		Ok(())
+	}
+
+	fn delete_sandbox(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<()> {
+		Self::task_delete_sandboxes(txn, subspace, std::slice::from_ref(id))
 	}
 
 	async fn decrement_cache_entry_reference_count(
@@ -876,7 +976,7 @@ impl Index {
 				partition,
 				touched_at: entry.touched_at,
 				kind: ItemKind::CacheEntry,
-				id: tg::Either::Left(id.clone().into()),
+				id: tg::object::Id::from(id.clone()).into(),
 			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
@@ -916,7 +1016,7 @@ impl Index {
 				partition,
 				touched_at: object.touched_at,
 				kind: ItemKind::Object,
-				id: tg::Either::Left(id.clone()),
+				id: id.clone().into(),
 			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
@@ -956,11 +1056,52 @@ impl Index {
 				partition,
 				touched_at: process.touched_at,
 				kind: ItemKind::Process,
-				id: tg::Either::Right(id.clone()),
+				id: id.clone().into(),
 			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
+		Ok(())
+	}
+
+	pub(super) async fn decrement_sandbox_reference_count(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::sandbox::Id,
+		partition_total: u64,
+	) -> tg::Result<()> {
+		let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
+		let key = Self::pack(subspace, &key);
+		let Some(bytes) = txn
+			.get(&key, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get sandbox"))?
+		else {
+			return Ok(());
+		};
+		let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;
+		sandbox.reference_count = sandbox.reference_count.saturating_sub(1);
+		let bytes = sandbox.serialize()?;
+		txn.set(&key, &bytes);
+
+		if sandbox.reference_count == 0
+			&& sandbox
+				.data
+				.as_ref()
+				.is_some_and(|data| data.status.is_destroyed())
+		{
+			let id_bytes = id.to_bytes();
+			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+				partition,
+				touched_at: sandbox.touched_at,
+				kind: ItemKind::Sandbox,
+				id: id.clone().into(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+		}
+
 		Ok(())
 	}
 }
