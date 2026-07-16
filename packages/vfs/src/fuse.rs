@@ -3451,6 +3451,10 @@ mod tests {
 	struct PassthroughProvider {
 		closes: Arc<std::sync::atomic::AtomicUsize>,
 	}
+	struct SlowProvider {
+		release: Arc<tokio::sync::Notify>,
+		started: Arc<tokio::sync::Notify>,
+	}
 
 	impl Provider for TestProvider {
 		fn handle_batch(
@@ -3493,6 +3497,49 @@ mod tests {
 		}
 	}
 
+	impl Provider for SlowProvider {
+		fn handle_batch(
+			&self,
+			requests: Vec<ProviderRequest>,
+		) -> impl futures::Future<Output = Vec<Result<ProviderResponse>>> + Send {
+			let release = self.release.clone();
+			let started = self.started.clone();
+			async move {
+				let mut responses = Vec::with_capacity(requests.len());
+				for request in requests {
+					let response = match request {
+						ProviderRequest::GetAttr { .. } => Ok(ProviderResponse::GetAttr {
+							attrs: crate::Attrs::new(AttrsInner::File {
+								executable: false,
+								size: 4,
+							}),
+						}),
+						ProviderRequest::Read { .. } => {
+							started.notify_one();
+							release.notified().await;
+							Ok(ProviderResponse::Read {
+								bytes: Bytes::from_static(b"slow"),
+							})
+						},
+						_ => Err(Error::from_raw_os_error(libc::ENOSYS)),
+					};
+					responses.push(response);
+				}
+				responses
+			}
+		}
+
+		fn handle_batch_sync(
+			&self,
+			requests: Vec<ProviderRequest>,
+		) -> Vec<Result<ProviderResponse>> {
+			requests
+				.into_iter()
+				.map(|_| Err(Error::from_raw_os_error(libc::ENOSYS)))
+				.collect()
+		}
+	}
+
 	fn server_with_provider<P>(
 		provider: P,
 		passthrough_enabled: bool,
@@ -3517,6 +3564,43 @@ mod tests {
 
 	fn server() -> Server<TestProvider> {
 		server_with_provider(TestProvider, false, false)
+	}
+
+	fn request_header(opcode: sys::fuse_opcode, unique: u64) -> fuse_in_header {
+		fuse_in_header {
+			gid: 0,
+			len: 0,
+			nodeid: 2,
+			opcode,
+			padding: 0,
+			pid: 0,
+			total_extlen: 0,
+			uid: 0,
+			unique,
+		}
+	}
+
+	async fn read_response(fd: Arc<OwnedFd>) -> fuse_out_header {
+		let response = tokio::task::spawn_blocking(move || {
+			let mut bytes = Vec::new();
+			loop {
+				let mut buffer = [0u8; 4096];
+				let size = rustix::io::read(fd.as_ref(), &mut buffer).unwrap();
+				assert_ne!(size, 0);
+				bytes.extend_from_slice(&buffer[..size]);
+				if bytes.len() < size_of::<fuse_out_header>() {
+					continue;
+				}
+				let (header, _) = fuse_out_header::read_from_prefix(&bytes).unwrap();
+				if bytes.len() >= header.len.to_usize().unwrap() {
+					return header;
+				}
+			}
+		});
+		tokio::time::timeout(Duration::from_secs(2), response)
+			.await
+			.unwrap()
+			.unwrap()
 	}
 
 	#[test]
@@ -3697,5 +3781,112 @@ mod tests {
 		assert_eq!(statx.stat.ctime.tv_nsec, 6);
 		assert_eq!(statx.stat.size, 513);
 		assert_eq!(statx.stat.blocks, 2);
+	}
+
+	#[tokio::test]
+	async fn read_write_dispatcher_handles_concurrency_and_cancellation() {
+		let release = Arc::new(tokio::sync::Notify::new());
+		let started = Arc::new(tokio::sync::Notify::new());
+		let server = server_with_provider(
+			SlowProvider {
+				release: release.clone(),
+				started: started.clone(),
+			},
+			false,
+			false,
+		);
+		let (response_reader, response_writer) = rustix::net::socketpair(
+			AddressFamily::UNIX,
+			SocketType::STREAM,
+			SocketFlags::CLOEXEC,
+			None,
+		)
+		.unwrap();
+		let response_reader = Arc::new(response_reader);
+		let response_writer = Arc::new(response_writer);
+		let (event_sender, _event_receiver) = tokio::sync::mpsc::unbounded_channel();
+		let (request_sender, request_receiver) = tokio::sync::mpsc::channel(4);
+		let dispatcher = server.spawn_read_write_dispatcher(request_receiver, event_sender);
+		let read = |unique| Request {
+			data: RequestData::Read(fuse_read_in {
+				fh: 1,
+				flags: 0,
+				lock_owner: 0,
+				offset: 0,
+				padding: 0,
+				read_flags: 0,
+				size: 4,
+			}),
+			header: request_header(sys::fuse_opcode_FUSE_READ, unique),
+		};
+		let getattr = |unique| Request {
+			data: RequestData::GetAttr(fuse_getattr_in {
+				dummy: 0,
+				fh: 0,
+				getattr_flags: 0,
+			}),
+			header: request_header(sys::fuse_opcode_FUSE_GETATTR, unique),
+		};
+
+		let token = server.register_async_request(1).unwrap();
+		request_sender
+			.send(ReadWriteRequest {
+				fd: response_writer.clone(),
+				request: read(1),
+				token,
+			})
+			.await
+			.unwrap();
+		tokio::time::timeout(Duration::from_secs(2), started.notified())
+			.await
+			.unwrap();
+		let token = server.register_async_request(2).unwrap();
+		request_sender
+			.send(ReadWriteRequest {
+				fd: response_writer.clone(),
+				request: getattr(2),
+				token,
+			})
+			.await
+			.unwrap();
+		let response = read_response(response_reader.clone()).await;
+		assert_eq!(response.unique, 2);
+		assert_eq!(response.error, 0);
+		release.notify_one();
+		let response = read_response(response_reader.clone()).await;
+		assert_eq!(response.unique, 1);
+		assert_eq!(response.error, 0);
+
+		let token = server.register_async_request(3).unwrap();
+		request_sender
+			.send(ReadWriteRequest {
+				fd: response_writer.clone(),
+				request: read(3),
+				token,
+			})
+			.await
+			.unwrap();
+		tokio::time::timeout(Duration::from_secs(2), started.notified())
+			.await
+			.unwrap();
+		server.cancel_async_request(3);
+		let response = read_response(response_reader.clone()).await;
+		assert_eq!(response.unique, 3);
+		assert_eq!(response.error, -libc::EINTR);
+		let token = server.register_async_request(4).unwrap();
+		request_sender
+			.send(ReadWriteRequest {
+				fd: response_writer,
+				request: getattr(4),
+				token,
+			})
+			.await
+			.unwrap();
+		let response = read_response(response_reader).await;
+		assert_eq!(response.unique, 4);
+		assert_eq!(response.error, 0);
+
+		drop(request_sender);
+		dispatcher.await.unwrap();
 	}
 }
