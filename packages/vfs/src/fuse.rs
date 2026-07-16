@@ -703,6 +703,13 @@ where
 	}
 
 	async fn disconnect_transport(path: &Path) -> bool {
+		match Self::is_fuse_mount(path) {
+			Ok(false) => return true,
+			Ok(true) => {},
+			Err(error) => {
+				tracing::error!(%error, "failed to inspect the FUSE mount during shutdown");
+			},
+		}
 		let aborted = Self::abort_connection(path)
 			.inspect_err(|error| tracing::error!(%error, "failed to abort the FUSE connection"))
 			.is_ok();
@@ -1466,7 +1473,14 @@ where
 					} else {
 						Err(Error::from_raw_os_error(libc::EAGAIN))
 					};
-					Self::write_response(fd.as_raw_fd(), request.header.unique, result)?;
+					if let Err(error) =
+						Self::write_response(fd.as_raw_fd(), request.header.unique, result)
+					{
+						match error.raw_os_error() {
+							Some(libc::EAGAIN | libc::EINTR | libc::ENOENT) => {},
+							_ => return Err(error),
+						}
+					}
 				},
 				_ => {
 					return Err(Error::other(format!(
@@ -2070,6 +2084,7 @@ where
 				opcode,
 				sys::fuse_opcode_FUSE_OPEN | sys::fuse_opcode_FUSE_OPENDIR
 			) && error_code == libc::EROFS)
+			|| (opcode == sys::fuse_opcode_FUSE_INTERRUPT && error_code == libc::EAGAIN)
 			|| matches!(error_code, libc::EINTR | libc::ENOSYS)
 	}
 
