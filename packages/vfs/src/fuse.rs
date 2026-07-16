@@ -21,7 +21,7 @@ use {
 		},
 	},
 	std::{
-		collections::HashMap,
+		collections::{BTreeSet, HashMap},
 		ffi::CString,
 		io::Error,
 		mem::{MaybeUninit, size_of},
@@ -33,6 +33,7 @@ use {
 			Arc, Mutex,
 			atomic::{AtomicBool, Ordering},
 		},
+		time::Duration,
 	},
 	sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in},
 	tokio::task::JoinSet,
@@ -41,12 +42,16 @@ use {
 
 pub mod sys;
 
-const REQUEST_BUFFER_SIZE: usize = 1024 * 1024 + 4096;
+const DEFAULT_MAX_WRITE: usize = 1024 * 1024;
+const FUSE_MIN_READ_BUFFER: usize = 8192;
 const READ_WRITE_ASYNC_CONCURRENCY: usize = 64;
 const READ_WRITE_ASYNC_QUEUE_DEPTH: usize = 64;
 const READ_WRITE_MAX_READER_COUNT: usize = 8;
 const IO_URING_ENTRIES: u32 = 256;
-const THREAD_READ_DEPTH: usize = 16;
+const IO_URING_MAX_READER_COUNT: usize = 8;
+const IO_URING_MAX_SLOTS_PER_QUEUE: usize = 4;
+const IO_URING_PAYLOAD_MEMORY_BUDGET: usize = 256 * 1024 * 1024;
+const IO_URING_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
 const THREAD_CQE_BATCH_SIZE: usize = 64;
 const EVENTFD_USER_DATA: u64 = u64::MAX;
 const SQPOLL_IDLE_MS: u32 = 2_000;
@@ -188,6 +193,31 @@ struct Features {
 	passthrough: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct RequestLimits {
+	max_pages: u16,
+	max_write: u32,
+	payload_size: usize,
+	request_buffer_size: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RingConfig {
+	limits: RequestLimits,
+	queue_count: usize,
+	slots_per_queue: usize,
+	worker_count: usize,
+}
+
+struct RingWorkerConfig {
+	event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
+	payload_size: usize,
+	queue_ids: Vec<u16>,
+	slots_per_queue: usize,
+	sqpoll_wq_fd: RawFd,
+	worker_id: usize,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 struct FuseInitInV7p1 {
@@ -235,10 +265,11 @@ struct FuseDirentPlusHeader {
 }
 
 struct UringSlot {
-	header: Box<sys::fuse_uring_req_header>,
-	payload: Vec<u8>,
 	decode: Vec<u8>,
+	header: Box<sys::fuse_uring_req_header>,
 	iovecs: [libc::iovec; URING_IOVEC_COUNT as usize],
+	payload: Vec<u8>,
+	qid: u16,
 }
 
 struct IoctlPointerInt<'a, const OPCODE: rustix::ioctl::Opcode, T> {
@@ -251,6 +282,27 @@ where
 {
 	pub async fn start(provider: P, path: &Path, options: Options) -> Result<Self> {
 		let mut options = options;
+		let page_size = rustix::param::page_size();
+		let ring_config = if options.io == Io::ReadWrite {
+			None
+		} else {
+			match Self::ring_config(page_size) {
+				Ok(config) => Some(config),
+				Err(error) if options.io == Io::Auto => {
+					tracing::warn!(
+						%error,
+						"failed to configure the FUSE io_uring transport; falling back to ReadWrite",
+					);
+					options.io = Io::ReadWrite;
+					None
+				},
+				Err(error) => return Err(error),
+			}
+		};
+		let limits = match ring_config {
+			Some(config) => config.limits,
+			None => Self::request_limits(page_size, DEFAULT_MAX_WRITE)?,
+		};
 		let (fd, features, sqpoll_ring) = loop {
 			// Unmount.
 			Self::unmount(path).await.ok();
@@ -261,7 +313,7 @@ where
 				.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
 			// Complete INIT before entering io_uring command mode.
-			let features = Self::init_handshake(fd.as_ref(), options).map_err(|error| {
+			let features = Self::init_handshake(fd.as_ref(), options, limits).map_err(|error| {
 				Error::other(format!("failed to complete init handshake: {error}"))
 			})?;
 
@@ -279,7 +331,7 @@ where
 				Err(error) if options.io == Io::Auto => {
 					tracing::warn!(
 						%error,
-						"failed to build the fuse io_uring sqpoll ring; falling back to legacy fuse read/write transport"
+						"failed to build the FUSE io_uring SQPOLL ring; falling back to the ReadWrite transport"
 					);
 					drop(fd);
 					Self::unmount(path).await.ok();
@@ -310,67 +362,86 @@ where
 		let mut thread_handles = Vec::new();
 		let mut read_write_dispatcher = None;
 		if features.over_io_uring {
+			let ring_config = ring_config.unwrap();
 			let sqpoll_wq_fd = sqpoll_ring.as_ref().unwrap().as_raw_fd();
+			tracing::info!(
+				payload_memory = ring_config.queue_count
+					* ring_config.slots_per_queue
+					* ring_config.limits.payload_size,
+				payload_size = ring_config.limits.payload_size,
+				queue_count = ring_config.queue_count,
+				slots_per_queue = ring_config.slots_per_queue,
+				worker_count = ring_config.worker_count,
+				"starting the FUSE io_uring transport",
+			);
 
-			// Create threads.
-			let preferred_thread_count =
-				std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
-			let mut thread_count = preferred_thread_count;
-			let mut first_cloned_fd = None;
-			if preferred_thread_count > 1 {
-				match Self::clone_thread_fd(fd.as_ref()) {
-					Ok(cloned_fd) => {
-						first_cloned_fd = Some(cloned_fd);
-					},
-					Err(error) if Self::is_clone_not_supported_error(&error) => {
-						thread_count = 1;
-						tracing::warn!(
-							?error,
-							"fuse fd cloning is not supported by this kernel; falling back to a single thread"
-						);
-					},
-					Err(error) => {
-						return Err(Error::other(format!(
-							"failed to clone the thread fuse fd: {error}"
-						)));
-					},
-				}
-			}
-
-			for thread_id in 0..thread_count {
+			for worker_id in 0..ring_config.worker_count {
+				let queue_ids = (worker_id..ring_config.queue_count)
+					.step_by(ring_config.worker_count)
+					.map(|queue_id| queue_id.to_u16().unwrap())
+					.collect::<Vec<_>>();
 				let server = server.clone();
 				let runtime = runtime.clone();
 				let worker_event_sender = worker_event_sender.clone();
-				let thread_fd: Arc<OwnedFd> = if thread_id == 0 {
-					fd.clone()
-				} else if thread_id == 1 {
-					Arc::new(first_cloned_fd.take().unwrap())
-				} else {
-					let thread_fd = Self::clone_thread_fd(fd.as_ref()).map_err(|error| {
-						Error::other(format!(
-							"failed to clone the thread fuse fd {thread_id}: {error}"
-						))
-					})?;
-					Arc::new(thread_fd)
+				let thread_fd = fd.clone();
+				let worker_config = RingWorkerConfig {
+					event_sender: worker_event_sender,
+					payload_size: ring_config.limits.payload_size,
+					queue_ids,
+					slots_per_queue: ring_config.slots_per_queue,
+					sqpoll_wq_fd,
+					worker_id,
 				};
 				let thread = std::thread::spawn(move || {
+					let worker_event_sender = worker_config.event_sender.clone();
 					if let Err(error) =
-						server.thread_loop(thread_id, thread_fd.as_ref(), &runtime, sqpoll_wq_fd)
+						server.thread_loop(thread_fd.as_ref(), &runtime, worker_config)
 					{
 						if error.raw_os_error() == Some(libc::ENOTCONN) {
-							tracing::debug!(%error, %thread_id, "thread exited during shutdown");
+							tracing::debug!(%error, %worker_id, "io_uring worker exited during shutdown");
 						} else {
-							tracing::error!(%error, %thread_id, "thread failed");
+							tracing::error!(%error, %worker_id, "io_uring worker failed");
 							worker_event_sender
 								.send(WorkerEvent::Failed {
 									error,
-									worker: format!("io_uring reader {thread_id}"),
+									worker: format!("io_uring worker {worker_id}"),
 								})
 								.ok();
 						}
 					}
 				});
 				thread_handles.push(thread);
+			}
+
+			let startup = async {
+				for _ in 0..ring_config.worker_count {
+					match worker_event_receiver.recv().await {
+						Some(WorkerEvent::Ready) => {},
+						Some(WorkerEvent::Failed { error, worker }) => {
+							return Err(Error::other(format!(
+								"{worker} failed during startup: {error}",
+							)));
+						},
+						None => {
+							return Err(Error::other("an io_uring worker failed during startup"));
+						},
+					}
+				}
+
+				Self::probe_io_uring(path).await
+			};
+			let startup = tokio::time::timeout(IO_URING_STARTUP_TIMEOUT, startup)
+				.await
+				.map_err(|_| Error::other("timed out waiting for the io_uring transport"))
+				.and_then(std::convert::identity);
+			if let Err(error) = startup {
+				Self::unmount(path).await.ok();
+				drop(fd);
+				for thread_handle in thread_handles {
+					thread_handle.join().ok();
+				}
+				drop(sqpoll_ring);
+				return Err(error);
 			}
 		} else {
 			let reader_fds = match Self::clone_read_write_fds(&fd) {
@@ -399,7 +470,11 @@ where
 				let worker_event_sender = worker_event_sender.clone();
 				let thread = std::thread::spawn(move || {
 					worker_event_sender.send(WorkerEvent::Ready).ok();
-					if let Err(error) = server.thread_loop_read_write(&reader_fd, &request_sender) {
+					if let Err(error) = server.thread_loop_read_write(
+						&reader_fd,
+						limits.request_buffer_size,
+						&request_sender,
+					) {
 						if error.raw_os_error() == Some(libc::ENOTCONN) {
 							tracing::debug!(%error, %reader_id, "ReadWrite reader exited during shutdown");
 						} else {
@@ -548,7 +623,130 @@ where
 		task.wait().await.unwrap();
 	}
 
-	fn init_handshake(fd: &OwnedFd, options: Options) -> Result<Features> {
+	fn ring_config(page_size: usize) -> Result<RingConfig> {
+		if page_size == 0 {
+			return Err(Error::other("the system page size is zero"));
+		}
+		let queue_count = Self::possible_cpu_count()?;
+		let max_payload_size = IO_URING_PAYLOAD_MEMORY_BUDGET
+			.checked_div(queue_count)
+			.ok_or_else(|| Error::other("the io_uring queue count is zero"))?;
+		let max_write = DEFAULT_MAX_WRITE.min(max_payload_size) / page_size * page_size;
+		let limits = Self::request_limits(page_size, max_write)?;
+		if limits.payload_size > max_payload_size {
+			return Err(Error::other(format!(
+				"the io_uring payload memory budget cannot cover {queue_count} kernel queues",
+			)));
+		}
+		let payload_memory_per_slot = queue_count
+			.checked_mul(limits.payload_size)
+			.ok_or_else(|| Error::other("the io_uring payload memory size overflowed"))?;
+		let slots_per_queue = IO_URING_PAYLOAD_MEMORY_BUDGET
+			.checked_div(payload_memory_per_slot)
+			.unwrap_or(0)
+			.clamp(1, IO_URING_MAX_SLOTS_PER_QUEUE);
+		let available_parallelism =
+			std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+		let worker_count = available_parallelism
+			.min(queue_count)
+			.clamp(1, IO_URING_MAX_READER_COUNT);
+
+		Ok(RingConfig {
+			limits,
+			queue_count,
+			slots_per_queue,
+			worker_count,
+		})
+	}
+
+	fn possible_cpu_count() -> Result<usize> {
+		let possible =
+			std::fs::read_to_string("/sys/devices/system/cpu/possible").map_err(|error| {
+				Error::other(format!("failed to read the possible CPU set: {error}"))
+			})?;
+		Self::parse_possible_cpu_count(&possible)
+	}
+
+	fn parse_possible_cpu_count(possible: &str) -> Result<usize> {
+		let mut cpus = BTreeSet::new();
+		for range in possible.trim().split(',') {
+			if range.is_empty() {
+				return Err(Error::other("the possible CPU set contains an empty range"));
+			}
+			let (start, end) = match range.split_once('-') {
+				Some((start, end)) => (start, end),
+				None => (range, range),
+			};
+			let start = start.parse::<usize>().map_err(|error| {
+				Error::other(format!("failed to parse a possible CPU range: {error}"))
+			})?;
+			let end = end.parse::<usize>().map_err(|error| {
+				Error::other(format!("failed to parse a possible CPU range: {error}"))
+			})?;
+			if start > end {
+				return Err(Error::other("a possible CPU range is reversed"));
+			}
+			if end > u16::MAX.to_usize().unwrap() {
+				return Err(Error::other(
+					"the possible CPU set exceeds the FUSE queue ID range",
+				));
+			}
+			cpus.extend(start..=end);
+		}
+		let Some(first) = cpus.first() else {
+			return Err(Error::other("the possible CPU set is empty"));
+		};
+		let last = cpus.last().unwrap();
+		if *first != 0 || last + 1 != cpus.len() {
+			return Err(Error::other(
+				"the possible CPU set is not contiguous from CPU zero",
+			));
+		}
+
+		Ok(cpus.len())
+	}
+
+	fn request_limits(page_size: usize, max_write: usize) -> Result<RequestLimits> {
+		if page_size == 0 || max_write == 0 {
+			return Err(Error::other("the FUSE request dimensions must be non-zero"));
+		}
+		let max_pages = max_write.div_ceil(page_size).max(1);
+		let max_pages = max_pages
+			.to_u16()
+			.ok_or_else(|| Error::other("the FUSE max page count is out of range"))?;
+		let page_payload_size = max_pages
+			.to_usize()
+			.unwrap()
+			.checked_mul(page_size)
+			.ok_or_else(|| Error::other("the FUSE page payload size overflowed"))?;
+		let payload_size = FUSE_MIN_READ_BUFFER.max(max_write).max(page_payload_size);
+		let request_buffer_size = payload_size
+			.checked_add(page_size)
+			.ok_or_else(|| Error::other("the FUSE request buffer size overflowed"))?;
+		let max_write = max_write
+			.to_u32()
+			.ok_or_else(|| Error::other("the FUSE max write size is out of range"))?;
+
+		Ok(RequestLimits {
+			max_pages,
+			max_write,
+			payload_size,
+			request_buffer_size,
+		})
+	}
+
+	async fn probe_io_uring(path: &Path) -> Result<()> {
+		let path = path.to_owned();
+		tokio::task::spawn_blocking(move || {
+			let mut entries = std::fs::read_dir(path)?;
+			entries.next().transpose()?;
+			Ok(())
+		})
+		.await
+		.map_err(|error| Error::other(format!("the io_uring readiness probe failed: {error}")))?
+	}
+
+	fn init_handshake(fd: &OwnedFd, options: Options, limits: RequestLimits) -> Result<Features> {
 		const FUSE_PASSTHROUGH_FLAGS2: u32 = (sys::FUSE_PASSTHROUGH >> 32) as u32;
 		const FUSE_OVER_IO_URING_FLAGS2: u32 = (sys::FUSE_OVER_IO_URING >> 32) as u32;
 		const REQUIRED_FLAGS: u32 = 0;
@@ -563,7 +761,6 @@ where
 			| sys::FUSE_MAX_PAGES
 			| sys::FUSE_MAP_ALIGNMENT
 			| sys::FUSE_INIT_EXT;
-		const MAX_PAGES: u16 = 256;
 		const MAP_ALIGNMENT: u16 = 12;
 		// The kernel requires a non-zero max_stack_depth to enable FUSE_PASSTHROUGH.
 		const MAX_STACK_DEPTH: u32 = 2;
@@ -582,7 +779,7 @@ where
 			negotiated_flags2 |= FUSE_PASSTHROUGH_FLAGS2;
 		}
 
-		let mut buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+		let mut buffer = vec![0u8; limits.request_buffer_size];
 		loop {
 			let ret = match rustix::io::read(fd, &mut buffer) {
 				Ok(ret) => ret,
@@ -620,7 +817,7 @@ where
 			let flags = NEGOTIATED_FLAGS & init.flags;
 			let flags2 = negotiated_flags2 & init_flags2;
 			let max_pages = if (flags & sys::FUSE_MAX_PAGES) != 0 {
-				MAX_PAGES
+				limits.max_pages
 			} else {
 				0
 			};
@@ -637,11 +834,11 @@ where
 			let response = fuse_init_out {
 				major: FUSE_KERNEL_VERSION,
 				minor,
-				max_readahead: 1024 * 1024,
+				max_readahead: limits.max_write,
 				flags,
 				max_background: 0,
 				congestion_threshold: 0,
-				max_write: 1024 * 1024,
+				max_write: limits.max_write,
 				time_gran: 0,
 				max_pages,
 				map_alignment,
@@ -817,24 +1014,40 @@ where
 
 	fn thread_loop(
 		&self,
-		thread_id: usize,
 		fd: &OwnedFd,
 		runtime: &tokio::runtime::Handle,
-		sqpoll_wq_fd: RawFd,
+		config: RingWorkerConfig,
 	) -> Result<()> {
-		let qid = thread_id
-			.to_u16()
-			.ok_or_else(|| Error::other("thread id out of range"))?;
+		let RingWorkerConfig {
+			event_sender,
+			payload_size,
+			queue_ids,
+			slots_per_queue,
+			sqpoll_wq_fd,
+			worker_id,
+		} = config;
 		let eventfd = rustix::event::eventfd(0, EventfdFlags::CLOEXEC).map_err(|error| {
 			Error::other(format!("failed to create the thread eventfd: {error}"))
 		})?;
 		let eventfd = Arc::new(eventfd);
 		let (sender, receiver) = crossbeam_channel::unbounded::<AsyncResponse>();
 
+		let slot_count = queue_ids
+			.len()
+			.checked_mul(slots_per_queue)
+			.ok_or_else(|| Error::other("the io_uring slot count overflowed"))?;
+		let ring_entries = slot_count
+			.checked_add(2)
+			.ok_or_else(|| Error::other("the io_uring entry count overflowed"))?
+			.checked_next_power_of_two()
+			.ok_or_else(|| Error::other("the io_uring entry count overflowed"))?
+			.max(32)
+			.to_u32()
+			.ok_or_else(|| Error::other("the io_uring entry count is out of range"))?;
 		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
 		builder.setup_attach_wq(sqpoll_wq_fd).setup_no_sqarray();
 		let mut io_uring = builder
-			.build(IO_URING_ENTRIES)
+			.build(ring_entries)
 			.map_err(|error| Error::other(format!("failed to build the thread ring: {error}")))?;
 		io_uring
 			.submitter()
@@ -842,10 +1055,11 @@ where
 			.map_err(|error| {
 				Error::other(format!("failed to register the thread files: {error}"))
 			})?;
-		let mut slots = (0..THREAD_READ_DEPTH)
-			.map(|_| UringSlot::new())
+		let mut slots = queue_ids
+			.iter()
+			.flat_map(|&qid| (0..slots_per_queue).map(move |_| UringSlot::new(qid, payload_size)))
 			.collect::<Vec<_>>();
-		let mut pending_async = vec![None::<(u64, sys::fuse_opcode)>; THREAD_READ_DEPTH];
+		let mut pending_async = vec![None::<(u64, sys::fuse_opcode)>; slot_count];
 		let async_notification_pending = Arc::new(AtomicBool::new(false));
 		let mut eventfd_inflight = false;
 		let mut eventfd_buffer = [0u8; size_of::<u64>()];
@@ -875,7 +1089,7 @@ where
 					types::Fixed(THREAD_FIXED_FUSE_FD),
 					sys::fuse_uring_cmd_FUSE_IO_URING_CMD_REGISTER,
 					0,
-					qid,
+					slot_data.qid,
 					slot_data.iovecs.as_ptr(),
 					slot.to_u64().unwrap(),
 					0,
@@ -885,6 +1099,10 @@ where
 				}
 			}
 		}
+		io_uring.submit().map_err(|error| {
+			Error::other(format!("failed to submit register commands: {error}"))
+		})?;
+		event_sender.send(WorkerEvent::Ready).ok();
 
 		loop {
 			{
@@ -985,7 +1203,7 @@ where
 					Err(error) => {
 						let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
 						if !Self::is_expected_error(opcode, error_code) {
-							tracing::error!(?error, ?opcode, %thread_id, "unexpected error");
+							tracing::error!(?error, ?opcode, %worker_id, "unexpected error");
 						}
 						commits.push((slot, unique, Err(error)));
 					},
@@ -1012,7 +1230,6 @@ where
 				Self::submit_commit_and_fetch(
 					&mut io_uring,
 					types::Fixed(THREAD_FIXED_FUSE_FD),
-					qid,
 					slot,
 					slots.get_mut(slot).unwrap(),
 					unique,
@@ -1022,9 +1239,8 @@ where
 
 			if saw_eventfd || !receiver.is_empty() {
 				Self::drain_async_responses(
-					thread_id,
+					worker_id,
 					types::Fixed(THREAD_FIXED_FUSE_FD),
-					qid,
 					&mut io_uring,
 					&mut slots,
 					&mut pending_async,
@@ -1037,9 +1253,10 @@ where
 	fn thread_loop_read_write(
 		&self,
 		fd: &Arc<OwnedFd>,
+		request_buffer_size: usize,
 		request_sender: &tokio::sync::mpsc::Sender<ReadWriteRequest>,
 	) -> Result<()> {
-		let mut buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+		let mut buffer = vec![0u8; request_buffer_size];
 		let mut batch_results = Vec::<Result<Option<Response>>>::with_capacity(1);
 		loop {
 			let size = loop {
@@ -1138,7 +1355,6 @@ where
 	fn submit_commit_and_fetch(
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		fixed_fuse_fd: types::Fixed,
-		qid: u16,
 		slot: usize,
 		slot_data: &mut UringSlot,
 		unique: u64,
@@ -1149,7 +1365,7 @@ where
 			fixed_fuse_fd,
 			sys::fuse_uring_cmd_FUSE_IO_URING_CMD_COMMIT_AND_FETCH,
 			unique,
-			qid,
+			slot_data.qid,
 			slot_data.iovecs.as_ptr(),
 			slot.to_u64().unwrap(),
 			0,
@@ -1483,9 +1699,8 @@ where
 	}
 
 	fn drain_async_responses(
-		thread_id: usize,
+		worker_id: usize,
 		fixed_fuse_fd: types::Fixed,
-		qid: u16,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		slots: &mut [UringSlot],
 		pending_async: &mut [Option<(u64, sys::fuse_opcode)>],
@@ -1514,13 +1729,12 @@ where
 			if let Err(error) = &response.result {
 				let code = error.raw_os_error().unwrap_or(libc::ENOSYS);
 				if !Self::is_expected_error(response.opcode, code) {
-					tracing::error!(?error, opcode = response.opcode, %thread_id, "unexpected error");
+					tracing::error!(?error, opcode = response.opcode, %worker_id, "unexpected error");
 				}
 			}
 			Self::submit_commit_and_fetch(
 				io_uring,
 				fixed_fuse_fd,
-				qid,
 				response.slot,
 				slot_data,
 				response.unique,
@@ -2749,9 +2963,9 @@ unsafe impl<const OPCODE: rustix::ioctl::Opcode, T> ioctl::Ioctl
 }
 
 impl UringSlot {
-	fn new() -> Self {
+	fn new(qid: u16, payload_size: usize) -> Self {
 		let mut header = Box::new(unsafe { std::mem::zeroed::<sys::fuse_uring_req_header>() });
-		let mut payload = vec![0u8; REQUEST_BUFFER_SIZE];
+		let mut payload = vec![0u8; payload_size];
 		let iovecs = [
 			libc::iovec {
 				iov_base: std::ptr::from_mut(&mut *header).cast(),
@@ -2763,10 +2977,56 @@ impl UringSlot {
 			},
 		];
 		Self {
-			header,
-			payload,
 			decode: Vec::new(),
+			header,
 			iovecs,
+			payload,
+			qid,
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	struct TestProvider;
+
+	impl Provider for TestProvider {
+		fn handle_batch(
+			&self,
+			_requests: Vec<ProviderRequest>,
+		) -> impl futures::Future<Output = Vec<Result<ProviderResponse>>> + Send {
+			std::future::ready(Vec::new())
+		}
+
+		fn handle_batch_sync(
+			&self,
+			_requests: Vec<ProviderRequest>,
+		) -> Vec<Result<ProviderResponse>> {
+			Vec::new()
+		}
+	}
+
+	#[test]
+	fn parses_possible_cpu_sets() {
+		assert_eq!(
+			Server::<TestProvider>::parse_possible_cpu_count("0\n").unwrap(),
+			1,
+		);
+		assert_eq!(
+			Server::<TestProvider>::parse_possible_cpu_count("0-3,4-15\n").unwrap(),
+			16,
+		);
+		assert!(Server::<TestProvider>::parse_possible_cpu_count("0-3,8-11").is_err());
+	}
+
+	#[test]
+	fn derives_request_limits_from_page_size() {
+		let limits = Server::<TestProvider>::request_limits(64 * 1024, DEFAULT_MAX_WRITE).unwrap();
+		assert_eq!(limits.max_pages, 16);
+		assert_eq!(limits.max_write, DEFAULT_MAX_WRITE.to_u32().unwrap());
+		assert_eq!(limits.payload_size, DEFAULT_MAX_WRITE);
+		assert_eq!(limits.request_buffer_size, DEFAULT_MAX_WRITE + 64 * 1024);
 	}
 }
