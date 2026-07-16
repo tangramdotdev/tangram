@@ -22,12 +22,12 @@ use {
 	},
 	std::{
 		collections::{BTreeSet, HashMap},
-		ffi::CString,
+		ffi::{CString, OsString},
 		io::Error,
 		mem::{MaybeUninit, size_of},
 		ops::Deref,
 		os::fd::{AsRawFd as _, OwnedFd, RawFd},
-		os::unix::fs::MetadataExt as _,
+		os::unix::ffi::OsStringExt as _,
 		os::unix::process::CommandExt as _,
 		path::Path,
 		sync::{
@@ -237,6 +237,7 @@ struct RingWorkerConfig {
 }
 
 struct RingStartupContext<'a> {
+	connection_id: u64,
 	event_receiver: &'a mut tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>,
 	event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
 	fd: Arc<OwnedFd>,
@@ -244,6 +245,11 @@ struct RingStartupContext<'a> {
 	ring_config: RingConfig,
 	runtime: tokio::runtime::Handle,
 	sqpoll_wq_fd: RawFd,
+}
+
+struct RingStartupFailure {
+	disconnected: bool,
+	error: Error,
 }
 
 #[repr(C)]
@@ -349,7 +355,7 @@ where
 			Some(config) => config.limits,
 			None => Self::request_limits(page_size, DEFAULT_MAX_WRITE)?,
 		};
-		let (mut fd, mut features, mut sqpoll_ring) = loop {
+		let (mut connection_id, mut fd, mut features, mut sqpoll_ring) = loop {
 			// Unmount.
 			Self::unmount(path).await.ok();
 
@@ -357,7 +363,6 @@ where
 			let fd = Self::mount(path)
 				.await
 				.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
-
 			// Complete INIT before entering io_uring command mode.
 			let features =
 				match Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir) {
@@ -370,9 +375,17 @@ where
 						)));
 					},
 				};
+			let connection_id = match Self::connection_id(path) {
+				Ok(connection_id) => connection_id,
+				Err(error) => {
+					drop(fd);
+					Self::unmount(path).await.ok();
+					return Err(error);
+				},
+			};
 
 			if !features.over_io_uring {
-				break (fd, features, None);
+				break (connection_id, fd, features, None);
 			}
 
 			// Create a primary SQPOLL ring. Thread rings attach to this shared backend.
@@ -381,7 +394,7 @@ where
 				.setup_sqpoll(SQPOLL_IDLE_MS)
 				.setup_no_sqarray();
 			match sqpoll_builder.build(IO_URING_ENTRIES) {
-				Ok(ring) => break (fd, features, Some(ring)),
+				Ok(ring) => break (connection_id, fd, features, Some(ring)),
 				Err(error) if options.io == Io::Auto => {
 					tracing::warn!(
 						%error,
@@ -430,6 +443,7 @@ where
 					return Err(Error::other("missing the io_uring transport configuration"));
 				};
 				let context = RingStartupContext {
+					connection_id,
 					event_receiver: &mut worker_event_receiver,
 					event_sender: worker_event_sender.clone(),
 					fd: fd.clone(),
@@ -443,8 +457,12 @@ where
 						thread_handles = handles;
 						break;
 					},
-					Err(error) if options.io == Io::Auto => {
-						if Self::is_fuse_mount(path)? {
+					Err(failure) if options.io == Io::Auto => {
+						let RingStartupFailure {
+							disconnected,
+							error,
+						} = failure;
+						if !disconnected {
 							return Err(Error::other(format!(
 								"failed to stop the io_uring transport after startup failed: {error}",
 							)));
@@ -459,6 +477,14 @@ where
 						ring_config = None;
 						limits = Self::request_limits(page_size, DEFAULT_MAX_WRITE)?;
 						fd = Self::mount(path).await?;
+						connection_id = match Self::connection_id(path) {
+							Ok(connection_id) => connection_id,
+							Err(error) => {
+								drop(fd);
+								Self::unmount(path).await.ok();
+								return Err(error);
+							},
+						};
 						features = match Self::init_handshake(
 							fd.as_ref(),
 							options,
@@ -485,10 +511,10 @@ where
 						}
 						continue;
 					},
-					Err(error) => {
+					Err(failure) => {
 						drop(fd);
 						drop(sqpoll_ring);
-						return Err(error);
+						return Err(failure.error);
 					},
 				}
 			}
@@ -572,7 +598,7 @@ where
 			}
 			if let Some(error) = startup_error {
 				server.cancel_async_requests();
-				let disconnected = Self::disconnect_transport(path).await;
+				let disconnected = Self::disconnect_transport(path, connection_id).await;
 				Self::join_transport_threads(&mut thread_handles, disconnected);
 				if let Some(dispatcher) = read_write_dispatcher.take() {
 					if !disconnected {
@@ -595,7 +621,7 @@ where
 		let shutdown_server = server.clone();
 		let shutdown = async move {
 			shutdown_server.cancel_async_requests();
-			let disconnected = Self::disconnect_transport(&path).await;
+			let disconnected = Self::disconnect_transport(&path, connection_id).await;
 			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if let Some(read_write_dispatcher) = read_write_dispatcher {
 				if !disconnected {
@@ -702,42 +728,101 @@ where
 		Ok(())
 	}
 
-	async fn disconnect_transport(path: &Path) -> bool {
-		match Self::is_fuse_mount(path) {
-			Ok(false) => return true,
-			Ok(true) => {},
-			Err(error) => {
-				tracing::error!(%error, "failed to inspect the FUSE mount during shutdown");
-			},
-		}
-		let aborted = Self::abort_connection(path)
+	async fn disconnect_transport(path: &Path, connection_id: u64) -> bool {
+		let aborted = Self::abort_connection(connection_id)
 			.inspect_err(|error| tracing::error!(%error, "failed to abort the FUSE connection"))
 			.is_ok();
-		let unmounted = Self::unmount(path)
+		Self::unmount(path)
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
-			.is_ok();
+			.ok();
 
-		aborted || unmounted
+		aborted
 	}
 
-	fn abort_connection(path: &Path) -> Result<()> {
-		if !Self::is_fuse_mount(path)? {
-			return Err(Error::other("the path is not a FUSE mount"));
-		}
-		let connection = std::fs::metadata(path)?.dev();
+	fn abort_connection(connection_id: u64) -> Result<()> {
 		let abort = Path::new("/sys/fs/fuse/connections")
-			.join(connection.to_string())
+			.join(connection_id.to_string())
 			.join("abort");
 		std::fs::write(abort, b"1")?;
 
 		Ok(())
 	}
 
-	fn is_fuse_mount(path: &Path) -> Result<bool> {
-		let stat = rustix::fs::statfs(path).map_err(Error::from)?;
+	fn connection_id(path: &Path) -> Result<u64> {
+		let path = if path.is_absolute() {
+			path.to_owned()
+		} else {
+			std::env::current_dir()?.join(path)
+		};
+		let mountinfo = std::fs::read_to_string("/proc/self/mountinfo")?;
 
-		Ok(stat.f_type == libc::FUSE_SUPER_MAGIC as _)
+		Self::parse_connection_id(&mountinfo, &path)
+	}
+
+	fn parse_connection_id(mountinfo: &str, path: &Path) -> Result<u64> {
+		for line in mountinfo.lines().rev() {
+			let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
+			let Some(separator) = fields.iter().position(|field| *field == "-") else {
+				continue;
+			};
+			if fields.len() <= separator + 1 || !fields[separator + 1].starts_with("fuse") {
+				continue;
+			}
+			let Some(mountpoint) = fields.get(4) else {
+				continue;
+			};
+			if Self::unescape_mountinfo_path(mountpoint) != path {
+				continue;
+			}
+			let Some((major, minor)) = fields.get(2).and_then(|device| device.split_once(':'))
+			else {
+				continue;
+			};
+			let major = major.parse::<u32>().map_err(|error| {
+				Error::other(format!(
+					"failed to parse the FUSE device major number: {error}"
+				))
+			})?;
+			let minor = minor.parse::<u32>().map_err(|error| {
+				Error::other(format!(
+					"failed to parse the FUSE device minor number: {error}"
+				))
+			})?;
+			let connection_id = libc::makedev(major, minor);
+
+			return Ok(connection_id);
+		}
+
+		Err(Error::other(
+			"failed to find the FUSE connection in mountinfo",
+		))
+	}
+
+	fn unescape_mountinfo_path(path: &str) -> std::path::PathBuf {
+		let bytes = path.as_bytes();
+		let mut output = Vec::with_capacity(bytes.len());
+		let mut index = 0;
+		while index < bytes.len() {
+			if bytes[index] == b'\\'
+				&& index + 3 < bytes.len()
+				&& bytes[index + 1..=index + 3]
+					.iter()
+					.all(|byte| matches!(byte, b'0'..=b'7'))
+			{
+				let value = (bytes[index + 1] - b'0') * 64
+					+ (bytes[index + 2] - b'0') * 8
+					+ bytes[index + 3]
+					- b'0';
+				output.push(value);
+				index += 4;
+			} else {
+				output.push(bytes[index]);
+				index += 1;
+			}
+		}
+
+		OsString::from_vec(output).into()
 	}
 
 	fn join_transport_threads(
@@ -891,8 +976,9 @@ where
 	async fn start_ring_transport(
 		&self,
 		context: RingStartupContext<'_>,
-	) -> Result<Vec<std::thread::JoinHandle<()>>> {
+	) -> std::result::Result<Vec<std::thread::JoinHandle<()>>, RingStartupFailure> {
 		let RingStartupContext {
+			connection_id,
 			event_receiver,
 			event_sender,
 			fd,
@@ -1021,14 +1107,17 @@ where
 			.and_then(std::convert::identity);
 		if let Err(error) = startup {
 			self.cancel_async_requests();
-			let disconnected = Self::disconnect_transport(path).await;
+			let disconnected = Self::disconnect_transport(path, connection_id).await;
 			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if disconnected {
 				self.rollback_all_response_resources(fd.as_raw_fd());
 			}
 			while event_receiver.try_recv().is_ok() {}
 
-			return Err(error);
+			return Err(RingStartupFailure {
+				disconnected,
+				error,
+			});
 		}
 
 		Ok(thread_handles)
@@ -3802,6 +3891,19 @@ mod tests {
 			16,
 		);
 		assert!(Server::<TestProvider>::parse_possible_cpu_count("0-3,8-11").is_err());
+	}
+
+	#[test]
+	fn parses_fuse_connection_ids_without_accessing_the_mount() {
+		let mountinfo = concat!(
+			"20 1 8:1 / / rw - ext4 /dev/root rw\n",
+			"21 20 0:42 / /tmp/mount\\040point rw - fuse tangram rw\n",
+		);
+		let connection_id =
+			Server::<TestProvider>::parse_connection_id(mountinfo, Path::new("/tmp/mount point"))
+				.unwrap();
+
+		assert_eq!(connection_id, libc::makedev(0, 42));
 	}
 
 	#[test]
