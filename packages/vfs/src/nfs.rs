@@ -773,7 +773,7 @@ where
 			})
 			| ExtAttr::AttrDir => ACCESS4_EXECUTE | ACCESS4_READ | ACCESS4_LOOKUP,
 			ExtAttr::Normal(Attrs {
-				inner: AttrsInner::Symlink,
+				inner: AttrsInner::Symlink { .. },
 				..
 			})
 			| ExtAttr::AttrFile(_) => ACCESS4_READ,
@@ -883,15 +883,7 @@ where
 					let mode = if executable { O_RX } else { O_RDONLY };
 					FileAttrData::new(file_handle, nfs_ftype4::NF4REG, size, mode, attrs)
 				},
-				AttrsInner::Symlink => {
-					let target = match self.provider.readlink(file_handle.0).await {
-						Ok(target) => target,
-						Err(error) => {
-							tracing::error!(%error, ?file_handle, "failed to read a symlink");
-							return None;
-						},
-					};
-					let size = target.len().to_u64().unwrap();
+				AttrsInner::Symlink { size } => {
 					FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, size, O_RDONLY, attrs)
 				},
 			},
@@ -1314,7 +1306,7 @@ where
 				return READ4res::Error(nfsstat4::NFS4ERR_ISDIR);
 			},
 			ExtAttr::Normal(Attrs {
-				inner: AttrsInner::Symlink,
+				inner: AttrsInner::Symlink { .. },
 				..
 			}) => {
 				return READ4res::Error(nfsstat4::NFS4ERR_INVAL);

@@ -129,7 +129,7 @@ pub struct Attrs {
 pub enum AttrsInner {
 	File { executable: bool, size: u64 },
 	Directory,
-	Symlink,
+	Symlink { size: u64 },
 }
 
 #[derive(Clone, Copy, Debug, Default)]

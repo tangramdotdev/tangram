@@ -387,12 +387,13 @@ fn attr_from_attrs(inode: u64, attrs: Attrs) -> virtiofsd::fuse::Attr {
 		AttrsInner::File { executable, size } => {
 			(size, S_IFREG | 0o444 | if executable { 0o111 } else { 0 })
 		},
-		AttrsInner::Symlink => (0, S_IFLNK | 0o444),
+		AttrsInner::Symlink { size } => (size, S_IFLNK | 0o444),
 	};
+	let blocks = size.div_ceil(512);
 	virtiofsd::fuse::Attr {
 		ino: inode,
 		size,
-		blocks: 0,
+		blocks,
 		atime: attrs.atime.secs,
 		mtime: attrs.mtime.secs,
 		ctime: attrs.ctime.secs,

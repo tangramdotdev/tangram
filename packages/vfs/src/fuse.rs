@@ -2210,10 +2210,13 @@ where
 					actions.push(BatchAction::NeedsProvider);
 				},
 				RequestData::GetXattr(_, name) => {
-					let name = name
-						.to_str()
-						.map_err(|_| Error::from_raw_os_error(libc::ENODATA))?
-						.to_owned();
+					let Ok(name) = name.to_str() else {
+						actions.push(BatchAction::Ready(Err(Error::from_raw_os_error(
+							libc::ENODATA,
+						))));
+						continue;
+					};
+					let name = name.to_owned();
 					provider_requests.push(ProviderRequest::GetXattr {
 						id: request.header.nodeid,
 						name,
@@ -2227,10 +2230,13 @@ where
 					actions.push(BatchAction::NeedsProvider);
 				},
 				RequestData::Lookup(name) => {
-					let name = name
-						.to_str()
-						.map_err(|_| Error::from_raw_os_error(libc::ENOENT))?
-						.to_owned();
+					let Ok(name) = name.to_str() else {
+						actions.push(BatchAction::Ready(Err(Error::from_raw_os_error(
+							libc::ENOENT,
+						))));
+						continue;
+					};
+					let name = name.to_owned();
 					provider_requests.push(ProviderRequest::LookupAndRemember {
 						id: request.header.nodeid,
 						name,
@@ -2464,6 +2470,7 @@ where
 								fh = handle,
 								"passthrough is required but the provider did not supply a backing fd"
 							);
+							self.provider.close_sync(handle);
 							return Err(Error::from_raw_os_error(libc::EOPNOTSUPP));
 						}
 						let out = fuse_open_out {
@@ -2494,6 +2501,7 @@ where
 									fh = handle,
 									"passthrough is required but backing registration failed"
 								);
+								self.provider.close_sync(handle);
 								return Err(error);
 							}
 							tracing::trace!(
@@ -2777,6 +2785,10 @@ where
 		_request: fuse_open_in,
 	) -> Result<Option<Response>> {
 		let fh = self.provider.open(header.nodeid).await?;
+		if self.passthrough_required {
+			self.provider.close(fh).await;
+			return Err(Error::from_raw_os_error(libc::EOPNOTSUPP));
+		}
 		let out = fuse_open_out {
 			fh,
 			open_flags: sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE,
@@ -2927,7 +2939,7 @@ where
 			let type_ = match attr.inner {
 				AttrsInner::Directory => S_IFDIR,
 				AttrsInner::File { .. } => S_IFREG,
-				AttrsInner::Symlink => S_IFLNK,
+				AttrsInner::Symlink { .. } => S_IFLNK,
 			};
 
 			let dirent = FuseDirentHeader {
@@ -2978,7 +2990,7 @@ where
 			let type_ = match attr.inner {
 				AttrsInner::Directory => S_IFDIR,
 				AttrsInner::File { .. } => S_IFREG,
-				AttrsInner::Symlink => S_IFLNK,
+				AttrsInner::Symlink { .. } => S_IFLNK,
 			};
 
 			let dirent = FuseDirentHeader {
@@ -3151,51 +3163,7 @@ where
 		else {
 			return Ok(None);
 		};
-		let out = sys::fuse_statx_out {
-			attr_valid: attr.attr_valid,
-			attr_valid_nsec: attr.attr_valid_nsec,
-			flags: request.getattr_flags,
-			spare: [0; 2],
-			stat: sys::fuse_statx {
-				mask: 0xffff_ffff,
-				ino: attr.attr.ino,
-				size: attr.attr.size,
-				blocks: attr.attr.blocks,
-				blksize: attr.attr.blksize,
-				attributes: 0,
-				nlink: attr.attr.nlink,
-				uid: attr.attr.uid,
-				gid: attr.attr.gid,
-				mode: attr.attr.mode.to_u16().unwrap(),
-				__spare0: [0],
-				attributes_mask: 0xffff_ffff_ffff_ffff,
-				atime: sys::fuse_sx_time {
-					tv_nsec: 0,
-					tv_sec: 0,
-					__reserved: 0,
-				},
-				btime: sys::fuse_sx_time {
-					tv_nsec: 0,
-					tv_sec: 0,
-					__reserved: 0,
-				},
-				mtime: sys::fuse_sx_time {
-					tv_nsec: 0,
-					tv_sec: 0,
-					__reserved: 0,
-				},
-				ctime: sys::fuse_sx_time {
-					tv_nsec: 0,
-					tv_sec: 0,
-					__reserved: 0,
-				},
-				rdev_major: 0,
-				rdev_minor: 0,
-				dev_major: 0,
-				dev_minor: 0,
-				__spare2: [0; 14],
-			},
-		};
+		let out = Self::fuse_statx_out(attr, request.getattr_flags);
 		Ok(Some(Response::Statx(out)))
 	}
 	fn handle_statx_request_sync(
@@ -3213,52 +3181,45 @@ where
 		else {
 			return Err(Error::other("failed to get the attr response"));
 		};
-		let out = sys::fuse_statx_out {
+		let out = Self::fuse_statx_out(attr, request.getattr_flags);
+		Ok(Response::Statx(out))
+	}
+
+	fn fuse_statx_out(attr: sys::fuse_attr_out, flags: u32) -> sys::fuse_statx_out {
+		let time = |seconds: u64, nanoseconds: u32| sys::fuse_sx_time {
+			__reserved: 0,
+			tv_nsec: nanoseconds,
+			tv_sec: seconds.to_i64().unwrap_or(i64::MAX),
+		};
+		sys::fuse_statx_out {
 			attr_valid: attr.attr_valid,
 			attr_valid_nsec: attr.attr_valid_nsec,
-			flags: request.getattr_flags,
+			flags,
 			spare: [0; 2],
 			stat: sys::fuse_statx {
-				mask: 0xffff_ffff,
-				ino: attr.attr.ino,
-				size: attr.attr.size,
+				__spare0: [0],
+				__spare2: [0; 14],
+				atime: time(attr.attr.atime, attr.attr.atimensec),
+				attributes: 0,
+				attributes_mask: 0,
 				blocks: attr.attr.blocks,
 				blksize: attr.attr.blksize,
-				attributes: 0,
-				nlink: attr.attr.nlink,
-				uid: attr.attr.uid,
-				gid: attr.attr.gid,
-				mode: attr.attr.mode.to_u16().unwrap(),
-				__spare0: [0],
-				attributes_mask: 0xffff_ffff_ffff_ffff,
-				atime: sys::fuse_sx_time {
-					tv_nsec: 0,
-					tv_sec: 0,
-					__reserved: 0,
-				},
-				btime: sys::fuse_sx_time {
-					tv_nsec: 0,
-					tv_sec: 0,
-					__reserved: 0,
-				},
-				mtime: sys::fuse_sx_time {
-					tv_nsec: 0,
-					tv_sec: 0,
-					__reserved: 0,
-				},
-				ctime: sys::fuse_sx_time {
-					tv_nsec: 0,
-					tv_sec: 0,
-					__reserved: 0,
-				},
-				rdev_major: 0,
-				rdev_minor: 0,
+				btime: time(0, 0),
+				ctime: time(attr.attr.ctime, attr.attr.ctimensec),
 				dev_major: 0,
 				dev_minor: 0,
-				__spare2: [0; 14],
+				gid: attr.attr.gid,
+				ino: attr.attr.ino,
+				mask: libc::STATX_BASIC_STATS,
+				mode: attr.attr.mode.to_u16().unwrap(),
+				mtime: time(attr.attr.mtime, attr.attr.mtimensec),
+				nlink: attr.attr.nlink,
+				rdev_major: 0,
+				rdev_minor: 0,
+				size: attr.attr.size,
+				uid: attr.attr.uid,
 			},
-		};
-		Ok(Response::Statx(out))
+		}
 	}
 	async fn handle_interrupt_request(
 		&self,
@@ -3296,16 +3257,17 @@ where
 				size,
 				S_IFREG | 0o444 | (if executable { 0o111 } else { 0o000 }),
 			),
-			AttrsInner::Symlink => (0, S_IFLNK | 0o444),
+			AttrsInner::Symlink { size } => (size, S_IFLNK | 0o444),
 		};
 		let mode = mode.to_u32().unwrap();
+		let blocks = size.div_ceil(512);
 		fuse_attr_out {
 			attr_valid: u64::MAX,
 			attr_valid_nsec: 0,
 			attr: fuse_attr {
 				ino: node,
 				size,
-				blocks: 0,
+				blocks,
 				atime: attr.atime.secs,
 				atimensec: attr.atime.nanos,
 				mtime: attr.mtime.secs,
@@ -3452,6 +3414,9 @@ mod tests {
 	use super::*;
 
 	struct TestProvider;
+	struct PassthroughProvider {
+		closes: Arc<std::sync::atomic::AtomicUsize>,
+	}
 
 	impl Provider for TestProvider {
 		fn handle_batch(
@@ -3467,6 +3432,56 @@ mod tests {
 		) -> Vec<Result<ProviderResponse>> {
 			Vec::new()
 		}
+	}
+
+	impl Provider for PassthroughProvider {
+		fn handle_batch(
+			&self,
+			requests: Vec<ProviderRequest>,
+		) -> impl futures::Future<Output = Vec<Result<ProviderResponse>>> + Send {
+			std::future::ready(self.handle_batch_sync(requests))
+		}
+
+		fn handle_batch_sync(
+			&self,
+			requests: Vec<ProviderRequest>,
+		) -> Vec<Result<ProviderResponse>> {
+			requests
+				.into_iter()
+				.map(|request| match request {
+					ProviderRequest::Close { .. } => {
+						self.closes.fetch_add(1, Ordering::Relaxed);
+						Ok(ProviderResponse::Unit)
+					},
+					_ => Err(Error::from_raw_os_error(libc::ENOSYS)),
+				})
+				.collect()
+		}
+	}
+
+	fn server_with_provider<P>(
+		provider: P,
+		passthrough_enabled: bool,
+		passthrough_required: bool,
+	) -> Server<P>
+	where
+		P: Provider + Send + Sync + 'static,
+	{
+		Server(Arc::new(State {
+			active_requests: Mutex::new(HashMap::new()),
+			no_opendir_support: false,
+			pending_publications: Mutex::new(HashMap::new()),
+			passthrough_backing_ids: Mutex::new(HashMap::new()),
+			passthrough_enabled,
+			passthrough_permission_warning_emitted: AtomicBool::new(false),
+			passthrough_required,
+			provider,
+			task: Mutex::new(None),
+		}))
+	}
+
+	fn server() -> Server<TestProvider> {
+		server_with_provider(TestProvider, false, false)
 	}
 
 	#[test]
@@ -3489,5 +3504,142 @@ mod tests {
 		assert_eq!(limits.max_write, DEFAULT_MAX_WRITE.to_u32().unwrap());
 		assert_eq!(limits.payload_size, DEFAULT_MAX_WRITE);
 		assert_eq!(limits.request_buffer_size, DEFAULT_MAX_WRITE + 64 * 1024);
+	}
+
+	#[test]
+	fn malformed_names_fail_individual_batch_requests() {
+		let server = server();
+		let lookup_header = fuse_in_header {
+			gid: 0,
+			len: 0,
+			nodeid: 0,
+			opcode: sys::fuse_opcode_FUSE_LOOKUP,
+			padding: 0,
+			pid: 0,
+			total_extlen: 0,
+			uid: 0,
+			unique: 1,
+		};
+		let invalid_name = CString::new(vec![0xff]).unwrap();
+		let getxattr_header = fuse_in_header {
+			opcode: sys::fuse_opcode_FUSE_GETXATTR,
+			unique: 2,
+			..lookup_header
+		};
+		let statfs_header = fuse_in_header {
+			opcode: sys::fuse_opcode_FUSE_STATFS,
+			unique: 3,
+			..lookup_header
+		};
+		let requests = [
+			PendingRequest {
+				request: Request {
+					data: RequestData::Lookup(invalid_name.clone()),
+					header: lookup_header,
+				},
+				slot: 0,
+			},
+			PendingRequest {
+				request: Request {
+					data: RequestData::GetXattr(
+						fuse_getxattr_in {
+							padding: 0,
+							size: 0,
+						},
+						invalid_name,
+					),
+					header: getxattr_header,
+				},
+				slot: 1,
+			},
+			PendingRequest {
+				request: Request {
+					data: RequestData::Statfs,
+					header: statfs_header,
+				},
+				slot: 2,
+			},
+		];
+		let mut results = Vec::new();
+		server
+			.handle_request_sync_batch(-1, &requests, &mut results)
+			.unwrap();
+
+		assert_eq!(results.len(), 3);
+		assert_eq!(
+			results[0].as_ref().unwrap_err().raw_os_error(),
+			Some(libc::ENOENT)
+		);
+		assert_eq!(
+			results[1].as_ref().unwrap_err().raw_os_error(),
+			Some(libc::ENODATA)
+		);
+		assert!(matches!(results[2], Ok(Some(Response::Statfs(_)))));
+	}
+
+	#[test]
+	fn required_passthrough_failure_closes_provider_handle() {
+		let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+		let server = server_with_provider(
+			PassthroughProvider {
+				closes: closes.clone(),
+			},
+			true,
+			true,
+		);
+		let header = fuse_in_header {
+			gid: 0,
+			len: 0,
+			nodeid: 1,
+			opcode: sys::fuse_opcode_FUSE_OPEN,
+			padding: 0,
+			pid: 0,
+			total_extlen: 0,
+			uid: 0,
+			unique: 1,
+		};
+		let request = Request {
+			data: RequestData::Open(fuse_open_in {
+				flags: 0,
+				open_flags: 0,
+			}),
+			header,
+		};
+		let response = ProviderResponse::Open {
+			backing_fd: None,
+			handle: 7,
+		};
+		let error = server
+			.map_provider_batch_response(-1, &request, response)
+			.unwrap_err();
+
+		assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP));
+		assert_eq!(closes.load(Ordering::Relaxed), 1);
+	}
+
+	#[test]
+	fn statx_reports_supported_metadata() {
+		let attrs = crate::Attrs {
+			atime: crate::Timestamp { nanos: 2, secs: 1 },
+			ctime: crate::Timestamp { nanos: 6, secs: 5 },
+			gid: 8,
+			inner: AttrsInner::Symlink { size: 513 },
+			mtime: crate::Timestamp { nanos: 4, secs: 3 },
+			uid: 7,
+		};
+		let attr = Server::<TestProvider>::fuse_attr_out(9, attrs);
+		let statx = Server::<TestProvider>::fuse_statx_out(attr, 0);
+
+		assert_eq!(statx.stat.mask, libc::STATX_BASIC_STATS);
+		assert_eq!(statx.stat.mask & libc::STATX_BTIME, 0);
+		assert_eq!(statx.stat.attributes_mask, 0);
+		assert_eq!(statx.stat.atime.tv_sec, 1);
+		assert_eq!(statx.stat.atime.tv_nsec, 2);
+		assert_eq!(statx.stat.mtime.tv_sec, 3);
+		assert_eq!(statx.stat.mtime.tv_nsec, 4);
+		assert_eq!(statx.stat.ctime.tv_sec, 5);
+		assert_eq!(statx.stat.ctime.tv_nsec, 6);
+		assert_eq!(statx.stat.size, 513);
+		assert_eq!(statx.stat.blocks, 2);
 	}
 }

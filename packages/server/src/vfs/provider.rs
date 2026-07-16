@@ -8,9 +8,8 @@ use {
 	num::ToPrimitive as _,
 	std::{
 		collections::BTreeMap,
-		io::{Read as _, Seek as _},
 		os::fd::OwnedFd,
-		os::unix::ffi::OsStrExt as _,
+		os::unix::{ffi::OsStrExt as _, fs::FileExt as _},
 		path::{Path, PathBuf},
 		pin::pin,
 		sync::{
@@ -1030,7 +1029,7 @@ impl Provider {
 			}
 			let (node, attrs) = if let Some(artifact) = &entry.artifact {
 				let attrs = self
-					.compute_attrs_from_artifact_inner(Some(artifact))
+					.compute_attrs_from_artifact_inner(Some(artifact), directory.depth + 1)
 					.await?;
 				let node = self.nodes.get_or_insert_child(
 					directory.node,
@@ -1118,8 +1117,11 @@ impl Provider {
 				break;
 			}
 			let (node, attrs) = if let Some(artifact) = &entry.artifact {
-				let attrs =
-					self.compute_attrs_from_artifact_sync_inner(Some(artifact), transaction)?;
+				let attrs = self.compute_attrs_from_artifact_sync_inner(
+					Some(artifact),
+					directory.depth + 1,
+					transaction,
+				)?;
 				let node = self.nodes.get_or_insert_child(
 					directory.node,
 					&entry.name,
@@ -1241,13 +1243,14 @@ impl Provider {
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
-		self.compute_attrs_from_artifact_inner(node.artifact.as_ref())
+		self.compute_attrs_from_artifact_inner(node.artifact.as_ref(), node.depth)
 			.await
 	}
 
 	async fn compute_attrs_from_artifact_inner(
 		&self,
 		artifact: Option<&ArtifactInfo>,
+		depth: u64,
 	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::File) => {
@@ -1266,7 +1269,14 @@ impl Provider {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) => {
-				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink))
+				let (symlink, graph) = self.symlink_node_inner(artifact).await?;
+				let artifact = match symlink.artifact {
+					Some(edge) => Some(Self::artifact_from_edge_inner(edge, graph.as_ref())?.id),
+					None => None,
+				};
+				let target = Self::build_symlink_target(depth, artifact, symlink.path)?;
+				let size = target.len().to_u64().unwrap();
+				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink { size }))
 			},
 			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			_ => Err(std::io::Error::from_raw_os_error(libc::EIO)),
@@ -1807,7 +1817,7 @@ impl Provider {
 		if let Some(path_) = cache_pointer.path {
 			path.push(path_);
 		}
-		let mut file = match std::fs::File::open(&path) {
+		let file = match std::fs::File::open(&path) {
 			Ok(file) => file,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
@@ -1817,25 +1827,29 @@ impl Provider {
 				return Err(std::io::Error::from_raw_os_error(libc::EIO));
 			},
 		};
-		file.seek(std::io::SeekFrom::Start(cache_pointer.position + position))
-			.map_err(|error| {
-				tracing::error!(%error, path = %path.display(), "failed to seek while reading");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-		let mut bytes = vec![0; read_length.to_usize().unwrap()];
+		let file_position = cache_pointer
+			.position
+			.checked_add(position)
+			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?;
+		let output_start = output.len();
+		output.resize(output_start + read_length.to_usize().unwrap(), 0);
 		let mut n = 0;
-		while n < bytes.len() {
-			let n_ = file.read(&mut bytes[n..]).map_err(|error| {
-				tracing::error!(%error, path = %path.display(), "failed to read");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+		while output_start + n < output.len() {
+			let offset = file_position
+				.checked_add(n.to_u64().unwrap())
+				.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?;
+			let n_ = file
+				.read_at(&mut output[output_start + n..], offset)
+				.map_err(|error| {
+					tracing::error!(%error, path = %path.display(), "failed to read");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
 			if n_ == 0 {
 				break;
 			}
 			n += n_;
 		}
-		bytes.truncate(n);
-		output.extend_from_slice(&bytes);
+		output.truncate(output_start + n);
 		Ok(())
 	}
 
@@ -1964,12 +1978,13 @@ impl Provider {
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
-		self.compute_attrs_from_artifact_sync_inner(node.artifact.as_ref(), transaction)
+		self.compute_attrs_from_artifact_sync_inner(node.artifact.as_ref(), node.depth, transaction)
 	}
 
 	fn compute_attrs_from_artifact_sync_inner(
 		&self,
 		artifact: Option<&ArtifactInfo>,
+		depth: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
@@ -1987,7 +2002,14 @@ impl Provider {
 				Ok(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) => {
-				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink))
+				let (symlink, graph) = self.symlink_node_sync_inner(artifact, transaction)?;
+				let artifact = match symlink.artifact {
+					Some(edge) => Some(Self::artifact_from_edge_inner(edge, graph.as_ref())?.id),
+					None => None,
+				};
+				let target = Self::build_symlink_target(depth, artifact, symlink.path)?;
+				let size = target.len().to_u64().unwrap();
+				Ok(vfs::Attrs::new(vfs::AttrsInner::Symlink { size }))
 			},
 			None => Ok(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			_ => Err(std::io::Error::from_raw_os_error(libc::EIO)),
@@ -2087,9 +2109,7 @@ impl Provider {
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
 				Some(vfs::Attrs::new(vfs::AttrsInner::Directory))
 			},
-			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) => {
-				Some(vfs::Attrs::new(vfs::AttrsInner::Symlink))
-			},
+			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Symlink) => None,
 			None => Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			_ => None,
 		}

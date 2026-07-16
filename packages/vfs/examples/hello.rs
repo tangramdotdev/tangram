@@ -192,7 +192,9 @@ impl tangram_vfs::Provider for Provider {
 				executable: false,
 				size: HELLO_WORLD.len().to_u64().unwrap(),
 			}),
-			LINK_NODE_ID => Attrs::new(AttrsInner::Symlink),
+			LINK_NODE_ID => Attrs::new(AttrsInner::Symlink {
+				size: HELLO_PATH.len().to_u64().unwrap(),
+			}),
 			_ => {
 				return Err(Error::from_raw_os_error(libc::ENOENT));
 			},
