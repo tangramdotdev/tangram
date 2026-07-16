@@ -107,8 +107,7 @@ pub struct Server<P>(Arc<State<P>>);
 pub struct State<P> {
 	active_requests: Mutex<HashMap<u64, CancellationToken>>,
 	no_opendir_support: bool,
-	pending_handles: Mutex<HashMap<u64, u64>>,
-	pending_publications: Mutex<HashMap<u64, Vec<u64>>>,
+	pending_response_resources: Mutex<HashMap<u64, ResponseResources>>,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
 	passthrough_enabled: bool,
 	passthrough_permission_warning_emitted: AtomicBool,
@@ -133,6 +132,11 @@ struct PendingRequest {
 enum WorkerEvent {
 	Failed { error: Error, worker: String },
 	Ready,
+}
+
+enum Dispatch {
+	Deferred,
+	Ready(Result<Response>),
 }
 
 /// A request's data.
@@ -188,9 +192,15 @@ enum Response {
 #[derive(Debug)]
 struct AsyncResponse {
 	opcode: sys::fuse_opcode,
-	result: Result<Option<Response>>,
+	result: Result<Response>,
 	slot: usize,
 	unique: u64,
+}
+
+#[derive(Default)]
+struct ResponseResources {
+	handle: Option<u64>,
+	nodes: Vec<u64>,
 }
 
 struct AsyncRequestContext {
@@ -421,8 +431,7 @@ where
 		let server = Self(Arc::new(State {
 			active_requests: Mutex::new(HashMap::new()),
 			no_opendir_support: features.no_opendir_support,
-			pending_handles: Mutex::new(HashMap::new()),
-			pending_publications: Mutex::new(HashMap::new()),
+			pending_response_resources: Mutex::new(HashMap::new()),
 			passthrough_backing_ids: Mutex::new(HashMap::default()),
 			passthrough_enabled: features.passthrough,
 			passthrough_permission_warning_emitted: AtomicBool::new(false),

@@ -13,11 +13,12 @@ where
 		&self,
 		fd: &OwnedFd,
 		requests: &[PendingRequest],
-		batch_results: &mut Vec<Result<Option<Response>>>,
+		batch_results: &mut Vec<Dispatch>,
 	) -> Result<()> {
 		enum BatchAction {
-			Ready(Result<Option<Response>>),
+			Deferred,
 			NeedsProvider,
+			Ready(Result<Response>),
 		}
 
 		let mut actions = Vec::with_capacity(requests.len());
@@ -53,14 +54,21 @@ where
 					let provider_result = provider_results
 						.next()
 						.ok_or_else(|| Error::other("missing provider batch response"))?;
-					let result = match provider_result {
+					let next_action = match provider_result {
 						Ok(response) => {
-							self.map_provider_response_sync(fd, &pending_request.request, response)
+							let result = self.map_provider_response_sync(
+								fd,
+								&pending_request.request,
+								response,
+							);
+							BatchAction::Ready(result)
 						},
-						Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => Ok(None),
-						Err(error) => Err(error),
+						Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
+							BatchAction::Deferred
+						},
+						Err(error) => BatchAction::Ready(Err(error)),
 					};
-					*action = BatchAction::Ready(result);
+					*action = next_action;
 				}
 			}
 		}
@@ -69,9 +77,22 @@ where
 		batch_results.reserve(requests.len());
 		for (action, request) in std::iter::zip(actions, requests) {
 			match action {
+				BatchAction::Deferred => batch_results.push(Dispatch::Deferred),
 				BatchAction::Ready(result) => {
-					self.register_response_resources(request.request.header.unique, &result)?;
-					batch_results.push(result);
+					let deferred = result.as_ref().is_err_and(|error| {
+						error.raw_os_error() == Some(libc::ENOSYS)
+							&& request.request.header.opcode != sys::fuse_opcode_FUSE_OPENDIR
+					});
+					if deferred {
+						batch_results.push(Dispatch::Deferred);
+					} else {
+						self.register_response_resources(
+							fd,
+							request.request.header.unique,
+							&result,
+						)?;
+						batch_results.push(Dispatch::Ready(result));
+					}
 				},
 				BatchAction::NeedsProvider => {
 					return Err(Error::other("missing provider batch result"));
@@ -170,11 +191,7 @@ where
 		}
 	}
 
-	fn handle_local_request_sync(
-		&self,
-		fd: &OwnedFd,
-		request: &Request,
-	) -> Result<Option<Response>> {
+	fn handle_local_request_sync(&self, fd: &OwnedFd, request: &Request) -> Result<Response> {
 		let response = match &request.data {
 			RequestData::BatchForget(data, entries) => {
 				let count = data.count.to_usize().unwrap_or(0);
@@ -235,7 +252,7 @@ where
 			| RequestData::Statx(_) => return Err(Error::other("unexpected local request")),
 		};
 
-		Ok(Some(response))
+		Ok(response)
 	}
 
 	pub(super) fn map_provider_response_sync(
@@ -243,7 +260,7 @@ where
 		fd: &OwnedFd,
 		request: &Request,
 		response: ProviderResponse,
-	) -> Result<Option<Response>> {
+	) -> Result<Response> {
 		let handle = Self::provider_response_handle(&response);
 		let result = self.map_provider_response(fd, request, response);
 		if result.is_err()
@@ -260,14 +277,14 @@ where
 		fd: &OwnedFd,
 		request: &Request,
 		response: ProviderResponse,
-	) -> Result<Option<Response>> {
+	) -> Result<Response> {
 		match &request.data {
 			RequestData::GetAttr => {
 				let ProviderResponse::GetAttr { attrs } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
 				let out = Self::fuse_attr_out(request.header.nodeid, attrs);
-				Ok(Some(Response::GetAttr(out)))
+				Ok(Response::GetAttr(out))
 			},
 			RequestData::GetXattr(request, _) => {
 				let ProviderResponse::GetXattr { value } = response else {
@@ -281,11 +298,11 @@ where
 						size: attr.len().to_u32().unwrap(),
 						padding: 0,
 					};
-					Ok(Some(Response::GetXattr(response.as_bytes().to_vec())))
+					Ok(Response::GetXattr(response.as_bytes().to_vec()))
 				} else if request.size.to_usize().unwrap() < attr.len() {
 					Err(Error::from_raw_os_error(libc::ERANGE))
 				} else {
-					Ok(Some(Response::GetXattr(attr)))
+					Ok(Response::GetXattr(attr))
 				}
 			},
 			RequestData::ListXattr(request) => {
@@ -305,11 +322,11 @@ where
 						size: attrs.len().to_u32().unwrap(),
 						padding: 0,
 					};
-					Ok(Some(Response::ListXattr(response.as_bytes().to_vec())))
+					Ok(Response::ListXattr(response.as_bytes().to_vec()))
 				} else if request.size.to_usize().unwrap() < attrs.len() {
 					Err(Error::from_raw_os_error(libc::ERANGE))
 				} else {
-					Ok(Some(Response::ListXattr(attrs)))
+					Ok(Response::ListXattr(attrs))
 				}
 			},
 			RequestData::Lookup(_) => {
@@ -319,7 +336,7 @@ where
 				let node = id.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
 				let attrs = attrs.ok_or_else(|| Error::from_raw_os_error(libc::EIO))?;
 				let out = Self::fuse_entry_out_from_attrs(node, attrs);
-				Ok(Some(Response::Lookup(out)))
+				Ok(Response::Lookup(out))
 			},
 			RequestData::Open(_) => {
 				let ProviderResponse::Open { handle, backing_fd } = response else {
@@ -341,7 +358,7 @@ where
 							open_flags,
 							backing_id,
 						};
-						return Ok(Some(Response::Open(out)));
+						return Ok(Response::Open(out));
 					};
 					match self.register_passthrough_backing(fd, handle, &backing_fd) {
 						Ok(id) => {
@@ -379,7 +396,7 @@ where
 					open_flags,
 					backing_id,
 				};
-				Ok(Some(Response::Open(out)))
+				Ok(Response::Open(out))
 			},
 			RequestData::OpenDir(_) => {
 				let ProviderResponse::OpenDir { handle } = response else {
@@ -390,33 +407,33 @@ where
 					open_flags: sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE,
 					backing_id: -1,
 				};
-				Ok(Some(Response::OpenDir(out)))
+				Ok(Response::OpenDir(out))
 			},
 			RequestData::Read(_) => {
 				let ProviderResponse::Read { bytes } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
-				Ok(Some(Response::Read(bytes)))
+				Ok(Response::Read(bytes))
 			},
 			RequestData::ReadDir(request) => {
 				let ProviderResponse::ReadDir { entries } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
 				let response = Self::build_read_dir_response(entries, *request);
-				Ok(Some(response))
+				Ok(response)
 			},
 			RequestData::ReadDirPlus(request) => {
 				let ProviderResponse::ReadDirPlus { entries } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
 				let response = self.build_read_dir_plus_response(entries, *request);
-				Ok(Some(response))
+				Ok(response)
 			},
 			RequestData::ReadLink => {
 				let ProviderResponse::ReadLink { target } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
-				Self::read_link_response(target).map(Some)
+				Self::read_link_response(target)
 			},
 			RequestData::Statx(data) => {
 				let ProviderResponse::GetAttr { attrs } = response else {
@@ -424,17 +441,13 @@ where
 				};
 				let attr = Self::fuse_attr_out(request.header.nodeid, attrs);
 				let out = Self::fuse_statx_out(attr, data.getattr_flags);
-				Ok(Some(Response::Statx(out)))
+				Ok(Response::Statx(out))
 			},
 			_ => Err(Error::other("unexpected provider batch request")),
 		}
 	}
 
-	pub(super) async fn handle_request(
-		&self,
-		fd: &OwnedFd,
-		request: Request,
-	) -> Result<Option<Response>> {
+	pub(super) async fn handle_request(&self, fd: &OwnedFd, request: Request) -> Result<Response> {
 		let unique = request.header.unique;
 		let result = match self.plan_request(&request) {
 			Ok(Plan::Local) => self.handle_local_request(fd, &request).await,
@@ -459,16 +472,12 @@ where
 			},
 			Err(error) => Err(error),
 		};
-		self.register_response_resources(unique, &result)?;
+		self.register_response_resources(fd, unique, &result)?;
 
 		result
 	}
 
-	async fn handle_local_request(
-		&self,
-		fd: &OwnedFd,
-		request: &Request,
-	) -> Result<Option<Response>> {
+	async fn handle_local_request(&self, fd: &OwnedFd, request: &Request) -> Result<Response> {
 		let response = match &request.data {
 			RequestData::BatchForget(data, entries) => {
 				let requests = entries
@@ -547,7 +556,7 @@ where
 			| RequestData::Statx(_) => return Err(Error::other("unexpected local request")),
 		};
 
-		Ok(Some(response))
+		Ok(response)
 	}
 
 	pub(super) fn validate_open_request(request: fuse_open_in) -> Result<()> {
@@ -749,20 +758,14 @@ where
 			},
 		}
 	}
-	pub(super) fn handle_interrupt_request(
-		&self,
-		request: fuse_interrupt_in,
-	) -> Result<Option<Response>> {
+	pub(super) fn handle_interrupt_request(&self, request: fuse_interrupt_in) -> Result<Response> {
 		if !self.cancel_async_request(request.unique) {
 			return Err(Error::from_raw_os_error(libc::EAGAIN));
 		}
 
-		Ok(Some(Response::Interrupt))
+		Ok(Response::Interrupt)
 	}
-	fn handle_unsupported_request(
-		header: fuse_in_header,
-		request: u32,
-	) -> Result<Option<Response>> {
+	fn handle_unsupported_request(header: fuse_in_header, request: u32) -> Result<Response> {
 		tracing::trace!(?header, %request, "unsupported request");
 		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}

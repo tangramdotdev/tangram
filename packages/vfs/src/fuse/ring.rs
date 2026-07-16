@@ -333,10 +333,9 @@ where
 		let async_notification_pending = Arc::new(AtomicBool::new(false));
 		let mut eventfd_inflight = false;
 		let mut batch_requests = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
-		let mut batch_results =
-			Vec::<Result<Option<Response>>>::with_capacity(THREAD_CQE_BATCH_SIZE);
+		let mut batch_results = Vec::<Dispatch>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut commits =
-			Vec::<(usize, u64, Result<Option<Response>>)>::with_capacity(THREAD_CQE_BATCH_SIZE);
+			Vec::<(usize, u64, Result<Response>)>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut deferred = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut register_retries = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut stale_commits = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
@@ -511,27 +510,15 @@ where
 				let unique = pending_request.request.header.unique;
 				let opcode = pending_request.request.header.opcode;
 				match result {
-					Ok(Some(response)) => {
-						commits.push((slot, unique, Ok(Some(response))));
-					},
-					Ok(None) => {
-						deferred.push(pending_request);
-					},
-					Err(error)
-						if error.raw_os_error() == Some(libc::ENOSYS)
-							&& opcode != sys::fuse_opcode_FUSE_OPENDIR =>
-					{
-						deferred.push(pending_request);
-					},
-					Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
-						commits.push((slot, unique, Err(error)));
-					},
-					Err(error) => {
-						let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
-						if !Self::is_expected_error(opcode, error_code) {
-							tracing::error!(?error, ?opcode, %worker_id, "unexpected error");
+					Dispatch::Deferred => deferred.push(pending_request),
+					Dispatch::Ready(result) => {
+						if let Err(error) = &result {
+							let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
+							if !Self::is_expected_error(opcode, error_code) {
+								tracing::error!(?error, ?opcode, %worker_id, "unexpected error");
+							}
 						}
-						commits.push((slot, unique, Err(error)));
+						commits.push((slot, unique, result));
 					},
 				}
 			}
@@ -692,7 +679,7 @@ where
 		slot: usize,
 		slot_data: &mut UringSlot,
 		unique: u64,
-		result: Result<Option<Response>>,
+		result: Result<Response>,
 	) -> Result<()> {
 		let (UringSlotState::Async {
 			unique: expected_unique,
@@ -739,12 +726,12 @@ where
 	fn prepare_uring_response(
 		slot_data: &mut UringSlot,
 		unique: u64,
-		result: Result<Option<Response>>,
+		result: Result<Response>,
 	) -> Result<()> {
 		let in_out = slot_data.header.in_out.as_mut_bytes();
 		in_out.fill(0);
 		let (error, payload_len, needs_header) = match result {
-			Ok(Some(response)) => {
+			Ok(response) => {
 				if Self::requires_response(&response) {
 					let payload = Self::response_bytes(&response);
 					if payload.len() > slot_data.payload.len() {
@@ -756,7 +743,6 @@ where
 					(0, 0, false)
 				}
 			},
-			Ok(None) => (0, 0, true),
 			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), 0, true),
 		};
 		if needs_header {

@@ -103,7 +103,7 @@ where
 		request_sender: &tokio::sync::mpsc::Sender<ReadWriteRequest>,
 	) -> Result<()> {
 		let mut buffer = vec![0u8; request_buffer_size];
-		let mut batch_results = Vec::<Result<Option<Response>>>::with_capacity(1);
+		let mut batch_results = Vec::<Dispatch>::with_capacity(1);
 		loop {
 			let size = loop {
 				match rustix::io::read(fd.as_ref(), &mut buffer) {
@@ -125,20 +125,10 @@ where
 				request: request.clone(),
 			};
 			self.handle_request_sync_batch(fd.as_ref(), &[pending_request], &mut batch_results)?;
-			let result = batch_results
+			let dispatch = batch_results
 				.pop()
 				.ok_or_else(|| Error::other("missing sync batch result"))?;
-			let deferred = match &result {
-				Ok(None) => true,
-				Err(error)
-					if error.raw_os_error() == Some(libc::ENOSYS)
-						&& opcode != sys::fuse_opcode_FUSE_OPENDIR =>
-				{
-					true
-				},
-				_ => false,
-			};
-			if deferred {
+			let Dispatch::Ready(result) = dispatch else {
 				let token = self.register_async_request(unique)?;
 				let request = ReadWriteRequest {
 					fd: fd.clone(),
@@ -150,7 +140,7 @@ where
 					return Err(Error::other("the ReadWrite request dispatcher stopped"));
 				}
 				continue;
-			}
+			};
 			if let Err(error) = &result {
 				let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
 				if !Self::is_expected_error(opcode, error_code) {

@@ -40,82 +40,72 @@ where
 
 	pub(super) fn register_response_resources(
 		&self,
+		fd: &OwnedFd,
 		unique: u64,
-		result: &Result<Option<Response>>,
+		result: &Result<Response>,
 	) -> Result<()> {
-		let nodes = match result {
-			Ok(Some(Response::Lookup(response))) => vec![response.nodeid],
-			Ok(Some(Response::ReadDirPlus { nodes, .. })) => nodes.clone(),
-			_ => Vec::new(),
+		let resources = match result {
+			Ok(Response::Lookup(response)) => ResponseResources {
+				nodes: vec![response.nodeid],
+				..ResponseResources::default()
+			},
+			Ok(Response::Open(response) | Response::OpenDir(response)) => ResponseResources {
+				handle: Some(response.fh),
+				..ResponseResources::default()
+			},
+			Ok(Response::ReadDirPlus { nodes, .. }) => ResponseResources {
+				nodes: nodes.clone(),
+				..ResponseResources::default()
+			},
+			_ => ResponseResources::default(),
 		};
-		let handle = match result {
-			Ok(Some(Response::Open(response) | Response::OpenDir(response))) => Some(response.fh),
-			_ => None,
-		};
-		if nodes.is_empty() && handle.is_none() {
+		if resources.handle.is_none() && resources.nodes.is_empty() {
 			return Ok(());
 		}
-		if !nodes.is_empty() {
-			let mut publications = self.pending_publications.lock().unwrap();
-			if publications.contains_key(&unique) {
-				drop(publications);
-				self.rollback_nodes(nodes);
-				return Err(Error::other(format!(
-					"a FUSE response with unique ID {unique} already has pending publications",
-				)));
-			}
-			publications.insert(unique, nodes);
+		let mut pending = self.pending_response_resources.lock().unwrap();
+		if pending.contains_key(&unique) {
+			drop(pending);
+			self.rollback_resources(fd, resources);
+			return Err(Error::other(format!(
+				"a FUSE response with unique ID {unique} already has pending resources",
+			)));
 		}
-		if let Some(handle) = handle {
-			let mut handles = self.pending_handles.lock().unwrap();
-			if handles.contains_key(&unique) {
-				drop(handles);
-				self.provider.close_sync(handle);
-				return Err(Error::other(format!(
-					"a FUSE response with unique ID {unique} already has a pending handle",
-				)));
-			}
-			handles.insert(unique, handle);
-		}
+		pending.insert(unique, resources);
 
 		Ok(())
 	}
 
 	pub(super) fn commit_response_resources(&self, unique: u64) {
-		self.pending_handles.lock().unwrap().remove(&unique);
-		self.pending_publications.lock().unwrap().remove(&unique);
+		self.pending_response_resources
+			.lock()
+			.unwrap()
+			.remove(&unique);
 	}
 
 	pub(super) fn rollback_response_resources(&self, fd: &OwnedFd, unique: u64) {
-		let handle = self.pending_handles.lock().unwrap().remove(&unique);
-		if let Some(handle) = handle {
-			self.close_passthrough_backing(fd, handle);
-			self.provider.close_sync(handle);
-		}
-		self.rollback_response_publications(unique);
-	}
-
-	pub(super) fn rollback_response_publications(&self, unique: u64) {
-		let nodes = self.pending_publications.lock().unwrap().remove(&unique);
-		if let Some(nodes) = nodes {
-			self.rollback_nodes(nodes);
+		let resources = self
+			.pending_response_resources
+			.lock()
+			.unwrap()
+			.remove(&unique);
+		if let Some(resources) = resources {
+			self.rollback_resources(fd, resources);
 		}
 	}
 
 	pub(super) fn rollback_all_response_resources(&self, fd: &OwnedFd) {
-		let handles = std::mem::take(&mut *self.pending_handles.lock().unwrap());
-		for handle in handles.into_values() {
-			self.close_passthrough_backing(fd, handle);
-			self.provider.close_sync(handle);
-		}
-		let publications = std::mem::take(&mut *self.pending_publications.lock().unwrap());
-		for nodes in publications.into_values() {
-			self.rollback_nodes(nodes);
+		let resources = std::mem::take(&mut *self.pending_response_resources.lock().unwrap());
+		for resources in resources.into_values() {
+			self.rollback_resources(fd, resources);
 		}
 	}
 
-	pub(super) fn rollback_nodes(&self, nodes: Vec<u64>) {
-		for node in nodes {
+	fn rollback_resources(&self, fd: &OwnedFd, resources: ResponseResources) {
+		if let Some(handle) = resources.handle {
+			self.close_passthrough_backing(fd, handle);
+			self.provider.close_sync(handle);
+		}
+		for node in resources.nodes {
 			self.provider.forget_sync(node, 1);
 		}
 	}
@@ -125,7 +115,7 @@ where
 		fd: &OwnedFd,
 		request: Request,
 		token: CancellationToken,
-	) -> Result<Option<Response>> {
+	) -> Result<Response> {
 		let unique = request.header.unique;
 		let result = tokio::select! {
 			biased;
@@ -192,16 +182,15 @@ where
 	pub(super) fn write_response(
 		fd: &OwnedFd,
 		unique: u64,
-		result: Result<Option<Response>>,
+		result: Result<Response>,
 	) -> Result<()> {
 		let (error, response) = match result {
-			Ok(Some(response)) => {
+			Ok(response) => {
 				if !Self::requires_response(&response) {
 					return Ok(());
 				}
 				(0, Some(response))
 			},
-			Ok(None) => (0, None),
 			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), None),
 		};
 		let payload = response.as_ref().map_or(&[][..], Self::response_bytes);

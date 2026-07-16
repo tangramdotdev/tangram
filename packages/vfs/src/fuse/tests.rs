@@ -110,8 +110,7 @@ where
 	Server(Arc::new(State {
 		active_requests: Mutex::new(HashMap::new()),
 		no_opendir_support: false,
-		pending_handles: Mutex::new(HashMap::new()),
-		pending_publications: Mutex::new(HashMap::new()),
+		pending_response_resources: Mutex::new(HashMap::new()),
 		passthrough_backing_ids: Mutex::new(HashMap::new()),
 		passthrough_enabled,
 		passthrough_permission_warning_emitted: AtomicBool::new(false),
@@ -305,15 +304,24 @@ fn malformed_names_fail_individual_batch_requests() {
 		.unwrap();
 
 	assert_eq!(results.len(), 3);
+	let Dispatch::Ready(result) = &results[0] else {
+		panic!("expected a ready response");
+	};
 	assert_eq!(
-		results[0].as_ref().unwrap_err().raw_os_error(),
+		result.as_ref().unwrap_err().raw_os_error(),
 		Some(libc::ENOENT)
 	);
+	let Dispatch::Ready(result) = &results[1] else {
+		panic!("expected a ready response");
+	};
 	assert_eq!(
-		results[1].as_ref().unwrap_err().raw_os_error(),
+		result.as_ref().unwrap_err().raw_os_error(),
 		Some(libc::ENODATA)
 	);
-	assert!(matches!(results[2], Ok(Some(Response::Statfs(_)))));
+	assert!(matches!(
+		results[2],
+		Dispatch::Ready(Ok(Response::Statfs(_)))
+	));
 }
 
 #[test]
@@ -370,13 +378,13 @@ fn failed_open_response_closes_provider_handle() {
 		false,
 		false,
 	);
-	let result = Ok(Some(Response::Open(fuse_open_out {
+	let result = Ok(Response::Open(fuse_open_out {
 		backing_id: -1,
 		fh: 11,
 		open_flags: 0,
-	})));
-	server.register_response_resources(1, &result).unwrap();
+	}));
 	let fd = test_fd();
+	server.register_response_resources(&fd, 1, &result).unwrap();
 	server.rollback_response_resources(&fd, 1);
 
 	assert_eq!(closes.load(Ordering::Relaxed), 1);
@@ -535,7 +543,7 @@ fn unmatched_interrupts_return_eagain() {
 
 	let token = server.register_async_request(1).unwrap();
 	let response = server.handle_interrupt_request(request).unwrap();
-	assert!(matches!(response, Some(Response::Interrupt)));
+	assert!(matches!(response, Response::Interrupt));
 	assert!(token.is_cancelled());
 }
 
