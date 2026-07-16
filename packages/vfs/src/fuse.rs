@@ -27,6 +27,7 @@ use {
 		mem::{MaybeUninit, size_of},
 		ops::Deref,
 		os::fd::{AsRawFd as _, OwnedFd, RawFd},
+		os::unix::fs::MetadataExt as _,
 		os::unix::process::CommandExt as _,
 		path::Path,
 		sync::{
@@ -441,6 +442,11 @@ where
 						break;
 					},
 					Err(error) if options.io == Io::Auto => {
+						if Self::is_fuse_mount(path)? {
+							return Err(Error::other(format!(
+								"failed to stop the io_uring transport after startup failed: {error}",
+							)));
+						}
 						tracing::warn!(
 							%error,
 							"failed to start the FUSE io_uring transport; falling back to ReadWrite",
@@ -505,44 +511,79 @@ where
 				reader_count,
 				"started the FUSE ReadWrite transport",
 			);
+			let mut startup_error = None;
 			for (reader_id, reader_fd) in reader_fds.into_iter().enumerate() {
 				let request_sender = request_sender.clone();
 				let server = server.clone();
 				let worker_event_sender = worker_event_sender.clone();
-				let thread = std::thread::spawn(move || {
-					worker_event_sender.send(WorkerEvent::Ready).ok();
-					if let Err(error) = server.thread_loop_read_write(
-						&reader_fd,
-						limits.request_buffer_size,
-						&request_sender,
-					) {
-						if error.raw_os_error() == Some(libc::ENOTCONN) {
-							tracing::debug!(%error, %reader_id, "ReadWrite reader exited during shutdown");
-						} else {
-							tracing::error!(%error, %reader_id, "ReadWrite reader failed");
-							worker_event_sender
-								.send(WorkerEvent::Failed {
-									error,
-									worker: format!("ReadWrite reader {reader_id}"),
-								})
-								.ok();
+				let thread = std::thread::Builder::new()
+					.name(format!("tangram-fuse-read-write-{reader_id}"))
+					.spawn(move || {
+						worker_event_sender.send(WorkerEvent::Ready).ok();
+						if let Err(error) = server.thread_loop_read_write(
+							&reader_fd,
+							limits.request_buffer_size,
+							&request_sender,
+						) {
+							if error.raw_os_error() == Some(libc::ENOTCONN) {
+								tracing::debug!(%error, %reader_id, "ReadWrite reader exited during shutdown");
+							} else {
+								tracing::error!(%error, %reader_id, "ReadWrite reader failed");
+								worker_event_sender
+									.send(WorkerEvent::Failed {
+										error,
+										worker: format!("ReadWrite reader {reader_id}"),
+									})
+									.ok();
+							}
 						}
-					}
-				});
-				thread_handles.push(thread);
+					});
+				match thread {
+					Ok(thread) => thread_handles.push(thread),
+					Err(error) => {
+						startup_error = Some(Error::other(format!(
+							"failed to spawn the ReadWrite reader {reader_id}: {error}",
+						)));
+						break;
+					},
+				}
 			}
 			drop(request_sender);
 
-			for _ in 0..reader_count {
-				match worker_event_receiver.recv().await {
-					Some(WorkerEvent::Ready) => {},
-					Some(WorkerEvent::Failed { error, worker }) => {
-						return Err(Error::other(format!(
-							"{worker} failed during startup: {error}"
-						)));
-					},
-					None => return Err(Error::other("a ReadWrite reader failed during startup")),
+			if startup_error.is_none() {
+				for _ in 0..thread_handles.len() {
+					match worker_event_receiver.recv().await {
+						Some(WorkerEvent::Ready) => {},
+						Some(WorkerEvent::Failed { error, worker }) => {
+							startup_error = Some(Error::other(format!(
+								"{worker} failed during startup: {error}"
+							)));
+							break;
+						},
+						None => {
+							startup_error =
+								Some(Error::other("a ReadWrite reader failed during startup"));
+							break;
+						},
+					}
 				}
+			}
+			if let Some(error) = startup_error {
+				server.cancel_async_requests();
+				let disconnected = Self::disconnect_transport(path).await;
+				Self::join_transport_threads(&mut thread_handles, disconnected);
+				if let Some(dispatcher) = read_write_dispatcher.take() {
+					if !disconnected {
+						dispatcher.abort();
+					}
+					dispatcher.await.ok();
+				}
+				if disconnected {
+					server.rollback_all_response_resources(fd.as_raw_fd());
+				}
+				drop(fd);
+				drop(sqpoll_ring);
+				return Err(error);
 			}
 			break;
 		}
@@ -552,17 +593,17 @@ where
 		let shutdown_server = server.clone();
 		let shutdown = async move {
 			shutdown_server.cancel_async_requests();
-			Self::unmount(&path)
-				.await
-				.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
-				.ok();
-			for thread_handle in thread_handles {
-				thread_handle.join().ok();
-			}
+			let disconnected = Self::disconnect_transport(&path).await;
+			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if let Some(read_write_dispatcher) = read_write_dispatcher {
+				if !disconnected {
+					read_write_dispatcher.abort();
+				}
 				read_write_dispatcher.await.ok();
 			}
-			shutdown_server.rollback_all_response_resources(fd.as_raw_fd());
+			if disconnected {
+				shutdown_server.rollback_all_response_resources(fd.as_raw_fd());
+			}
 			drop(fd);
 			drop(sqpoll_ring);
 		};
@@ -657,6 +698,53 @@ where
 			return Err(Error::other(format!("failed to unmount: {stderr}")));
 		}
 		Ok(())
+	}
+
+	async fn disconnect_transport(path: &Path) -> bool {
+		let aborted = Self::abort_connection(path)
+			.inspect_err(|error| tracing::error!(%error, "failed to abort the FUSE connection"))
+			.is_ok();
+		let unmounted = Self::unmount(path)
+			.await
+			.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
+			.is_ok();
+
+		aborted || unmounted
+	}
+
+	fn abort_connection(path: &Path) -> Result<()> {
+		if !Self::is_fuse_mount(path)? {
+			return Err(Error::other("the path is not a FUSE mount"));
+		}
+		let connection = std::fs::metadata(path)?.dev();
+		let abort = Path::new("/sys/fs/fuse/connections")
+			.join(connection.to_string())
+			.join("abort");
+		std::fs::write(abort, b"1")?;
+
+		Ok(())
+	}
+
+	fn is_fuse_mount(path: &Path) -> Result<bool> {
+		let stat = rustix::fs::statfs(path).map_err(Error::from)?;
+
+		Ok(stat.f_type == libc::FUSE_SUPER_MAGIC as _)
+	}
+
+	fn join_transport_threads(
+		thread_handles: &mut Vec<std::thread::JoinHandle<()>>,
+		disconnected: bool,
+	) {
+		if !disconnected {
+			tracing::error!(
+				"detaching FUSE workers because the connection could not be terminated"
+			);
+			thread_handles.clear();
+			return;
+		}
+		for thread_handle in thread_handles.drain(..) {
+			thread_handle.join().ok();
+		}
 	}
 
 	pub fn stop(&self) {
@@ -839,24 +927,31 @@ where
 					sqpoll_wq_fd,
 					worker_id,
 				};
-				let thread = std::thread::spawn(move || {
-					let worker_event_sender = worker_config.event_sender.clone();
-					if let Err(error) =
-						server.thread_loop(thread_fd.as_ref(), &runtime, worker_config)
-					{
-						if error.raw_os_error() == Some(libc::ENOTCONN) {
-							tracing::debug!(%error, %worker_id, "io_uring worker exited during shutdown");
-						} else {
-							tracing::error!(%error, %worker_id, "io_uring worker failed");
-							worker_event_sender
-								.send(WorkerEvent::Failed {
-									error,
-									worker: format!("io_uring worker {worker_id}"),
-								})
-								.ok();
+				let thread = std::thread::Builder::new()
+					.name(format!("tangram-fuse-io-uring-{worker_id}"))
+					.spawn(move || {
+						let worker_event_sender = worker_config.event_sender.clone();
+						if let Err(error) =
+							server.thread_loop(thread_fd.as_ref(), &runtime, worker_config)
+						{
+							if error.raw_os_error() == Some(libc::ENOTCONN) {
+								tracing::debug!(%error, %worker_id, "io_uring worker exited during shutdown");
+							} else {
+								tracing::error!(%error, %worker_id, "io_uring worker failed");
+								worker_event_sender
+									.send(WorkerEvent::Failed {
+										error,
+										worker: format!("io_uring worker {worker_id}"),
+									})
+									.ok();
+							}
 						}
-					}
-				});
+					})
+					.map_err(|error| {
+						Error::other(format!(
+							"failed to spawn the io_uring worker {worker_id}: {error}",
+						))
+					})?;
 				thread_handles.push(thread);
 			}
 
@@ -883,23 +978,30 @@ where
 
 			let server = self.clone();
 			let worker_event_sender = event_sender.clone();
-			let thread = std::thread::spawn(move || {
-				if let Err(error) =
-					server.thread_loop_control(&control_fd, ring_config.limits.request_buffer_size)
-				{
-					if matches!(error.raw_os_error(), Some(libc::ENODEV | libc::ENOTCONN)) {
-						tracing::debug!(%error, "io_uring control reader exited during shutdown");
-					} else {
-						tracing::error!(%error, "io_uring control reader failed");
-						worker_event_sender
-							.send(WorkerEvent::Failed {
-								error,
-								worker: "io_uring control reader".to_owned(),
-							})
-							.ok();
+			let thread = std::thread::Builder::new()
+				.name("tangram-fuse-io-uring-control".to_owned())
+				.spawn(move || {
+					if let Err(error) = server
+						.thread_loop_control(&control_fd, ring_config.limits.request_buffer_size)
+					{
+						if matches!(error.raw_os_error(), Some(libc::ENODEV | libc::ENOTCONN)) {
+							tracing::debug!(%error, "io_uring control reader exited during shutdown");
+						} else {
+							tracing::error!(%error, "io_uring control reader failed");
+							worker_event_sender
+								.send(WorkerEvent::Failed {
+									error,
+									worker: "io_uring control reader".to_owned(),
+								})
+								.ok();
+						}
 					}
-				}
-			});
+				})
+				.map_err(|error| {
+					Error::other(format!(
+						"failed to spawn the io_uring control reader: {error}"
+					))
+				})?;
 			thread_handles.push(thread);
 
 			Ok(())
@@ -910,11 +1012,11 @@ where
 			.and_then(std::convert::identity);
 		if let Err(error) = startup {
 			self.cancel_async_requests();
-			Self::unmount(path).await.ok();
-			for thread_handle in thread_handles.drain(..) {
-				thread_handle.join().ok();
+			let disconnected = Self::disconnect_transport(path).await;
+			Self::join_transport_threads(&mut thread_handles, disconnected);
+			if disconnected {
+				self.rollback_all_response_resources(fd.as_raw_fd());
 			}
-			self.rollback_all_response_resources(fd.as_raw_fd());
 			while event_receiver.try_recv().is_ok() {}
 
 			return Err(error);
