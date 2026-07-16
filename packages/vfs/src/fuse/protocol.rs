@@ -90,9 +90,15 @@ where
 				RequestData::BatchForget(batch, entries)
 			},
 			sys::fuse_opcode_FUSE_DESTROY => RequestData::Destroy,
-			sys::fuse_opcode_FUSE_FLUSH => RequestData::Flush(read_data(data)?),
+			sys::fuse_opcode_FUSE_FLUSH => {
+				read_data::<sys::fuse_flush_in>(data)?;
+				RequestData::Flush
+			},
 			sys::fuse_opcode_FUSE_FORGET => RequestData::Forget(read_data(data)?),
-			sys::fuse_opcode_FUSE_GETATTR => RequestData::GetAttr(read_data(data)?),
+			sys::fuse_opcode_FUSE_GETATTR => {
+				read_data::<sys::fuse_getattr_in>(data)?;
+				RequestData::GetAttr
+			},
 			sys::fuse_opcode_FUSE_GETXATTR => {
 				if data.len() < std::mem::size_of::<sys::fuse_getxattr_in>() {
 					return Err(Error::other("failed to deserialize request data"));

@@ -74,7 +74,9 @@ where
 		let ReadWriteRequest { fd, request, token } = request;
 		let unique = request.header.unique;
 		let opcode = request.header.opcode;
-		let result = self.handle_cancellable_request(request, token).await;
+		let result = self
+			.handle_cancellable_request(fd.as_ref(), request, token)
+			.await;
 		if let Err(error) = &result {
 			let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
 			if !Self::is_expected_error(opcode, error_code) {

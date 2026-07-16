@@ -1,4 +1,4 @@
-use super::*;
+use super::{session::notify_async_response, *};
 
 impl<P> Server<P>
 where
@@ -180,8 +180,7 @@ where
 					.name(format!("tangram-fuse-io-uring-{worker_id}"))
 					.spawn(move || {
 						let worker_event_sender = worker_config.event_sender.clone();
-						if let Err(error) =
-							server.thread_loop(thread_fd.as_ref(), &runtime, worker_config)
+						if let Err(error) = server.thread_loop(&thread_fd, &runtime, worker_config)
 						{
 							if error.raw_os_error() == Some(libc::ENOTCONN) {
 								tracing::debug!(%error, %worker_id, "io_uring worker exited during shutdown");
@@ -279,7 +278,7 @@ where
 
 	pub(super) fn thread_loop(
 		&self,
-		fd: &OwnedFd,
+		fd: &Arc<OwnedFd>,
 		runtime: &tokio::runtime::Handle,
 		config: RingWorkerConfig,
 	) -> Result<()> {
@@ -440,7 +439,7 @@ where
 					if completion.result() < 0 {
 						let error = -completion.result();
 						if let UringSlotState::Commit { unique } = slot_data.state {
-							self.rollback_response_resources(fd, unique);
+							self.rollback_response_resources(fd.as_ref(), unique);
 						}
 						if error == libc::EAGAIN
 							&& matches!(slot_data.state, UringSlotState::Register)
@@ -502,7 +501,7 @@ where
 					slots.get_mut(slot).unwrap(),
 				)?;
 			}
-			self.handle_request_sync_batch(fd, &batch_requests, &mut batch_results)?;
+			self.handle_request_sync_batch(fd.as_ref(), &batch_requests, &mut batch_results)?;
 			commits.clear();
 			deferred.clear();
 			for (pending_request, result) in
@@ -556,6 +555,7 @@ where
 				self.spawn_async_request(AsyncRequestContext {
 					async_notification_pending: async_notification_pending.clone(),
 					eventfd: eventfd.clone(),
+					fd: fd.clone(),
 					request,
 					runtime: runtime.clone(),
 					sender: sender.clone(),
@@ -568,7 +568,7 @@ where
 			for (slot, unique, result) in commits.drain(..) {
 				self.submit_commit_and_fetch(
 					&mut io_uring,
-					fd,
+					fd.as_ref(),
 					slot,
 					slots.get_mut(slot).unwrap(),
 					unique,
@@ -577,7 +577,13 @@ where
 			}
 
 			if saw_eventfd || !receiver.is_empty() {
-				self.drain_async_responses(worker_id, fd, &mut io_uring, &mut slots, &receiver)?;
+				self.drain_async_responses(
+					worker_id,
+					fd.as_ref(),
+					&mut io_uring,
+					&mut slots,
+					&receiver,
+				)?;
 			}
 		}
 	}
@@ -776,6 +782,7 @@ where
 		let AsyncRequestContext {
 			async_notification_pending,
 			eventfd,
+			fd,
 			request,
 			runtime,
 			sender,
@@ -789,7 +796,7 @@ where
 			let opcode = request.header.opcode;
 			let unique = request.header.unique;
 			let result = server
-				.handle_cancellable_request(request, token)
+				.handle_cancellable_request(fd.as_ref(), request, token)
 				.await
 				.inspect_err(|error| {
 					let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
