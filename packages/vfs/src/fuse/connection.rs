@@ -1,9 +1,46 @@
 use super::*;
 
+pub(super) struct Connection {
+	pub(super) fd: Arc<OwnedFd>,
+	pub(super) features: Features,
+	pub(super) id: u64,
+}
+
 impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
 {
+	pub(super) async fn connect(
+		path: &Path,
+		options: Options,
+		limits: RequestLimits,
+		supports_no_opendir: bool,
+	) -> Result<Connection> {
+		Self::unmount(path).await.ok();
+		let fd = Self::mount(path)
+			.await
+			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
+		let result = Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir)
+			.and_then(|features| {
+				let connection_id = Self::connection_id(path)?;
+				Ok((connection_id, features))
+			});
+		let (connection_id, features) = match result {
+			Ok(result) => result,
+			Err(error) => {
+				drop(fd);
+				Self::unmount(path).await.ok();
+				return Err(error);
+			},
+		};
+
+		Ok(Connection {
+			fd,
+			features,
+			id: connection_id,
+		})
+	}
+
 	pub(super) async fn mount(path: &Path) -> Result<Arc<OwnedFd>> {
 		let (fuse_commfd, recvfd) = rustix::net::socketpair(
 			AddressFamily::UNIX,

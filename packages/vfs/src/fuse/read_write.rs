@@ -6,10 +6,126 @@ pub(super) struct ReadWriteRequest {
 	pub(super) token: CancellationToken,
 }
 
+pub(super) struct ReadWriteStartupContext<'a> {
+	pub(super) connection: &'a connection::Connection,
+	pub(super) event_receiver: &'a mut tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>,
+	pub(super) event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
+	pub(super) limits: RequestLimits,
+	pub(super) path: &'a Path,
+}
+
 impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
 {
+	pub(super) async fn start_read_write_transport(
+		&self,
+		context: ReadWriteStartupContext<'_>,
+	) -> Result<(
+		Vec<std::thread::JoinHandle<()>>,
+		tokio::task::JoinHandle<()>,
+	)> {
+		let ReadWriteStartupContext {
+			connection,
+			event_receiver,
+			event_sender,
+			limits,
+			path,
+		} = context;
+		let reader_fds = match Self::clone_read_write_fds(&connection.fd) {
+			Ok(reader_fds) => reader_fds,
+			Err(error) => {
+				Self::disconnect_transport(path, connection.id).await;
+				return Err(error);
+			},
+		};
+		let reader_count = reader_fds.len();
+		let (request_sender, request_receiver) =
+			tokio::sync::mpsc::channel(READ_WRITE_ASYNC_QUEUE_DEPTH);
+		let dispatcher = self.spawn_read_write_dispatcher(request_receiver, event_sender.clone());
+		tracing::info!(
+			async_concurrency = READ_WRITE_ASYNC_CONCURRENCY,
+			async_queue_depth = READ_WRITE_ASYNC_QUEUE_DEPTH,
+			reader_count,
+			"started the FUSE ReadWrite transport",
+		);
+
+		let mut startup_error = None;
+		let mut thread_handles = Vec::with_capacity(reader_count);
+		for (reader_id, reader_fd) in reader_fds.into_iter().enumerate() {
+			let request_sender = request_sender.clone();
+			let server = self.clone();
+			let worker_event_sender = event_sender.clone();
+			let thread = std::thread::Builder::new()
+				.name(format!("tangram-fuse-read-write-{reader_id}"))
+				.spawn(move || {
+					worker_event_sender.send(WorkerEvent::Ready).ok();
+					if let Err(error) = server.thread_loop_read_write(
+						&reader_fd,
+						limits.request_buffer_size,
+						&request_sender,
+					) {
+						if error.raw_os_error() == Some(libc::ENOTCONN) {
+							tracing::debug!(%error, %reader_id, "ReadWrite reader exited during shutdown");
+						} else {
+							tracing::error!(%error, %reader_id, "ReadWrite reader failed");
+							worker_event_sender
+								.send(WorkerEvent::Failed {
+									error,
+									worker: format!("ReadWrite reader {reader_id}"),
+								})
+								.ok();
+						}
+					}
+				});
+			match thread {
+				Ok(thread) => thread_handles.push(thread),
+				Err(error) => {
+					startup_error = Some(Error::other(format!(
+						"failed to spawn the ReadWrite reader {reader_id}: {error}",
+					)));
+					break;
+				},
+			}
+		}
+		drop(request_sender);
+
+		if startup_error.is_none() {
+			for _ in 0..thread_handles.len() {
+				match event_receiver.recv().await {
+					Some(WorkerEvent::Ready) => {},
+					Some(WorkerEvent::Failed { error, worker }) => {
+						startup_error = Some(Error::other(format!(
+							"{worker} failed during startup: {error}"
+						)));
+						break;
+					},
+					None => {
+						startup_error =
+							Some(Error::other("a ReadWrite reader failed during startup"));
+						break;
+					},
+				}
+			}
+		}
+		if let Some(error) = startup_error {
+			self.cancel_async_requests();
+			let disconnected = Self::disconnect_transport(path, connection.id).await;
+			Self::join_transport_threads(&mut thread_handles, disconnected);
+			if !disconnected {
+				dispatcher.abort();
+			}
+			dispatcher.await.ok();
+			if disconnected {
+				self.rollback_all_response_resources(connection.fd.as_ref());
+			}
+
+			return Err(error);
+		}
+
+		Ok((thread_handles, dispatcher))
+	}
+
 	pub(super) fn spawn_read_write_dispatcher(
 		&self,
 		mut receiver: tokio::sync::mpsc::Receiver<ReadWriteRequest>,
