@@ -37,6 +37,7 @@ use {
 	},
 	sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in},
 	tokio::task::JoinSet,
+	tokio_util::sync::CancellationToken,
 	zerocopy::{FromBytes as _, IntoBytes as _},
 };
 
@@ -96,12 +97,13 @@ pub enum Passthrough {
 pub struct Server<P>(Arc<State<P>>);
 
 pub struct State<P> {
-	provider: P,
+	active_requests: Mutex<HashMap<u64, CancellationToken>>,
 	no_opendir_support: bool,
-	passthrough_enabled: bool,
-	passthrough_required: bool,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
+	passthrough_enabled: bool,
 	passthrough_permission_warning_emitted: AtomicBool,
+	passthrough_required: bool,
+	provider: P,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 }
 
@@ -121,6 +123,7 @@ struct PendingRequest {
 struct ReadWriteRequest {
 	fd: Arc<OwnedFd>,
 	request: Request,
+	token: CancellationToken,
 }
 
 enum WorkerEvent {
@@ -138,6 +141,7 @@ enum RequestData {
 	GetAttr(sys::fuse_getattr_in),
 	GetXattr(sys::fuse_getxattr_in, CString),
 	Init(sys::fuse_init_in),
+	Interrupt(sys::fuse_interrupt_in),
 	ListXattr(sys::fuse_getxattr_in),
 	Lookup(CString),
 	Open(sys::fuse_open_in),
@@ -150,7 +154,6 @@ enum RequestData {
 	ReleaseDir(sys::fuse_release_in),
 	Statfs,
 	Statx(sys::fuse_statx_in),
-	Interrupt(sys::fuse_interrupt_in),
 	Unsupported(u32),
 }
 
@@ -180,10 +183,20 @@ enum Response {
 
 #[derive(Debug)]
 struct AsyncResponse {
-	slot: usize,
-	unique: u64,
 	opcode: sys::fuse_opcode,
 	result: Result<Option<Response>>,
+	slot: usize,
+	unique: u64,
+}
+
+struct AsyncRequestContext {
+	async_notification_pending: Arc<AtomicBool>,
+	eventfd: Arc<OwnedFd>,
+	request: Request,
+	runtime: tokio::runtime::Handle,
+	sender: crossbeam_channel::Sender<AsyncResponse>,
+	slot: usize,
+	token: CancellationToken,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -264,12 +277,27 @@ struct FuseDirentPlusHeader {
 	dirent: FuseDirentHeader,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum UringSlotState {
+	Async {
+		opcode: sys::fuse_opcode,
+		unique: u64,
+	},
+	Commit,
+	Register,
+	Request {
+		opcode: sys::fuse_opcode,
+		unique: u64,
+	},
+}
+
 struct UringSlot {
 	decode: Vec<u8>,
 	header: Box<sys::fuse_uring_req_header>,
 	iovecs: [libc::iovec; URING_IOVEC_COUNT as usize],
 	payload: Vec<u8>,
 	qid: u16,
+	state: UringSlotState,
 }
 
 struct IoctlPointerInt<'a, const OPCODE: rustix::ioctl::Opcode, T> {
@@ -347,12 +375,13 @@ where
 
 		// Create the server.
 		let server = Self(Arc::new(State {
-			provider,
+			active_requests: Mutex::new(HashMap::new()),
 			no_opendir_support: features.no_opendir_support,
-			passthrough_enabled: features.passthrough,
-			passthrough_required: options.passthrough == Passthrough::Required,
 			passthrough_backing_ids: Mutex::new(HashMap::default()),
+			passthrough_enabled: features.passthrough,
 			passthrough_permission_warning_emitted: AtomicBool::new(false),
+			passthrough_required: options.passthrough == Passthrough::Required,
+			provider,
 			task: Mutex::new(None),
 		}));
 
@@ -363,6 +392,17 @@ where
 		let mut read_write_dispatcher = None;
 		if features.over_io_uring {
 			let ring_config = ring_config.unwrap();
+			let control_fd = match Self::clone_thread_fd(fd.as_ref()) {
+				Ok(control_fd) => Arc::new(control_fd),
+				Err(error) => {
+					Self::unmount(path).await.ok();
+					drop(fd);
+					drop(sqpoll_ring);
+					return Err(Error::other(format!(
+						"failed to clone the io_uring control fd: {error}",
+					)));
+				},
+			};
 			let sqpoll_wq_fd = sqpoll_ring.as_ref().unwrap().as_raw_fd();
 			tracing::info!(
 				payload_memory = ring_config.queue_count
@@ -443,6 +483,27 @@ where
 				drop(sqpoll_ring);
 				return Err(error);
 			}
+
+			let server = server.clone();
+			let worker_event_sender = worker_event_sender.clone();
+			let thread = std::thread::spawn(move || {
+				if let Err(error) =
+					server.thread_loop_control(&control_fd, ring_config.limits.request_buffer_size)
+				{
+					if matches!(error.raw_os_error(), Some(libc::ENODEV | libc::ENOTCONN)) {
+						tracing::debug!(%error, "io_uring control reader exited during shutdown");
+					} else {
+						tracing::error!(%error, "io_uring control reader failed");
+						worker_event_sender
+							.send(WorkerEvent::Failed {
+								error,
+								worker: "io_uring control reader".to_owned(),
+							})
+							.ok();
+					}
+				}
+			});
+			thread_handles.push(thread);
 		} else {
 			let reader_fds = match Self::clone_read_write_fds(&fd) {
 				Ok(reader_fds) => reader_fds,
@@ -507,7 +568,9 @@ where
 		drop(worker_event_sender);
 
 		let path = path.to_owned();
+		let shutdown_server = server.clone();
 		let shutdown = async move {
+			shutdown_server.cancel_async_requests();
 			Self::unmount(&path)
 				.await
 				.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
@@ -932,6 +995,53 @@ where
 		Ok(fds)
 	}
 
+	fn register_async_request(&self, unique: u64) -> Result<CancellationToken> {
+		let token = CancellationToken::new();
+		let mut requests = self.active_requests.lock().unwrap();
+		if requests.contains_key(&unique) {
+			return Err(Error::other(format!(
+				"a FUSE request with unique ID {unique} is already active",
+			)));
+		}
+		requests.insert(unique, token.clone());
+
+		Ok(token)
+	}
+
+	fn cancel_async_request(&self, unique: u64) {
+		let token = self.active_requests.lock().unwrap().get(&unique).cloned();
+		if let Some(token) = token {
+			token.cancel();
+		}
+	}
+
+	fn cancel_async_requests(&self) {
+		let requests = std::mem::take(&mut *self.active_requests.lock().unwrap());
+		for token in requests.into_values() {
+			token.cancel();
+		}
+	}
+
+	fn finish_async_request(&self, unique: u64) {
+		self.active_requests.lock().unwrap().remove(&unique);
+	}
+
+	async fn handle_cancellable_request(
+		&self,
+		request: Request,
+		token: CancellationToken,
+	) -> Result<Option<Response>> {
+		let unique = request.header.unique;
+		let result = tokio::select! {
+			biased;
+			() = token.cancelled() => Err(Error::from_raw_os_error(libc::EINTR)),
+			result = self.handle_request(request) => result,
+		};
+		self.finish_async_request(unique);
+
+		result
+	}
+
 	fn spawn_read_write_dispatcher(
 		&self,
 		mut receiver: tokio::sync::mpsc::Receiver<ReadWriteRequest>,
@@ -993,16 +1103,17 @@ where
 	}
 
 	async fn handle_read_write_request(&self, request: ReadWriteRequest) -> Result<()> {
-		let unique = request.request.header.unique;
-		let opcode = request.request.header.opcode;
-		let result = self.handle_request(request.request).await;
+		let ReadWriteRequest { fd, request, token } = request;
+		let unique = request.header.unique;
+		let opcode = request.header.opcode;
+		let result = self.handle_cancellable_request(request, token).await;
 		if let Err(error) = &result {
 			let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
 			if !Self::is_expected_error(opcode, error_code) {
 				tracing::error!(?error, ?opcode, "unexpected error");
 			}
 		}
-		if let Err(error) = Self::write_response(request.fd.as_raw_fd(), unique, result) {
+		if let Err(error) = Self::write_response(fd.as_raw_fd(), unique, result) {
 			match error.raw_os_error() {
 				Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
 				_ => return Err(error),
@@ -1010,6 +1121,42 @@ where
 		}
 
 		Ok(())
+	}
+
+	fn thread_loop_control(&self, fd: &Arc<OwnedFd>, request_buffer_size: usize) -> Result<()> {
+		let mut buffer = vec![0u8; request_buffer_size];
+		loop {
+			let size = loop {
+				match rustix::io::read(fd.as_ref(), &mut buffer) {
+					Ok(size) => break size,
+					Err(Errno::INTR) => {},
+					Err(Errno::NODEV | Errno::NOTCONN) => return Ok(()),
+					Err(error) => return Err(error.into()),
+				}
+			};
+			if size == 0 {
+				return Ok(());
+			}
+			let size = size.to_usize().unwrap();
+			let request = Self::deserialize_request(&buffer[..size])?;
+			match request.data {
+				RequestData::BatchForget(data, entries) => {
+					self.handle_batch_forget_request_sync(request.header, data, &entries);
+				},
+				RequestData::Forget(data) => {
+					self.handle_forget_request_sync(request.header, data);
+				},
+				RequestData::Interrupt(data) => {
+					self.cancel_async_request(data.unique);
+				},
+				_ => {
+					return Err(Error::other(format!(
+						"received opcode {} on the io_uring control channel",
+						request.header.opcode,
+					)));
+				},
+			}
+		}
 	}
 
 	fn thread_loop(
@@ -1059,7 +1206,6 @@ where
 			.iter()
 			.flat_map(|&qid| (0..slots_per_queue).map(move |_| UringSlot::new(qid, payload_size)))
 			.collect::<Vec<_>>();
-		let mut pending_async = vec![None::<(u64, sys::fuse_opcode)>; slot_count];
 		let async_notification_pending = Arc::new(AtomicBool::new(false));
 		let mut eventfd_inflight = false;
 		let mut eventfd_buffer = [0u8; size_of::<u64>()];
@@ -1069,6 +1215,7 @@ where
 		let mut commits =
 			Vec::<(usize, u64, Result<Option<Response>>)>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut deferred = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
+		let mut register_retries = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let registered_buffers = [libc::iovec {
 			iov_base: eventfd_buffer.as_mut_ptr().cast(),
 			iov_len: eventfd_buffer.len(),
@@ -1142,6 +1289,7 @@ where
 
 			let mut saw_eventfd = false;
 			batch_requests.clear();
+			register_retries.clear();
 			{
 				let mut completion = io_uring.completion();
 				for completion in completion.by_ref().take(THREAD_CQE_BATCH_SIZE) {
@@ -1153,27 +1301,55 @@ where
 					}
 
 					let slot = completion.user_data().to_usize().unwrap();
+					let Some(slot_data) = slots.get_mut(slot) else {
+						return Err(Error::other(format!(
+							"received an io_uring completion for invalid slot {slot}",
+						)));
+					};
 
 					if completion.result() < 0 {
 						let error = -completion.result();
-						if error == libc::EINTR || error == libc::EAGAIN || error == libc::ENOENT {
+						if error == libc::EAGAIN
+							&& matches!(slot_data.state, UringSlotState::Register)
+						{
+							register_retries.push(slot);
 							continue;
 						}
-						if error == libc::ENODEV {
+						if matches!(error, libc::ECONNABORTED | libc::ENODEV | libc::ENOTCONN) {
 							return Ok(());
 						}
-						return Err(Error::from_raw_os_error(error));
+						return Err(Error::other(format!(
+							"io_uring slot {slot} on queue {} failed in state {:?}: {}",
+							slot_data.qid,
+							slot_data.state,
+							Error::from_raw_os_error(error),
+						)));
 					}
 
-					if pending_async.get(slot).and_then(Option::as_ref).is_some() {
+					if !matches!(
+						slot_data.state,
+						UringSlotState::Commit | UringSlotState::Register
+					) {
 						return Err(Error::other(
-							"received a completion for an async pending slot",
+							"received an io_uring request completion for a busy slot",
 						));
 					}
 
-					let request = Self::deserialize_uring_request(slots.get_mut(slot).unwrap())?;
+					let request = Self::deserialize_uring_request(slot_data)?;
+					slot_data.state = UringSlotState::Request {
+						opcode: request.header.opcode,
+						unique: request.header.unique,
+					};
 					batch_requests.push(PendingRequest { slot, request });
 				}
+			}
+			for slot in register_retries.drain(..) {
+				Self::submit_register(
+					&mut io_uring,
+					types::Fixed(THREAD_FIXED_FUSE_FD),
+					slot,
+					slots.get_mut(slot).unwrap(),
+				)?;
 			}
 			self.handle_request_sync_batch(fd.as_raw_fd(), &batch_requests, &mut batch_results)?;
 			commits.clear();
@@ -1213,18 +1389,28 @@ where
 				let PendingRequest { slot, request } = pending_request;
 				let unique = request.header.unique;
 				let opcode = request.header.opcode;
-				if pending_async.get(slot).and_then(Option::as_ref).is_some() {
-					return Err(Error::other("slot already has a pending async request"));
+				let token = self.register_async_request(unique)?;
+				let slot_data = slots.get_mut(slot).unwrap();
+				if !matches!(
+					slot_data.state,
+					UringSlotState::Request {
+						opcode: expected_opcode,
+						unique: expected_unique,
+					} if expected_opcode == opcode && expected_unique == unique
+				) {
+					self.finish_async_request(unique);
+					return Err(Error::other("the io_uring slot request state changed"));
 				}
-				pending_async[slot] = Some((unique, opcode));
-				self.spawn_async_request(
-					slot,
+				slot_data.state = UringSlotState::Async { opcode, unique };
+				self.spawn_async_request(AsyncRequestContext {
+					async_notification_pending: async_notification_pending.clone(),
+					eventfd: eventfd.clone(),
 					request,
-					runtime,
-					sender.clone(),
-					eventfd.clone(),
-					async_notification_pending.clone(),
-				);
+					runtime: runtime.clone(),
+					sender: sender.clone(),
+					slot,
+					token,
+				});
 			}
 			for (slot, unique, result) in commits.drain(..) {
 				Self::submit_commit_and_fetch(
@@ -1243,7 +1429,6 @@ where
 					types::Fixed(THREAD_FIXED_FUSE_FD),
 					&mut io_uring,
 					&mut slots,
-					&mut pending_async,
 					&receiver,
 				)?;
 			}
@@ -1293,12 +1478,16 @@ where
 				_ => false,
 			};
 			if deferred {
-				request_sender
-					.blocking_send(ReadWriteRequest {
-						fd: fd.clone(),
-						request,
-					})
-					.map_err(|_| Error::other("the ReadWrite request dispatcher stopped"))?;
+				let token = self.register_async_request(unique)?;
+				let request = ReadWriteRequest {
+					fd: fd.clone(),
+					request,
+					token,
+				};
+				if let Err(error) = request_sender.blocking_send(request) {
+					self.finish_async_request(error.0.request.header.unique);
+					return Err(Error::other("the ReadWrite request dispatcher stopped"));
+				}
 				continue;
 			}
 			if let Err(error) = &result {
@@ -1352,6 +1541,34 @@ where
 		}
 	}
 
+	fn submit_register(
+		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
+		fixed_fuse_fd: types::Fixed,
+		slot: usize,
+		slot_data: &mut UringSlot,
+	) -> Result<()> {
+		if !matches!(slot_data.state, UringSlotState::Register) {
+			return Err(Error::other("attempted to register a busy io_uring slot"));
+		}
+		let entry = Self::build_fuse_uring_cmd_entry(
+			fixed_fuse_fd,
+			sys::fuse_uring_cmd_FUSE_IO_URING_CMD_REGISTER,
+			0,
+			slot_data.qid,
+			slot_data.iovecs.as_ptr(),
+			slot.to_u64().unwrap(),
+			0,
+		);
+		let mut submission = io_uring.submission();
+		if unsafe { submission.push(&entry) }.is_err() {
+			return Err(Error::other(
+				"failed to submit an io_uring register command",
+			));
+		}
+
+		Ok(())
+	}
+
 	fn submit_commit_and_fetch(
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		fixed_fuse_fd: types::Fixed,
@@ -1360,6 +1577,22 @@ where
 		unique: u64,
 		result: Result<Option<Response>>,
 	) -> Result<()> {
+		let (UringSlotState::Async {
+			unique: expected_unique,
+			..
+		}
+		| UringSlotState::Request {
+			unique: expected_unique,
+			..
+		}) = slot_data.state
+		else {
+			return Err(Error::other("attempted to commit an idle io_uring slot"));
+		};
+		if expected_unique != unique {
+			return Err(Error::other(
+				"attempted to commit the wrong io_uring request",
+			));
+		}
 		Self::prepare_uring_response(slot_data, unique, result)?;
 		let entry = Self::build_fuse_uring_cmd_entry(
 			fixed_fuse_fd,
@@ -1376,6 +1609,7 @@ where
 				"failed to submit uring commit and fetch command",
 			));
 		}
+		slot_data.state = UringSlotState::Commit;
 		Ok(())
 	}
 
@@ -1497,7 +1731,7 @@ where
 			|| (opcode == sys::fuse_opcode_FUSE_GETXATTR
 				&& (error_code == libc::ENODATA || error_code == libc::ERANGE))
 			|| (opcode == sys::fuse_opcode_FUSE_LISTXATTR && error_code == libc::ERANGE)
-			|| error_code == libc::ENOSYS
+			|| matches!(error_code, libc::EINTR | libc::ENOSYS)
 	}
 
 	fn deserialize_uring_request(slot: &mut UringSlot) -> Result<Request> {
@@ -1663,30 +1897,34 @@ where
 		Err(Error::other("failed to deserialize the init request data"))
 	}
 
-	fn spawn_async_request(
-		&self,
-		slot: usize,
-		request: Request,
-		runtime: &tokio::runtime::Handle,
-		sender: crossbeam_channel::Sender<AsyncResponse>,
-		eventfd: Arc<OwnedFd>,
-		async_notification_pending: Arc<AtomicBool>,
-	) {
+	fn spawn_async_request(&self, context: AsyncRequestContext) {
+		let AsyncRequestContext {
+			async_notification_pending,
+			eventfd,
+			request,
+			runtime,
+			sender,
+			slot,
+			token,
+		} = context;
 		let server = self.clone();
 		runtime.spawn(async move {
 			let opcode = request.header.opcode;
 			let unique = request.header.unique;
-			let result = server.handle_request(request).await.inspect_err(|error| {
-				let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
-				if !Self::is_expected_error(opcode, error_code) {
-					tracing::error!(?error, ?opcode, "unexpected error");
-				}
-			});
+			let result = server
+				.handle_cancellable_request(request, token)
+				.await
+				.inspect_err(|error| {
+					let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
+					if !Self::is_expected_error(opcode, error_code) {
+						tracing::error!(?error, ?opcode, "unexpected error");
+					}
+				});
 			let response = AsyncResponse {
-				slot,
-				unique,
 				opcode,
 				result,
+				slot,
+				unique,
 			};
 			if sender.send(response).is_ok()
 				&& !async_notification_pending.swap(true, Ordering::AcqRel)
@@ -1703,28 +1941,26 @@ where
 		fixed_fuse_fd: types::Fixed,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		slots: &mut [UringSlot],
-		pending_async: &mut [Option<(u64, sys::fuse_opcode)>],
 		receiver: &crossbeam_channel::Receiver<AsyncResponse>,
 	) -> Result<()> {
 		while let Ok(response) = receiver.try_recv() {
 			let Some(slot_data) = slots.get_mut(response.slot) else {
-				tracing::error!(slot = response.slot, "invalid async slot");
-				continue;
+				return Err(Error::other(format!(
+					"received an async response for invalid io_uring slot {}",
+					response.slot,
+				)));
 			};
-			let Some((unique, opcode)) = pending_async[response.slot].take() else {
-				tracing::error!(slot = response.slot, "received unexpected async response");
-				continue;
+			let UringSlotState::Async { opcode, unique } = slot_data.state else {
+				return Err(Error::other(format!(
+					"received an async response for io_uring slot {} in state {:?}",
+					response.slot, slot_data.state,
+				)));
 			};
 			if unique != response.unique || opcode != response.opcode {
-				tracing::error!(
-					slot = response.slot,
-					expected_unique = unique,
-					expected_opcode = opcode,
-					received_unique = response.unique,
-					received_opcode = response.opcode,
-					"received an async response for a different request",
-				);
-				continue;
+				return Err(Error::other(format!(
+					"received an async response for a different request in io_uring slot {}",
+					response.slot,
+				)));
 			}
 			if let Err(error) = &response.result {
 				let code = error.raw_os_error().unwrap_or(libc::ENOSYS);
@@ -1894,7 +2130,7 @@ where
 				},
 				RequestData::Interrupt(data) => {
 					actions.push(BatchAction::Ready(Ok(Some(
-						Self::handle_interrupt_request_sync(request.header, *data),
+						self.handle_interrupt_request_sync(request.header, *data),
 					))));
 				},
 				RequestData::Unsupported(opcode) => {
@@ -2805,14 +3041,17 @@ where
 	async fn handle_interrupt_request(
 		&self,
 		_header: fuse_in_header,
-		_request: fuse_interrupt_in,
+		request: fuse_interrupt_in,
 	) -> Result<Option<Response>> {
+		self.cancel_async_request(request.unique);
 		Ok(Some(Response::Interrupt))
 	}
 	fn handle_interrupt_request_sync(
+		&self,
 		_header: fuse_in_header,
-		_request: fuse_interrupt_in,
+		request: fuse_interrupt_in,
 	) -> Response {
+		self.cancel_async_request(request.unique);
 		Response::Interrupt
 	}
 	async fn handle_unsupported_request(
@@ -2982,6 +3221,7 @@ impl UringSlot {
 			iovecs,
 			payload,
 			qid,
+			state: UringSlotState::Register,
 		}
 	}
 }
