@@ -60,10 +60,6 @@ where
 				sqpoll_wq_fd: sqpoll_ring.as_ref().unwrap().as_raw_fd(),
 			};
 			match server.start_ring_transport(context).await {
-				Ok(threads) => Transport {
-					dispatcher: None,
-					threads,
-				},
 				Err(failure) if config.options.io == Io::Auto => {
 					if !failure.disconnected {
 						return Err(Error::other(format!(
@@ -101,6 +97,10 @@ where
 					}
 				},
 				Err(failure) => return Err(failure.error),
+				Ok(threads) => Transport {
+					dispatcher: None,
+					threads,
+				},
 			}
 		} else {
 			let context = ReadWriteStartupContext {
@@ -163,7 +163,6 @@ where
 			None
 		} else {
 			match Self::ring_config(page_size) {
-				Ok(config) => Some(config),
 				Err(error) if options.io == Io::Auto => {
 					tracing::warn!(
 						%error,
@@ -173,11 +172,12 @@ where
 					None
 				},
 				Err(error) => return Err(error),
+				Ok(config) => Some(config),
 			}
 		};
 		let limits = match ring_config {
-			Some(config) => config.limits,
 			None => Self::request_limits(page_size, DEFAULT_MAX_WRITE)?,
+			Some(config) => config.limits,
 		};
 
 		Ok(StartupConfig {
@@ -200,7 +200,6 @@ where
 			}
 
 			match Self::build_sqpoll_ring() {
-				Ok(ring) => return Ok((connection, Some(ring))),
 				Err(error) if config.options.io == Io::Auto => {
 					tracing::warn!(
 						%error,
@@ -217,6 +216,7 @@ where
 					Self::unmount(path).await.ok();
 					return Err(error);
 				},
+				Ok(ring) => return Ok((connection, Some(ring))),
 			}
 		}
 	}

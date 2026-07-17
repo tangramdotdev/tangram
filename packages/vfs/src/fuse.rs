@@ -90,26 +90,25 @@ pub struct Server<P>(Arc<State<P>>);
 pub struct State<P> {
 	active_requests: Mutex<HashMap<u64, CancellationToken>>,
 	no_opendir_support: bool,
-	pending_response_resources: Mutex<HashMap<u64, ResponseResources>>,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
 	passthrough_enabled: bool,
 	passthrough_permission_warning_emitted: AtomicBool,
 	passthrough_required: bool,
+	pending_response_resources: Mutex<HashMap<u64, ResponseResources>>,
 	provider: P,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 }
 
-/// A request.
 #[derive(Clone, Debug)]
 struct Request {
-	header: sys::fuse_in_header,
 	data: RequestData,
+	header: sys::fuse_in_header,
 }
 
 #[derive(Clone, Debug)]
 struct PendingRequest {
-	slot: usize,
 	request: Request,
+	slot: usize,
 }
 
 enum WorkerEvent {
@@ -122,7 +121,6 @@ enum Dispatch {
 	Ready(Result<Response>),
 }
 
-/// A request's data.
 #[derive(Clone, Debug)]
 enum RequestData {
 	BatchForget(sys::fuse_batch_forget_in, Vec<sys::fuse_forget_one>),
@@ -148,7 +146,6 @@ enum RequestData {
 	Unsupported(u32),
 }
 
-/// A response.
 #[derive(Clone, Debug)]
 enum Response {
 	BatchForget,
@@ -214,6 +211,7 @@ struct RequestLimits {
 	request_buffer_size: usize,
 }
 
+// The field order matches the FUSE protocol ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 struct FuseInitInV7p1 {
@@ -221,6 +219,7 @@ struct FuseInitInV7p1 {
 	minor: u32,
 }
 
+// The field order matches the FUSE protocol ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 struct FuseInitInV7p6 {
@@ -230,6 +229,7 @@ struct FuseInitInV7p6 {
 	flags: u32,
 }
 
+// The field order matches the FUSE protocol ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 struct FuseDirentHeader {
@@ -239,6 +239,7 @@ struct FuseDirentHeader {
 	type_: u32,
 }
 
+// The field order matches the FUSE protocol ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 struct FuseDirentPlusHeader {
@@ -248,6 +249,13 @@ struct FuseDirentPlusHeader {
 
 struct IoctlPointerInt<'a, const OPCODE: rustix::ioctl::Opcode, T> {
 	value: &'a mut T,
+}
+
+impl<'a, const OPCODE: rustix::ioctl::Opcode, T> IoctlPointerInt<'a, OPCODE, T> {
+	#[must_use]
+	const fn new(value: &'a mut T) -> Self {
+		Self { value }
+	}
 }
 
 impl<P> Clone for Server<P> {
@@ -261,12 +269,6 @@ impl<P> Deref for Server<P> {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
-	}
-}
-
-impl<'a, const OPCODE: rustix::ioctl::Opcode, T> IoctlPointerInt<'a, OPCODE, T> {
-	const fn new(value: &'a mut T) -> Self {
-		Self { value }
 	}
 }
 

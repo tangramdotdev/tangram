@@ -96,8 +96,8 @@ where
 				return Err(Error::other("the possible CPU set contains an empty range"));
 			}
 			let (start, end) = match range.split_once('-') {
-				Some((start, end)) => (start, end),
 				None => (range, range),
+				Some((start, end)) => (start, end),
 			};
 			let start = start.parse::<usize>().map_err(|error| {
 				Error::other(format!("failed to parse a possible CPU range: {error}"))
@@ -246,13 +246,13 @@ where
 
 			for _ in 0..ring_config.worker_count {
 				match event_receiver.recv().await {
-					Some(WorkerEvent::Ready) => {},
+					None => return Err(Error::other("an io_uring worker failed during startup")),
 					Some(WorkerEvent::Failed { error, worker }) => {
 						return Err(Error::other(format!(
 							"{worker} failed during startup: {error}",
 						)));
 					},
-					None => return Err(Error::other("an io_uring worker failed during startup")),
+					Some(WorkerEvent::Ready) => {},
 				}
 			}
 

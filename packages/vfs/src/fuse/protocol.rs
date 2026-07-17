@@ -38,7 +38,7 @@ where
 		bytes.extend_from_slice(&op_in[..op_data_len]);
 		bytes.extend_from_slice(&slot.payload.as_slice()[..payload_size]);
 		let data = Self::parse_request_data(&header, &bytes)?;
-		let request = Request { header, data };
+		let request = Request { data, header };
 		Ok(request)
 	}
 
@@ -60,7 +60,7 @@ where
 		};
 		let data = &data[..data_len];
 		let data = Self::parse_request_data(&header, data)?;
-		let request = Request { header, data };
+		let request = Request { data, header };
 		Ok(request)
 	}
 
@@ -111,6 +111,7 @@ where
 				RequestData::GetXattr(fuse_getxattr_in, name)
 			},
 			sys::fuse_opcode_FUSE_INIT => RequestData::Init(Self::parse_init_request_data(data)?),
+			sys::fuse_opcode_FUSE_INTERRUPT => RequestData::Interrupt(read_data(data)?),
 			sys::fuse_opcode_FUSE_LISTXATTR => RequestData::ListXattr(read_data(data)?),
 			sys::fuse_opcode_FUSE_LOOKUP => {
 				let data = CString::from_vec_with_nul(data.to_owned())
@@ -127,7 +128,6 @@ where
 			sys::fuse_opcode_FUSE_RELEASEDIR => RequestData::ReleaseDir(read_data(data)?),
 			sys::fuse_opcode_FUSE_STATFS => RequestData::Statfs,
 			sys::fuse_opcode_FUSE_STATX => RequestData::Statx(read_data(data)?),
-			sys::fuse_opcode_FUSE_INTERRUPT => RequestData::Interrupt(read_data(data)?),
 			_ => RequestData::Unsupported(header.opcode),
 		};
 		Ok(data)
@@ -140,22 +140,22 @@ where
 		if data.len() >= size_of::<FuseInitInV7p6>() {
 			let data = read_data::<FuseInitInV7p6>(data)?;
 			return Ok(sys::fuse_init_in {
-				major: data.major,
-				minor: data.minor,
-				max_readahead: data.max_readahead,
 				flags: data.flags,
 				flags2: 0,
+				major: data.major,
+				max_readahead: data.max_readahead,
+				minor: data.minor,
 				unused: [0; 11],
 			});
 		}
 		if data.len() >= size_of::<FuseInitInV7p1>() {
 			let data = read_data::<FuseInitInV7p1>(data)?;
 			return Ok(sys::fuse_init_in {
-				major: data.major,
-				minor: data.minor,
-				max_readahead: 0,
 				flags: 0,
 				flags2: 0,
+				major: data.major,
+				max_readahead: 0,
+				minor: data.minor,
 				unused: [0; 11],
 			});
 		}

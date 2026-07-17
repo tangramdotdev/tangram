@@ -36,11 +36,11 @@ where
 			path,
 		} = context;
 		let reader_fds = match Self::clone_read_write_fds(&connection.fd) {
-			Ok(reader_fds) => reader_fds,
 			Err(error) => {
 				Self::disconnect_transport(path, connection.id).await;
 				return Err(error);
 			},
+			Ok(reader_fds) => reader_fds,
 		};
 		let reader_count = reader_fds.len();
 		let (request_sender, request_receiver) =
@@ -82,13 +82,13 @@ where
 					}
 				});
 			match thread {
-				Ok(thread) => thread_handles.push(thread),
 				Err(error) => {
 					startup_error = Some(Error::other(format!(
 						"failed to spawn the ReadWrite reader {reader_id}: {error}",
 					)));
 					break;
 				},
+				Ok(thread) => thread_handles.push(thread),
 			}
 		}
 		drop(request_sender);
@@ -96,18 +96,18 @@ where
 		if startup_error.is_none() {
 			for _ in 0..thread_handles.len() {
 				match event_receiver.recv().await {
-					Some(WorkerEvent::Ready) => {},
+					None => {
+						startup_error =
+							Some(Error::other("a ReadWrite reader failed during startup"));
+						break;
+					},
 					Some(WorkerEvent::Failed { error, worker }) => {
 						startup_error = Some(Error::other(format!(
 							"{worker} failed during startup: {error}"
 						)));
 						break;
 					},
-					None => {
-						startup_error =
-							Some(Error::other("a ReadWrite reader failed during startup"));
-						break;
-					},
+					Some(WorkerEvent::Ready) => {},
 				}
 			}
 		}
@@ -176,9 +176,9 @@ where
 		worker_event_sender: &tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
 	) {
 		let error = match result {
-			Ok(Ok(())) => return,
-			Ok(Err(error)) => error,
 			Err(error) => Error::other(format!("a ReadWrite request task failed: {error}")),
+			Ok(Err(error)) => error,
+			Ok(Ok(())) => return,
 		};
 		tracing::error!(%error, "a ReadWrite request task failed");
 		worker_event_sender
@@ -236,10 +236,10 @@ where
 		loop {
 			let size = loop {
 				match rustix::io::read(fd.as_ref(), &mut buffer) {
-					Ok(size) => break size,
 					Err(Errno::INTR) => {},
 					Err(Errno::NOTCONN) => return Ok(()),
 					Err(error) => return Err(error.into()),
+					Ok(size) => break size,
 				}
 			};
 			if size == 0 {
@@ -250,8 +250,8 @@ where
 			let unique = request.header.unique;
 			let opcode = request.header.opcode;
 			let pending_request = PendingRequest {
-				slot: 0,
 				request: request.clone(),
+				slot: 0,
 			};
 			self.handle_request_sync_batch(fd.as_ref(), &[pending_request], &mut batch_results)?;
 			let dispatch = batch_results

@@ -1,5 +1,28 @@
 use super::*;
 
+pub(super) fn notify_async_response(
+	async_notification_pending: &AtomicBool,
+	eventfd: &OwnedFd,
+	response: AsyncResponse,
+	sender: &crossbeam_channel::Sender<AsyncResponse>,
+	worker_event_sender: &tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
+	worker_id: usize,
+) {
+	if sender.send(response).is_err() || async_notification_pending.swap(true, Ordering::AcqRel) {
+		return;
+	}
+	if let Err(error) = signal_eventfd(eventfd) {
+		async_notification_pending.store(false, Ordering::Release);
+		tracing::error!(?error, %worker_id, "failed to signal the io_uring eventfd");
+		worker_event_sender
+			.send(WorkerEvent::Failed {
+				error,
+				worker: format!("io_uring worker {worker_id} async notifier"),
+			})
+			.ok();
+	}
+}
+
 impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
@@ -136,10 +159,10 @@ where
 		loop {
 			let size = loop {
 				match rustix::io::read(fd.as_ref(), &mut buffer) {
-					Ok(size) => break size,
 					Err(Errno::INTR) => {},
 					Err(Errno::NODEV | Errno::NOTCONN) => return Ok(()),
 					Err(error) => return Err(error.into()),
+					Ok(size) => break size,
 				}
 			};
 			if size == 0 {
@@ -185,27 +208,27 @@ where
 		result: Result<Response>,
 	) -> Result<()> {
 		let (error, response) = match result {
+			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), None),
 			Ok(response) => {
 				if !Self::requires_response(&response) {
 					return Ok(());
 				}
 				(0, Some(response))
 			},
-			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), None),
 		};
 		let payload = response.as_ref().map_or(&[][..], Self::response_bytes);
 		let len = size_of::<fuse_out_header>() + payload.len();
 		let header = fuse_out_header {
-			unique,
-			len: len.to_u32().unwrap(),
 			error: -error,
+			len: len.to_u32().unwrap(),
+			unique,
 		};
 		let iov = [IoSlice::new(header.as_bytes()), IoSlice::new(payload)];
 		let written = loop {
 			match rustix::io::writev(fd, &iov) {
-				Ok(written) => break written,
 				Err(Errno::INTR) => {},
 				Err(error) => return Err(error.into()),
+				Ok(written) => break written,
 			}
 		};
 		if written != len {
@@ -214,6 +237,7 @@ where
 		Ok(())
 	}
 
+	#[must_use]
 	pub(super) fn requires_response(response: &Response) -> bool {
 		!matches!(
 			response,
@@ -221,6 +245,7 @@ where
 		)
 	}
 
+	#[must_use]
 	pub(super) fn response_bytes(response: &Response) -> &[u8] {
 		debug_assert!(Self::requires_response(response));
 		match response {
@@ -232,19 +257,20 @@ where
 			| Response::Release
 			| Response::ReleaseDir => &[],
 			Response::GetAttr(data) => data.as_bytes(),
+			Response::GetXattr(data)
+			| Response::ListXattr(data)
+			| Response::ReadDir(data)
+			| Response::ReadDirPlus { data, .. } => data.as_bytes(),
 			Response::Lookup(data) => data.as_bytes(),
 			Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
 			Response::Read(data) => data.as_ref(),
-			Response::ReadDir(data) | Response::GetXattr(data) | Response::ListXattr(data) => {
-				data.as_bytes()
-			},
-			Response::ReadDirPlus { data, .. } => data.as_bytes(),
 			Response::ReadLink(data) => data.as_bytes(),
 			Response::Statfs(data) => data.as_bytes(),
 			Response::Statx(data) => data.as_bytes(),
 		}
 	}
 
+	#[must_use]
 	pub(super) fn is_expected_error(opcode: sys::fuse_opcode, error_code: i32) -> bool {
 		(opcode == sys::fuse_opcode_FUSE_LOOKUP && error_code == libc::ENOENT)
 			|| (opcode == sys::fuse_opcode_FUSE_GETXATTR
@@ -259,36 +285,13 @@ where
 	}
 }
 
-pub(super) fn notify_async_response(
-	async_notification_pending: &AtomicBool,
-	eventfd: &OwnedFd,
-	response: AsyncResponse,
-	sender: &crossbeam_channel::Sender<AsyncResponse>,
-	worker_event_sender: &tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
-	worker_id: usize,
-) {
-	if sender.send(response).is_err() || async_notification_pending.swap(true, Ordering::AcqRel) {
-		return;
-	}
-	if let Err(error) = signal_eventfd(eventfd) {
-		async_notification_pending.store(false, Ordering::Release);
-		tracing::error!(?error, %worker_id, "failed to signal the io_uring eventfd");
-		worker_event_sender
-			.send(WorkerEvent::Failed {
-				error,
-				worker: format!("io_uring worker {worker_id} async notifier"),
-			})
-			.ok();
-	}
-}
-
 fn signal_eventfd(fd: &OwnedFd) -> Result<()> {
 	let value = 1u64.to_ne_bytes();
 	let ret = loop {
 		match rustix::io::write(fd, &value) {
-			Ok(ret) => break ret,
 			Err(Errno::INTR) => {},
 			Err(error) => return Err(error.into()),
+			Ok(ret) => break ret,
 		}
 	};
 	if ret != value.len() {

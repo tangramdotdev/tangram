@@ -27,12 +27,12 @@ where
 		for pending_request in requests {
 			let request = &pending_request.request;
 			let action = match self.plan_request(request) {
+				Err(error) => BatchAction::Ready(Err(error)),
 				Ok(Plan::Local) => BatchAction::Ready(self.handle_local_request_sync(fd, request)),
 				Ok(Plan::Provider(provider_request)) => {
 					provider_requests.push(provider_request);
 					BatchAction::NeedsProvider
 				},
-				Err(error) => BatchAction::Ready(Err(error)),
 			};
 			actions.push(action);
 		}
@@ -55,6 +55,10 @@ where
 						.next()
 						.ok_or_else(|| Error::other("missing provider batch response"))?;
 					let next_action = match provider_result {
+						Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
+							BatchAction::Deferred
+						},
+						Err(error) => BatchAction::Ready(Err(error)),
 						Ok(response) => {
 							let result = self.map_provider_response_sync(
 								fd,
@@ -63,10 +67,6 @@ where
 							);
 							BatchAction::Ready(result)
 						},
-						Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
-							BatchAction::Deferred
-						},
-						Err(error) => BatchAction::Ready(Err(error)),
 					};
 					*action = next_action;
 				}
@@ -78,6 +78,9 @@ where
 		for (action, request) in std::iter::zip(actions, requests) {
 			match action {
 				BatchAction::Deferred => batch_results.push(Dispatch::Deferred),
+				BatchAction::NeedsProvider => {
+					return Err(Error::other("missing provider batch result"));
+				},
 				BatchAction::Ready(result) => {
 					let deferred = result.as_ref().is_err_and(|error| {
 						error.raw_os_error() == Some(libc::ENOSYS)
@@ -93,9 +96,6 @@ where
 						)?;
 						batch_results.push(Dispatch::Ready(result));
 					}
-				},
-				BatchAction::NeedsProvider => {
-					return Err(Error::other("missing provider batch result"));
 				},
 			}
 		}
@@ -182,6 +182,7 @@ where
 		Ok(Plan::Provider(provider_request))
 	}
 
+	#[must_use]
 	fn provider_response_handle(response: &ProviderResponse) -> Option<u64> {
 		match response {
 			ProviderResponse::Open { handle, .. } | ProviderResponse::OpenDir { handle } => {
@@ -295,8 +296,8 @@ where
 					.ok_or_else(|| Error::from_raw_os_error(libc::ENODATA))?;
 				if request.size == 0 {
 					let response = fuse_getxattr_out {
-						size: attr.len().to_u32().unwrap(),
 						padding: 0,
+						size: attr.len().to_u32().unwrap(),
 					};
 					Ok(Response::GetXattr(response.as_bytes().to_vec()))
 				} else if request.size.to_usize().unwrap() < attr.len() {
@@ -319,8 +320,8 @@ where
 					.collect::<Vec<_>>();
 				if request.size == 0 {
 					let response = fuse_getxattr_out {
-						size: attrs.len().to_u32().unwrap(),
 						padding: 0,
+						size: attrs.len().to_u32().unwrap(),
 					};
 					Ok(Response::ListXattr(response.as_bytes().to_vec()))
 				} else if request.size.to_usize().unwrap() < attrs.len() {
@@ -339,7 +340,7 @@ where
 				Ok(Response::Lookup(out))
 			},
 			RequestData::Open(_) => {
-				let ProviderResponse::Open { handle, backing_fd } = response else {
+				let ProviderResponse::Open { backing_fd, handle } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
 				let mut open_flags = sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE;
@@ -354,17 +355,13 @@ where
 							return Err(Error::from_raw_os_error(libc::EOPNOTSUPP));
 						}
 						let out = fuse_open_out {
+							backing_id,
 							fh: handle,
 							open_flags,
-							backing_id,
 						};
 						return Ok(Response::Open(out));
 					};
 					match self.register_passthrough_backing(fd, handle, &backing_fd) {
-						Ok(id) => {
-							open_flags = sys::FOPEN_PASSTHROUGH;
-							backing_id = id;
-						},
 						Err(error) => {
 							if error.raw_os_error() == Some(libc::EPERM)
 								&& !self
@@ -389,12 +386,16 @@ where
 								"failed to register passthrough backing"
 							);
 						},
+						Ok(id) => {
+							open_flags = sys::FOPEN_PASSTHROUGH;
+							backing_id = id;
+						},
 					}
 				}
 				let out = fuse_open_out {
+					backing_id,
 					fh: handle,
 					open_flags,
-					backing_id,
 				};
 				Ok(Response::Open(out))
 			},
@@ -403,9 +404,9 @@ where
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
 				let out = fuse_open_out {
+					backing_id: -1,
 					fh: handle,
 					open_flags: sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE,
-					backing_id: -1,
 				};
 				Ok(Response::OpenDir(out))
 			},
@@ -450,6 +451,7 @@ where
 	pub(super) async fn handle_request(&self, fd: &OwnedFd, request: Request) -> Result<Response> {
 		let unique = request.header.unique;
 		let result = match self.plan_request(&request) {
+			Err(error) => Err(error),
 			Ok(Plan::Local) => self.handle_local_request(fd, &request).await,
 			Ok(Plan::Provider(provider_request)) => {
 				let mut results = self.provider.handle_batch(vec![provider_request]).await;
@@ -457,6 +459,7 @@ where
 					return Err(Error::other("mismatched provider batch response length"));
 				}
 				match results.pop().unwrap() {
+					Err(error) => Err(error),
 					Ok(response) => {
 						let handle = Self::provider_response_handle(&response);
 						let result = self.map_provider_response(fd, &request, response);
@@ -467,10 +470,8 @@ where
 						}
 						result
 					},
-					Err(error) => Err(error),
 				}
 			},
-			Err(error) => Err(error),
 		};
 		self.register_response_resources(fd, unique, &result)?;
 
@@ -568,6 +569,7 @@ where
 		Ok(())
 	}
 
+	#[must_use]
 	fn build_read_dir_response(
 		entries: Vec<(String, u64, crate::EntryKind)>,
 		request: fuse_read_in,
@@ -587,8 +589,8 @@ where
 			let offset = request.offset.saturating_add(offset.to_u64().unwrap());
 			let dirent = FuseDirentHeader {
 				ino: node,
-				off: offset.saturating_add(1),
 				namelen: name.len().to_u32().unwrap(),
+				off: offset.saturating_add(1),
 				type_,
 			};
 			response.extend_from_slice(dirent.as_bytes());
@@ -628,14 +630,14 @@ where
 
 			let dirent = FuseDirentHeader {
 				ino: node,
-				off: offset.to_u64().unwrap() + 1,
 				namelen: name.len().to_u32().unwrap(),
+				off: offset.to_u64().unwrap() + 1,
 				type_,
 			};
 
 			let entry = FuseDirentPlusHeader {
-				entry_out: Self::fuse_entry_out_from_attrs(node, attr),
 				dirent,
+				entry_out: Self::fuse_entry_out_from_attrs(node, attr),
 			};
 			response.extend_from_slice(entry.as_bytes());
 			response.extend_from_slice(&name);
@@ -704,17 +706,18 @@ where
 			tracing::error!(?error, %fh, %backing_id, "failed to close passthrough backing");
 		}
 	}
+	#[must_use]
 	fn statfs_response() -> Response {
 		let out = sys::fuse_statfs_out {
 			st: sys::fuse_kstatfs {
-				blocks: u64::MAX / 2,
-				bfree: u64::MAX / 2,
 				bavail: u64::MAX / 2,
-				files: u64::MAX / 2,
-				ffree: u64::MAX / 2,
+				bfree: u64::MAX / 2,
+				blocks: u64::MAX / 2,
 				bsize: 65536,
-				namelen: u32::MAX,
+				ffree: u64::MAX / 2,
+				files: u64::MAX / 2,
 				frsize: 1024,
+				namelen: u32::MAX,
 				padding: 0,
 				spare: [0; 6],
 			},
@@ -722,6 +725,7 @@ where
 		Response::Statfs(out)
 	}
 
+	#[must_use]
 	pub(super) fn fuse_statx_out(attr: sys::fuse_attr_out, flags: u32) -> sys::fuse_statx_out {
 		let time = |seconds: u64, nanoseconds: u32| sys::fuse_sx_time {
 			__reserved: 0,
@@ -739,8 +743,8 @@ where
 				atime: time(attr.attr.atime, attr.attr.atimensec),
 				attributes: 0,
 				attributes_mask: 0,
-				blocks: attr.attr.blocks,
 				blksize: attr.attr.blksize,
+				blocks: attr.attr.blocks,
 				btime: time(0, 0),
 				ctime: time(attr.attr.ctime, attr.attr.ctimensec),
 				dev_major: 0,
@@ -770,6 +774,7 @@ where
 		Err(Error::from_raw_os_error(libc::ENOSYS))
 	}
 
+	#[must_use]
 	pub(super) fn fuse_attr_out(node: u64, attr: crate::Attrs) -> fuse_attr_out {
 		let (size, mode) = match attr.inner {
 			AttrsInner::Directory => (0, S_IFDIR | 0o555),
@@ -782,43 +787,45 @@ where
 		let mode = mode.to_u32().unwrap();
 		let blocks = size.div_ceil(512);
 		fuse_attr_out {
-			attr_valid: u64::MAX,
-			attr_valid_nsec: 0,
 			attr: fuse_attr {
-				ino: node,
-				size,
-				blocks,
 				atime: attr.atime.secs,
 				atimensec: attr.atime.nanos,
-				mtime: attr.mtime.secs,
-				mtimensec: attr.mtime.nanos,
+				blksize: 512,
+				blocks,
 				ctime: attr.ctime.secs,
 				ctimensec: attr.ctime.nanos,
-				mode,
-				nlink: 1,
-				uid: attr.uid,
-				gid: attr.gid,
-				rdev: 0,
-				blksize: 512,
 				flags: 0,
+				gid: attr.gid,
+				ino: node,
+				mode,
+				mtime: attr.mtime.secs,
+				mtimensec: attr.mtime.nanos,
+				nlink: 1,
+				rdev: 0,
+				size,
+				uid: attr.uid,
 			},
+			attr_valid: u64::MAX,
+			attr_valid_nsec: 0,
 			dummy: 0,
 		}
 	}
 
+	#[must_use]
 	fn fuse_entry_out_from_attrs(node: u64, attr: crate::Attrs) -> fuse_entry_out {
 		let attr_out = Self::fuse_attr_out(node, attr);
 		fuse_entry_out {
-			nodeid: node,
-			generation: 0,
-			entry_valid: u64::MAX,
-			attr_valid: u64::MAX,
-			entry_valid_nsec: 0,
-			attr_valid_nsec: 0,
 			attr: attr_out.attr,
+			attr_valid: u64::MAX,
+			attr_valid_nsec: 0,
+			entry_valid: u64::MAX,
+			entry_valid_nsec: 0,
+			generation: 0,
+			nodeid: node,
 		}
 	}
 
+	#[must_use]
 	fn fuse_dirent_type(kind: crate::EntryKind) -> u32 {
 		match kind {
 			crate::EntryKind::Directory => S_IFDIR,

@@ -8,6 +8,7 @@ const THREAD_FIXED_FUSE_FD: u32 = 0;
 const URING_CMD_BYTES: usize = 80;
 const URING_IOVEC_COUNT: u32 = 2;
 
+// The field order matches the kernel's stable io_uring submission entry prefix.
 #[repr(C)]
 struct IoUringSqePrefix {
 	opcode: u8,
@@ -77,6 +78,7 @@ where
 		RingWorker::new(self.clone(), fd.clone(), runtime.clone(), config)?.run()
 	}
 
+	#[must_use]
 	fn build_fuse_uring_cmd_entry(
 		fd: types::Fixed,
 		cmd_op: u32,
@@ -87,10 +89,10 @@ where
 		command_flags: u64,
 	) -> io_uring::squeue::Entry128 {
 		let request = sys::fuse_uring_cmd_req {
-			flags: command_flags,
 			commit_id,
-			qid,
+			flags: command_flags,
 			padding: [0; 6],
+			qid,
 		};
 		let mut cmd = [0u8; URING_CMD_BYTES];
 		cmd[..size_of::<sys::fuse_uring_cmd_req>()].copy_from_slice(request.as_bytes());
@@ -233,6 +235,7 @@ where
 		let in_out = slot_data.header.in_out.as_mut_bytes();
 		in_out.fill(0);
 		let (error, payload_len, needs_header) = match result {
+			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), 0, true),
 			Ok(response) => {
 				if Self::requires_response(&response) {
 					let payload = Self::response_bytes(&response);
@@ -245,22 +248,21 @@ where
 					(0, 0, false)
 				}
 			},
-			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), 0, true),
 		};
 		if needs_header {
 			let len = size_of::<fuse_out_header>() + payload_len;
 			let out = fuse_out_header {
-				unique,
-				len: len.to_u32().unwrap(),
 				error: -error,
+				len: len.to_u32().unwrap(),
+				unique,
 			};
 			in_out[..size_of::<fuse_out_header>()].copy_from_slice(out.as_bytes());
 		}
 		slot_data.header.ring_ent_in_out = sys::fuse_uring_ent_in_out {
-			flags: 0,
 			commit_id: unique,
-			payload_sz: payload_len.to_u32().unwrap(),
+			flags: 0,
 			padding: 0,
+			payload_sz: payload_len.to_u32().unwrap(),
 			reserved: 0,
 		};
 		Ok(())
@@ -558,7 +560,7 @@ where
 						opcode: request.header.opcode,
 						unique: request.header.unique,
 					};
-					batch_requests.push(PendingRequest { slot, request });
+					batch_requests.push(PendingRequest { request, slot });
 				}
 			}
 			for slot in register_retries.drain(..) {
@@ -610,7 +612,7 @@ where
 				}
 			}
 			for pending_request in deferred.drain(..) {
-				let PendingRequest { slot, request } = pending_request;
+				let PendingRequest { request, slot } = pending_request;
 				let unique = request.header.unique;
 				let opcode = request.header.opcode;
 				let token = self.server.register_async_request(unique)?;
@@ -664,6 +666,7 @@ where
 }
 
 impl UringSlot {
+	#[must_use]
 	pub(in crate::fuse) fn new(qid: u16, payload_size: usize) -> Self {
 		let mut header = Box::new(sys::fuse_uring_req_header::new_zeroed());
 		let mut payload = vec![0u8; payload_size];

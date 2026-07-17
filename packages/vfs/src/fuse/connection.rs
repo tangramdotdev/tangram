@@ -28,12 +28,12 @@ where
 				Ok((connection_id, features))
 			});
 		let (connection_id, features) = match result {
-			Ok(result) => result,
 			Err(error) => {
 				drop(fd);
 				Self::unmount(path).await.ok();
 				return Err(error);
 			},
+			Ok(result) => result,
 		};
 
 		Ok(Connection {
@@ -187,6 +187,7 @@ where
 		))
 	}
 
+	#[must_use]
 	pub(super) fn unescape_mountinfo_path(path: &str) -> std::path::PathBuf {
 		let bytes = path.as_bytes();
 		let mut output = Vec::with_capacity(bytes.len());
@@ -282,9 +283,9 @@ where
 		let mut buffer = vec![0u8; limits.request_buffer_size];
 		loop {
 			let ret = match rustix::io::read(fd, &mut buffer) {
-				Ok(ret) => ret,
 				Err(Errno::INTR) => continue,
 				Err(error) => return Err(error.into()),
+				Ok(ret) => ret,
 			};
 			if ret == 0 {
 				return Err(Error::other("failed to read init request"));
@@ -332,28 +333,28 @@ where
 				0
 			};
 			let response = fuse_init_out {
-				major: FUSE_KERNEL_VERSION,
-				minor,
-				max_readahead: limits.max_write,
-				flags,
-				max_background: 0,
 				congestion_threshold: 0,
-				max_write: limits.max_write,
-				time_gran: 0,
-				max_pages,
-				map_alignment,
+				flags,
 				flags2,
+				major: FUSE_KERNEL_VERSION,
+				map_alignment,
+				max_background: 0,
+				max_pages,
+				max_readahead: limits.max_write,
 				max_stack_depth,
+				max_write: limits.max_write,
+				minor,
 				request_timeout: 0,
+				time_gran: 0,
 				unused: [0; 11],
 			};
 
 			let data = &response.as_bytes()[..Self::init_response_size(minor)];
 			let len = size_of::<fuse_out_header>() + data.len();
 			let header = fuse_out_header {
-				unique: request.header.unique,
-				len: len.to_u32().unwrap(),
 				error: 0,
+				len: len.to_u32().unwrap(),
+				unique: request.header.unique,
 			};
 			let header = header.as_bytes();
 			let iov = [IoSlice::new(header), IoSlice::new(data)];
@@ -366,6 +367,7 @@ where
 		}
 	}
 
+	#[must_use]
 	pub(super) fn init_response_size(minor: u32) -> usize {
 		if minor < 5 {
 			sys::FUSE_COMPAT_INIT_OUT_SIZE.to_usize().unwrap()
@@ -376,6 +378,7 @@ where
 		}
 	}
 
+	#[must_use]
 	pub(super) fn is_clone_not_supported_error(error: &Error) -> bool {
 		matches!(
 			error.raw_os_error(),
@@ -414,7 +417,6 @@ where
 		fds.push(fd.clone());
 		for reader_id in 1..reader_count {
 			match Self::clone_thread_fd(fd) {
-				Ok(fd) => fds.push(Arc::new(fd)),
 				Err(error) if Self::is_clone_not_supported_error(&error) => {
 					tracing::warn!(
 						?error,
@@ -428,6 +430,7 @@ where
 						"failed to clone the ReadWrite reader fd {reader_id}: {error}",
 					)));
 				},
+				Ok(fd) => fds.push(Arc::new(fd)),
 			}
 		}
 
