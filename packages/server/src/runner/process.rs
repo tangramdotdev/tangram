@@ -402,12 +402,16 @@ impl Session {
 		};
 
 		// Store the error.
-		let mut error = if let Some(error) = &output.error {
+		let (mut error, error_code) = if let Some(error) = &output.error {
 			let error = error.to_data_or_id();
+			let error_code = match &error {
+				tg::Either::Left(data) => data.code,
+				tg::Either::Right(_) => None,
+			};
 			let error = session.store_process_error(error).await;
-			Some(error.map_right(tg::Referent::with_item))
+			(Some(error.map_right(tg::Referent::with_item)), error_code)
 		} else {
-			None
+			(None, None)
 		};
 		let mut exit = output.exit;
 
@@ -469,6 +473,16 @@ impl Session {
 			.processes
 			.get_mut(id)
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		if matches!(
+			error_code,
+			Some(
+				tg::error::Code::Cancellation
+					| tg::error::Code::HeartbeatExpiration
+					| tg::error::Code::Internal
+			)
+		) {
+			process_state.data.cacheable = false;
+		}
 		if let Some(expected) = &process_state.data.expected_checksum
 			&& exit == 0
 		{

@@ -80,17 +80,6 @@ impl Session {
 			if !data.cacheable || data.expected_checksum != arg.checksum {
 				continue;
 			}
-			let error_code = self.cached_process_error_code(data).await?;
-			if matches!(
-				error_code,
-				Some(
-					tg::error::Code::Cancellation
-						| tg::error::Code::HeartbeatExpiration
-						| tg::error::Code::Internal
-				)
-			) {
-				continue;
-			}
 			let failed = data.error.is_some() || data.exit.is_some_and(|exit| exit != 0);
 			if failed && arg.retry {
 				continue;
@@ -124,7 +113,7 @@ impl Session {
 			};
 			if source_expected_checksum == actual_checksum
 				|| !matches!(
-					self.cached_process_error_code(data).await?,
+					Self::cached_process_error_code(data),
 					Some(tg::error::Code::ChecksumMismatch)
 				) {
 				continue;
@@ -250,24 +239,13 @@ impl Session {
 		Ok(self.context.principal.clone())
 	}
 
-	async fn cached_process_error_code(
-		&self,
-		data: &tg::process::Data,
-	) -> tg::Result<Option<tg::error::Code>> {
+	fn cached_process_error_code(data: &tg::process::Data) -> Option<tg::error::Code> {
 		let Some(error) = &data.error else {
-			return Ok(None);
+			return None;
 		};
 		match error {
-			tg::Either::Left(data) => Ok(data.code),
-			tg::Either::Right(id) => {
-				let data = tg::Error::with_referent(id.clone())
-					.data_with_handle(self)
-					.await
-					.map_err(|error| {
-						tg::error!(!error, "failed to get the cached process error")
-					})?;
-				Ok(data.code)
-			},
+			tg::Either::Left(data) => data.code,
+			tg::Either::Right(_) => None,
 		}
 	}
 

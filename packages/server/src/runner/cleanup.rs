@@ -80,6 +80,7 @@ impl Server {
 				.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
 			if data.status.is_started() {
 				data.children.get_or_insert_default();
+				data.cacheable = false;
 				data.error = Some(tg::Either::Left(error.clone()));
 				data.exit = Some(1);
 				data.finished_at = Some(now);

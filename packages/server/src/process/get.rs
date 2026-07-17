@@ -147,6 +147,11 @@ impl Session {
 	) -> tg::Result<LocalOutput> {
 		let data_future = async {
 			if let Some(data) = self.server.runner.state.try_get_process(id) {
+				if data.status.is_finished()
+					&& let Some(output) = self.try_get_process_from_process_store(id).await?
+				{
+					return Ok::<_, tg::Error>((output.data, false));
+				}
 				let requires_existence_check = data.status.is_finished();
 				return Ok::<_, tg::Error>((data, requires_existence_check));
 			}
@@ -154,8 +159,13 @@ impl Session {
 			let control_future = self.get_process_from_control(id);
 			let process_store_future = self.try_get_process_from_process_store(id);
 			match future::select(pin!(control_future), pin!(process_store_future)).await {
-				future::Either::Left((result, _)) => {
+				future::Either::Left((result, process_store_future)) => {
 					let data = result?;
+					if data.status.is_finished()
+						&& let Some(output) = process_store_future.await?
+					{
+						return Ok((output.data, false));
+					}
 					let requires_existence_check = data.status.is_finished();
 					Ok((data, requires_existence_check))
 				},
@@ -345,7 +355,7 @@ impl Session {
 		};
 
 		// Spawn a task to put the process if it is finished.
-		if output.data.status.is_finished() {
+		if output.data.status.is_finished() && !Self::process_log_needs_compaction(&output.data) {
 			tokio::spawn({
 				let session = self.clone();
 				let id = id.clone();
