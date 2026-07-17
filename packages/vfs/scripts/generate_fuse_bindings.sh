@@ -93,7 +93,7 @@ variables=(
 
 args=(
 	"$header"
-	--formatter rustfmt
+	--formatter none
 	--generate types,vars
 	--no-doc-comments
 	--no-layout-tests
@@ -108,3 +108,4 @@ for variable in "${variables[@]}"; do
 done
 
 bindgen "${args[@]}" --output "$output"
+rustfmt --config-path "$root/rustfmt.toml" "$output"
