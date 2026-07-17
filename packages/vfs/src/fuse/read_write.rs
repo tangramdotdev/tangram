@@ -196,14 +196,24 @@ where
 		let result = self
 			.handle_cancellable_request(fd.as_ref(), request, token)
 			.await;
+		self.complete_read_write_response(fd.as_ref(), unique, opcode, result)
+	}
+
+	fn complete_read_write_response(
+		&self,
+		fd: &OwnedFd,
+		unique: u64,
+		opcode: sys::fuse_opcode,
+		result: Result<Response>,
+	) -> Result<()> {
 		if let Err(error) = &result {
 			let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
 			if !Self::is_expected_error(opcode, error_code) {
 				tracing::error!(?error, ?opcode, "unexpected error");
 			}
 		}
-		if let Err(error) = Self::write_response(fd.as_ref(), unique, result) {
-			self.rollback_response_resources(fd.as_ref(), unique);
+		if let Err(error) = Self::write_response(fd, unique, result) {
+			self.rollback_response_resources(fd, unique);
 			match error.raw_os_error() {
 				Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
 				_ => return Err(error),
@@ -260,21 +270,7 @@ where
 				}
 				continue;
 			};
-			if let Err(error) = &result {
-				let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
-				if !Self::is_expected_error(opcode, error_code) {
-					tracing::error!(?error, ?opcode, "unexpected error");
-				}
-			}
-			if let Err(error) = Self::write_response(fd.as_ref(), unique, result) {
-				self.rollback_response_resources(fd.as_ref(), unique);
-				match error.raw_os_error() {
-					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
-					_ => return Err(error),
-				}
-			} else {
-				self.commit_response_resources(unique);
-			}
+			self.complete_read_write_response(fd.as_ref(), unique, opcode, result)?;
 		}
 	}
 }

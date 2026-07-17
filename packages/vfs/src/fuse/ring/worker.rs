@@ -285,13 +285,7 @@ where
 			let unique = request.header.unique;
 			let result = server
 				.handle_cancellable_request(fd.as_ref(), request, token)
-				.await
-				.inspect_err(|error| {
-					let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
-					if !Self::is_expected_error(opcode, error_code) {
-						tracing::error!(?error, ?opcode, "unexpected error");
-					}
-				});
+				.await;
 			let response = AsyncResponse {
 				opcode,
 				result,
