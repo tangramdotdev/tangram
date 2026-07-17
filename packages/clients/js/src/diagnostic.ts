@@ -58,10 +58,11 @@ export namespace Diagnostic {
 		export let withoutTokens = (
 			data: tg.Diagnostic.Data,
 		): tg.Diagnostic.Data => {
+			let output = { ...data };
 			if (data.location !== undefined && data.location !== null) {
-				data.location = tg.Module.Location.Data.withoutTokens(data.location);
+				output.location = tg.Module.Location.Data.withoutTokens(data.location);
 			}
-			return data;
+			return output;
 		};
 	}
 }

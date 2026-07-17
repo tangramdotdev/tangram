@@ -5,7 +5,6 @@ use {
 
 impl Index {
 	pub async fn batch(&self, arg: crate::batch::Arg) -> tg::Result<()> {
-		let arg = arg.without_tokens();
 		if arg.is_empty() {
 			return Ok(());
 		}

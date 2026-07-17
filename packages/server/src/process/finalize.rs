@@ -234,6 +234,7 @@ impl Server {
 			.try_get_process_local(id, false)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the process"))?;
+		let data = data.without_tokens();
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let error = data.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => {

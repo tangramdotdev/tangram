@@ -216,6 +216,7 @@ impl Session {
 			.boxed();
 
 		if let Some(data) = data {
+			let data = data.without_tokens();
 			let index_arg = tangram_index::batch::Arg {
 				put_processes: vec![tangram_index::process::put::Arg {
 					children: None,

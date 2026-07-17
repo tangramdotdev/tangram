@@ -34,7 +34,7 @@ impl Session {
 
 		let items = items
 			.iter()
-			.map(|(id, data)| ((*id).clone(), (*data).clone().without_tokens()))
+			.map(|(id, data)| ((*id).clone(), (*data).clone()))
 			.collect::<Vec<_>>();
 		let creator = creator.cloned();
 

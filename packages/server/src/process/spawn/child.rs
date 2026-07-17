@@ -93,6 +93,7 @@ impl Session {
 		parent_data: tg::process::Data,
 	) {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let parent_data = parent_data.without_tokens();
 		let parent_arg = tangram_index::process::put::Arg {
 			children: None,
 			command: parent_data.command.clone().into(),

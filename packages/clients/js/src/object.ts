@@ -202,45 +202,36 @@ export namespace Object {
 
 	export namespace Object {
 		export let toData = (object: tg.Object.Object): tg.Object.Data => {
-			let data: tg.Object.Data;
 			switch (object.kind) {
 				case "blob": {
 					let value = tg.Blob.Object.toData(object.value);
-					data = { kind: "blob", value };
-					break;
+					return { kind: "blob", value };
 				}
 				case "directory": {
 					let value = tg.Directory.Object.toData(object.value);
-					data = { kind: "directory", value };
-					break;
+					return { kind: "directory", value };
 				}
 				case "file": {
 					let value = tg.File.Object.toData(object.value);
-					data = { kind: "file", value };
-					break;
+					return { kind: "file", value };
 				}
 				case "symlink": {
 					let value = tg.Symlink.Object.toData(object.value);
-					data = { kind: "symlink", value };
-					break;
+					return { kind: "symlink", value };
 				}
 				case "graph": {
 					let value = tg.Graph.Object.toData(object.value);
-					data = { kind: "graph", value };
-					break;
+					return { kind: "graph", value };
 				}
 				case "command": {
 					let value = tg.Command.Object.toData(object.value);
-					data = { kind: "command", value };
-					break;
+					return { kind: "command", value };
 				}
 				case "error": {
 					let value = tg.Error.Object.toData(object.value);
-					data = { kind: "error", value };
-					break;
+					return { kind: "error", value };
 				}
 			}
-			return data;
 		};
 
 		export let fromData = (data: tg.Object.Data): tg.Object.Object => {
@@ -344,26 +335,33 @@ export namespace Object {
 				case "blob":
 				case "directory":
 				case "symlink": {
-					break;
+					return { ...data };
 				}
 				case "command": {
-					data.value = tg.Command.Data.withoutTokens(data.value);
-					break;
+					return {
+						...data,
+						value: tg.Command.Data.withoutTokens(data.value),
+					};
 				}
 				case "error": {
-					data.value = tg.Error.Data.withoutTokens(data.value);
-					break;
+					return {
+						...data,
+						value: tg.Error.Data.withoutTokens(data.value),
+					};
 				}
 				case "file": {
-					data.value = tg.File.Data.withoutTokens(data.value);
-					break;
+					return {
+						...data,
+						value: tg.File.Data.withoutTokens(data.value),
+					};
 				}
 				case "graph": {
-					data.value = tg.Graph.Data.withoutTokens(data.value);
-					break;
+					return {
+						...data,
+						value: tg.Graph.Data.withoutTokens(data.value),
+					};
 				}
 			}
-			return data;
 		};
 	}
 

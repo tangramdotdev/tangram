@@ -35,7 +35,7 @@ impl Session {
 		// Clone items for the closure.
 		let items: Vec<_> = items
 			.iter()
-			.map(|(id, data)| ((*id).clone(), (*data).clone().without_tokens()))
+			.map(|(id, data)| ((*id).clone(), (*data).clone()))
 			.collect();
 		let creator = creator.cloned();
 

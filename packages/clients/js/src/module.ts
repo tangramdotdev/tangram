@@ -229,14 +229,22 @@ export namespace Module {
 					data.referent,
 					(item) => item,
 				);
-				data.referent = tg.Referent.toDataString(
+				return {
+					...data,
+					referent: tg.Referent.toDataString(
+						tg.Referent.withoutToken(referent),
+						(item) => item,
+					),
+				};
+			}
+			let referent = tg.Referent.fromData(data.referent, (item) => item);
+			return {
+				...data,
+				referent: tg.Referent.toData(
 					tg.Referent.withoutToken(referent),
 					(item) => item,
-				);
-			} else if (data.referent.options !== undefined) {
-				delete data.referent.options.token;
-			}
-			return data;
+				),
+			};
 		};
 	}
 
@@ -283,8 +291,10 @@ export namespace Module {
 			export let withoutTokens = (
 				data: tg.Module.Location.Data,
 			): tg.Module.Location.Data => {
-				data.module = tg.Module.Data.withoutTokens(data.module);
-				return data;
+				return {
+					...data,
+					module: tg.Module.Data.withoutTokens(data.module),
+				};
 			};
 		}
 	}

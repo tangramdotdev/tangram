@@ -50,17 +50,9 @@ impl Session {
 				.to_i64()
 				.unwrap();
 
-		// Deserialize the object and ensure its bytes are token-free.
+		// Deserialize the object.
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
-		let canonical_bytes = data
-			.clone()
-			.without_tokens()
-			.serialize()
-			.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
-		if arg.bytes != canonical_bytes {
-			return Err(tg::error!("object data contained an authorization token"));
-		}
 
 		let put_arg = crate::object::store::PutArg {
 			bytes: Some(arg.bytes.clone()),

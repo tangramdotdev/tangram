@@ -561,7 +561,7 @@ export namespace File {
 			if (!tg.Graph.Data.Pointer.is(data)) {
 				return tg.Graph.Data.File.withoutTokens(data);
 			}
-			return data;
+			return typeof data === "object" ? { ...data } : data;
 		};
 	}
 

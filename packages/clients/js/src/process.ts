@@ -1299,17 +1299,21 @@ export namespace Process {
 		};
 
 		export let withoutTokens = (data: tg.Process.Data): tg.Process.Data => {
+			let output = { ...data };
 			if (data.children !== undefined && data.children !== null) {
-				for (let child of data.children) {
+				output.children = data.children.map((child) => {
 					let referent = tg.Referent.fromDataString(
 						child.process,
 						(id) => id as tg.Process.Id,
 					);
-					child.process = tg.Referent.toDataString(
-						tg.Referent.withoutToken(referent),
-						(id) => id,
-					);
-				}
+					return {
+						...child,
+						process: tg.Referent.toDataString(
+							tg.Referent.withoutToken(referent),
+							(id) => id,
+						),
+					};
+				});
 			}
 			if (data.error !== undefined && data.error !== null) {
 				if (typeof data.error === "string") {
@@ -1317,18 +1321,18 @@ export namespace Process {
 						data.error,
 						(id) => id as tg.Error.Id,
 					);
-					data.error = tg.Referent.toDataString(
+					output.error = tg.Referent.toDataString(
 						tg.Referent.withoutToken(referent),
 						(id) => id,
 					);
 				} else if ("item" in data.error) {
 					let referent = tg.Referent.fromData(data.error, (id) => id);
-					data.error = tg.Referent.toData(
+					output.error = tg.Referent.toData(
 						tg.Referent.withoutToken(referent),
 						(id) => id,
 					);
 				} else {
-					data.error = tg.Error.Data.withoutTokens(data.error);
+					output.error = tg.Error.Data.withoutTokens(data.error);
 				}
 			}
 			if (data.log !== undefined && data.log !== null) {
@@ -1336,15 +1340,15 @@ export namespace Process {
 					data.log,
 					(id) => id as tg.Blob.Id,
 				);
-				data.log = tg.Referent.toDataString(
+				output.log = tg.Referent.toDataString(
 					tg.Referent.withoutToken(referent),
 					(id) => id,
 				);
 			}
 			if (data.output !== undefined) {
-				data.output = tg.Value.Data.withoutTokens(data.output);
+				output.output = tg.Value.Data.withoutTokens(data.output);
 			}
-			return data;
+			return output;
 		};
 	}
 

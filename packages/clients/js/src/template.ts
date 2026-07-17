@@ -268,19 +268,23 @@ export namespace Template {
 		};
 
 		export let withoutTokens = (data: tg.Template.Data): tg.Template.Data => {
-			for (let component of data.components) {
+			let components = data.components.map((component) => {
 				if (component.kind === "artifact") {
 					let referent = tg.Referent.fromDataString(
 						component.value,
 						(id) => id as tg.Artifact.Id,
 					);
-					component.value = tg.Referent.toDataString(
-						tg.Referent.withoutToken(referent),
-						(id) => id,
-					);
+					return {
+						...component,
+						value: tg.Referent.toDataString(
+							tg.Referent.withoutToken(referent),
+							(id) => id,
+						),
+					};
 				}
-			}
-			return data;
+				return component;
+			});
+			return { ...data, components };
 		};
 	}
 

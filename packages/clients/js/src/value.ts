@@ -302,29 +302,42 @@ export namespace Value {
 
 		export let withoutTokens = (data: tg.Value.Data): tg.Value.Data => {
 			if (data instanceof Array) {
-				data = data.map(withoutTokens);
+				return data.map(withoutTokens);
 			} else if (typeof data === "object" && data !== null) {
 				if (data.kind === "map") {
-					data.value = globalThis.Object.fromEntries(
-						globalThis.Object.entries(data.value).map(([key, value]) => [
-							key,
-							withoutTokens(value),
-						]),
-					);
+					return {
+						...data,
+						value: globalThis.Object.fromEntries(
+							globalThis.Object.entries(data.value).map(([key, value]) => [
+								key,
+								withoutTokens(value),
+							]),
+						),
+					};
 				} else if (data.kind === "object") {
 					let referent = tg.Referent.fromDataString(
 						data.value,
 						(id) => id as tg.Object.Id,
 					);
-					data.value = tg.Referent.toDataString(
-						tg.Referent.withoutToken(referent),
-						(id) => id,
-					);
+					return {
+						...data,
+						value: tg.Referent.toDataString(
+							tg.Referent.withoutToken(referent),
+							(id) => id,
+						),
+					};
 				} else if (data.kind === "mutation") {
-					data.value = tg.Mutation.Data.withoutTokens(data.value);
+					return {
+						...data,
+						value: tg.Mutation.Data.withoutTokens(data.value),
+					};
 				} else if (data.kind === "template") {
-					data.value = tg.Template.Data.withoutTokens(data.value);
+					return {
+						...data,
+						value: tg.Template.Data.withoutTokens(data.value),
+					};
 				}
+				return { ...data };
 			}
 			return data;
 		};

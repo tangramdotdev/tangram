@@ -239,13 +239,19 @@ export namespace Reference {
 		): tg.Reference.Data<T> => {
 			if (typeof data === "string") {
 				let reference = tg.Reference.fromDataString(data, (item) => item);
-				delete reference.options?.token;
-				return tg.Reference.toDataString(reference, (item) => item);
+				let options = { ...reference.options };
+				delete options.token;
+				return tg.Reference.toDataString(
+					{ ...reference, options },
+					(item) => item,
+				);
 			}
-			if (data.options !== undefined) {
-				delete data.options.token;
+			let output = { ...data };
+			if (output.options !== undefined) {
+				output.options = { ...output.options };
+				delete output.options.token;
 			}
-			return data;
+			return output;
 		};
 
 		export type Options = {

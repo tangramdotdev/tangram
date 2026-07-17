@@ -1117,7 +1117,7 @@ impl Session {
 						let arg = tangram_index::process::put::Arg {
 							children: Some(children),
 							command,
-							data: node.data.clone(),
+							data: node.data.clone().map(tg::process::Data::without_tokens),
 							error: Some((!error.is_empty()).then_some(error)),
 							id,
 							log: Some(log),

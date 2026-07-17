@@ -25,14 +25,7 @@ impl Session {
 					let data =
 						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
 
-					// Validate the ID and ensure the object bytes are token-free.
-					let canonical_bytes =
-						data.clone().without_tokens().serialize().map_err(|error| {
-							tg::error!(!error, "failed to serialize the object")
-						})?;
-					if message.bytes != canonical_bytes {
-						return Err(tg::error!("object data contained an authorization token"));
-					}
+					// Validate the ID.
 					let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
 					if message.id != actual {
 						return Err(tg::error!(
@@ -106,8 +99,11 @@ impl Session {
 						.unwrap()
 						.get_process_requested(&message.id)
 						.is_none_or(|requested| requested.eager);
-					let data = serde_json::from_slice(&message.bytes)
+					let data: tg::process::Data = serde_json::from_slice(&message.bytes)
 						.map_err(|error| tg::error!(!error, "failed to deserialize the process"))?;
+					let data = data.without_tokens();
+					let bytes = serde_json::to_vec(&data)
+						.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
 
 					// Update the graph with data and metadata.
 					let metadata = message.metadata.clone();
@@ -155,7 +151,7 @@ impl Session {
 					// Send to the store task.
 					let item = super::store::ProcessItem {
 						id: message.id,
-						bytes: message.bytes,
+						bytes: bytes.into(),
 						metadata: message.metadata,
 					};
 					store_process_sender
