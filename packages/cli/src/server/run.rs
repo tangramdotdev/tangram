@@ -5,7 +5,6 @@ use {
 		io::Write as _,
 		os::fd::{FromRawFd as _, RawFd},
 		path::PathBuf,
-		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_server::Owned as Server,
