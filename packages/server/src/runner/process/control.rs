@@ -73,7 +73,7 @@ impl Session {
 			.runner
 			.state
 			.try_update_process(id, |process| {
-				let lease = if process.data.status.is_finished() {
+				let lease = if process.data.status.is_finished() || process.stopper.stopped() {
 					None
 				} else {
 					let lease = Self::create_process_lease();

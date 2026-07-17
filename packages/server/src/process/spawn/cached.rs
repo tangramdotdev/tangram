@@ -90,11 +90,9 @@ impl Session {
 			self.check_cached_process_cycle(arg.parent.as_ref(), id)
 				.await?;
 			let output = self.cached_process_output(id.clone(), data.clone())?;
-			return self
-				.acquire_cached_process_lease(output)
-				.boxed()
-				.await
-				.map(Some);
+			if let Some(output) = self.acquire_cached_process_lease(output).boxed().await? {
+				return Ok(Some(output));
+			}
 		}
 
 		let Some(expected_checksum) = &arg.checksum else {
@@ -142,9 +140,9 @@ impl Session {
 	async fn acquire_cached_process_lease(
 		&self,
 		mut output: super::local::Output,
-	) -> tg::Result<super::local::Output> {
+	) -> tg::Result<Option<super::local::Output>> {
 		if output.data.status.is_finished() {
-			return Ok(output);
+			return Ok(Some(output));
 		}
 		let request = tg::process::control::ServerRequestArg::AcquireLease(
 			tg::process::control::AcquireLeaseServerRequestArg {},
@@ -167,13 +165,10 @@ impl Session {
 			.map_err(|_| tg::error!("expected an acquire process lease response"))?;
 		output.data = response.data;
 		output.lease = response.lease;
-		if !output.data.status.is_finished() && output.lease.is_none() {
-			return Err(tg::error!(
-				process = %output.id,
-				"the active process lease was not acquired"
-			));
+		if !output.data.cacheable || (!output.data.status.is_finished() && output.lease.is_none()) {
+			return Ok(None);
 		}
-		Ok(output)
+		Ok(Some(output))
 	}
 
 	async fn check_cached_process_cycle(
