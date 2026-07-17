@@ -472,35 +472,37 @@ export namespace Mutation {
 			}
 		};
 
-		export let removeTokens = (data: tg.Mutation.Data): void => {
+		export let withoutTokens = (data: tg.Mutation.Data): tg.Mutation.Data => {
 			switch (data.kind) {
 				case "unset": {
 					break;
 				}
 				case "set":
 				case "set_if_unset": {
-					tg.Value.Data.removeTokens(data.value);
+					data.value = tg.Value.Data.withoutTokens(data.value);
 					break;
 				}
 				case "prepend":
 				case "append": {
-					for (let value of data.values) {
-						tg.Value.Data.removeTokens(value);
-					}
+					data.values = data.values.map(tg.Value.Data.withoutTokens);
 					break;
 				}
 				case "prefix":
 				case "suffix": {
-					tg.Template.Data.removeTokens(data.template);
+					data.template = tg.Template.Data.withoutTokens(data.template);
 					break;
 				}
 				case "merge": {
-					for (let value of globalThis.Object.values(data.value)) {
-						tg.Value.Data.removeTokens(value);
-					}
+					data.value = globalThis.Object.fromEntries(
+						globalThis.Object.entries(data.value).map(([key, value]) => [
+							key,
+							tg.Value.Data.withoutTokens(value),
+						]),
+					);
 					break;
 				}
 			}
+			return data;
 		};
 	}
 }

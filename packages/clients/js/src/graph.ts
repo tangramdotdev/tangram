@@ -1070,6 +1070,11 @@ export namespace Graph {
 			return data.nodes.flatMap(tg.Graph.Data.Node.children);
 		};
 
+		export let withoutTokens = (data: tg.Graph.Data): tg.Graph.Data => {
+			data.nodes = data.nodes.map(tg.Graph.Data.Node.withoutTokens);
+			return data;
+		};
+
 		export type Node =
 			| tg.Graph.Data.DirectoryNode
 			| tg.Graph.Data.FileNode
@@ -1091,6 +1096,15 @@ export namespace Graph {
 						return tg.Graph.Data.Symlink.children(data);
 					}
 				}
+			};
+
+			export let withoutTokens = (
+				data: tg.Graph.Data.Node,
+			): tg.Graph.Data.Node => {
+				if (data.kind === "file") {
+					tg.Graph.Data.File.withoutTokens(data);
+				}
+				return data;
 			};
 		}
 
@@ -1172,6 +1186,24 @@ export namespace Graph {
 						: [data.contents]),
 					...dependencies,
 				];
+			};
+
+			export let withoutTokens = (
+				data: tg.Graph.Data.File,
+			): tg.Graph.Data.File => {
+				if (data.dependencies !== undefined) {
+					data.dependencies = globalThis.Object.fromEntries(
+						globalThis.Object.entries(data.dependencies).map(
+							([reference, dependency]) => [
+								tg.Reference.Data.withoutTokens(reference) as string,
+								dependency === null
+									? null
+									: tg.Graph.Data.Dependency.withoutTokens(dependency),
+							],
+						),
+					);
+				}
+				return data;
 			};
 		}
 
@@ -1264,6 +1296,15 @@ export namespace Graph {
 				} else {
 					return [];
 				}
+			};
+
+			export let withoutTokens = (
+				data: tg.Graph.Dependency.Data,
+			): tg.Graph.Dependency.Data => {
+				if (typeof data !== "string" && data.options !== undefined) {
+					delete data.options.token;
+				}
+				return data;
 			};
 		}
 	}

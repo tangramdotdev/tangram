@@ -222,6 +222,22 @@ export namespace Module {
 			}
 			return tg.Graph.Data.Edge.children(item);
 		};
+
+		export let withoutTokens = (data: tg.Module.Data): tg.Module.Data => {
+			if (typeof data.referent === "string") {
+				let referent = tg.Referent.fromDataString(
+					data.referent,
+					(item) => item,
+				);
+				data.referent = tg.Referent.toDataString(
+					tg.Referent.withoutToken(referent),
+					(item) => item,
+				);
+			} else if (data.referent.options !== undefined) {
+				delete data.referent.options.token;
+			}
+			return data;
+		};
 	}
 
 	export type Location = {
@@ -262,6 +278,13 @@ export namespace Module {
 				data: tg.Module.Location.Data,
 			): Array<tg.Object.Id> => {
 				return tg.Module.Data.children(data.module);
+			};
+
+			export let withoutTokens = (
+				data: tg.Module.Location.Data,
+			): tg.Module.Location.Data => {
+				data.module = tg.Module.Data.withoutTokens(data.module);
+				return data;
 			};
 		}
 	}

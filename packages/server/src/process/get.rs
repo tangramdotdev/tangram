@@ -194,8 +194,8 @@ impl Session {
 			}
 		};
 		let (data, metadata) = future::join(data_future, metadata_future).boxed().await;
-		let (mut data, requires_existence_check) = data?;
-		data.remove_tokens();
+		let (data, requires_existence_check) = data?;
+		let data = data.without_tokens();
 		let location = self.server.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {

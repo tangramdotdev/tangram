@@ -238,6 +238,13 @@ impl Reference {
 
 		reference
 	}
+
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.options.token.take();
+
+		self
+	}
 }
 
 impl std::fmt::Display for Reference {
@@ -307,6 +314,19 @@ impl std::str::FromStr for Item {
 			return Ok(Self::Specifier(specifier));
 		}
 		Err(tg::error!(%s, "invalid item"))
+	}
+}
+
+impl From<Options> for tg::referent::Options {
+	fn from(options: Options) -> Self {
+		Self {
+			artifact: options.artifact,
+			id: options.id,
+			name: options.name,
+			path: options.path,
+			tag: options.tag,
+			token: options.token,
+		}
 	}
 }
 

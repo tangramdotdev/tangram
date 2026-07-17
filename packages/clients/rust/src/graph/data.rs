@@ -364,6 +364,50 @@ impl Dependency {
 		}
 		Ok(Self(tg::Referent { item, options }))
 	}
+
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.0.options.token.take();
+
+		self
+	}
+}
+
+impl Graph {
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.nodes = self.nodes.into_iter().map(Node::without_tokens).collect();
+
+		self
+	}
+}
+
+impl Node {
+	#[must_use]
+	pub fn without_tokens(self) -> Self {
+		match self {
+			Self::File(file) => Self::File(file.without_tokens()),
+			value @ (Self::Directory(_) | Self::Symlink(_)) => value,
+		}
+	}
+}
+
+impl File {
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.dependencies = self
+			.dependencies
+			.into_iter()
+			.map(|(reference, dependency)| {
+				(
+					reference.without_tokens(),
+					dependency.map(Dependency::without_tokens),
+				)
+			})
+			.collect();
+
+		self
+	}
 }
 
 impl std::fmt::Display for Dependency {

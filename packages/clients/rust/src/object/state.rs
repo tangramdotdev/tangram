@@ -65,7 +65,7 @@ impl State {
 			return id;
 		}
 		let object = inner.object.as_ref().unwrap();
-		let data = object.to_data();
+		let data = object.to_data().without_tokens();
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(data.kind(), &bytes);
 		drop(inner);

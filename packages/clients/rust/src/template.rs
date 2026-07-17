@@ -154,12 +154,15 @@ impl Data {
 		}
 	}
 
-	pub fn remove_tokens(&mut self) {
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
 		for component in &mut self.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
 				artifact.options.token.take();
 			}
 		}
+
+		self
 	}
 
 	pub fn try_render<'a, F>(&'a self, mut f: F) -> tg::Result<String>

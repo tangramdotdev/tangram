@@ -234,6 +234,20 @@ export namespace Reference {
 		  };
 
 	export namespace Data {
+		export let withoutTokens = <T>(
+			data: tg.Reference.Data<T>,
+		): tg.Reference.Data<T> => {
+			if (typeof data === "string") {
+				let reference = tg.Reference.fromDataString(data, (item) => item);
+				delete reference.options?.token;
+				return tg.Reference.toDataString(reference, (item) => item);
+			}
+			if (data.options !== undefined) {
+				delete data.options.token;
+			}
+			return data;
+		};
+
 		export type Options = {
 			artifact?: tg.Artifact.Id | null;
 			get?: string | null;

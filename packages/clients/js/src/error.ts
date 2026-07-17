@@ -578,6 +578,40 @@ export namespace Error {
 			return [...diagnostics, ...location, ...stack, ...source];
 		};
 
+		export let withoutTokens = (data: tg.Error.Data): tg.Error.Data => {
+			if (data.diagnostics !== undefined && data.diagnostics !== null) {
+				data.diagnostics = data.diagnostics.map(
+					tg.Diagnostic.Data.withoutTokens,
+				);
+			}
+			if (data.location !== undefined && data.location !== null) {
+				data.location = tg.Error.Data.Location.withoutTokens(data.location);
+			}
+			if (data.source !== undefined && data.source !== null) {
+				if (typeof data.source === "string") {
+					let referent = tg.Referent.fromDataString(
+						data.source,
+						(item) => item as tg.Error.Id,
+					);
+					data.source = tg.Referent.toDataString(
+						tg.Referent.withoutToken(referent),
+						(item) => item,
+					);
+				} else {
+					if (data.source.options !== undefined) {
+						delete data.source.options.token;
+					}
+					if (typeof data.source.item !== "string") {
+						data.source.item = tg.Error.Data.withoutTokens(data.source.item);
+					}
+				}
+			}
+			if (data.stack !== undefined && data.stack !== null) {
+				data.stack = data.stack.map(tg.Error.Data.Location.withoutTokens);
+			}
+			return data;
+		};
+
 		export type Location = {
 			symbol?: string | null;
 			file: tg.Error.Data.File;
@@ -594,6 +628,13 @@ export namespace Error {
 			): Array<tg.Object.Id> => {
 				return tg.Error.Data.File.children(data.file);
 			};
+
+			export let withoutTokens = (
+				data: tg.Error.Data.Location,
+			): tg.Error.Data.Location => {
+				data.file = tg.Error.Data.File.withoutTokens(data.file);
+				return data;
+			};
 		}
 
 		export namespace File {
@@ -603,6 +644,15 @@ export namespace Error {
 				} else {
 					return [];
 				}
+			};
+
+			export let withoutTokens = (
+				data: tg.Error.Data.File,
+			): tg.Error.Data.File => {
+				if (data.kind === "module") {
+					data.value = tg.Module.Data.withoutTokens(data.value);
+				}
+				return data;
 			};
 		}
 	}

@@ -26,6 +26,15 @@ pub struct Arg {
 
 impl Arg {
 	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		for process in &mut self.put_processes {
+			process.data = process.data.take().map(tg::process::Data::without_tokens);
+		}
+
+		self
+	}
+
+	#[must_use]
 	pub fn is_empty(&self) -> bool {
 		self.delete_grants.is_empty()
 			&& self.delete_group_members.is_empty()

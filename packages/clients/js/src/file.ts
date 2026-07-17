@@ -556,6 +556,13 @@ export namespace File {
 				return tg.Graph.Data.File.children(data);
 			}
 		};
+
+		export let withoutTokens = (data: tg.File.Data): tg.File.Data => {
+			if (!tg.Graph.Data.Pointer.is(data)) {
+				return tg.Graph.Data.File.withoutTokens(data);
+			}
+			return data;
+		};
 	}
 
 	export let raw = (

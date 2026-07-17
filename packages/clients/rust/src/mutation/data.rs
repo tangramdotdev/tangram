@@ -89,22 +89,47 @@ impl Data {
 		}
 	}
 
-	pub fn remove_tokens(&mut self) {
+	#[must_use]
+	pub fn without_tokens(self) -> Self {
 		match self {
-			Self::Unset => {},
-			Self::Set { value } | Self::SetIfUnset { value } => value.remove_tokens(),
-			Self::Prepend { values } | Self::Append { values } => {
-				for value in values {
-					value.remove_tokens();
-				}
+			Self::Unset => Self::Unset,
+			Self::Set { value } => Self::Set {
+				value: Box::new((*value).without_tokens()),
 			},
-			Self::Prefix { template, .. } | Self::Suffix { template, .. } => {
-				template.remove_tokens();
+			Self::SetIfUnset { value } => Self::SetIfUnset {
+				value: Box::new((*value).without_tokens()),
 			},
-			Self::Merge { value } => {
-				for value in value.values_mut() {
-					value.remove_tokens();
-				}
+			Self::Prepend { values } => Self::Prepend {
+				values: values
+					.into_iter()
+					.map(tg::value::Data::without_tokens)
+					.collect(),
+			},
+			Self::Append { values } => Self::Append {
+				values: values
+					.into_iter()
+					.map(tg::value::Data::without_tokens)
+					.collect(),
+			},
+			Self::Prefix {
+				separator,
+				template,
+			} => Self::Prefix {
+				separator,
+				template: template.without_tokens(),
+			},
+			Self::Suffix {
+				separator,
+				template,
+			} => Self::Suffix {
+				separator,
+				template: template.without_tokens(),
+			},
+			Self::Merge { value } => Self::Merge {
+				value: value
+					.into_iter()
+					.map(|(key, value)| (key, value.without_tokens()))
+					.collect(),
 			},
 		}
 	}

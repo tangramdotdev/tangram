@@ -215,7 +215,9 @@ export namespace Value {
 			if (object.state.object === null) {
 				continue;
 			}
-			let data = tg.Object.Object.toData(object.state.object);
+			let data = tg.Object.Data.withoutTokens(
+				tg.Object.Object.toData(object.state.object),
+			);
 			let id = tg.client.objectId(data);
 			let children = tg.Object.Object.children(object.state.object).map(
 				objectReferent,
@@ -298,16 +300,17 @@ export namespace Value {
 			}
 		};
 
-		export let removeTokens = (data: tg.Value.Data): void => {
+		export let withoutTokens = (data: tg.Value.Data): tg.Value.Data => {
 			if (data instanceof Array) {
-				for (let value of data) {
-					removeTokens(value);
-				}
+				data = data.map(withoutTokens);
 			} else if (typeof data === "object" && data !== null) {
 				if (data.kind === "map") {
-					for (let value of globalThis.Object.values(data.value)) {
-						removeTokens(value);
-					}
+					data.value = globalThis.Object.fromEntries(
+						globalThis.Object.entries(data.value).map(([key, value]) => [
+							key,
+							withoutTokens(value),
+						]),
+					);
 				} else if (data.kind === "object") {
 					let referent = tg.Referent.fromDataString(
 						data.value,
@@ -318,11 +321,12 @@ export namespace Value {
 						(id) => id,
 					);
 				} else if (data.kind === "mutation") {
-					tg.Mutation.Data.removeTokens(data.value);
+					data.value = tg.Mutation.Data.withoutTokens(data.value);
 				} else if (data.kind === "template") {
-					tg.Template.Data.removeTokens(data.value);
+					data.value = tg.Template.Data.withoutTokens(data.value);
 				}
 			}
+			return data;
 		};
 	}
 }

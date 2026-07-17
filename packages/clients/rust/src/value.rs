@@ -100,70 +100,7 @@ impl Value {
 	where
 		H: tg::Handle,
 	{
-		// Get the objects.
-		let objects = self.objects();
-
-		// Collect all unstored objects in reverse topological order.
-		let mut unstored = Vec::new();
-		let mut stack = objects
-			.into_iter()
-			.filter(|object| !object.state().stored())
-			.collect::<Vec<_>>();
-		while let Some(object) = stack.pop() {
-			unstored.push(object.clone());
-			if let Some(object) = object.state().object() {
-				let children = object
-					.children()
-					.into_iter()
-					.filter(|object| !object.state().stored());
-				stack.extend(children);
-			}
-		}
-		unstored.reverse();
-
-		if unstored.is_empty() {
-			return Ok(());
-		}
-
-		// Store the objects.
-		let mut objects = Vec::with_capacity(unstored.len());
-		let mut states = Vec::with_capacity(unstored.len());
-		for object in &unstored {
-			if let Some(object_) = object.state().object() {
-				let data = object_.to_data();
-				let bytes = data
-					.serialize()
-					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
-				let id = tg::object::Id::new(data.kind(), &bytes);
-				object.state().set_id(id.clone());
-				states.push(object.state());
-				let children = object_
-					.children()
-					.iter()
-					.map(Self::object_referent)
-					.collect();
-				objects.push(tg::object::batch::Object {
-					id,
-					bytes,
-					children,
-				});
-			}
-		}
-		if !objects.is_empty() {
-			let arg = tg::object::batch::Arg {
-				location: None,
-				objects,
-			};
-			let output = handle.post_object_batch(arg).await?;
-			Self::apply_object_batch_output(&states, output)?;
-		}
-
-		// Mark all objects stored.
-		for object in &unstored {
-			object.state().set_stored(true);
-		}
-
-		Ok(())
+		self.store_with_location_with_handle(handle, None).await
 	}
 
 	pub async fn store_with_location_with_handle<H>(
@@ -204,7 +141,7 @@ impl Value {
 		let mut states = Vec::with_capacity(unstored.len());
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
-				let data = object_.to_data();
+				let data = object_.to_data().without_tokens();
 				let bytes = data
 					.serialize()
 					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;

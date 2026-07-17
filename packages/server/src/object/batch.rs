@@ -52,6 +52,19 @@ impl Session {
 				.to_i64()
 				.unwrap();
 
+		// Ensure the object bytes are token-free.
+		for object in &arg.objects {
+			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
+				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+			let canonical_bytes = data
+				.without_tokens()
+				.serialize()
+				.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
+			if object.bytes != canonical_bytes {
+				return Err(tg::error!("object data contained an authorization token"));
+			}
+		}
+
 		// Store the objects.
 		let grant_principal = match &self.context.principal {
 			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),

@@ -90,7 +90,7 @@ impl Session {
 		let error_grants_subtree = grants_subtree(error_authorizations);
 		let output_grants_subtree = grants_subtree(output_authorizations);
 
-		arg.data.remove_tokens();
+		arg.data = arg.data.without_tokens();
 
 		// Insert the process into the process store.
 		match &self.server.process_store {

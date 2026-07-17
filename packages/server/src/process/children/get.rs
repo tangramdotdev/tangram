@@ -277,9 +277,11 @@ impl Session {
 				},
 			}?
 		};
-		for child in &mut output.children {
-			child.remove_tokens();
-		}
+		output.children = output
+			.children
+			.into_iter()
+			.map(tg::process::data::Child::without_tokens)
+			.collect();
 		Ok(output)
 	}
 

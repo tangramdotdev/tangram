@@ -267,7 +267,7 @@ export namespace Template {
 			});
 		};
 
-		export let removeTokens = (data: tg.Template.Data): void => {
+		export let withoutTokens = (data: tg.Template.Data): tg.Template.Data => {
 			for (let component of data.components) {
 				if (component.kind === "artifact") {
 					let referent = tg.Referent.fromDataString(
@@ -280,6 +280,7 @@ export namespace Template {
 					);
 				}
 			}
+			return data;
 		};
 	}
 

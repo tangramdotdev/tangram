@@ -104,7 +104,7 @@ impl Server {
 			}
 
 			// Remove the tokens before updating the index.
-			data.remove_tokens();
+			let data = data.without_tokens();
 
 			self.index
 				.batch(tangram_index::batch::Arg {

@@ -62,6 +62,13 @@ impl Module {
 			edge.children(children);
 		}
 	}
+
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.referent.options.token.take();
+
+		self
+	}
 }
 
 impl Module {

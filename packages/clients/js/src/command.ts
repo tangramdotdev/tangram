@@ -561,6 +561,24 @@ export namespace Command {
 			];
 		};
 
+		export let withoutTokens = (data: tg.Command.Data): tg.Command.Data => {
+			if (data.args !== undefined) {
+				data.args = data.args.map(tg.Value.Data.withoutTokens);
+			}
+			if (data.env !== undefined) {
+				data.env = globalThis.Object.fromEntries(
+					globalThis.Object.entries(data.env).map(([key, value]) => [
+						key,
+						tg.Value.Data.withoutTokens(value),
+					]),
+				);
+			}
+			data.executable = tg.Command.Data.Executable.withoutTokens(
+				data.executable,
+			);
+			return data;
+		};
+
 		export type Executable =
 			| tg.Command.Data.Executable.Artifact
 			| tg.Command.Data.Executable.Module
@@ -591,6 +609,15 @@ export namespace Command {
 				} else {
 					return [];
 				}
+			};
+
+			export let withoutTokens = (
+				data: tg.Command.Data.Executable,
+			): tg.Command.Data.Executable => {
+				if ("module" in data) {
+					data.module = tg.Module.Data.withoutTokens(data.module);
+				}
+				return data;
 			};
 		}
 	}

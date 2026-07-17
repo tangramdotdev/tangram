@@ -21,7 +21,18 @@ impl Session {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
-					// Validate the ID.
+					// Deserialize the object.
+					let data =
+						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
+
+					// Validate the ID and ensure the object bytes are token-free.
+					let canonical_bytes =
+						data.clone().without_tokens().serialize().map_err(|error| {
+							tg::error!(!error, "failed to serialize the object")
+						})?;
+					if message.bytes != canonical_bytes {
+						return Err(tg::error!("object data contained an authorization token"));
+					}
 					let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
 					if message.id != actual {
 						return Err(tg::error!(
@@ -30,10 +41,6 @@ impl Session {
 							"invalid object id"
 						));
 					}
-
-					// Deserialize the object.
-					let data =
-						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
 
 					// Update the graph with data and metadata.
 					let metadata = message.metadata.clone();

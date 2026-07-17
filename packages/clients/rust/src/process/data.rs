@@ -123,27 +123,34 @@ pub struct Child {
 struct Error;
 
 impl Data {
-	pub fn remove_tokens(&mut self) {
-		if let Some(children) = &mut self.children {
-			for child in children {
-				child.remove_tokens();
-			}
-		}
-		if let Some(tg::Either::Right(error)) = &mut self.error {
-			error.options.token.take();
-		}
-		if let Some(log) = &mut self.log {
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.children = self
+			.children
+			.map(|children| children.into_iter().map(Child::without_tokens).collect());
+		self.error = self.error.map(|error| match error {
+			tg::Either::Left(error) => tg::Either::Left(error.without_tokens()),
+			tg::Either::Right(mut error) => {
+				error.options.token.take();
+				tg::Either::Right(error)
+			},
+		});
+		self.log = self.log.map(|mut log| {
 			log.options.token.take();
-		}
-		if let Some(output) = &mut self.output {
-			output.remove_tokens();
-		}
+			log
+		});
+		self.output = self.output.map(tg::value::Data::without_tokens);
+
+		self
 	}
 }
 
 impl Child {
-	pub fn remove_tokens(&mut self) {
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
 		self.process.options.token.take();
+
+		self
 	}
 }
 

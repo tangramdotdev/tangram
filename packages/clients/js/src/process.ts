@@ -1298,7 +1298,7 @@ export namespace Process {
 			process: string;
 		};
 
-		export let removeTokens = (data: tg.Process.Data): tg.Process.Data => {
+		export let withoutTokens = (data: tg.Process.Data): tg.Process.Data => {
 			if (data.children !== undefined && data.children !== null) {
 				for (let child of data.children) {
 					let referent = tg.Referent.fromDataString(
@@ -1327,6 +1327,8 @@ export namespace Process {
 						tg.Referent.withoutToken(referent),
 						(id) => id,
 					);
+				} else {
+					data.error = tg.Error.Data.withoutTokens(data.error);
 				}
 			}
 			if (data.log !== undefined && data.log !== null) {
@@ -1340,7 +1342,7 @@ export namespace Process {
 				);
 			}
 			if (data.output !== undefined) {
-				tg.Value.Data.removeTokens(data.output);
+				data.output = tg.Value.Data.withoutTokens(data.output);
 			}
 			return data;
 		};
