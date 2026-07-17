@@ -23,6 +23,8 @@ snapshot $output.stdout '
 
 '
 
+tg index
+
 let process = tg build --detach --verbose $path | from json
 let output = tg wait $process.process
 snapshot $output '{"exit":0,"output":["foo","bar"]}'
@@ -33,21 +35,13 @@ let foo = $children | get 0 | to json
 snapshot --normalize-ids $foo '
 	{
 	  "cached": true,
-	  "options": {
-	    "name": "foo",
-	    "token": "<token>"
-	  },
-	  "process": "pcs_0000000000000000000000000000"
+	  "process": "pcs_0000000000000000000000000000?name=foo"
 	}
 '
 
 let bar = $children | get 1 | to json
 snapshot --normalize-ids $bar '
 	{
-	  "options": {
-	    "name": "bar",
-	    "token": "<token>"
-	  },
-	  "process": "pcs_0000000000000000000000000000"
+	  "process": "pcs_0000000000000000000000000000?name=bar"
 	}
 '

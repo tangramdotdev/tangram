@@ -221,26 +221,30 @@ impl Session {
 		let owner = match &arg.sandbox {
 			Some(tg::Either::Left(sandbox)) => sandbox.owner.clone(),
 			Some(tg::Either::Right(sandbox)) => {
-				self.server
+				let owner = self
+					.server
 					.runner
 					.state
 					.try_get_sandbox(sandbox)
 					.ok_or_else(|| tg::error!(%sandbox, "failed to find the sandbox"))?
 					.owner
+					.unwrap_or(tg::Principal::Root);
+				return Ok(owner);
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		};
 		if let Some(owner) = owner {
 			return Ok(owner);
 		}
-		if let Some(parent_sandbox) = parent_sandbox
-			&& let Some(owner) = self
+		if let Some(parent_sandbox) = parent_sandbox {
+			let owner = self
 				.server
 				.runner
 				.state
 				.try_get_sandbox(parent_sandbox)
-				.and_then(|sandbox| sandbox.owner)
-		{
+				.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?
+				.owner
+				.unwrap_or(tg::Principal::Root);
 			return Ok(owner);
 		}
 		Ok(self.context.principal.clone())
