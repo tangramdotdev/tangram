@@ -102,6 +102,9 @@ impl Server {
 				session.spawn_process_finish_tasks(&process);
 			}
 
+			// Remove the tokens before updating the index.
+			data.remove_tokens();
+
 			self.index
 				.batch(tangram_index::batch::Arg {
 					put_processes: vec![tangram_index::process::put::Arg {

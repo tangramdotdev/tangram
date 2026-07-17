@@ -173,10 +173,22 @@ impl Session {
 	) -> tg::Result<()> {
 		let mut previous: Option<tg::process::Status> = None;
 		loop {
-			let status = self
-				.try_get_process_status_local(id)
-				.await?
-				.unwrap_or(tg::process::Status::Finished);
+			// Retry the read when the status changes while the request is in flight.
+			let status = match &mut wakeups {
+				None => self.try_get_process_status_local(id).await?,
+				Some(wakeups) => {
+					tokio::select! {
+						result = self.try_get_process_status_local(id) => result?,
+						wakeup = wakeups.next() => {
+							if wakeup.is_none() {
+								return Ok(());
+							}
+							continue;
+						},
+					}
+				},
+			}
+			.unwrap_or(tg::process::Status::Finished);
 			if previous != Some(status) {
 				previous.replace(status);
 				let event = tg::process::status::Event::Status(status);

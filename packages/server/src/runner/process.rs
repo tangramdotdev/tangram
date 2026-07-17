@@ -207,9 +207,6 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		session
-			.spawn_grant_process_command_task(&process, &id, &location)
-			.await?;
 		let Some(mut sandbox_state) = session.server.runner.state.sandboxes.get_mut(&sandbox_id)
 		else {
 			return Err(tg::error!(%sandbox_id, "failed to find the sandbox"));
@@ -242,6 +239,9 @@ impl Session {
 				sandbox.processes.remove(&id_for_cleanup);
 			}
 		}
+		session
+			.spawn_grant_process_command_task(&process, &id, &location)
+			.await?;
 		if location.is_remote() {
 			session
 				.server

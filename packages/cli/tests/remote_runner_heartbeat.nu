@@ -48,7 +48,7 @@ if $nu.os-info.name == "linux" { ^tail --pid $pid -f /dev/null } else { while (p
 
 let output = tg --url $local.url process wait $process | complete
 snapshot $output.stdout '
-	{"error":"err_01gmam66a4rw87atwd2darxctm56kspwcyeby8aymr1f9mb8nhzsj0","exit":1}
+	{"error":{"code":"heartbeat_expiration","message":"heartbeat expired"},"exit":1}
 
 '
 snapshot $output.stderr ''
