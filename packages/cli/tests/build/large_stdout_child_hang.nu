@@ -1,8 +1,14 @@
 use ../../test.nu *
 
-# A build whose child process writes a large amount to stdout hangs instead of completing.
+# A log write failure fails the process instead of leaving the child blocked on stdout.
 
-let server = spawn
+let server = spawn --config {
+	logs: {
+		store: {
+			map_size: 10_485_760,
+		}
+	}
+}
 
 let path = artifact {
 	tangram.ts: '
@@ -19,4 +25,6 @@ let path = artifact {
 }
 
 let output = tg build $path | complete
-assert equal $output.exit_code 0 "the build hung awaiting the large-stdout child"
+assert equal $output.exit_code 1
+assert str contains $output.stderr "failed to drain the process logs"
+assert str contains $output.stderr "MDB_MAP_FULL"

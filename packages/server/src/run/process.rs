@@ -537,6 +537,7 @@ impl Session {
 				|error| tg::error!(!error, %id, "failed to start waiting for the process"),
 			)?;
 			let mut wait = std::pin::pin!(wait);
+			let mut log_task = log_task.map(|task| Box::pin(task.wait()));
 			let arg = tg::process::status::Arg {
 				location: location.clone().map(Into::into),
 				timeout: None,
@@ -554,34 +555,53 @@ impl Session {
 				Ok::<_, tg::Error>(())
 			};
 			let mut status = std::pin::pin!(status);
-			let (exit, stopped) = tokio::select! {
-				result = &mut wait => {
-					let exit = result
-						.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
-					(exit, false)
-				},
-				result = &mut status => {
-					result.map_err(|error| {
-						tg::error!(!error, %id, "failed to wait for the process status")
-					})?;
-					sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-					let exit = wait
+			let (exit, stopped) = loop {
+				let result = tokio::select! {
+					result = &mut wait => {
+						let exit = result.map_err(
+							|error| tg::error!(!error, %id, "failed to wait for the process"),
+						)?;
+						break (exit, false);
+					},
+					result = &mut status => {
+						result.map_err(|error| {
+							tg::error!(!error, %id, "failed to wait for the process status")
+						})?;
+						sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+						let exit = wait.await.map_err(
+							|error| tg::error!(!error, %id, "failed to wait for the process"),
+						)?;
+						break (exit, true);
+					},
+					() = stopper.wait() => {
+						sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+						let exit = wait.await.map_err(
+							|error| tg::error!(!error, %id, "failed to wait for the process"),
+						)?;
+						break (exit, true);
+					},
+					result = async { log_task.as_mut().unwrap().await }, if log_task.is_some() => result,
+				};
+				let result = result
+					.map_err(|error| tg::error!(!error, "the log task panicked"))
+					.and_then(|result| {
+						result
+							.map_err(|error| tg::error!(!error, "failed to drain the process logs"))
+					});
+				if let Err(error) = result {
+					sandbox
+						.kill(&sandbox_process, tg::process::Signal::SIGKILL)
 						.await
-						.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
-					(exit, true)
-				},
-				() = stopper.wait() => {
-					sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-					let exit = wait
-						.await
-						.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
-					(exit, true)
-				},
+						.ok();
+					wait.await.ok();
+
+					return Err(error);
+				}
+				log_task = None;
 			};
 			// Wait for the log task to finish draining the stdio into the log store.
 			if let Some(log_task) = log_task {
 				log_task
-					.wait()
 					.await
 					.map_err(|error| tg::error!(!error, "the log task panicked"))?
 					.map_err(|error| tg::error!(!error, "failed to drain the process logs"))?;
