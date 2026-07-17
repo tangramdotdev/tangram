@@ -1,5 +1,8 @@
 use {super::*, tokio::task::JoinSet};
 
+const READ_WRITE_ASYNC_CONCURRENCY: usize = 64;
+const READ_WRITE_ASYNC_QUEUE_DEPTH: usize = 64;
+
 pub(super) struct ReadWriteRequest {
 	pub(super) fd: Arc<OwnedFd>,
 	pub(super) request: Request,

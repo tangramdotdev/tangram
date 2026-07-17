@@ -1,4 +1,4 @@
-use super::*;
+use super::{ring::worker::UringSlot, *};
 
 impl<P> Server<P>
 where

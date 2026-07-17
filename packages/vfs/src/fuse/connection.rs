@@ -1,5 +1,7 @@
 use super::*;
 
+const READ_WRITE_MAX_READER_COUNT: usize = 8;
+
 pub(super) struct Connection {
 	pub(super) fd: Arc<OwnedFd>,
 	pub(super) features: Features,

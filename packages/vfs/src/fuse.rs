@@ -52,22 +52,6 @@ mod tests;
 pub mod sys;
 
 const DEFAULT_MAX_WRITE: usize = 1024 * 1024;
-const FUSE_MIN_READ_BUFFER: usize = 8192;
-const READ_WRITE_ASYNC_CONCURRENCY: usize = 64;
-const READ_WRITE_ASYNC_QUEUE_DEPTH: usize = 64;
-const READ_WRITE_MAX_READER_COUNT: usize = 8;
-const IO_URING_ENTRIES: u32 = 256;
-const IO_URING_MAX_READER_COUNT: usize = 8;
-const IO_URING_MAX_RETIRED_SLOTS_PER_WORKER: usize = 8;
-const IO_URING_MAX_SLOTS_PER_QUEUE: usize = 4;
-const IO_URING_PAYLOAD_MEMORY_BUDGET: usize = 256 * 1024 * 1024;
-const IO_URING_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
-const THREAD_CQE_BATCH_SIZE: usize = 64;
-const EVENTFD_USER_DATA: u64 = u64::MAX;
-const SQPOLL_IDLE_MS: u32 = 2_000;
-const EVENTFD_BUFFER_INDEX: u16 = 0;
-const THREAD_FIXED_FUSE_FD: u32 = 0;
-const THREAD_FIXED_EVENTFD_FD: u32 = 1;
 const FUSE_DEV_IOC_MAGIC: u8 = 229;
 const FUSE_DEV_IOC_CLONE: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::read::<u32>(FUSE_DEV_IOC_MAGIC, 0);
@@ -75,8 +59,6 @@ const FUSE_DEV_IOC_BACKING_OPEN: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::write::<sys::fuse_backing_map>(FUSE_DEV_IOC_MAGIC, 1);
 const FUSE_DEV_IOC_BACKING_CLOSE: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::write::<u32>(FUSE_DEV_IOC_MAGIC, 2);
-const URING_IOVEC_COUNT: u32 = 2;
-const URING_CMD_BYTES: usize = 80;
 const S_IFDIR: u32 = 0o040_000;
 const S_IFREG: u32 = 0o100_000;
 const S_IFLNK: u32 = 0o120_000;
@@ -232,39 +214,6 @@ struct RequestLimits {
 	request_buffer_size: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct RingConfig {
-	limits: RequestLimits,
-	queue_count: usize,
-	slots_per_queue: usize,
-	worker_count: usize,
-}
-
-struct RingWorkerConfig {
-	event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
-	payload_size: usize,
-	queue_ids: Vec<u16>,
-	slots_per_queue: usize,
-	sqpoll_wq_fd: RawFd,
-	worker_id: usize,
-}
-
-struct RingStartupContext<'a> {
-	connection_id: u64,
-	event_receiver: &'a mut tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>,
-	event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
-	fd: Arc<OwnedFd>,
-	path: &'a Path,
-	ring_config: RingConfig,
-	runtime: tokio::runtime::Handle,
-	sqpoll_wq_fd: RawFd,
-}
-
-struct RingStartupFailure {
-	disconnected: bool,
-	error: Error,
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 struct FuseInitInV7p1 {
@@ -282,20 +231,6 @@ struct FuseInitInV7p6 {
 }
 
 #[repr(C)]
-struct IoUringSqePrefix {
-	opcode: u8,
-	flags: u8,
-	ioprio: u16,
-	fd: i32,
-	off: u64,
-	addr: u64,
-	len: u32,
-	rw_flags: u32,
-	user_data: u64,
-	buf_index_or_group: u16,
-}
-
-#[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
 struct FuseDirentHeader {
 	ino: u64,
@@ -309,30 +244,6 @@ struct FuseDirentHeader {
 struct FuseDirentPlusHeader {
 	entry_out: fuse_entry_out,
 	dirent: FuseDirentHeader,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum UringSlotState {
-	Async {
-		opcode: sys::fuse_opcode,
-		unique: u64,
-	},
-	Commit {
-		unique: u64,
-	},
-	Register,
-	Request {
-		opcode: sys::fuse_opcode,
-		unique: u64,
-	},
-}
-
-struct UringSlot {
-	header: Box<sys::fuse_uring_req_header>,
-	iovecs: [libc::iovec; URING_IOVEC_COUNT as usize],
-	payload: Vec<u8>,
-	qid: u16,
-	state: UringSlotState,
 }
 
 struct IoctlPointerInt<'a, const OPCODE: rustix::ioctl::Opcode, T> {

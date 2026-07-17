@@ -1,4 +1,8 @@
-use super::{session::notify_async_response, *};
+use super::{
+	ring::worker::{UringSlot, UringSlotState},
+	session::notify_async_response,
+	*,
+};
 
 struct TestProvider;
 struct PassthroughProvider {

@@ -1,4 +1,12 @@
-use super::{connection::Connection, read_write::ReadWriteStartupContext, *};
+use super::{
+	connection::Connection,
+	read_write::ReadWriteStartupContext,
+	ring::{RingConfig, RingStartupContext},
+	*,
+};
+
+const IO_URING_ENTRIES: u32 = 256;
+const SQPOLL_IDLE_MS: u32 = 2_000;
 
 type SqpollRing = IoUring<io_uring::squeue::Entry128>;
 
