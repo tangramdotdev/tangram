@@ -21,6 +21,7 @@ where
 			Ready(Result<Response>),
 		}
 
+		// Plan the request batch.
 		let mut actions = Vec::with_capacity(requests.len());
 		let mut provider_requests = Vec::<ProviderRequest>::with_capacity(requests.len());
 
@@ -37,6 +38,7 @@ where
 			actions.push(action);
 		}
 
+		// Execute the synchronous provider batch.
 		if !provider_requests.is_empty() {
 			let mut provider_results = self
 				.provider
@@ -73,6 +75,7 @@ where
 			}
 		}
 
+		// Assemble the dispatch results.
 		batch_results.clear();
 		batch_results.reserve(requests.len());
 		for (action, request) in std::iter::zip(actions, requests) {
@@ -102,7 +105,41 @@ where
 		Ok(())
 	}
 
+	pub(super) async fn handle_request(&self, fd: &OwnedFd, request: Request) -> Result<Response> {
+		// Dispatch the request.
+		let unique = request.header.unique;
+		let result = match self.plan_request(&request) {
+			Err(error) => Err(error),
+			Ok(Plan::Local) => self.handle_local_request(fd, &request).await,
+			Ok(Plan::Provider(provider_request)) => {
+				let mut results = self.provider.handle_batch(vec![provider_request]).await;
+				if results.len() != 1 {
+					return Err(Error::other("mismatched provider batch response length"));
+				}
+				match results.pop().unwrap() {
+					Err(error) => Err(error),
+					Ok(response) => {
+						let handle = Self::provider_response_handle(&response);
+						let result = self.map_provider_response(fd, &request, response);
+						if result.is_err()
+							&& let Some(handle) = handle
+						{
+							self.provider.close(handle).await;
+						}
+						result
+					},
+				}
+			},
+		};
+
+		// Track resources until the response is committed.
+		self.register_response_resources(fd, unique, &result)?;
+
+		result
+	}
+
 	fn plan_request(&self, request: &Request) -> Result<Plan> {
+		// Select the provider or local execution path.
 		let provider_request = match &request.data {
 			RequestData::GetAttr | RequestData::Statx(_) => ProviderRequest::GetAttr {
 				id: request.header.nodeid,
@@ -182,17 +219,17 @@ where
 		Ok(Plan::Provider(provider_request))
 	}
 
-	#[must_use]
-	fn provider_response_handle(response: &ProviderResponse) -> Option<u64> {
-		match response {
-			ProviderResponse::Open { handle, .. } | ProviderResponse::OpenDir { handle } => {
-				Some(*handle)
-			},
-			_ => None,
+	pub(super) fn validate_open_request(request: fuse_open_in) -> Result<()> {
+		let access_mode = request.flags & libc::O_ACCMODE.to_u32().unwrap();
+		if access_mode != libc::O_RDONLY.to_u32().unwrap() {
+			return Err(Error::from_raw_os_error(libc::EROFS));
 		}
+
+		Ok(())
 	}
 
 	fn handle_local_request_sync(&self, fd: &OwnedFd, request: &Request) -> Result<Response> {
+		// Execute the local request synchronously.
 		let response = match &request.data {
 			RequestData::BatchForget(data, entries) => {
 				let count = data.count.to_usize().unwrap_or(0);
@@ -256,6 +293,89 @@ where
 		Ok(response)
 	}
 
+	async fn handle_local_request(&self, fd: &OwnedFd, request: &Request) -> Result<Response> {
+		// Execute the local request asynchronously.
+		let response = match &request.data {
+			RequestData::BatchForget(data, entries) => {
+				let requests = entries
+					.iter()
+					.take(data.count.to_usize().unwrap_or(0))
+					.map(|entry| ProviderRequest::Forget {
+						id: entry.nodeid,
+						nlookup: entry.nlookup,
+					})
+					.collect::<Vec<_>>();
+				if !requests.is_empty() {
+					let _ = self.provider.handle_batch(requests).await;
+				}
+				Response::BatchForget
+			},
+			RequestData::Destroy => Response::Destroy,
+			RequestData::Flush => Response::Flush,
+			RequestData::Forget(data) => {
+				let _ = self
+					.provider
+					.handle_batch(vec![ProviderRequest::Forget {
+						id: request.header.nodeid,
+						nlookup: data.nlookup,
+					}])
+					.await;
+				Response::Forget
+			},
+			RequestData::Interrupt(data) => return self.handle_interrupt_request(*data),
+			RequestData::ReadDir(data) => {
+				let entries = self
+					.provider
+					.readdir_node(
+						request.header.nodeid,
+						data.offset,
+						data.size.to_u64().unwrap(),
+					)
+					.await?;
+				Self::build_read_dir_response(entries, *data)
+			},
+			RequestData::ReadDirPlus(data) => {
+				let entries = self
+					.provider
+					.readdirplus_node(
+						request.header.nodeid,
+						data.offset,
+						data.size.to_u64().unwrap(),
+					)
+					.await?;
+				self.build_read_dir_plus_response(entries, *data)
+			},
+			RequestData::Release(data) => {
+				self.close_passthrough_backing(fd, data.fh);
+				self.provider.close(data.fh).await;
+				Response::Release
+			},
+			RequestData::ReleaseDir(data) => {
+				if !self.no_opendir_support {
+					self.close_passthrough_backing(fd, data.fh);
+					self.provider.close(data.fh).await;
+				}
+				Response::ReleaseDir
+			},
+			RequestData::Statfs => Self::statfs_response(),
+			RequestData::Unsupported(opcode) => {
+				return Self::handle_unsupported_request(request.header, *opcode);
+			},
+			RequestData::GetAttr
+			| RequestData::GetXattr(..)
+			| RequestData::Init(_)
+			| RequestData::ListXattr(_)
+			| RequestData::Lookup(_)
+			| RequestData::Open(_)
+			| RequestData::OpenDir(_)
+			| RequestData::Read(_)
+			| RequestData::ReadLink
+			| RequestData::Statx(_) => return Err(Error::other("unexpected local request")),
+		};
+
+		Ok(response)
+	}
+
 	pub(super) fn map_provider_response_sync(
 		&self,
 		fd: &OwnedFd,
@@ -273,12 +393,23 @@ where
 		result
 	}
 
+	#[must_use]
+	fn provider_response_handle(response: &ProviderResponse) -> Option<u64> {
+		match response {
+			ProviderResponse::Open { handle, .. } | ProviderResponse::OpenDir { handle } => {
+				Some(*handle)
+			},
+			_ => None,
+		}
+	}
+
 	fn map_provider_response(
 		&self,
 		fd: &OwnedFd,
 		request: &Request,
 		response: ProviderResponse,
 	) -> Result<Response> {
+		// Validate and translate the provider response.
 		match &request.data {
 			RequestData::GetAttr => {
 				let ProviderResponse::GetAttr { attrs } = response else {
@@ -448,132 +579,12 @@ where
 		}
 	}
 
-	pub(super) async fn handle_request(&self, fd: &OwnedFd, request: Request) -> Result<Response> {
-		let unique = request.header.unique;
-		let result = match self.plan_request(&request) {
-			Err(error) => Err(error),
-			Ok(Plan::Local) => self.handle_local_request(fd, &request).await,
-			Ok(Plan::Provider(provider_request)) => {
-				let mut results = self.provider.handle_batch(vec![provider_request]).await;
-				if results.len() != 1 {
-					return Err(Error::other("mismatched provider batch response length"));
-				}
-				match results.pop().unwrap() {
-					Err(error) => Err(error),
-					Ok(response) => {
-						let handle = Self::provider_response_handle(&response);
-						let result = self.map_provider_response(fd, &request, response);
-						if result.is_err()
-							&& let Some(handle) = handle
-						{
-							self.provider.close(handle).await;
-						}
-						result
-					},
-				}
-			},
-		};
-		self.register_response_resources(fd, unique, &result)?;
-
-		result
-	}
-
-	async fn handle_local_request(&self, fd: &OwnedFd, request: &Request) -> Result<Response> {
-		let response = match &request.data {
-			RequestData::BatchForget(data, entries) => {
-				let requests = entries
-					.iter()
-					.take(data.count.to_usize().unwrap_or(0))
-					.map(|entry| ProviderRequest::Forget {
-						id: entry.nodeid,
-						nlookup: entry.nlookup,
-					})
-					.collect::<Vec<_>>();
-				if !requests.is_empty() {
-					let _ = self.provider.handle_batch(requests).await;
-				}
-				Response::BatchForget
-			},
-			RequestData::Destroy => Response::Destroy,
-			RequestData::Flush => Response::Flush,
-			RequestData::Forget(data) => {
-				let _ = self
-					.provider
-					.handle_batch(vec![ProviderRequest::Forget {
-						id: request.header.nodeid,
-						nlookup: data.nlookup,
-					}])
-					.await;
-				Response::Forget
-			},
-			RequestData::Interrupt(data) => return self.handle_interrupt_request(*data),
-			RequestData::ReadDir(data) => {
-				let entries = self
-					.provider
-					.readdir_node(
-						request.header.nodeid,
-						data.offset,
-						data.size.to_u64().unwrap(),
-					)
-					.await?;
-				Self::build_read_dir_response(entries, *data)
-			},
-			RequestData::ReadDirPlus(data) => {
-				let entries = self
-					.provider
-					.readdirplus_node(
-						request.header.nodeid,
-						data.offset,
-						data.size.to_u64().unwrap(),
-					)
-					.await?;
-				self.build_read_dir_plus_response(entries, *data)
-			},
-			RequestData::Release(data) => {
-				self.close_passthrough_backing(fd, data.fh);
-				self.provider.close(data.fh).await;
-				Response::Release
-			},
-			RequestData::ReleaseDir(data) => {
-				if !self.no_opendir_support {
-					self.close_passthrough_backing(fd, data.fh);
-					self.provider.close(data.fh).await;
-				}
-				Response::ReleaseDir
-			},
-			RequestData::Statfs => Self::statfs_response(),
-			RequestData::Unsupported(opcode) => {
-				return Self::handle_unsupported_request(request.header, *opcode);
-			},
-			RequestData::GetAttr
-			| RequestData::GetXattr(..)
-			| RequestData::Init(_)
-			| RequestData::ListXattr(_)
-			| RequestData::Lookup(_)
-			| RequestData::Open(_)
-			| RequestData::OpenDir(_)
-			| RequestData::Read(_)
-			| RequestData::ReadLink
-			| RequestData::Statx(_) => return Err(Error::other("unexpected local request")),
-		};
-
-		Ok(response)
-	}
-
-	pub(super) fn validate_open_request(request: fuse_open_in) -> Result<()> {
-		let access_mode = request.flags & libc::O_ACCMODE.to_u32().unwrap();
-		if access_mode != libc::O_RDONLY.to_u32().unwrap() {
-			return Err(Error::from_raw_os_error(libc::EROFS));
-		}
-
-		Ok(())
-	}
-
 	#[must_use]
 	fn build_read_dir_response(
 		entries: Vec<(String, u64, crate::EntryKind)>,
 		request: fuse_read_in,
 	) -> Response {
+		// Encode entries that fit in the requested buffer.
 		let entries = entries.into_iter().enumerate();
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node, type_)) in entries {
@@ -597,6 +608,7 @@ where
 			response.extend_from_slice(&name);
 			response.extend((0..padding).map(|_| 0));
 		}
+
 		Response::ReadDir(response)
 	}
 
@@ -605,6 +617,7 @@ where
 		entries: Vec<(String, u64, crate::Attrs)>,
 		request: fuse_read_in,
 	) -> Response {
+		// Encode entries that fit in the requested buffer.
 		let mut entries = entries.into_iter().enumerate();
 		let mut nodes = Vec::new();
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
@@ -615,6 +628,7 @@ where
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
 			let entry_size = struct_size + name.len() + padding;
 			if response.len() + entry_size > request.size.to_usize().unwrap() {
+				// Roll back the lookup references that do not fit.
 				self.provider.forget_sync(node, 1);
 				for (_, (_, node, _)) in entries {
 					self.provider.forget_sync(node, 1);
@@ -650,6 +664,7 @@ where
 			nodes,
 		}
 	}
+
 	pub(super) fn read_link_response(target: Bytes) -> Result<Response> {
 		if target.contains(&0) {
 			return Err(Error::from_raw_os_error(libc::EIO));
@@ -657,6 +672,7 @@ where
 
 		Ok(Response::ReadLink(target))
 	}
+
 	fn register_passthrough_backing(
 		&self,
 		fd: &OwnedFd,
@@ -668,6 +684,8 @@ where
 			flags: 0,
 			padding: 0,
 		};
+
+		// Register the backing descriptor with the kernel.
 		// SAFETY: The ioctl receives a valid backing map for the duration of the call, and both
 		// descriptors remain open while the kernel consumes it.
 		let backing_id = unsafe {
@@ -680,6 +698,8 @@ where
 		let backing_id_u32 = backing_id
 			.to_u32()
 			.ok_or_else(|| Error::other("invalid backing id"))?;
+
+		// Track the backing ID for release.
 		self.passthrough_backing_ids
 			.lock()
 			.unwrap()
@@ -706,6 +726,7 @@ where
 			tracing::error!(?error, %fh, %backing_id, "failed to close passthrough backing");
 		}
 	}
+
 	#[must_use]
 	fn statfs_response() -> Response {
 		let out = sys::fuse_statfs_out {
@@ -727,11 +748,14 @@ where
 
 	#[must_use]
 	pub(super) fn fuse_statx_out(attr: sys::fuse_attr_out, flags: u32) -> sys::fuse_statx_out {
+		// Convert the FUSE timestamps.
 		let time = |seconds: u64, nanoseconds: u32| sys::fuse_sx_time {
 			__reserved: 0,
 			tv_nsec: nanoseconds,
 			tv_sec: seconds.to_i64().unwrap_or(i64::MAX),
 		};
+
+		// Build the STATX response.
 		sys::fuse_statx_out {
 			attr_valid: attr.attr_valid,
 			attr_valid_nsec: attr.attr_valid_nsec,
@@ -762,6 +786,7 @@ where
 			},
 		}
 	}
+
 	pub(super) fn handle_interrupt_request(&self, request: fuse_interrupt_in) -> Result<Response> {
 		if !self.cancel_async_request(request.unique) {
 			return Err(Error::from_raw_os_error(libc::EAGAIN));
@@ -769,6 +794,7 @@ where
 
 		Ok(Response::Interrupt)
 	}
+
 	fn handle_unsupported_request(header: fuse_in_header, request: u32) -> Result<Response> {
 		tracing::trace!(?header, %request, "unsupported request");
 		Err(Error::from_raw_os_error(libc::ENOSYS))
@@ -776,6 +802,7 @@ where
 
 	#[must_use]
 	pub(super) fn fuse_attr_out(node: u64, attr: crate::Attrs) -> fuse_attr_out {
+		// Derive the inode metadata.
 		let (size, mode) = match attr.inner {
 			AttrsInner::Directory => (0, S_IFDIR | 0o555),
 			AttrsInner::File { executable, size } => (
@@ -786,6 +813,8 @@ where
 		};
 		let mode = mode.to_u32().unwrap();
 		let blocks = size.div_ceil(512);
+
+		// Build the FUSE attributes.
 		fuse_attr_out {
 			attr: fuse_attr {
 				atime: attr.atime.secs,

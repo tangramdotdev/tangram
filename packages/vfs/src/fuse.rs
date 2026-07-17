@@ -188,7 +188,6 @@ struct AsyncRequestContext {
 	eventfd: Arc<OwnedFd>,
 	fd: Arc<OwnedFd>,
 	request: Request,
-	runtime: tokio::runtime::Handle,
 	sender: crossbeam_channel::Sender<AsyncResponse>,
 	slot: usize,
 	token: CancellationToken,

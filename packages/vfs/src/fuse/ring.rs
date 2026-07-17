@@ -46,6 +46,7 @@ where
 	P: Provider + Send + Sync + 'static,
 {
 	pub(super) fn ring_config(page_size: usize) -> Result<RingConfig> {
+		// Derive the per-queue payload budget.
 		if page_size == 0 {
 			return Err(Error::other("the system page size is zero"));
 		}
@@ -67,6 +68,8 @@ where
 			.checked_div(payload_memory_per_slot)
 			.unwrap_or(0)
 			.clamp(1, IO_URING_MAX_SLOTS_PER_QUEUE);
+
+		// Derive the worker count.
 		let available_parallelism =
 			std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
 		let worker_count = available_parallelism
@@ -90,6 +93,7 @@ where
 	}
 
 	pub(super) fn parse_possible_cpu_count(possible: &str) -> Result<usize> {
+		// Parse the possible CPU ranges.
 		let mut cpus = BTreeSet::new();
 		for range in possible.trim().split(',') {
 			if range.is_empty() {
@@ -115,6 +119,8 @@ where
 			}
 			cpus.extend(start..=end);
 		}
+
+		// Validate that queue IDs form a dense range from zero.
 		let Some(first) = cpus.first() else {
 			return Err(Error::other("the possible CPU set is empty"));
 		};
@@ -129,6 +135,7 @@ where
 	}
 
 	pub(super) fn request_limits(page_size: usize, max_write: usize) -> Result<RequestLimits> {
+		// Derive the page payload size.
 		if page_size == 0 || max_write == 0 {
 			return Err(Error::other("the FUSE request dimensions must be non-zero"));
 		}
@@ -141,6 +148,8 @@ where
 			.unwrap()
 			.checked_mul(page_size)
 			.ok_or_else(|| Error::other("the FUSE page payload size overflowed"))?;
+
+		// Derive the request buffer dimensions.
 		let payload_size = FUSE_MIN_READ_BUFFER.max(max_write).max(page_payload_size);
 		let request_buffer_size = payload_size
 			.checked_add(page_size)
@@ -155,17 +164,6 @@ where
 			payload_size,
 			request_buffer_size,
 		})
-	}
-
-	pub(super) async fn probe_io_uring(path: &Path) -> Result<()> {
-		let path = path.to_owned();
-		tokio::task::spawn_blocking(move || {
-			let mut entries = std::fs::read_dir(path)?;
-			entries.next().transpose()?;
-			Ok(())
-		})
-		.await
-		.map_err(|error| Error::other(format!("the io_uring readiness probe failed: {error}")))?
 	}
 
 	pub(super) async fn start_ring_transport(
@@ -184,6 +182,7 @@ where
 		} = context;
 		let mut thread_handles = Vec::new();
 		let startup = async {
+			// Prepare the control descriptor.
 			let control_fd = Self::clone_thread_fd(fd.as_ref())
 				.map(Arc::new)
 				.map_err(|error| {
@@ -200,6 +199,7 @@ where
 				"starting the FUSE io_uring transport",
 			);
 
+			// Start the queue workers.
 			for worker_id in 0..ring_config.worker_count {
 				let queue_ids = (worker_id..ring_config.queue_count)
 					.step_by(ring_config.worker_count)
@@ -244,6 +244,7 @@ where
 				thread_handles.push(thread);
 			}
 
+			// Wait for the workers to become ready.
 			for _ in 0..ring_config.worker_count {
 				match event_receiver.recv().await {
 					None => return Err(Error::other("an io_uring worker failed during startup")),
@@ -256,6 +257,7 @@ where
 				}
 			}
 
+			// Confirm that the kernel can dispatch through io_uring.
 			Self::probe_io_uring(path).await?;
 			while let Ok(event) = event_receiver.try_recv() {
 				if let WorkerEvent::Failed { error, worker } = event {
@@ -265,6 +267,7 @@ where
 				}
 			}
 
+			// Start the control request reader.
 			let server = self.clone();
 			let worker_event_sender = event_sender.clone();
 			let thread = std::thread::Builder::new()
@@ -299,6 +302,8 @@ where
 			.await
 			.map_err(|_| Error::other("timed out waiting for the io_uring transport"))
 			.and_then(std::convert::identity);
+
+		// Clean up a partial startup.
 		if let Err(error) = startup {
 			self.cancel_async_requests();
 			let disconnected = Self::disconnect_transport(path, connection_id).await;
@@ -315,5 +320,16 @@ where
 		}
 
 		Ok(thread_handles)
+	}
+
+	pub(super) async fn probe_io_uring(path: &Path) -> Result<()> {
+		let path = path.to_owned();
+		tokio::task::spawn_blocking(move || {
+			let mut entries = std::fs::read_dir(path)?;
+			entries.next().transpose()?;
+			Ok(())
+		})
+		.await
+		.map_err(|error| Error::other(format!("the io_uring readiness probe failed: {error}")))?
 	}
 }

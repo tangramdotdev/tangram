@@ -5,6 +5,7 @@ where
 	P: Provider + Send + Sync + 'static,
 {
 	pub(super) fn deserialize_uring_request(slot: &UringSlot) -> Result<Request> {
+		// Parse the shared request header.
 		let in_out = slot.header.in_out.as_bytes();
 		let (header, _) = sys::fuse_in_header::read_from_prefix(in_out)
 			.map_err(|_| Error::other("failed to deserialize the request header"))?;
@@ -16,6 +17,8 @@ where
 		if request_len < header_len {
 			return Err(Error::other("failed to deserialize request data"));
 		}
+
+		// Validate the operation and payload lengths.
 		let total_extlen = usize::from(header.total_extlen) * 8;
 		let Some(request_data_len) = request_len.checked_sub(header_len + total_extlen) else {
 			return Err(Error::other("failed to deserialize request data"));
@@ -34,6 +37,8 @@ where
 		if op_data_len > op_in.len() {
 			return Err(Error::other("failed to deserialize request data"));
 		}
+
+		// Assemble and parse the request data.
 		let mut bytes = Vec::with_capacity(request_data_len);
 		bytes.extend_from_slice(&op_in[..op_data_len]);
 		bytes.extend_from_slice(&slot.payload.as_slice()[..payload_size]);
@@ -43,6 +48,7 @@ where
 	}
 
 	pub(super) fn deserialize_request(buffer: &[u8]) -> Result<Request> {
+		// Parse and validate the request header.
 		let (header, _) = sys::fuse_in_header::read_from_prefix(buffer)
 			.map_err(|_| Error::other("failed to deserialize the request header"))?;
 		let header_len = std::mem::size_of::<sys::fuse_in_header>();
@@ -53,6 +59,8 @@ where
 		if request_len < header_len || request_len > buffer.len() {
 			return Err(Error::other("failed to deserialize request data"));
 		}
+
+		// Parse the request data after any extensions.
 		let total_extlen = usize::from(header.total_extlen) * 8;
 		let data = &buffer[header_len..request_len];
 		let Some(data_len) = data.len().checked_sub(total_extlen) else {
@@ -65,6 +73,7 @@ where
 	}
 
 	fn parse_request_data(header: &fuse_in_header, data: &[u8]) -> Result<RequestData> {
+		// Decode the opcode-specific payload.
 		let data = match header.opcode {
 			sys::fuse_opcode_FUSE_BATCH_FORGET => {
 				if data.len() < size_of::<sys::fuse_batch_forget_in>() {
@@ -134,9 +143,12 @@ where
 	}
 
 	fn parse_init_request_data(data: &[u8]) -> Result<sys::fuse_init_in> {
+		// Parse the newest complete protocol representation.
 		if data.len() >= size_of::<sys::fuse_init_in>() {
 			return read_data::<sys::fuse_init_in>(data);
 		}
+
+		// Expand older representations into the current layout.
 		if data.len() >= size_of::<FuseInitInV7p6>() {
 			let data = read_data::<FuseInitInV7p6>(data)?;
 			return Ok(sys::fuse_init_in {

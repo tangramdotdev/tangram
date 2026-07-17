@@ -67,6 +67,7 @@ where
 		unique: u64,
 		result: &Result<Response>,
 	) -> Result<()> {
+		// Collect resources transferred by the response.
 		let resources = match result {
 			Ok(Response::Lookup(response)) => ResponseResources {
 				nodes: vec![response.nodeid],
@@ -85,6 +86,8 @@ where
 		if resources.handle.is_none() && resources.nodes.is_empty() {
 			return Ok(());
 		}
+
+		// Register the resources until the response is committed.
 		let mut pending = self.pending_response_resources.lock().unwrap();
 		if pending.contains_key(&unique) {
 			drop(pending);
@@ -157,6 +160,7 @@ where
 	) -> Result<()> {
 		let mut buffer = vec![0u8; request_buffer_size];
 		loop {
+			// Read and parse a control request.
 			let size = loop {
 				match rustix::io::read(fd.as_ref(), &mut buffer) {
 					Err(Errno::INTR) => {},
@@ -170,6 +174,8 @@ where
 			}
 			let size = size.to_usize().unwrap();
 			let request = Self::deserialize_request(&buffer[..size])?;
+
+			// Dispatch the control request.
 			match &request.data {
 				RequestData::BatchForget(data, entries) => {
 					let count = data.count.to_usize().unwrap_or(0);
@@ -207,6 +213,7 @@ where
 		unique: u64,
 		result: Result<Response>,
 	) -> Result<()> {
+		// Encode the response.
 		let (error, response) = match result {
 			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), None),
 			Ok(response) => {
@@ -224,6 +231,8 @@ where
 			unique,
 		};
 		let iov = [IoSlice::new(header.as_bytes()), IoSlice::new(payload)];
+
+		// Write the complete response.
 		let written = loop {
 			match rustix::io::writev(fd, &iov) {
 				Err(Errno::INTR) => {},

@@ -88,6 +88,7 @@ where
 		user_data: u64,
 		command_flags: u64,
 	) -> io_uring::squeue::Entry128 {
+		// Build the command payload.
 		let request = sys::fuse_uring_cmd_req {
 			commit_id,
 			flags: command_flags,
@@ -100,6 +101,8 @@ where
 			.cmd(cmd)
 			.build()
 			.user_data(user_data);
+
+		// Attach the request iovecs.
 		Self::configure_fuse_uring_entry_iovec(&mut entry, iovecs);
 		entry
 	}
@@ -153,6 +156,7 @@ where
 		payload_size: usize,
 		slot: usize,
 	) -> Result<()> {
+		// Validate the retirement request.
 		if retired_slots.len() >= IO_URING_MAX_RETIRED_SLOTS_PER_WORKER {
 			return Err(Error::other(
 				"the io_uring stale slot retirement limit was exhausted",
@@ -167,6 +171,8 @@ where
 				slot_data.state,
 			)));
 		}
+
+		// Replace and retain the stale slot.
 		let qid = slot_data.qid;
 		let replacement = Box::new(UringSlot::new(qid, payload_size));
 		let retired = std::mem::replace(slot_data, replacement);
@@ -232,6 +238,7 @@ where
 		unique: u64,
 		result: Result<Response>,
 	) -> Result<()> {
+		// Serialize the response payload.
 		let in_out = slot_data.header.in_out.as_mut_bytes();
 		in_out.fill(0);
 		let (error, payload_len, needs_header) = match result {
@@ -249,6 +256,8 @@ where
 				}
 			},
 		};
+
+		// Populate the kernel response metadata.
 		if needs_header {
 			let len = size_of::<fuse_out_header>() + payload_len;
 			let out = fuse_out_header {
@@ -268,41 +277,48 @@ where
 		Ok(())
 	}
 
-	fn spawn_async_request(&self, context: AsyncRequestContext) {
+	fn spawn_async_request(&self, runtime: &tokio::runtime::Handle, context: AsyncRequestContext) {
+		let server = self.clone();
+		runtime.spawn(async move {
+			server.handle_async_request(context).await;
+		});
+	}
+
+	async fn handle_async_request(&self, context: AsyncRequestContext) {
 		let AsyncRequestContext {
 			async_notification_pending,
 			eventfd,
 			fd,
 			request,
-			runtime,
 			sender,
 			slot,
 			token,
 			worker_event_sender,
 			worker_id,
 		} = context;
-		let server = self.clone();
-		runtime.spawn(async move {
-			let opcode = request.header.opcode;
-			let unique = request.header.unique;
-			let result = server
-				.handle_cancellable_request(fd.as_ref(), request, token)
-				.await;
-			let response = AsyncResponse {
-				opcode,
-				result,
-				slot,
-				unique,
-			};
-			notify_async_response(
-				&async_notification_pending,
-				eventfd.as_ref(),
-				response,
-				&sender,
-				&worker_event_sender,
-				worker_id,
-			);
-		});
+
+		// Execute the request.
+		let opcode = request.header.opcode;
+		let unique = request.header.unique;
+		let result = self
+			.handle_cancellable_request(fd.as_ref(), request, token)
+			.await;
+		let response = AsyncResponse {
+			opcode,
+			result,
+			slot,
+			unique,
+		};
+
+		// Notify the worker about the response.
+		notify_async_response(
+			&async_notification_pending,
+			eventfd.as_ref(),
+			response,
+			&sender,
+			&worker_event_sender,
+			worker_id,
+		);
 	}
 
 	fn drain_async_responses(
@@ -313,6 +329,7 @@ where
 		slots: &mut [Box<UringSlot>],
 		receiver: &crossbeam_channel::Receiver<AsyncResponse>,
 	) -> Result<()> {
+		// Validate and commit the completed responses.
 		while let Ok(response) = receiver.try_recv() {
 			let Some(slot_data) = slots.get_mut(response.slot) else {
 				return Err(Error::other(format!(
@@ -361,6 +378,7 @@ where
 		runtime: tokio::runtime::Handle,
 		config: RingWorkerConfig,
 	) -> Result<Self> {
+		// Create the worker communication channels.
 		let RingWorkerConfig {
 			event_sender,
 			payload_size,
@@ -375,6 +393,8 @@ where
 				Error::other(format!("failed to create the thread eventfd: {error}"))
 			})?;
 		let (sender, receiver) = crossbeam_channel::unbounded::<AsyncResponse>();
+
+		// Allocate the request slots.
 		let slot_count = queue_ids
 			.len()
 			.checked_mul(slots_per_queue)
@@ -395,6 +415,8 @@ where
 			})
 			.collect::<Vec<_>>()
 			.into_boxed_slice();
+
+		// Create and register the worker ring.
 		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
 		builder.setup_attach_wq(sqpoll_wq_fd).setup_no_sqarray();
 		let io_uring = builder
@@ -426,6 +448,7 @@ where
 	}
 
 	fn run(mut self) -> Result<()> {
+		// Allocate the reusable batch buffers.
 		let mut batch_requests = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut batch_results = Vec::<Dispatch>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut commits =
@@ -433,6 +456,8 @@ where
 		let mut deferred = Vec::<PendingRequest>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut register_retries = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
 		let mut stale_commits = Vec::<usize>::with_capacity(THREAD_CQE_BATCH_SIZE);
+
+		// Register the initial request slots.
 		{
 			let mut submission = self.io_uring.submission();
 			for (slot, slot_data) in self.slots.iter().enumerate() {
@@ -457,6 +482,7 @@ where
 		self.event_sender.send(WorkerEvent::Ready).ok();
 
 		loop {
+			// Arm the async response notification.
 			{
 				let mut submission = self.io_uring.submission();
 				if !self.eventfd_inflight {
@@ -476,6 +502,7 @@ where
 				}
 			}
 
+			// Wait for a completion.
 			if let Err(error) = self.io_uring.submit_and_wait(1) {
 				match error.raw_os_error() {
 					Some(libc::EINTR) => {
@@ -492,6 +519,7 @@ where
 				}
 			}
 
+			// Collect the completion batch.
 			let mut saw_eventfd = false;
 			batch_requests.clear();
 			register_retries.clear();
@@ -563,6 +591,8 @@ where
 					batch_requests.push(PendingRequest { request, slot });
 				}
 			}
+
+			// Recover the slots that need another registration.
 			for slot in register_retries.drain(..) {
 				Server::<P>::submit_register(
 					&mut self.io_uring,
@@ -585,6 +615,8 @@ where
 					self.slots.get_mut(slot).unwrap(),
 				)?;
 			}
+
+			// Run the synchronous request batch.
 			self.server.handle_request_sync_batch(
 				self.fd.as_ref(),
 				&batch_requests,
@@ -611,6 +643,8 @@ where
 					},
 				}
 			}
+
+			// Dispatch the deferred requests.
 			for pending_request in deferred.drain(..) {
 				let PendingRequest { request, slot } = pending_request;
 				let unique = request.header.unique;
@@ -628,19 +662,23 @@ where
 					return Err(Error::other("the io_uring slot request state changed"));
 				}
 				slot_data.state = UringSlotState::Async { opcode, unique };
-				self.server.spawn_async_request(AsyncRequestContext {
-					async_notification_pending: self.async_notification_pending.clone(),
-					eventfd: self.eventfd.clone(),
-					fd: self.fd.clone(),
-					request,
-					runtime: self.runtime.clone(),
-					sender: self.sender.clone(),
-					slot,
-					token,
-					worker_event_sender: self.event_sender.clone(),
-					worker_id: self.worker_id,
-				});
+				self.server.spawn_async_request(
+					&self.runtime,
+					AsyncRequestContext {
+						async_notification_pending: self.async_notification_pending.clone(),
+						eventfd: self.eventfd.clone(),
+						fd: self.fd.clone(),
+						request,
+						sender: self.sender.clone(),
+						slot,
+						token,
+						worker_event_sender: self.event_sender.clone(),
+						worker_id: self.worker_id,
+					},
+				);
 			}
+
+			// Commit the synchronous responses.
 			for (slot, unique, result) in commits.drain(..) {
 				self.server.submit_commit_and_fetch(
 					&mut self.io_uring,
@@ -652,6 +690,7 @@ where
 				)?;
 			}
 
+			// Commit the completed asynchronous responses.
 			if saw_eventfd || !self.receiver.is_empty() {
 				self.server.drain_async_responses(
 					self.worker_id,

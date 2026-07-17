@@ -71,6 +71,7 @@ impl Provider for SlowProvider {
 		let release = self.release.clone();
 		let started = self.started.clone();
 		async move {
+			// Execute the requests in order.
 			let mut responses = Vec::with_capacity(requests.len());
 			for request in requests {
 				let response = match request {
@@ -249,6 +250,7 @@ fn derives_request_limits_from_page_size() {
 
 #[test]
 fn malformed_names_fail_individual_batch_requests() {
+	// Build a mixed request batch.
 	let server = server();
 	let lookup_header = fuse_in_header {
 		gid: 0,
@@ -303,10 +305,13 @@ fn malformed_names_fail_individual_batch_requests() {
 	];
 	let mut results = Vec::new();
 	let fd = test_fd();
+
+	// Dispatch the batch.
 	server
 		.handle_request_sync_batch(&fd, &requests, &mut results)
 		.unwrap();
 
+	// Verify that only the malformed requests fail.
 	assert_eq!(results.len(), 3);
 	let Dispatch::Ready(result) = &results[0] else {
 		panic!("expected a ready response");
@@ -396,6 +401,7 @@ fn failed_open_response_closes_provider_handle() {
 
 #[test]
 fn statx_reports_supported_metadata() {
+	// Convert the provider attributes.
 	let attrs = crate::Attrs {
 		atime: crate::Timestamp { nanos: 2, secs: 1 },
 		ctime: crate::Timestamp { nanos: 6, secs: 5 },
@@ -407,6 +413,7 @@ fn statx_reports_supported_metadata() {
 	let attr = Server::<TestProvider>::fuse_attr_out(9, attrs);
 	let statx = Server::<TestProvider>::fuse_statx_out(attr, 0);
 
+	// Verify the supported metadata.
 	assert_eq!(statx.stat.mask, libc::STATX_BASIC_STATS);
 	assert_eq!(statx.stat.mask & libc::STATX_BTIME, 0);
 	assert_eq!(statx.stat.attributes_mask, 0);
@@ -437,6 +444,7 @@ fn writable_opens_return_erofs() {
 
 #[tokio::test]
 async fn read_write_dispatcher_handles_concurrency_and_cancellation() {
+	// Start the dispatcher.
 	let release = Arc::new(tokio::sync::Notify::new());
 	let started = Arc::new(tokio::sync::Notify::new());
 	let server = server_with_provider(
@@ -476,6 +484,7 @@ async fn read_write_dispatcher_handles_concurrency_and_cancellation() {
 		header: request_header(sys::fuse_opcode_FUSE_GETATTR, unique),
 	};
 
+	// Verify that a fast request can pass a blocked request.
 	let token = server.register_async_request(1).unwrap();
 	request_sender
 		.send(read_write::ReadWriteRequest {
@@ -505,6 +514,7 @@ async fn read_write_dispatcher_handles_concurrency_and_cancellation() {
 	assert_eq!(response.unique, 1);
 	assert_eq!(response.error, 0);
 
+	// Verify cancellation without stopping the dispatcher.
 	let token = server.register_async_request(3).unwrap();
 	request_sender
 		.send(read_write::ReadWriteRequest {
@@ -534,6 +544,7 @@ async fn read_write_dispatcher_handles_concurrency_and_cancellation() {
 	assert_eq!(response.unique, 4);
 	assert_eq!(response.error, 0);
 
+	// Stop the dispatcher.
 	drop(request_sender);
 	dispatcher.await.unwrap();
 }
@@ -553,6 +564,7 @@ fn unmatched_interrupts_return_eagain() {
 
 #[test]
 fn eventfd_failures_are_reported_to_the_supervisor() {
+	// Send a response through an invalid eventfd.
 	let eventfd: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
 	let pending = AtomicBool::new(false);
 	let (sender, receiver) = crossbeam_channel::unbounded();
@@ -573,6 +585,7 @@ fn eventfd_failures_are_reported_to_the_supervisor() {
 		0,
 	);
 
+	// Verify the supervisor notification.
 	assert!(receiver.try_recv().is_ok());
 	assert!(!pending.load(Ordering::Acquire));
 	let event = worker_event_receiver.try_recv().unwrap();

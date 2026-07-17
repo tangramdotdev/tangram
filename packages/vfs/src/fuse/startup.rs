@@ -26,11 +26,13 @@ where
 	P: Provider + Send + Sync + 'static,
 {
 	pub async fn start(provider: P, path: &Path, options: Options) -> Result<Self> {
+		// Prepare the FUSE connection.
 		let supports_no_opendir = provider.supports_no_opendir();
 		let mut config = Self::startup_config(options)?;
 		let (mut connection, mut sqpoll_ring) =
 			Self::prepare_connection(path, supports_no_opendir, &mut config).await?;
 
+		// Create the server state.
 		let server = Self(Arc::new(State {
 			active_requests: Mutex::new(HashMap::new()),
 			no_opendir_support: connection.features.no_opendir_support,
@@ -43,6 +45,7 @@ where
 			task: Mutex::new(None),
 		}));
 
+		// Start the negotiated transport.
 		let runtime = tokio::runtime::Handle::current();
 		let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let transport = if connection.features.over_io_uring {
@@ -61,6 +64,7 @@ where
 			};
 			match server.start_ring_transport(context).await {
 				Err(failure) if config.options.io == Io::Auto => {
+					// Reconnect with ReadWrite after the io_uring startup failure.
 					if !failure.disconnected {
 						return Err(Error::other(format!(
 							"failed to stop the io_uring transport after startup failed: {}",
@@ -118,6 +122,7 @@ where
 		};
 		drop(event_sender);
 
+		// Define the transport shutdown sequence.
 		let path = path.to_owned();
 		let shutdown_server = server.clone();
 		let shutdown = async move {
@@ -141,6 +146,7 @@ where
 			drop(sqpoll_ring);
 		};
 
+		// Start the transport supervisor.
 		let task = tangram_futures::task::Shared::spawn(|stop| async move {
 			tokio::select! {
 				() = stop.wait() => {},
@@ -158,6 +164,7 @@ where
 	}
 
 	fn startup_config(mut options: Options) -> Result<StartupConfig> {
+		// Configure the requested transport.
 		let page_size = rustix::param::page_size();
 		let ring_config = if options.io == Io::ReadWrite {
 			None
@@ -175,6 +182,8 @@ where
 				Ok(config) => Some(config),
 			}
 		};
+
+		// Select the request limits.
 		let limits = match ring_config {
 			None => Self::request_limits(page_size, DEFAULT_MAX_WRITE)?,
 			Some(config) => config.limits,
@@ -193,12 +202,14 @@ where
 		config: &mut StartupConfig,
 	) -> Result<(Connection, Option<SqpollRing>)> {
 		loop {
+			// Connect with the current transport configuration.
 			let connection =
 				Self::connect(path, config.options, config.limits, supports_no_opendir).await?;
 			if !connection.features.over_io_uring {
 				return Ok((connection, None));
 			}
 
+			// Build the shared polling ring.
 			match Self::build_sqpoll_ring() {
 				Err(error) if config.options.io == Io::Auto => {
 					tracing::warn!(
