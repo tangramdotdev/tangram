@@ -15,3 +15,5 @@ success $alice_get "Alice should get her own sandbox"
 let eve_get = tg --token $eve.token sandbox get $sandbox | complete
 failure $eve_get "Eve must not get a sandbox she cannot access"
 snapshot $eve_get.stdout ''
+
+tg --token $alice.token sandbox destroy $sandbox

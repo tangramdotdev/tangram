@@ -19,3 +19,5 @@ assert equal $data.owner $team.id "the sandbox should store the resolved owner"
 success (tg --token $alice.token sandbox get $sandbox | complete) "Alice should get a sandbox owned by her group"
 success (tg --token $bob.token sandbox get $sandbox | complete) "Bob should get a sandbox owned by a group he can write"
 failure (tg --token $eve.token sandbox get $sandbox | complete) "Eve must not get a sandbox owned by a group she cannot access"
+
+tg --token $bob.token sandbox destroy $sandbox

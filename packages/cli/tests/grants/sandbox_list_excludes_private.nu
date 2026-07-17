@@ -14,3 +14,5 @@ assert (($alice_list | where id == $sandbox | is-empty) == false) "Alice should 
 
 let eve_list = tg --token $eve.token sandbox list | from json
 assert ($eve_list | where id == $sandbox | is-empty) "Eve must not see a sandbox she cannot access"
+
+tg --token $alice.token sandbox destroy $sandbox

@@ -21,3 +21,5 @@ tg --token $alice.token group members add team $carol.user.id
 success (tg --token $carol.token sandbox get $sandbox | complete) "Carol should get the sandbox after joining the team"
 let carol_list = tg --token $carol.token sandbox list | from json
 assert (($carol_list | where id == $sandbox | is-empty) == false) "Carol should see the sandbox after joining the team"
+
+tg --token $bob.token sandbox destroy $sandbox

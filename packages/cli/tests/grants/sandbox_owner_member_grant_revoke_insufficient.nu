@@ -15,3 +15,5 @@ success (tg --token $bob.token sandbox get $sandbox | complete) "Bob should get 
 # Deleting the write grant created when Bob joined leaves his membership intact, so dynamic membership still authorizes him.
 tg --token $alice.token revoke $bob.user.id write team
 success (tg --token $bob.token sandbox get $sandbox | complete) "Bob should still get the sandbox while a member, even after the write grant is revoked"
+
+tg --token $bob.token sandbox destroy $sandbox

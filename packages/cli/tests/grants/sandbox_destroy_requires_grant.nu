@@ -14,3 +14,5 @@ failure $eve_destroy "Eve must not destroy a sandbox she cannot access"
 
 let alice_get = tg --token $alice.token sandbox get $sandbox | complete
 success $alice_get "Alice's sandbox should still exist after Eve's failed destroy"
+
+tg --token $alice.token sandbox destroy $sandbox

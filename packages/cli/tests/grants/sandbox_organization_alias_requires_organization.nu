@@ -35,3 +35,5 @@ snapshot --normalize $user.stderr '
 	-> the owner is not an organization
 
 '
+
+tg --token $bob.token sandbox destroy $sandbox

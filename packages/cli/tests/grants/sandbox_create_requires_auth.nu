@@ -10,3 +10,6 @@ failure $denied "an unauthenticated principal must not create a sandbox"
 let alice = tg login --verbose alice | from json
 let allowed = tg --token $alice.token sandbox create --no-network | complete
 success $allowed "Alice should create a sandbox"
+
+let sandbox = $allowed.stdout | str trim
+tg --token $alice.token sandbox destroy $sandbox

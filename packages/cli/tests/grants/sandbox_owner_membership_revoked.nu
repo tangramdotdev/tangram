@@ -33,3 +33,5 @@ failure (tg --token $bob.token sandbox destroy $sandbox | complete) "Bob must no
 
 # Alice administers the team, so her access is independent of Bob's membership.
 success (tg --token $alice.token sandbox get $sandbox | complete) "Alice should still get the sandbox she administers via the team"
+
+tg --token $alice.token sandbox destroy $sandbox
