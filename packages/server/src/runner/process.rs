@@ -1,12 +1,11 @@
 use {
 	self::control::RunProcessControlTaskArg,
-	super::Output,
 	crate::Session,
 	bytes::Bytes,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
-		path::Path,
+		path::{Path, PathBuf},
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
@@ -14,12 +13,14 @@ use {
 		stream::TryExt as _,
 		task::{Stopper, Task},
 	},
+	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 	tokio::task::JoinSet,
 	tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream},
 };
 
 mod control;
+mod progress;
 
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
@@ -31,14 +32,13 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub sandbox: &'a tangram_sandbox::Sandbox,
 }
 
+#[must_use]
 pub(super) struct SpawnProcessTaskOutput {
 	pub events: tokio::sync::mpsc::UnboundedReceiver<tg::Result<Event>>,
-	pub exited: tokio::sync::oneshot::Receiver<()>,
 }
 
 struct ProcessTaskArg {
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
-	exited_sender: tokio::sync::oneshot::Sender<()>,
 	guest_url: tangram_uri::Uri,
 	location: tg::Location,
 	process: tg::runner::control::Process,
@@ -47,30 +47,83 @@ struct ProcessTaskArg {
 	sandbox_stopper: Stopper,
 }
 
+struct FinishProcessTaskArg {
+	control_task: Task<tg::Result<()>>,
+	finish_sender: tokio::sync::oneshot::Sender<tg::process::Data>,
+	id: tg::process::Id,
+	output: tg::Result<Output>,
+	process: tg::Process,
+	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+	sandbox: tg::sandbox::Id,
+}
+
+struct CollectProcessOutputArg<'a> {
+	exit: u8,
+	path: PathBuf,
+	state: &'a tg::process::State,
+}
+
 pub(super) enum Event {
 	Connect(ConnectedEvent),
+	Exit,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConnectedEvent {
 	pub grant: Option<tg::grant::Token>,
-	pub id: tg::process::Id,
 	pub lease: String,
+	pub process: tg::process::Id,
+}
+
+#[derive(Clone, Debug)]
+struct Output {
+	checksum: Option<tg::Checksum>,
+	error: Option<tg::Error>,
+	exit: u8,
+	value: Option<tg::Value>,
 }
 
 struct RunProcessArg<'a> {
 	guest_url: &'a tangram_uri::Uri,
 	process: &'a tg::Process,
+	process_stopper: Stopper,
 	progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
 	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
 	sandbox: tangram_sandbox::Sandbox,
 	sandbox_process_sender: tokio::sync::watch::Sender<Option<Arc<tangram_sandbox::Process>>>,
-	process_stopper: Stopper,
 	stopper: Stopper,
 	token: String,
 }
 
+struct RunProcessInnerArg<'a> {
+	command: &'a tg::command::Data,
+	guest_url: &'a tangram_uri::Uri,
+	id: &'a tg::process::Id,
+	location: Option<tg::Location>,
+	process: &'a tg::Process,
+	process_stopper: Stopper,
+	progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
+	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
+	sandbox: tangram_sandbox::Sandbox,
+	sandbox_id: tg::sandbox::Id,
+	sandbox_process_sender: tokio::sync::watch::Sender<Option<Arc<tangram_sandbox::Process>>>,
+	state: &'a tg::process::State,
+	stopper: Stopper,
+	token: String,
+}
+
+struct WaitForProcessArg<'a> {
+	id: &'a tg::process::Id,
+	location: Option<tg::Location>,
+	log_task: Option<Task<tg::Result<()>>>,
+	process_stopper: Stopper,
+	sandbox: &'a tangram_sandbox::Sandbox,
+	sandbox_process: &'a tangram_sandbox::Process,
+	stopper: Stopper,
+}
+
 impl Session {
+	#[must_use]
 	pub(super) fn create_process_lease() -> String {
 		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
@@ -82,7 +135,6 @@ impl Session {
 		&self,
 		arg: SpawnProcessTaskArg<'_>,
 	) -> SpawnProcessTaskOutput {
-		let (exited_sender, exited_receiver) = tokio::sync::oneshot::channel();
 		let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let session = self.clone();
 		let process = arg.process;
@@ -94,7 +146,6 @@ impl Session {
 		arg.process_tasks.spawn(async move {
 			let arg = ProcessTaskArg {
 				event_sender: event_sender.clone(),
-				exited_sender,
 				guest_url,
 				location,
 				process,
@@ -110,14 +161,12 @@ impl Session {
 		});
 		SpawnProcessTaskOutput {
 			events: event_receiver,
-			exited: exited_receiver,
 		}
 	}
 
 	async fn process_task(&self, arg: ProcessTaskArg) -> tg::Result<()> {
 		let ProcessTaskArg {
 			event_sender,
-			exited_sender: exited,
 			guest_url,
 			location,
 			process,
@@ -258,8 +307,8 @@ impl Session {
 		event_sender
 			.send(Ok(Event::Connect(ConnectedEvent {
 				grant: output.grant,
-				id: id.clone(),
 				lease: lease.clone(),
+				process: id.clone(),
 			})))
 			.ok();
 		let command = process
@@ -306,11 +355,11 @@ impl Session {
 						sandbox,
 						sandbox_process: sandbox_process_receiver,
 						sender: control_sender,
-						stdin,
-						stdout,
 						stderr,
-						stdin_blob,
 						stderr_progress,
+						stdin,
+						stdin_blob,
+						stdout,
 					})
 					.await
 					.inspect_err(|error| {
@@ -323,17 +372,41 @@ impl Session {
 			.run_process(RunProcessArg {
 				guest_url: &guest_url,
 				process: &process,
+				process_stopper,
 				progress,
 				progress_sender: progress_sender.clone(),
 				sandbox,
 				sandbox_process_sender,
-				process_stopper,
 				stopper: sandbox_stopper,
 				token: process_token,
 			})
 			.boxed()
 			.await;
-		exited.send(()).ok();
+		event_sender.send(Ok(Event::Exit)).ok();
+		let arg = FinishProcessTaskArg {
+			control_task,
+			finish_sender,
+			id,
+			output: result,
+			process,
+			progress_sender,
+			sandbox: sandbox_id.clone(),
+		};
+
+		session.finish_process_task(arg).boxed().await
+	}
+
+	async fn finish_process_task(&self, arg: FinishProcessTaskArg) -> tg::Result<()> {
+		let FinishProcessTaskArg {
+			control_task,
+			finish_sender,
+			id,
+			output: result,
+			process,
+			progress_sender,
+			sandbox: sandbox_id,
+		} = arg;
+		let session = self;
 
 		let finish = {
 			let mut sandbox = session
@@ -356,8 +429,8 @@ impl Session {
 				.transpose()
 				.map_err(|error| tg::error!(!error, "failed to deserialize the process error"))?;
 			Output {
-				error,
 				checksum: None,
+				error,
 				exit: finish.exit,
 				value: None,
 			}
@@ -376,8 +449,8 @@ impl Session {
 						"failed to run the process"
 					);
 					Output {
-						error: Some(error),
 						checksum: None,
+						error: Some(error),
 						exit: 1,
 						value: None,
 					}
@@ -388,7 +461,7 @@ impl Session {
 		// Store the output.
 		let value = if let Some(value) = &output.value {
 			value
-				.store_with_handle(&session)
+				.store_with_handle(session)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to store the output"))?;
 			let data = value.to_data();
@@ -541,15 +614,68 @@ impl Session {
 		Ok::<_, tg::Error>(())
 	}
 
+	async fn spawn_grant_process_command_task(
+		&self,
+		process: &tg::Process,
+		id: &tg::process::Id,
+		location: &tg::Location,
+	) -> tg::Result<()> {
+		if !location.is_remote() {
+			return Ok(());
+		}
+
+		let command = process
+			.command_with_handle(self)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
+
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
+			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = now + time_to_live;
+		let principal = tg::grant::Principal::Process(id.clone());
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let permissions = tg::grant::permission::Set::from_permission(permission);
+		let put_grant = tangram_index::grant::put::Arg {
+			created_at: now,
+			creator: Some(tg::Principal::Process(id.clone())),
+			expires_at: Some(expires_at),
+			permissions,
+			principal,
+			resource: command.id().into(),
+			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+		};
+
+		self.server
+			.index_tasks
+			.spawn(|_| {
+				let server = self.server.clone();
+				async move {
+					let arg = tangram_index::batch::Arg {
+						put_grants: vec![put_grant],
+						..Default::default()
+					};
+					let result = server.index.batch(arg).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), "failed to grant the process command");
+					}
+				}
+			})
+			.detach();
+
+		Ok(())
+	}
+
 	async fn run_process(&self, arg: RunProcessArg<'_>) -> tg::Result<Output> {
 		let RunProcessArg {
 			guest_url,
 			process,
-			mut progress,
+			process_stopper,
+			progress,
 			progress_sender,
 			sandbox,
 			sandbox_process_sender,
-			process_stopper,
 			stopper,
 			token,
 		} = arg;
@@ -571,6 +697,43 @@ impl Session {
 			.data_with_handle(self)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
+		let arg = RunProcessInnerArg {
+			command,
+			guest_url,
+			id,
+			location,
+			process,
+			process_stopper,
+			progress,
+			progress_sender,
+			sandbox,
+			sandbox_id,
+			sandbox_process_sender,
+			state,
+			stopper,
+			token,
+		};
+
+		self.run_process_inner(arg).boxed().await
+	}
+
+	async fn run_process_inner(&self, arg: RunProcessInnerArg<'_>) -> tg::Result<Output> {
+		let RunProcessInnerArg {
+			command,
+			guest_url,
+			id,
+			location,
+			process,
+			process_stopper,
+			mut progress,
+			progress_sender,
+			sandbox,
+			sandbox_id,
+			sandbox_process_sender,
+			state,
+			stopper,
+			token,
+		} = arg;
 
 		// Run the process.
 		let result = async {
@@ -718,9 +881,9 @@ impl Session {
 				cwd,
 				env,
 				executable,
+				stderr,
 				stdin,
 				stdout,
-				stderr,
 			};
 			let sandbox_process = sandbox
 				.spawn(tangram_sandbox::SpawnArg {
@@ -815,180 +978,23 @@ impl Session {
 				}))
 			};
 
-			// Wait the sandbox process.
-			let wait = sandbox.wait(&sandbox_process).await.map_err(
-				|error| tg::error!(!error, %id, "failed to start waiting for the process"),
-			)?;
-			let mut wait = std::pin::pin!(wait);
-			let mut log_task = log_task.map(|task| Box::pin(task.wait()));
-			let arg = tg::process::status::Arg {
-				location: location.clone().map(Into::into),
-				timeout: None,
-				token: None,
+			let arg = WaitForProcessArg {
+				id,
+				location: location.clone(),
+				log_task,
+				process_stopper,
+				sandbox: &sandbox,
+				sandbox_process: sandbox_process.as_ref(),
+				stopper,
 			};
-			let status = self.get_process_status(id, arg).await.map_err(
-				|error| tg::error!(!error, %id, "failed to get the process status stream"),
-			)?;
-			let status = async move {
-				let mut status = std::pin::pin!(status);
-				while let Some(status) = status.try_next().await? {
-					if status.is_finished() {
-						break;
-					}
-				}
-				Ok::<_, tg::Error>(())
-			};
-			let mut status = std::pin::pin!(status);
-			let (exit, stopped) = loop {
-				let result = tokio::select! {
-					result = &mut wait => {
-						let exit = result.map_err(
-							|error| tg::error!(!error, %id, "failed to wait for the process"),
-						)?;
-						break (exit, false);
-					},
-					result = &mut status => {
-						result.map_err(|error| {
-							tg::error!(!error, %id, "failed to wait for the process status")
-						})?;
-						sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-						let exit = wait.await.map_err(
-							|error| tg::error!(!error, %id, "failed to wait for the process"),
-						)?;
-						break (exit, true);
-					},
-					() = stopper.wait() => {
-						sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-						let exit = wait.await.map_err(
-							|error| tg::error!(!error, %id, "failed to wait for the process"),
-						)?;
-						break (exit, true);
-					},
-					() = process_stopper.wait() => {
-						sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-						let exit = wait.await.map_err(
-							|error| tg::error!(!error, %id, "failed to wait for the process"),
-						)?;
-						break (exit, true);
-					},
-					result = async { log_task.as_mut().unwrap().await }, if log_task.is_some() => result,
-				};
-				let result = result
-					.map_err(|error| tg::error!(!error, "the log task panicked"))
-					.and_then(|result| {
-						result
-							.map_err(|error| tg::error!(!error, "failed to drain the process logs"))
-					});
-				if let Err(error) = result {
-					sandbox
-						.kill(&sandbox_process, tg::process::Signal::SIGKILL)
-						.await
-						.ok();
-					wait.await.ok();
+			let exit = self.wait_for_process(arg).boxed().await?;
 
-					return Err(error);
-				}
-				log_task = None;
-			};
-			// Wait for the log task to finish draining the stdio into the log store.
-			if let Some(log_task) = log_task {
-				log_task
-					.await
-					.map_err(|error| tg::error!(!error, "the log task panicked"))?
-					.map_err(|error| tg::error!(!error, "failed to drain the process logs"))?;
-			}
-
-			// Handle the case where the process was stopped.
-			if stopped {
-				return Err(tg::error!(
-					code = tg::error::Code::Cancellation,
-					"the process was canceled"
-				));
-			}
-
-			// Create the output.
-			let mut output = Output {
-				checksum: None,
-				error: None,
+			let arg = CollectProcessOutputArg {
 				exit,
-				value: None,
+				path: host_output_path,
+				state,
 			};
-
-			// Get the output path.
-			let path = host_output_path;
-			let exists = tokio::fs::try_exists(&path).await.map_err(|error| {
-				tg::error!(!error, "failed to determine if the output path exists")
-			})?;
-
-			// Try to read the user.tangram.checksum xattr.
-			if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.checksum") {
-				let checksum = String::from_utf8(bytes)
-					.map_err(|error| tg::error!(!error, "failed to parse the checksum xattr"))
-					.and_then(|string| string.parse::<tg::Checksum>())
-					.map_err(|error| tg::error!(!error, "failed to parse the checksum string"))?;
-				output.checksum = Some(checksum);
-			}
-
-			// Try to read the user.tangram.output xattr.
-			if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
-				let tgon = String::from_utf8(bytes)
-					.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
-				output.value = Some(
-					tgon.parse::<tg::Value>()
-						.map_err(|error| tg::error!(!error, "failed to parse the output xattr"))?,
-				);
-			}
-
-			// Try to read the user.tangram.error xattr.
-			if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.error") {
-				let error = serde_json::from_slice::<tg::error::Data>(&bytes)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the error xattr"))?;
-				let error = tg::Error::try_from(error)
-					.map_err(|error| tg::error!(!error, "failed to convert the error data"))?;
-				output.error = Some(error);
-			}
-
-			// Check in the output.
-			if output.value.is_none() && exists {
-				let path = self.guest_path_for_host_path(&path)?;
-				let arg = tg::checkin::Arg {
-					options: tg::checkin::Options {
-						destructive: true,
-						deterministic: true,
-						ignore: false,
-						lock: None,
-						locked: true,
-						root: true,
-						..Default::default()
-					},
-					path,
-					updates: Vec::new(),
-				};
-				let checkin_output = self
-					.checkin(arg)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to check in the output"))?
-					.try_last()
-					.await?
-					.and_then(|event| event.try_unwrap_output().ok())
-					.ok_or_else(|| tg::error!("stream ended without output"))?;
-				let artifact = tg::Artifact::with_referent(checkin_output.artifact);
-				let value = artifact.into();
-				output.value = Some(value);
-			}
-
-			// Compute the checksum if necessary.
-			if let (Some(checksum), None, Some(value)) =
-				(&state.expected_checksum, &output.checksum, &output.value)
-			{
-				let algorithm = checksum.algorithm();
-				let checksum = self
-					.compute_checksum(value, algorithm)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to compute the checksum"))?;
-				output.checksum = Some(checksum);
-			}
-			Ok(output)
+			self.collect_process_output(arg).await
 		}
 		.boxed()
 		.await;
@@ -997,6 +1003,191 @@ impl Session {
 		drop(sandbox_process_sender);
 
 		result
+	}
+
+	async fn wait_for_process(&self, arg: WaitForProcessArg<'_>) -> tg::Result<u8> {
+		let WaitForProcessArg {
+			id,
+			location,
+			log_task,
+			process_stopper,
+			sandbox,
+			sandbox_process,
+			stopper,
+		} = arg;
+		let wait = sandbox
+			.wait(sandbox_process)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to start waiting for the process"))?;
+		let mut wait = std::pin::pin!(wait);
+		let mut log_task = log_task.map(|task| Box::pin(task.wait()));
+		let arg = tg::process::status::Arg {
+			location: location.map(Into::into),
+			timeout: None,
+			token: None,
+		};
+		let status = self
+			.get_process_status(id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process status stream"))?;
+		let status = async move {
+			let mut status = std::pin::pin!(status);
+			while let Some(status) = status.try_next().await? {
+				if status.is_finished() {
+					break;
+				}
+			}
+			Ok::<_, tg::Error>(())
+		};
+		let mut status = std::pin::pin!(status);
+		let (exit, stopped) = loop {
+			let result = tokio::select! {
+				result = &mut wait => {
+					let exit = result.map_err(
+						|error| tg::error!(!error, %id, "failed to wait for the process"),
+					)?;
+					break (exit, false);
+				},
+				result = &mut status => {
+					result.map_err(|error| {
+						tg::error!(!error, %id, "failed to wait for the process status")
+					})?;
+					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+					let exit = wait.await.map_err(
+						|error| tg::error!(!error, %id, "failed to wait for the process"),
+					)?;
+					break (exit, true);
+				},
+				() = stopper.wait() => {
+					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+					let exit = wait.await.map_err(
+						|error| tg::error!(!error, %id, "failed to wait for the process"),
+					)?;
+					break (exit, true);
+				},
+				() = process_stopper.wait() => {
+					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+					let exit = wait.await.map_err(
+						|error| tg::error!(!error, %id, "failed to wait for the process"),
+					)?;
+					break (exit, true);
+				},
+				result = async { log_task.as_mut().unwrap().await }, if log_task.is_some() => result,
+			};
+			let result = result
+				.map_err(|error| tg::error!(!error, "the log task panicked"))
+				.and_then(|result| {
+					result.map_err(|error| tg::error!(!error, "failed to drain the process logs"))
+				});
+			if let Err(error) = result {
+				sandbox
+					.kill(sandbox_process, tg::process::Signal::SIGKILL)
+					.await
+					.ok();
+				wait.await.ok();
+
+				return Err(error);
+			}
+			log_task = None;
+		};
+		if let Some(log_task) = log_task {
+			log_task
+				.await
+				.map_err(|error| tg::error!(!error, "the log task panicked"))?
+				.map_err(|error| tg::error!(!error, "failed to drain the process logs"))?;
+		}
+		if stopped {
+			return Err(tg::error!(
+				code = tg::error::Code::Cancellation,
+				"the process was canceled"
+			));
+		}
+
+		Ok(exit)
+	}
+
+	async fn collect_process_output(&self, arg: CollectProcessOutputArg<'_>) -> tg::Result<Output> {
+		let CollectProcessOutputArg { exit, path, state } = arg;
+		let mut output = Output {
+			checksum: None,
+			error: None,
+			exit,
+			value: None,
+		};
+		let exists = tokio::fs::try_exists(&path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to determine if the output path exists"))?;
+
+		// Try to read the user.tangram.checksum xattr.
+		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.checksum") {
+			let checksum = String::from_utf8(bytes)
+				.map_err(|error| tg::error!(!error, "failed to parse the checksum xattr"))
+				.and_then(|string| string.parse::<tg::Checksum>())
+				.map_err(|error| tg::error!(!error, "failed to parse the checksum string"))?;
+			output.checksum = Some(checksum);
+		}
+
+		// Try to read the user.tangram.output xattr.
+		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
+			let tgon = String::from_utf8(bytes)
+				.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
+			output.value = Some(
+				tgon.parse::<tg::Value>()
+					.map_err(|error| tg::error!(!error, "failed to parse the output xattr"))?,
+			);
+		}
+
+		// Try to read the user.tangram.error xattr.
+		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.error") {
+			let error = serde_json::from_slice::<tg::error::Data>(&bytes)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the error xattr"))?;
+			let error = tg::Error::try_from(error)
+				.map_err(|error| tg::error!(!error, "failed to convert the error data"))?;
+			output.error = Some(error);
+		}
+
+		// Check in the output.
+		if output.value.is_none() && exists {
+			let path = self.guest_path_for_host_path(&path)?;
+			let arg = tg::checkin::Arg {
+				options: tg::checkin::Options {
+					destructive: true,
+					deterministic: true,
+					ignore: false,
+					lock: None,
+					locked: true,
+					root: true,
+					..Default::default()
+				},
+				path,
+				updates: Vec::new(),
+			};
+			let checkin_output = self
+				.checkin(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to check in the output"))?
+				.try_last()
+				.await?
+				.and_then(|event| event.try_unwrap_output().ok())
+				.ok_or_else(|| tg::error!("stream ended without output"))?;
+			let artifact = tg::Artifact::with_referent(checkin_output.artifact);
+			let value = artifact.into();
+			output.value = Some(value);
+		}
+
+		// Compute the checksum if necessary.
+		if let (Some(checksum), None, Some(value)) =
+			(&state.expected_checksum, &output.checksum, &output.value)
+		{
+			let algorithm = checksum.algorithm();
+			let checksum = self
+				.compute_checksum(value, algorithm)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to compute the checksum"))?;
+			output.checksum = Some(checksum);
+		}
+
+		Ok(output)
 	}
 
 	async fn compute_checksum(

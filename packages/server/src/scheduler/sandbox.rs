@@ -31,7 +31,8 @@ struct Parent {
 
 struct Borrowable {
 	capacity: tg::runner::Capacity,
-	runner: RunnerRef,
+	connection_index: Option<u64>,
+	runner: tg::runner::Id,
 }
 
 struct Links {
@@ -116,8 +117,11 @@ impl Queue {
 			self.head = Some(id.clone());
 		}
 		self.tail = Some(id.clone());
-		self.entries.insert(id, links);
-		self.wake();
+		self.entries.insert(id.clone(), links);
+		if self.scan.is_none() {
+			self.scan = Some(id);
+		}
+		self.remaining += 1;
 	}
 
 	pub fn len(&self) -> usize {
@@ -128,7 +132,10 @@ impl Queue {
 		if self.remaining == 0 {
 			return None;
 		}
-		let id = self.scan.clone()?;
+		let Some(id) = self.scan.clone() else {
+			self.remaining = 0;
+			return None;
+		};
 		self.scan = self.entries.get(&id).and_then(|links| links.next.clone());
 		self.remaining -= 1;
 
@@ -162,7 +169,6 @@ impl Queue {
 			self.scan = links.next;
 			self.remaining = self.remaining.saturating_sub(1);
 		}
-		self.wake();
 
 		true
 	}
@@ -255,18 +261,12 @@ impl State {
 		scheduler: &Scheduler,
 		notification: BorrowableCapacityNotification,
 	) {
-		let Some(runner) = self
+		let connection_index = self
 			.runners
 			.entries
 			.get(&notification.runner)
-			.filter(|runner| runner.ready)
-		else {
-			return;
-		};
-		let runner = RunnerRef {
-			connection_index: runner.connection_index,
-			id: notification.runner,
-		};
+			.map(|runner| runner.connection_index);
+		let runner = notification.runner;
 		let parent_id = notification.parent;
 		let parent = self
 			.parents
@@ -278,19 +278,17 @@ impl State {
 			});
 		let previous = parent.borrowable.replace(Borrowable {
 			capacity: notification.capacity,
+			connection_index,
 			runner: runner.clone(),
 		});
 		if let Some(previous) = previous
-			&& let Some(runner) = self.runners.entries.get_mut(&previous.runner.id)
+			&& let Some(runner) = self.runners.entries.get_mut(&previous.runner)
 		{
 			runner.borrowable.remove(&parent_id);
 		}
-		self.runners
-			.entries
-			.get_mut(&runner.id)
-			.unwrap()
-			.borrowable
-			.insert(parent_id);
+		if let Some(runner) = self.runners.entries.get_mut(&runner) {
+			runner.borrowable.insert(parent_id.clone());
+		}
 		let sandbox = parent.queue.head().cloned();
 		if let Some(sandbox) = sandbox
 			&& self.sandboxes.attempts < scheduler.config.max_create_sandbox_requests
@@ -342,7 +340,7 @@ impl State {
 		runner.capacity = notification.capacity;
 		runner.committed = tg::runner::Capacity::default();
 		runner.heartbeat_at = tokio::time::Instant::now();
-		runner.heartbeat_index = runner.heartbeat_index.wrapping_add(1);
+		runner.heartbeat_index = notification.heartbeat_index;
 		self.queue.wake();
 	}
 
@@ -440,11 +438,11 @@ impl State {
 				continue;
 			};
 			let remove = parent.borrowable.as_ref().is_some_and(|borrowable| {
-				borrowable.runner.id == *id
-					&& borrowable.runner.connection_index == runner.connection_index
+				borrowable.runner == *id
+					&& borrowable.connection_index == Some(runner.connection_index)
 			});
 			if remove {
-				parent.borrowable = None;
+				parent.borrowable.as_mut().unwrap().connection_index = None;
 			}
 		}
 		let sandboxes = runner.reservations.into_keys().collect::<Vec<_>>();
@@ -473,15 +471,21 @@ impl State {
 				.get(parent)
 				.and_then(|parent| parent.borrowable.as_ref())
 			&& contains(borrowable.capacity, sandbox.capacity)
-			&& let Some(runner) = self.runners.entries.get(&borrowable.runner.id)
-			&& runner.connection_index == borrowable.runner.connection_index
+			&& let Some(runner) = self.runners.entries.get(&borrowable.runner)
+			&& borrowable
+				.connection_index
+				.is_none_or(|connection_index| connection_index == runner.connection_index)
 			&& runner.ready
 			&& matches_host(runner, &sandbox.request)
 			&& runner.requests < scheduler.config.max_create_sandbox_requests_per_runner
 		{
+			let runner = RunnerRef {
+				connection_index: runner.connection_index,
+				id: borrowable.runner.clone(),
+			};
 			return Some(Placement::Borrowed {
 				parent: parent.clone(),
-				runner: borrowable.runner.clone(),
+				runner,
 			});
 		}
 
@@ -538,12 +542,15 @@ impl State {
 	}
 
 	fn remove_queued_sandbox(&mut self, id: &tg::sandbox::Id) {
-		let parent = self.sandboxes.entries[id].request.parent.clone();
+		let parent_id = self.sandboxes.entries[id].request.parent.clone();
 		self.queue.remove(id);
-		if let Some(parent) = parent
-			&& let Some(parent) = self.parents.0.get_mut(&parent)
+		if let Some(parent_id) = parent_id
+			&& let Some(parent) = self.parents.0.get_mut(&parent_id)
 		{
 			parent.queue.remove(id);
+			if parent.queue.len() == 0 && parent.borrowable.is_none() {
+				self.parents.0.remove(&parent_id);
+			}
 		}
 	}
 
@@ -605,6 +612,9 @@ impl State {
 				.unwrap()
 				.borrowable
 				.remove(parent);
+			if self.parents.0[parent].queue.len() == 0 {
+				self.parents.0.remove(parent);
+			}
 		}
 		let runner = self.runners.entries.get_mut(&runner_ref.id).unwrap();
 		runner.requests += 1;
@@ -793,6 +803,7 @@ mod tests {
 		assert_eq!(queue.next(), None);
 
 		assert!(queue.remove(&first));
+		queue.wake();
 		assert_eq!(queue.next(), Some(last.clone()));
 		assert_eq!(queue.next(), None);
 

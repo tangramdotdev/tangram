@@ -50,6 +50,10 @@ struct Requests {
 }
 
 enum Operation {
+	Acknowledge {
+		request: Request,
+		result: tg::Result<()>,
+	},
 	AddRunner {
 		connection_index: u64,
 		id: String,
@@ -565,7 +569,7 @@ impl Scheduler {
 				},
 			},
 			Message::Request(request) => {
-				self.handle_request(state, request);
+				self.acknowledge_request(state, request);
 			},
 			Message::Response(_) => {},
 		}
@@ -583,11 +587,26 @@ impl Scheduler {
 		);
 	}
 
-	fn handle_request(&self, state: &mut State, request: Request) {
+	fn acknowledge_request(&self, state: &mut State, request: Request) {
 		let id = request.id.clone();
 		let subject = Self::client_subject(&id);
 		let message = Message::Ack(Ack { id: id.clone() });
-		self.publish_message(state, subject, message, "failed to publish the ack");
+		let server = self.server.clone();
+		state.operations.push(
+			async move {
+				let result = server
+					.messenger
+					.publish(subject, message)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to publish a scheduler message"));
+				Operation::Acknowledge { request, result }
+			}
+			.boxed(),
+		);
+	}
+
+	fn handle_acknowledged_request(&self, state: &mut State, request: Request) {
+		let id = request.id.clone();
 
 		if let Some(response) = state.requests.outbox.get(&id).cloned() {
 			self.publish_response(state, response);
@@ -617,6 +636,12 @@ impl Scheduler {
 
 	fn handle_operation(&self, state: &mut State, operation: Operation) {
 		match operation {
+			Operation::Acknowledge { request, result } => {
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), "failed to publish the ack");
+				}
+				self.handle_acknowledged_request(state, request);
+			},
 			Operation::AddRunner {
 				connection_index,
 				id,

@@ -7,19 +7,22 @@ use {
 };
 
 mod capacity;
-mod process;
-mod progress;
-mod sandbox;
-
 mod cleanup;
+mod process;
+mod sandbox;
 
 pub(crate) use self::{
 	capacity::Allocation,
 	process::ConnectedEvent as ProcessConnected,
-	sandbox::{SandboxIdentity, SpawnSandboxTaskArg, Started as SandboxStarted},
+	sandbox::{
+		Event as SandboxEvent, SandboxIdentity, SpawnSandboxTaskArg, StartedEvent as SandboxStarted,
+	},
 };
 
 pub mod control;
+
+type RunnerSender =
+	crate::control::Sender<tg::runner::control::ServerMessage, tg::runner::control::ClientMessage>;
 
 pub struct Runner {
 	pub state: State,
@@ -34,15 +37,8 @@ pub struct State {
 	pub sandboxes: crate::sandbox::Map,
 }
 
-#[derive(Clone, Debug)]
-pub struct Output {
-	pub checksum: Option<tg::Checksum>,
-	pub error: Option<tg::Error>,
-	pub exit: u8,
-	pub value: Option<tg::Value>,
-}
-
 impl Runner {
+	#[must_use]
 	pub fn new(capacity: tg::runner::Capacity) -> Self {
 		let state = State {
 			capacity: self::capacity::Pool::new(capacity),
@@ -55,9 +51,6 @@ impl Runner {
 		Self { state, task }
 	}
 }
-
-type RunnerSender =
-	crate::control::Sender<tg::runner::control::ServerMessage, tg::runner::control::ClientMessage>;
 
 impl Session {
 	pub(crate) async fn runner_task(&self, id: tg::runner::Id, stopper: Stopper) {
@@ -259,10 +252,16 @@ impl Session {
 			sender.send(message).await.ok();
 
 			// Spawn a task to send the sandbox destroyed notification.
-			tokio::spawn({
+			Task::spawn({
 				let sender = sender.clone();
-				async move {
-					task.destroyed.await.ok();
+				move |_| async move {
+					let mut events = task.events;
+					while let Some(event) = events.recv().await {
+						match event {
+							Ok(SandboxEvent::Destroy) | Err(_) => break,
+							Ok(SandboxEvent::Start(_)) => {},
+						}
+					}
 					let id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
 					let notification = tg::runner::control::ClientNotification::SandboxDestroyed(
 						tg::runner::control::SandboxDestroyedClientNotification { id, sandbox },
@@ -270,7 +269,8 @@ impl Session {
 					let message = tg::runner::control::ClientMessage::Notification(notification);
 					sender.send(message).await.ok();
 				}
-			});
+			})
+			.detach();
 		}
 
 		Ok(())
@@ -312,6 +312,7 @@ impl Session {
 		}
 	}
 
+	#[must_use]
 	fn create_runner_heartbeat(
 		&self,
 		index: u64,
@@ -320,6 +321,7 @@ impl Session {
 		tg::runner::control::HeartbeatClientNotification { capacity, index }
 	}
 
+	#[must_use]
 	fn create_runner_control_response(
 		id: String,
 		result: tg::Result<tg::runner::control::ClientResponseOutput>,
@@ -348,10 +350,12 @@ impl Session {
 }
 
 impl State {
+	#[must_use]
 	pub fn id(&self) -> Option<tg::runner::Id> {
 		self.id.lock().unwrap().clone()
 	}
 
+	#[must_use]
 	pub fn started_process_count(&self) -> u64 {
 		self.sandboxes
 			.iter()
@@ -367,10 +371,12 @@ impl State {
 			.unwrap()
 	}
 
+	#[must_use]
 	pub fn try_get_sandbox(&self, id: &tg::sandbox::Id) -> Option<tg::sandbox::get::Output> {
 		self.sandboxes.get(id).map(|sandbox| sandbox.data.clone())
 	}
 
+	#[must_use]
 	pub fn try_get_process(&self, id: &tg::process::Id) -> Option<tg::process::Data> {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get(&sandbox)?;
@@ -378,6 +384,7 @@ impl State {
 		Some(process.data.clone())
 	}
 
+	#[must_use]
 	pub fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
@@ -409,6 +416,7 @@ impl State {
 		Some(update(process))
 	}
 
+	#[must_use]
 	pub fn try_get_process_sandbox(&self, id: &tg::process::Id) -> Option<tg::sandbox::Id> {
 		self.processes
 			.get(id)

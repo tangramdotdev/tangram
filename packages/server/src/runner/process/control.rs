@@ -21,6 +21,11 @@ mod stdin;
 mod stdout;
 mod tty;
 
+pub(super) type ProcessControlSender = crate::control::Sender<
+	tg::process::control::ServerMessage,
+	tg::process::control::ClientMessage,
+>;
+
 pub(crate) struct RunProcessControlTaskArg {
 	pub finish: tokio::sync::oneshot::Receiver<tg::process::Data>,
 	pub requests: BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
@@ -41,11 +46,6 @@ pub(super) struct Reader {
 	pub(super) offset: usize,
 	pub(super) stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 }
-
-pub(super) type ProcessControlSender = crate::control::Sender<
-	tg::process::control::ServerMessage,
-	tg::process::control::ClientMessage,
->;
 
 struct RunProcessControlHandlerTaskArg {
 	control: crate::control::Stream<
@@ -113,6 +113,7 @@ impl Session {
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?
 	}
 
+	#[must_use]
 	pub(super) fn process_control_response(
 		id: String,
 		result: tg::Result<tg::process::control::ClientResponseOutput>,

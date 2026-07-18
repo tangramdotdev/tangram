@@ -54,6 +54,7 @@ enum AllocationSource {
 }
 
 impl Pool {
+	#[must_use]
 	pub fn new(total: tg::runner::Capacity) -> Self {
 		Self {
 			state: Arc::new(State {
@@ -64,6 +65,7 @@ impl Pool {
 		}
 	}
 
+	#[must_use]
 	pub fn get(&self) -> tg::runner::control::Capacity {
 		let available = *self.state.available.lock().unwrap();
 		tg::runner::control::Capacity {
@@ -72,6 +74,7 @@ impl Pool {
 		}
 	}
 
+	#[must_use]
 	pub fn try_acquire(&self, capacity: tg::runner::Capacity) -> Option<Allocation> {
 		let mut available = self.state.available.lock().unwrap();
 		if !contains(*available, capacity) {
@@ -112,6 +115,7 @@ impl Reservations {
 		}
 	}
 
+	#[must_use]
 	pub fn reserve(
 		&self,
 		allocation: tokio::sync::OwnedMutexGuard<Option<Allocation>>,
@@ -146,6 +150,7 @@ impl Reservations {
 		Some((capacity, guard))
 	}
 
+	#[must_use]
 	pub fn try_acquire(
 		&self,
 		parent: &tg::sandbox::Id,
@@ -168,6 +173,7 @@ impl Reservations {
 }
 
 impl Allocation {
+	#[must_use]
 	pub fn try_borrow(
 		parent: tokio::sync::OwnedMutexGuard<Option<Self>>,
 		requested: tg::runner::Capacity,

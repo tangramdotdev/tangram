@@ -75,11 +75,11 @@ impl Session {
 		let assigned = output.process_token.is_some();
 		if !assigned && connected.grant.is_none() {
 			return Err(tg::error!(
-				process = %connected.id,
+				process = %connected.process,
 				"missing the process grant"
 			));
 		}
-		output.id = connected.id;
+		output.id = connected.process;
 		output.lease = Some(connected.lease);
 		if let Some(grant) = connected.grant {
 			output.token = Some(grant);
@@ -139,8 +139,8 @@ impl Session {
 		}
 		let connected = crate::runner::ProcessConnected {
 			grant: output.grant,
-			id: output.process,
 			lease: output.lease,
+			process: output.process,
 		};
 
 		Ok(connected)
@@ -175,11 +175,17 @@ impl Session {
 					location,
 					process: Some(process),
 				});
-			let started = task
-				.started
+			let mut events = task.events;
+			let event = events
+				.recv()
 				.await
-				.map_err(|_| tg::error!("the sandbox start sender was dropped"))??;
-			return Ok(Some(started));
+				.ok_or_else(|| tg::error!("the sandbox event sender was dropped"))??;
+			match event {
+				crate::runner::SandboxEvent::Destroy => {
+					return Err(tg::error!("the sandbox was destroyed before it started"));
+				},
+				crate::runner::SandboxEvent::Start(event) => return Ok(Some(event)),
+			}
 		}
 		let request = crate::scheduler::CreateSandboxRequestArg {
 			arg,

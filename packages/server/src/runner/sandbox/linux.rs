@@ -165,6 +165,7 @@ async fn acquire_vm_lock(data_dir: &std::path::Path) -> tg::Result<std::fs::File
 			.map_err(
 				|error| tg::error!(!error, path = %lock_path.display(), "failed to open the vm lock"),
 			)?;
+		// SAFETY: The file descriptor remains valid for the duration of the call.
 		let ret = unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&lock), libc::LOCK_EX) };
 		if ret != 0 {
 			let error = std::io::Error::last_os_error();
