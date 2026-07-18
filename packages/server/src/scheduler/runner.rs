@@ -1,66 +1,159 @@
 use {
 	super::{
-		AddRunnerRequestArg, AddRunnerResponseOutput, RemoveRunnerRequestArg,
-		RemoveRunnerResponseOutput, Response, ResponseOutput, Runner, Scheduler,
+		AddRunnerRequestArg, AddRunnerResponseOutput, Operation, RemoveRunnerRequestArg,
+		RemoveRunnerResponseOutput, Scheduler, State,
 	},
 	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::ops::ControlFlow,
+	std::{
+		collections::{HashMap, HashSet},
+		ops::ControlFlow,
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
 };
 
-impl Scheduler {
-	pub(super) async fn handle_add_runner_request(&self, id: String, request: AddRunnerRequestArg) {
-		if let Some(mut runner) = self.runners.get_mut(&request.runner) {
-			runner.capacity = request.capacity;
-			runner.heartbeat_at = tokio::time::Instant::now();
-			runner.host.clone_from(&request.host);
-			runner.reservations.retain(|_, reservation| {
-				!matches!(reservation.state, super::ReservationState::Succeeded)
-			});
-		} else {
-			let runner = Runner {
-				capacity: request.capacity,
-				heartbeat_at: tokio::time::Instant::now(),
-				host: request.host.clone(),
-				requests: 0,
-				reservations: std::collections::HashMap::new(),
-			};
-			self.runners.insert(request.runner.clone(), runner);
+pub(super) struct Runners {
+	pub entries: HashMap<tg::runner::Id, Runner, tg::id::BuildHasher>,
+	next_connection_index: u64,
+}
+
+pub(super) struct Runner {
+	pub borrowable: HashSet<tg::sandbox::Id, tg::id::BuildHasher>,
+	pub capacity: tg::runner::control::Capacity,
+	pub committed: tg::runner::Capacity,
+	pub connection_index: u64,
+	pub heartbeat_at: tokio::time::Instant,
+	pub heartbeat_index: u64,
+	pub host: String,
+	pub ready: bool,
+	pub requests: usize,
+	pub reservations: HashMap<tg::sandbox::Id, Reservation, tg::id::BuildHasher>,
+	pub reserved: tg::runner::Capacity,
+}
+
+pub(super) struct Reservation {
+	pub capacity: tg::runner::Capacity,
+	pub source: ReservationSource,
+	pub state: ReservationState,
+}
+
+pub(super) enum ReservationSource {
+	Borrowed,
+	Regular,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ReservationState {
+	Pending,
+	Uncertain,
+}
+
+impl Runners {
+	pub fn new() -> Self {
+		Self {
+			entries: HashMap::default(),
+			next_connection_index: 0,
 		}
-		tokio::spawn({
-			let scheduler = self.clone();
-			async move {
-				scheduler.add_runner_request_task(id, request).await;
-			}
-		});
 	}
 
-	async fn add_runner_request_task(&self, id: String, request: AddRunnerRequestArg) {
-		let result = self.handle_add_runner(request).await;
-		let (error, output) = match result {
-			Ok(output) => {
-				let error = None;
-				let output = Some(ResponseOutput::AddRunner(output));
-				(error, output)
-			},
-			Err(error) => {
-				let error = Some(tg::error::Data {
-					message: Some(error.to_string()),
-					..Default::default()
-				});
-				let output = None;
-				(error, output)
-			},
+	pub fn expired(&self, now: tokio::time::Instant, ttl: Duration) -> Vec<(tg::runner::Id, u64)> {
+		self.entries
+			.iter()
+			.filter(|(_, runner)| now.duration_since(runner.heartbeat_at) > ttl)
+			.map(|(id, runner)| (id.clone(), runner.connection_index))
+			.collect()
+	}
+
+	pub fn next_connection_index(&mut self) -> u64 {
+		let connection_index = self.next_connection_index;
+		self.next_connection_index = self.next_connection_index.wrapping_add(1);
+
+		connection_index
+	}
+}
+
+impl State {
+	pub(super) fn handle_add_runner_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		request: AddRunnerRequestArg,
+	) {
+		let connection_index = self.runners.next_connection_index();
+		self.remove_runner(&request.runner);
+		let runner = Runner {
+			borrowable: HashSet::default(),
+			capacity: request.capacity,
+			committed: tg::runner::Capacity::default(),
+			connection_index,
+			heartbeat_at: tokio::time::Instant::now(),
+			heartbeat_index: 0,
+			host: request.host.clone(),
+			ready: false,
+			requests: 0,
+			reservations: HashMap::default(),
+			reserved: tg::runner::Capacity::default(),
 		};
-		let response = Response { error, id, output };
-		self.send_response(response).await;
+		self.runners.entries.insert(request.runner.clone(), runner);
+		self.queue.wake();
+
+		let scheduler = scheduler.clone();
+		let runner = request.runner.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler.add_runner(connection_index, request).await;
+				Operation::AddRunner {
+					connection_index,
+					id,
+					result,
+					runner,
+				}
+			}
+			.boxed(),
+		);
 	}
 
-	async fn handle_add_runner(
+	pub(super) fn handle_remove_runner_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: Option<String>,
+		request: RemoveRunnerRequestArg,
+	) {
+		let current = self
+			.runners
+			.entries
+			.get(&request.runner)
+			.is_some_and(|runner| runner.connection_index == request.connection_index);
+		if !current {
+			if let Some(id) = id {
+				let output = RemoveRunnerResponseOutput {
+					runner: request.runner,
+				};
+				let response =
+					Scheduler::response(id, Ok(super::ResponseOutput::RemoveRunner(output)));
+				scheduler.send_response(self, response);
+			}
+			return;
+		}
+		self.remove_runner(&request.runner);
+		let scheduler = scheduler.clone();
+		self.operations.push(
+			async move {
+				let result = scheduler.remove_runner(request).boxed().await;
+				Operation::RemoveRunner { id, result }
+			}
+			.boxed(),
+		);
+	}
+}
+
+impl Scheduler {
+	async fn add_runner(
 		&self,
+		connection_index: u64,
 		request: AddRunnerRequestArg,
 	) -> tg::Result<AddRunnerResponseOutput> {
 		// Upsert the runner into the database.
@@ -113,65 +206,20 @@ impl Scheduler {
 			.detach();
 
 		let output = AddRunnerResponseOutput {
+			connection_index,
 			runner: request.runner,
 		};
+
 		Ok(output)
 	}
 
-	pub(super) async fn handle_remove_runner_request(
-		&self,
-		id: String,
-		request: RemoveRunnerRequestArg,
-	) {
-		tokio::spawn({
-			let scheduler = self.clone();
-			async move {
-				scheduler.remove_runner_request_task(id, request).await;
-			}
-		});
-	}
-
-	pub(super) fn handle_expired_runner(&self, runner: tg::runner::Id) {
-		tokio::spawn({
-			let scheduler = self.clone();
-			async move {
-				let request = RemoveRunnerRequestArg {
-					runner: runner.clone(),
-				};
-				if let Err(error) = scheduler.handle_remove_runner(request).await {
-					tracing::error!(error = %error.trace(), %runner, "failed to remove the expired runner");
-				}
-			}
-		});
-	}
-
-	async fn remove_runner_request_task(&self, id: String, request: RemoveRunnerRequestArg) {
-		let result = self.handle_remove_runner(request).await;
-		let (error, output) = match result {
-			Ok(output) => {
-				let error = None;
-				let output = Some(ResponseOutput::RemoveRunner(output));
-				(error, output)
-			},
-			Err(error) => {
-				let error = Some(tg::error::Data {
-					message: Some(error.to_string()),
-					..Default::default()
-				});
-				let output = None;
-				(error, output)
-			},
-		};
-		let response = Response { error, id, output };
-		self.send_response(response).await;
-	}
-
-	async fn handle_remove_runner(
+	async fn remove_runner(
 		&self,
 		request: RemoveRunnerRequestArg,
 	) -> tg::Result<RemoveRunnerResponseOutput> {
 		self.server
 			.cleanup_lost_runner(&request.runner, &self.id)
+			.boxed()
 			.await
 			.map_err(
 				|error| tg::error!(!error, runner = %request.runner, "failed to clean up the lost runner"),
@@ -208,6 +256,7 @@ impl Scheduler {
 		let output = RemoveRunnerResponseOutput {
 			runner: request.runner,
 		};
+
 		Ok(output)
 	}
 }

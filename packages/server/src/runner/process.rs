@@ -31,26 +31,31 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub sandbox: &'a tangram_sandbox::Sandbox,
 }
 
-pub(super) struct SpawnProcessTask {
+pub(super) struct SpawnProcessTaskOutput {
+	pub events: tokio::sync::mpsc::UnboundedReceiver<tg::Result<Event>>,
 	pub exited: tokio::sync::oneshot::Receiver<()>,
-	pub started: tokio::sync::oneshot::Receiver<tg::Result<Started>>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct Started {
-	pub grant: Option<tg::grant::Token>,
-	pub id: tg::process::Id,
-	pub lease: String,
 }
 
 struct ProcessTaskArg {
-	exited: tokio::sync::oneshot::Sender<()>,
+	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
+	exited_sender: tokio::sync::oneshot::Sender<()>,
 	guest_url: tangram_uri::Uri,
 	location: tg::Location,
 	process: tg::runner::control::Process,
 	retention_stopper: Stopper,
 	sandbox: tangram_sandbox::Sandbox,
 	sandbox_stopper: Stopper,
+}
+
+pub(super) enum Event {
+	Connect(ConnectedEvent),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ConnectedEvent {
+	pub grant: Option<tg::grant::Token>,
+	pub id: tg::process::Id,
+	pub lease: String,
 }
 
 struct RunProcessArg<'a> {
@@ -73,9 +78,12 @@ impl Session {
 		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
 	}
 
-	pub(super) fn spawn_process_task(&self, arg: SpawnProcessTaskArg<'_>) -> SpawnProcessTask {
+	pub(super) fn spawn_process_task(
+		&self,
+		arg: SpawnProcessTaskArg<'_>,
+	) -> SpawnProcessTaskOutput {
 		let (exited_sender, exited_receiver) = tokio::sync::oneshot::channel();
-		let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+		let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let session = self.clone();
 		let process = arg.process;
 		let sandbox = arg.sandbox.clone();
@@ -84,42 +92,32 @@ impl Session {
 		let sandbox_stopper = arg.process_stopper.clone();
 		let retention_stopper = arg.retention_stopper;
 		arg.process_tasks.spawn(async move {
-			let mut started_sender = Some(started_sender);
-			let result = session
-				.process_task(
-					ProcessTaskArg {
-						exited: exited_sender,
-						guest_url,
-						location,
-						process,
-						retention_stopper,
-						sandbox,
-						sandbox_stopper,
-					},
-					&mut started_sender,
-				)
-				.boxed()
-				.await;
-			if let Err(error) = &result
-				&& let Some(started_sender) = started_sender.take()
-			{
-				started_sender.send(Err(error.clone())).ok();
+			let arg = ProcessTaskArg {
+				event_sender: event_sender.clone(),
+				exited_sender,
+				guest_url,
+				location,
+				process,
+				retention_stopper,
+				sandbox,
+				sandbox_stopper,
+			};
+			let result = session.process_task(arg).boxed().await;
+			if let Err(error) = &result {
+				event_sender.send(Err(error.clone())).ok();
 			}
 			result
 		});
-		SpawnProcessTask {
+		SpawnProcessTaskOutput {
+			events: event_receiver,
 			exited: exited_receiver,
-			started: started_receiver,
 		}
 	}
 
-	async fn process_task(
-		&self,
-		arg: ProcessTaskArg,
-		started_sender: &mut Option<tokio::sync::oneshot::Sender<tg::Result<Started>>>,
-	) -> tg::Result<()> {
+	async fn process_task(&self, arg: ProcessTaskArg) -> tg::Result<()> {
 		let ProcessTaskArg {
-			exited,
+			event_sender,
+			exited_sender: exited,
 			guest_url,
 			location,
 			process,
@@ -257,15 +255,13 @@ impl Session {
 					|error| tg::error!(!error, %id, "failed to publish the process control connection"),
 				)?;
 		}
-		if let Some(started_sender) = started_sender.take() {
-			started_sender
-				.send(Ok(Started {
-					grant: output.grant,
-					id: id.clone(),
-					lease: lease.clone(),
-				}))
-				.ok();
-		}
+		event_sender
+			.send(Ok(Event::Connect(ConnectedEvent {
+				grant: output.grant,
+				id: id.clone(),
+				lease: lease.clone(),
+			})))
+			.ok();
 		let command = process
 			.command_with_handle(&session)
 			.await

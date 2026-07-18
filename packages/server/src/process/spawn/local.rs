@@ -60,6 +60,38 @@ impl Session {
 		self.server.runner.state.capacity.try_acquire(requested)
 	}
 
+	pub(crate) fn try_acquire_scheduled_sandbox_capacity(
+		&self,
+		borrowed: bool,
+		parent: Option<&tg::sandbox::Id>,
+		requested: tg::runner::Capacity,
+	) -> Option<crate::runner::Allocation> {
+		if borrowed {
+			let parent = parent?;
+			return self
+				.server
+				.runner
+				.state
+				.reservations
+				.try_acquire(parent, requested)
+				.or_else(|| self.try_acquire_parent_sandbox_capacity(parent, requested));
+		}
+
+		self.try_acquire_sandbox_capacity(parent, requested)
+	}
+
+	fn try_acquire_parent_sandbox_capacity(
+		&self,
+		parent: &tg::sandbox::Id,
+		requested: tg::runner::Capacity,
+	) -> Option<crate::runner::Allocation> {
+		let sandbox = self.server.runner.state.sandboxes.get(parent)?;
+		let allocation = sandbox.allocation.clone()?;
+		let parent = allocation.try_lock_owned().ok()?;
+
+		crate::runner::Allocation::try_borrow(parent, requested)
+	}
+
 	pub(super) async fn spawn_process_notify_borrowable_capacity(
 		&self,
 		parent: &tg::process::Id,
@@ -77,18 +109,6 @@ impl Session {
 			|| tg::error!(%parent_sandbox, "failed to find the parent sandbox allocation"),
 		)?;
 		drop(sandbox);
-		let allocation = allocation.lock_owned().await;
-		let capacity = allocation
-			.as_ref()
-			.map(crate::runner::Allocation::capacity)
-			.ok_or_else(
-				|| tg::error!(%parent_sandbox, "failed to find the parent sandbox allocation"),
-			)?;
-		if capacity.cpus < requested.cpus || capacity.memory < requested.memory {
-			return Ok(());
-		}
-		drop(allocation);
-
 		let runner = self
 			.server
 			.runner
@@ -108,22 +128,32 @@ impl Session {
 			.map(|process| process.control.clone())
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
-		let notification = tg::process::control::ClientNotification::BorrowableCapacity(
-			tg::process::control::BorrowableCapacityClientNotification {
-				capacity,
-				parent: parent_sandbox.clone(),
-				runner,
-			},
-		);
-		control
-			.send(tg::process::control::ClientMessage::Notification(
-				notification,
-			))
-			.await
-			.map_err(
-				|error| tg::error!(!error, %parent, "failed to send the borrowable capacity notification"),
-			)?;
-		Ok(())
+		loop {
+			let allocation = allocation.clone().lock_owned().await;
+			let Some((capacity, mut reservation)) = self.server.runner.state.reservations.reserve(
+				allocation,
+				parent_sandbox.clone(),
+				requested,
+			) else {
+				return Ok(());
+			};
+			let notification = tg::process::control::ClientNotification::BorrowableCapacity(
+				tg::process::control::BorrowableCapacityClientNotification {
+					capacity,
+					parent: parent_sandbox.clone(),
+					runner: runner.clone(),
+				},
+			);
+			control
+				.send(tg::process::control::ClientMessage::Notification(
+					notification,
+				))
+				.await
+				.map_err(
+					|error| tg::error!(!error, %parent, "failed to send the borrowable capacity notification"),
+				)?;
+			reservation.wait().await;
+		}
 	}
 
 	pub(super) async fn spawn_process_authorize_command(

@@ -1,5 +1,5 @@
 use {
-	super::process::{SpawnProcessTaskArg, Started as ProcessStarted},
+	super::process::{ConnectedEvent, Event, SpawnProcessTaskArg},
 	crate::{Context, Server, Session, temp::Temp},
 	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
 	std::{collections::HashMap, pin::pin, sync::Arc},
@@ -22,7 +22,7 @@ pub(crate) struct SpawnSandboxTaskArg {
 	pub process: Option<tg::runner::control::Process>,
 }
 
-pub(crate) struct SpawnSandboxTask {
+pub(crate) struct SpawnSandboxTaskOutput {
 	pub destroyed: tokio::sync::oneshot::Receiver<()>,
 	pub started: tokio::sync::oneshot::Receiver<tg::Result<Started>>,
 }
@@ -35,7 +35,7 @@ pub(crate) struct SandboxIdentity {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Started {
-	pub process: Option<ProcessStarted>,
+	pub process: Option<ConnectedEvent>,
 	pub sandbox: tg::sandbox::Id,
 }
 
@@ -55,7 +55,7 @@ struct SandboxTaskArg {
 }
 
 impl Server {
-	pub(crate) fn spawn_sandbox_task(&self, arg: SpawnSandboxTaskArg) -> SpawnSandboxTask {
+	pub(crate) fn spawn_sandbox_task(&self, arg: SpawnSandboxTaskArg) -> SpawnSandboxTaskOutput {
 		let (destroyed_sender, destroyed_receiver) = tokio::sync::oneshot::channel();
 		let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
 		let task_id = crate::control::id();
@@ -80,7 +80,7 @@ impl Server {
 			}
 		});
 		task.detach();
-		SpawnSandboxTask {
+		SpawnSandboxTaskOutput {
 			destroyed: destroyed_receiver,
 			started: started_receiver,
 		}
@@ -479,12 +479,14 @@ impl Session {
 				retention_stopper: stopper.clone(),
 				sandbox: &sandbox,
 			});
+			let mut events = task.events;
 			process_exit_receivers.push(task.exited);
-			let started = task
-				.started
+			let event = events
+				.recv()
 				.await
-				.map_err(|_| tg::error!(%id, "the process start sender was dropped"))??;
-			Some(started)
+				.ok_or_else(|| tg::error!(%id, "the process event sender was dropped"))??;
+			let Event::Connect(event) = event;
+			Some(event)
 		} else if let Some(ttl) = ttl {
 			timer.replace(tokio::time::sleep(ttl).boxed());
 			None
@@ -577,15 +579,19 @@ impl Session {
 								retention_stopper: stopper.clone(),
 								sandbox: &sandbox,
 							});
+							let mut events = task.events;
 							process_exit_receivers.push(task.exited);
-							let started = task
-								.started
+							let event = events
+								.recv()
 								.await
-								.map_err(|_| tg::error!(%id, "the process start sender was dropped"))??;
+								.ok_or_else(|| {
+									tg::error!(%id, "the process event sender was dropped")
+								})??;
+							let Event::Connect(event) = event;
 							let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
-								grant: started.grant,
-								lease: started.lease,
-								process: started.id,
+								grant: event.grant,
+								lease: event.lease,
+								process: event.id,
 							};
 							Ok(tg::sandbox::control::ClientResponseOutput::SpawnProcess(output))
 						},

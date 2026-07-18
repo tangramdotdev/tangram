@@ -93,6 +93,7 @@ pub enum ServerResponseOutput {}
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct HeartbeatClientNotification {
 	pub capacity: Capacity,
+	pub index: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -121,6 +122,8 @@ pub struct Process {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateSandboxServerRequestArg {
 	pub arg: tg::sandbox::create::Arg,
+
+	pub borrowed: bool,
 
 	pub capacity: tg::runner::Capacity,
 

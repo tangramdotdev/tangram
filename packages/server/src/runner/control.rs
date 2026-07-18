@@ -74,7 +74,11 @@ impl Session {
 				host: arg.host,
 				runner: id.clone(),
 			});
-		self.send_scheduler_request(request).await??;
+		let output = self.send_scheduler_request(request).await??;
+		let output = output
+			.try_unwrap_add_runner()
+			.map_err(|_| tg::error!("expected an add runner response"))?;
+		let connection_index = output.connection_index;
 
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
 		let control = crate::control::Stream::new(stream, sender, crate::control::stream_options());
@@ -106,6 +110,8 @@ impl Session {
 							crate::scheduler::Notification::Heartbeat(
 								crate::scheduler::HeartbeatNotification {
 									capacity: heartbeat.capacity,
+									connection_index,
+									heartbeat_index: heartbeat.index,
 									runner: runner.clone(),
 								},
 							),
@@ -141,6 +147,7 @@ impl Session {
 				}
 				let request = crate::scheduler::RequestArg::RemoveRunner(
 					crate::scheduler::RemoveRunnerRequestArg {
+						connection_index,
 						runner: runner.clone(),
 					},
 				);

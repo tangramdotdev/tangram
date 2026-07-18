@@ -22,11 +22,11 @@ impl Session {
 					.spawn_process_in_new_sandbox(process)
 					.await?
 					.ok_or_else(|| tg::error!("expected the sandbox to be started"))?;
-				let process_started = started
+				let process_connected = started
 					.process
-					.ok_or_else(|| tg::error!("expected the process to be started"))?;
+					.ok_or_else(|| tg::error!("expected the process to be connected"))?;
 				process.data.sandbox = started.sandbox;
-				Self::spawn_process_apply_started(process, process_started)?;
+				Self::spawn_process_apply_connected(process, process_connected)?;
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
@@ -59,8 +59,8 @@ impl Session {
 				process.lease = Some(connected.payload.lease);
 			},
 			Some(tg::Either::Right(_)) => {
-				let started = self.spawn_process_in_existing_sandbox(process).await?;
-				Self::spawn_process_apply_started(process, started)?;
+				let connected = self.spawn_process_in_existing_sandbox(process).await?;
+				Self::spawn_process_apply_connected(process, connected)?;
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		}
@@ -68,20 +68,20 @@ impl Session {
 		Ok(output)
 	}
 
-	fn spawn_process_apply_started(
+	fn spawn_process_apply_connected(
 		output: &mut Output,
-		started: crate::runner::ProcessStarted,
+		connected: crate::runner::ProcessConnected,
 	) -> tg::Result<()> {
 		let assigned = output.process_token.is_some();
-		if !assigned && started.grant.is_none() {
+		if !assigned && connected.grant.is_none() {
 			return Err(tg::error!(
-				process = %started.id,
+				process = %connected.id,
 				"missing the process grant"
 			));
 		}
-		output.id = started.id;
-		output.lease = Some(started.lease);
-		if let Some(grant) = started.grant {
+		output.id = connected.id;
+		output.lease = Some(connected.lease);
+		if let Some(grant) = connected.grant {
 			output.token = Some(grant);
 		}
 		Ok(())
@@ -106,7 +106,7 @@ impl Session {
 	async fn spawn_process_in_existing_sandbox(
 		&self,
 		output: &Output,
-	) -> tg::Result<crate::runner::ProcessStarted> {
+	) -> tg::Result<crate::runner::ProcessConnected> {
 		let process = Self::spawn_process_runner_arg(output);
 		let id = output.id.clone();
 		let assigned = process.identity.is_some();
@@ -137,13 +137,13 @@ impl Session {
 				"the runner returned an invalid process"
 			));
 		}
-		let started = crate::runner::ProcessStarted {
+		let connected = crate::runner::ProcessConnected {
 			grant: output.grant,
 			id: output.process,
 			lease: output.lease,
 		};
 
-		Ok(started)
+		Ok(connected)
 	}
 
 	async fn spawn_process_in_new_sandbox(

@@ -1,294 +1,208 @@
 use {
 	super::{
 		BorrowableCapacityNotification, CancelSandboxNotification, CreateSandboxRequestArg,
-		CreateSandboxResponseOutput, HeartbeatNotification, Reservation, ReservationState,
-		Response, ResponseOutput, Runner, Scheduler,
+		CreateSandboxResponseOutput, HeartbeatNotification, Operation, Scheduler, State,
+		runner::{Reservation, ReservationSource, ReservationState, Runner},
 	},
-	futures::{FutureExt as _, future::BoxFuture, stream::FuturesUnordered},
-	std::collections::{HashMap, HashSet, VecDeque},
+	futures::FutureExt as _,
+	std::collections::HashMap,
 	tangram_client::prelude::*,
 };
 
-pub(super) struct State {
-	pub attempts: FuturesUnordered<BoxFuture<'static, Completion>>,
-	pub cancellations: FuturesUnordered<BoxFuture<'static, ()>>,
-	blocked: HashSet<(tg::sandbox::Id, tg::runner::Id)>,
-	borrowable: HashMap<tg::sandbox::Id, Borrowable>,
-	cancelled: HashSet<tg::sandbox::Id, tg::id::BuildHasher>,
-	next_sequence: u64,
-	queue: VecDeque<Sandbox>,
-	sandboxes: HashSet<tg::sandbox::Id, tg::id::BuildHasher>,
-	uncertain: HashMap<tg::sandbox::Id, Uncertain, tg::id::BuildHasher>,
+pub(super) struct Parents(HashMap<tg::sandbox::Id, Parent, tg::id::BuildHasher>);
+
+pub(super) struct Queue {
+	entries: HashMap<tg::sandbox::Id, Links, tg::id::BuildHasher>,
+	head: Option<tg::sandbox::Id>,
+	remaining: usize,
+	scan: Option<tg::sandbox::Id>,
+	tail: Option<tg::sandbox::Id>,
 }
 
-pub(super) struct Completion {
-	result: tg::Result<tg::Result<bool>>,
-	runner: tg::runner::Id,
-	sandbox: Sandbox,
+pub(super) struct Sandboxes {
+	attempts: usize,
+	entries: HashMap<tg::sandbox::Id, Sandbox, tg::id::BuildHasher>,
 }
 
-#[derive(Clone)]
-struct Sandbox {
-	capacity: tg::runner::Capacity,
-	request: CreateSandboxRequestArg,
-	sequence: u64,
+struct Parent {
+	borrowable: Option<Borrowable>,
+	queue: Queue,
 }
 
 struct Borrowable {
 	capacity: tg::runner::Capacity,
-	runner: tg::runner::Id,
+	runner: RunnerRef,
 }
 
-struct Placement {
-	borrowed: Option<tg::sandbox::Id>,
-	runner: tg::runner::Id,
+struct Links {
+	next: Option<tg::sandbox::Id>,
+	previous: Option<tg::sandbox::Id>,
 }
 
-struct Uncertain {
-	runner: tg::runner::Id,
-	sandbox: Sandbox,
+struct Sandbox {
+	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
+	cancelled: bool,
+	capacity: tg::runner::Capacity,
+	request: CreateSandboxRequestArg,
+	state: SandboxState,
+}
+
+enum SandboxState {
+	Creating { placement: Placement },
+	Pending,
+	Uncertain { placement: Placement },
+}
+
+struct Block {
+	connection_index: u64,
+	heartbeat_index: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Placement {
+	Borrowed {
+		parent: tg::sandbox::Id,
+		runner: RunnerRef,
+	},
+	Regular {
+		runner: RunnerRef,
+	},
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RunnerRef {
+	connection_index: u64,
+	id: tg::runner::Id,
+}
+
+pub(super) struct Completion {
+	placement: Placement,
+	result: tg::Result<tg::Result<bool>>,
+	sandbox: tg::sandbox::Id,
+}
+
+impl Parents {
+	pub fn new() -> Self {
+		Self(HashMap::default())
+	}
+}
+
+impl Queue {
+	pub fn new() -> Self {
+		Self {
+			entries: HashMap::default(),
+			head: None,
+			remaining: 0,
+			scan: None,
+			tail: None,
+		}
+	}
+
+	pub fn head(&self) -> Option<&tg::sandbox::Id> {
+		self.head.as_ref()
+	}
+
+	pub fn insert(&mut self, id: tg::sandbox::Id) {
+		if self.entries.contains_key(&id) {
+			return;
+		}
+		let links = Links {
+			next: None,
+			previous: self.tail.clone(),
+		};
+		if let Some(tail) = &self.tail {
+			self.entries.get_mut(tail).unwrap().next = Some(id.clone());
+		} else {
+			self.head = Some(id.clone());
+		}
+		self.tail = Some(id.clone());
+		self.entries.insert(id, links);
+		self.wake();
+	}
+
+	pub fn len(&self) -> usize {
+		self.entries.len()
+	}
+
+	pub fn next(&mut self) -> Option<tg::sandbox::Id> {
+		if self.remaining == 0 {
+			return None;
+		}
+		let id = self.scan.clone()?;
+		self.scan = self.entries.get(&id).and_then(|links| links.next.clone());
+		self.remaining -= 1;
+
+		Some(id)
+	}
+
+	pub fn remove(&mut self, id: &tg::sandbox::Id) -> bool {
+		self.remove_inner(id)
+	}
+
+	pub fn wake(&mut self) {
+		self.remaining = self.entries.len();
+		self.scan.clone_from(&self.head);
+	}
+
+	fn remove_inner(&mut self, id: &tg::sandbox::Id) -> bool {
+		let Some(links) = self.entries.remove(id) else {
+			return false;
+		};
+		if let Some(previous) = &links.previous {
+			self.entries.get_mut(previous).unwrap().next = links.next.clone();
+		} else {
+			self.head.clone_from(&links.next);
+		}
+		if let Some(next) = &links.next {
+			self.entries.get_mut(next).unwrap().previous = links.previous.clone();
+		} else {
+			self.tail.clone_from(&links.previous);
+		}
+		if self.scan.as_ref() == Some(id) {
+			self.scan = links.next;
+			self.remaining = self.remaining.saturating_sub(1);
+		}
+		self.wake();
+
+		true
+	}
+}
+
+impl Sandboxes {
+	pub fn new() -> Self {
+		Self {
+			attempts: 0,
+			entries: HashMap::default(),
+		}
+	}
 }
 
 impl State {
-	pub fn new() -> Self {
+	pub(super) fn new() -> Self {
 		Self {
-			attempts: FuturesUnordered::new(),
-			cancellations: FuturesUnordered::new(),
-			blocked: HashSet::new(),
-			borrowable: HashMap::new(),
-			cancelled: HashSet::default(),
-			next_sequence: 0,
-			queue: VecDeque::new(),
-			sandboxes: HashSet::default(),
-			uncertain: HashMap::default(),
-		}
-	}
-
-	pub async fn handle_create_sandbox_request(
-		&mut self,
-		scheduler: &Scheduler,
-		id: String,
-		request: CreateSandboxRequestArg,
-	) {
-		let result = self.enqueue(scheduler, request);
-		let (error, output) = match result {
-			Ok(output) => (None, Some(ResponseOutput::CreateSandbox(output))),
-			Err(error) => {
-				let error = Some(tg::error::Data {
-					message: Some(error.to_string()),
-					..Default::default()
-				});
-				(error, None)
+			operations: futures::stream::FuturesUnordered::new(),
+			parents: Parents::new(),
+			queue: Queue::new(),
+			requests: super::Requests {
+				inbox: std::collections::HashSet::new(),
+				outbox: HashMap::new(),
 			},
-		};
-		scheduler
-			.send_response(Response { error, id, output })
-			.await;
-	}
-
-	pub fn handle_borrowable_capacity(&mut self, notification: BorrowableCapacityNotification) {
-		self.borrowable.insert(
-			notification.parent,
-			Borrowable {
-				capacity: notification.capacity,
-				runner: notification.runner,
-			},
-		);
-	}
-
-	pub fn handle_cancel_sandbox(
-		&mut self,
-		scheduler: &Scheduler,
-		notification: CancelSandboxNotification,
-	) {
-		self.blocked
-			.retain(|(sandbox, _)| sandbox != &notification.sandbox);
-		if let Some(position) = self
-			.queue
-			.iter()
-			.position(|sandbox| sandbox.request.sandbox == notification.sandbox)
-		{
-			self.queue.remove(position);
-			self.sandboxes.remove(&notification.sandbox);
-			return;
-		}
-		if let Some(uncertain) = self.uncertain.remove(&notification.sandbox) {
-			if let Some(mut runner) = scheduler.runners.get_mut(&uncertain.runner)
-				&& let Some(reservation) = runner.reservations.get_mut(&notification.sandbox)
-			{
-				reservation.state = ReservationState::Succeeded;
-			}
-			self.cancel(scheduler, notification.sandbox.clone());
-			self.sandboxes.remove(&notification.sandbox);
-			return;
-		}
-		if self.sandboxes.contains(&notification.sandbox) {
-			self.cancelled.insert(notification.sandbox);
+			runners: super::runner::Runners::new(),
+			sandboxes: Sandboxes::new(),
 		}
 	}
 
-	pub fn handle_heartbeat(
-		&mut self,
-		scheduler: &Scheduler,
-		notification: &HeartbeatNotification,
-	) {
-		if let Some(mut runner) = scheduler.runners.get_mut(&notification.runner) {
-			runner.capacity = notification.capacity;
-			runner.heartbeat_at = tokio::time::Instant::now();
-			runner
-				.reservations
-				.retain(|_, reservation| !matches!(reservation.state, ReservationState::Succeeded));
-		}
-		self.blocked
-			.retain(|(_, runner)| runner != &notification.runner);
+	pub(super) fn can_schedule(&self, scheduler: &Scheduler) -> bool {
+		self.sandboxes.attempts < scheduler.config.max_create_sandbox_requests
+			&& self.queue.remaining > 0
 	}
 
-	pub fn handle_remove_runner(&mut self, scheduler: &Scheduler, runner: &tg::runner::Id) {
-		self.borrowable
-			.retain(|_, borrowable| &borrowable.runner != runner);
-		self.blocked
-			.retain(|(_, blocked_runner)| blocked_runner != runner);
-		let sandboxes = self
-			.uncertain
-			.iter()
-			.filter(|(_, uncertain)| &uncertain.runner == runner)
-			.map(|(id, _)| id.clone())
-			.collect::<Vec<_>>();
-		for id in sandboxes {
-			let uncertain = self.uncertain.remove(&id).unwrap();
-			if self.cancelled.remove(&id) {
-				self.sandboxes.remove(&id);
-			} else {
-				self.requeue(uncertain.sandbox);
-			}
-		}
-		scheduler.runners.remove(runner);
-	}
-
-	pub fn handle_completion(&mut self, scheduler: &Scheduler, completion: Completion) {
-		let Completion {
-			result,
-			runner: runner_id,
-			sandbox,
-		} = completion;
-		let id = sandbox.request.sandbox.clone();
-		let cancelled = self.cancelled.remove(&id);
-		let mut runner = scheduler.runners.get_mut(&runner_id);
-		if let Some(runner) = &mut runner {
-			runner.requests = runner.requests.saturating_sub(1);
-		}
-
-		match result {
-			Ok(Ok(true)) => {
-				if let Some(runner) = &mut runner
-					&& let Some(reservation) = runner.reservations.get_mut(&id)
-				{
-					reservation.state = ReservationState::Succeeded;
-				}
-				self.blocked.retain(|(sandbox, _)| sandbox != &id);
-				if cancelled {
-					self.cancel(scheduler, id.clone());
-				}
-				self.sandboxes.remove(&id);
-			},
-			Ok(Ok(false)) => {
-				if let Some(runner) = &mut runner {
-					runner.reservations.remove(&id);
-				}
-				if cancelled {
-					self.sandboxes.remove(&id);
-				} else {
-					self.blocked.insert((id, runner_id));
-					self.requeue(sandbox);
-				}
-			},
-			Ok(Err(error)) => {
-				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_id, "the runner failed to create the sandbox");
-				if let Some(runner) = &mut runner {
-					runner.reservations.remove(&id);
-				}
-				if cancelled {
-					self.sandboxes.remove(&id);
-				} else {
-					self.blocked.insert((id, runner_id));
-					self.requeue(sandbox);
-				}
-			},
-			Err(error) => {
-				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_id, "failed to create the sandbox on the runner");
-				if let Some(runner) = &mut runner
-					&& let Some(reservation) = runner.reservations.get_mut(&id)
-				{
-					reservation.state = if cancelled {
-						ReservationState::Succeeded
-					} else {
-						ReservationState::Uncertain
-					};
-				}
-				if cancelled {
-					self.cancel(scheduler, id.clone());
-					self.sandboxes.remove(&id);
-				} else if runner.is_some() {
-					self.uncertain.insert(
-						id,
-						Uncertain {
-							runner: runner_id,
-							sandbox,
-						},
-					);
-				} else {
-					self.requeue(sandbox);
-				}
-			},
-		}
-	}
-
-	pub fn schedule(&mut self, scheduler: &Scheduler) {
-		while self.attempts.len() < scheduler.config.max_create_sandbox_requests {
-			let Some((position, placement)) = self.find_placement(scheduler) else {
-				break;
-			};
-			let sandbox = self.queue.remove(position).unwrap();
-			if let Some(parent) = placement.borrowed {
-				self.borrowable.remove(&parent);
-			}
-			let Some(mut runner) = scheduler.runners.get_mut(&placement.runner) else {
-				self.requeue(sandbox);
-				continue;
-			};
-			runner.requests += 1;
-			runner.reservations.insert(
-				sandbox.request.sandbox.clone(),
-				Reservation {
-					capacity: sandbox.capacity,
-					state: ReservationState::Pending,
-				},
-			);
-			drop(runner);
-
-			let runner = placement.runner;
-			let session = scheduler.server.session(&scheduler.server.context);
-			let timeout = scheduler.config.create_sandbox_timeout;
-			self.attempts.push(
-				async move {
-					let result = create_sandbox(&session, &runner, &sandbox, timeout).await;
-					Completion {
-						result,
-						runner,
-						sandbox,
-					}
-				}
-				.boxed(),
-			);
-		}
-	}
-
-	fn enqueue(
+	pub(super) fn enqueue_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
 		request: CreateSandboxRequestArg,
 	) -> tg::Result<CreateSandboxResponseOutput> {
-		if self.sandboxes.contains(&request.sandbox) {
+		if self.sandboxes.entries.contains_key(&request.sandbox) {
 			return Ok(CreateSandboxResponseOutput { enqueued: true });
 		}
 		if self.queue.len() >= scheduler.config.create_sandbox_queue_capacity {
@@ -310,94 +224,439 @@ impl State {
 		if capacity.memory == 0 {
 			return Err(tg::error!("the sandbox memory must be greater than zero"));
 		}
+		let id = request.sandbox.clone();
+		let parent = request.parent.clone();
 		let sandbox = Sandbox {
+			blocked: HashMap::default(),
+			cancelled: false,
 			capacity,
 			request,
-			sequence: self.next_sequence,
+			state: SandboxState::Pending,
 		};
-		self.next_sequence = self.next_sequence.wrapping_add(1);
-		self.sandboxes.insert(sandbox.request.sandbox.clone());
-		self.queue.push_back(sandbox);
+		self.sandboxes.entries.insert(id.clone(), sandbox);
+		self.queue.insert(id.clone());
+		if let Some(parent) = parent {
+			self.parents
+				.0
+				.entry(parent)
+				.or_insert_with(|| Parent {
+					borrowable: None,
+					queue: Queue::new(),
+				})
+				.queue
+				.insert(id);
+		}
+
 		Ok(CreateSandboxResponseOutput { enqueued: true })
 	}
 
-	fn find_placement(&self, scheduler: &Scheduler) -> Option<(usize, Placement)> {
-		for (position, sandbox) in self.queue.iter().enumerate() {
-			if let Some(placement) = self.find_borrowed_placement(scheduler, sandbox) {
-				return Some((position, placement));
-			}
-			if let Some(placement) = self.find_runner_placement(scheduler, sandbox) {
-				return Some((position, placement));
-			}
-		}
-		None
-	}
-
-	fn find_borrowed_placement(
-		&self,
+	pub(super) fn handle_borrowable_capacity(
+		&mut self,
 		scheduler: &Scheduler,
-		sandbox: &Sandbox,
-	) -> Option<Placement> {
-		let parent = sandbox.request.parent.as_ref()?;
-		let borrowable = self.borrowable.get(parent)?;
-		if !contains(borrowable.capacity, sandbox.capacity) {
-			return None;
-		}
-		let runner = scheduler.runners.get(&borrowable.runner)?;
-		if !matches_host(&runner, &sandbox.request)
-			|| runner.requests >= scheduler.config.max_create_sandbox_requests_per_runner
+		notification: BorrowableCapacityNotification,
+	) {
+		let Some(runner) = self
+			.runners
+			.entries
+			.get(&notification.runner)
+			.filter(|runner| runner.ready)
+		else {
+			return;
+		};
+		let runner = RunnerRef {
+			connection_index: runner.connection_index,
+			id: notification.runner,
+		};
+		let parent_id = notification.parent;
+		let parent = self
+			.parents
+			.0
+			.entry(parent_id.clone())
+			.or_insert_with(|| Parent {
+				borrowable: None,
+				queue: Queue::new(),
+			});
+		let previous = parent.borrowable.replace(Borrowable {
+			capacity: notification.capacity,
+			runner: runner.clone(),
+		});
+		if let Some(previous) = previous
+			&& let Some(runner) = self.runners.entries.get_mut(&previous.runner.id)
 		{
-			return None;
+			runner.borrowable.remove(&parent_id);
 		}
-		Some(Placement {
-			borrowed: Some(parent.clone()),
-			runner: borrowable.runner.clone(),
-		})
+		self.runners
+			.entries
+			.get_mut(&runner.id)
+			.unwrap()
+			.borrowable
+			.insert(parent_id);
+		let sandbox = parent.queue.head().cloned();
+		if let Some(sandbox) = sandbox
+			&& self.sandboxes.attempts < scheduler.config.max_create_sandbox_requests
+		{
+			self.try_schedule(scheduler, &sandbox);
+		}
+		self.queue.wake();
 	}
 
-	fn find_runner_placement(&self, scheduler: &Scheduler, sandbox: &Sandbox) -> Option<Placement> {
-		let mut best = None;
-		for runner in &scheduler.runners {
-			if !matches_host(&runner, &sandbox.request)
+	pub(super) fn handle_cancel_sandbox(
+		&mut self,
+		scheduler: &Scheduler,
+		notification: CancelSandboxNotification,
+	) {
+		let id = notification.sandbox;
+		let Some(sandbox) = self.sandboxes.entries.get_mut(&id) else {
+			return;
+		};
+		match &sandbox.state {
+			SandboxState::Creating { .. } => {
+				sandbox.cancelled = true;
+			},
+			SandboxState::Pending => {
+				self.remove_queued_sandbox(&id);
+				self.sandboxes.entries.remove(&id);
+			},
+			SandboxState::Uncertain { placement } => {
+				let placement = placement.clone();
+				self.remove_reservation(&id, &placement, true);
+				self.spawn_cancel_sandbox(scheduler, id.clone());
+				self.sandboxes.entries.remove(&id);
+			},
+		}
+	}
+
+	pub(super) fn handle_heartbeat(
+		&mut self,
+		_scheduler: &Scheduler,
+		notification: &HeartbeatNotification,
+	) {
+		let Some(runner) = self.runners.entries.get_mut(&notification.runner) else {
+			return;
+		};
+		if runner.connection_index != notification.connection_index
+			|| runner.heartbeat_index >= notification.heartbeat_index
+		{
+			return;
+		}
+		runner.capacity = notification.capacity;
+		runner.committed = tg::runner::Capacity::default();
+		runner.heartbeat_at = tokio::time::Instant::now();
+		runner.heartbeat_index = runner.heartbeat_index.wrapping_add(1);
+		self.queue.wake();
+	}
+
+	pub(super) fn handle_create_sandbox_completion(
+		&mut self,
+		scheduler: &Scheduler,
+		completion: Completion,
+	) {
+		self.sandboxes.attempts = self.sandboxes.attempts.saturating_sub(1);
+		let Completion {
+			placement,
+			result,
+			sandbox: id,
+		} = completion;
+		let Some(sandbox) = self.sandboxes.entries.get(&id) else {
+			return;
+		};
+		let SandboxState::Creating { placement: current } = &sandbox.state else {
+			return;
+		};
+		if current != &placement {
+			return;
+		}
+		let cancelled = sandbox.cancelled;
+		let runner_ref = placement.runner();
+		let runner_current = self
+			.runners
+			.entries
+			.get(&runner_ref.id)
+			.is_some_and(|runner| runner.connection_index == runner_ref.connection_index);
+		if let Ok(Err(error)) = &result {
+			tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "the runner failed to create the sandbox");
+		}
+
+		match result {
+			Ok(Ok(true)) if runner_current => {
+				self.remove_reservation(&id, &placement, true);
+				if cancelled {
+					self.spawn_cancel_sandbox(scheduler, id.clone());
+				}
+				self.sandboxes.entries.remove(&id);
+			},
+			Ok(Ok(false) | Err(_)) => {
+				self.remove_reservation(&id, &placement, false);
+				if cancelled {
+					self.sandboxes.entries.remove(&id);
+				} else {
+					if matches!(placement, Placement::Regular { .. })
+						&& let Some(runner) = self.runners.entries.get(&runner_ref.id)
+					{
+						self.sandboxes.entries.get_mut(&id).unwrap().blocked.insert(
+							runner_ref.id.clone(),
+							Block {
+								connection_index: runner.connection_index,
+								heartbeat_index: runner.heartbeat_index,
+							},
+						);
+					}
+					self.requeue_sandbox(&id);
+				}
+			},
+			Err(error) if runner_current => {
+				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "failed to create the sandbox on the runner");
+				if cancelled {
+					self.remove_reservation(&id, &placement, true);
+					self.spawn_cancel_sandbox(scheduler, id.clone());
+					self.sandboxes.entries.remove(&id);
+				} else {
+					if let Some(runner) = self.runners.entries.get_mut(&runner_ref.id)
+						&& let Some(reservation) = runner.reservations.get_mut(&id)
+					{
+						runner.requests = runner.requests.saturating_sub(1);
+						reservation.state = ReservationState::Uncertain;
+					}
+					self.sandboxes.entries.get_mut(&id).unwrap().state =
+						SandboxState::Uncertain { placement };
+				}
+			},
+			Ok(Ok(true)) | Err(_) => {
+				if cancelled {
+					self.sandboxes.entries.remove(&id);
+				} else {
+					self.requeue_sandbox(&id);
+				}
+			},
+		}
+	}
+
+	pub(super) fn remove_runner(&mut self, id: &tg::runner::Id) {
+		let Some(runner) = self.runners.entries.remove(id) else {
+			return;
+		};
+		for parent_id in runner.borrowable {
+			let Some(parent) = self.parents.0.get_mut(&parent_id) else {
+				continue;
+			};
+			let remove = parent.borrowable.as_ref().is_some_and(|borrowable| {
+				borrowable.runner.id == *id
+					&& borrowable.runner.connection_index == runner.connection_index
+			});
+			if remove {
+				parent.borrowable = None;
+			}
+		}
+		let sandboxes = runner.reservations.into_keys().collect::<Vec<_>>();
+		for sandbox in sandboxes {
+			if self.sandboxes.entries[&sandbox].cancelled {
+				self.sandboxes.entries.remove(&sandbox);
+			} else {
+				self.requeue_sandbox(&sandbox);
+			}
+		}
+		self.queue.wake();
+	}
+
+	pub(super) fn schedule_one(&mut self, scheduler: &Scheduler) {
+		let Some(sandbox) = self.queue.next() else {
+			return;
+		};
+		self.try_schedule(scheduler, &sandbox);
+	}
+
+	fn find_placement(&self, scheduler: &Scheduler, sandbox: &Sandbox) -> Option<Placement> {
+		if let Some(parent) = sandbox.request.parent.as_ref()
+			&& let Some(borrowable) = self
+				.parents
+				.0
+				.get(parent)
+				.and_then(|parent| parent.borrowable.as_ref())
+			&& contains(borrowable.capacity, sandbox.capacity)
+			&& let Some(runner) = self.runners.entries.get(&borrowable.runner.id)
+			&& runner.connection_index == borrowable.runner.connection_index
+			&& runner.ready
+			&& matches_host(runner, &sandbox.request)
+			&& runner.requests < scheduler.config.max_create_sandbox_requests_per_runner
+		{
+			return Some(Placement::Borrowed {
+				parent: parent.clone(),
+				runner: borrowable.runner.clone(),
+			});
+		}
+
+		let mut best: Option<(RunnerRef, (u128, u128))> = None;
+		for (id, runner) in &self.runners.entries {
+			let blocked = sandbox.blocked.get(id).is_some_and(|block| {
+				block.connection_index == runner.connection_index
+					&& block.heartbeat_index == runner.heartbeat_index
+			});
+			if !runner.ready
+				|| blocked || !matches_host(runner, &sandbox.request)
 				|| runner.requests >= scheduler.config.max_create_sandbox_requests_per_runner
-				|| self
-					.blocked
-					.contains(&(sandbox.request.sandbox.clone(), runner.key().clone()))
 			{
 				continue;
 			}
-			let available = available(&runner);
+			let available = available(runner);
 			if !contains(available, sandbox.capacity) {
 				continue;
 			}
-			let score = score(&runner, available, sandbox.capacity);
-			if best
-				.as_ref()
-				.is_none_or(|(_, best_score)| score < *best_score)
-			{
-				best = Some((runner.key().clone(), score));
+			let score = score(runner, available, sandbox.capacity);
+			if best.as_ref().is_none_or(|(best_runner, best_score)| {
+				score < *best_score || (score == *best_score && id < &best_runner.id)
+			}) {
+				let runner = RunnerRef {
+					connection_index: runner.connection_index,
+					id: id.clone(),
+				};
+				best = Some((runner, score));
 			}
 		}
-		best.map(|(runner, _)| Placement {
-			borrowed: None,
-			runner,
-		})
+
+		best.map(|(runner, _)| Placement::Regular { runner })
 	}
 
-	fn requeue(&mut self, sandbox: Sandbox) {
-		let position = self
-			.queue
-			.iter()
-			.position(|queued| queued.sequence > sandbox.sequence)
-			.unwrap_or(self.queue.len());
-		self.queue.insert(position, sandbox);
+	fn requeue_sandbox(&mut self, id: &tg::sandbox::Id) {
+		self.sandboxes.entries.get_mut(id).unwrap().state = SandboxState::Pending;
+		self.queue_sandbox(id);
 	}
 
-	fn cancel(&mut self, scheduler: &Scheduler, sandbox: tg::sandbox::Id) {
+	fn queue_sandbox(&mut self, id: &tg::sandbox::Id) {
+		let parent = self.sandboxes.entries[id].request.parent.clone();
+		self.queue.insert(id.clone());
+		if let Some(parent) = parent {
+			self.parents
+				.0
+				.entry(parent)
+				.or_insert_with(|| Parent {
+					borrowable: None,
+					queue: Queue::new(),
+				})
+				.queue
+				.insert(id.clone());
+		}
+	}
+
+	fn remove_queued_sandbox(&mut self, id: &tg::sandbox::Id) {
+		let parent = self.sandboxes.entries[id].request.parent.clone();
+		self.queue.remove(id);
+		if let Some(parent) = parent
+			&& let Some(parent) = self.parents.0.get_mut(&parent)
+		{
+			parent.queue.remove(id);
+		}
+	}
+
+	fn remove_reservation(&mut self, id: &tg::sandbox::Id, placement: &Placement, commit: bool) {
+		let runner_ref = placement.runner();
+		let Some(runner) = self.runners.entries.get_mut(&runner_ref.id) else {
+			return;
+		};
+		if runner.connection_index != runner_ref.connection_index {
+			return;
+		}
+		runner.requests = runner.requests.saturating_sub(1);
+		let Some(reservation) = runner.reservations.remove(id) else {
+			return;
+		};
+		if matches!(reservation.source, ReservationSource::Regular) {
+			subtract(&mut runner.reserved, reservation.capacity);
+			if commit {
+				add(&mut runner.committed, reservation.capacity);
+			}
+		}
+	}
+
+	fn spawn_cancel_sandbox(&mut self, scheduler: &Scheduler, sandbox: tg::sandbox::Id) {
 		let session = scheduler.server.session(&scheduler.server.context);
 		let timeout = scheduler.config.create_sandbox_timeout;
-		self.cancellations
-			.push(cancel_sandbox(session, sandbox, timeout).boxed());
+		self.operations.push(
+			async move {
+				cancel_sandbox(session, sandbox, timeout).boxed().await;
+				Operation::CancelSandbox
+			}
+			.boxed(),
+		);
+	}
+
+	fn try_schedule(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) -> bool {
+		let Some(sandbox) = self.sandboxes.entries.get(id) else {
+			return false;
+		};
+		if !matches!(sandbox.state, SandboxState::Pending) {
+			return false;
+		}
+		let Some(placement) = self.find_placement(scheduler, sandbox) else {
+			return false;
+		};
+		let capacity = sandbox.capacity;
+		let request = sandbox.request.clone();
+		let runner_ref = placement.runner().clone();
+		self.remove_queued_sandbox(id);
+		if let Placement::Borrowed { parent, .. } = &placement
+			&& let Some(parent) = self.parents.0.get_mut(parent)
+		{
+			parent.borrowable = None;
+		}
+		if let Placement::Borrowed { parent, .. } = &placement {
+			self.runners
+				.entries
+				.get_mut(&runner_ref.id)
+				.unwrap()
+				.borrowable
+				.remove(parent);
+		}
+		let runner = self.runners.entries.get_mut(&runner_ref.id).unwrap();
+		runner.requests += 1;
+		let source = match &placement {
+			Placement::Borrowed { .. } => ReservationSource::Borrowed,
+			Placement::Regular { .. } => {
+				add(&mut runner.reserved, capacity);
+				ReservationSource::Regular
+			},
+		};
+		runner.reservations.insert(
+			id.clone(),
+			Reservation {
+				capacity,
+				source,
+				state: ReservationState::Pending,
+			},
+		);
+		self.sandboxes.entries.get_mut(id).unwrap().state = SandboxState::Creating {
+			placement: placement.clone(),
+		};
+		self.sandboxes.attempts += 1;
+
+		let session = scheduler.server.session(&scheduler.server.context);
+		let timeout = scheduler.config.create_sandbox_timeout;
+		let borrowed = matches!(placement, Placement::Borrowed { .. });
+		let sandbox = id.clone();
+		self.operations.push(
+			async move {
+				let runner = placement.runner().id.clone();
+				let result =
+					create_sandbox(&session, &runner, borrowed, capacity, &request, timeout)
+						.boxed()
+						.await;
+				Operation::CreateSandbox(Completion {
+					placement,
+					result,
+					sandbox,
+				})
+			}
+			.boxed(),
+		);
+
+		true
+	}
+}
+
+impl Placement {
+	fn runner(&self) -> &RunnerRef {
+		match self {
+			Self::Borrowed { runner, .. } | Self::Regular { runner } => runner,
+		}
 	}
 }
 
@@ -429,14 +688,16 @@ async fn cancel_sandbox(
 async fn create_sandbox(
 	session: &crate::Session,
 	runner: &tg::runner::Id,
-	sandbox: &Sandbox,
+	borrowed: bool,
+	capacity: tg::runner::Capacity,
+	request: &CreateSandboxRequestArg,
 	timeout: std::time::Duration,
 ) -> tg::Result<tg::Result<bool>> {
-	let request = &sandbox.request;
 	let arg = tg::runner::control::ServerRequestArg::CreateSandbox(
 		tg::runner::control::CreateSandboxServerRequestArg {
 			arg: request.arg.clone(),
-			capacity: sandbox.capacity,
+			borrowed,
+			capacity,
 			creator: request.creator.clone(),
 			parent: request.parent.clone(),
 			process: request.process.clone(),
@@ -450,6 +711,7 @@ async fn create_sandbox(
 	};
 	let result = session
 		.send_runner_control_request(runner, arg, options)
+		.boxed()
 		.await
 		.map_err(|error| {
 			tg::error!(!error, sandbox = %request.sandbox, %runner, "failed to send the create sandbox request to the runner")
@@ -464,15 +726,20 @@ async fn create_sandbox(
 				.map_err(|_| tg::error!("expected a create sandbox response"))
 				.map(|output| output.created)
 		});
+
 	Ok(result)
+}
+
+fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
+	capacity.cpus = capacity.cpus.saturating_add(value.cpus);
+	capacity.memory = capacity.memory.saturating_add(value.memory);
 }
 
 fn available(runner: &Runner) -> tg::runner::Capacity {
 	let mut available = runner.capacity.available;
-	for reservation in runner.reservations.values() {
-		available.cpus = available.cpus.saturating_sub(reservation.capacity.cpus);
-		available.memory = available.memory.saturating_sub(reservation.capacity.memory);
-	}
+	subtract(&mut available, runner.reserved);
+	subtract(&mut available, runner.committed);
+
 	available
 }
 
@@ -497,5 +764,39 @@ fn score(
 		/ u128::from(runner.capacity.total.cpus.max(1));
 	let memory = u128::from(available.memory - requested.memory) * 1_000_000
 		/ u128::from(runner.capacity.total.memory.max(1));
+
 	(cpu.max(memory), cpu + memory)
+}
+
+fn subtract(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
+	capacity.cpus = capacity.cpus.saturating_sub(value.cpus);
+	capacity.memory = capacity.memory.saturating_sub(value.memory);
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn queue_preserves_order_when_removing_entries() {
+		let first = tg::sandbox::Id::new();
+		let middle = tg::sandbox::Id::new();
+		let last = tg::sandbox::Id::new();
+		let mut queue = Queue::new();
+		queue.insert(first.clone());
+		queue.insert(middle.clone());
+		queue.insert(last.clone());
+
+		assert!(queue.remove(&middle));
+		assert_eq!(queue.next(), Some(first.clone()));
+		assert_eq!(queue.next(), Some(last.clone()));
+		assert_eq!(queue.next(), None);
+
+		assert!(queue.remove(&first));
+		assert_eq!(queue.next(), Some(last.clone()));
+		assert_eq!(queue.next(), None);
+
+		assert!(queue.remove(&last));
+		assert_eq!(queue.next(), None);
+	}
 }

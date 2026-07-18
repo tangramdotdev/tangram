@@ -15,7 +15,7 @@ mod cleanup;
 
 pub(crate) use self::{
 	capacity::Allocation,
-	process::Started as ProcessStarted,
+	process::ConnectedEvent as ProcessConnected,
 	sandbox::{SandboxIdentity, SpawnSandboxTaskArg, Started as SandboxStarted},
 };
 
@@ -27,9 +27,10 @@ pub struct Runner {
 }
 
 pub struct State {
-	pub capacity: capacity::Pool,
-	id: Mutex<Option<tg::runner::Id>>,
+	pub capacity: self::capacity::Pool,
+	pub id: Mutex<Option<tg::runner::Id>>,
 	pub processes: crate::process::Map,
+	pub reservations: self::capacity::Reservations,
 	pub sandboxes: crate::sandbox::Map,
 }
 
@@ -43,15 +44,15 @@ pub struct Output {
 
 impl Runner {
 	pub fn new(capacity: tg::runner::Capacity) -> Self {
-		Self {
-			state: State {
-				capacity: capacity::Pool::new(capacity),
-				id: Mutex::new(None),
-				processes: crate::process::Map::default(),
-				sandboxes: crate::sandbox::Map::default(),
-			},
-			task: Mutex::new(None),
-		}
+		let state = State {
+			capacity: self::capacity::Pool::new(capacity),
+			id: Mutex::new(None),
+			processes: crate::process::Map::default(),
+			reservations: self::capacity::Reservations::new(),
+			sandboxes: crate::sandbox::Map::default(),
+		};
+		let task = Mutex::new(None);
+		Self { state, task }
 	}
 }
 
@@ -147,7 +148,7 @@ impl Session {
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
-		let heartbeat = self.create_runner_heartbeat();
+		let heartbeat = self.create_runner_heartbeat(0);
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 		let arg = tg::runner::control::Arg {
@@ -208,9 +209,11 @@ impl Session {
 			let requested = request.capacity;
 
 			// Attempt to immediately acquire capacity. If none is available, respond indicating that the sandbox was not created.
-			let Some(allocation) =
-				self.try_acquire_sandbox_capacity(request.parent.as_ref(), requested)
-			else {
+			let Some(allocation) = self.try_acquire_scheduled_sandbox_capacity(
+				request.borrowed,
+				request.parent.as_ref(),
+				requested,
+			) else {
 				let output =
 					tg::runner::control::CreateSandboxClientResponseOutput { created: false };
 				let message = Self::create_runner_control_response(
@@ -290,14 +293,18 @@ impl Session {
 
 	async fn runner_heartbeat_task(&self, sender: RunnerSender, interval: Duration) {
 		let mut interval = tokio::time::interval(interval);
+		let mut index = 1;
 		loop {
 			tokio::select! {
 				_ = interval.tick() => {},
 				() = self.server.runner.state.capacity.wait_for_change() => {},
 			}
 			let message = tg::runner::control::ClientMessage::Notification(
-				tg::runner::control::ClientNotification::Heartbeat(self.create_runner_heartbeat()),
+				tg::runner::control::ClientNotification::Heartbeat(
+					self.create_runner_heartbeat(index),
+				),
 			);
+			index = index.wrapping_add(1);
 			let result = sender.send(message).await;
 			if result.is_err() {
 				break;
@@ -305,9 +312,12 @@ impl Session {
 		}
 	}
 
-	fn create_runner_heartbeat(&self) -> tg::runner::control::HeartbeatClientNotification {
+	fn create_runner_heartbeat(
+		&self,
+		index: u64,
+	) -> tg::runner::control::HeartbeatClientNotification {
 		let capacity = self.server.runner.state.capacity.get();
-		tg::runner::control::HeartbeatClientNotification { capacity }
+		tg::runner::control::HeartbeatClientNotification { capacity, index }
 	}
 
 	fn create_runner_control_response(
