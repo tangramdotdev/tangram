@@ -13,6 +13,7 @@ mod authorize;
 mod batch;
 mod cache;
 mod clean;
+mod finalization;
 mod grant;
 mod group;
 mod key;
@@ -389,6 +390,33 @@ impl crate::Index for Index {
 
 	async fn delete_users(&self, ids: &[tg::user::Id]) -> tg::Result<()> {
 		self.delete_users(ids).await
+	}
+
+	async fn complete_finalization(&self, entry: &crate::finalization::Entry) -> tg::Result<()> {
+		self.complete_finalization(entry).await
+	}
+
+	async fn enqueue_finalization(&self, item: &crate::finalization::Item) -> tg::Result<()> {
+		self.enqueue_finalization(item).await
+	}
+
+	async fn finalization_batch(
+		&self,
+		kind: crate::finalization::Kind,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<Vec<crate::finalization::Entry>> {
+		self.finalization_batch(kind, batch_size, partition_start, partition_count)
+			.await
+	}
+
+	async fn finalizations_finished(
+		&self,
+		kind: crate::finalization::Kind,
+		transaction_id: u64,
+	) -> tg::Result<bool> {
+		self.finalizations_finished(kind, transaction_id).await
 	}
 
 	async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {

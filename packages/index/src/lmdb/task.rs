@@ -156,6 +156,10 @@ impl Index {
 						transaction: &mut transaction,
 					})
 					.map(Response::CleanOutput),
+					Request::CompleteFinalization(entry) => {
+						Self::task_complete_finalization(db, subspace, &mut transaction, &entry)
+							.map(|()| Response::Unit)
+					},
 					Request::DeleteGrants(args) => {
 						Self::task_delete_grants(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
@@ -191,6 +195,10 @@ impl Index {
 					},
 					Request::DeleteTags(tags) => {
 						Self::task_delete_tags(db, subspace, &mut transaction, &tags)
+							.map(|()| Response::Unit)
+					},
+					Request::EnqueueFinalization(item) => {
+						Self::task_enqueue_finalization(db, subspace, &mut transaction, &item)
 							.map(|()| Response::Unit)
 					},
 					Request::PutCacheEntries(args) => {
@@ -397,7 +405,8 @@ impl Index {
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
-			Request::DeleteGrants(_)
+			Request::CompleteFinalization(_)
+			| Request::DeleteGrants(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
 			| Request::DeleteOrganizationMembers(_)
@@ -405,6 +414,7 @@ impl Index {
 			| Request::DeleteSandboxes(_)
 			| Request::DeleteTags(_)
 			| Request::DeleteUsers(_)
+			| Request::EnqueueFinalization(_)
 			| Request::PutCacheEntries(_)
 			| Request::PutGrants(_)
 			| Request::PutGroupMembers(_)
@@ -444,6 +454,10 @@ impl Index {
 					},
 				)
 			},
+			Request::CompleteFinalization(entry) => (
+				vec![Item::CompleteFinalization(entry)],
+				Kind::CompleteFinalization,
+			),
 			Request::DeleteGrants(args) => {
 				let items = args.into_iter().map(Item::DeleteGrant).collect();
 				(items, Kind::DeleteGrants)
@@ -479,6 +493,10 @@ impl Index {
 				let items = ids.into_iter().map(Item::DeleteUser).collect();
 				(items, Kind::DeleteUsers)
 			},
+			Request::EnqueueFinalization(item) => (
+				vec![Item::EnqueueFinalization(item)],
+				Kind::EnqueueFinalization,
+			),
 			Request::PutCacheEntries(args) => {
 				let items = args.into_iter().map(Item::PutCacheEntry).collect();
 				(items, Kind::PutCacheEntries)
@@ -590,6 +608,13 @@ impl Index {
 				max_sandbox_touched_at: *max_sandbox_touched_at,
 				now: *now,
 			}),
+			Kind::CompleteFinalization => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::CompleteFinalization(entry)] = items else {
+					unreachable!();
+				};
+				Request::CompleteFinalization(entry)
+			},
 			Kind::DeleteGrants => {
 				let args = items
 					.into_iter()
@@ -669,6 +694,13 @@ impl Index {
 					})
 					.collect();
 				Request::DeleteUsers(ids)
+			},
+			Kind::EnqueueFinalization => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::EnqueueFinalization(item)] = items else {
+					unreachable!();
+				};
+				Request::EnqueueFinalization(item)
 			},
 			Kind::PutCacheEntries => {
 				let args = items

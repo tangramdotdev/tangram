@@ -15,6 +15,7 @@ impl Session {
 		)
 		.await
 		.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
+		self.server.enqueue_process_finalization(id).await?;
 		self.spawn_process_finish_tasks(id);
 		Ok(tg::process::control::FinishServerResponseOutput {})
 	}
@@ -63,8 +64,5 @@ impl Session {
 
 		// Spawn a task to publish the status.
 		self.server.spawn_publish_process_status_task(id);
-
-		// Spawn a task to publish the finalize message.
-		self.server.spawn_publish_process_finalize_message_task();
 	}
 }

@@ -255,27 +255,6 @@ impl Session {
 			.map_err(db::postgres::Error::from);
 		crate::database::retry!(result, "failed to execute the statement");
 
-		let finalize_processes = items
-			.iter()
-			.filter(|(_, data)| Self::process_log_needs_compaction(data))
-			.map(|(id, _)| id.to_string())
-			.collect::<Vec<_>>();
-		if !finalize_processes.is_empty() {
-			let statement = indoc!(
-				"
-					insert into process_finalize_queue (created_at, process, status)
-					select $1, unnest($2::text[]), 'created'
-					on conflict (process) do nothing;
-				"
-			);
-			let result = transaction
-				.inner()
-				.execute(statement, &[&stored_at, &finalize_processes])
-				.await
-				.map_err(db::postgres::Error::from);
-			crate::database::retry!(result, "failed to execute the statement");
-		}
-
 		let mut child_processes = Vec::new();
 		let mut child_positions = Vec::new();
 		let mut child_cached = Vec::new();

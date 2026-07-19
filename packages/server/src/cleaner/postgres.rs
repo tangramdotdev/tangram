@@ -46,20 +46,11 @@ impl Server {
 	) -> tg::Result<ControlFlow<(), db::postgres::Error>> {
 		let statement = indoc!(
 			"
-				with deleted_sandboxes as (
-					delete from sandboxes
-					where id = any($1::text[])
-						and status = 'destroyed'
-						and finished_at <= $2
-					returning id
-				),
-				deleted_sandbox_finalize_queue as (
-					delete from sandbox_finalize_queue
-					where sandbox in (select id from deleted_sandboxes)
-					returning 1
-				)
-				select id
-				from deleted_sandboxes;
+				delete from sandboxes
+				where id = any($1::text[])
+					and status = 'destroyed'
+					and finished_at <= $2
+				returning id;
 			"
 		);
 		let result = transaction
@@ -116,11 +107,6 @@ impl Server {
 				),
 				deleted_process_children as (
 					delete from process_children
-					where process in (select id from deleted_processes)
-					returning 1
-				),
-				deleted_process_finalize_queue as (
-					delete from process_finalize_queue
 					where process in (select id from deleted_processes)
 					returning 1
 				)

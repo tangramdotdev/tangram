@@ -1,174 +1,31 @@
 use {
-	crate::{Server, database::Database},
-	futures::{FutureExt as _, StreamExt as _, stream},
+	crate::Server,
+	futures::{FutureExt as _, StreamExt as _, future, stream},
 	indoc::formatdoc,
+	num::ToPrimitive as _,
 	std::{ops::ControlFlow, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stopper},
+	tangram_index::{self as index, prelude::*},
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::IntervalStream,
 };
 
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-#[cfg(feature = "turso")]
-mod turso;
-
-#[derive(Clone, Debug)]
-pub(crate) struct Entry {
-	pub(crate) position: i64,
-	pub(crate) sandbox: tg::sandbox::Id,
-}
-
 impl Server {
-	pub(crate) async fn sandbox_finalizer_task(
+	pub(crate) async fn enqueue_sandbox_finalization(
 		&self,
-		config: &crate::config::Finalizer,
-		stopper: Stopper,
+		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
-		let batch_size = config.message_batch_size.max(1);
-		let subject = "sandboxes.finalize.queue".to_owned();
-		let wakeups = self
-			.messenger
-			.queue_subscribe::<()>(subject.clone(), subject)
+		self.index
+			.enqueue_finalization(&index::finalization::Item::Sandbox(id.clone()))
 			.await
-			.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-			.map(|_| ());
-		let interval = config.message_batch_timeout.max(Duration::from_millis(1));
-		let interval = IntervalStream::new(tokio::time::interval(interval))
-			.skip(1)
-			.map(|_| ());
-		let wakeups = stream::select(wakeups, interval).with_stopper(Some(stopper));
-		let mut wakeups = pin!(wakeups);
-		loop {
-			loop {
-				let entries = match self.try_dequeue_sandbox_finalize_batch(batch_size).await {
-					Ok(Some(entries)) => entries,
-					Ok(None) => break,
-					Err(error) => {
-						tracing::error!(error = %error.trace(), "failed to dequeue finalize entries");
-						tokio::time::sleep(Duration::from_secs(1)).await;
-						break;
-					},
-				};
-				let result = self.handle_sandbox_finalize_entries(entries).await;
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), "failed to handle finalize entries");
-					tokio::time::sleep(Duration::from_secs(1)).await;
-					break;
-				}
-				self.messenger
-					.publish("sandboxes.finalizer.progress".to_owned(), ())
-					.await
-					.ok();
-			}
-			if wakeups.next().await.is_none() {
-				break;
-			}
-		}
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to enqueue the sandbox finalization"),
+			)?;
+		self.spawn_publish_sandbox_finalize_message_task();
+
 		Ok(())
-	}
-
-	async fn try_dequeue_sandbox_finalize_batch(
-		&self,
-		batch_size: usize,
-	) -> tg::Result<Option<Vec<Entry>>> {
-		match &self.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => {
-				self.try_dequeue_sandbox_finalize_batch_postgres(process_store, batch_size)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => {
-				self.try_dequeue_sandbox_finalize_batch_sqlite(process_store, batch_size)
-					.await
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(process_store) => {
-				self.try_dequeue_sandbox_finalize_batch_turso(process_store, batch_size)
-					.await
-			},
-		}
-	}
-
-	async fn handle_sandbox_finalize_entries(&self, entries: Vec<Entry>) -> tg::Result<()> {
-		for entry in &entries {
-			let result = self.handle_sandbox_finalize_entry(entry).await;
-			if let Err(error) = result {
-				return Err(tg::error!(
-					!error,
-					sandbox = %entry.sandbox,
-					"failed to handle the sandbox finalize entry"
-				));
-			}
-		}
-		Ok(())
-	}
-
-	async fn handle_sandbox_finalize_entry(&self, entry: &Entry) -> tg::Result<()> {
-		let entry = entry.clone();
-		let server = self.clone();
-		self.process_store
-			.run(|transaction| {
-				let entry = entry.clone();
-				let server = server.clone();
-				async move {
-					server
-						.handle_sandbox_finalize_entry_with_transaction(transaction, &entry)
-						.await
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to handle the sandbox finalize entry"))
-	}
-
-	async fn handle_sandbox_finalize_entry_with_transaction(
-		&self,
-		transaction: &crate::database::Transaction<'_>,
-		entry: &Entry,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
-		let p = transaction.p();
-
-		let statement = formatdoc!(
-			"
-				update sandbox_finalize_queue
-				set
-					finished_at = {p}1,
-					status = {p}2
-				where position = {p}3;
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, "finished", entry.position];
-		let result = transaction.execute(statement.into(), params).await;
-		let n = crate::database::retry!(result, "failed to execute the statement");
-		if n != 1 {
-			return Err(tg::error!(
-				"failed to update the sandbox finalize queue entry"
-			));
-		}
-
-		let statement = formatdoc!(
-			"
-				delete from sandbox_finalize_queue
-				where position = {p}1;
-			"
-		);
-		let params = db::params![entry.position];
-		let result = transaction.execute(statement.into(), params).await;
-		let n = crate::database::retry!(result, "failed to execute the statement");
-		if n != 1 {
-			return Err(tg::error!(
-				"failed to delete the sandbox finalize queue entry"
-			));
-		}
-
-		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) fn spawn_publish_sandbox_finalize_message_task(&self) {
@@ -185,5 +42,154 @@ impl Server {
 					.ok();
 			}
 		});
+	}
+
+	pub(crate) async fn sandbox_finalizer_task(
+		&self,
+		config: &crate::config::Finalizer,
+		stopper: Stopper,
+	) -> tg::Result<()> {
+		if config.concurrency == 0 {
+			return Err(tg::error!(
+				"the finalizer concurrency must be greater than zero"
+			));
+		}
+		if config.partition_count == 0 {
+			return Err(tg::error!(
+				"the finalizer partition count must be greater than zero"
+			));
+		}
+
+		let partition_start = config.partition_start;
+		let partition_count = config.partition_count;
+		let concurrency = config.concurrency.to_u64().unwrap();
+		let futures = (0..config.concurrency).filter_map(|task_index| {
+			let task_index = task_index.to_u64().unwrap();
+			let partitions_per_task = partition_count / concurrency;
+			let extra = partition_count % concurrency;
+			let task_start =
+				partition_start + task_index * partitions_per_task + task_index.min(extra);
+			let task_count = partitions_per_task + u64::from(task_index < extra);
+			(task_count > 0).then(|| {
+				self.sandbox_finalizer_task_inner(config, task_start, task_count, stopper.clone())
+			})
+		});
+		future::try_join_all(futures).await?;
+
+		Ok(())
+	}
+
+	async fn sandbox_finalizer_task_inner(
+		&self,
+		config: &crate::config::Finalizer,
+		partition_start: u64,
+		partition_count: u64,
+		stopper: Stopper,
+	) -> tg::Result<()> {
+		let batch_size = config.message_batch_size.max(1);
+		let wakeups = self
+			.messenger
+			.subscribe::<()>("sandboxes.finalize.queue".to_owned())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to subscribe"))?
+			.map(|_| ());
+		let interval = config.message_batch_timeout.max(Duration::from_millis(1));
+		let interval = IntervalStream::new(tokio::time::interval(interval))
+			.skip(1)
+			.map(|_| ());
+		let wakeups = stream::select(wakeups, interval).with_stopper(Some(stopper));
+		let mut wakeups = pin!(wakeups);
+		loop {
+			loop {
+				let entries = match self
+					.index
+					.finalization_batch(
+						index::finalization::Kind::Sandbox,
+						batch_size,
+						partition_start,
+						partition_count,
+					)
+					.await
+				{
+					Ok(entries) if entries.is_empty() => break,
+					Ok(entries) => entries,
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to read sandbox finalizations");
+						tokio::time::sleep(Duration::from_secs(1)).await;
+						break;
+					},
+				};
+				if let Err(error) = self.handle_sandbox_finalize_entries(&entries).await {
+					tracing::error!(error = %error.trace(), "failed to handle sandbox finalizations");
+					tokio::time::sleep(Duration::from_secs(1)).await;
+					break;
+				}
+				self.messenger
+					.publish("sandboxes.finalizer.progress".to_owned(), ())
+					.await
+					.ok();
+			}
+			if wakeups.next().await.is_none() {
+				break;
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn handle_sandbox_finalize_entries(
+		&self,
+		entries: &[index::finalization::Entry],
+	) -> tg::Result<()> {
+		for entry in entries {
+			self.handle_sandbox_finalize_entry(entry).await?;
+		}
+
+		Ok(())
+	}
+
+	async fn handle_sandbox_finalize_entry(
+		&self,
+		entry: &index::finalization::Entry,
+	) -> tg::Result<()> {
+		let index::finalization::Item::Sandbox(sandbox) = &entry.item else {
+			return Err(tg::error!("unexpected finalization item"));
+		};
+		let sandbox = sandbox.clone();
+		self.process_store
+			.run(|transaction| {
+				let sandbox = sandbox.clone();
+				async move {
+					Self::delete_finalized_sandbox_with_transaction(transaction, &sandbox).await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(
+				|error| tg::error!(!error, %sandbox, "failed to delete the finalized sandbox"),
+			)?;
+		self.index.complete_finalization(entry).await.map_err(
+			|error| tg::error!(!error, %sandbox, "failed to complete the sandbox finalization"),
+		)?;
+
+		Ok(())
+	}
+
+	async fn delete_finalized_sandbox_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				delete from sandboxes
+				where id = {p}1 and status = 'destroyed';
+			"
+		);
+		let params = db::params![sandbox.to_string()];
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 }

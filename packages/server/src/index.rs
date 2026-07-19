@@ -424,6 +424,60 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn complete_finalization(&self, entry: &index::finalization::Entry) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.complete_finalization(entry).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.complete_finalization(entry).await,
+		}
+	}
+
+	async fn enqueue_finalization(&self, item: &index::finalization::Item) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.enqueue_finalization(item).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.enqueue_finalization(item).await,
+		}
+	}
+
+	async fn finalization_batch(
+		&self,
+		kind: index::finalization::Kind,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<Vec<index::finalization::Entry>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.finalization_batch(kind, batch_size, partition_start, partition_count)
+					.await
+			},
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => {
+				index
+					.finalization_batch(kind, batch_size, partition_start, partition_count)
+					.await
+			},
+		}
+	}
+
+	async fn finalizations_finished(
+		&self,
+		kind: index::finalization::Kind,
+		transaction_id: u64,
+	) -> tg::Result<bool> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.finalizations_finished(kind, transaction_id).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.finalizations_finished(kind, transaction_id).await,
+		}
+	}
+
 	async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -542,37 +596,29 @@ impl Session {
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).skip(1);
 		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
 
-		// Wait for the existing finalize queue entries to be handled.
-		if let Some(position) = self
+		// Wait for the process finalization transaction barrier.
+		let transaction_id = self
 			.server
-			.try_get_process_finalize_queue_max_position()
-			.await?
-		{
-			let mut remaining = self
+			.index
+			.get_transaction_id()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the transaction id"))?;
+		progress.spinner("finalize", "waiting for process finalizations");
+		loop {
+			let finished = self
 				.server
-				.get_process_finalize_queue_count_until_position(position)
-				.await?;
-			if remaining > 0 {
-				let total = remaining;
-				progress.start(
-					"finalize".to_owned(),
-					"finalize".to_owned(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					Some(total),
-				);
-				while remaining > 0 {
-					wakeups.next().await;
-					let next_remaining = self
-						.server
-						.get_process_finalize_queue_count_until_position(position)
-						.await?;
-					progress.increment("finalize", remaining.saturating_sub(next_remaining));
-					remaining = next_remaining;
-				}
-				progress.finish("finalize");
+				.index
+				.finalizations_finished(index::finalization::Kind::Process, transaction_id)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to check whether finalizations are finished")
+				})?;
+			if finished {
+				break;
 			}
+			wakeups.next().await;
 		}
+		progress.finish("finalize");
 
 		// Wait for remote object put tasks to enqueue their index tasks.
 		progress.spinner("tasks", "waiting for tasks");

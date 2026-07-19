@@ -8,6 +8,7 @@ use {
 pub enum Key {
 	Cache(crate::lmdb::cache::Key),
 	Clean(crate::lmdb::clean::Key),
+	Finalization(crate::lmdb::finalization::Key),
 	Grant(crate::lmdb::grant::Key),
 	Group(crate::lmdb::group::Key),
 	Node(crate::lmdb::node::Key),
@@ -68,6 +69,10 @@ pub enum Kind {
 	ProcessSandbox = 41,
 	CreatorSandbox = 42,
 	OwnerSandbox = 43,
+	ProcessFinalization = 44,
+	ProcessFinalizationVersion = 45,
+	SandboxFinalization = 46,
+	SandboxFinalizationVersion = 47,
 }
 
 impl fdbt::TuplePack for Key {
@@ -414,6 +419,32 @@ impl fdbt::TuplePack for Key {
 				let id = id.to_bytes();
 				id.as_ref().pack(w, tuple_depth)
 			},
+
+			Key::Finalization(crate::lmdb::finalization::Key::Process(id)) => (
+				Kind::ProcessFinalization.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::lmdb::finalization::Key::ProcessVersion { id, version }) => (
+				Kind::ProcessFinalizationVersion.to_i32().unwrap(),
+				version,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::lmdb::finalization::Key::Sandbox(id)) => (
+				Kind::SandboxFinalization.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::lmdb::finalization::Key::SandboxVersion { id, version }) => (
+				Kind::SandboxFinalizationVersion.to_i32().unwrap(),
+				version,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
 
 			Key::Update(crate::lmdb::update::Key::Update { id, kind }) => {
 				Kind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
@@ -1116,6 +1147,50 @@ impl fdbt::TupleUnpack<'_> for Key {
 					touched_at,
 					kind,
 					id,
+				});
+				Ok((input, key))
+			},
+
+			Kind::ProcessFinalization => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Finalization(crate::lmdb::finalization::Key::Process(id)),
+				))
+			},
+
+			Kind::ProcessFinalizationVersion => {
+				let (input, version): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key = Key::Finalization(crate::lmdb::finalization::Key::ProcessVersion {
+					id,
+					version,
+				});
+				Ok((input, key))
+			},
+
+			Kind::SandboxFinalization => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Finalization(crate::lmdb::finalization::Key::Sandbox(id)),
+				))
+			},
+
+			Kind::SandboxFinalizationVersion => {
+				let (input, version): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let key = Key::Finalization(crate::lmdb::finalization::Key::SandboxVersion {
+					id,
+					version,
 				});
 				Ok((input, key))
 			},

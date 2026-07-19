@@ -3,6 +3,7 @@ use tangram_client::prelude::*;
 #[derive(Clone)]
 pub(super) enum Request {
 	Clean(Clean),
+	CompleteFinalization(crate::finalization::Entry),
 	DeleteGrants(Vec<crate::grant::delete::Arg>),
 	DeleteGroupMembers(Vec<crate::group::member::delete::Arg>),
 	DeleteGroups(Vec<tg::group::Id>),
@@ -11,6 +12,7 @@ pub(super) enum Request {
 	DeleteSandboxes(Vec<tg::sandbox::Id>),
 	DeleteTags(Vec<tg::tag::Id>),
 	DeleteUsers(Vec<tg::user::Id>),
+	EnqueueFinalization(crate::finalization::Item),
 	PutCacheEntries(Vec<crate::cache::put::Arg>),
 	PutGrants(Vec<crate::grant::put::Arg>),
 	PutGroupMembers(Vec<crate::group::member::put::Arg>),
@@ -70,6 +72,7 @@ pub(super) struct Update {
 
 pub(super) enum Item {
 	Clean,
+	CompleteFinalization(crate::finalization::Entry),
 	DeleteGrant(crate::grant::delete::Arg),
 	DeleteGroup(tg::group::Id),
 	DeleteGroupMember(crate::group::member::delete::Arg),
@@ -78,6 +81,7 @@ pub(super) enum Item {
 	DeleteSandbox(tg::sandbox::Id),
 	DeleteTag(tg::tag::Id),
 	DeleteUser(tg::user::Id),
+	EnqueueFinalization(crate::finalization::Item),
 	PutCacheEntry(crate::cache::put::Arg),
 	PutGrant(crate::grant::put::Arg),
 	PutGroup(crate::group::put::Arg),
@@ -105,6 +109,7 @@ pub(super) enum Kind {
 		partition_count: u64,
 		partition_start: u64,
 	},
+	CompleteFinalization,
 	DeleteGrants,
 	DeleteGroupMembers,
 	DeleteGroups,
@@ -113,6 +118,7 @@ pub(super) enum Kind {
 	DeleteSandboxes,
 	DeleteTags,
 	DeleteUsers,
+	EnqueueFinalization,
 	PutCacheEntries,
 	PutGrants,
 	PutGroupMembers,
@@ -138,7 +144,7 @@ pub(super) enum Kind {
 		touched_at: i64,
 	},
 	Update {
-		partition_start: u64,
 		partition_count: u64,
+		partition_start: u64,
 	},
 }

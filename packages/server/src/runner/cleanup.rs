@@ -78,7 +78,8 @@ impl Server {
 			let mut data = indexed
 				.data
 				.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
-			if data.status.is_started() {
+			let finished = data.status.is_started();
+			if finished {
 				data.children.get_or_insert_default();
 				data.cacheable = false;
 				data.error = Some(tg::Either::Left(error.clone()));
@@ -96,11 +97,11 @@ impl Server {
 							location: None,
 						},
 					)
+					.boxed()
 					.await
 					.map_err(
 						|source| tg::error!(!source, %process, "failed to store the lost process"),
 					)?;
-				session.spawn_process_finish_tasks(&process);
 			}
 
 			// Remove the tokens before updating the index.
@@ -129,6 +130,11 @@ impl Server {
 				.map_err(
 					|source| tg::error!(!source, %process, "failed to update the lost process in the index"),
 				)?;
+			if finished {
+				self.enqueue_process_finalization(&process).await?;
+				let session = self.session(&self.context);
+				session.spawn_process_finish_tasks(&process);
+			}
 		}
 
 		let mut indexed = self
@@ -158,9 +164,9 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to update the lost sandbox in the index"),
 			)?;
+		self.enqueue_sandbox_finalization(id).await?;
 
 		self.spawn_publish_sandbox_status_task(id);
-		self.spawn_publish_sandbox_finalize_message_task();
 
 		Ok(())
 	}
@@ -294,17 +300,6 @@ impl Server {
 			arg.status,
 			arg.ttl,
 		];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-
-		let statement = formatdoc!(
-			"
-				insert into sandbox_finalize_queue (created_at, sandbox, status)
-				values ({p}1, {p}2, {p}3)
-				on conflict (sandbox) do nothing;
-			"
-		);
-		let params = db::params![arg.now, arg.id.to_string(), "created"];
 		let result = transaction.execute(statement.into(), params).await;
 		crate::database::retry!(result, "failed to execute the statement");
 

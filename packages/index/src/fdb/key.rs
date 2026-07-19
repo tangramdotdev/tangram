@@ -8,6 +8,7 @@ use {
 pub enum Key {
 	Cache(crate::fdb::cache::Key),
 	Clean(crate::fdb::clean::Key),
+	Finalization(crate::fdb::finalization::Key),
 	Grant(crate::fdb::grant::Key),
 	Group(crate::fdb::group::Key),
 	Node(crate::fdb::node::Key),
@@ -69,6 +70,12 @@ pub enum Kind {
 	CreatorSandbox = 42,
 	OwnerSandbox = 43,
 	UpdateBarrier = 44,
+	ProcessFinalization = 45,
+	ProcessFinalizationBarrier = 46,
+	ProcessFinalizationVersion = 47,
+	SandboxFinalization = 48,
+	SandboxFinalizationBarrier = 49,
+	SandboxFinalizationVersion = 50,
 }
 
 impl fdbt::TuplePack for Key {
@@ -422,6 +429,66 @@ impl fdbt::TuplePack for Key {
 				let id = id.to_bytes();
 				id.as_ref().pack(w, tuple_depth)
 			},
+
+			Key::Finalization(crate::fdb::finalization::Key::Process(id)) => (
+				Kind::ProcessFinalization.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::ProcessBarrier {
+				id,
+				partition,
+				version,
+			}) => (
+				Kind::ProcessFinalizationBarrier.to_i32().unwrap(),
+				version,
+				partition,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::ProcessVersion {
+				id,
+				partition,
+				version,
+			}) => (
+				Kind::ProcessFinalizationVersion.to_i32().unwrap(),
+				partition,
+				version,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::Sandbox(id)) => (
+				Kind::SandboxFinalization.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::SandboxBarrier {
+				id,
+				partition,
+				version,
+			}) => (
+				Kind::SandboxFinalizationBarrier.to_i32().unwrap(),
+				version,
+				partition,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::SandboxVersion {
+				id,
+				partition,
+				version,
+			}) => (
+				Kind::SandboxFinalizationVersion.to_i32().unwrap(),
+				partition,
+				version,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
 
 			Key::Update(crate::fdb::update::Key::Update { id, kind }) => {
 				Kind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
@@ -1142,6 +1209,82 @@ impl fdbt::TupleUnpack<'_> for Key {
 					touched_at,
 					kind,
 					id,
+				});
+				Ok((input, key))
+			},
+
+			Kind::ProcessFinalization => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Finalization(crate::fdb::finalization::Key::Process(id)),
+				))
+			},
+
+			Kind::ProcessFinalizationBarrier => {
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key = Key::Finalization(crate::fdb::finalization::Key::ProcessBarrier {
+					id,
+					partition,
+					version,
+				});
+				Ok((input, key))
+			},
+
+			Kind::ProcessFinalizationVersion => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key = Key::Finalization(crate::fdb::finalization::Key::ProcessVersion {
+					id,
+					partition,
+					version,
+				});
+				Ok((input, key))
+			},
+
+			Kind::SandboxFinalization => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Finalization(crate::fdb::finalization::Key::Sandbox(id)),
+				))
+			},
+
+			Kind::SandboxFinalizationBarrier => {
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let key = Key::Finalization(crate::fdb::finalization::Key::SandboxBarrier {
+					id,
+					partition,
+					version,
+				});
+				Ok((input, key))
+			},
+
+			Kind::SandboxFinalizationVersion => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let key = Key::Finalization(crate::fdb::finalization::Key::SandboxVersion {
+					id,
+					partition,
+					version,
 				});
 				Ok((input, key))
 			},

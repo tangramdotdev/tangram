@@ -9,6 +9,7 @@ pub mod authorize;
 pub mod batch;
 pub mod cache;
 pub mod clean;
+pub mod finalization;
 pub mod grant;
 pub mod group;
 pub mod object;
@@ -285,6 +286,30 @@ pub trait Index {
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn delete_users(&self, ids: &[tg::user::Id]) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn complete_finalization(
+		&self,
+		entry: &crate::finalization::Entry,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn enqueue_finalization(
+		&self,
+		item: &crate::finalization::Item,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn finalization_batch(
+		&self,
+		kind: crate::finalization::Kind,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> impl Future<Output = tg::Result<Vec<crate::finalization::Entry>>> + Send;
+
+	fn finalizations_finished(
+		&self,
+		kind: crate::finalization::Kind,
+		transaction_id: u64,
+	) -> impl Future<Output = tg::Result<bool>> + Send;
 
 	fn updates_finished(
 		&self,

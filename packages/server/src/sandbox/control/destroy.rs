@@ -53,26 +53,18 @@ impl Session {
 			touched_at: now,
 		};
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let server = self.server.clone();
-				async move {
-					let result = server
-						.index
-						.batch(tangram_index::batch::Arg {
-							put_sandboxes: vec![put_sandbox],
-							..Default::default()
-						})
-						.await;
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), "failed to put the destroyed sandbox to the index");
-					}
-				}
+			.index
+			.batch(tangram_index::batch::Arg {
+				put_sandboxes: vec![put_sandbox],
+				..Default::default()
 			})
-			.detach();
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to put the destroyed sandbox in the index"),
+			)?;
+		self.server.enqueue_sandbox_finalization(id).await?;
 
 		self.server.spawn_publish_sandbox_status_task(id);
-		self.server.spawn_publish_sandbox_finalize_message_task();
 
 		Ok(tg::sandbox::control::DestroyServerResponseOutput {})
 	}
@@ -203,17 +195,6 @@ impl Session {
 			arg.status,
 			arg.ttl,
 		];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-
-		let statement = formatdoc!(
-			"
-				insert into sandbox_finalize_queue (created_at, sandbox, status)
-				values ({p}1, {p}2, {p}3)
-				on conflict (sandbox) do nothing;
-			"
-		);
-		let params = db::params![arg.now, arg.id.to_string(), "created"];
 		let result = transaction.execute(statement.into(), params).await;
 		crate::database::retry!(result, "failed to execute the statement");
 

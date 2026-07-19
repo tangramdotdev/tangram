@@ -53,17 +53,6 @@ impl Server {
 			return Ok(ControlFlow::Break(()));
 		}
 
-		let statement = indoc!(
-			"
-				delete from sandbox_finalize_queue
-				where sandbox = ?1;
-			"
-		);
-		let result = transaction
-			.execute(statement, sqlite::params![sandbox])
-			.map_err(db::sqlite::Error::from);
-		crate::database::retry!(result, "failed to execute the statement");
-
 		Ok(ControlFlow::Break(()))
 	}
 
@@ -115,17 +104,6 @@ impl Server {
 		let statement = indoc!(
 			"
 				delete from process_children
-				where process = ?1;
-			"
-		);
-		let result = transaction
-			.execute(statement, sqlite::params![process])
-			.map_err(db::sqlite::Error::from);
-		crate::database::retry!(result, "failed to execute the statement");
-
-		let statement = indoc!(
-			"
-				delete from process_finalize_queue
 				where process = ?1;
 			"
 		);

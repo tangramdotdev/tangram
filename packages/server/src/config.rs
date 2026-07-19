@@ -657,10 +657,16 @@ pub struct Process {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Finalizer {
+	pub concurrency: usize,
+
 	pub message_batch_size: usize,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_batch_timeout: Duration,
+
+	pub partition_count: u64,
+
+	pub partition_start: u64,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1449,8 +1455,11 @@ impl Default for Process {
 impl Default for Finalizer {
 	fn default() -> Self {
 		Self {
+			concurrency: 1,
 			message_batch_size: 1024,
 			message_batch_timeout: Duration::from_millis(100),
+			partition_count: 256,
+			partition_start: 0,
 		}
 	}
 }

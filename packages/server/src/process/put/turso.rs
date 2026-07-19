@@ -152,13 +152,6 @@ impl Session {
 				on conflict (process, child) do nothing;
 			"
 		);
-		let finalize_statement = indoc!(
-			"
-				insert into process_finalize_queue (created_at, process, status)
-				values (?1, ?2, 'created')
-				on conflict (process) do nothing;
-			"
-		);
 		for (id, data) in items {
 			let error_string = data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
@@ -213,16 +206,6 @@ impl Session {
 				)
 				.await;
 			crate::database::retry!(result, "failed to execute the statement");
-
-			if Self::process_log_needs_compaction(data) {
-				let result = transaction
-					.execute(
-						finalize_statement.into(),
-						db::params![stored_at, id.to_string()],
-					)
-					.await;
-				crate::database::retry!(result, "failed to execute the statement");
-			}
 
 			if let Some(children) = &data.children {
 				for (position, child) in children.iter().enumerate() {
