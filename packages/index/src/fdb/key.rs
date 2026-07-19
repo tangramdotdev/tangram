@@ -68,6 +68,7 @@ pub enum Kind {
 	ProcessSandbox = 41,
 	CreatorSandbox = 42,
 	OwnerSandbox = 43,
+	UpdateBarrier = 44,
 }
 
 impl fdbt::TuplePack for Key {
@@ -429,6 +430,24 @@ impl fdbt::TuplePack for Key {
 					tg::Either::Right(id) => id.to_bytes(),
 				};
 				let mut offset = id.as_ref().pack(w, tuple_depth)?;
+				offset += pack_update_kind(w, tuple_depth, kind)?;
+				Ok(offset)
+			},
+
+			Key::Update(crate::fdb::update::Key::UpdateBarrier {
+				id,
+				kind,
+				partition,
+				version,
+			}) => {
+				let mut offset = Kind::UpdateBarrier.to_i32().unwrap().pack(w, tuple_depth)?;
+				offset += version.pack(w, tuple_depth)?;
+				offset += partition.pack(w, tuple_depth)?;
+				let id = match &id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				offset += id.as_ref().pack(w, tuple_depth)?;
 				offset += pack_update_kind(w, tuple_depth, kind)?;
 				Ok(offset)
 			},
@@ -1143,6 +1162,29 @@ impl fdbt::TupleUnpack<'_> for Key {
 					input,
 					Key::Update(crate::fdb::update::Key::Update { id, kind }),
 				))
+			},
+
+			Kind::UpdateBarrier => {
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
+				let (input, kind) = unpack_update_kind(input, tuple_depth)?;
+				let key = Key::Update(crate::fdb::update::Key::UpdateBarrier {
+					id,
+					kind,
+					partition,
+					version,
+				});
+				Ok((input, key))
 			},
 
 			Kind::UpdateVersion => {

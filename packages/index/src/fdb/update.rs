@@ -104,13 +104,27 @@ impl Index {
 			tg::Either::Right(id) => id.to_bytes(),
 		};
 		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+		let version = fdbt::Versionstamp::incomplete(0);
 		let key = Self::pack_with_versionstamp(
 			subspace,
 			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
 				id: id.clone(),
+				kind: kind.clone(),
+				partition,
+				version: version.clone(),
+			}),
+		);
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
+
+		let key = Self::pack_with_versionstamp(
+			subspace,
+			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateBarrier {
+				id: id.clone(),
 				kind,
 				partition,
-				version: fdbt::Versionstamp::incomplete(0),
+				version,
 			}),
 		);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -129,23 +143,21 @@ impl Index {
 		bytes[8..].copy_from_slice(&0xFFFFu16.to_be_bytes());
 		let versionstamp = fdbt::Versionstamp::complete(bytes, 0);
 
-		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
-		let futures = (0..self.partition_total).map(|partition| {
-			let begin = Self::pack(&self.subspace, &(key_kind, partition));
-			let end = Self::pack(&self.subspace, &(key_kind, partition, versionstamp.clone()));
-			let range = fdb::RangeOption {
-				begin: fdb::KeySelector::first_greater_or_equal(begin),
-				end: fdb::KeySelector::first_greater_or_equal(end),
-				limit: Some(1),
-				mode: fdb::options::StreamingMode::WantAll,
-				..Default::default()
-			};
-			txn.get_range(&range, 1, false)
-		});
-		let results = future::try_join_all(futures)
+		let key_kind = KeyKind::UpdateBarrier.to_i32().unwrap();
+		let begin = Self::pack(&self.subspace, &(key_kind,));
+		let end = Self::pack(&self.subspace, &(key_kind, versionstamp));
+		let range = fdb::RangeOption {
+			begin: fdb::KeySelector::first_greater_or_equal(begin),
+			end: fdb::KeySelector::first_greater_or_equal(end),
+			limit: Some(1),
+			mode: fdb::options::StreamingMode::WantAll,
+			..Default::default()
+		};
+		let entries = txn
+			.get_range(&range, 1, false)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check if updates are finished"))?;
-		let finished = results.iter().all(|entries| entries.is_empty());
+		let finished = entries.is_empty();
 
 		Ok(finished)
 	}
@@ -235,16 +247,7 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to get update key"))?;
 
 			let Some(value) = value else {
-				let key = Self::pack(
-					subspace,
-					&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
-						id: id.clone(),
-						kind: kind.clone(),
-						partition,
-						version: version.clone(),
-					}),
-				);
-				txn.clear(&key);
+				Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
 				count += 1;
 				continue;
 			};
@@ -297,16 +300,7 @@ impl Index {
 				}),
 			);
 			txn.clear(&key);
-			let key = Self::pack(
-				subspace,
-				&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
-					id: id.clone(),
-					kind,
-					partition,
-					version: version.clone(),
-				}),
-			);
-			txn.clear(&key);
+			Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
 
 			count += 1;
 		}
@@ -1766,6 +1760,50 @@ impl Index {
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		txn.set(&key, &[]);
+
+		let key = Self::pack(
+			subspace,
+			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateBarrier {
+				id: id.clone(),
+				kind: kind.clone(),
+				partition,
+				version: version.clone(),
+			}),
+		);
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.set(&key, &[]);
 		Ok(())
+	}
+
+	fn clear_update_version(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: &Kind,
+		partition: u64,
+		version: &fdbt::Versionstamp,
+	) {
+		let key = Self::pack(
+			subspace,
+			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
+				id: id.clone(),
+				kind: kind.clone(),
+				partition,
+				version: version.clone(),
+			}),
+		);
+		txn.clear(&key);
+
+		let key = Self::pack(
+			subspace,
+			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateBarrier {
+				id: id.clone(),
+				kind: kind.clone(),
+				partition,
+				version: version.clone(),
+			}),
+		);
+		txn.clear(&key);
 	}
 }
