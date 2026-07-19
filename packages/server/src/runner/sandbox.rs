@@ -1,5 +1,7 @@
 use {
-	super::process::{ConnectedEvent, Event as ProcessEvent, SpawnProcessTaskArg},
+	super::process::{
+		ConnectedEvent, Event as ProcessEvent, SpawnProcessTaskArg, SpawnProcessTaskOutput,
+	},
 	crate::{Context, Server, Session, temp::Temp},
 	futures::{FutureExt as _, StreamExt as _, future},
 	std::{collections::HashMap, pin::pin, sync::Arc},
@@ -83,8 +85,11 @@ struct SandboxTaskInnerArg {
 	data: tg::sandbox::get::Output,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	id: tg::sandbox::Id,
+	initial_process: Option<SpawnProcessTaskOutput>,
 	location: tg::Location,
-	process: Option<tg::runner::control::Process>,
+	process_stopper: Stopper,
+	process_tasks: JoinSet<tg::Result<()>>,
+	sandbox_id_sender: tokio::sync::watch::Sender<Option<tg::sandbox::Id>>,
 	stopper: Stopper,
 	token: String,
 }
@@ -97,8 +102,10 @@ struct RunSandboxTaskArg {
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	guest_url: tangram_uri::Uri,
 	id: tg::sandbox::Id,
+	initial_process: Option<SpawnProcessTaskOutput>,
 	location: tg::Location,
-	process: Option<tg::runner::control::Process>,
+	process_stopper: Stopper,
+	process_tasks: JoinSet<tg::Result<()>>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
 	state: tg::sandbox::get::Output,
@@ -272,29 +279,80 @@ impl Session {
 			arg: arg.clone(),
 			creator: creator.clone(),
 		};
-		let connect = connection_session.get_sandbox_control_stream(
-			expected_id.as_ref(),
-			&location,
-			created_at,
-			data,
-		);
-		let (created, connected) = future::join(create, connect).await;
-		let created = created?;
-		let (output, control) = connected?;
+		let connect = {
+			let expected_id = expected_id.clone();
+			let location = location.clone();
+			async move {
+				connection_session
+					.get_sandbox_control_stream(expected_id.as_ref(), &location, created_at, data)
+					.await
+			}
+		};
+		let mut create = pin!(create);
+		let mut connect = pin!(connect);
+		let mut connected = None;
+		let created = loop {
+			tokio::select! {
+				result = &mut create => break result?,
+				result = &mut connect, if connected.is_none() => {
+					connected = Some(result?);
+				},
+			}
+		};
+
+		// Start the initial process before waiting for the control stream.
+		let mut process_tasks = JoinSet::new();
+		let process_stopper = Stopper::new();
+		let (sandbox_id_sender, sandbox_id_receiver) = tokio::sync::watch::channel(None);
+		let initial_process = process.map(|process| {
+			self.spawn_process_task(SpawnProcessTaskArg {
+				guest_url: &created.guest_url,
+				location: location.clone(),
+				process,
+				process_stopper: &process_stopper,
+				process_tasks: &mut process_tasks,
+				retention_stopper: stopper.clone(),
+				sandbox: &created.sandbox,
+				sandbox_id_receiver: Some(sandbox_id_receiver),
+			})
+		});
+
+		let connected = match connected {
+			Some(connected) => Ok(connected),
+			None => connect.await,
+		};
+		let (output, control) = match connected {
+			Ok(connected) => connected,
+			Err(error) => {
+				drop(sandbox_id_sender);
+				process_stopper.stop();
+				while process_tasks.join_next().await.is_some() {}
+
+				return Err(error);
+			},
+		};
 		if let Some(expected_id) = &expected_id
 			&& output.id != *expected_id
 		{
-			return Err(tg::error!(
+			let error = tg::error!(
 				actual = %output.id,
 				expected = %expected_id,
 				"the server returned an invalid sandbox"
-			));
+			);
+			drop(sandbox_id_sender);
+			process_stopper.stop();
+			while process_tasks.join_next().await.is_some() {}
+
+			return Err(error);
 		}
 		let id = output.id;
-		let token = output
-			.token
-			.or(token)
-			.ok_or_else(|| tg::error!(%id, "missing the sandbox authentication token"))?;
+		let Some(token) = output.token.or(token) else {
+			drop(sandbox_id_sender);
+			process_stopper.stop();
+			while process_tasks.join_next().await.is_some() {}
+
+			return Err(tg::error!(%id, "missing the sandbox authentication token"));
+		};
 		let state = tg::sandbox::get::Output {
 			cpu: arg.cpu,
 			creator,
@@ -323,8 +381,11 @@ impl Session {
 				data: state,
 				event_sender,
 				id: id.clone(),
+				initial_process,
 				location: location.clone(),
-				process,
+				process_stopper,
+				process_tasks,
+				sandbox_id_sender,
 				stopper,
 				token,
 			})
@@ -537,8 +598,11 @@ impl Session {
 			data: state,
 			event_sender,
 			id,
+			initial_process,
 			location,
-			process,
+			process_stopper,
+			process_tasks,
+			sandbox_id_sender,
 			stopper,
 			token,
 		} = arg;
@@ -568,13 +632,16 @@ impl Session {
 		scopeguard::defer! {
 			self.server.runner.state.sandboxes.remove(&id);
 		}
+		sandbox_id_sender.send_replace(Some(id.clone()));
 		let arg = RunSandboxTaskArg {
 			control,
 			event_sender,
 			guest_url,
 			id: id.clone(),
+			initial_process,
 			location,
-			process,
+			process_stopper,
+			process_tasks,
 			sandbox,
 			serve_task,
 			state,
@@ -590,8 +657,10 @@ impl Session {
 			event_sender,
 			guest_url,
 			id,
+			initial_process,
 			location,
-			process,
+			process_stopper,
+			mut process_tasks,
 			sandbox,
 			serve_task,
 			state,
@@ -600,27 +669,15 @@ impl Session {
 
 		let sender = control.sender();
 
-		// Create the process tasks.
+		// Create the process events.
 		let mut process_events = StreamMap::new();
-		let mut process_tasks = JoinSet::new();
-		let process_stopper = Stopper::new();
 
 		// Create the timer.
 		let mut timer = None;
-		let reusable = process.is_none();
+		let reusable = initial_process.is_none();
 		let ttl = state.ttl;
 
-		let process = if let Some(process) = process {
-			let process = Self::prepare_process(process, &id)?;
-			let task = self.spawn_process_task(SpawnProcessTaskArg {
-				guest_url: &guest_url,
-				location: location.clone(),
-				process,
-				process_stopper: &process_stopper,
-				process_tasks: &mut process_tasks,
-				retention_stopper: stopper.clone(),
-				sandbox: &sandbox,
-			});
+		let process = if let Some(task) = initial_process {
 			let mut events = task.events;
 			let event = events
 				.recv()
@@ -720,6 +777,7 @@ impl Session {
 								process_tasks: &mut process_tasks,
 								retention_stopper: stopper.clone(),
 								sandbox: &sandbox,
+								sandbox_id_receiver: None,
 							});
 							let mut events = task.events;
 							let event = events

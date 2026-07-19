@@ -35,6 +35,7 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
 	pub retention_stopper: Stopper,
 	pub sandbox: &'a tangram_sandbox::Sandbox,
+	pub sandbox_id_receiver: Option<tokio::sync::watch::Receiver<Option<tg::sandbox::Id>>>,
 }
 
 #[must_use]
@@ -49,6 +50,7 @@ struct ProcessTaskArg {
 	process: tg::runner::control::Process,
 	retention_stopper: Stopper,
 	sandbox: tangram_sandbox::Sandbox,
+	sandbox_id_receiver: Option<tokio::sync::watch::Receiver<Option<tg::sandbox::Id>>>,
 	sandbox_stopper: Stopper,
 }
 
@@ -129,6 +131,7 @@ impl Session {
 		let sandbox = arg.sandbox.clone();
 		let guest_url = arg.guest_url.clone();
 		let location = arg.location;
+		let sandbox_id_receiver = arg.sandbox_id_receiver;
 		let sandbox_stopper = arg.process_stopper.clone();
 		let retention_stopper = arg.retention_stopper;
 		arg.process_tasks.spawn(async move {
@@ -139,6 +142,7 @@ impl Session {
 				process,
 				retention_stopper,
 				sandbox,
+				sandbox_id_receiver,
 				sandbox_stopper,
 			};
 			let result = session.process_task(arg).boxed().await;
@@ -160,6 +164,7 @@ impl Session {
 			process,
 			retention_stopper,
 			sandbox,
+			sandbox_id_receiver,
 			sandbox_stopper,
 		} = arg;
 		let tg::runner::control::Process {
@@ -168,8 +173,7 @@ impl Session {
 			parent,
 			token: inner_token,
 		} = process;
-		let state = tg::process::State::try_from_data(data)?;
-		let sandbox_id = state.sandbox.clone();
+		let mut state = tg::process::State::try_from_data(data)?;
 		let process_stopper = Stopper::new();
 		let lease = Self::create_process_lease();
 		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
@@ -358,6 +362,34 @@ impl Session {
 					.await
 			}
 		}));
+
+		// Wait for the sandbox ID before connecting the control stream.
+		if let Some(mut sandbox_id_receiver) = sandbox_id_receiver {
+			let sandbox_id = loop {
+				if let Some(sandbox_id) = sandbox_id_receiver.borrow().clone() {
+					break sandbox_id;
+				}
+				if sandbox_id_receiver.changed().await.is_err() {
+					process_stopper.stop();
+					run_task.take().unwrap().wait().await.ok();
+
+					return Err(tg::error!("failed to receive the sandbox ID"));
+				}
+			};
+			if expected_id.is_some() && state.sandbox != sandbox_id {
+				let error = tg::error!(
+					process = ?expected_id,
+					sandbox = %sandbox_id,
+					"the process is not in the sandbox"
+				);
+				process_stopper.stop();
+				run_task.take().unwrap().wait().await.ok();
+
+				return Err(error);
+			}
+			state.sandbox = sandbox_id;
+		}
+		let sandbox_id = state.sandbox.clone();
 
 		// Create the control stream.
 		let control_responses = ReceiverStream::new(control_responses).map(Ok).boxed();
