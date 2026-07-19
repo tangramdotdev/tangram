@@ -20,7 +20,7 @@ pub struct Output {
 impl Client {
 	pub async fn wait(
 		&self,
-		id: &tg::process::Id,
+		id: u64,
 	) -> tg::Result<impl Future<Output = tg::Result<Option<Output>>> + Send + 'static> {
 		let method = http::Method::POST;
 		let uri = format!("/processes/{id}/wait");

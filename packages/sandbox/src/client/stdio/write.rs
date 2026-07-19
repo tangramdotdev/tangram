@@ -10,7 +10,7 @@ use {
 impl Client {
 	pub async fn write_stdio(
 		&self,
-		id: &tg::process::Id,
+		id: u64,
 		arg: Arg,
 		stream: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>

@@ -9,7 +9,7 @@ use {
 };
 
 impl Server {
-	pub async fn kill(&self, id: tg::process::Id, arg: crate::client::kill::Arg) -> tg::Result<()> {
+	pub async fn kill(&self, id: u64, arg: crate::client::kill::Arg) -> tg::Result<()> {
 		let child = self
 			.processes
 			.get(&id)
@@ -47,7 +47,7 @@ impl Server {
 		request: http::Request<BoxBody>,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let id: tg::process::Id = id
+		let id: u64 = id
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		// Get the arg.

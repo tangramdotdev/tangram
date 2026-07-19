@@ -314,7 +314,7 @@ pub(crate) fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Res
 }
 
 pub(crate) fn add_port_forwarding_rules(
-	id: &tg::sandbox::Id,
+	id: u64,
 	_identity: &std::path::Path,
 	out_interface: &str,
 	host_ip: Ipv4Addr,
@@ -468,7 +468,7 @@ fn append_comment(rule: &mut Vec<String>, comment: &str) {
 	]);
 }
 
-fn sandbox_rule_comment(id: &tg::sandbox::Id) -> String {
+fn sandbox_rule_comment(id: u64) -> String {
 	format!("{TANGRAM_RULE_COMMENT_PREFIX}{id}")
 }
 

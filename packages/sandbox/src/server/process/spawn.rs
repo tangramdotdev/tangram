@@ -200,7 +200,7 @@ impl Server {
 			pty: pty.map(Arc::new),
 			task,
 		};
-		self.processes.insert(arg.id.clone(), process);
+		self.processes.insert(arg.id, process);
 
 		Ok(crate::client::spawn::Output {})
 	}

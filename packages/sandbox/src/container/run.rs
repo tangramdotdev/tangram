@@ -32,7 +32,7 @@ pub struct Arg {
 	pub gid: libc::gid_t,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
-	pub id: tg::sandbox::Id,
+	pub id: u64,
 	pub network: Option<Network>,
 	pub network_fd: Option<i32>,
 	pub new_session: bool,
@@ -155,9 +155,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				let gateway_ip = arg
 					.gateway_ip
 					.ok_or_else(|| tg::error!("veth networking requires a gateway ip"))?;
-				let id_str = arg.id.to_string();
-				let truncated = &id_str[..9];
-				let guest_name = format!("tg-vc-{truncated}");
+				let suffix = format!("{:09}", arg.id % 1_000_000_000);
+				let guest_name = format!("tg-vc-{suffix}");
 				let mut nl = crate::netlink::Netlink::new()?;
 				nl.link_rename(&guest_name, "eth0")?;
 				nl.addr_add_v4("eth0", guest_ip, 16)?;

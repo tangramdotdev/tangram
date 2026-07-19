@@ -1,7 +1,6 @@
 use {
 	crate::{Isolation, Sandbox},
 	std::path::{Path, PathBuf},
-	tangram_client::prelude::*,
 };
 
 impl Sandbox {
@@ -73,8 +72,8 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn guest_output_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
-		self.guest_output_path().join(id.to_string())
+	pub fn guest_output_path_for_process(&self, process: &crate::Process) -> PathBuf {
+		self.guest_output_path().join(process.id.to_string())
 	}
 
 	#[must_use]
@@ -155,8 +154,8 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn host_output_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
-		self.host_output_path().join(id.to_string())
+	pub fn host_output_path_for_process(&self, process: &crate::Process) -> PathBuf {
+		self.host_output_path().join(process.id.to_string())
 	}
 
 	#[must_use]

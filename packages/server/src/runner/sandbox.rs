@@ -22,9 +22,10 @@ pub(crate) struct SpawnSandboxTaskArg {
 	pub allocation: crate::runner::Allocation,
 	pub arg: tg::sandbox::create::Arg,
 	pub creator: Option<tg::Principal>,
-	pub identity: Option<SandboxIdentity>,
+	pub id: Option<tg::sandbox::Id>,
 	pub location: tg::Location,
 	pub process: Option<tg::runner::control::Process>,
+	pub token: Option<String>,
 }
 
 #[must_use]
@@ -32,21 +33,16 @@ pub(crate) struct SpawnSandboxTaskOutput {
 	pub events: tokio::sync::mpsc::UnboundedReceiver<tg::Result<Event>>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct SandboxIdentity {
-	pub id: tg::sandbox::Id,
-	pub token: String,
-}
-
 struct SandboxTaskArg {
 	allocation: crate::runner::Allocation,
 	arg: tg::sandbox::create::Arg,
 	creator: Option<tg::Principal>,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
-	identity: Option<SandboxIdentity>,
+	id: Option<tg::sandbox::Id>,
 	location: tg::Location,
 	process: Option<tg::runner::control::Process>,
 	stopper: Stopper,
+	token: Option<String>,
 }
 
 pub(crate) enum Event {
@@ -115,10 +111,11 @@ impl Server {
 					arg: arg.arg,
 					creator: arg.creator,
 					event_sender: event_sender.clone(),
-					identity: arg.identity,
+					id: arg.id,
 					location: arg.location,
 					process: arg.process,
 					stopper,
+					token: arg.token,
 				};
 				let result = session.sandbox_task(arg).boxed().await;
 				if let Err(error) = &result {
@@ -205,35 +202,42 @@ impl Session {
 			arg,
 			creator,
 			event_sender,
-			identity,
+			id: expected_id,
 			location,
 			process,
 			stopper,
+			token,
 		} = arg;
-		let context = if let Some(identity) = &identity {
-			Context {
-				principal: tg::Principal::Sandbox(identity.id.clone()),
-				token: Some(identity.token.clone()),
+		let context = match (&expected_id, &token) {
+			(Some(id), Some(token)) => Context {
+				principal: tg::Principal::Sandbox(id.clone()),
+				token: Some(token.clone()),
 				..self.context.clone()
-			}
-		} else {
-			let runner = self
-				.server
-				.runner
-				.state
-				.id()
-				.ok_or_else(|| tg::error!("missing the runner id"))?;
-			let token = self
-				.server
-				.config
-				.runner
-				.as_ref()
-				.and_then(|runner| runner.token.clone());
-			Context {
-				principal: tg::Principal::Runner(runner),
-				token,
-				..self.context.clone()
-			}
+			},
+			(None, None) => {
+				let runner = self
+					.server
+					.runner
+					.state
+					.id()
+					.ok_or_else(|| tg::error!("missing the runner id"))?;
+				let token = self
+					.server
+					.config
+					.runner
+					.as_ref()
+					.and_then(|runner| runner.token.clone());
+				Context {
+					principal: tg::Principal::Runner(runner),
+					token,
+					..self.context.clone()
+				}
+			},
+			_ => {
+				return Err(tg::error!(
+					"the sandbox id and token must be provided together"
+				));
+			},
 		};
 		let connection_session = self.server.session(&context);
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -242,21 +246,21 @@ impl Session {
 			creator: creator.clone(),
 		};
 		let (output, control) = connection_session
-			.get_sandbox_control_stream(identity.as_ref(), &location, created_at, data)
+			.get_sandbox_control_stream(expected_id.as_ref(), &location, created_at, data)
 			.await?;
-		if let Some(identity) = &identity
-			&& output.id != identity.id
+		if let Some(expected_id) = &expected_id
+			&& output.id != *expected_id
 		{
 			return Err(tg::error!(
 				actual = %output.id,
-				expected = %identity.id,
+				expected = %expected_id,
 				"the server returned an invalid sandbox"
 			));
 		}
 		let id = output.id;
 		let token = output
 			.token
-			.or_else(|| identity.map(|identity| identity.token))
+			.or(token)
 			.ok_or_else(|| tg::error!(%id, "missing the sandbox authentication token"))?;
 		let state = tg::sandbox::get::Output {
 			cpu: arg.cpu,
@@ -445,7 +449,7 @@ impl Session {
 				crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 			},
 			hostname: state.hostname.clone(),
-			id: id.clone(),
+			id: self.server.runner.state.create_sandbox_id(),
 			identity: self.server.path.clone(),
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
@@ -868,7 +872,7 @@ impl Session {
 
 	async fn get_sandbox_control_stream(
 		&self,
-		identity: Option<&SandboxIdentity>,
+		id: Option<&tg::sandbox::Id>,
 		location: &tg::Location,
 		created_at: i64,
 		data: tg::sandbox::control::Data,
@@ -893,7 +897,7 @@ impl Session {
 		let arg = tg::sandbox::control::Arg {
 			created_at: Some(created_at),
 			data: Some(data),
-			id: identity.map(|identity| identity.id.clone()),
+			id: id.cloned(),
 			location: Some(location.clone().into()),
 			runner: Some(runner),
 		};
@@ -902,7 +906,6 @@ impl Session {
 			.boxed()
 			.await
 			.map_err(|error| {
-				let id = identity.map(|identity| &identity.id);
 				tg::error!(
 					!error,
 					?id,
@@ -918,10 +921,10 @@ impl Session {
 		mut arg: tg::runner::control::Process,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<tg::runner::control::Process> {
-		if arg.identity.is_none() {
+		if arg.id.is_none() {
 			arg.data.sandbox = sandbox.clone();
 		} else if arg.data.sandbox != *sandbox {
-			let process = arg.identity.as_ref().map(|identity| &identity.id);
+			let process = arg.id.as_ref();
 			return Err(tg::error!(
 				?process,
 				sandbox = %sandbox,

@@ -5,7 +5,10 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		net::Ipv4Addr,
 		path::{Path, PathBuf},
-		sync::Arc,
+		sync::{
+			Arc,
+			atomic::{AtomicU64, Ordering},
+		},
 		time::Duration,
 	},
 	tangram_client::prelude::*,
@@ -43,19 +46,20 @@ pub struct State {
 	#[expect(dead_code)]
 	network: Option<crate::network::Network>,
 
+	next_process_id: AtomicU64,
+
 	#[expect(dead_code)]
 	process: tokio::process::Child,
 }
 
 #[derive(Clone, Debug)]
 pub struct Process {
-	id: tg::process::Id,
+	id: u64,
 }
 
 #[derive(Clone, Debug)]
 pub struct SpawnArg {
 	pub command: Command,
-	pub id: tg::process::Id,
 	pub token: String,
 	pub tty: Option<tg::process::Tty>,
 	pub url: tangram_uri::Uri,
@@ -70,7 +74,7 @@ pub struct Arg {
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
 	pub hostname: Option<String>,
-	pub id: tg::sandbox::Id,
+	pub id: u64,
 	pub identity: PathBuf,
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
@@ -249,7 +253,7 @@ impl Sandbox {
 			Isolation::Container(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let mut network = crate::container::network::create(
-					&arg.id,
+					arg.id,
 					&arg.identity,
 					&arg.dns,
 					arg.firewall,
@@ -266,7 +270,7 @@ impl Sandbox {
 			Isolation::Vm(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let network = crate::vm::network::create(
-					&arg.id,
+					arg.id,
 					&arg.identity,
 					arg.firewall,
 					arg.network.as_ref(),
@@ -337,6 +341,7 @@ impl Sandbox {
 			client,
 			#[cfg(target_os = "linux")]
 			network,
+			next_process_id: AtomicU64::new(1),
 			process,
 		}));
 
@@ -483,28 +488,29 @@ impl Sandbox {
 		Ok((listener, guest_url))
 	}
 
-	pub async fn spawn(&self, arg: SpawnArg) -> tg::Result<Process> {
-		let id = arg.id;
+	#[must_use]
+	pub fn create_process(&self) -> Process {
+		let id = self.0.next_process_id.fetch_add(1, Ordering::Relaxed);
+		assert_ne!(id, u64::MAX, "exhausted the process ids");
+
+		Process { id }
+	}
+
+	pub async fn spawn(&self, process: &Process, arg: SpawnArg) -> tg::Result<()> {
 		let spawn_arg = crate::client::spawn::Arg {
 			command: arg.command,
-			id: id.clone(),
+			id: process.id,
 			token: arg.token.clone(),
 			tty: arg.tty,
 			url: arg.url,
 		};
 		self.0.client.spawn(spawn_arg).await?;
-		let process = Process { id };
-		Ok(process)
+		Ok(())
 	}
 
 	#[must_use]
 	pub fn creator(&self) -> Option<&tg::Principal> {
 		self.0.arg.creator.as_ref()
-	}
-
-	#[must_use]
-	pub fn id(&self) -> &tg::sandbox::Id {
-		&self.0.arg.id
 	}
 
 	#[must_use]
@@ -528,7 +534,7 @@ impl Sandbox {
 		size: tg::process::tty::Size,
 	) -> tg::Result<()> {
 		let arg = crate::client::tty::SizeArg { size };
-		self.0.client.set_tty_size(&process.id, arg).await?;
+		self.0.client.set_tty_size(process.id, arg).await?;
 		Ok(())
 	}
 
@@ -539,7 +545,7 @@ impl Sandbox {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
 	{
 		let arg = crate::client::stdio::Arg { streams };
-		self.0.client.read_stdio(&process.id, arg).await
+		self.0.client.read_stdio(process.id, arg).await
 	}
 
 	pub async fn write_stdio(
@@ -550,12 +556,12 @@ impl Sandbox {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
 	{
 		let arg = crate::client::stdio::Arg { streams };
-		self.0.client.write_stdio(&process.id, arg, input).await
+		self.0.client.write_stdio(process.id, arg, input).await
 	}
 
 	pub async fn kill(&self, process: &Process, signal: tg::process::Signal) -> tg::Result<()> {
 		let arg = crate::client::kill::Arg { signal };
-		self.0.client.kill(&process.id, arg).await?;
+		self.0.client.kill(process.id, arg).await?;
 		Ok(())
 	}
 
@@ -563,7 +569,7 @@ impl Sandbox {
 		&self,
 		process: &Process,
 	) -> tg::Result<impl std::future::Future<Output = tg::Result<u8>> + Send + 'static> {
-		let future = self.0.client.wait(&process.id).await?;
+		let future = self.0.client.wait(process.id).await?;
 		Ok(async move {
 			let output = future
 				.await?
@@ -572,18 +578,15 @@ impl Sandbox {
 		})
 	}
 
-	pub async fn try_get_process(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<crate::client::get::Output>> {
+	pub async fn try_get_process(&self, id: u64) -> tg::Result<Option<crate::client::get::Output>> {
 		self.0.client.try_get_process(id).await
 	}
 }
 
 impl Process {
 	#[must_use]
-	pub fn id(&self) -> &tg::process::Id {
-		&self.id
+	pub fn id(&self) -> u64 {
+		self.id
 	}
 }
 

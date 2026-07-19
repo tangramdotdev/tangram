@@ -44,11 +44,11 @@ pub(crate) async fn spawn(
 	};
 	let mut veth = match network.as_deref() {
 		Some(crate::network::Network::Veth(network)) => {
-			let id = arg.id.clone();
+			let id = arg.id;
 			let bridge_name = network.bridge_name().to_owned();
 			Some(
 				tokio::task::spawn_blocking(move || {
-					crate::network::veth::Pair::new(&id, &bridge_name)
+					crate::network::veth::Pair::new(id, &bridge_name)
 				})
 				.await
 				.map_err(|error| tg::error!(!error, "the veth creation task panicked"))??,

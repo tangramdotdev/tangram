@@ -88,18 +88,13 @@ impl Session {
 	}
 
 	fn spawn_process_runner_arg(output: &Output) -> tg::runner::control::Process {
-		let identity =
-			output
-				.process_token
-				.clone()
-				.map(|token| tg::runner::control::ProcessIdentity {
-					id: output.id.clone(),
-					token,
-				});
+		let id = output.process_token.as_ref().map(|_| output.id.clone());
+		let token = output.process_token.clone();
 		tg::runner::control::Process {
 			data: output.data.clone(),
-			identity,
+			id,
 			parent: output.parent.clone(),
+			token,
 		}
 	}
 
@@ -109,7 +104,7 @@ impl Session {
 	) -> tg::Result<crate::runner::ProcessConnected> {
 		let process = Self::spawn_process_runner_arg(output);
 		let id = output.id.clone();
-		let assigned = process.identity.is_some();
+		let assigned = process.id.is_some();
 		let sandbox = output.data.sandbox.clone();
 		let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(
 			tg::sandbox::control::SpawnProcessServerRequestArg { process },
@@ -157,23 +152,21 @@ impl Session {
 		let process = Self::spawn_process_runner_arg(output);
 		if let Some(allocation) = output.allocation.take() {
 			let location = self.server.location(arg.location.as_ref())?;
-			let identity =
-				output
-					.sandbox_token
-					.clone()
-					.map(|token| crate::runner::SandboxIdentity {
-						id: output.data.sandbox.clone(),
-						token,
-					});
+			let id = output
+				.sandbox_token
+				.as_ref()
+				.map(|_| output.data.sandbox.clone());
+			let token = output.sandbox_token.clone();
 			let task = self
 				.server
 				.spawn_sandbox_task(crate::runner::SpawnSandboxTaskArg {
 					allocation,
 					arg,
 					creator: Some(self.context.principal.clone()),
-					identity,
+					id,
 					location,
 					process: Some(process),
+					token,
 				});
 			let mut events = task.events;
 			let event = events

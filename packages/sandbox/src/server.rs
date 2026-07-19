@@ -27,7 +27,7 @@ pub struct Server(Arc<State>);
 pub struct State {
 	library_paths: Vec<std::path::PathBuf>,
 	output_path: std::path::PathBuf,
-	processes: DashMap<tg::process::Id, Process>,
+	processes: DashMap<u64, Process>,
 	tangram_path: std::path::PathBuf,
 }
 

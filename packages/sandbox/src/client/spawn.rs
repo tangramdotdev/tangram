@@ -9,7 +9,7 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub command: Command,
-	pub id: tg::process::Id,
+	pub id: u64,
 	pub token: String,
 	pub tty: Option<tg::process::Tty>,
 	pub url: Uri,

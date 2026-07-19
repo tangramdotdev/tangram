@@ -1,7 +1,14 @@
 use {
 	crate::Session,
 	futures::{FutureExt as _, StreamExt as _, future},
-	std::{pin::pin, sync::Mutex, time::Duration},
+	std::{
+		pin::pin,
+		sync::{
+			Mutex,
+			atomic::{AtomicU64, Ordering},
+		},
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 };
@@ -14,9 +21,7 @@ mod sandbox;
 pub(crate) use self::{
 	capacity::Allocation,
 	process::ConnectedEvent as ProcessConnected,
-	sandbox::{
-		Event as SandboxEvent, SandboxIdentity, SpawnSandboxTaskArg, StartedEvent as SandboxStarted,
-	},
+	sandbox::{Event as SandboxEvent, SpawnSandboxTaskArg, StartedEvent as SandboxStarted},
 };
 
 pub mod control;
@@ -32,6 +37,7 @@ pub struct Runner {
 pub struct State {
 	pub capacity: self::capacity::Pool,
 	pub id: Mutex<Option<tg::runner::Id>>,
+	next_sandbox_id: AtomicU64,
 	pub processes: crate::process::Map,
 	pub reservations: self::capacity::Reservations,
 	pub sandboxes: crate::sandbox::Map,
@@ -43,6 +49,7 @@ impl Runner {
 		let state = State {
 			capacity: self::capacity::Pool::new(capacity),
 			id: Mutex::new(None),
+			next_sandbox_id: AtomicU64::new(1),
 			processes: crate::process::Map::default(),
 			reservations: self::capacity::Reservations::new(),
 			sandboxes: crate::sandbox::Map::default(),
@@ -228,17 +235,14 @@ impl Session {
 				sender.send(message).await.ok();
 				continue;
 			};
-			let identity = Some(SandboxIdentity {
-				id: sandbox.clone(),
-				token,
-			});
 			let task = self.server.spawn_sandbox_task(SpawnSandboxTaskArg {
 				allocation,
 				arg: request.arg,
 				creator: request.creator,
-				identity,
+				id: Some(sandbox.clone()),
 				location: location.clone(),
 				process: request.process,
+				token: Some(token),
 			});
 
 			// Send the response.
@@ -350,6 +354,14 @@ impl Session {
 }
 
 impl State {
+	#[must_use]
+	fn create_sandbox_id(&self) -> u64 {
+		let id = self.next_sandbox_id.fetch_add(1, Ordering::Relaxed);
+		assert_ne!(id, u64::MAX, "exhausted the sandbox ids");
+
+		id
+	}
+
 	#[must_use]
 	pub fn id(&self) -> Option<tg::runner::Id> {
 		self.id.lock().unwrap().clone()

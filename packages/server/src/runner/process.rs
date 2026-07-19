@@ -176,38 +176,45 @@ impl Session {
 		} = arg;
 		let tg::runner::control::Process {
 			data,
-			identity,
+			id: expected_id,
 			parent,
+			token,
 		} = process;
 		let state = tg::process::State::try_from_data(data)?;
 		let sandbox_id = state.sandbox.clone();
 		let process_stopper = Stopper::new();
 		let lease = Self::create_process_lease();
 		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
-		let context = if let Some(identity) = &identity {
-			crate::Context {
-				principal: tg::Principal::Process(identity.id.clone()),
-				token: Some(identity.token.clone()),
+		let context = match (&expected_id, &token) {
+			(Some(id), Some(token)) => crate::Context {
+				principal: tg::Principal::Process(id.clone()),
+				token: Some(token.clone()),
 				..self.context.clone()
-			}
-		} else {
-			let runner = self
-				.server
-				.runner
-				.state
-				.id()
-				.ok_or_else(|| tg::error!("missing the runner id"))?;
-			let token = self
-				.server
-				.config
-				.runner
-				.as_ref()
-				.and_then(|runner| runner.token.clone());
-			crate::Context {
-				principal: tg::Principal::Runner(runner),
-				token,
-				..self.context.clone()
-			}
+			},
+			(None, None) => {
+				let runner = self
+					.server
+					.runner
+					.state
+					.id()
+					.ok_or_else(|| tg::error!("missing the runner id"))?;
+				let token = self
+					.server
+					.config
+					.runner
+					.as_ref()
+					.and_then(|runner| runner.token.clone());
+				crate::Context {
+					principal: tg::Principal::Runner(runner),
+					token,
+					..self.context.clone()
+				}
+			},
+			_ => {
+				return Err(tg::error!(
+					"the process id and token must be provided together"
+				));
+			},
 		};
 		let connection_session = self.server.session(&context);
 
@@ -215,7 +222,7 @@ impl Session {
 		let control_responses = ReceiverStream::new(control_responses).map(Ok).boxed();
 		let arg = tg::process::control::Arg {
 			data: Some(state.to_data()),
-			id: identity.as_ref().map(|identity| identity.id.clone()),
+			id: expected_id.clone(),
 			lease: lease.clone(),
 			location: Some(location.clone().into()),
 			parent,
@@ -226,19 +233,19 @@ impl Session {
 			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
 			.ok_or_else(|| tg::error!("expected a control stream"))?;
 		let requests = requests.boxed();
-		if let Some(identity) = &identity
-			&& identity.id != output.id
+		if let Some(expected_id) = &expected_id
+			&& expected_id != &output.id
 		{
 			return Err(tg::error!(
 				actual = %output.id,
-				expected = %identity.id,
+				expected = %expected_id,
 				"the server returned an invalid process"
 			));
 		}
 		let id = output.id;
 		let process_token = output
 			.token
-			.or_else(|| identity.map(|identity| identity.token))
+			.or(token)
 			.ok_or_else(|| tg::error!(%id, "missing the process authentication token"))?;
 		let process = tg::Process::new(
 			id.clone(),
@@ -774,9 +781,10 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
 
+			let sandbox_process = sandbox.create_process();
 			let guest_artifacts_path = sandbox.guest_artifacts_path();
-			let guest_output_path = sandbox.guest_output_path_for_process(id);
-			let host_output_path = sandbox.host_output_path_for_process(id);
+			let guest_output_path = sandbox.guest_output_path_for_process(&sandbox_process);
+			let host_output_path = sandbox.host_output_path_for_process(&sandbox_process);
 
 			// Render the args.
 			let mut args = match (&command.executable, command.host.as_str()) {
@@ -885,14 +893,16 @@ impl Session {
 				stdin,
 				stdout,
 			};
-			let sandbox_process = sandbox
-				.spawn(tangram_sandbox::SpawnArg {
-					command: sandbox_command,
-					id: id.clone(),
-					token: token.clone(),
-					tty: state.tty,
-					url: guest_url.clone(),
-				})
+			sandbox
+				.spawn(
+					&sandbox_process,
+					tangram_sandbox::SpawnArg {
+						command: sandbox_command,
+						token: token.clone(),
+						tty: state.tty,
+						url: guest_url.clone(),
+					},
+				)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to spawn the process in the sandbox"),

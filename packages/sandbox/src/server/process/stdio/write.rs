@@ -23,7 +23,7 @@ enum Writer {
 impl Server {
 	pub async fn write_stdio(
 		&self,
-		id: tg::process::Id,
+		id: u64,
 		arg: crate::client::stdio::Arg,
 		stream: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
@@ -67,7 +67,7 @@ impl Server {
 			(stream, Some(writer), false),
 			move |(mut stream, mut writer, done)| {
 				let server = server.clone();
-				let id = id.clone();
+				let id = id;
 				async move {
 					if done {
 						return Ok(None);
@@ -140,7 +140,7 @@ impl Server {
 		request: http::Request<BoxBody>,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let id: tg::process::Id = id
+		let id: u64 = id
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let arg: crate::client::stdio::Arg = request

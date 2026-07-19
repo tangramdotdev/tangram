@@ -103,20 +103,17 @@ pub struct Capacity {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct ProcessIdentity {
-	pub id: tg::process::Id,
-	pub token: String,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Process {
 	pub data: tg::process::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub identity: Option<ProcessIdentity>,
+	pub id: Option<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -133,13 +130,11 @@ pub struct CreateSandboxServerRequestArg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::sandbox::Id>,
 
-	// The process to run in the sandbox once it is started, if any.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<Process>,
 
 	pub sandbox: tg::sandbox::Id,
 
-	// The token to authenticate as the sandbox.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }

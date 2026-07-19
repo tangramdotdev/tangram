@@ -25,7 +25,7 @@ enum Reader {
 impl Server {
 	pub async fn read_stdio(
 		&self,
-		id: tg::process::Id,
+		id: u64,
 		arg: crate::client::stdio::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
 	{
@@ -127,7 +127,7 @@ impl Server {
 		request: http::Request<BoxBody>,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let id: tg::process::Id = id
+		let id: u64 = id
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let arg: crate::client::stdio::Arg = request

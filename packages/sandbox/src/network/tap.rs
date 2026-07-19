@@ -32,7 +32,7 @@ pub(crate) struct Device {
 
 impl Network {
 	pub(crate) fn new(
-		id: &tg::sandbox::Id,
+		id: u64,
 		identity: &Path,
 		firewall: crate::Firewall,
 		host: ip::Lease,

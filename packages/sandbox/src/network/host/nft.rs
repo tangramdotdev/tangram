@@ -112,7 +112,7 @@ pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Resul
 }
 
 pub(crate) fn add_port_forwarding_rules(
-	id: &tg::sandbox::Id,
+	id: u64,
 	identity: &Path,
 	out_interface: &str,
 	host_ip: Ipv4Addr,
@@ -478,7 +478,7 @@ impl CommentMatcher<'_> {
 	}
 }
 
-fn sandbox_rule_comment(identity: &str, id: &tg::sandbox::Id) -> String {
+fn sandbox_rule_comment(identity: &str, id: u64) -> String {
 	format!(
 		"{}sandbox={id}",
 		dynamic_rule_comment_prefix(DYNAMIC_RULE_COMMENT_PREFIX, identity)

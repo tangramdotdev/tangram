@@ -1,7 +1,7 @@
 use {std::path::Path, tangram_client::prelude::*};
 
 pub(crate) fn create(
-	id: &tg::sandbox::Id,
+	id: u64,
 	identity: &Path,
 	firewall: crate::Firewall,
 	network: Option<&crate::Network>,

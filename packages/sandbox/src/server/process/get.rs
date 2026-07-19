@@ -8,14 +8,11 @@ use {
 };
 
 impl Server {
-	pub async fn try_get_process(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<crate::client::get::Output>> {
-		if !self.processes.contains_key(id) {
+	pub async fn try_get_process(&self, id: u64) -> tg::Result<Option<crate::client::get::Output>> {
+		if !self.processes.contains_key(&id) {
 			return Ok(None);
 		}
-		let output = crate::client::get::Output { id: id.clone() };
+		let output = crate::client::get::Output { id };
 		Ok(Some(output))
 	}
 
@@ -25,9 +22,9 @@ impl Server {
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id = id
-			.parse::<tg::process::Id>()
+			.parse::<u64>()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
-		let Some(output) = self.try_get_process(&id).await? else {
+		let Some(output) = self.try_get_process(id).await? else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
 				.body(BoxBody::empty())
