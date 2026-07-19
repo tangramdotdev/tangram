@@ -29,10 +29,10 @@ pub struct State {
 	pub control: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	pub data: tg::process::Data,
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
+	pub inner_token: String,
 	pub leases: BTreeSet<String>,
 	pub process: Option<tangram_sandbox::Process>,
 	pub stopper: tangram_futures::task::Stopper,
-	pub token: String,
 }
 
 pub struct Child {

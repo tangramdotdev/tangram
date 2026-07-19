@@ -10,10 +10,10 @@ mod token;
 #[derive(Clone)]
 pub(crate) struct Process {
 	pub debug: Option<tg::process::Debug>,
+	pub inner_token: Option<String>,
 	pub location: Option<tg::Location>,
 	pub retry: bool,
 	pub sandbox: tg::sandbox::Id,
-	pub token: Option<String>,
 }
 
 #[derive(Clone)]
@@ -39,10 +39,10 @@ impl Session {
 		{
 			return Ok(Some(Process {
 				debug: process.data.debug.clone(),
+				inner_token: Some(process.inner_token.clone()),
 				location: sandbox.data.location.clone(),
 				retry: process.data.retry,
 				sandbox: process.data.sandbox.clone(),
-				token: Some(process.token.clone()),
 			}));
 		}
 
@@ -88,10 +88,10 @@ impl Session {
 			.map(|name| tg::Location::Remote(tg::location::Remote { name, region: None }));
 		Ok(Some(Process {
 			debug: row.debug,
+			inner_token: None,
 			location,
 			retry: row.retry,
 			sandbox: row.sandbox,
-			token: None,
 		}))
 	}
 
@@ -168,7 +168,7 @@ impl Session {
 				if location.name != remote {
 					return Ok(None);
 				}
-				Ok(process.token)
+				Ok(process.inner_token)
 			},
 			tg::Principal::Runner(id) => {
 				let Some(runner) = self.server.config.runner.as_ref() else {
@@ -253,6 +253,23 @@ impl Server {
 			return Ok(principal);
 		}
 
+		if let Some(mut process) = token.and_then(|token| {
+			self.runner
+				.state
+				.process_tokens
+				.get(token)
+				.map(|process| process.value().clone())
+		}) {
+			loop {
+				if let Some(id) = process.borrow().clone() {
+					return Ok(tg::Principal::Process(id));
+				}
+				if process.changed().await.is_err() {
+					return Ok(tg::Principal::Anonymous);
+				}
+			}
+		}
+
 		if sandbox {
 			return Ok(tg::Principal::Anonymous);
 		}
@@ -301,7 +318,7 @@ impl Server {
 					sandbox
 						.processes
 						.get(id)
-						.map(|process| process.token == value)
+						.map(|process| process.inner_token == value)
 				})
 				.unwrap_or(false),
 			tg::Principal::Sandbox(id) => self

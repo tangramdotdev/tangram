@@ -45,7 +45,6 @@ with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {
 		-> failed to run the process
 		   process = pcs_0011111111111111111111111111
 		-> failed to spawn the process in the sandbox
-		   id = pcs_0011111111111111111111111111
 		-> failed to spawn
 		-> failed to find the executable in PATH
 		   executable = parent-only-sh

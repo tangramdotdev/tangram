@@ -45,6 +45,23 @@ struct SandboxTaskArg {
 	token: Option<String>,
 }
 
+struct CreateSandboxArg {
+	arg: tg::sandbox::create::Arg,
+	creator: Option<tg::Principal>,
+	expected_id: Option<tg::sandbox::Id>,
+	location: tg::Location,
+	token: Option<String>,
+}
+
+struct CreateSandboxOutput {
+	guest_url: tangram_uri::Uri,
+	sandbox: tangram_sandbox::Sandbox,
+	serve_task: Task<()>,
+	temp: Temp,
+	#[cfg(target_os = "linux")]
+	vfs: Option<crate::vfs::Server>,
+}
+
 pub(crate) enum Event {
 	Destroy,
 	Start(StartedEvent),
@@ -62,6 +79,7 @@ struct SandboxTaskInnerArg {
 		tg::sandbox::control::ServerMessage,
 		tg::sandbox::control::ClientMessage,
 	>,
+	created: CreateSandboxOutput,
 	data: tg::sandbox::get::Output,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	id: tg::sandbox::Id,
@@ -240,14 +258,29 @@ impl Session {
 			},
 		};
 		let connection_session = self.server.session(&context);
+
+		// Create the sandbox concurrently with its control stream.
+		let create = self.create_sandbox_inner(CreateSandboxArg {
+			arg: arg.clone(),
+			creator: creator.clone(),
+			expected_id: expected_id.clone(),
+			location: location.clone(),
+			token: token.clone(),
+		});
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let data = tg::sandbox::control::Data {
 			arg: arg.clone(),
 			creator: creator.clone(),
 		};
-		let (output, control) = connection_session
-			.get_sandbox_control_stream(expected_id.as_ref(), &location, created_at, data)
-			.await?;
+		let connect = connection_session.get_sandbox_control_stream(
+			expected_id.as_ref(),
+			&location,
+			created_at,
+			data,
+		);
+		let (created, connected) = future::join(create, connect).await;
+		let created = created?;
+		let (output, control) = connected?;
 		if let Some(expected_id) = &expected_id
 			&& output.id != *expected_id
 		{
@@ -286,6 +319,7 @@ impl Session {
 			.sandbox_task_inner(SandboxTaskInnerArg {
 				allocation,
 				control,
+				created,
 				data: state,
 				event_sender,
 				id: id.clone(),
@@ -320,20 +354,16 @@ impl Session {
 		result
 	}
 
-	async fn sandbox_task_inner(&self, arg: SandboxTaskInnerArg) -> tg::Result<()> {
-		let SandboxTaskInnerArg {
-			allocation,
-			control,
-			data: state,
-			event_sender,
-			id,
+	async fn create_sandbox_inner(&self, arg: CreateSandboxArg) -> tg::Result<CreateSandboxOutput> {
+		let CreateSandboxArg {
+			arg,
+			creator,
+			expected_id,
 			location,
-			process,
-			stopper,
 			token,
 		} = arg;
 
-		let isolation = match &state.isolation {
+		let isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
 				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default())
 			},
@@ -365,10 +395,10 @@ impl Session {
 					tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
 						cloud_hypervisor_path: vm.cloud_hypervisor_path.clone(),
 						dax: vm.dax.map(|dax| dax.window_size as u64),
+						image_path,
 						kernel_path,
 						max_cpu: vm.max_cpu,
 						max_memory: vm.max_memory,
-						image_path,
 						snapshot,
 						snapshot_cpu: vm.snapshot_cpu,
 						snapshot_memory: vm.snapshot_memory,
@@ -398,13 +428,15 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
-		// Start the per-sandbox vfs if necessary.
+		// Start the per-sandbox VFS if necessary.
 		#[cfg(target_os = "linux")]
-		let _vfs = if let tangram_sandbox::Isolation::Vm(vm) = &isolation {
+		let vfs = if let tangram_sandbox::Isolation::Vm(vm) = &isolation {
 			let socket = temp.path().join("vfs.sock");
 			let vfs = crate::vfs::Server::start_virtiofs(&self.server, &socket, vm.dax)
 				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to start the artifacts vfs"))?;
+				.map_err(|error| {
+					tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
+				})?;
 			Some(vfs)
 		} else {
 			None
@@ -414,19 +446,23 @@ impl Session {
 		let (listener, guest_url, tangram_socket_path) =
 			Server::run_create_listener(temp.path(), &isolation)
 				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to create the tangram listener"),
-				)?;
+				.map_err(|error| {
+					tg::error!(
+						!error,
+						?expected_id,
+						"failed to create the sandbox listener"
+					)
+				})?;
 
 		// Create the sandbox. Include the artifacts directory as a readonly mount.
 		let artifacts_path = self.server.artifacts_path();
-		let mut mounts = state.mounts.clone();
+		let mut mounts = arg.mounts;
 		mounts.push(tg::sandbox::Mount {
 			readonly: true,
 			source: artifacts_path.clone(),
 			target: artifacts_path.clone(),
 		});
-		let network = match state.network.clone() {
+		let network = match arg.network {
 			None => None,
 			Some(tg::sandbox::Network::Default) => Some(tangram_sandbox::Network::Default),
 			Some(tg::sandbox::Network::Bridge(bridge)) => {
@@ -438,8 +474,8 @@ impl Session {
 		};
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
-			cpu: state.cpu,
-			creator: state.creator.clone(),
+			cpu: arg.cpu,
+			creator,
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
 			firewall: match self.server.config.sandbox.network.firewall {
@@ -448,27 +484,75 @@ impl Session {
 				},
 				crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 			},
-			hostname: state.hostname.clone(),
+			hostname: arg.hostname,
 			id: self.server.runner.state.create_sandbox_id(),
 			identity: self.server.path.clone(),
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
 			isolation,
-			location: location.clone(),
-			memory: state.memory,
+			location,
+			memory: arg.memory,
 			mounts,
 			network,
 			nice: self.server.config.sandbox.nice,
-			owner: state.owner.clone(),
+			owner: arg.owner,
 			path: temp.path().to_owned(),
 			rootfs_path,
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
-			token: Some(token.clone()),
+			token,
 		};
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to create the sandbox"))?;
+			.map_err(|error| tg::error!(!error, ?expected_id, "failed to create the sandbox"))?;
+
+		// Spawn the serve task.
+		let serve_task = Task::spawn({
+			let server = self.server.clone();
+			let listener_config = crate::config::HttpListener {
+				tls: None,
+				url: guest_url.clone(),
+			};
+			move |stopper| async move {
+				server.serve(listener, listener_config, true, stopper).await;
+			}
+		});
+		let output = CreateSandboxOutput {
+			guest_url,
+			sandbox,
+			serve_task,
+			temp,
+			#[cfg(target_os = "linux")]
+			vfs,
+		};
+
+		Ok(output)
+	}
+
+	async fn sandbox_task_inner(&self, arg: SandboxTaskInnerArg) -> tg::Result<()> {
+		let SandboxTaskInnerArg {
+			allocation,
+			control,
+			created,
+			data: state,
+			event_sender,
+			id,
+			location,
+			process,
+			stopper,
+			token,
+		} = arg;
+		let CreateSandboxOutput {
+			guest_url,
+			sandbox,
+			serve_task,
+			temp,
+			#[cfg(target_os = "linux")]
+			vfs,
+		} = created;
+		let _temp = temp;
+		#[cfg(target_os = "linux")]
+		let _vfs = vfs;
 
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		self.server.runner.state.sandboxes.insert(
@@ -484,18 +568,6 @@ impl Session {
 		scopeguard::defer! {
 			self.server.runner.state.sandboxes.remove(&id);
 		}
-
-		// Spawn the serve task.
-		let serve_task = Task::spawn({
-			let server = self.server.clone();
-			let listener_config = crate::config::HttpListener {
-				tls: None,
-				url: guest_url.clone(),
-			};
-			move |stopper| async move {
-				server.serve(listener, listener_config, true, stopper).await;
-			}
-		});
 		let arg = RunSandboxTaskArg {
 			control,
 			event_sender,

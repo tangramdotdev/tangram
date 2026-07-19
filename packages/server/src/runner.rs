@@ -38,6 +38,8 @@ pub struct State {
 	pub capacity: self::capacity::Pool,
 	pub id: Mutex<Option<tg::runner::Id>>,
 	next_sandbox_id: AtomicU64,
+	pub process_tokens:
+		dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>>,
 	pub processes: crate::process::Map,
 	pub reservations: self::capacity::Reservations,
 	pub sandboxes: crate::sandbox::Map,
@@ -50,6 +52,7 @@ impl Runner {
 			capacity: self::capacity::Pool::new(capacity),
 			id: Mutex::new(None),
 			next_sandbox_id: AtomicU64::new(1),
+			process_tokens: dashmap::DashMap::new(),
 			processes: crate::process::Map::default(),
 			reservations: self::capacity::Reservations::new(),
 			sandboxes: crate::sandbox::Map::default(),

@@ -2,7 +2,10 @@ use {
 	self::control::RunProcessControlTaskArg,
 	crate::Session,
 	bytes::Bytes,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{
+		FutureExt as _, StreamExt as _, TryStreamExt as _,
+		future::{self, BoxFuture, Shared},
+	},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::{Path, PathBuf},
@@ -21,6 +24,8 @@ use {
 
 mod control;
 mod progress;
+
+type CommandFuture = Shared<BoxFuture<'static, tg::Result<tg::command::Data>>>;
 
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
@@ -51,6 +56,8 @@ struct FinishProcessTaskArg {
 	control_task: Task<tg::Result<()>>,
 	finish_sender: tokio::sync::oneshot::Sender<tg::process::Data>,
 	id: tg::process::Id,
+	log_task: Option<Task<tg::Result<()>>>,
+	log_write_task: Option<Task<tg::Result<()>>>,
 	output: tg::Result<Output>,
 	process: tg::Process,
 	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
@@ -83,39 +90,20 @@ struct Output {
 	value: Option<tg::Value>,
 }
 
-struct RunProcessArg<'a> {
-	guest_url: &'a tangram_uri::Uri,
-	process: &'a tg::Process,
+struct RunProcessArg {
+	command: CommandFuture,
+	guest_url: tangram_uri::Uri,
+	id: tokio::sync::watch::Receiver<Option<tg::process::Id>>,
 	process_stopper: Stopper,
-	progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
 	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
 	sandbox: tangram_sandbox::Sandbox,
 	sandbox_process_sender: tokio::sync::watch::Sender<Option<Arc<tangram_sandbox::Process>>>,
-	stopper: Stopper,
-	token: String,
-}
-
-struct RunProcessInnerArg<'a> {
-	command: &'a tg::command::Data,
-	guest_url: &'a tangram_uri::Uri,
-	id: &'a tg::process::Id,
-	location: Option<tg::Location>,
-	process: &'a tg::Process,
-	process_stopper: Stopper,
-	progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
-	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
-	sandbox: tangram_sandbox::Sandbox,
-	sandbox_id: tg::sandbox::Id,
-	sandbox_process_sender: tokio::sync::watch::Sender<Option<Arc<tangram_sandbox::Process>>>,
-	state: &'a tg::process::State,
+	state: tg::process::State,
 	stopper: Stopper,
 	token: String,
 }
 
 struct WaitForProcessArg<'a> {
-	id: &'a tg::process::Id,
-	location: Option<tg::Location>,
-	log_task: Option<Task<tg::Result<()>>>,
 	process_stopper: Stopper,
 	sandbox: &'a tangram_sandbox::Sandbox,
 	sandbox_process: &'a tangram_sandbox::Process,
@@ -178,17 +166,17 @@ impl Session {
 			data,
 			id: expected_id,
 			parent,
-			token,
+			token: inner_token,
 		} = process;
 		let state = tg::process::State::try_from_data(data)?;
 		let sandbox_id = state.sandbox.clone();
 		let process_stopper = Stopper::new();
 		let lease = Self::create_process_lease();
 		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
-		let context = match (&expected_id, &token) {
-			(Some(id), Some(token)) => crate::Context {
+		let context = match (&expected_id, &inner_token) {
+			(Some(id), Some(inner_token)) => crate::Context {
 				principal: tg::Principal::Process(id.clone()),
-				token: Some(token.clone()),
+				token: Some(inner_token.clone()),
 				..self.context.clone()
 			},
 			(None, None) => {
@@ -217,6 +205,159 @@ impl Session {
 			},
 		};
 		let connection_session = self.server.session(&context);
+		let run_session = self.server.session(&self.server.context);
+
+		// Register the token before starting the process.
+		let (id_sender, id_receiver) = tokio::sync::watch::channel(None);
+		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
+			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
+		};
+		let token = loop {
+			let bytes = rand::random::<[u8; 32]>();
+			let token = ENCODING.encode(&bytes);
+			match self.server.runner.state.process_tokens.entry(token.clone()) {
+				dashmap::mapref::entry::Entry::Occupied(_) => {},
+				dashmap::mapref::entry::Entry::Vacant(entry) => {
+					entry.insert(id_receiver.clone());
+					break token;
+				},
+			}
+		};
+		let server_for_token_cleanup = self.server.clone();
+		let token_for_cleanup = token.clone();
+		scopeguard::defer! {
+			server_for_token_cleanup.runner.state.process_tokens.remove(&token_for_cleanup);
+		}
+
+		// Load the command concurrently with the control stream.
+		let command = {
+			let command = state.command.clone();
+			let session = run_session.clone();
+			async move {
+				command
+					.data_with_handle(&session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the command data"))
+			}
+			.boxed()
+			.shared()
+		};
+
+		// Create the progress and log streams.
+		let (progress_sender, progress_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+		let progress = UnboundedReceiverStream::new(progress_receiver)
+			.filter(|bytes| future::ready(!bytes.is_empty()))
+			.map(Ok::<_, tg::Error>)
+			.boxed();
+		let (log_progress, stderr_progress) = match state.stderr {
+			tg::process::Stdio::Log => (Some(progress), None),
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => (None, Some(progress)),
+			tg::process::Stdio::Blob(_)
+			| tg::process::Stdio::Inherit
+			| tg::process::Stdio::Null => (None, None),
+		};
+		let mut log_streams = Vec::new();
+		if matches!(state.stdout, tg::process::Stdio::Log) {
+			log_streams.push(tg::process::stdio::Stream::Stdout);
+		}
+		if matches!(state.stderr, tg::process::Stdio::Log) {
+			log_streams.push(tg::process::stdio::Stream::Stderr);
+		}
+		let (log_sender, log_receiver) = if log_streams.is_empty() {
+			(None, None)
+		} else {
+			let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+			(Some(sender), Some(receiver))
+		};
+
+		// Start the process before waiting for the control stream.
+		let (sandbox_process_sender, sandbox_process_receiver) =
+			tokio::sync::watch::channel::<Option<Arc<tangram_sandbox::Process>>>(None);
+		let log_task = log_sender.map(|log_sender| {
+			Task::spawn({
+				let log_streams = log_streams.clone();
+				let process_stopper = process_stopper.clone();
+				let sandbox = sandbox.clone();
+				let mut sandbox_process = sandbox_process_receiver.clone();
+				move |_| async move {
+					let result = async {
+						let sandbox_process = loop {
+							if let Some(process) = sandbox_process.borrow().clone() {
+								break process;
+							}
+							if sandbox_process.changed().await.is_err() {
+								return Ok(());
+							}
+						};
+						let input = sandbox
+							.read_stdio(&sandbox_process, log_streams)
+							.await
+							.map_err(|error| tg::error!(!error, "failed to read process stdio"))?
+							.boxed();
+
+						// Drain progress along with the process output.
+						let input = match log_progress {
+							Some(progress) => {
+								let progress = progress
+									.map_ok(|bytes| {
+										tg::process::stdio::read::Event::Chunk(
+											tg::process::stdio::Chunk {
+												bytes,
+												position: None,
+												stream: tg::process::stdio::Stream::Stderr,
+											},
+										)
+									})
+									.boxed();
+								futures::stream::select(input, progress).boxed()
+							},
+							None => input,
+						};
+						let mut input = std::pin::pin!(input);
+						while let Some(event) = input.try_next().await? {
+							log_sender
+								.send(event)
+								.map_err(|_| tg::error!("failed to buffer the process logs"))?;
+						}
+
+						Ok::<_, tg::Error>(())
+					}
+					.await;
+					if result.is_err() {
+						process_stopper.stop();
+					}
+
+					result
+				}
+			})
+		});
+		let mut run_task = Some(Task::spawn({
+			let command = command.clone();
+			let guest_url = guest_url.clone();
+			let id = id_receiver.clone();
+			let process_stopper = process_stopper.clone();
+			let progress_sender = progress_sender.clone();
+			let sandbox = sandbox.clone();
+			let state = state.clone();
+			let stopper = sandbox_stopper.clone();
+			let token = token.clone();
+			move |_| async move {
+				run_session
+					.run_process(RunProcessArg {
+						command,
+						guest_url,
+						id,
+						process_stopper,
+						progress_sender,
+						sandbox,
+						sandbox_process_sender,
+						state,
+						stopper,
+						token,
+					})
+					.await
+			}
+		}));
 
 		// Create the control stream.
 		let control_responses = ReceiverStream::new(control_responses).map(Ok).boxed();
@@ -227,26 +368,43 @@ impl Session {
 			location: Some(location.clone().into()),
 			parent,
 		};
-		let (output, requests) = connection_session
+		let connection = connection_session
 			.try_get_process_control_stream_all(arg, control_responses)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
-			.ok_or_else(|| tg::error!("expected a control stream"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the control stream"))
+			.and_then(|connection| {
+				connection.ok_or_else(|| tg::error!("expected a control stream"))
+			});
+		let (output, requests) = match connection {
+			Ok(connection) => connection,
+			Err(error) => {
+				process_stopper.stop();
+				run_task.take().unwrap().wait().await.ok();
+
+				return Err(error);
+			},
+		};
 		let requests = requests.boxed();
 		if let Some(expected_id) = &expected_id
 			&& expected_id != &output.id
 		{
-			return Err(tg::error!(
+			let error = tg::error!(
 				actual = %output.id,
 				expected = %expected_id,
 				"the server returned an invalid process"
-			));
+			);
+			process_stopper.stop();
+			run_task.take().unwrap().wait().await.ok();
+
+			return Err(error);
 		}
 		let id = output.id;
-		let process_token = output
-			.token
-			.or(token)
-			.ok_or_else(|| tg::error!(%id, "missing the process authentication token"))?;
+		let Some(inner_token) = output.token.or(inner_token) else {
+			process_stopper.stop();
+			run_task.take().unwrap().wait().await.ok();
+
+			return Err(tg::error!(%id, "missing the process authentication token"));
+		};
 		let process = tg::Process::new(
 			id.clone(),
 			tg::process::Options {
@@ -257,12 +415,15 @@ impl Session {
 		);
 		let context = crate::Context {
 			principal: tg::Principal::Process(id.clone()),
-			token: Some(process_token.clone()),
+			token: Some(inner_token.clone()),
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
 		let Some(mut sandbox_state) = session.server.runner.state.sandboxes.get_mut(&sandbox_id)
 		else {
+			process_stopper.stop();
+			run_task.take().unwrap().wait().await.ok();
+
 			return Err(tg::error!(%sandbox_id, "failed to find the sandbox"));
 		};
 		sandbox_state.processes.insert(
@@ -272,10 +433,10 @@ impl Session {
 				control: control_sender.clone(),
 				data: state.to_data(),
 				finish: None,
+				inner_token: inner_token.clone(),
 				leases: BTreeSet::from([lease.clone()]),
-				process: None,
+				process: sandbox_process_receiver.borrow().as_deref().cloned(),
 				stopper: process_stopper.clone(),
-				token: process_token.clone(),
 			},
 		);
 		drop(sandbox_state);
@@ -285,6 +446,16 @@ impl Session {
 			.state
 			.processes
 			.insert(id.clone(), sandbox_id.clone());
+		id_sender.send_replace(Some(id.clone()));
+		if let Some(process) = sandbox_process_receiver.borrow().as_deref().cloned() {
+			session
+				.server
+				.runner
+				.state
+				.try_update_process(&id, |state| {
+					state.process = Some(process);
+				});
+		}
 		let server_for_cleanup = session.server.clone();
 		let id_for_cleanup = id.clone();
 		scopeguard::defer! {
@@ -293,11 +464,17 @@ impl Session {
 				sandbox.processes.remove(&id_for_cleanup);
 			}
 		}
-		session
+		if let Err(error) = session
 			.spawn_grant_process_command_task(&process, &id, &location)
-			.await?;
+			.await
+		{
+			process_stopper.stop();
+			run_task.take().unwrap().wait().await.ok();
+
+			return Err(error);
+		}
 		if location.is_remote() {
-			session
+			let result = session
 				.server
 				.messenger
 				.publish(
@@ -309,7 +486,13 @@ impl Session {
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to publish the process control connection"),
-				)?;
+				);
+			if let Err(error) = result {
+				process_stopper.stop();
+				run_task.take().unwrap().wait().await.ok();
+
+				return Err(error);
+			}
 		}
 		event_sender
 			.send(Ok(Event::Connect(ConnectedEvent {
@@ -318,41 +501,20 @@ impl Session {
 				process: id.clone(),
 			})))
 			.ok();
-		let command = process
-			.command_with_handle(&session)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
-		let command = command
-			.data_with_handle(&session)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
-
-		// Create the progress stream.
-		let (progress_sender, progress_receiver) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
-		let progress = UnboundedReceiverStream::new(progress_receiver)
-			.filter(|bytes| future::ready(!bytes.is_empty()))
-			.map(Ok::<_, tg::Error>)
-			.boxed();
-		let mut progress = Some(progress);
-		let stderr_progress = if matches!(
-			state.stderr,
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty
-		) {
-			progress.take()
-		} else {
-			None
-		};
 
 		// Spawn the process control task.
-		let (sandbox_process_sender, sandbox_process_receiver) = tokio::sync::watch::channel(None);
 		let (finish_sender, finish_receiver) = tokio::sync::oneshot::channel();
+		let stdin_blob = command
+			.clone()
+			.await
+			.ok()
+			.and_then(|command| command.stdin.map(tg::Blob::with_id));
 		let control_task = Task::spawn({
 			let session = session.clone();
 			let sandbox = sandbox.clone();
 			let stdin = state.stdin.clone();
 			let stdout = state.stdout.clone();
 			let stderr = state.stderr.clone();
-			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
 			|_| async move {
 				session
 					.run_process_control_task(RunProcessControlTaskArg {
@@ -375,25 +537,41 @@ impl Session {
 			}
 		});
 
-		let result = session
-			.run_process(RunProcessArg {
-				guest_url: &guest_url,
-				process: &process,
-				process_stopper,
-				progress,
-				progress_sender: progress_sender.clone(),
-				sandbox,
-				sandbox_process_sender,
-				stopper: sandbox_stopper,
-				token: process_token,
+		// Write logs while the process runs, buffering any output produced before the control stream connected.
+		let log_write_task = log_receiver.map(|receiver| {
+			Task::spawn({
+				let id = id.clone();
+				let location = location.clone();
+				let session = session.clone();
+				move |_| async move {
+					let input = UnboundedReceiverStream::new(receiver).map(Ok).boxed();
+					let arg = tg::process::stdio::write::Arg {
+						location: Some(location.into()),
+						streams: log_streams,
+						token: None,
+					};
+					if let Some(output) = session.try_write_process_stdio(&id, arg, input).await? {
+						let mut output = std::pin::pin!(output);
+						while output.try_next().await?.is_some() {}
+					}
+
+					Ok::<_, tg::Error>(())
+				}
 			})
-			.boxed()
-			.await;
+		});
+		let result = run_task
+			.take()
+			.unwrap()
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the process task panicked"))?;
 		event_sender.send(Ok(Event::Exit)).ok();
 		let arg = FinishProcessTaskArg {
 			control_task,
 			finish_sender,
 			id,
+			log_task,
+			log_write_task,
 			output: result,
 			process,
 			progress_sender,
@@ -408,6 +586,8 @@ impl Session {
 			control_task,
 			finish_sender,
 			id,
+			log_task,
+			log_write_task,
 			output: result,
 			process,
 			progress_sender,
@@ -478,7 +658,7 @@ impl Session {
 		};
 
 		// Store the error.
-		let (mut error, error_code) = if let Some(error) = &output.error {
+		let (mut error, mut error_code) = if let Some(error) = &output.error {
 			let error = error.to_data_or_id();
 			let error_code = match &error {
 				tg::Either::Left(data) => data.code,
@@ -524,11 +704,60 @@ impl Session {
 					.push(arg)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to push the output"))?;
+				let state = process
+					.load_with_handle(session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to load the process"))?;
 				session
-					.write_progress_stream(&process, progress_sender.clone(), stream)
+					.write_progress_stream(
+						&state.command,
+						progress_sender.clone(),
+						&state.stderr,
+						stream,
+					)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 			}
+		}
+
+		// Finish draining and writing the logs.
+		drop(progress_sender);
+		let log_read_result = if let Some(log_task) = log_task {
+			log_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the log read task panicked"))
+				.and_then(|result| {
+					result.map_err(|error| tg::error!(!error, "failed to read the process logs"))
+				})
+		} else {
+			Ok(())
+		};
+		let log_write_result = if let Some(log_write_task) = log_write_task {
+			log_write_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the log write task panicked"))
+				.and_then(|result| {
+					result.map_err(|error| tg::error!(!error, "failed to write the process logs"))
+				})
+		} else {
+			Ok(())
+		};
+		let log_result = log_write_result
+			.and(log_read_result)
+			.map_err(|error| tg::error!(!error, "failed to drain the process logs"));
+		if let Err(log_error) = log_result {
+			let log_error = tg::error!(
+				!log_error,
+				code = tg::error::Code::Internal,
+				process = %process.id(),
+				"failed to handle the process logs"
+			);
+			let log_error = session.store_process_error(log_error.to_data_or_id()).await;
+			error = Some(log_error.map_right(tg::Referent::with_item));
+			error_code = Some(tg::error::Code::Internal);
+			exit = 1;
 		}
 
 		let id = process.id().unwrap_right();
@@ -674,73 +903,22 @@ impl Session {
 		Ok(())
 	}
 
-	async fn run_process(&self, arg: RunProcessArg<'_>) -> tg::Result<Output> {
+	async fn run_process(&self, arg: RunProcessArg) -> tg::Result<Output> {
 		let RunProcessArg {
-			guest_url,
-			process,
-			process_stopper,
-			progress,
-			progress_sender,
-			sandbox,
-			sandbox_process_sender,
-			stopper,
-			token,
-		} = arg;
-		let id = process.id().unwrap_right();
-		let location = process
-			.location()
-			.and_then(|location| location.to_location());
-		let state = &process
-			.load_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to load the process"))?;
-		let sandbox_id = state.sandbox.clone();
-
-		let command = process
-			.command_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
-		let command = &command
-			.data_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
-		let arg = RunProcessInnerArg {
 			command,
 			guest_url,
 			id,
-			location,
-			process,
 			process_stopper,
-			progress,
 			progress_sender,
 			sandbox,
-			sandbox_id,
-			sandbox_process_sender,
-			state,
-			stopper,
-			token,
-		};
-
-		self.run_process_inner(arg).boxed().await
-	}
-
-	async fn run_process_inner(&self, arg: RunProcessInnerArg<'_>) -> tg::Result<Output> {
-		let RunProcessInnerArg {
-			command,
-			guest_url,
-			id,
-			location,
-			process,
-			process_stopper,
-			mut progress,
-			progress_sender,
-			sandbox,
-			sandbox_id,
 			sandbox_process_sender,
 			state,
 			stopper,
 			token,
 		} = arg;
+		let command = command.await?;
+		let command = &command;
+		let state = &state;
 
 		// Run the process.
 		let result = async {
@@ -777,7 +955,7 @@ impl Session {
 			}
 
 			// Cache the process's children.
-			self.checkout_process_artifacts(process, progress_sender.clone())
+			self.checkout_process_artifacts(&state.command, progress_sender.clone(), &state.stderr)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
 
@@ -904,91 +1082,20 @@ impl Session {
 					},
 				)
 				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to spawn the process in the sandbox"),
-				)?;
-			let Some(mut sandbox_state) = self.server.runner.state.sandboxes.get_mut(&sandbox_id)
-			else {
-				return Err(tg::error!(%sandbox_id, "failed to find the sandbox"));
-			};
-			let process_state = sandbox_state
-				.processes
-				.get_mut(id)
-				.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-			process_state.process = Some(sandbox_process.clone());
-			drop(sandbox_state);
+				.map_err(|error| {
+					tg::error!(!error, "failed to spawn the process in the sandbox")
+				})?;
 			let sandbox_process = Arc::new(sandbox_process);
 
 			// Provide the sandbox process to the control task.
 			sandbox_process_sender.send_replace(Some(sandbox_process.clone()));
-
-			// Spawn a task to drain the logged stdout and stderr if necessary.
-			let mut log_streams = Vec::new();
-			if matches!(state.stdout, tg::process::Stdio::Log) {
-				log_streams.push(tg::process::stdio::Stream::Stdout);
+			if let Some(id) = id.borrow().clone() {
+				self.server.runner.state.try_update_process(&id, |state| {
+					state.process = Some(sandbox_process.as_ref().clone());
+				});
 			}
-			if matches!(state.stderr, tg::process::Stdio::Log) {
-				log_streams.push(tg::process::stdio::Stream::Stderr);
-			}
-			let log_progress = if matches!(state.stderr, tg::process::Stdio::Log) {
-				progress.take()
-			} else {
-				None
-			};
-			let log_task = if log_streams.is_empty() {
-				None
-			} else {
-				Some(Task::spawn({
-					let session = self.clone();
-					let sandbox = sandbox.clone();
-					let id = id.clone();
-					let location = location.clone();
-					let sandbox_process = sandbox_process.clone();
-					|_| async move {
-						let input = sandbox
-							.read_stdio(&sandbox_process, log_streams.clone())
-							.await
-							.map_err(|error| tg::error!(!error, "failed to read process stdio"))?
-							.boxed();
-
-						// Drain the progress stream to the log along with the output of the sandbox process.
-						let input = match log_progress {
-							Some(progress) => {
-								let progress = progress
-									.map_ok(|bytes| {
-										tg::process::stdio::read::Event::Chunk(
-											tg::process::stdio::Chunk {
-												bytes,
-												position: None,
-												stream: tg::process::stdio::Stream::Stderr,
-											},
-										)
-									})
-									.boxed();
-								futures::stream::select(input, progress).boxed()
-							},
-							None => input,
-						};
-						let arg = tg::process::stdio::write::Arg {
-							location: location.map(Into::into),
-							streams: log_streams,
-							token: None,
-						};
-						if let Some(output) =
-							session.try_write_process_stdio(&id, arg, input).await?
-						{
-							let mut output = std::pin::pin!(output);
-							while output.try_next().await?.is_some() {}
-						}
-						Ok::<_, tg::Error>(())
-					}
-				}))
-			};
 
 			let arg = WaitForProcessArg {
-				id,
-				location: location.clone(),
-				log_task,
 				process_stopper,
 				sandbox: &sandbox,
 				sandbox_process: sandbox_process.as_ref(),
@@ -1014,9 +1121,6 @@ impl Session {
 
 	async fn wait_for_process(&self, arg: WaitForProcessArg<'_>) -> tg::Result<u8> {
 		let WaitForProcessArg {
-			id,
-			location,
-			log_task,
 			process_stopper,
 			sandbox,
 			sandbox_process,
@@ -1025,84 +1129,30 @@ impl Session {
 		let wait = sandbox
 			.wait(sandbox_process)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to start waiting for the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to start waiting for the process"))?;
 		let mut wait = std::pin::pin!(wait);
-		let mut log_task = log_task.map(|task| Box::pin(task.wait()));
-		let arg = tg::process::status::Arg {
-			location: location.map(Into::into),
-			timeout: None,
-			token: None,
-		};
-		let status = self
-			.get_process_status(id, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process status stream"))?;
-		let status = async move {
-			let mut status = std::pin::pin!(status);
-			while let Some(status) = status.try_next().await? {
-				if status.is_finished() {
-					break;
-				}
-			}
-			Ok::<_, tg::Error>(())
-		};
-		let mut status = std::pin::pin!(status);
-		let (exit, stopped) = loop {
-			let result = tokio::select! {
+		let (exit, stopped) = tokio::select! {
 				result = &mut wait => {
 					let exit = result.map_err(
-						|error| tg::error!(!error, %id, "failed to wait for the process"),
+						|error| tg::error!(!error, "failed to wait for the process"),
 					)?;
-					break (exit, false);
-				},
-				result = &mut status => {
-					result.map_err(|error| {
-						tg::error!(!error, %id, "failed to wait for the process status")
-					})?;
-					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-					let exit = wait.await.map_err(
-						|error| tg::error!(!error, %id, "failed to wait for the process"),
-					)?;
-					break (exit, true);
+					(exit, false)
 				},
 				() = stopper.wait() => {
 					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
 					let exit = wait.await.map_err(
-						|error| tg::error!(!error, %id, "failed to wait for the process"),
+						|error| tg::error!(!error, "failed to wait for the process"),
 					)?;
-					break (exit, true);
+					(exit, true)
 				},
 				() = process_stopper.wait() => {
 					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
 					let exit = wait.await.map_err(
-						|error| tg::error!(!error, %id, "failed to wait for the process"),
+						|error| tg::error!(!error, "failed to wait for the process"),
 					)?;
-					break (exit, true);
+					(exit, true)
 				},
-				result = async { log_task.as_mut().unwrap().await }, if log_task.is_some() => result,
-			};
-			let result = result
-				.map_err(|error| tg::error!(!error, "the log task panicked"))
-				.and_then(|result| {
-					result.map_err(|error| tg::error!(!error, "failed to drain the process logs"))
-				});
-			if let Err(error) = result {
-				sandbox
-					.kill(sandbox_process, tg::process::Signal::SIGKILL)
-					.await
-					.ok();
-				wait.await.ok();
-
-				return Err(error);
-			}
-			log_task = None;
 		};
-		if let Some(log_task) = log_task {
-			log_task
-				.await
-				.map_err(|error| tg::error!(!error, "the log task panicked"))?
-				.map_err(|error| tg::error!(!error, "failed to drain the process logs"))?;
-		}
 		if stopped {
 			return Err(tg::error!(
 				code = tg::error::Code::Cancellation,
@@ -1215,8 +1265,9 @@ impl Session {
 
 	async fn checkout_process_artifacts(
 		&self,
-		process: &tg::Process,
+		command: &tg::Command,
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
+		stderr: &tg::process::Stdio,
 	) -> tg::Result<()> {
 		// Do nothing if the VFS is enabled.
 		if self.server.vfs.lock().unwrap().is_some() {
@@ -1224,10 +1275,7 @@ impl Session {
 		}
 
 		// Get the process's command's children that are artifacts.
-		let artifacts = process
-			.command_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command"))?
+		let artifacts = command
 			.children_with_handle(self)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the command's children"))?
@@ -1247,7 +1295,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to cache the artifacts"))?;
 
 		// Write progress.
-		self.write_progress_stream(process, progress, stream)
+		self.write_progress_stream(command, progress, stderr, stream)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 

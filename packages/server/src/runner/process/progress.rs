@@ -21,15 +21,14 @@ struct State {
 impl Session {
 	pub(crate) async fn write_progress_stream<T: Send + std::fmt::Debug + 'static>(
 		&self,
-		process: &tg::Process,
+		command: &tg::Command,
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
+		stderr: &tg::process::Stdio,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
-		let state = process.load_with_handle(self).await?;
-		if self.progress_is_quiet(&state.command).await? {
+		if self.progress_is_quiet(command).await? {
 			return self.write_progress_stream_to_null(stream).await;
 		}
-		let stderr = state.stderr.clone();
 		let output = match stderr {
 			tg::process::Stdio::Log => self.write_progress_stream_to_log(progress, stream).await?,
 			tg::process::Stdio::Null => self.write_progress_stream_to_null(stream).await?,
