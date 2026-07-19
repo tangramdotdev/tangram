@@ -485,12 +485,17 @@ impl<O: 'static> tg::Process<O> {
 		} else {
 			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
 		};
+		let handle = (output.lease.is_some() && wait.is_none())
+			.then(|| tg::handle::dynamic::Handle::new(handle.clone()));
+		let owned = std::sync::atomic::AtomicBool::new(handle.is_some());
 		let inner = Arc::new(super::Inner {
 			cached: Some(output.cached),
+			handle,
 			id: tg::Either::Right(id),
 			lease: output.lease,
 			location: Arc::new(RwLock::new(location.map(Into::into))),
 			metadata: RwLock::new(None),
+			owned,
 			state: RwLock::new(None),
 			stderr,
 			stdin,
@@ -586,6 +591,7 @@ impl<O: 'static> tg::Process<O> {
 			&arg.stdin,
 			tg::process::stdio::Stream::Stdin,
 		)?);
+		command_.kill_on_drop(true);
 		command_.stdout(convert_stdio(
 			&arg.stdout,
 			tg::process::stdio::Stream::Stdout,
@@ -630,20 +636,21 @@ impl<O: 'static> tg::Process<O> {
 			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
 		};
 
-		let mut task = tangram_futures::task::Shared::spawn({
+		let task = tangram_futures::task::Shared::spawn({
 			let handle = handle.clone();
 			let output_path = prepared.output_path;
 			let temp = prepared.temp;
 			move |_| async move { Self::wait_unsandboxed(handle, child, output_path, temp).await }
 		});
-		task.detach();
 
 		let inner = Arc::new(super::Inner {
 			cached: Some(false),
+			handle: None,
 			id: tg::Either::Left(pid),
 			lease: None,
 			location: Arc::new(RwLock::new(None)),
 			metadata: RwLock::new(None),
+			owned: std::sync::atomic::AtomicBool::new(true),
 			state: RwLock::new(None),
 			stderr,
 			stdin,

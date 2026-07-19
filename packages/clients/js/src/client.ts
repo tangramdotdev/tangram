@@ -5,6 +5,7 @@ import { checkout } from "./client/checkout.ts";
 import { postObjectBatch } from "./client/object/batch.ts";
 import { getObject, tryGetObject } from "./client/object/get.ts";
 import { putObject } from "./client/object/put.ts";
+import { cancelProcess, tryCancelProcess } from "./client/process/cancel.ts";
 import { getProcess, tryGetProcess } from "./client/process/get.ts";
 import { putProcess } from "./client/process/put.ts";
 import {
@@ -24,6 +25,8 @@ import {
 	waitProcessPromise,
 } from "./client/process/wait.ts";
 import { read, tryRead, tryReadStream } from "./client/read.ts";
+import { createSandbox } from "./client/sandbox/create.ts";
+import { destroySandbox, tryDestroySandbox } from "./client/sandbox/destroy.ts";
 import { getSandbox, tryGetSandbox } from "./client/sandbox/get.ts";
 import { write } from "./client/write.ts";
 
@@ -54,6 +57,17 @@ export class Client {
 			...(typeof token === "string" ? { token } : {}),
 			...(typeof url === "string" ? { url } : {}),
 		};
+	}
+
+	cancelProcess(id: tg.Process.Id, arg: tg.Process.Cancel.Arg): Promise<void> {
+		return cancelProcess(this, id, arg);
+	}
+
+	tryCancelProcess(
+		id: tg.Process.Id,
+		arg: tg.Process.Cancel.Arg,
+	): Promise<true | null> {
+		return tryCancelProcess(this, id, arg);
 	}
 
 	checkin(
@@ -197,6 +211,24 @@ export class Client {
 		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
 		return tryWriteProcessStdio(this, id, arg, input);
+	}
+
+	createSandbox(arg: tg.Sandbox.Create.Arg): Promise<tg.Sandbox.Create.Output> {
+		return createSandbox(this, arg);
+	}
+
+	destroySandbox(
+		id: tg.Sandbox.Id,
+		arg?: tg.Sandbox.Destroy.Arg | null,
+	): Promise<void> {
+		return destroySandbox(this, id, arg);
+	}
+
+	tryDestroySandbox(
+		id: tg.Sandbox.Id,
+		arg?: tg.Sandbox.Destroy.Arg | null,
+	): Promise<boolean | null> {
+		return tryDestroySandbox(this, id, arg);
 	}
 
 	getSandbox(

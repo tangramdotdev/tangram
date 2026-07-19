@@ -4,6 +4,7 @@ import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
 import * as spawn from "./process/spawn.ts";
 import * as stdio from "./process/stdio.ts";
+import type { Cancel as ProcessCancel } from "./client/process/cancel.ts";
 import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
@@ -26,12 +27,14 @@ export class Process<O extends tg.Value = tg.Value> {
 	#id: number | tg.Process.Id;
 	#lease: string | null;
 	#location: tg.Location.Arg | null;
+	#owned: boolean;
 	#options: tg.Referent.Options;
 	#promise: Promise<tg.Process.Wait> | null;
 	#state: tg.Process.State | null;
 	#stderr: tg.Process.Stdio.Reader;
 	#stdin: tg.Process.Stdio.Writer;
 	#stdioPromise: Promise<void> | null;
+	#stopper: tg.Host.Stopper | null;
 	#stdout: tg.Process.Stdio.Reader;
 	#token: tg.Grant.Token | null;
 	#wait: tg.Process.Wait | null;
@@ -224,10 +227,17 @@ export class Process<O extends tg.Value = tg.Value> {
 			stdin: tg.Process.Stdio.Writer;
 			stdout: tg.Process.Stdio.Reader;
 		},
+		stopper: tg.Host.Stopper,
 		tempPath: string,
 		outputPath: string,
 	): Promise<tg.Process.Wait> {
-		return await spawn.waitUnsandboxed(pid, stdio, tempPath, outputPath);
+		return await spawn.waitUnsandboxed(
+			pid,
+			stdio,
+			stopper,
+			tempPath,
+			outputPath,
+		);
 	}
 
 	static async prepareUnsandboxedCommand(
@@ -251,12 +261,21 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#options = arg.options ?? {};
 		this.#state = arg.state ?? null;
 		this.#stdioPromise = arg.stdioPromise ?? null;
-		this.#promise = arg.promise ?? null;
+		this.#promise =
+			arg.promise === undefined || arg.promise === null
+				? null
+				: arg.promise.finally(() => this.detach());
 		this.#stdin = arg.stdin;
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
+		this.#stopper = arg.stopper ?? null;
 		this.#token = arg.token ?? null;
 		this.#wait = arg.wait ?? null;
+		this.#owned =
+			this.#wait === null &&
+			(typeof this.#id === "number"
+				? this.#stopper !== null
+				: this.#lease !== null);
 		this.#stdin.setProcess(this);
 		this.#stdout.setProcess(this);
 		this.#stderr.setProcess(this);
@@ -453,6 +472,43 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#lease;
 	}
 
+	/** Cancel this process. */
+	async cancel(): Promise<void> {
+		if (typeof this.#id === "number") {
+			if (this.#stopper === null) {
+				await tg.host.signal(this.#id, tg.Process.Signal.TERM);
+			} else {
+				await tg.host.stopperStop(this.#stopper);
+				if (this.#promise !== null) {
+					await this.#promise;
+				}
+			}
+		} else {
+			if (this.#lease === null) {
+				throw new Error("missing lease");
+			}
+			await tg.client.cancelProcess(this.#id, {
+				lease: this.#lease,
+				...(this.#location === null ? {} : { location: this.#location }),
+			});
+		}
+		this.detach();
+	}
+
+	/** Detach this process from this handle's lifetime. */
+	detach(): void {
+		if (!this.#owned) {
+			return;
+		}
+		this.#owned = false;
+	}
+
+	async [Symbol.asyncDispose](): Promise<void> {
+		if (this.#owned) {
+			await this.cancel();
+		}
+	}
+
 	/** Send a signal to this process. */
 	async signal(signal: tg.Process.Signal): Promise<void> {
 		if (typeof this.#id === "number") {
@@ -488,6 +544,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			let wait = await this.#promise;
 			tg.Process.Wait.inheritToken(wait, this.#token);
 			this.#wait = wait;
+			this.detach();
 			return wait;
 		}
 		let arg: tg.Process.Wait.Arg = {};
@@ -507,6 +564,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 		tg.Process.Wait.inheritToken(wait, this.#token);
 		this.#wait = wait;
+		this.detach();
 		return wait;
 	}
 
@@ -603,6 +661,10 @@ export class Process<O extends tg.Value = tg.Value> {
 
 export namespace Process {
 	export type Id = string;
+
+	export namespace Cancel {
+		export type Arg = ProcessCancel.Arg;
+	}
 
 	export namespace Get {
 		export type Arg = ProcessGet.Arg;
@@ -725,6 +787,13 @@ export namespace Process {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ host });
+			return this;
+		}
+
+		location(
+			location: tg.Unresolved<tg.MaybeMutation<tg.Location.Arg> | null>,
+		): this {
+			this.#args.push({ location });
 			return this;
 		}
 
@@ -921,6 +990,7 @@ export namespace Process {
 		stderr: tg.Process.Stdio.Reader;
 		stdin: tg.Process.Stdio.Writer;
 		stdioPromise?: Promise<void> | null;
+		stopper?: tg.Host.Stopper | null;
 		stdout: tg.Process.Stdio.Reader;
 		token?: tg.Grant.Token | null;
 		wait?: tg.Process.Wait | null;

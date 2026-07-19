@@ -43,6 +43,7 @@ pub use {
 		range::Range,
 		reference::Reference,
 		referent::Referent,
+		sandbox::Sandbox,
 		selector::Selector,
 		session::Session,
 		specifier::Specifier,

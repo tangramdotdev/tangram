@@ -32,7 +32,11 @@ pub struct Ttl {
 
 impl Ttl {
 	fn get(&self) -> Option<Duration> {
-		if self.no_ttl { None } else { self.ttl }
+		if self.no_ttl {
+			None
+		} else {
+			self.ttl.or(Some(Duration::from_mins(5)))
+		}
 	}
 }
 

@@ -278,6 +278,7 @@ export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
 		stream: "stderr",
 	});
 	let id = spawnOutput.pid;
+	let stopper = await tg.host.stopperOpen();
 	let promise = waitUnsandboxed(
 		id,
 		{
@@ -285,6 +286,7 @@ export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
 			stdin,
 			stdout,
 		},
+		stopper,
 		prepared.tempPath,
 		prepared.outputPath,
 	);
@@ -294,6 +296,7 @@ export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
 		promise,
 		stderr,
 		stdin,
+		stopper,
 		stdout,
 	});
 };
@@ -305,6 +308,7 @@ export let waitUnsandboxed = async (
 		stdin: tg.Process.Stdio.Writer;
 		stdout: tg.Process.Stdio.Reader;
 	},
+	stopper: tg.Host.Stopper,
 	tempPath: string,
 	outputPath: string,
 ): Promise<tg.Process.Wait> => {
@@ -312,7 +316,7 @@ export let waitUnsandboxed = async (
 	let waitError: unknown = null;
 	let waitFailed = false;
 	try {
-		let output = await tg.host.wait(pid);
+		let output = await tg.host.wait(pid, stopper);
 		let wait_: tg.Process.Wait = {
 			error: null,
 			exit: output.exit,
@@ -371,6 +375,14 @@ export let waitUnsandboxed = async (
 	} catch (error) {
 		waitError = error;
 		waitFailed = true;
+	}
+	try {
+		await tg.host.stopperClose(stopper);
+	} catch (error) {
+		if (!waitFailed) {
+			waitError = error;
+			waitFailed = true;
+		}
 	}
 	try {
 		for (let name of ["stdin", "stdout", "stderr"] as const) {
@@ -930,18 +942,27 @@ let normalizeSandbox = (
 					: tg.Sandbox.Isolation.toData(sandbox.isolation);
 		}
 		if (sandbox.location !== undefined) {
-			output.location = sandbox.location;
+			output.location =
+				sandbox.location === null
+					? null
+					: tg.Location.Arg.toDataString(sandbox.location);
 		}
 		if (sandbox.memory !== undefined) {
 			output.memory = sandbox.memory;
 		}
-		if (sandbox.mounts !== undefined) {
+		if (sandbox.mounts !== undefined && sandbox.mounts !== null) {
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
 		sandboxNetwork = sandbox.network;
-		let networkData = normalizeNetwork(sandbox.network);
+		let networkData = normalizeNetworkForPorts(
+			sandbox.ports ?? [],
+			sandbox.network,
+		);
 		if (networkData !== undefined) {
 			output.network = networkData;
+		}
+		if (networkData?.kind === "bridge") {
+			sandboxNetwork = networkData;
 		}
 		if (sandbox.ttl !== undefined) {
 			output.ttl = sandbox.ttl;

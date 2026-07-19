@@ -1,8 +1,18 @@
 use ../../test.nu *
 
-# A sandbox created with a ttl is destroyed after the ttl expires.
+# A sandbox defaults to a five-minute ttl, supports an explicitly infinite ttl, and is destroyed after its ttl expires.
 
 let server = spawn --config { cleaner: {}, sandbox: { ttl: 0 } }
+
+let default = tg sandbox create | str trim
+let sandbox = tg sandbox get $default | from json
+assert equal $sandbox.ttl 300 "the default ttl should be five minutes"
+tg sandbox destroy $default
+
+let infinite = tg sandbox create --no-ttl | str trim
+let sandbox = tg sandbox get $infinite | from json
+assert ($sandbox.ttl? | is-empty) "an explicitly infinite ttl should be preserved"
+tg sandbox destroy $infinite
 
 let id = tg sandbox create --ttl 1s | str trim
 

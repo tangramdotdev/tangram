@@ -23,9 +23,10 @@ impl<O> tg::Process<O> {
 		H: tg::Handle,
 	{
 		if self.id().is_left() {
-			return self
-				.signal_with_handle(handle, tg::process::Signal::SIGTERM)
-				.await;
+			self.signal_with_handle(handle, tg::process::Signal::SIGTERM)
+				.await?;
+			self.detach();
+			return Ok(());
 		}
 		self.ensure_location_with_handle(handle).await?;
 		let id = self.id().unwrap_right();
@@ -35,6 +36,8 @@ impl<O> tg::Process<O> {
 			.ok_or_else(|| tg::error!("missing lease"))?
 			.clone();
 		handle.cancel_process(id, Arg { location, lease }).await?;
+		self.detach();
+
 		Ok(())
 	}
 }

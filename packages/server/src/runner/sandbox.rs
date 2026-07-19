@@ -531,6 +531,7 @@ impl Session {
 
 		// Create the timer.
 		let mut timer = None;
+		let reusable = process.is_none();
 		let ttl = state.ttl;
 
 		let process = if let Some(process) = process {
@@ -678,7 +679,7 @@ impl Session {
 					}
 				},
 
-				// Destroy the sandbox when its last underlying process exits.
+				// Handle an underlying process exiting.
 				event = process_events.next(), if !process_events.is_empty() => {
 					let Some((process, event)) = event else {
 						break;
@@ -690,7 +691,12 @@ impl Session {
 						ProcessEvent::Exit => {
 							process_events.remove(&process);
 							if process_events.is_empty() {
-								break;
+								if !reusable {
+									break;
+								}
+								if let Some(ttl) = ttl {
+									timer.replace(tokio::time::sleep(ttl).boxed());
+								}
 							}
 						},
 					}
