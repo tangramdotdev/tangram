@@ -150,6 +150,7 @@ impl Cli {
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {
+			process.item().detach();
 			if options.verbose {
 				let output = tg::process::spawn::Output {
 					cached: process.item().cached().unwrap_or(false),
