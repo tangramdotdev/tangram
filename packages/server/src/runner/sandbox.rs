@@ -81,15 +81,15 @@ struct SandboxTaskInnerArg {
 		tg::sandbox::control::ServerMessage,
 		tg::sandbox::control::ClientMessage,
 	>,
-	created: CreateSandboxOutput,
-	data: tg::sandbox::get::Output,
+	create_output: CreateSandboxOutput,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	id: tg::sandbox::Id,
-	initial_process: Option<SpawnProcessTaskOutput>,
 	location: tg::Location,
 	process_stopper: Stopper,
+	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
-	sandbox_id_sender: tokio::sync::watch::Sender<Option<tg::sandbox::Id>>,
+	sandbox_id_sender: tokio::sync::oneshot::Sender<tg::sandbox::Id>,
+	state: tg::sandbox::get::Output,
 	stopper: Stopper,
 	token: String,
 }
@@ -102,9 +102,9 @@ struct RunSandboxTaskArg {
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	guest_url: tangram_uri::Uri,
 	id: tg::sandbox::Id,
-	initial_process: Option<SpawnProcessTaskOutput>,
 	location: tg::Location,
 	process_stopper: Stopper,
+	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
@@ -291,7 +291,7 @@ impl Session {
 		let mut create = pin!(create);
 		let mut connect = pin!(connect);
 		let mut connected = None;
-		let created = loop {
+		let create_output = loop {
 			tokio::select! {
 				result = &mut create => break result?,
 				result = &mut connect, if connected.is_none() => {
@@ -300,29 +300,47 @@ impl Session {
 			}
 		};
 
-		// Start the initial process before waiting for the control stream.
+		// Start the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
 		let process_stopper = Stopper::new();
-		let (sandbox_id_sender, sandbox_id_receiver) = tokio::sync::watch::channel(None);
-		let initial_process = process.map(|process| {
+		let (sandbox_id_sender, sandbox_id_receiver) = tokio::sync::oneshot::channel();
+		let process_task_output = process.map(|process| {
 			self.spawn_process_task(SpawnProcessTaskArg {
-				guest_url: &created.guest_url,
+				guest_url: &create_output.guest_url,
 				location: location.clone(),
 				process,
 				process_stopper: &process_stopper,
 				process_tasks: &mut process_tasks,
 				retention_stopper: stopper.clone(),
-				sandbox: &created.sandbox,
+				sandbox: &create_output.sandbox,
 				sandbox_id_receiver: Some(sandbox_id_receiver),
 			})
 		});
 
-		let connected = match connected {
-			Some(connected) => Ok(connected),
+		let connection = match connected {
+			Some(connection) => Ok(connection),
 			None => connect.await,
 		};
-		let (output, control) = match connected {
-			Ok(connected) => connected,
+		let connection = connection.and_then(|(output, control)| {
+			if let Some(expected_id) = &expected_id
+				&& output.id != *expected_id
+			{
+				return Err(tg::error!(
+					actual = %output.id,
+					expected = %expected_id,
+					"the server returned an invalid sandbox"
+				));
+			}
+			let id = output.id;
+			let token = output
+				.token
+				.or(token)
+				.ok_or_else(|| tg::error!(%id, "missing the sandbox authentication token"))?;
+
+			Ok((control, id, token))
+		});
+		let (control, id, token) = match connection {
+			Ok(connection) => connection,
 			Err(error) => {
 				drop(sandbox_id_sender);
 				process_stopper.stop();
@@ -330,28 +348,6 @@ impl Session {
 
 				return Err(error);
 			},
-		};
-		if let Some(expected_id) = &expected_id
-			&& output.id != *expected_id
-		{
-			let error = tg::error!(
-				actual = %output.id,
-				expected = %expected_id,
-				"the server returned an invalid sandbox"
-			);
-			drop(sandbox_id_sender);
-			process_stopper.stop();
-			while process_tasks.join_next().await.is_some() {}
-
-			return Err(error);
-		}
-		let id = output.id;
-		let Some(token) = output.token.or(token) else {
-			drop(sandbox_id_sender);
-			process_stopper.stop();
-			while process_tasks.join_next().await.is_some() {}
-
-			return Err(tg::error!(%id, "missing the sandbox authentication token"));
 		};
 		let state = tg::sandbox::get::Output {
 			cpu: arg.cpu,
@@ -377,15 +373,15 @@ impl Session {
 			.sandbox_task_inner(SandboxTaskInnerArg {
 				allocation,
 				control,
-				created,
-				data: state,
+				create_output,
 				event_sender,
 				id: id.clone(),
-				initial_process,
 				location: location.clone(),
 				process_stopper,
+				process_task_output,
 				process_tasks,
 				sandbox_id_sender,
+				state,
 				stopper,
 				token,
 			})
@@ -594,15 +590,15 @@ impl Session {
 		let SandboxTaskInnerArg {
 			allocation,
 			control,
-			created,
-			data: state,
+			create_output,
 			event_sender,
 			id,
-			initial_process,
 			location,
 			process_stopper,
+			process_task_output,
 			process_tasks,
 			sandbox_id_sender,
+			state,
 			stopper,
 			token,
 		} = arg;
@@ -613,7 +609,7 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			vfs,
-		} = created;
+		} = create_output;
 		let _temp = temp;
 		#[cfg(target_os = "linux")]
 		let _vfs = vfs;
@@ -632,15 +628,15 @@ impl Session {
 		scopeguard::defer! {
 			self.server.runner.state.sandboxes.remove(&id);
 		}
-		sandbox_id_sender.send_replace(Some(id.clone()));
+		sandbox_id_sender.send(id.clone()).ok();
 		let arg = RunSandboxTaskArg {
 			control,
 			event_sender,
 			guest_url,
 			id: id.clone(),
-			initial_process,
 			location,
 			process_stopper,
+			process_task_output,
 			process_tasks,
 			sandbox,
 			serve_task,
@@ -657,9 +653,9 @@ impl Session {
 			event_sender,
 			guest_url,
 			id,
-			initial_process,
 			location,
 			process_stopper,
+			process_task_output,
 			mut process_tasks,
 			sandbox,
 			serve_task,
@@ -674,11 +670,11 @@ impl Session {
 
 		// Create the timer.
 		let mut timer = None;
-		let reusable = initial_process.is_none();
+		let reusable = process_task_output.is_none();
 		let ttl = state.ttl;
 
-		let process = if let Some(task) = initial_process {
-			let mut events = task.events;
+		let process = if let Some(process_task_output) = process_task_output {
+			let mut events = process_task_output.events;
 			let event = events
 				.recv()
 				.await

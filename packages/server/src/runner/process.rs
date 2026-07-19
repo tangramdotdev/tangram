@@ -35,7 +35,7 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
 	pub retention_stopper: Stopper,
 	pub sandbox: &'a tangram_sandbox::Sandbox,
-	pub sandbox_id_receiver: Option<tokio::sync::watch::Receiver<Option<tg::sandbox::Id>>>,
+	pub sandbox_id_receiver: Option<tokio::sync::oneshot::Receiver<tg::sandbox::Id>>,
 }
 
 #[must_use]
@@ -50,7 +50,7 @@ struct ProcessTaskArg {
 	process: tg::runner::control::Process,
 	retention_stopper: Stopper,
 	sandbox: tangram_sandbox::Sandbox,
-	sandbox_id_receiver: Option<tokio::sync::watch::Receiver<Option<tg::sandbox::Id>>>,
+	sandbox_id_receiver: Option<tokio::sync::oneshot::Receiver<tg::sandbox::Id>>,
 	sandbox_stopper: Stopper,
 }
 
@@ -95,7 +95,7 @@ struct Output {
 struct RunProcessArg {
 	command: CommandFuture,
 	guest_url: tangram_uri::Uri,
-	id: tokio::sync::watch::Receiver<Option<tg::process::Id>>,
+	id_receiver: tokio::sync::watch::Receiver<Option<tg::process::Id>>,
 	process_stopper: Stopper,
 	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
 	sandbox: tangram_sandbox::Sandbox,
@@ -212,7 +212,7 @@ impl Session {
 		let run_session = self.server.session(&self.server.context);
 
 		// Register the token before starting the process.
-		let (id_sender, id_receiver) = tokio::sync::watch::channel(None);
+		let (process_id_sender, process_id_receiver) = tokio::sync::watch::channel(None);
 		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 		};
@@ -222,7 +222,7 @@ impl Session {
 			match self.server.runner.state.process_tokens.entry(token.clone()) {
 				dashmap::mapref::entry::Entry::Occupied(_) => {},
 				dashmap::mapref::entry::Entry::Vacant(entry) => {
-					entry.insert(id_receiver.clone());
+					entry.insert(process_id_receiver.clone());
 					break token;
 				},
 			}
@@ -338,7 +338,7 @@ impl Session {
 		let mut run_task = Some(Task::spawn({
 			let command = command.clone();
 			let guest_url = guest_url.clone();
-			let id = id_receiver.clone();
+			let process_id_receiver = process_id_receiver.clone();
 			let process_stopper = process_stopper.clone();
 			let progress_sender = progress_sender.clone();
 			let sandbox = sandbox.clone();
@@ -350,7 +350,7 @@ impl Session {
 					.run_process(RunProcessArg {
 						command,
 						guest_url,
-						id,
+						id_receiver: process_id_receiver,
 						process_stopper,
 						progress_sender,
 						sandbox,
@@ -364,17 +364,15 @@ impl Session {
 		}));
 
 		// Wait for the sandbox ID before connecting the control stream.
-		if let Some(mut sandbox_id_receiver) = sandbox_id_receiver {
-			let sandbox_id = loop {
-				if let Some(sandbox_id) = sandbox_id_receiver.borrow().clone() {
-					break sandbox_id;
-				}
-				if sandbox_id_receiver.changed().await.is_err() {
+		if let Some(sandbox_id_receiver) = sandbox_id_receiver {
+			let sandbox_id = match sandbox_id_receiver.await {
+				Ok(sandbox_id) => sandbox_id,
+				Err(error) => {
 					process_stopper.stop();
 					run_task.take().unwrap().wait().await.ok();
 
-					return Err(tg::error!("failed to receive the sandbox ID"));
-				}
+					return Err(tg::error!(!error, "failed to receive the sandbox ID"));
+				},
 			};
 			if expected_id.is_some() && state.sandbox != sandbox_id {
 				let error = tg::error!(
@@ -478,7 +476,7 @@ impl Session {
 			.state
 			.processes
 			.insert(id.clone(), sandbox_id.clone());
-		id_sender.send_replace(Some(id.clone()));
+		process_id_sender.send_replace(Some(id.clone()));
 		if let Some(process) = sandbox_process_receiver.borrow().as_deref().cloned() {
 			session
 				.server
@@ -939,7 +937,7 @@ impl Session {
 		let RunProcessArg {
 			command,
 			guest_url,
-			id,
+			id_receiver,
 			process_stopper,
 			progress_sender,
 			sandbox,
@@ -1121,7 +1119,7 @@ impl Session {
 
 			// Provide the sandbox process to the control task.
 			sandbox_process_sender.send_replace(Some(sandbox_process.clone()));
-			if let Some(id) = id.borrow().clone() {
+			if let Some(id) = id_receiver.borrow().clone() {
 				self.server.runner.state.try_update_process(&id, |state| {
 					state.process = Some(sandbox_process.as_ref().clone());
 				});
