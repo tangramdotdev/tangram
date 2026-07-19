@@ -180,13 +180,20 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
 		}
 
-		let key = Key::Process(crate::lmdb::process::Key::CommandProcess {
+		let key = Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
 			command: arg.command.clone(),
 			process: id.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		db.put(transaction, &key, &[])
-			.map_err(|error| tg::error!(!error, "failed to put the command process"))?;
+		if data.as_ref().is_some_and(|data| data.cacheable) {
+			db.put(transaction, &key, &[]).map_err(|error| {
+				tg::error!(!error, "failed to put the command cacheable process")
+			})?;
+		} else {
+			db.delete(transaction, &key).map_err(|error| {
+				tg::error!(!error, "failed to delete the command cacheable process")
+			})?;
+		}
 
 		let objects = existing
 			.is_none()

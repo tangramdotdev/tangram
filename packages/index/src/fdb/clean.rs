@@ -902,10 +902,11 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 			if kind.is_command() {
-				let key = crate::fdb::Key::Process(crate::fdb::process::Key::CommandProcess {
-					command: object.clone(),
-					process: id.clone(),
-				});
+				let key =
+					crate::fdb::Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
+						command: object.clone(),
+						process: id.clone(),
+					});
 				let key = Self::pack(subspace, &key);
 				txn.clear(&key);
 			}

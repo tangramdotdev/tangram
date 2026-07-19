@@ -774,13 +774,15 @@ impl Index {
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete object process key"))?;
 			if kind.is_command() {
-				let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::CommandProcess {
-					command: object.clone(),
-					process: id.clone(),
-				});
+				let key =
+					crate::lmdb::Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
+						command: object.clone(),
+						process: id.clone(),
+					});
 				let key = Self::pack(subspace, &key);
-				db.delete(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to delete command process key"))?;
+				db.delete(transaction, &key).map_err(|error| {
+					tg::error!(!error, "failed to delete the command cacheable process key")
+				})?;
 			}
 		}
 		for (_, object, _) in object_entries {

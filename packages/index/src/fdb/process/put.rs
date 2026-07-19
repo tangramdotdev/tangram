@@ -189,12 +189,16 @@ impl Index {
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let key = Key::Process(crate::fdb::process::Key::CommandProcess {
+		let key = Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
 			command: arg.command.clone(),
 			process: id.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		txn.set(&key, &[]);
+		if data.as_ref().is_some_and(|data| data.cacheable) {
+			txn.set(&key, &[]);
+		} else {
+			txn.clear(&key);
+		}
 
 		let objects = existing
 			.is_none()

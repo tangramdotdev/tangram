@@ -59,7 +59,7 @@ impl Index {
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				let command_bytes = command.to_bytes();
 				let prefix = &(
-					Kind::CommandProcess.to_i32().unwrap(),
+					Kind::CommandCacheableProcess.to_i32().unwrap(),
 					command_bytes.as_ref(),
 				);
 				let prefix = Self::pack(&subspace, prefix);
@@ -72,8 +72,10 @@ impl Index {
 						tg::error!(!error, "failed to read a cached process entry")
 					})?;
 					let key = Self::unpack(&subspace, key)?;
-					let Key::Process(crate::lmdb::process::Key::CommandProcess { process, .. }) =
-						key
+					let Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
+						process,
+						..
+					}) = key
 					else {
 						return Err(tg::error!("unexpected key type"));
 					};
@@ -94,7 +96,7 @@ impl Index {
 				output.sort_unstable_by(|(a_id, a), (b_id, b)| {
 					let a_created_at = a.data.as_ref().unwrap().created_at;
 					let b_created_at = b.data.as_ref().unwrap().created_at;
-					b_created_at.cmp(&a_created_at).then_with(|| b_id.cmp(a_id))
+					a_created_at.cmp(&b_created_at).then_with(|| a_id.cmp(b_id))
 				});
 				Ok(output)
 			}

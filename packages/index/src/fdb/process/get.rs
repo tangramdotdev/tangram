@@ -51,7 +51,7 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 		let command_bytes = command.to_bytes();
 		let prefix = (
-			Kind::CommandProcess.to_i32().unwrap(),
+			Kind::CommandCacheableProcess.to_i32().unwrap(),
 			command_bytes.as_ref(),
 		);
 		let prefix = Self::pack(&self.subspace, &prefix);
@@ -68,7 +68,9 @@ impl Index {
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(&self.subspace, entry.key())?;
-				let Key::Process(crate::fdb::process::Key::CommandProcess { process, .. }) = key
+				let Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
+					process, ..
+				}) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -91,7 +93,7 @@ impl Index {
 		output.sort_unstable_by(|(a_id, a), (b_id, b)| {
 			let a_created_at = a.data.as_ref().unwrap().created_at;
 			let b_created_at = b.data.as_ref().unwrap().created_at;
-			b_created_at.cmp(&a_created_at).then_with(|| b_id.cmp(a_id))
+			a_created_at.cmp(&b_created_at).then_with(|| a_id.cmp(b_id))
 		});
 		Ok(output)
 	}

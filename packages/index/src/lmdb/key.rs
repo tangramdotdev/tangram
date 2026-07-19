@@ -58,7 +58,7 @@ pub enum Kind {
 	Visibility = 30,
 	GrantExpiresAt = 31,
 	Sandbox = 32,
-	CommandProcess = 33,
+	CommandCacheableProcess = 33,
 	ProcessDepthDetection = 34,
 	Runner = 35,
 	SchedulerRunner = 36,
@@ -242,8 +242,11 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Process(crate::lmdb::process::Key::CommandProcess { command, process }) => (
-				Kind::CommandProcess.to_i32().unwrap(),
+			Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
+				command,
+				process,
+			}) => (
+				Kind::CommandCacheableProcess.to_i32().unwrap(),
 				command.to_bytes().as_ref(),
 				process.to_bytes().as_ref(),
 			)
@@ -800,7 +803,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::CommandProcess => {
+			Kind::CommandCacheableProcess => {
 				let (input, command_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, process_bytes): (_, Vec<u8>) =
@@ -809,8 +812,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid command id".into()))?;
 				let process = tg::process::Id::from_slice(&process_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let key =
-					Key::Process(crate::lmdb::process::Key::CommandProcess { command, process });
+				let key = Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
+					command,
+					process,
+				});
 				Ok((input, key))
 			},
 

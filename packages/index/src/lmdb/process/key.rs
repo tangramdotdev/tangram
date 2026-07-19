@@ -16,7 +16,7 @@ pub enum Key {
 		kind: crate::process::object::Kind,
 		object: tg::object::Id,
 	},
-	CommandProcess {
+	CommandCacheableProcess {
 		command: tg::object::Id,
 		process: tg::process::Id,
 	},
