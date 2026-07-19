@@ -12,15 +12,10 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<crate::client::get::Output>> {
-		let Some(process) = self.processes.get(id) else {
+		if !self.processes.contains_key(id) {
 			return Ok(None);
-		};
-		let output = crate::client::get::Output {
-			debug: process.debug.clone(),
-			id: id.clone(),
-			location: process.location.clone(),
-			retry: process.retry,
-		};
+		}
+		let output = crate::client::get::Output { id: id.clone() };
 		Ok(Some(output))
 	}
 

@@ -55,10 +55,7 @@ pub struct Process {
 #[derive(Clone, Debug)]
 pub struct SpawnArg {
 	pub command: Command,
-	pub debug: Option<tg::process::Debug>,
 	pub id: tg::process::Id,
-	pub location: Option<tg::Location>,
-	pub retry: bool,
 	pub token: String,
 	pub tty: Option<tg::process::Tty>,
 	pub url: tangram_uri::Uri,
@@ -490,10 +487,7 @@ impl Sandbox {
 		let id = arg.id;
 		let spawn_arg = crate::client::spawn::Arg {
 			command: arg.command,
-			debug: arg.debug.clone(),
 			id: id.clone(),
-			location: arg.location.clone(),
-			retry: arg.retry,
 			token: arg.token.clone(),
 			tty: arg.tty,
 			url: arg.url,

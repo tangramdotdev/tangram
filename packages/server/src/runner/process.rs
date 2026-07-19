@@ -888,10 +888,7 @@ impl Session {
 			let sandbox_process = sandbox
 				.spawn(tangram_sandbox::SpawnArg {
 					command: sandbox_command,
-					debug: state.debug.clone(),
 					id: id.clone(),
-					location: location.clone(),
-					retry: state.retry,
 					token: token.clone(),
 					tty: state.tty,
 					url: guest_url.clone(),
