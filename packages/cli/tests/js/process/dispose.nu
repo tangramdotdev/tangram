@@ -2,12 +2,14 @@ use ../../../test.nu *
 
 # Disposing a process handle releases its lease and cancels the process.
 
-let server = spawn
+let server = spawn --busybox
 
 let path = artifact {
 	tangram.ts: '
+		import busybox from "busybox";
+
 		export default async function () {
-			await using process = await tg.spawn`sleep 60`.sandbox();
+			await using process = await tg.spawn`sleep 60`.env(tg.build(busybox)).sandbox();
 			console.log(process.id);
 			console.log(await process.sandbox);
 		}

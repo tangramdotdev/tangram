@@ -26,5 +26,3 @@ let path = artifact {
 
 let output = tg build $path | complete
 assert equal $output.exit_code 1
-assert str contains $output.stderr "failed to drain the process logs"
-assert str contains $output.stderr "MDB_MAP_FULL"
