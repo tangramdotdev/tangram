@@ -50,7 +50,7 @@ pub struct Args {
 	pub hostname: Option<String>,
 
 	#[arg(long)]
-	pub id: tg::sandbox::Id,
+	pub id: u64,
 
 	#[arg(long)]
 	pub network: Option<tangram_sandbox::container::run::Network>,
