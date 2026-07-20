@@ -60,16 +60,6 @@ impl Session {
 				},
 				#[cfg(feature = "turso")]
 				Database::Turso(database) => database.pool().available().to_u64().unwrap(),
-			} + match &self.server.process_store {
-				#[cfg(feature = "postgres")]
-				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
-				#[cfg(feature = "sqlite")]
-				Database::Sqlite(database) => {
-					database.read_pool().available().to_u64().unwrap()
-						+ database.write_pool().available().to_u64().unwrap()
-				},
-				#[cfg(feature = "turso")]
-				Database::Turso(database) => database.pool().available().to_u64().unwrap(),
 			};
 
 			Some(tg::health::Database {

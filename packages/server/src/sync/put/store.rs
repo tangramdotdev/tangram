@@ -209,7 +209,7 @@ impl Session {
 					|error| tg::error!(!error, process = %item.id, "failed to compact the log"),
 				)?;
 
-				// Get the compacted process data from the process store.
+				// Get the compacted process data from the index.
 				output.data = self
 					.server
 					.try_get_process_local(&item.id, false)

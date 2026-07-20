@@ -232,14 +232,9 @@ impl Session {
 		self.spawn_process_wake_watchdog_if_needed(output.as_ref());
 
 		let output = if cacheable && arg.cached.is_none() {
-			self.spawn_process_start_or_get_cached(
-				&arg,
-				output,
-				parent_sandbox.as_ref(),
-				cache_location,
-			)
-			.boxed()
-			.await?
+			self.spawn_process_start_or_get_cached(&arg, output, cache_location)
+				.boxed()
+				.await?
 		} else {
 			// Start the local process.
 			let output = self.spawn_process_start_local(&arg, output).boxed().await?;

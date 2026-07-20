@@ -1,11 +1,9 @@
 use {
 	crate::Server,
-	futures::{FutureExt as _, StreamExt as _, future, stream},
-	indoc::formatdoc,
+	futures::{StreamExt as _, future, stream},
 	num::ToPrimitive as _,
-	std::{ops::ControlFlow, pin::pin, time::Duration},
+	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stopper},
 	tangram_index::{self as index, prelude::*},
 	tangram_messenger::prelude::*,
@@ -155,41 +153,18 @@ impl Server {
 		let index::finalization::Item::Sandbox(sandbox) = &entry.item else {
 			return Err(tg::error!("unexpected finalization item"));
 		};
-		let sandbox = sandbox.clone();
-		self.process_store
-			.run(|transaction| {
-				let sandbox = sandbox.clone();
-				async move {
-					Self::delete_finalized_sandbox_with_transaction(transaction, &sandbox).await
-				}
-				.boxed()
-			})
+		let session = self.session(&self.context);
+		let indexed = session
+			.get_sandbox_from_index(sandbox)
 			.await
-			.map_err(
-				|error| tg::error!(!error, %sandbox, "failed to delete the finalized sandbox"),
-			)?;
+			.map_err(|error| tg::error!(!error, %sandbox, "failed to get the finalized sandbox"))?;
+		if !indexed.data.is_some_and(|data| data.status.is_destroyed()) {
+			return Err(tg::error!(%sandbox, "expected the sandbox to be destroyed"));
+		}
 		self.index.complete_finalization(entry).await.map_err(
 			|error| tg::error!(!error, %sandbox, "failed to complete the sandbox finalization"),
 		)?;
 
 		Ok(())
-	}
-
-	async fn delete_finalized_sandbox_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				delete from sandboxes
-				where id = {p}1 and status = 'destroyed';
-			"
-		);
-		let params = db::params![sandbox.to_string()];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-
-		Ok(ControlFlow::Break(()))
 	}
 }

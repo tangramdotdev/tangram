@@ -4,11 +4,9 @@ use {
 		FutureExt as _, StreamExt as _, future,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
-	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -68,16 +66,11 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let permission =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		let resource = tg::Referent::with_item_and_token(id.clone(), arg.token.clone());
-		let authorize_future = self.authorize(resource, permission).boxed();
-		let exists_future = self.exists(id.clone(), permission).boxed();
-		let check_future = async {
-			let (authorized, exists) = future::try_join(authorize_future, exists_future).await?;
-			Ok::<_, tg::Error>(
-				exists && authorized.is_some_and(|permissions| permissions.contains(permission)),
-			)
+		let token = arg.token.clone();
+		let check_future = async move {
+			self.try_get_process_local(id, false, token.as_ref())
+				.await
+				.map(|output| output.is_some())
 		}
 		.boxed();
 		let create_future = self.create_process_children_stream_local(id, arg).boxed();
@@ -255,140 +248,24 @@ impl Session {
 		position: u64,
 		length: u64,
 	) -> tg::Result<tg::process::control::GetChildrenClientResponseOutput> {
-		let mut output = if let Some(output) = self
-			.server
-			.runner
-			.state
-			.try_get_process_children(id, position, length)
-		{
-			output
-		} else {
-			let control_future = self
-				.get_process_children_from_control(id, position, length)
-				.boxed();
-			let process_store_future = self
-				.try_get_process_children_from_process_store(id, position, length)
-				.boxed();
-			match future::select(control_future, process_store_future).await {
-				future::Either::Left((result, _)) => result,
-				future::Either::Right((result, control_future)) => match result? {
-					Some(output) => Ok(output),
-					None => control_future.await,
-				},
-			}?
+		let output = self
+			.try_get_process_local_inner(id, false)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		let status = output.data.status;
+		let children = output.data.children.unwrap_or_default();
+		let children_length = children.len().to_u64().unwrap();
+		let output = tg::process::control::GetChildrenClientResponseOutput {
+			children: children
+				.into_iter()
+				.skip(position.to_usize().unwrap())
+				.take(length.to_usize().unwrap())
+				.map(tg::process::data::Child::without_tokens)
+				.collect(),
+			length: children_length,
+			status,
 		};
-		output.children = output
-			.children
-			.into_iter()
-			.map(tg::process::data::Child::without_tokens)
-			.collect();
 		Ok(output)
-	}
-
-	async fn get_process_children_from_control(
-		&self,
-		id: &tg::process::Id,
-		position: u64,
-		length: u64,
-	) -> tg::Result<tg::process::control::GetChildrenClientResponseOutput> {
-		let request = tg::process::control::ServerRequestArg::GetChildren(
-			tg::process::control::GetChildrenServerRequestArg { length, position },
-		);
-		let retry = tangram_futures::retry::Options {
-			max_retries: u64::MAX,
-			..Default::default()
-		};
-		let options = crate::control::Options {
-			retry,
-			timeout: Duration::from_secs(10),
-		};
-		let response = self
-			.send_process_control_request(id, request, options)
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to send the get children process control request"),
-			)?
-			.map_err(
-				|error| tg::error!(!error, %id, "the get children process control request failed"),
-			)?;
-		response
-			.try_unwrap_get_children()
-			.map_err(|_| tg::error!("expected a get children response"))
-	}
-
-	async fn try_get_process_children_from_process_store(
-		&self,
-		id: &tg::process::Id,
-		position: u64,
-		length: u64,
-	) -> tg::Result<Option<tg::process::control::GetChildrenClientResponseOutput>> {
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
-		#[derive(db::row::Deserialize)]
-		struct ProcessRow {
-			length: u64,
-			#[tangram_database(as = "db::value::FromStr")]
-			status: tg::process::Status,
-		}
-		let statement = formatdoc!(
-			"
-				select
-					(select count(*) from process_children where process = processes.id) as length,
-					processes.status
-				from processes
-				where processes.id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let Some(process) = connection
-			.query_optional_into::<ProcessRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(None);
-		};
-
-		#[derive(db::row::Deserialize)]
-		struct ChildRow {
-			cached: bool,
-			#[tangram_database(as = "db::value::FromStr")]
-			child: tg::process::Id,
-			#[tangram_database(as = "db::value::Json<tg::referent::Options>")]
-			options: tg::referent::Options,
-		}
-		let statement = formatdoc!(
-			"
-				select cached, child, options
-				from process_children
-				where process = {p}1
-				order by position
-				limit {p}2
-				offset {p}3;
-			"
-		);
-		let params = db::params![id.to_string(), length, position];
-		let children = connection
-			.query_all_into::<ChildRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.into_iter()
-			.map(|row| tg::process::data::Child {
-				cached: row.cached,
-				process: tg::Referent::new(row.child, row.options),
-			})
-			.collect();
-		Ok(Some(
-			tg::process::control::GetChildrenClientResponseOutput {
-				children,
-				length: process.length,
-				status: process.status,
-			},
-		))
 	}
 
 	async fn try_get_process_children_regions(

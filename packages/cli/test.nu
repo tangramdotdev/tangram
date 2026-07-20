@@ -10,8 +10,8 @@ const server_exit_directory_name = 'server_jobs'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
-	--clean # Clean up leftover test resources from cockroach, postgres, scylla, and nats.
-	--cloud # Enable cloud database backends (cockroach, postgres, scylla, nats) for spawn --cloud.
+	--clean # Clean up leftover test resources from cockroach, scylla, and nats.
+	--cloud # Enable cloud database backends (cockroach, scylla, nats) for spawn --cloud.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--preserve-temps # Keep the temporary directories.
@@ -25,7 +25,7 @@ def main [
 	--stress-count: int # Run the matching tests this many times, then stop. Implies --stress.
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 60sec # The timeout for each test.
-	--turso # Use Turso for the server database and process store.
+	--turso # Use Turso for the server database.
 	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
@@ -59,13 +59,6 @@ def main [
 		for path in $test_temp_paths {
 			remove_temp_directory $path
 			print -e $"removed ($path)"
-		}
-
-		let preserved_dbs = ['postgres', 'template0', 'template1', 'processes']
-		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'processes_' }
-		for db in $dbs {
-			print -e $"dropping postgres database ($db)"
-			try { dropdb -U postgres -h localhost $db }
 		}
 
 		let cockroach_dbs = cockroach sql --insecure --host=localhost:26257 --format=csv -e 'show databases;' | from csv | get database_name | where { $in starts-with 'database_' }
@@ -935,12 +928,6 @@ export def --env spawn [
 				kind: 'turso',
 				path: 'database',
 			},
-			process: {
-				store: {
-					kind: 'turso',
-					path: 'processes',
-				},
-			},
 		}
 	}
 
@@ -971,9 +958,6 @@ export def --env spawn [
 
 		cockroach sql --insecure --host=localhost:26257 -e $'create database database_($id)'
 		cockroach sql --insecure --host=localhost:26257 -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
-
-		createdb -U postgres -h localhost $'processes_($id)'
-		psql -U postgres -h localhost -d $'processes_($id)' -f ($repository_path | path join packages/server/src/process/store/postgres.sql)
 
 		let cluster = fdb_cluster
 
@@ -1011,15 +995,6 @@ export def --env spawn [
 					connections: 1,
 					keyspace: $'objects_($id)',
 					kind: 'scylla',
-				},
-			},
-			process: {
-				store: {
-					kind: 'postgres',
-					pool: {
-						max: 1,
-					},
-					url: $'postgres://postgres@localhost:5432/processes_($id)',
 				},
 			},
 			remotes: {},
@@ -1151,9 +1126,6 @@ export def --env spawn [
 def clean_databases [id: string] {
 	# Drop the Cockroach database.
 	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists database_($id) cascade' }
-
-	# Drop the Postgres database.
-	try { dropdb -U postgres -h localhost $'processes_($id)' }
 
 	# Clear the fdb key range.
 	let cluster = fdb_cluster

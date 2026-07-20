@@ -38,7 +38,6 @@ mod database;
 mod diagnostics;
 mod directory;
 mod document;
-mod exists;
 mod format;
 mod get;
 mod grant;
@@ -112,7 +111,6 @@ pub struct State {
 	object_get_tasks: self::object::get::Tasks,
 	object_store: self::object::Store,
 	path: PathBuf,
-	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
 	remote_list_tasks: self::list::remote::Tasks,
@@ -392,90 +390,6 @@ impl Server {
 			},
 		};
 
-		// Create the process store.
-		let process_store = match &config.process.store {
-			self::config::Database::Postgres(options) => {
-				#[cfg(not(feature = "postgres"))]
-				{
-					let _ = options;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with postgres support"
-					));
-				}
-				#[cfg(feature = "postgres")]
-				{
-					let options = db::postgres::DatabaseOptions {
-						max: options.pool.max.unwrap_or(parallelism),
-						min: options.pool.min.unwrap_or(0),
-						retry: options.retry.clone().into(),
-						ttl: options.pool.ttl,
-						url: options.url.clone(),
-					};
-					let process_store =
-						db::postgres::Database::new(options)
-							.await
-							.map_err(|error| {
-								tg::error!(!error, "failed to create the process store")
-							})?;
-					Database::Postgres(process_store)
-				}
-			},
-			self::config::Database::Sqlite(config) => {
-				#[cfg(not(feature = "sqlite"))]
-				{
-					let _ = config;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with sqlite support"
-					));
-				}
-				#[cfg(feature = "sqlite")]
-				{
-					let initialize = Arc::new(self::database::sqlite::initialize);
-					let options = db::sqlite::DatabaseOptions {
-						initialize,
-						max: config.pool.max.unwrap_or(parallelism),
-						min: config.pool.min.unwrap_or(0),
-						path: path.join(&config.path),
-						retry: config.retry.clone().into(),
-						ttl: config.pool.ttl,
-					};
-					let process_store =
-						db::sqlite::Database::new(options).await.map_err(|error| {
-							tg::error!(!error, "failed to create the process store")
-						})?;
-					Database::Sqlite(process_store)
-				}
-			},
-			self::config::Database::Turso(config) => {
-				#[cfg(not(feature = "turso"))]
-				{
-					let _ = config;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with turso support"
-					));
-				}
-				#[cfg(feature = "turso")]
-				{
-					let initialize: db::turso::Initialize = Arc::new(|connection| {
-						Box::pin(self::database::turso::initialize(connection))
-					});
-					let options = db::turso::DatabaseOptions {
-						initialize,
-						max: config.pool.max.unwrap_or(parallelism),
-						min: config.pool.min.unwrap_or(0),
-						path: path.join(&config.path),
-						retry: config.retry.clone().into(),
-						ttl: config.pool.ttl,
-					};
-					let process_store =
-						db::turso::Database::new(options).await.map_err(|error| {
-							tg::error!(!error, "failed to create the process store")
-						})?;
-					Database::Turso(process_store)
-				}
-			},
-		};
-
 		// Create the diagnostics.
 		let diagnostics = Mutex::new(Vec::new());
 
@@ -750,7 +664,6 @@ impl Server {
 			object_get_tasks,
 			object_store,
 			path,
-			process_store,
 			regions,
 			remote_object_put_tasks,
 			remote_list_tasks,
@@ -784,21 +697,6 @@ impl Server {
 			self::database::turso::migrate(database)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
-		}
-
-		// Migrate the process store if necessary.
-		#[cfg(feature = "sqlite")]
-		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
-			self::process::store::sqlite::migrate(process_store)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
-		}
-
-		#[cfg(feature = "turso")]
-		if let Ok(process_store) = server.process_store.try_unwrap_turso_ref() {
-			self::process::store::turso::migrate(process_store)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
 		}
 
 		// Destroy unfinished sandboxes if single process mode is enabled.

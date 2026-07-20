@@ -105,6 +105,11 @@ struct RunProcessArg {
 	token: String,
 }
 
+struct RunProcessOutput {
+	exit: u8,
+	path: PathBuf,
+}
+
 struct WaitForProcessArg<'a> {
 	process_stopper: Stopper,
 	sandbox: &'a tangram_sandbox::Sandbox,
@@ -208,8 +213,7 @@ impl Session {
 				));
 			},
 		};
-		let connection_session = self.server.session(&context);
-		let run_session = self.server.session(&self.server.context);
+		let session = self.server.session(&context);
 
 		// Register the token before starting the process.
 		let (process_id_sender, process_id_receiver) = tokio::sync::watch::channel(None);
@@ -233,11 +237,45 @@ impl Session {
 			server_for_token_cleanup.runner.state.process_tokens.remove(&token_for_cleanup);
 		}
 
+		// Create a process-principal session after the process is assigned.
+		let process_session = {
+			let context = self.context.clone();
+			let mut process_id_receiver = process_id_receiver.clone();
+			let process_stopper = process_stopper.clone();
+			let server = self.server.clone();
+			async move {
+				let id = loop {
+					if let Some(id) = process_id_receiver.borrow().clone() {
+						break id;
+					}
+					tokio::select! {
+						result = process_id_receiver.changed() => {
+							result.map_err(|error| tg::error!(!error, "failed to receive the process ID"))?;
+						},
+						() = process_stopper.wait() => {
+							return Err(tg::error!("the process was stopped before its ID was assigned"));
+						},
+					}
+				};
+				let context = crate::Context {
+					principal: tg::Principal::Process(id),
+					token: None,
+					..context
+				};
+				let session = server.session(&context);
+
+				Ok::<_, tg::Error>(session)
+			}
+			.boxed()
+			.shared()
+		};
+
 		// Load the command concurrently with the control stream.
 		let command = {
 			let command = state.command.clone();
-			let session = run_session.clone();
+			let process_session = process_session.clone();
 			async move {
+				let session = process_session.await?;
 				command
 					.data_with_handle(&session)
 					.await
@@ -274,7 +312,7 @@ impl Session {
 			(Some(sender), Some(receiver))
 		};
 
-		// Start the process before waiting for the control stream.
+		// Start the process task concurrently with the control stream.
 		let (sandbox_process_sender, sandbox_process_receiver) =
 			tokio::sync::watch::channel::<Option<Arc<tangram_sandbox::Process>>>(None);
 		let log_task = log_sender.map(|log_sender| {
@@ -319,10 +357,16 @@ impl Session {
 						};
 						let mut input = std::pin::pin!(input);
 						while let Some(event) = input.try_next().await? {
+							if matches!(event, tg::process::stdio::read::Event::End) {
+								continue;
+							}
 							log_sender
 								.send(event)
 								.map_err(|_| tg::error!("failed to buffer the process logs"))?;
 						}
+						log_sender
+							.send(tg::process::stdio::read::Event::End)
+							.map_err(|_| tg::error!("failed to buffer the process logs"))?;
 
 						Ok::<_, tg::Error>(())
 					}
@@ -341,12 +385,14 @@ impl Session {
 			let process_id_receiver = process_id_receiver.clone();
 			let process_stopper = process_stopper.clone();
 			let progress_sender = progress_sender.clone();
+			let process_session = process_session.clone();
 			let sandbox = sandbox.clone();
 			let state = state.clone();
 			let stopper = sandbox_stopper.clone();
 			let token = token.clone();
 			move |_| async move {
-				run_session
+				let session = process_session.await?;
+				session
 					.run_process(RunProcessArg {
 						command,
 						guest_url,
@@ -398,7 +444,7 @@ impl Session {
 			location: Some(location.clone().into()),
 			parent,
 		};
-		let connection = connection_session
+		let connection = session
 			.try_get_process_control_stream_all(arg, control_responses)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the control stream"))
@@ -595,6 +641,18 @@ impl Session {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the process task panicked"))?;
+		let result = match result {
+			Ok(output) => {
+				session
+					.collect_process_output(CollectProcessOutputArg {
+						exit: output.exit,
+						path: output.path,
+						state: &state,
+					})
+					.await
+			},
+			Err(error) => Err(error),
+		};
 		event_sender.send(Ok(Event::Exit)).ok();
 		let arg = FinishProcessTaskArg {
 			control_task,
@@ -676,7 +734,7 @@ impl Session {
 		};
 
 		// Store the output.
-		let value = if let Some(value) = &output.value {
+		let mut value = if let Some(value) = &output.value {
 			value
 				.store_with_handle(session)
 				.await
@@ -701,53 +759,73 @@ impl Session {
 		};
 		let mut exit = output.exit;
 
-		// If the process is remote, then push the output and error.
-		if let Some(tg::Location::Remote(remote)) = process
-			.location()
-			.and_then(|location| location.to_location())
-		{
-			let mut objects = BTreeSet::new();
+		// Push the output and error if the process is remote.
+		let push_result = async {
+			let Some(tg::Location::Remote(remote)) = process
+				.location()
+				.and_then(|location| location.to_location())
+			else {
+				return Ok::<_, tg::Error>(());
+			};
+			let mut objects = Vec::new();
 			if let Some(value) = &value {
-				value.children(&mut objects);
+				value.children_with_tokens(&mut objects);
 			}
 			if let Some(tg::Either::Right(id)) = &error {
 				let id = id.item.clone();
-				objects.insert(tg::object::Id::Error(id));
+				let object = tg::Referent::with_item(tg::object::Id::Error(id));
+				objects.push(object);
 			}
-			if !objects.is_empty() {
-				let token = process.token();
-				let arg = tg::push::Arg {
-					destination: Some(tg::Location::Remote(tg::location::Remote {
-						name: remote.name.clone(),
-						region: remote.region.clone(),
-					})),
-					items: objects
-						.into_iter()
-						.map(|object| {
-							let item = tg::Either::Left(object);
-							tg::Referent::with_item_and_token(item, token.clone())
-						})
-						.collect(),
-					..Default::default()
-				};
-				let stream = session
-					.push(arg)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to push the output"))?;
-				let state = process
-					.load_with_handle(session)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to load the process"))?;
-				session
-					.write_progress_stream(
-						&state.command,
-						progress_sender.clone(),
-						&state.stderr,
-						stream,
-					)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
+			if objects.is_empty() {
+				return Ok(());
 			}
+			let arg = tg::push::Arg {
+				destination: Some(tg::Location::Remote(tg::location::Remote {
+					name: remote.name.clone(),
+					region: remote.region.clone(),
+				})),
+				items: objects
+					.into_iter()
+					.map(|object| object.map(tg::Either::Left))
+					.collect(),
+				..Default::default()
+			};
+			let stream = session
+				.push(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to push the output"))?;
+			let state = process
+				.load_with_handle(session)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to load the process"))?;
+			session
+				.write_progress_stream(
+					&state.command,
+					progress_sender.clone(),
+					&state.stderr,
+					stream,
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
+
+			Ok(())
+		}
+		.await;
+		if let Err(push_error) = push_result {
+			let push_error = tg::error!(
+				!push_error,
+				code = tg::error::Code::Internal,
+				process = %process.id(),
+				"failed to push the process output"
+			);
+			error = Some(
+				push_error
+					.to_data_or_id()
+					.map_right(tg::Referent::with_item),
+			);
+			error_code = Some(tg::error::Code::Internal);
+			exit = 1;
+			value = None;
 		}
 
 		// Finish draining and writing the logs.
@@ -933,7 +1011,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn run_process(&self, arg: RunProcessArg) -> tg::Result<Output> {
+	async fn run_process(&self, arg: RunProcessArg) -> tg::Result<RunProcessOutput> {
 		let RunProcessArg {
 			command,
 			guest_url,
@@ -1133,12 +1211,12 @@ impl Session {
 			};
 			let exit = self.wait_for_process(arg).boxed().await?;
 
-			let arg = CollectProcessOutputArg {
+			let output = RunProcessOutput {
 				exit,
 				path: host_output_path,
-				state,
 			};
-			self.collect_process_output(arg).await
+
+			Ok(output)
 		}
 		.boxed()
 		.await;

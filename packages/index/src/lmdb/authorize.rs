@@ -83,6 +83,17 @@ impl Index {
 		if args.is_empty() {
 			return Ok(Vec::new());
 		}
+		if matches!(principal, tg::Principal::Root) {
+			let outputs = args
+				.iter()
+				.map(|arg| {
+					Some(crate::authorize::Output {
+						permissions: arg.permissions,
+					})
+				})
+				.collect();
+			return Ok(outputs);
+		}
 		let config = self.config;
 		tokio::task::spawn_blocking({
 			let db = self.db;
@@ -119,12 +130,6 @@ impl Index {
 					};
 					if crate::authorize::validate(&id, arg.permissions).is_err() {
 						outputs.push(None);
-						continue;
-					}
-					if matches!(principal, tg::Principal::Root) {
-						outputs.push(Some(crate::authorize::Output {
-							permissions: arg.permissions,
-						}));
 						continue;
 					}
 					if matches!(&principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == id)

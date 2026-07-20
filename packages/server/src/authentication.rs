@@ -46,37 +46,10 @@ impl Session {
 			}));
 		}
 
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "Option<db::value::Json<tg::process::Debug>>")]
-			debug: Option<tg::process::Debug>,
-			retry: bool,
-			#[tangram_database(as = "db::value::FromStr")]
-			sandbox: tg::sandbox::Id,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select
-					processes.debug,
-					processes.retry,
-					processes.sandbox
-				from processes
-				where processes.id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let Some(row) = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
+		let Some(process) = self.try_get_process_from_index(id).await? else {
+			return Ok(None);
+		};
+		let Some(data) = process.data else {
 			return Ok(None);
 		};
 		let location = self
@@ -87,11 +60,11 @@ impl Session {
 			.and_then(|runner| runner.remote.clone())
 			.map(|name| tg::Location::Remote(tg::location::Remote { name, region: None }));
 		Ok(Some(Process {
-			debug: row.debug,
+			debug: data.debug,
 			inner_token: None,
 			location,
-			retry: row.retry,
-			sandbox: row.sandbox,
+			retry: data.retry,
+			sandbox: data.sandbox,
 		}))
 	}
 
@@ -111,39 +84,23 @@ impl Session {
 			}));
 		}
 
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select 1
-				from sandboxes
-				where sandboxes.id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		if connection
-			.query_optional(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.is_none()
-		{
+		let Some(sandbox) = self.try_get_sandbox_from_index(id).await? else {
 			return Ok(None);
-		}
-		let location = self
-			.server
-			.config
-			.runner
-			.as_ref()
-			.and_then(|runner| runner.remote.clone())
-			.map_or_else(
-				|| tg::Location::Local(tg::location::Local::default()),
-				|name| tg::Location::Remote(tg::location::Remote { name, region: None }),
-			);
+		};
+		let Some(data) = sandbox.data else {
+			return Ok(None);
+		};
+		let location = data.location.unwrap_or_else(|| {
+			self.server
+				.config
+				.runner
+				.as_ref()
+				.and_then(|runner| runner.remote.clone())
+				.map_or_else(
+					|| tg::Location::Local(tg::location::Local::default()),
+					|name| tg::Location::Remote(tg::location::Remote { name, region: None }),
+				)
+		});
 		Ok(Some(Sandbox {
 			location,
 			token: None,

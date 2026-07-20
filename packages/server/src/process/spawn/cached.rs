@@ -44,14 +44,8 @@ impl Session {
 	pub(super) async fn try_get_cached_process_local(
 		&self,
 		arg: &tg::process::spawn::Arg,
-		parent_sandbox: Option<&tg::sandbox::Id>,
 	) -> tg::Result<Option<super::local::Output>> {
-		// Determine the principal.
-		let principal = if arg.public && arg.cached == Some(true) {
-			tg::Principal::Anonymous
-		} else {
-			self.cached_process_owner(arg, parent_sandbox)?
-		};
+		let public = arg.public && arg.cached == Some(true);
 
 		// List the candidates.
 		let candidates = self
@@ -72,8 +66,8 @@ impl Session {
 				arg,
 				&candidates,
 				&normal_candidate_indices,
-				&principal,
 				&mut cycle,
+				public,
 			)
 			.await?;
 		if output.is_some() {
@@ -88,8 +82,8 @@ impl Session {
 				arg,
 				&candidates,
 				&mismatched_checksum_candidate_indices,
-				&principal,
 				&mut cycle,
+				public,
 			)
 			.await?;
 		if output.is_some() {
@@ -131,12 +125,12 @@ impl Session {
 		arg: &tg::process::spawn::Arg,
 		candidates: &[Candidate],
 		candidate_indices: &[usize],
-		principal: &tg::Principal,
 		cycle: &mut Option<tg::process::Id>,
+		public: bool,
 	) -> tg::Result<Option<super::local::Output>> {
 		for candidate_indices in candidate_indices.chunks(AUTHORIZATION_BATCH_SIZE) {
 			let authorizations = self
-				.authorize_cached_process_candidates(candidates, candidate_indices, principal)
+				.authorize_cached_process_candidates(candidates, candidate_indices, public)
 				.await?;
 			for (index, authorized) in std::iter::zip(candidate_indices, authorizations) {
 				if !authorized {
@@ -205,12 +199,12 @@ impl Session {
 		arg: &tg::process::spawn::Arg,
 		candidates: &[Candidate],
 		candidate_indices: &[usize],
-		principal: &tg::Principal,
 		cycle: &mut Option<tg::process::Id>,
+		public: bool,
 	) -> tg::Result<Option<super::local::Output>> {
 		for candidate_indices in candidate_indices.chunks(AUTHORIZATION_BATCH_SIZE) {
 			let authorizations = self
-				.authorize_cached_process_candidates(candidates, candidate_indices, principal)
+				.authorize_cached_process_candidates(candidates, candidate_indices, public)
 				.await?;
 			for (index, authorized) in std::iter::zip(candidate_indices, authorizations) {
 				if !authorized {
@@ -244,32 +238,66 @@ impl Session {
 		&self,
 		candidates: &[Candidate],
 		candidate_indices: &[usize],
-		principal: &tg::Principal,
+		public: bool,
 	) -> tg::Result<Vec<bool>> {
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
 		let args = candidate_indices
 			.iter()
-			.map(|index| tangram_index::authorize::Arg {
-				permissions: permission.into(),
-				resource: tg::grant::Resource::Id(candidates[*index].0.clone().into()),
-				token: None,
+			.map(|index| {
+				let permissions = tg::grant::permission::Set::from_permission(permission);
+				let resource = tg::grant::Resource::Id(candidates[*index].0.clone().into());
+				(resource, permissions)
 			})
 			.collect::<Vec<_>>();
+		let principal = if public {
+			tg::Principal::Anonymous
+		} else {
+			self.cache_principal().await?
+		};
+		let context = crate::Context {
+			principal,
+			token: None,
+			..self.context.clone()
+		};
 		let authorizations = self
 			.server
-			.index
-			.authorize_batch(&args, principal)
+			.session(&context)
+			.authorize_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the cached processes"))?;
 		let authorized = authorizations
 			.into_iter()
 			.map(|authorization| {
-				authorization.is_some_and(|output| output.permissions.contains(permission))
+				authorization.is_some_and(|permissions| permissions.contains(permission))
 			})
 			.collect();
 
 		Ok(authorized)
+	}
+
+	async fn cache_principal(&self) -> tg::Result<tg::Principal> {
+		let tg::Principal::Process(id) = &self.context.principal else {
+			return Ok(self.context.principal.clone());
+		};
+		let process = self
+			.try_get_authenticated_process(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the authenticated process"))?;
+		let sandbox = process.sandbox;
+		let owner = if let Some(sandbox) = self.server.runner.state.sandboxes.get(&sandbox) {
+			sandbox.data.owner.clone()
+		} else {
+			self.get_sandbox_from_index(&sandbox)
+				.await
+				.map_err(|error| tg::error!(!error, %sandbox, "failed to get the sandbox"))?
+				.data
+				.ok_or_else(|| tg::error!(%sandbox, "missing the sandbox data"))?
+				.owner
+		};
+		let owner = owner.unwrap_or(tg::Principal::Root);
+
+		Ok(owner)
 	}
 
 	fn prioritize_cached_process_candidate_indices(
@@ -356,43 +384,6 @@ impl Session {
 			)?;
 
 		Ok(cycle)
-	}
-
-	fn cached_process_owner(
-		&self,
-		arg: &tg::process::spawn::Arg,
-		parent_sandbox: Option<&tg::sandbox::Id>,
-	) -> tg::Result<tg::Principal> {
-		let owner = match &arg.sandbox {
-			Some(tg::Either::Left(sandbox)) => sandbox.owner.clone(),
-			Some(tg::Either::Right(sandbox)) => {
-				let owner = self
-					.server
-					.runner
-					.state
-					.try_get_sandbox(sandbox)
-					.ok_or_else(|| tg::error!(%sandbox, "failed to find the sandbox"))?
-					.owner
-					.unwrap_or(tg::Principal::Root);
-				return Ok(owner);
-			},
-			None => return Err(tg::error!("expected the sandbox to be set")),
-		};
-		if let Some(owner) = owner {
-			return Ok(owner);
-		}
-		if let Some(parent_sandbox) = parent_sandbox {
-			let owner = self
-				.server
-				.runner
-				.state
-				.try_get_sandbox(parent_sandbox)
-				.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?
-				.owner
-				.unwrap_or(tg::Principal::Root);
-			return Ok(owner);
-		}
-		Ok(self.context.principal.clone())
 	}
 
 	fn cached_process_error_code(data: &tg::process::Data) -> Option<tg::error::Code> {

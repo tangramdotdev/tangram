@@ -1,21 +1,15 @@
 use {
 	crate::Session,
 	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
-	indoc::formatdoc,
-	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
+	tangram_index::prelude::*,
 };
-
-struct LocalOutput {
-	output: tg::sandbox::get::Output,
-	requires_existence_check: bool,
-}
 
 impl Session {
 	pub(crate) async fn try_get_sandbox(
@@ -71,101 +65,93 @@ impl Session {
 			Ok::<_, tg::Error>(
 				authorized.is_some_and(|permissions| permissions.contains(permission)),
 			)
-		};
-		let exists_future = self.exists(id.clone(), permission);
-		let get_future = self.get_sandbox_local(id);
-		let exists_future = pin!(exists_future);
-		let get_future = pin!(get_future);
-		let get_or_exists_future = future::select(get_future, exists_future);
-		let authorize_future = pin!(authorize_future);
-		let get_or_exists_future = pin!(get_or_exists_future);
-		let output = match future::select(authorize_future, get_or_exists_future).await {
-			future::Either::Left((authorized, get_or_exists_future)) => {
-				if !authorized? {
-					return Ok(None);
-				}
-				match get_or_exists_future.await {
-					future::Either::Left((output, exists_future)) => {
-						let output = output?;
-						if output.requires_existence_check && !exists_future.await? {
-							None
-						} else {
-							Some(output.output)
-						}
-					},
-					future::Either::Right((exists, get_future)) => {
-						if exists? {
-							Some(get_future.await?.output)
-						} else {
-							None
-						}
-					},
-				}
-			},
-			future::Either::Right((get_or_exists, authorize_future)) => match get_or_exists {
-				future::Either::Left((output, exists_future)) => {
-					let output = output?;
-					if !authorize_future.await?
-						|| output.requires_existence_check && !exists_future.await?
-					{
-						None
-					} else {
-						Some(output.output)
-					}
-				},
-				future::Either::Right((exists, get_future)) => {
-					if !exists? || !authorize_future.await? {
-						None
-					} else {
-						Some(get_future.await?.output)
-					}
-				},
-			},
-		};
+		}
+		.boxed();
+		let get_future = self.try_get_sandbox_local_inner(id).boxed();
+		let (authorized, output) = future::try_join(authorize_future, get_future).await?;
+		if !authorized {
+			return Ok(None);
+		}
 		Ok(output)
 	}
 
-	async fn get_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<LocalOutput> {
-		if let Some(data) = self.server.runner.state.try_get_sandbox(id) {
-			let requires_existence_check = data.status.is_destroyed();
-			let output = LocalOutput {
-				output: data,
-				requires_existence_check,
-			};
-			return Ok(output);
+	pub(crate) async fn try_get_sandbox_local_inner(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		if let Some(data) = self.server.runner.state.try_get_sandbox(id)
+			&& !data.status.is_destroyed()
+		{
+			return Ok(Some(data));
 		}
 
-		let control_future = self.get_sandbox_from_control(id);
-		let process_store_future = self.try_get_sandbox_from_process_store(id);
-		match future::select(pin!(control_future), pin!(process_store_future)).await {
-			future::Either::Left((result, _)) => {
-				let output = result?;
-				let requires_existence_check = output.status.is_destroyed();
-				let output = LocalOutput {
-					output,
-					requires_existence_check,
+		let index_future = self.try_get_sandbox_from_index(id).boxed();
+		let control_future = self.get_sandbox_from_control(id).boxed();
+		let output = match future::select(index_future, control_future).await {
+			future::Either::Left((indexed, control_future)) => {
+				let Some(indexed) = indexed? else {
+					return Ok(None);
 				};
-
-				Ok(output)
-			},
-			future::Either::Right((result, control_future)) => {
-				if let Some(output) = result? {
-					Ok(LocalOutput {
-						output,
-						requires_existence_check: false,
-					})
+				if indexed
+					.data
+					.as_ref()
+					.is_some_and(|data| data.status.is_destroyed())
+				{
+					indexed.data.unwrap()
 				} else {
-					let output = control_future.await?;
-					let requires_existence_check = output.status.is_destroyed();
-					let output = LocalOutput {
-						output,
-						requires_existence_check,
-					};
-
-					Ok(output)
+					let data = control_future.await?;
+					if data.status.is_destroyed() {
+						let Some(indexed) = self.try_get_sandbox_from_index(id).await? else {
+							return Ok(None);
+						};
+						indexed
+							.data
+							.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?
+					} else {
+						data
+					}
 				}
 			},
+			future::Either::Right((data, _)) => {
+				let data = data?;
+				if data.status.is_destroyed() {
+					let Some(indexed) = self.try_get_sandbox_from_index(id).await? else {
+						return Ok(None);
+					};
+					indexed
+						.data
+						.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?
+				} else {
+					data
+				}
+			},
+		};
+		Ok(Some(output))
+	}
+
+	pub(crate) async fn get_sandbox_from_index(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<tangram_index::sandbox::Sandbox> {
+		self.try_get_sandbox_from_index(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))
+	}
+
+	pub(crate) async fn try_get_sandbox_from_index(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<Option<tangram_index::sandbox::Sandbox>> {
+		if let Some(sandbox) = self.server.index.try_get_sandbox(id).await? {
+			return Ok(Some(sandbox));
 		}
+		self.index()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?
+			.try_last()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
+		self.server.index.try_get_sandbox(id).await
 	}
 
 	pub(crate) async fn get_sandbox_from_control(
@@ -194,95 +180,6 @@ impl Session {
 			.try_unwrap_get()
 			.map_err(|_| tg::error!("expected a get response"))?;
 		let output = response.data;
-		Ok(output)
-	}
-
-	async fn try_get_sandbox_from_process_store(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			cpu: Option<i64>,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			creator: Option<tg::Principal>,
-			hostname: Option<String>,
-			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Isolation>>")]
-			isolation: Option<tg::sandbox::Isolation>,
-			memory: Option<i64>,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
-			mounts: Option<Vec<tg::sandbox::Mount>>,
-			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Network>>")]
-			network: Option<tg::sandbox::Network>,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			owner: Option<tg::Principal>,
-			#[tangram_database(as = "db::value::FromStr")]
-			status: tg::sandbox::Status,
-			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
-			ttl: Option<std::time::Duration>,
-		}
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r"
-				select
-					cpu,
-					creator,
-					hostname,
-					isolation,
-					memory,
-					mounts,
-					network,
-					owner,
-					status,
-					ttl
-				from sandboxes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let output = row
-			.map(|row| {
-				Ok::<_, tg::Error>(tg::sandbox::get::Output {
-					cpu: row
-						.cpu
-						.map(u64::try_from)
-						.transpose()
-						.map_err(|error| tg::error!(!error, "invalid sandbox cpu"))?,
-					creator: row.creator,
-					hostname: row.hostname,
-					id: id.clone(),
-					isolation: row.isolation,
-					location: Some(self.server.config().region.clone().map_or_else(
-						|| tg::Location::Local(tg::location::Local::default()),
-						|region| {
-							tg::Location::Local(tg::location::Local {
-								region: Some(region),
-							})
-						},
-					)),
-					memory: row
-						.memory
-						.map(u64::try_from)
-						.transpose()
-						.map_err(|error| tg::error!(!error, "invalid sandbox memory"))?,
-					mounts: row.mounts.unwrap_or_default(),
-					network: row.network,
-					owner: Some(row.owner.unwrap_or(tg::Principal::Root)),
-					status: row.status,
-					ttl: row.ttl,
-				})
-			})
-			.transpose()?;
 		Ok(output)
 	}
 

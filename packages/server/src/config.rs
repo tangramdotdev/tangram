@@ -637,9 +637,6 @@ pub struct Process {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_touch: Duration,
 
-	#[serde(default = "default_process_store")]
-	pub store: Database,
-
 	#[serde(alias = "tti", default = "default_time_to_index")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
@@ -1444,7 +1441,6 @@ impl Default for Process {
 			finalizer: Some(Finalizer::default()),
 			grant_time_to_live: default_process_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
-			store: default_process_store(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1793,14 +1789,6 @@ fn default_vm_max_cpu() -> u64 {
 
 fn default_vm_max_memory() -> u64 {
 	8 * 1024 * 1024 * 1024
-}
-
-fn default_process_store() -> Database {
-	Database::Sqlite(SqliteDatabase {
-		pool: DatabasePool::default(),
-		path: PathBuf::from("processes"),
-		retry: database_retry_default(),
-	})
 }
 
 fn database_retry_default() -> Retry {

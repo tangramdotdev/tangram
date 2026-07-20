@@ -12,7 +12,6 @@ impl Session {
 		&self,
 		arg: &tg::process::spawn::Arg,
 		output: Option<Output>,
-		parent_sandbox: Option<&tg::sandbox::Id>,
 		location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let candidate = output.as_ref().map(|output| output.id.clone());
@@ -20,12 +19,7 @@ impl Session {
 			(output.sandbox_arg.is_some() && output.allocation.is_none())
 				.then(|| output.data.sandbox.clone())
 		});
-		let cache_future = self.spawn_process_get_cached_process(
-			arg,
-			parent_sandbox,
-			location,
-			candidate.as_ref(),
-		);
+		let cache_future = self.spawn_process_get_cached_process(arg, location, candidate.as_ref());
 		let start_future = self.spawn_process_start_local(arg, output).boxed();
 		let (cache, wait, output) = match future::select(start_future, pin!(cache_future)).await {
 			future::Either::Left((result, cache_future)) => {
@@ -157,7 +151,6 @@ impl Session {
 	async fn spawn_process_get_cached_process(
 		&self,
 		arg: &tg::process::spawn::Arg,
-		parent_sandbox: Option<&tg::sandbox::Id>,
 		location: Option<&tg::Location>,
 		exclude: Option<&tg::process::Id>,
 	) -> tg::Result<Option<cached::Output>> {
@@ -177,7 +170,7 @@ impl Session {
 				},
 			}
 		} else {
-			self.try_get_cached_process_local(arg, parent_sandbox)
+			self.try_get_cached_process_local(arg)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get a cached process"))?

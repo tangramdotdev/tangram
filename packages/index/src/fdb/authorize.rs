@@ -196,6 +196,17 @@ impl Index {
 		if args.is_empty() {
 			return Ok(Vec::new());
 		}
+		if matches!(principal, tg::Principal::Root) {
+			let outputs = args
+				.iter()
+				.map(|arg| {
+					Some(crate::authorize::Output {
+						permissions: arg.permissions,
+					})
+				})
+				.collect();
+			return Ok(outputs);
+		}
 		let txn = self
 			.database
 			.create_trx()
@@ -230,7 +241,6 @@ impl Index {
 			.filter_map(|(index, (arg, resource))| {
 				let resource = resource.as_ref()?;
 				if crate::authorize::validate(resource, arg.permissions).is_err()
-					|| matches!(principal, tg::Principal::Root)
 					|| matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *resource)
 				{
 					return None;
@@ -266,12 +276,6 @@ impl Index {
 			};
 			if crate::authorize::validate(&id, arg.permissions).is_err() {
 				outputs.push(None);
-				continue;
-			}
-			if matches!(principal, tg::Principal::Root) {
-				outputs.push(Some(crate::authorize::Output {
-					permissions: arg.permissions,
-				}));
 				continue;
 			}
 			if matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == id)

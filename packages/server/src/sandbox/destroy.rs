@@ -65,9 +65,11 @@ impl Session {
 		let permission =
 			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
 		let authorize_future = self.authorize(id.clone(), permission);
-		let exists_future = self.exists(id.clone(), permission);
-		let (authorized, exists) = future::try_join(authorize_future, exists_future).await?;
-		if !exists || !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+		let get_future = self.try_get_sandbox_from_index(id);
+		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
+		if sandbox.is_none()
+			|| !authorized.is_some_and(|permissions| permissions.contains(permission))
+		{
 			return Ok(None);
 		}
 

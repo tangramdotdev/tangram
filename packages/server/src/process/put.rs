@@ -1,5 +1,5 @@
 use {
-	crate::{Session, database::Database},
+	crate::Session,
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
@@ -8,13 +8,6 @@ use {
 	},
 	tangram_index::prelude::*,
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-#[cfg(feature = "turso")]
-mod turso;
 
 impl Session {
 	pub(crate) async fn put_process(
@@ -52,8 +45,6 @@ impl Session {
 		Self::validate_process_data(&arg.data)?;
 
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let creator = (!matches!(self.context.principal, tg::Principal::Anonymous))
-			.then(|| self.context.principal.clone());
 		let token_data = arg.data.clone();
 
 		// Authorize the process object relationships before removing the tokens.
@@ -92,29 +83,7 @@ impl Session {
 
 		arg.data = arg.data.without_tokens();
 
-		// Insert the process into the process store.
-		match &self.server.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => {
-				self.put_process_postgres(id, &arg, process_store, now, creator.as_ref())
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => {
-				self.put_process_sqlite(id, &arg, process_store, now, creator.as_ref())
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(process_store) => {
-				self.put_process_turso(id, &arg, process_store, now, creator.as_ref())
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the process"))?;
-			},
-		}
-
-		// Spawn a task to index the process.
+		// Create the index arguments.
 		let children = arg
 			.data
 			.children
@@ -193,26 +162,17 @@ impl Session {
 			resource: id.clone().into(),
 			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 		});
+
+		// Put the process in the index.
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let session = self.clone();
-				async move {
-					if let Err(error) = session
-						.server
-						.index
-						.batch(tangram_index::batch::Arg {
-							put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
-							put_processes: vec![put_process_arg],
-							..Default::default()
-						})
-						.await
-					{
-						tracing::error!(error = %error.trace(), "failed to put process to index");
-					}
-				}
+			.index
+			.batch(tangram_index::batch::Arg {
+				put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
+				put_processes: vec![put_process_arg],
+				..Default::default()
 			})
-			.detach();
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
 
 		let permission = self.process_permission_for_data(&token_data);
 		let token = self.create_token(

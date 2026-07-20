@@ -17,7 +17,6 @@ pub mod signal;
 pub mod spawn;
 pub mod status;
 pub mod stdio;
-pub mod store;
 pub mod touch;
 pub mod tty;
 pub mod wait;

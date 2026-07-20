@@ -4,10 +4,8 @@ use {
 		FutureExt as _, StreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},
 	},
-	indoc::formatdoc,
 	std::time::Duration,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_futures::{
 		stream::Ext as _,
 		task::{Stopper, Task},
@@ -37,19 +35,10 @@ impl Session {
 		if let Some(local) = &locations.local {
 			let stopper = self.context.stopper.clone();
 			if local.current {
-				let permission = tg::grant::Permission::Sandbox(
-					tg::grant::permission::sandbox::Permission::Read,
-				);
-				let authorize_future = self.authorize(id.clone(), permission).boxed();
-				let exists_future = self.exists(id.clone(), permission).boxed();
 				let check_future = async {
-					let (authorized, exists) =
-						future::try_join(authorize_future, exists_future).await?;
-					Ok::<_, tg::Error>(
-						exists
-							&& authorized
-								.is_some_and(|permissions| permissions.contains(permission)),
-					)
+					self.try_get_sandbox_local(id)
+						.await
+						.map(|output| output.is_some())
 				}
 				.boxed();
 				let create_future = self
@@ -183,48 +172,8 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::Status>> {
-		if let Some(data) = self.server.runner.state.try_get_sandbox(id) {
-			return Ok(Some(data.status));
-		}
-		let control_future = self.get_sandbox_from_control(id).boxed();
-		let process_store_future = self.try_get_sandbox_status_from_process_store(id).boxed();
-		match future::select(control_future, process_store_future).await {
-			future::Either::Left((result, _)) => result.map(|data| Some(data.status)),
-			future::Either::Right((result, control_future)) => match result? {
-				Some(status) => Ok(Some(status)),
-				None => control_future.await.map(|data| Some(data.status)),
-			},
-		}
-	}
-
-	async fn try_get_sandbox_status_from_process_store(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<tg::sandbox::Status>> {
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select status
-				from sandboxes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let status = connection
-			.query_optional_value_into::<db::value::Serde<tg::sandbox::Status>>(
-				statement.into(),
-				params,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.map(|status| status.0);
-		Ok(status)
+		let output = self.try_get_sandbox_local_inner(id).await?;
+		Ok(output.map(|output| output.status))
 	}
 
 	async fn try_get_sandbox_status_stream_regions(

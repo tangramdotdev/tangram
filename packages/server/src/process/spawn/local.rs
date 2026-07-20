@@ -224,7 +224,7 @@ impl Session {
 				.await
 				.map(Some);
 		}
-		self.try_get_cached_process_local(arg, parent_sandbox)
+		self.try_get_cached_process_local(arg)
 			.boxed()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a cached process"))

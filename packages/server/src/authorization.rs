@@ -71,7 +71,7 @@ impl Session {
 				tg::Principal::Sandbox(sandbox),
 			) = (&resource, permissions, &self.context.principal)
 				&& let Ok(process) = tg::process::Id::try_from(id.clone())
-				&& let Some(output) = self.server.try_get_process_local(&process, false).await?
+				&& let Some(output) = self.try_get_process_local_inner(&process, false).await?
 				&& output.data.sandbox == *sandbox
 			{
 				outputs.push(Some(permissions));

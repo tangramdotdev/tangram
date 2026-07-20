@@ -121,10 +121,10 @@ impl Session {
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
 		let authorize_future = self.authorize(resource, permissions).boxed();
-		let exists_future = self.exists(id.clone(), permissions).boxed();
+		let get_future = self.try_get_process_from_index(id).boxed();
 		let check_future = async {
-			let (permissions, exists) = future::try_join(authorize_future, exists_future).await?;
-			Ok::<_, tg::Error>(exists.then_some(permissions).flatten())
+			let (permissions, process) = future::try_join(authorize_future, get_future).await?;
+			Ok::<_, tg::Error>(process.is_some().then_some(permissions).flatten())
 		}
 		.boxed();
 		let create_future = self

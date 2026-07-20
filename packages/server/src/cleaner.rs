@@ -1,5 +1,5 @@
 use {
-	crate::{Server, database::Database, temp::Temp},
+	crate::{Server, temp::Temp},
 	futures::future,
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -7,13 +7,6 @@ use {
 	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-#[cfg(feature = "turso")]
-mod turso;
 
 pub(crate) struct CleanerTaskInnerArg {
 	pub n: usize,
@@ -139,62 +132,6 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
-		// Delete processes.
-		self.clean_processes(&output.processes, max_process_touched_at)
-			.await?;
-
-		// Delete sandboxes.
-		self.clean_sandboxes(&output.sandboxes, max_sandbox_touched_at)
-			.await?;
-
 		Ok(output)
-	}
-
-	async fn clean_processes(
-		&self,
-		processes: &[tg::process::Id],
-		max_stored_at: i64,
-	) -> tg::Result<()> {
-		match &self.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => {
-				self.clean_processes_postgres(process_store, processes, max_stored_at)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => {
-				self.clean_processes_sqlite(process_store, processes, max_stored_at)
-					.await
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(process_store) => {
-				self.clean_processes_turso(process_store, processes, max_stored_at)
-					.await
-			},
-		}
-	}
-
-	async fn clean_sandboxes(
-		&self,
-		sandboxes: &[tg::sandbox::Id],
-		max_finished_at: i64,
-	) -> tg::Result<()> {
-		match &self.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(process_store) => {
-				self.clean_sandboxes_postgres(process_store, sandboxes, max_finished_at)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(process_store) => {
-				self.clean_sandboxes_sqlite(process_store, sandboxes, max_finished_at)
-					.await
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(process_store) => {
-				self.clean_sandboxes_turso(process_store, sandboxes, max_finished_at)
-					.await
-			},
-		}
 	}
 }

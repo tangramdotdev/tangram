@@ -1,7 +1,6 @@
 use {
 	crate::{
 		Session,
-		database::Database,
 		sync::{
 			get::State,
 			graph::{UpdateObjectLocalArg, UpdateProcessLocalArg},
@@ -11,6 +10,7 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
@@ -239,29 +239,34 @@ impl Session {
 			})
 			.collect::<tg::Result<_>>()?;
 
-		// Write the processes to the database.
+		// Write the processes to the index.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let batch_refs: Vec<_> = batch.iter().map(|(id, data, _)| (id, data)).collect();
-		match &self.server.process_store {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => {
-				self.put_process_batch_postgres(&batch_refs, database, now, None)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
-			},
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(database) => {
-				self.put_process_batch_sqlite(&batch_refs, database, now, None)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
-			},
-			#[cfg(feature = "turso")]
-			Database::Turso(database) => {
-				self.put_process_batch_turso(&batch_refs, database, now, None)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to put the processes"))?;
-			},
-		}
+		let put_processes = batch
+			.iter()
+			.map(|(id, data, metadata)| tangram_index::process::put::Arg {
+				children: None,
+				command: data.command.clone().into(),
+				data: Some(data.clone()),
+				error: None,
+				id: id.clone(),
+				log: None,
+				metadata: metadata.clone().unwrap_or_default(),
+				output: None,
+				parent: None,
+				sandbox: Some(data.sandbox.clone()),
+				stored: tangram_index::process::Stored::default(),
+				time_to_touch: self.server.config.process.time_to_touch,
+				touched_at: now,
+			})
+			.collect();
+		self.server
+			.index
+			.batch(tangram_index::batch::Arg {
+				put_processes,
+				..Default::default()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the processes in the index"))?;
 
 		// Update the graph.
 		let mut graph = state.graph.lock().unwrap();
