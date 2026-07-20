@@ -595,13 +595,9 @@ where
 	}
 
 	fn object_id(&mut self, state: &tg::object::State) -> Result {
-		self.color(state.id(), Color::Blue)?;
-		if self.options.tokens
-			&& let Some(token) = state.token()
-		{
-			write!(self.writer, "&token=")?;
-			self.color(token, Color::Blue)?;
-		}
+		let token = self.options.tokens.then(|| state.token()).flatten();
+		let referent = tg::Referent::with_item_and_token(state.id(), token);
+		self.color(referent, Color::Blue)?;
 		Ok(())
 	}
 

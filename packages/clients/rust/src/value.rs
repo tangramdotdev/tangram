@@ -100,70 +100,7 @@ impl Value {
 	where
 		H: tg::Handle,
 	{
-		// Get the objects.
-		let objects = self.objects();
-
-		// Collect all unstored objects in reverse topological order.
-		let mut unstored = Vec::new();
-		let mut stack = objects
-			.into_iter()
-			.filter(|object| !object.state().stored())
-			.collect::<Vec<_>>();
-		while let Some(object) = stack.pop() {
-			unstored.push(object.clone());
-			if let Some(object) = object.state().object() {
-				let children = object
-					.children()
-					.into_iter()
-					.filter(|object| !object.state().stored());
-				stack.extend(children);
-			}
-		}
-		unstored.reverse();
-
-		if unstored.is_empty() {
-			return Ok(());
-		}
-
-		// Store the objects.
-		let mut objects = Vec::with_capacity(unstored.len());
-		let mut states = Vec::with_capacity(unstored.len());
-		for object in &unstored {
-			if let Some(object_) = object.state().object() {
-				let data = object_.to_data();
-				let bytes = data
-					.serialize()
-					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
-				let id = tg::object::Id::new(data.kind(), &bytes);
-				object.state().set_id(id.clone());
-				states.push(object.state());
-				let children = object_
-					.children()
-					.iter()
-					.map(Self::object_with_token)
-					.collect();
-				objects.push(tg::object::batch::Object {
-					id,
-					bytes,
-					children,
-				});
-			}
-		}
-		if !objects.is_empty() {
-			let arg = tg::object::batch::Arg {
-				location: None,
-				objects,
-			};
-			let output = handle.post_object_batch(arg).await?;
-			Self::apply_object_batch_output(&states, output)?;
-		}
-
-		// Mark all objects stored.
-		for object in &unstored {
-			object.state().set_stored(true);
-		}
-
-		Ok(())
+		self.store_with_location_with_handle(handle, None).await
 	}
 
 	pub async fn store_with_location_with_handle<H>(
@@ -204,7 +141,7 @@ impl Value {
 		let mut states = Vec::with_capacity(unstored.len());
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
-				let data = object_.to_data();
+				let data = object_.to_data().without_tokens();
 				let bytes = data
 					.serialize()
 					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
@@ -214,7 +151,7 @@ impl Value {
 				let children = object_
 					.children()
 					.iter()
-					.map(Self::object_with_token)
+					.map(Self::object_referent)
 					.collect();
 				objects.push(tg::object::batch::Object {
 					id,
@@ -255,11 +192,8 @@ impl Value {
 			),
 			Self::Object(object) => {
 				let id = object.id();
-				if let Some(token) = object.state().token() {
-					Data::Object(tg::Either::Right(tg::WithToken { id, token }))
-				} else {
-					Data::Object(tg::Either::Left(id))
-				}
+				let token = object.state().token();
+				Data::Object(tg::Referent::with_item_and_token(id, token))
 			},
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
@@ -276,30 +210,18 @@ impl Value {
 			return Err(tg::error!("invalid object batch output"));
 		}
 		for (state, object) in states.iter().zip(output.objects) {
-			match object {
-				tg::Either::Left(id) => {
-					if state.id() != id {
-						return Err(tg::error!("invalid object batch output"));
-					}
-				},
-				tg::Either::Right(object) => {
-					if state.id() != object.id {
-						return Err(tg::error!("invalid object batch output"));
-					}
-					state.set_token(Some(object.token));
-				},
+			if state.id() != object.item {
+				return Err(tg::error!("invalid object batch output"));
 			}
+			state.set_token(object.options.token);
 		}
 		Ok(())
 	}
 
-	fn object_with_token(object: &tg::Object) -> tg::MaybeWithToken<tg::object::Id> {
+	fn object_referent(object: &tg::Object) -> tg::Referent<tg::object::Id> {
 		let id = object.id();
-		if let Some(token) = object.state().token() {
-			tg::Either::Right(tg::WithToken { id, token })
-		} else {
-			tg::Either::Left(id)
-		}
+		let token = object.state().token();
+		tg::Referent::with_item_and_token(id, token)
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
@@ -319,14 +241,7 @@ impl Value {
 					.map(|(key, value)| Ok::<_, tg::Error>((key, Self::try_from_data(value)?)))
 					.collect::<tg::Result<_>>()?,
 			),
-			Data::Object(object) => match object {
-				tg::Either::Left(id) => Self::Object(tg::object::Handle::with_id(id)),
-				tg::Either::Right(object) => {
-					let handle = tg::object::Handle::with_id(object.id);
-					handle.state().set_token(Some(object.token));
-					Self::Object(handle)
-				},
-			},
+			Data::Object(object) => Self::Object(tg::object::Handle::with_referent(object)),
 			Data::Bytes(bytes) => Self::Bytes(bytes),
 			Data::Mutation(mutation) => Self::Mutation(tg::Mutation::try_from_data(mutation)?),
 			Data::Template(template) => Self::Template(tg::Template::try_from_data(template)?),

@@ -7,10 +7,9 @@ pub fn load(
 ) -> tg::Result<String> {
 	let (Serde(module),) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
-		let text = compiler
-			.load_module(&module)
-			.await
-			.map_err(|error| tg::error!(!error, ?module, "failed to load the module"))?;
+		let text = compiler.load_module(&module).await.map_err(
+			|error| tg::error!(!error, module = ?module.without_token(), "failed to load the module"),
+		)?;
 		Ok(text)
 	})
 }
@@ -95,8 +94,8 @@ pub fn resolve(
 		let output = compiler.handle.resolve_module(arg).await.map_err(|error| {
 			tg::error!(
 				source = error,
-				?referrer,
-				%specifier,
+				import = ?import.without_token(),
+				referrer = ?referrer.without_token(),
 				"failed to resolve specifier relative to the module"
 			)
 		})?;

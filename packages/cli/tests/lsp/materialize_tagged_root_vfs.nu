@@ -46,7 +46,7 @@ let responses = lsp run [
 let locations = lsp result $responses 10
 assert (($locations | length) > 0) "expected a definition location"
 let definition_uri = $locations.0.uri
-snapshot ($definition_uri | redact $server_path | normalize_ids) 'file://<path>/tags/dep/tangram.ts'
+snapshot --normalize-ids --redact $server_path $definition_uri 'file://<redacted>/tags/dep/tangram.ts'
 
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the definition path to be materialized"

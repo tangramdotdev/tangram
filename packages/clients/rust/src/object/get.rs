@@ -18,6 +18,9 @@ pub struct Arg {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug)]
@@ -36,7 +39,7 @@ impl tg::Session {
 		let path = format!("/objects/{id}");
 		let uri = Uri::builder()
 			.path(&path)
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

@@ -1164,8 +1164,11 @@ impl Compiler {
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
+					let artifact = id.clone().try_into()?;
+					let artifact =
+						tg::Referent::with_item_and_token(artifact, options.token.clone());
 					let arg = tg::checkout::Arg {
-						artifact: id.clone().try_into()?,
+						artifact,
 						dependencies: true,
 						extension: extension.clone(),
 						force: false,
@@ -1262,8 +1265,11 @@ impl Compiler {
 						symlink_path
 					}
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
+					let artifact = id.clone().try_into()?;
+					let artifact =
+						tg::Referent::with_item_and_token(artifact, options.token.clone());
 					let arg = tg::checkout::Arg {
-						artifact: id.clone().try_into()?,
+						artifact,
 						dependencies: true,
 						extension: None,
 						force: false,
@@ -1278,8 +1284,10 @@ impl Compiler {
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
+					let artifact =
+						tg::Referent::with_item_and_token(artifact, options.token.clone());
 					let arg = tg::checkout::Arg {
-						artifact: artifact.clone(),
+						artifact,
 						dependencies: true,
 						extension,
 						force: false,

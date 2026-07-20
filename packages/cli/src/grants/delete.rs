@@ -11,7 +11,7 @@ pub struct Args {
 	pub principal: tg::principal::Selector,
 
 	#[arg(index = 3)]
-	pub resource: tg::grant::Resource,
+	pub resource: tg::Referent<tg::grant::Resource>,
 }
 
 impl Cli {

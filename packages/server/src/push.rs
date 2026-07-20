@@ -139,6 +139,7 @@ impl Session {
 							tg::Either::Left(object) => {
 								let metadata_arg = tg::object::metadata::Arg {
 									location: Some(source.clone().into()),
+									token: item_token(item).cloned(),
 								};
 								let metadata = session
 									.try_get_object_metadata(object, metadata_arg)
@@ -153,6 +154,7 @@ impl Session {
 							tg::Either::Right(process) => {
 								let metadata_arg = tg::process::metadata::Arg {
 									location: Some(source.clone().into()),
+									token: item_token(item).cloned(),
 								};
 								let Some(metadata) = session
 									.try_get_process_metadata(process, metadata_arg)
@@ -418,7 +420,7 @@ impl Session {
 	fn create_sync_output_items(
 		&self,
 		arg: &tg::push::Arg,
-	) -> tg::Result<Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>> {
+	) -> tg::Result<Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		arg.items
 			.iter()
@@ -478,11 +480,7 @@ impl Session {
 					},
 				};
 				let token = self.create_token(resource, permissions, expires_at)?;
-				let item = if let Some(token) = token {
-					tg::Either::Right(tg::WithToken { id: item, token })
-				} else {
-					tg::Either::Left(item)
-				};
+				let item = tg::Referent::with_item_and_token(item, token);
 				Ok(item)
 			})
 			.collect()
@@ -540,10 +538,13 @@ impl Session {
 }
 
 fn item_id(
-	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
 ) -> &tg::Either<tg::object::Id, tg::process::Id> {
-	match item {
-		tg::Either::Left(item) => item,
-		tg::Either::Right(item) => &item.id,
-	}
+	&item.item
+}
+
+fn item_token(
+	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
+) -> Option<&tg::grant::Token> {
+	item.options.token.as_ref()
 }

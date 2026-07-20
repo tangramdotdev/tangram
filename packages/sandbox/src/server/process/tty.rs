@@ -10,11 +10,7 @@ use {
 };
 
 impl Server {
-	pub async fn set_tty_size(
-		&self,
-		id: tg::process::Id,
-		arg: crate::client::tty::SizeArg,
-	) -> tg::Result<()> {
+	pub async fn set_tty_size(&self, id: u64, arg: crate::client::tty::SizeArg) -> tg::Result<()> {
 		let tty = self
 			.processes
 			.get(&id)
@@ -51,7 +47,7 @@ impl Server {
 		request: http::Request<BoxBody>,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let id: tg::process::Id = id
+		let id: u64 = id
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 

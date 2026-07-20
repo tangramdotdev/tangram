@@ -1,22 +1,16 @@
 use {
-	crate::{Server, Session, database::Database},
+	crate::{Server, Session},
 	futures::{
-		StreamExt as _, TryStreamExt as _, future,
-		stream::{self, FuturesOrdered, FuturesUnordered},
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
+		stream::{self, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_index::prelude::*,
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-#[cfg(feature = "turso")]
-mod turso;
 
 impl Session {
 	pub async fn try_get_process(
@@ -32,7 +26,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_get_process_local(id, arg.metadata)
+					.try_get_process_local(id, arg.metadata, arg.token.as_ref())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			{
@@ -40,7 +34,7 @@ impl Session {
 			}
 
 			if let Some(output) = self
-				.try_get_process_regions(id, &local.regions, arg.metadata)
+				.try_get_process_regions(id, &local.regions, arg.metadata, arg.token.as_ref())
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the process from another region"),
@@ -50,7 +44,7 @@ impl Session {
 		}
 
 		if let Some(output) = self
-			.try_get_process_remotes(id, &locations.remotes, arg.metadata)
+			.try_get_process_remotes(id, &locations.remotes, arg.metadata, arg.token.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process from a remote"))?
 		{
@@ -64,51 +58,200 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		metadata: bool,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		self.try_get_process_batch_local(std::slice::from_ref(id), metadata)
-			.await
-			.map(|outputs| outputs.into_iter().next().unwrap())
+		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
+		let permission =
+			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		let authorize_future = async {
+			let authorized = self.authorize(resource, permission).await?;
+			Ok::<_, tg::Error>(
+				authorized.is_some_and(|permissions| permissions.contains(permission)),
+			)
+		}
+		.boxed();
+		let get_future = self.try_get_process_local_inner(id, metadata).boxed();
+		let (authorized, output) = future::try_join(authorize_future, get_future).await?;
+		if !authorized {
+			return Ok(None);
+		}
+		let Some(mut output) = output else {
+			return Ok(None);
+		};
+		if let Some(metadata) = output.metadata.take() {
+			output.metadata = self
+				.mask_process_metadata(id, metadata, token)
+				.boxed()
+				.await?;
+		}
+		Ok(Some(output))
 	}
 
-	pub async fn try_get_process_batch_local(
+	pub(crate) async fn get_process_local(
 		&self,
-		ids: &[tg::process::Id],
+		id: &tg::process::Id,
 		metadata: bool,
-	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let outputs = self
-			.server
-			.try_get_process_batch_local(ids, metadata)
-			.await?;
+	) -> tg::Result<tg::process::get::Output> {
+		let output = self
+			.try_get_process_local_inner(id, metadata)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
-		let outputs = std::iter::zip(ids, outputs)
-			.map(|(id, output)| async move {
-				if output.is_none() {
-					return Ok::<_, tg::Error>(None);
-				}
-				let resource = tg::grant::Resource::Id(id.clone().into());
-				let permission = tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Node,
-				);
-				if !self
-					.authorize(resource, permission)
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_process_local_inner(
+		&self,
+		id: &tg::process::Id,
+		metadata: bool,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		if let Some(data) = self.server.runner.state.try_get_process(id)
+			&& !data.status.is_finished()
+		{
+			let metadata = if metadata {
+				self.try_get_process_from_index(id)
 					.await?
-					.is_some_and(|permissions| permissions.contains(permission))
-				{
-					return Ok(None);
-				}
-				let mut output = output;
-				if let Some(output) = &mut output
-					&& let Some(metadata) = output.metadata.take()
-				{
-					output.metadata = self.mask_process_metadata(id, metadata).await?;
-				}
-				Ok::<_, tg::Error>(output)
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+					.map(|process| process.metadata)
+			} else {
+				None
+			};
+			let output = self.create_process_get_output(id, data, metadata);
+			return Ok(Some(output));
+		}
 
-		Ok(outputs)
+		let index_future = self.try_get_process_from_index(id).boxed();
+		let control_future = self.get_process_from_control(id).boxed();
+		let output = match future::select(index_future, control_future).await {
+			future::Either::Left((indexed, control_future)) => {
+				let Some(indexed) = indexed? else {
+					return Ok(None);
+				};
+				if indexed
+					.data
+					.as_ref()
+					.is_some_and(|data| data.status.is_finished())
+				{
+					let data = indexed.data.unwrap();
+					self.create_process_get_output(id, data, metadata.then_some(indexed.metadata))
+				} else {
+					let data = control_future.await?;
+					if data.status.is_finished() {
+						let Some(indexed) = self.try_get_process_from_index(id).await? else {
+							return Ok(None);
+						};
+						let data = indexed
+							.data
+							.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+						self.create_process_get_output(
+							id,
+							data,
+							metadata.then_some(indexed.metadata),
+						)
+					} else {
+						self.create_process_get_output(
+							id,
+							data,
+							metadata.then_some(indexed.metadata),
+						)
+					}
+				}
+			},
+			future::Either::Right((data, index_future)) => {
+				let data = data?;
+				if data.status.is_finished() {
+					let Some(indexed) = self.try_get_process_from_index(id).await? else {
+						return Ok(None);
+					};
+					let data = indexed
+						.data
+						.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+					self.create_process_get_output(id, data, metadata.then_some(indexed.metadata))
+				} else {
+					let indexed = if metadata { index_future.await? } else { None };
+					let metadata = indexed.map(|process| process.metadata);
+					self.create_process_get_output(id, data, metadata)
+				}
+			},
+		};
+
+		Ok(Some(output))
+	}
+
+	pub(crate) async fn get_process_from_index(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<tangram_index::process::Process> {
+		self.try_get_process_from_index(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process in the index"))
+	}
+
+	pub(crate) async fn try_get_process_from_index(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tangram_index::process::Process>> {
+		if let Some(process) = self.server.index.try_get_process(id).await? {
+			return Ok(Some(process));
+		}
+		self.index()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?
+			.try_last()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
+		self.server.index.try_get_process(id).await
+	}
+
+	pub(crate) async fn get_process_from_control(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<tg::process::Data> {
+		let request = tg::process::control::ServerRequestArg::Get(
+			tg::process::control::GetServerRequestArg {},
+		);
+		let retry = tangram_futures::retry::Options {
+			max_retries: u64::MAX,
+			..Default::default()
+		};
+		let options = crate::control::Options {
+			retry,
+			timeout: std::time::Duration::from_secs(10),
+		};
+		let response = self
+			.send_process_control_request(id, request, options)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to send the get process control request"),
+			)?
+			.map_err(|error| tg::error!(!error, %id, "the get process control request failed"))?;
+		let response = response
+			.try_unwrap_get()
+			.map_err(|_| tg::error!("expected a get response"))?;
+		let output = response.data;
+		Ok(output)
+	}
+
+	fn create_process_get_output(
+		&self,
+		id: &tg::process::Id,
+		data: tg::process::Data,
+		metadata: Option<tg::process::Metadata>,
+	) -> tg::process::get::Output {
+		let data = data.without_tokens();
+		let location = self.server.config().region.clone().map_or_else(
+			|| tg::Location::Local(tg::location::Local::default()),
+			|region| {
+				tg::Location::Local(tg::location::Local {
+					region: Some(region),
+				})
+			},
+		);
+		tg::process::get::Output {
+			data,
+			id: id.clone(),
+			location: Some(location),
+			metadata,
+		}
 	}
 
 	async fn try_get_process_regions(
@@ -116,10 +259,11 @@ impl Session {
 		id: &tg::process::Id,
 		regions: &[String],
 		metadata: bool,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_region(id, region, metadata))
+			.map(|region| self.try_get_process_region(id, region, metadata, token))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -145,6 +289,7 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 		metadata: bool,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -155,6 +300,7 @@ impl Session {
 		let arg = tg::process::get::Arg {
 			location: Some(location.clone().into()),
 			metadata,
+			token: token.cloned(),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, region = %region, "failed to get the process"),
@@ -171,10 +317,11 @@ impl Session {
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
 		metadata: bool,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_remote(id, remote, metadata))
+			.map(|remote| self.try_get_process_remote(id, remote, metadata, token))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -194,7 +341,7 @@ impl Session {
 		};
 
 		// Spawn a task to put the process if it is finished.
-		if output.data.status.is_finished() {
+		if output.data.status.is_finished() && !Self::process_log_needs_compaction(&output.data) {
 			tokio::spawn({
 				let session = self.clone();
 				let id = id.clone();
@@ -228,6 +375,7 @@ impl Session {
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 		metadata: bool,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
@@ -240,6 +388,7 @@ impl Session {
 		let arg = tg::process::get::Arg {
 			location: Some(location),
 			metadata,
+			token: token.cloned(),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the process"),
@@ -338,41 +487,7 @@ impl Server {
 		ids: &[tg::process::Id],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		// Get the process from the process store.
-		let data_future = async {
-			match &self.process_store {
-				#[cfg(feature = "postgres")]
-				Database::Postgres(process_store) => {
-					self.try_get_process_batch_postgres(process_store, ids)
-						.await
-				},
-				#[cfg(feature = "sqlite")]
-				Database::Sqlite(process_store) => self.try_get_process_batch_sqlite(process_store, ids).await,
-				#[cfg(feature = "turso")]
-				Database::Turso(process_store) => self.try_get_process_batch_turso(process_store, ids).await,
-			}
-		};
-
-		// Get the metadata if requested.
-		let metadata_future = async {
-			if metadata {
-				self.index.try_get_processes(ids).await.ok().map_or_else(
-					|| vec![None; ids.len()],
-					|processes| {
-						processes
-							.into_iter()
-							.map(|process| process.map(|process| process.metadata))
-							.collect()
-					},
-				)
-			} else {
-				vec![None; ids.len()]
-			}
-		};
-
-		// Fetch the data and metadata concurrently.
-		let (data, metadata) = future::join(data_future, metadata_future).await;
-		let data = data?;
+		let processes = self.index.try_get_processes(ids).await?;
 		let location = self.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {
@@ -383,12 +498,20 @@ impl Server {
 		);
 
 		// Combine data and metadata into outputs.
-		let outputs = std::iter::zip(data, metadata)
-			.map(|(output, metadata)| {
-				output.map(|mut output| {
-					output.location = Some(location.clone());
-					output.metadata = metadata;
-					output
+		let outputs = std::iter::zip(ids, processes)
+			.map(|(id, process)| {
+				let process = process?;
+				let data = process.data?;
+				if !data.status.is_finished() {
+					return None;
+				}
+				let data = data.without_tokens();
+				let metadata = metadata.then_some(process.metadata);
+				Some(tg::process::get::Output {
+					data,
+					id: id.clone(),
+					location: Some(location.clone()),
+					metadata,
 				})
 			})
 			.collect();

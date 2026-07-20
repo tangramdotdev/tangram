@@ -164,7 +164,7 @@ impl Session {
 
 	async fn checkin_path_load_graph(&self, id: &tg::graph::Id) -> tg::Result<tg::graph::Data> {
 		let output = self
-			.try_get_object_local(&id.clone().into(), false)
+			.try_get_object_local(&id.clone().into(), false, None)
 			.await?
 			.ok_or_else(|| tg::error!("graph not found"))?;
 		tg::graph::Data::deserialize(output.bytes)
@@ -176,7 +176,7 @@ impl Session {
 		id: &tg::artifact::Id,
 	) -> tg::Result<tg::graph::data::Directory> {
 		let output = self
-			.try_get_object_local(&id.clone().into(), false)
+			.try_get_object_local(&id.clone().into(), false, None)
 			.await?
 			.ok_or_else(|| tg::error!("directory not found"))?;
 		let data = tg::directory::Data::deserialize(output.bytes)

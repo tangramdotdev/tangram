@@ -27,6 +27,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +87,10 @@ impl<O> tg::Process<O> {
 		H: tg::Handle,
 	{
 		let token = self.token();
+		let mut arg = arg;
+		if arg.token.is_none() {
+			arg.token = token.clone();
+		}
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
 				"getting the process children is not supported for unsandboxed processes"
@@ -122,7 +129,7 @@ impl tg::Session {
 		let path = format!("/processes/{id}/children");
 		let uri = Uri::builder()
 			.path(&path)
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

@@ -427,6 +427,7 @@ impl Session {
 						tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer))
 					},
 				};
+				let data = data.without_tokens();
 				let kind = data.kind();
 				let bytes = data
 					.serialize()
@@ -673,6 +674,7 @@ impl Session {
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	) -> tg::Result<(tg::object::Id, bool, tg::object::Metadata)> {
+		let data = data.clone().without_tokens();
 		let kind = data.kind();
 		let bytes = data
 			.serialize()
@@ -905,6 +907,7 @@ impl Session {
 		};
 
 		// Serialize and compute the ID.
+		let data = data.without_tokens();
 		let bytes = data
 			.serialize()
 			.map_err(|error| tg::error!(!error, "failed to serialize the reference artifact"))?;
@@ -1294,6 +1297,7 @@ impl Session {
 	) -> tg::Result<tg::directory::Id> {
 		// Create the directory data.
 		let data: tg::object::Data = tg::directory::Data::Node(directory.clone()).into();
+		let data = data.without_tokens();
 		let kind = data.kind();
 		let bytes = data
 			.serialize()

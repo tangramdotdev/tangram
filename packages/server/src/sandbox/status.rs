@@ -1,13 +1,11 @@
 use {
 	crate::Session,
 	futures::{
-		StreamExt as _,
-		stream::{self, BoxStream, FuturesUnordered},
+		FutureExt as _, StreamExt as _, future,
+		stream::{BoxStream, FuturesUnordered},
 	},
-	indoc::formatdoc,
 	std::time::Duration,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_futures::{
 		stream::Ext as _,
 		task::{Stopper, Task},
@@ -16,7 +14,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
+	tokio_stream::wrappers::ReceiverStream,
 };
 
 impl Session {
@@ -35,18 +33,39 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(status) = self
-					.try_get_sandbox_status_stream_local(
-						id,
-						self.context.stopper.clone(),
-						arg.timeout,
-					)
-					.await
-					.map_err(
+			let stopper = self.context.stopper.clone();
+			if local.current {
+				let check_future = async {
+					self.try_get_sandbox_local(id)
+						.await
+						.map(|output| output.is_some())
+				}
+				.boxed();
+				let create_future = self
+					.create_sandbox_status_stream_local(id, stopper, arg.timeout)
+					.boxed();
+				let stream = match future::select(check_future, create_future).await {
+					future::Either::Left((checked, create_future)) => {
+						if checked? {
+							Some(create_future.await)
+						} else {
+							None
+						}
+					},
+					future::Either::Right((stream, check_future)) => {
+						if check_future.await? {
+							Some(stream)
+						} else {
+							None
+						}
+					},
+				};
+				if let Some(stream) = stream {
+					let stream = stream.map_err(
 						|error| tg::error!(!error, %id, "failed to get the sandbox status stream"),
-					)? {
-				return Ok(Some(status));
+					)?;
+					return Ok(Some(stream));
+				}
 			}
 
 			if let Some(status) = self
@@ -71,28 +90,13 @@ impl Session {
 		Ok(None)
 	}
 
-	async fn try_get_sandbox_status_stream_local(
+	pub(crate) async fn create_sandbox_status_stream_local(
 		&self,
 		id: &tg::sandbox::Id,
 		stopper: Option<Stopper>,
 		timeout: Option<Duration>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
-		let permission =
-			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
-		let authorized = self.authorize(id.clone(), permission).await?;
-		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
-			return Ok(None);
-		}
-
-		if !self
-			.server
-			.get_sandbox_exists_local(id)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to check if the sandbox exists"))?
-		{
-			return Ok(None);
-		}
-
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>> {
+		// Create the wakeups stream.
 		let wakeups = if timeout == Some(Duration::ZERO) {
 			None
 		} else {
@@ -104,10 +108,6 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
-			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
-				.skip(1)
-				.map(|_| ());
-			let wakeups = stream::select(wakeups, interval);
 			let wakeups = match timeout {
 				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
 				None => wakeups.boxed(),
@@ -115,8 +115,10 @@ impl Session {
 			Some(wakeups.with_stopper(stopper))
 		};
 
+		// Create the channel.
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 
+		// Spawn the task.
 		let session = self.clone();
 		let id = id.clone();
 		let task = Task::spawn(|_| async move {
@@ -130,7 +132,7 @@ impl Session {
 
 		let stream = ReceiverStream::new(receiver).attach(task).boxed();
 
-		Ok(Some(stream))
+		Ok(stream)
 	}
 
 	async fn try_get_sandbox_status_stream_local_task(
@@ -166,47 +168,12 @@ impl Session {
 		}
 	}
 
-	pub(crate) async fn get_sandbox_status_local(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<tg::sandbox::Status> {
-		self.try_get_sandbox_status_local(id)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the sandbox"))
-	}
-
 	pub(crate) async fn try_get_sandbox_status_local(
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::Status>> {
-		let connection = self
-			.server
-			.process_store
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select status
-				from sandboxes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let Some(status) = connection
-			.query_optional_value_into::<db::value::Serde<tg::sandbox::Status>>(
-				statement.into(),
-				params,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			.map(|value| value.0)
-		else {
-			return Ok(None);
-		};
-		drop(connection);
-		Ok(Some(status))
+		let output = self.try_get_sandbox_local_inner(id).await?;
+		Ok(output.map(|output| output.status))
 	}
 
 	async fn try_get_sandbox_status_stream_regions(

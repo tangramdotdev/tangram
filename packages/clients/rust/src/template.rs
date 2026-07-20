@@ -110,15 +110,8 @@ impl Template {
 	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
 		let data = Data::unrender(prefix, string)?;
 		let components = data.components.into_iter().map(|data| match data {
-			tg::template::data::Component::Artifact(id) => {
-				let artifact = match id {
-					tg::Either::Left(id) => tg::Artifact::with_id(id),
-					tg::Either::Right(id) => {
-						let artifact = tg::Artifact::with_id(id.id);
-						artifact.state().set_token(Some(id.token));
-						artifact
-					},
-				};
+			tg::template::data::Component::Artifact(referent) => {
+				let artifact = tg::Artifact::with_referent(referent);
 				Component::Artifact(artifact)
 			},
 			tg::template::data::Component::String(string) => Component::String(string),
@@ -146,39 +139,30 @@ impl Data {
 
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		for component in &self.components {
-			if let tg::template::data::Component::Artifact(id) = component {
-				let id = match id {
-					tg::Either::Left(id) => id.clone(),
-					tg::Either::Right(id) => id.id.clone(),
-				};
-				children.insert(id.into());
+			if let tg::template::data::Component::Artifact(artifact) = component {
+				children.insert(artifact.item.clone().into());
 			}
 		}
 	}
 
-	pub fn children_with_tokens(&self, children: &mut Vec<tg::MaybeWithToken<tg::object::Id>>) {
+	pub fn children_with_tokens(&self, children: &mut Vec<tg::Referent<tg::object::Id>>) {
 		for component in &self.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
-				let object = match artifact {
-					tg::Either::Left(id) => tg::Either::Left(id.clone().into()),
-					tg::Either::Right(artifact) => tg::Either::Right(tg::WithToken {
-						id: artifact.id.clone().into(),
-						token: artifact.token.clone(),
-					}),
-				};
+				let object = artifact.clone().map(Into::into);
 				children.push(object);
 			}
 		}
 	}
 
-	pub fn remove_tokens(&mut self) {
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
 		for component in &mut self.components {
-			if let tg::template::data::Component::Artifact(artifact) = component
-				&& let tg::Either::Right(with_token) = artifact
-			{
-				*artifact = tg::Either::Left(with_token.id.clone());
+			if let tg::template::data::Component::Artifact(artifact) = component {
+				artifact.options.token.take();
 			}
 		}
+
+		self
 	}
 
 	pub fn try_render<'a, F>(&'a self, mut f: F) -> tg::Result<String>
@@ -228,9 +212,9 @@ impl Data {
 			let id: tg::artifact::Id = id.as_str().parse().unwrap();
 
 			// Add an artifact component.
-			components.push(tg::template::data::Component::Artifact(tg::Either::Left(
-				id,
-			)));
+			components.push(tg::template::data::Component::Artifact(
+				tg::Referent::with_item(id),
+			));
 
 			// Advance the cursor to the end of the match.
 			i = match_.end();
@@ -255,11 +239,8 @@ impl Component {
 			Self::String(string) => tg::template::data::Component::String(string.clone()),
 			Self::Artifact(artifact) => {
 				let id = artifact.id();
-				let artifact = if let Some(token) = artifact.state().token() {
-					tg::Either::Right(tg::WithToken { id, token })
-				} else {
-					tg::Either::Left(id)
-				};
+				let token = artifact.state().token();
+				let artifact = tg::Referent::with_item_and_token(id, token);
 				tg::template::data::Component::Artifact(artifact)
 			},
 			Self::Placeholder(placeholder) => {
@@ -305,15 +286,8 @@ impl TryFrom<tg::template::data::Component> for Component {
 	fn try_from(data: tg::template::data::Component) -> tg::Result<Self, Self::Error> {
 		Ok(match data {
 			tg::template::data::Component::String(string) => Self::String(string),
-			tg::template::data::Component::Artifact(id) => {
-				let artifact = match id {
-					tg::Either::Left(id) => tg::Artifact::with_id(id),
-					tg::Either::Right(id) => {
-						let artifact = tg::Artifact::with_id(id.id);
-						artifact.state().set_token(Some(id.token));
-						artifact
-					},
-				};
+			tg::template::data::Component::Artifact(referent) => {
+				let artifact = tg::Artifact::with_referent(referent);
 				Self::Artifact(artifact)
 			},
 			tg::template::data::Component::Placeholder(data) => {

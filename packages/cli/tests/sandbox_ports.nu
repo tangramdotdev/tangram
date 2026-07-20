@@ -22,7 +22,7 @@ assert equal $listed.network.ports $get.network.ports
 
 let output = tg sandbox create --no-network --port 8080:80 | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> ports require networking
 
@@ -30,7 +30,7 @@ snapshot ($output.stderr | redact) '
 
 let output = tg sandbox create --network=host --port 8080:80 | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> ports are not supported with host networking
 
@@ -46,7 +46,7 @@ let executable = tg checkin ($path | path join "script") | str trim
 
 let output = tg spawn $"--sandbox=($sandbox)" --port 8080:80 --executable $executable | complete
 failure $output
-snapshot ($output.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $output.stderr '
 	error an error occurred
 	-> sandbox options are not supported for existing sandboxes
 

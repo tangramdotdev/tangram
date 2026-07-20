@@ -278,6 +278,7 @@ export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
 		stream: "stderr",
 	});
 	let id = spawnOutput.pid;
+	let stopper = await tg.host.stopperOpen();
 	let promise = waitUnsandboxed(
 		id,
 		{
@@ -285,6 +286,7 @@ export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
 			stdin,
 			stdout,
 		},
+		stopper,
 		prepared.tempPath,
 		prepared.outputPath,
 	);
@@ -294,6 +296,7 @@ export let spawnUnsandboxed = async <O extends tg.Value = tg.Value>(
 		promise,
 		stderr,
 		stdin,
+		stopper,
 		stdout,
 	});
 };
@@ -305,6 +308,7 @@ export let waitUnsandboxed = async (
 		stdin: tg.Process.Stdio.Writer;
 		stdout: tg.Process.Stdio.Reader;
 	},
+	stopper: tg.Host.Stopper,
 	tempPath: string,
 	outputPath: string,
 ): Promise<tg.Process.Wait> => {
@@ -312,7 +316,7 @@ export let waitUnsandboxed = async (
 	let waitError: unknown = null;
 	let waitFailed = false;
 	try {
-		let output = await tg.host.wait(pid);
+		let output = await tg.host.wait(pid, stopper);
 		let wait_: tg.Process.Wait = {
 			error: null,
 			exit: output.exit,
@@ -364,12 +368,21 @@ export let waitUnsandboxed = async (
 				if (output === null) {
 					throw new Error("stream ended without output");
 				}
-				wait_.output = tg.Artifact.withId(output.artifact.item);
+				let artifact = tg.Artifact.withReferent(output.artifact);
+				wait_.output = artifact;
 			}
 		}
 	} catch (error) {
 		waitError = error;
 		waitFailed = true;
+	}
+	try {
+		await tg.host.stopperClose(stopper);
+	} catch (error) {
+		if (!waitFailed) {
+			waitError = error;
+			waitFailed = true;
+		}
 	}
 	try {
 		for (let name of ["stdin", "stdout", "stderr"] as const) {
@@ -403,7 +416,8 @@ export let prepareUnsandboxedCommand = async (
 		throw new Error("blob stdin is not supported for unsandboxed processes");
 	}
 
-	let command = await tg.Command.withId(arg.command.item).object();
+	let commandHandle = tg.Command.withReferent(arg.command);
+	let command = await commandHandle.object();
 	if (command.stdin !== null) {
 		throw new Error(
 			"command stdin blobs are not supported for unsandboxed processes",
@@ -417,7 +431,10 @@ export let prepareUnsandboxedCommand = async (
 
 	let tempPath = await tg.host.mkdtemp();
 	outputPath ??= tg.path.join(tempPath, "output");
-	let artifacts = await checkoutArtifacts(command);
+	let artifacts = await checkoutArtifacts(
+		command,
+		arg.command.options?.token ?? null,
+	);
 	let env = await renderEnv(command.env, artifacts, outputPath);
 	let { args, executable } = renderCommand(
 		command,
@@ -506,7 +523,8 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		(tg.process.env.COLORTERM !== undefined ||
 			tg.process.env.TERM !== undefined)
 	) {
-		let command = await tg.Command.withId(arg.command.item).object();
+		let commandHandle = tg.Command.withReferent(arg.command);
+		let command = await commandHandle.object();
 		let env = { ...command.env };
 		let changed = false;
 		for (let name of ["COLORTERM", "TERM"] as const) {
@@ -563,7 +581,15 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	}
 	let stdioPromise =
 		stdin !== null || stdout !== null || stderr !== null || localTty
-			? stdio.task(output.process, location, stdin, stdout, stderr, localTty)
+			? stdio.task(
+					output.process,
+					location,
+					output.token ?? null,
+					stdin,
+					stdout,
+					stderr,
+					localTty,
+				)
 			: null;
 	let process = new tg.Process<O>({
 		id: output.process,
@@ -595,6 +621,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 
 async function checkoutArtifacts(
 	command: tg.Command.Object,
+	token: tg.Grant.Token | null,
 ): Promise<Map<tg.Artifact.Id, string>> {
 	let artifacts = new Set<tg.Artifact.Id>();
 	let data = tg.Command.Object.toData(command);
@@ -606,7 +633,7 @@ async function checkoutArtifacts(
 	let output = new Map<tg.Artifact.Id, string>();
 	for (let artifact of artifacts) {
 		let stream = await tg.client.checkout({
-			artifact,
+			artifact: tg.Referent.withItemAndToken(artifact, token),
 			dependencies: true,
 			force: false,
 		});
@@ -915,18 +942,27 @@ let normalizeSandbox = (
 					: tg.Sandbox.Isolation.toData(sandbox.isolation);
 		}
 		if (sandbox.location !== undefined) {
-			output.location = sandbox.location;
+			output.location =
+				sandbox.location === null
+					? null
+					: tg.Location.Arg.toDataString(sandbox.location);
 		}
 		if (sandbox.memory !== undefined) {
 			output.memory = sandbox.memory;
 		}
-		if (sandbox.mounts !== undefined) {
+		if (sandbox.mounts !== undefined && sandbox.mounts !== null) {
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
 		sandboxNetwork = sandbox.network;
-		let networkData = normalizeNetwork(sandbox.network);
+		let networkData = normalizeNetworkForPorts(
+			sandbox.ports ?? [],
+			sandbox.network,
+		);
 		if (networkData !== undefined) {
 			output.network = networkData;
+		}
+		if (networkData?.kind === "bridge") {
+			sandboxNetwork = networkData;
 		}
 		if (sandbox.ttl !== undefined) {
 			output.ttl = sandbox.ttl;

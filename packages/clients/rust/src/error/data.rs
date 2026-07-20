@@ -143,6 +143,30 @@ impl Error {
 		}
 	}
 
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.diagnostics = self.diagnostics.map(|diagnostics| {
+			diagnostics
+				.into_iter()
+				.map(tg::diagnostic::Data::without_tokens)
+				.collect()
+		});
+		self.location = self.location.map(Location::without_tokens);
+		self.source = self.source.map(|mut source| {
+			source.options.token.take();
+			source.item = match source.item {
+				tg::Either::Left(error) => tg::Either::Left(Box::new((*error).without_tokens())),
+				tg::Either::Right(id) => tg::Either::Right(id),
+			};
+			source
+		});
+		self.stack = self
+			.stack
+			.map(|stack| stack.into_iter().map(Location::without_tokens).collect());
+
+		self
+	}
+
 	pub fn remove_internal_locations(&mut self) {
 		let mut stack = vec![self];
 		while let Some(error) = stack.pop() {
@@ -168,5 +192,15 @@ impl Location {
 		if let tg::error::data::File::Module(module) = &self.file {
 			module.children(children);
 		}
+	}
+
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.file = match self.file {
+			File::Internal(path) => File::Internal(path),
+			File::Module(module) => File::Module(module.without_tokens()),
+		};
+
+		self
 	}
 }

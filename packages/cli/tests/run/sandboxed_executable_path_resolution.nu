@@ -36,16 +36,15 @@ with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {
 
 	let parent_output = tg run $parent_path | complete
 	failure $parent_output
-	snapshot ($parent_output.stderr | redact $parent_path $parent_path_bin) '
+	snapshot --normalize --redact [$parent_path $parent_path_bin] $parent_output.stderr '
 		error an error occurred
 		-> the process failed
-		   id = <process>
+		   id = pcs_0000000000000000000000000000
 		-> the child process failed
-		   id = <process>
+		   id = pcs_0011111111111111111111111111
 		-> failed to run the process
-		   process = <process>
+		   process = pcs_0011111111111111111111111111
 		-> failed to spawn the process in the sandbox
-		   id = <process>
 		-> failed to spawn
 		-> failed to find the executable in PATH
 		   executable = parent-only-sh

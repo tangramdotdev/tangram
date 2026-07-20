@@ -1,10 +1,7 @@
 use {
-	crate::{Server, Session, database::Database},
-	indoc::indoc,
+	crate::{Session, database::Database},
 	num::ToPrimitive as _,
-	std::time::Duration,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -39,66 +36,21 @@ impl Session {
 		let include_version = include_field("version");
 
 		let processes = if include_processes {
-			// Get a process store connection.
-			let connection = self
-				.server
-				.process_store
-				.connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a process store connection"))?;
-
 			// Get the process health.
-			let permits = if self.server.config.runner.is_some() {
-				Some(
-					self.server
-						.sandbox_semaphore
-						.available_permits()
-						.to_u64()
-						.unwrap(),
-				)
+			let capacity = if self.server.config.runner.is_some() {
+				Some(self.server.runner.state.capacity.get())
 			} else {
 				None
 			};
+			let started = self.server.runner.state.started_process_count();
 
-			#[derive(db::row::Deserialize)]
-			struct Row {
-				created: u64,
-				started: u64,
-			}
-			let statement = indoc!(
-				"
-					select
-						(select count(*) from processes where status = 'created') as created,
-						(select count(*) from processes where status = 'started') as started;
-				"
-			);
-			let params = db::params![];
-			let Row { created, started } = connection
-				.query_one_into::<Row>(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-			Some(tg::health::Processes {
-				created,
-				permits,
-				started,
-			})
+			Some(tg::health::Processes { capacity, started })
 		} else {
 			None
 		};
 
 		let database = if include_database {
 			let available_connections = match &self.server.database {
-				#[cfg(feature = "postgres")]
-				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
-				#[cfg(feature = "sqlite")]
-				Database::Sqlite(database) => {
-					database.read_pool().available().to_u64().unwrap()
-						+ database.write_pool().available().to_u64().unwrap()
-				},
-				#[cfg(feature = "turso")]
-				Database::Turso(database) => database.pool().available().to_u64().unwrap(),
-			} + match &self.server.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 				#[cfg(feature = "sqlite")]
@@ -179,55 +131,5 @@ impl Session {
 		}
 		let response = response.body(body).unwrap();
 		Ok(response)
-	}
-}
-
-impl Server {
-	pub(crate) async fn diagnostics_task(&self) -> tg::Result<()> {
-		if self.config.advanced.disable_version_check {
-			return Ok(());
-		}
-		loop {
-			let mut diagnostics = Vec::new();
-			if let Some(latest) = self.try_get_latest_version().await {
-				let version = &self.version;
-				if &latest != version {
-					diagnostics.push(tg::Diagnostic {
-						location: None,
-						severity: tg::diagnostic::Severity::Warning,
-						message: format!(
-							r#"A new version of tangram is available. The latest version is "{latest}". You are on version "{version}"."#,
-						),
-					});
-				}
-			}
-			*self.diagnostics.lock().unwrap() = diagnostics;
-			tokio::time::sleep(Duration::from_hours(1)).await;
-		}
-	}
-
-	async fn try_get_latest_version(&self) -> Option<String> {
-		#[derive(serde::Deserialize)]
-		struct Output {
-			name: String,
-		}
-		let output: Output = reqwest::Client::new()
-			.request(
-				http::Method::GET,
-				"https://api.github.com/repos/tangramdotdev/tangram/releases/latest",
-			)
-			.header("Accept", "application/vnd.github+json")
-			.header("User-Agent", "tangram")
-			.send()
-			.await
-			.inspect_err(|error| tracing::warn!(%error, "failed to get response from github"))
-			.ok()?
-			.json()
-			.await
-			.inspect_err(
-				|error| tracing::warn!(%error, "failed to deserialize response from github"),
-			)
-			.ok()?;
-		Some(output.name)
 	}
 }

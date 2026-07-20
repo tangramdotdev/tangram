@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A grant on one process field confers only that field, leaving the process node and other fields masked.
 
-let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } } }
+let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 let eve = tg --url $remote.url login --verbose eve | from json

@@ -148,6 +148,7 @@ impl Session {
 		self.server
 			.config()
 			.authentication
+			.users
 			.as_ref()
 			.and_then(|authentication| authentication.providers.github.as_ref())
 			.ok_or_else(|| tg::error!("the GitHub authentication provider is not configured"))
@@ -157,6 +158,7 @@ impl Session {
 		self.server
 			.config()
 			.authentication
+			.users
 			.as_ref()
 			.and_then(|authentication| authentication.web_url.as_deref())
 			.map(|url| url.trim_end_matches('/').to_owned())

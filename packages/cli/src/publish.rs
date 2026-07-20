@@ -44,7 +44,7 @@ struct State {
 	file_tree: radix_trie::Trie<PathBuf, tg::Artifact>,
 	all_packages: Vec<tg::Referent<tg::Object>>,
 	source_packages: Vec<tg::Referent<tg::Object>>,
-	tags: Vec<(tg::Specifier, tg::object::Id)>,
+	tags: Vec<(tg::Specifier, tg::Referent<tg::object::Id>)>,
 	graph: Graph,
 }
 
@@ -78,10 +78,9 @@ impl Cli {
 		let artifact = tg::checkin::checkin_with_handle(&client, arg).await.map_err(
 			|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
 		)?;
-		let referent = tg::Referent::new(
-			artifact.into(),
-			tg::referent::Options::with_path(args.path.clone()),
-		);
+		let mut options = tg::referent::Options::with_path(args.path.clone());
+		options.token = artifact.state().token();
+		let referent = tg::Referent::new(artifact.into(), options);
 
 		// Create the state.
 		let mut state = State::default();
@@ -117,13 +116,18 @@ impl Cli {
 			return Ok(());
 		}
 
-		// Collect all the local tags.
-		let mut tags = state.tags;
-
 		// Collect all the local items.
-		let mut items = tags
+		let mut items = state
+			.tags
 			.iter()
-			.map(|(_, id)| tg::Either::Left(id.clone()))
+			.map(|(_, item)| item.clone())
+			.collect::<Vec<_>>();
+
+		// Collect all the local tags.
+		let mut tags = state
+			.tags
+			.into_iter()
+			.map(|(tag, item)| (tag, item.item))
 			.collect::<Vec<_>>();
 
 		// Execute the plan.
@@ -135,12 +139,13 @@ impl Cli {
 						path,
 						tag,
 					} = item;
-					let id = if let Some(path) = path {
+					let item = if let Some(path) = path {
 						publish_checkin(&client, path, true).await?
 					} else {
-						referent.item
+						tg::Referent::with_item_and_token(referent.item, referent.options.token)
 					};
-					items.push(tg::Either::Left(id.clone()));
+					let id = item.item.clone();
+					items.push(item);
 					tags.push((tag.clone(), id.clone()));
 					let arg = tg::tag::put::Arg {
 						force: args.force,
@@ -160,7 +165,8 @@ impl Cli {
 							.path
 							.clone()
 							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
-						let id = publish_checkin(&client, path, false).await?;
+						let checked_in = publish_checkin(&client, path, false).await?;
+						let id = checked_in.item;
 						let arg = tg::tag::put::Arg {
 							force: args.force,
 							item: id.into(),
@@ -176,8 +182,9 @@ impl Cli {
 					for item in cycle_items {
 						let Item { path, tag, .. } = item;
 						let path = path.ok_or_else(|| tg::error!("cycle items must have paths"))?;
-						let id = publish_checkin(&client, path, true).await?;
-						items.push(tg::Either::Left(id.clone()));
+						let item = publish_checkin(&client, path, true).await?;
+						let id = item.item.clone();
+						items.push(item);
 						tags.push((tag.clone(), id.clone()));
 						let arg = tg::tag::put::Arg {
 							force: true,
@@ -209,7 +216,7 @@ impl Cli {
 			eager: true,
 			errors: true,
 			force: false,
-			items: items.into_iter().map(tg::Either::Left).collect(),
+			items: items.into_iter().map(push_item).collect(),
 			logs: false,
 			metadata: false,
 			outputs: true,
@@ -552,7 +559,11 @@ where
 		blob: tangram_client::Referent<&tangram_client::Blob>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = blob.tag() {
-			self.tags.push((tag.clone(), blob.item().id().into()));
+			let item = tg::Referent::with_item_and_token(
+				blob.item().id().into(),
+				blob.options.token.clone(),
+			);
+			self.tags.push((tag.clone(), item));
 		}
 		Ok(false)
 	}
@@ -572,7 +583,11 @@ where
 		}
 
 		if let Some(tag) = directory.tag() {
-			self.tags.push((tag.clone(), directory.item().id().into()));
+			let item = tg::Referent::with_item_and_token(
+				directory.item().id().into(),
+				directory.options.token.clone(),
+			);
+			self.tags.push((tag.clone(), item));
 		}
 		let Some(path) = directory.path() else {
 			return Ok(true);
@@ -605,7 +620,11 @@ where
 		}
 
 		if let Some(tag) = file.tag() {
-			self.tags.push((tag.clone(), file.item().id().into()));
+			let item = tg::Referent::with_item_and_token(
+				file.item().id().into(),
+				file.options.token.clone(),
+			);
+			self.tags.push((tag.clone(), item));
 		}
 
 		let Some(path) = file.path() else {
@@ -651,7 +670,11 @@ where
 			return Err(tg::error!("invalid path"));
 		}
 		if let Some(tag) = symlink.tag() {
-			self.tags.push((tag.clone(), symlink.item().id().into()));
+			let item = tg::Referent::with_item_and_token(
+				symlink.item().id().into(),
+				symlink.options.token.clone(),
+			);
+			self.tags.push((tag.clone(), item));
 		}
 		Ok(true)
 	}
@@ -662,7 +685,11 @@ where
 		command: tangram_client::Referent<&tangram_client::Command>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = command.tag() {
-			self.tags.push((tag.clone(), command.item().id().into()));
+			let item = tg::Referent::with_item_and_token(
+				command.item().id().into(),
+				command.options.token.clone(),
+			);
+			self.tags.push((tag.clone(), item));
 		}
 		Ok(false)
 	}
@@ -673,7 +700,11 @@ where
 		graph: tangram_client::Referent<&tangram_client::Graph>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = graph.tag() {
-			self.tags.push((tag.clone(), graph.item().id().into()));
+			let item = tg::Referent::with_item_and_token(
+				graph.item().id().into(),
+				graph.options.token.clone(),
+			);
+			self.tags.push((tag.clone(), item));
 		}
 		Ok(false)
 	}
@@ -718,7 +749,7 @@ async fn publish_checkin(
 	client: &impl tg::Handle,
 	path: PathBuf,
 	solve: bool,
-) -> tg::Result<tg::object::Id> {
+) -> tg::Result<tg::Referent<tg::object::Id>> {
 	let path_display = path.display().to_string();
 	let options = tg::checkin::Options {
 		lock: None,
@@ -734,5 +765,13 @@ async fn publish_checkin(
 	let artifact = tg::checkin::checkin_with_handle(client, args)
 		.await
 		.map_err(|error| tg::error!(!error, path = %path_display, "failed to checkin"))?;
-	Ok(artifact.id().into())
+	let id = artifact.id().into();
+	let item = tg::Referent::with_item_and_token(id, artifact.state().token());
+	Ok(item)
+}
+
+fn push_item(
+	item: tg::Referent<tg::object::Id>,
+) -> tg::Referent<tg::Either<tg::object::Id, tg::process::Id>> {
+	item.map(tg::Either::Left)
 }

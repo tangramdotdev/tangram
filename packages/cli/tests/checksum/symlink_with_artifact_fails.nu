@@ -8,10 +8,10 @@ let dir = tg put 'tg.directory({ "link": tg.symlink({ "artifact": tg.file("targe
 
 let output = tg checksum $dir | complete
 failure $output
-snapshot ($output.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> cannot checksum a symlink with an artifact
 
 '

@@ -113,7 +113,8 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_object_local_permissions(&item.id, required);
+					.get_object_local_authorization(&item.id, required)
+					.permissions;
 				output.metadata =
 					Self::mask_object_metadata_with_permissions(metadata, permissions);
 			}
@@ -197,7 +198,8 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_process_local_permissions(&item.id, required);
+					.get_process_local_authorization(&item.id, required)
+					.permissions;
 				if !permissions.contains(permission) {
 					return Err(tg::error!("unauthorized"));
 				}
@@ -207,14 +209,15 @@ impl Session {
 					|error| tg::error!(!error, process = %item.id, "failed to compact the log"),
 				)?;
 
-				// Get the process again.
-				output = self
+				// Get the compacted process data from the index.
+				output.data = self
 					.server
-					.try_get_process_local(&item.id, state.arg.metadata)
+					.try_get_process_local(&item.id, false)
 					.await?
 					.ok_or_else(
 						|| tg::error!(process = %item.id, "failed to get the process after compaction"),
-					)?;
+					)?
+					.data;
 			}
 
 			// Update the graph.
@@ -237,7 +240,8 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_process_local_permissions(&item.id, required);
+					.get_process_local_authorization(&item.id, required)
+					.permissions;
 				output.metadata =
 					Self::mask_process_metadata_with_permissions(&metadata, permissions);
 			}
@@ -275,11 +279,7 @@ impl Session {
 					.iter()
 					.map(|child| crate::sync::queue::ProcessItem {
 						eager: item.eager,
-						id: child
-							.process
-							.clone()
-							.map_right(|process| process.id)
-							.into_inner(),
+						id: child.process.item.clone(),
 						parent: Some(item.id.clone()),
 						token: None,
 					});
@@ -322,7 +322,7 @@ impl Session {
 					tg::Either::Right(id) => {
 						let item = crate::sync::queue::ObjectItem {
 							eager: item.eager,
-							id: id.clone().map_right(|error| error.id).into_inner().into(),
+							id: id.item.clone().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							parent: Some(tg::Either::Right(item.id.clone())),
 							token: None,
@@ -339,7 +339,7 @@ impl Session {
 			{
 				let item = crate::sync::queue::ObjectItem {
 					eager: item.eager,
-					id: log.map_right(|log| log.id).into_inner().into(),
+					id: log.item.into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					parent: Some(tg::Either::Right(item.id.clone())),
 					token: None,

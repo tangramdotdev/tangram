@@ -5,7 +5,7 @@ use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub blob: tg::blob::Id,
+	pub blob: tg::Reference,
 
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
@@ -14,7 +14,10 @@ pub struct Args {
 impl Cli {
 	pub async fn command_extract(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let blob = tg::Blob::with_id(args.blob);
+		let blob = self.get_resolved_object(&args.blob).await?;
+		let blob = tg::Object::with_referent(blob)
+			.try_unwrap_blob()
+			.map_err(|_| tg::error!("expected a blob"))?;
 		let command = tg::builtin::extract_command(&blob);
 		let command = command
 			.store_with_handle(&client)

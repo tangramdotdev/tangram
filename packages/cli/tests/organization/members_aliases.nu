@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The organization members subcommand exposes the ls and rm aliases for list and remove.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

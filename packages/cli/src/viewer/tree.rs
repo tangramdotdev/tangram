@@ -118,7 +118,6 @@ impl Drop for UpdateGuard {
 #[derive(Clone, Copy, Debug)]
 pub enum Indicator {
 	Cached,
-	Created,
 	Started,
 	Canceled,
 	Failed,
@@ -317,7 +316,6 @@ impl Tree {
 			let indicator = match node.borrow().indicator {
 				None => None,
 				Some(Indicator::Cached) => Some(crossterm::style::Stylize::white('🎯')),
-				Some(Indicator::Created) => Some(crossterm::style::Stylize::blue('⟳')),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();
@@ -904,7 +902,10 @@ impl Tree {
 					.map(async |(reference, option)| {
 						let mut map = BTreeMap::new();
 						let Some(dependency) = option else {
-							return Ok::<_, tg::Error>((reference.to_string(), tg::Value::Null));
+							return Ok::<_, tg::Error>((
+								reference.without_token().to_string(),
+								tg::Value::Null,
+							));
 						};
 						if let Some(edge) = dependency.0.item() {
 							let item = match edge {
@@ -938,7 +939,10 @@ impl Tree {
 						if let Some(tag) = &dependency.0.options.tag {
 							map.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
 						}
-						Ok::<_, tg::Error>((reference.to_string(), tg::Value::Map(map)))
+						Ok::<_, tg::Error>((
+							reference.without_token().to_string(),
+							tg::Value::Map(map),
+						))
 					})
 					.collect::<FuturesUnordered<_>>()
 					.try_collect()
@@ -1062,7 +1066,7 @@ impl Tree {
 							.map(async |(reference, option)| {
 								let Some(dependency) = option else {
 									return Ok::<_, tg::Error>((
-										reference.to_string(),
+										reference.without_token().to_string(),
 										tg::Value::Null,
 									));
 								};
@@ -1106,7 +1110,10 @@ impl Tree {
 										tg::Value::String(tag.to_string()),
 									);
 								}
-								Ok::<_, tg::Error>((reference.to_string(), tg::Value::Map(map)))
+								Ok::<_, tg::Error>((
+									reference.without_token().to_string(),
+									tg::Value::Map(map),
+								))
 							})
 							.collect::<FuturesUnordered<_>>()
 							.try_collect()
@@ -1316,7 +1323,7 @@ impl Tree {
 						options: dependency.0.options,
 					})
 				});
-				(reference.to_string(), item)
+				(reference.without_token().to_string(), item)
 			})
 			.collect::<Vec<_>>();
 		let guard = counter.guard();
@@ -2188,9 +2195,6 @@ impl Tree {
 			let guard = counter.guard();
 			let indicator = match (process.item.cached(), status) {
 				(Some(true), _) => Indicator::Cached,
-				(_, tg::process::Status::Created | tg::process::Status::Dequeued) => {
-					Indicator::Created
-				},
 				(_, tg::process::Status::Started) => Indicator::Started,
 				(_, tg::process::Status::Finished) => {
 					// Remove the child if necessary.
@@ -2324,7 +2328,6 @@ impl Tree {
 			let indicator = match node.borrow().indicator {
 				None => None,
 				Some(Indicator::Cached) => Some("🎯".white()),
-				Some(Indicator::Created) => Some("⟳".blue()),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();

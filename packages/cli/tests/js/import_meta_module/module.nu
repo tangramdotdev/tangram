@@ -8,5 +8,5 @@ let path = artifact {
 	tangram.ts: 'export default function () { return import.meta.module; }'
 }
 
-let output = tg build $path | normalize_ids
-snapshot $output '{"kind":"ts","referent":{"item":fil_010000000000000000000000000000000000000000000000000000,"options":{}}}'
+let output = tg build $path
+snapshot --normalize-ids $output '{"kind":"ts","referent":{"item":fil_010000000000000000000000000000000000000000000000000000,"options":{}}}'

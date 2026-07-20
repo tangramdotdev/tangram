@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Publishing is bounded by the tagger's access: a user with only node access to a directory who tags it --public confers the public that node only, so the directory's private child stays masked.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

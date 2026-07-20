@@ -4,6 +4,7 @@ import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
 import * as spawn from "./process/spawn.ts";
 import * as stdio from "./process/stdio.ts";
+import type { Cancel as ProcessCancel } from "./client/process/cancel.ts";
 import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
@@ -26,12 +27,14 @@ export class Process<O extends tg.Value = tg.Value> {
 	#id: number | tg.Process.Id;
 	#lease: string | null;
 	#location: tg.Location.Arg | null;
+	#owned: boolean;
 	#options: tg.Referent.Options;
 	#promise: Promise<tg.Process.Wait> | null;
 	#state: tg.Process.State | null;
 	#stderr: tg.Process.Stdio.Reader;
 	#stdin: tg.Process.Stdio.Writer;
 	#stdioPromise: Promise<void> | null;
+	#stopper: tg.Host.Stopper | null;
 	#stdout: tg.Process.Stdio.Reader;
 	#token: tg.Grant.Token | null;
 	#wait: tg.Process.Wait | null;
@@ -224,10 +227,17 @@ export class Process<O extends tg.Value = tg.Value> {
 			stdin: tg.Process.Stdio.Writer;
 			stdout: tg.Process.Stdio.Reader;
 		},
+		stopper: tg.Host.Stopper,
 		tempPath: string,
 		outputPath: string,
 	): Promise<tg.Process.Wait> {
-		return await spawn.waitUnsandboxed(pid, stdio, tempPath, outputPath);
+		return await spawn.waitUnsandboxed(
+			pid,
+			stdio,
+			stopper,
+			tempPath,
+			outputPath,
+		);
 	}
 
 	static async prepareUnsandboxedCommand(
@@ -251,12 +261,21 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#options = arg.options ?? {};
 		this.#state = arg.state ?? null;
 		this.#stdioPromise = arg.stdioPromise ?? null;
-		this.#promise = arg.promise ?? null;
+		this.#promise =
+			arg.promise === undefined || arg.promise === null
+				? null
+				: arg.promise.finally(() => this.detach());
 		this.#stdin = arg.stdin;
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
+		this.#stopper = arg.stopper ?? null;
 		this.#token = arg.token ?? null;
 		this.#wait = arg.wait ?? null;
+		this.#owned =
+			this.#wait === null &&
+			(typeof this.#id === "number"
+				? this.#stopper !== null
+				: this.#lease !== null);
 		this.#stdin.setProcess(this);
 		this.#stdout.setProcess(this);
 		this.#stderr.setProcess(this);
@@ -285,6 +304,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		let arg: tg.Process.Get.Arg = {};
 		if (this.#location !== null) {
 			arg.location = this.#location;
+		}
+		if (this.#token !== null) {
+			arg.token = this.#token;
 		}
 		let output = await tg.client.getProcess(this.#id, arg);
 		this.#location =
@@ -450,6 +472,43 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#lease;
 	}
 
+	/** Cancel this process. */
+	async cancel(): Promise<void> {
+		if (typeof this.#id === "number") {
+			if (this.#stopper === null) {
+				await tg.host.signal(this.#id, tg.Process.Signal.TERM);
+			} else {
+				await tg.host.stopperStop(this.#stopper);
+				if (this.#promise !== null) {
+					await this.#promise;
+				}
+			}
+		} else {
+			if (this.#lease === null) {
+				throw new Error("missing lease");
+			}
+			await tg.client.cancelProcess(this.#id, {
+				lease: this.#lease,
+				...(this.#location === null ? {} : { location: this.#location }),
+			});
+		}
+		this.detach();
+	}
+
+	/** Detach this process from this handle's lifetime. */
+	detach(): void {
+		if (!this.#owned) {
+			return;
+		}
+		this.#owned = false;
+	}
+
+	async [Symbol.asyncDispose](): Promise<void> {
+		if (this.#owned) {
+			await this.cancel();
+		}
+	}
+
 	/** Send a signal to this process. */
 	async signal(signal: tg.Process.Signal): Promise<void> {
 		if (typeof this.#id === "number") {
@@ -464,6 +523,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		let arg: tg.Signal.Arg = { signal };
 		if (location !== null) {
 			arg.location = location;
+		}
+		if (this.#token !== null) {
+			arg.token = this.#token;
 		}
 		await tg.client.signalProcess(this.#id, arg);
 	}
@@ -482,6 +544,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			let wait = await this.#promise;
 			tg.Process.Wait.inheritToken(wait, this.#token);
 			this.#wait = wait;
+			this.detach();
 			return wait;
 		}
 		let arg: tg.Process.Wait.Arg = {};
@@ -501,6 +564,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 		tg.Process.Wait.inheritToken(wait, this.#token);
 		this.#wait = wait;
+		this.detach();
 		return wait;
 	}
 
@@ -588,12 +652,19 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (location !== null) {
 			arg.location = location;
 		}
+		if (this.#token !== null) {
+			arg.token = this.#token;
+		}
 		await tg.client.setProcessTtySize(this.#id, arg);
 	}
 }
 
 export namespace Process {
 	export type Id = string;
+
+	export namespace Cancel {
+		export type Arg = ProcessCancel.Arg;
+	}
 
 	export namespace Get {
 		export type Arg = ProcessGet.Arg;
@@ -618,6 +689,7 @@ export namespace Process {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
 				size: tg.Process.Tty.Size;
+				token?: tg.Grant.Token | null;
 			};
 		}
 	}
@@ -715,6 +787,13 @@ export namespace Process {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ host });
+			return this;
+		}
+
+		location(
+			location: tg.Unresolved<tg.MaybeMutation<tg.Location.Arg> | null>,
+		): this {
+			this.#args.push({ location });
 			return this;
 		}
 
@@ -911,6 +990,7 @@ export namespace Process {
 		stderr: tg.Process.Stdio.Reader;
 		stdin: tg.Process.Stdio.Writer;
 		stdioPromise?: Promise<void> | null;
+		stopper?: tg.Host.Stopper | null;
 		stdout: tg.Process.Stdio.Reader;
 		token?: tg.Grant.Token | null;
 		wait?: tg.Process.Wait | null;
@@ -1039,76 +1119,34 @@ export namespace Process {
 
 	export namespace Child {
 		export let toData = (value: tg.Process.Child): tg.Process.Data.Child => {
-			let options: tg.Referent.Data.Options = {};
-			if (
-				value.options.artifact !== undefined &&
-				value.options.artifact !== null
-			) {
-				options.artifact = value.options.artifact;
-			}
-			if (value.options.id !== undefined && value.options.id !== null) {
-				options.id = value.options.id;
-			}
-			if (
-				value.options.location !== undefined &&
-				value.options.location !== null
-			) {
-				options.location = tg.Location.Arg.toDataString(value.options.location);
-			}
-			if (value.options.name !== undefined && value.options.name !== null) {
-				options.name = value.options.name;
-			}
-			if (value.options.path !== undefined && value.options.path !== null) {
-				options.path = value.options.path;
-			}
-			if (value.options.tag !== undefined && value.options.tag !== null) {
-				options.tag = value.options.tag;
-			}
 			let process = value.process.id;
 			if (typeof process !== "string") {
 				throw new Error("expected a sandboxed process id");
 			}
 			let token = value.process.token;
+			let options = {
+				...value.options,
+				...(token === null ? {} : { token }),
+			};
+			let referent = { item: process, options };
 			return {
 				cached: value.cached,
-				options,
-				process: token === null ? process : { id: process, token },
+				process: tg.Referent.toDataString(referent, (id) => id),
 			};
 		};
 
 		export let fromData = (data: tg.Process.Data.Child): tg.Process.Child => {
-			let options: tg.Referent.Options = {};
-			if (
-				data.options.artifact !== undefined &&
-				data.options.artifact !== null
-			) {
-				options.artifact = data.options.artifact;
-			}
-			if (data.options.id !== undefined && data.options.id !== null) {
-				options.id = data.options.id;
-			}
-			if (
-				data.options.location !== undefined &&
-				data.options.location !== null
-			) {
-				options.location = tg.Location.Arg.fromDataString(
-					data.options.location,
-				);
-			}
-			if (data.options.name !== undefined && data.options.name !== null) {
-				options.name = data.options.name;
-			}
-			if (data.options.path !== undefined && data.options.path !== null) {
-				options.path = data.options.path;
-			}
-			if (data.options.tag !== undefined && data.options.tag !== null) {
-				options.tag = data.options.tag;
-			}
+			let referent = tg.Referent.fromDataString(
+				data.process,
+				(id) => id as tg.Process.Id,
+			);
+			let options = { ...referent.options };
+			delete options.token;
 			return {
 				cached: data.cached ?? false,
 				options,
 				process: new tg.Process({
-					id: typeof data.process === "string" ? data.process : data.process.id,
+					id: referent.item,
 					stderr: new tg.Process.Stdio.Reader({
 						stream: "stderr",
 					}),
@@ -1118,10 +1156,9 @@ export namespace Process {
 					stdout: new tg.Process.Stdio.Reader({
 						stream: "stdout",
 					}),
-					...(typeof data.process !== "string" &&
-					data.process.token !== undefined &&
-					data.process.token !== null
-						? { token: data.process.token }
+					...(referent.options?.token !== undefined &&
+					referent.options.token !== null
+						? { token: referent.options.token }
 						: {}),
 				}),
 			};
@@ -1182,8 +1219,8 @@ export namespace Process {
 			}
 			if (value.log !== null) {
 				let token = value.log.state.token;
-				output.log =
-					token === null ? value.log.id : { id: value.log.id, token };
+				let referent = tg.Referent.withItemAndToken(value.log.id, token);
+				output.log = tg.Referent.toDataString(referent, (id) => id);
 			}
 			if (value.output !== undefined) {
 				output.output = tg.Value.toData(value.output);
@@ -1222,16 +1259,16 @@ export namespace Process {
 				debug: data.debug ?? null,
 				error:
 					data.error !== undefined && data.error !== null
-						? typeof data.error === "string" || "id" in data.error
+						? typeof data.error === "string" || "item" in data.error
 							? (() => {
-									let error =
+									let referent =
 										typeof data.error === "string"
-											? tg.Error.withId(data.error)
-											: tg.Error.withId(data.error.id);
-									if (typeof data.error !== "string") {
-										error.state.token = data.error.token;
-									}
-									return error;
+											? tg.Referent.fromDataString(
+													data.error,
+													(id) => id as tg.Error.Id,
+												)
+											: tg.Referent.fromData(data.error, (id) => id);
+									return tg.Error.withReferent(referent);
 								})()
 							: tg.Error.fromData(data.error)
 						: null,
@@ -1242,14 +1279,11 @@ export namespace Process {
 				log:
 					data.log !== undefined && data.log !== null
 						? (() => {
-								let blob =
-									typeof data.log === "string"
-										? tg.Blob.withId(data.log)
-										: tg.Blob.withId(data.log.id);
-								if (typeof data.log !== "string") {
-									blob.state.token = data.log.token;
-								}
-								return blob;
+								let referent = tg.Referent.fromDataString(
+									data.log,
+									(id) => id as tg.Blob.Id,
+								);
+								return tg.Blob.withReferent(referent);
 							})()
 						: null,
 				retry: data.retry ?? false,
@@ -1302,7 +1336,7 @@ export namespace Process {
 		USR2: "USR2",
 	} as const;
 
-	export type Status = "created" | "dequeued" | "started" | "finished";
+	export type Status = "started" | "finished";
 
 	export type Data = {
 		actual_checksum?: tg.Checksum | null;
@@ -1311,12 +1345,12 @@ export namespace Process {
 		command: tg.Command.Id;
 		created_at: number;
 		debug?: tg.Process.Debug | null;
-		error?: tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id> | null;
+		error?: tg.Error.Data | tg.Referent.Data<tg.Error.Id> | null;
 		exit?: number | null;
 		expected_checksum?: tg.Checksum | null;
 		finished_at?: number | null;
 		host: string;
-		log?: tg.Grant.MaybeWithToken<tg.Blob.Id> | null;
+		log?: string | null;
 		output?: tg.Value.Data;
 		retry?: boolean;
 		sandbox: string;
@@ -1331,37 +1365,60 @@ export namespace Process {
 	export namespace Data {
 		export type Child = {
 			cached?: boolean;
-			options: tg.Referent.Data.Options;
-			process: tg.Grant.MaybeWithToken<tg.Process.Id>;
+			process: string;
 		};
 
-		export let removeTokens = (data: tg.Process.Data): tg.Process.Data => {
+		export let withoutTokens = (data: tg.Process.Data): tg.Process.Data => {
+			let output = { ...data };
 			if (data.children !== undefined && data.children !== null) {
-				for (let child of data.children) {
-					if (typeof child.process !== "string") {
-						child.process = child.process.id;
-					}
+				output.children = data.children.map((child) => {
+					let referent = tg.Referent.fromDataString(
+						child.process,
+						(id) => id as tg.Process.Id,
+					);
+					return {
+						...child,
+						process: tg.Referent.toDataString(
+							tg.Referent.withoutToken(referent),
+							(id) => id,
+						),
+					};
+				});
+			}
+			if (data.error !== undefined && data.error !== null) {
+				if (typeof data.error === "string") {
+					let referent = tg.Referent.fromDataString(
+						data.error,
+						(id) => id as tg.Error.Id,
+					);
+					output.error = tg.Referent.toDataString(
+						tg.Referent.withoutToken(referent),
+						(id) => id,
+					);
+				} else if ("item" in data.error) {
+					let referent = tg.Referent.fromData(data.error, (id) => id);
+					output.error = tg.Referent.toData(
+						tg.Referent.withoutToken(referent),
+						(id) => id,
+					);
+				} else {
+					output.error = tg.Error.Data.withoutTokens(data.error);
 				}
 			}
-			if (
-				data.error !== undefined &&
-				data.error !== null &&
-				typeof data.error !== "string" &&
-				"id" in data.error
-			) {
-				data.error = data.error.id;
-			}
-			if (
-				data.log !== undefined &&
-				data.log !== null &&
-				typeof data.log !== "string"
-			) {
-				data.log = data.log.id;
+			if (data.log !== undefined && data.log !== null) {
+				let referent = tg.Referent.fromDataString(
+					data.log,
+					(id) => id as tg.Blob.Id,
+				);
+				output.log = tg.Referent.toDataString(
+					tg.Referent.withoutToken(referent),
+					(id) => id,
+				);
 			}
 			if (data.output !== undefined) {
-				tg.Value.Data.removeTokens(data.output);
+				output.output = tg.Value.Data.withoutTokens(data.output);
 			}
-			return data;
+			return output;
 		};
 	}
 

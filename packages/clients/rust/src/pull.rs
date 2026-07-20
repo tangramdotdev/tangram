@@ -1,10 +1,12 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
+	serde_with::{DisplayFromStr, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_false,
 };
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -19,7 +21,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 
-	pub items: Vec<tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>>,
+	#[serde_as(as = "Vec<DisplayFromStr>")]
+	pub items: Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub logs: bool,

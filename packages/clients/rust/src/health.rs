@@ -31,10 +31,8 @@ pub struct Health {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Processes {
-	pub created: u64,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub permits: Option<u64>,
+	pub capacity: Option<tg::runner::control::Capacity>,
 
 	pub started: u64,
 }
@@ -54,7 +52,7 @@ impl tg::Session {
 		let method = http::Method::GET;
 		let uri = Uri::builder()
 			.path("/health")
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

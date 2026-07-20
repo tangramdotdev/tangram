@@ -14,7 +14,7 @@ tg wait $p.process
 
 let output = tg document $p.process | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> expected an object ID
 	   kind = pcs

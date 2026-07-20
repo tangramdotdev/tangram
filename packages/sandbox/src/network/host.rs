@@ -43,7 +43,7 @@ pub(crate) fn setup_bridge_networking(
 
 pub(crate) fn add_port_forwarding_rules(
 	backend: crate::Firewall,
-	id: &tg::sandbox::Id,
+	id: u64,
 	identity: &std::path::Path,
 	out_interface: &str,
 	host_ip: Ipv4Addr,

@@ -8,7 +8,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Reference,
 
 	#[arg(index = 2)]
 	pub lease: String,
@@ -17,11 +17,13 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_cancel(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let process = self.get_resolved_process(&args.process).await?;
 		let process = tg::Process::<tg::Value>::new(
-			args.process.clone(),
+			process.item,
 			tg::process::Options {
 				lease: Some(args.lease),
 				location: args.location.get(),
+				token: process.options.token,
 				..Default::default()
 			},
 		);

@@ -13,12 +13,12 @@ let path = artifact {
 
 let output = tg build $path | complete
 failure $output
-snapshot ($output.stderr | redact $path | normalize_ids) '
+snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> the child process failed
-	   id = <process>
+	   id = pcs_0011111111111111111111111111
 	-> the process exited with code 1
 
 '

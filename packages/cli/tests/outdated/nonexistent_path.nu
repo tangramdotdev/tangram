@@ -6,7 +6,7 @@ let server = spawn
 
 let output = tg outdated /nonexistent/path/nowhere | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the root
 	-> failed to get the metadata

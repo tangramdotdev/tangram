@@ -153,6 +153,23 @@ impl Command {
 			value.children(children);
 		}
 	}
+
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.args = self
+			.args
+			.into_iter()
+			.map(tg::value::Data::without_tokens)
+			.collect();
+		self.env = self
+			.env
+			.into_iter()
+			.map(|(key, value)| (key, value.without_tokens()))
+			.collect();
+		self.executable = self.executable.without_tokens();
+
+		self
+	}
 }
 
 impl Executable {
@@ -161,6 +178,17 @@ impl Executable {
 			Self::Artifact(artifact) => artifact.children(children),
 			Self::Module(module) => module.children(children),
 			Self::Path(_) => (),
+		}
+	}
+
+	#[must_use]
+	pub fn without_tokens(self) -> Self {
+		match self {
+			Self::Module(mut module) => {
+				module.module = module.module.without_tokens();
+				Self::Module(module)
+			},
+			value @ (Self::Artifact(_) | Self::Path(_)) => value,
 		}
 	}
 

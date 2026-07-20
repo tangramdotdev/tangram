@@ -26,7 +26,7 @@ where
 	// Get the artifact.
 	let artifact = match args.first() {
 		Some(tg::value::Data::Object(id)) => {
-			let object = tg::Object::with_id(id.clone().map_right(|object| object.id).into_inner());
+			let object = tg::Object::with_referent(id.clone());
 			tg::Artifact::try_from(object)
 				.ok()
 				.ok_or_else(|| tg::error!("expected an artifact"))?

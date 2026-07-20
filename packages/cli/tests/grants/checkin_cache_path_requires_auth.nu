@@ -3,7 +3,7 @@ use ../../test.nu *
 # Checking in a cache path must authorize the caller on the named artifact: the cache-path branch mints an object subtree grant token for the artifact id in the path, so a principal who cannot read that artifact must not be able to check it in and obtain a read capability for it.
 
 let dir = mktemp -d
-let server = spawn --directory $dir --config { authentication: { providers: { insecure: true } } }
+let server = spawn --directory $dir --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 

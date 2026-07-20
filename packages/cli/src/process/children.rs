@@ -22,7 +22,7 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Reference,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -58,10 +58,14 @@ impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let locations = args.locations.get();
+		let process = self.get_resolved_process(&args.process).await?;
+		let id = process.item;
+		let token = process.options.token;
 		let process = tg::Process::<tg::Value>::new(
-			args.process.clone(),
+			id.clone(),
 			tg::process::Options {
 				location: locations.clone(),
+				token: token.clone(),
 				..Default::default()
 			},
 		);
@@ -71,13 +75,12 @@ impl Cli {
 			position: args.position.map(std::io::SeekFrom::Start),
 			size: args.size,
 			timeout: args.timeout.get(),
+			token: None,
 		};
 		let stream = process
 			.children_with_handle(&client, arg)
 			.await
-			.map_err(
-				|error| tg::error!(!error, id = %args.process, "failed to get the process children"),
-			)?
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
 			.map_ok(|child| child.to_data());
 		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())

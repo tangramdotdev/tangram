@@ -7,6 +7,17 @@ use {
 };
 
 impl Index {
+	pub async fn get_requester_principals(
+		&self,
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<tg::grant::Principal>> {
+		let transaction = self
+			.database
+			.create_trx()
+			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		Self::requester_principals_with_transaction(&transaction, &self.subspace, principal).await
+	}
+
 	pub async fn visible(
 		&self,
 		ids: &[tg::Id],
@@ -53,7 +64,7 @@ impl Index {
 			tg::Principal::Anonymous
 			| tg::Principal::Process(_)
 			| tg::Principal::Root
-			| tg::Principal::Runner
+			| tg::Principal::Runner(_)
 			| tg::Principal::Sandbox(_) => None,
 		};
 		if let Some(id) = id {

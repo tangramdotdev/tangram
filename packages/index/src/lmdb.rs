@@ -13,6 +13,7 @@ mod authorize;
 mod batch;
 mod cache;
 mod clean;
+mod finalization;
 mod grant;
 mod group;
 mod key;
@@ -22,6 +23,7 @@ mod organization;
 mod process;
 mod request;
 mod response;
+mod runner;
 mod sandbox;
 mod tag;
 mod task;
@@ -38,6 +40,7 @@ pub struct Config {
 	pub authorize: AuthorizeConfig,
 	pub map_size: usize,
 	pub max_items_per_transaction: usize,
+	pub max_process_depth: Option<u64>,
 	pub path: PathBuf,
 }
 
@@ -55,6 +58,18 @@ pub struct Index {
 	sender_medium: Option<RequestSender>,
 	sender_low: Option<RequestSender>,
 	subspace: fdbt::Subspace,
+}
+
+#[derive(Clone, Copy)]
+struct TaskArg<'a> {
+	db: &'a Db,
+	env: &'a lmdb::Env,
+	max_items_per_transaction: usize,
+	max_process_depth: Option<u64>,
+	receiver_high: &'a RequestReceiver,
+	receiver_low: &'a RequestReceiver,
+	receiver_medium: &'a RequestReceiver,
+	subspace: &'a fdbt::Subspace,
 }
 
 type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
@@ -107,16 +122,18 @@ impl Index {
 			let env = env.clone();
 			let subspace = subspace.clone();
 			let max_items_per_transaction = config.max_items_per_transaction;
+			let max_process_depth = config.max_process_depth;
 			move || {
-				Self::task(
-					&env,
-					&db,
-					&subspace,
-					&receiver_high,
-					&receiver_medium,
-					&receiver_low,
+				Self::task(TaskArg {
+					db: &db,
+					env: &env,
 					max_items_per_transaction,
-				);
+					max_process_depth,
+					receiver_high: &receiver_high,
+					receiver_low: &receiver_low,
+					receiver_medium: &receiver_medium,
+					subspace: &subspace,
+				});
 			}
 		});
 
@@ -239,6 +256,71 @@ impl crate::Index for Index {
 		self.try_get_processes(ids).await
 	}
 
+	async fn try_get_cached_processes(
+		&self,
+		command: &tg::object::Id,
+	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+		self.try_get_cached_processes(command).await
+	}
+
+	async fn get_process_depth_detections(&self, limit: usize) -> tg::Result<Vec<tg::process::Id>> {
+		self.get_process_depth_detections(limit).await
+	}
+
+	async fn get_requester_principals(
+		&self,
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<tg::grant::Principal>> {
+		self.get_requester_principals(principal).await
+	}
+
+	async fn list_sandboxes_for_creator(
+		&self,
+		creator: &tg::Principal,
+	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+		self.list_sandboxes_for_creator(creator).await
+	}
+
+	async fn list_sandboxes_for_owner(
+		&self,
+		owner: &tg::Principal,
+	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+		self.list_sandboxes_for_owner(owner).await
+	}
+
+	async fn get_runner_sandboxes(
+		&self,
+		runner: &tg::runner::Id,
+	) -> tg::Result<Vec<tg::sandbox::Id>> {
+		self.get_runner_sandboxes(runner).await
+	}
+
+	async fn get_sandbox_processes(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+		self.get_sandbox_processes(sandbox).await
+	}
+
+	async fn list_sandboxes(&self) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+		self.list_sandboxes().await
+	}
+
+	async fn get_scheduler_runners(
+		&self,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<Vec<tg::runner::Id>> {
+		self.get_scheduler_runners(scheduler).await
+	}
+
+	async fn process_has_ancestor(
+		&self,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> tg::Result<bool> {
+		self.process_has_ancestor(process, ancestor).await
+	}
+
 	async fn touch_processes(
 		&self,
 		ids: &[tg::process::Id],
@@ -246,6 +328,20 @@ impl crate::Index for Index {
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		self.touch_processes(ids, touched_at, time_to_touch).await
+	}
+
+	async fn try_get_sandboxes(
+		&self,
+		ids: &[tg::sandbox::Id],
+	) -> tg::Result<Vec<Option<crate::sandbox::Sandbox>>> {
+		self.try_get_sandboxes(ids).await
+	}
+
+	async fn try_get_runners(
+		&self,
+		ids: &[tg::runner::Id],
+	) -> tg::Result<Vec<Option<crate::runner::Runner>>> {
+		self.try_get_runners(ids).await
 	}
 
 	async fn put_grants(&self, args: &[crate::grant::put::Arg]) -> tg::Result<()> {
@@ -313,6 +409,33 @@ impl crate::Index for Index {
 		self.delete_users(ids).await
 	}
 
+	async fn complete_finalization(&self, entry: &crate::finalization::Entry) -> tg::Result<()> {
+		self.complete_finalization(entry).await
+	}
+
+	async fn enqueue_finalization(&self, item: &crate::finalization::Item) -> tg::Result<()> {
+		self.enqueue_finalization(item).await
+	}
+
+	async fn finalization_batch(
+		&self,
+		kind: crate::finalization::Kind,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<Vec<crate::finalization::Entry>> {
+		self.finalization_batch(kind, batch_size, partition_start, partition_count)
+			.await
+	}
+
+	async fn finalizations_finished(
+		&self,
+		kind: crate::finalization::Kind,
+		transaction_id: u64,
+	) -> tg::Result<bool> {
+		self.finalizations_finished(kind, transaction_id).await
+	}
+
 	async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
 		self.updates_finished(transaction_id).await
 	}
@@ -326,25 +449,8 @@ impl crate::Index for Index {
 		Index::update_batch(self, batch_size, partition_start, partition_count).await
 	}
 
-	async fn clean(
-		&self,
-		now: i64,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-		partition_start: u64,
-		partition_count: u64,
-	) -> tg::Result<crate::clean::Output> {
-		Index::clean(
-			self,
-			now,
-			max_object_touched_at,
-			max_process_touched_at,
-			batch_size,
-			partition_start,
-			partition_count,
-		)
-		.await
+	async fn clean(&self, arg: crate::clean::Arg) -> tg::Result<crate::clean::Output> {
+		Index::clean(self, arg).await
 	}
 
 	async fn get_transaction_id(&self) -> tg::Result<u64> {

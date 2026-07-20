@@ -49,8 +49,8 @@ let process = tg --url $local.url run --detach $path --remote
 # Wait for the process to finish.
 let output = tg --url $local.url process wait $process | complete
 success $output
-snapshot ($output.stdout | from json) '
-	exit: 0
+snapshot $output.stdout '
+	{"exit":0,"output":null}
 
 '
 

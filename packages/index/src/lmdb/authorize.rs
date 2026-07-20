@@ -18,6 +18,7 @@ struct Cache {
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
 	organization_members: HashMap<tg::organization::Id, Vec<tg::Id>>,
 	principal_contains_requester: HashMap<tg::grant::Principal, bool>,
+	process_commands: HashMap<tg::process::Id, Option<tg::object::Id>>,
 	process_parents: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_sandboxes: HashMap<tg::process::Id, Option<tg::sandbox::Id>>,
 	resource_grants: HashMap<tg::Id, Vec<(tg::grant::Principal, tg::grant::Permission)>>,
@@ -62,7 +63,7 @@ impl<'a> Requester<'a> {
 			tg::Principal::Process(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Sandbox(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::User(id) => Some(tg::Id::from(id.clone())),
-			tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner => None,
+			tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner(_) => None,
 		};
 		Self {
 			principal,
@@ -81,6 +82,17 @@ impl Index {
 	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
 		if args.is_empty() {
 			return Ok(Vec::new());
+		}
+		if matches!(principal, tg::Principal::Root) {
+			let outputs = args
+				.iter()
+				.map(|arg| {
+					Some(crate::authorize::Output {
+						permissions: arg.permissions,
+					})
+				})
+				.collect();
+			return Ok(outputs);
 		}
 		let config = self.config;
 		tokio::task::spawn_blocking({
@@ -118,12 +130,6 @@ impl Index {
 					};
 					if crate::authorize::validate(&id, arg.permissions).is_err() {
 						outputs.push(None);
-						continue;
-					}
-					if matches!(principal, tg::Principal::Root) {
-						outputs.push(Some(crate::authorize::Output {
-							permissions: arg.permissions,
-						}));
 						continue;
 					}
 					if matches!(&principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == id)
@@ -290,6 +296,7 @@ impl Index {
 				context.transaction,
 				&resource,
 				permission,
+				context.requester,
 				context.cache,
 			)?;
 			for (dependency, dependency_permission) in dependencies {
@@ -504,32 +511,65 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
 		permission: tg::grant::Permission,
+		requester: &Requester<'_>,
 		cache: &mut Cache,
 	) -> tg::Result<Vec<(tg::Id, tg::grant::Permission)>> {
 		let mut dependencies = Vec::new();
 		match permission {
 			tg::grant::Permission::Object(_) => {
+				// Get the requester process and command.
+				let requester_process = match requester.principal {
+					tg::Principal::Process(process) => Some(process),
+					_ => None,
+				};
+				let requester_command = match requester_process {
+					None => None,
+					Some(process) => Self::try_get_cached_process_command_with_transaction(
+						db,
+						subspace,
+						transaction,
+						process,
+						cache,
+					)?,
+				};
+
+				// Get the relationships.
 				let object = tg::object::Id::try_from(resource.clone())?;
-				let object_parents = Self::get_cached_object_parents_with_transaction(
+				let mut object_parents = Self::get_cached_object_parents_with_transaction(
 					db,
 					subspace,
 					transaction,
 					&object,
 					cache,
 				)?;
-				for parent in object_parents {
-					let permission = tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Subtree,
+				let mut processes = Self::get_cached_object_processes_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&object,
+					cache,
+				)?;
+
+				// Add the requester command shortcut.
+				if let (Some(process), Some(command)) = (requester_process, requester_command)
+					&& let Some(position) =
+						object_parents.iter().position(|parent| parent == &command)
+				{
+					object_parents.swap(0, position);
+					let permission = tg::grant::Permission::Process(
+						tg::grant::permission::process::Permission::NodeCommand,
 					);
-					dependencies.push((parent.into(), permission));
+					dependencies.push((process.clone().into(), permission));
 				}
-				let processes = Self::get_cached_object_processes_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&object,
-					cache,
-				)?;
+
+				// Add the process relationships.
+				if let Some(requester) = requester_process
+					&& let Some(position) = processes
+						.iter()
+						.position(|(process, _)| process == requester)
+				{
+					processes.swap(0, position);
+				}
 				for (process, kind) in processes {
 					let permission = match kind {
 						crate::process::object::Kind::Command => {
@@ -547,6 +587,16 @@ impl Index {
 					};
 					dependencies.push((process.into(), tg::grant::Permission::Process(permission)));
 				}
+
+				// Add the object parent relationships.
+				for parent in object_parents {
+					let permission = tg::grant::Permission::Object(
+						tg::grant::permission::object::Permission::Subtree,
+					);
+					dependencies.push((parent.into(), permission));
+				}
+
+				// Add the tag relationships.
 				dependencies.extend(Self::get_cached_item_tags_with_transaction(
 					db,
 					subspace,
@@ -557,14 +607,32 @@ impl Index {
 				)?);
 			},
 			tg::grant::Permission::Process(process_permission) => {
+				// Get the relationships.
 				let process = tg::process::Id::try_from(resource.clone())?;
-				if let Some(sandbox) = Self::get_cached_process_sandbox_with_transaction(
+				let sandbox = Self::get_cached_process_sandbox_with_transaction(
 					db,
 					subspace,
 					transaction,
 					&process,
 					cache,
-				)? {
+				)?;
+				let process_parents = Self::get_cached_process_parents_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&process,
+					cache,
+				)?;
+
+				// Add the process parent relationships.
+				for parent in process_parents {
+					let permission =
+						tg::grant::Permission::Process(process_permission.to_subtree());
+					dependencies.push((parent.into(), permission));
+				}
+
+				// Add the sandbox relationship.
+				if let Some(sandbox) = sandbox {
 					let sandbox_permission = match process_permission {
 						tg::grant::permission::process::Permission::Write => {
 							tg::grant::permission::sandbox::Permission::Write
@@ -576,18 +644,8 @@ impl Index {
 						tg::grant::Permission::Sandbox(sandbox_permission),
 					));
 				}
-				let process_parents = Self::get_cached_process_parents_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&process,
-					cache,
-				)?;
-				for parent in process_parents {
-					let permission =
-						tg::grant::Permission::Process(process_permission.to_subtree());
-					dependencies.push((parent.into(), permission));
-				}
+
+				// Add the tag relationships.
 				dependencies.extend(Self::get_cached_item_tags_with_transaction(
 					db,
 					subspace,
@@ -624,7 +682,7 @@ impl Index {
 							tg::Principal::Process(id) => Some(tg::Id::from(id)),
 							tg::Principal::Anonymous
 							| tg::Principal::Root
-							| tg::Principal::Runner => None,
+							| tg::Principal::Runner(_) => None,
 							tg::Principal::Sandbox(id) => Some(tg::Id::from(id)),
 							tg::Principal::User(id) => Some(tg::Id::from(id)),
 						};
@@ -988,6 +1046,25 @@ impl Index {
 		Ok(processes)
 	}
 
+	fn try_get_cached_process_command_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+		cache: &mut Cache,
+	) -> tg::Result<Option<tg::object::Id>> {
+		if let Some(command) = cache.process_commands.get(process) {
+			return Ok(command.clone());
+		}
+		let command = Self::try_get_process_with_transaction(db, subspace, transaction, process)?
+			.and_then(|process| process.data)
+			.map(|data| data.command.into());
+		cache
+			.process_commands
+			.insert(process.clone(), command.clone());
+		Ok(command)
+	}
+
 	fn get_cached_process_parents_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -1036,22 +1113,13 @@ impl Index {
 		}
 		let key = crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(sandbox.clone()));
 		let key = Self::pack(subspace, &key);
-		let owner =
-			db.get(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
-				.map(|bytes| {
-					let string = std::str::from_utf8(bytes)
-						.map_err(|error| tg::error!(!error, "failed to parse the sandbox owner"))?;
-					if string.is_empty() {
-						Ok(None)
-					} else {
-						string.parse().map(Some).map_err(|error| {
-							tg::error!(!error, "failed to parse the sandbox owner")
-						})
-					}
-				})
-				.transpose()?
-				.flatten();
+		let owner = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
+			.map(crate::sandbox::Sandbox::deserialize)
+			.transpose()?
+			.and_then(|sandbox| sandbox.data)
+			.and_then(|data| data.owner);
 		cache.sandbox_owners.insert(sandbox.clone(), owner.clone());
 		Ok(owner)
 	}

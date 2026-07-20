@@ -11,6 +11,7 @@ mod object;
 mod organization;
 mod process;
 mod remote;
+mod runner;
 mod sandbox;
 mod tag;
 mod user;
@@ -18,7 +19,8 @@ mod watch;
 
 pub use self::{
 	grant::Grant, group::Group, module::Module, object::Object, organization::Organization,
-	process::Process, remote::Remote, sandbox::Sandbox, tag::Tag, user::User, watch::Watch,
+	process::Process, remote::Remote, runner::Runner, sandbox::Sandbox, tag::Tag, user::User,
+	watch::Watch,
 };
 
 pub trait Handle:
@@ -29,6 +31,7 @@ pub trait Handle:
 	+ Organization
 	+ Process
 	+ Remote
+	+ Runner
 	+ Sandbox
 	+ Tag
 	+ User

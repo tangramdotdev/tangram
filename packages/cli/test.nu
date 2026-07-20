@@ -10,8 +10,8 @@ const server_exit_directory_name = 'server_jobs'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
-	--clean # Clean up leftover test resources from cockroach, postgres, scylla, and nats.
-	--cloud # Enable cloud database backends (cockroach, postgres, scylla, nats) for spawn --cloud.
+	--clean # Clean up leftover test resources from cockroach, scylla, and nats.
+	--cloud # Enable cloud database backends (cockroach, scylla, nats) for spawn --cloud.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--preserve-temps # Keep the temporary directories.
@@ -25,7 +25,7 @@ def main [
 	--stress-count: int # Run the matching tests this many times, then stop. Implies --stress.
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 60sec # The timeout for each test.
-	--turso # Use Turso for the server database and process store.
+	--turso # Use Turso for the server database.
 	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
@@ -61,13 +61,6 @@ def main [
 			print -e $"removed ($path)"
 		}
 
-		let preserved_dbs = ['postgres', 'template0', 'template1', 'processes']
-		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'processes_' }
-		for db in $dbs {
-			print -e $"dropping postgres database ($db)"
-			try { dropdb -U postgres -h localhost $db }
-		}
-
 		let cockroach_dbs = cockroach sql --insecure --host=localhost:26257 --format=csv -e 'show databases;' | from csv | get database_name | where { $in starts-with 'database_' }
 		for db in $cockroach_dbs {
 			print -e $"dropping cockroach database ($db)"
@@ -82,9 +75,8 @@ def main [
 		}
 
 		print -e "clearing fdb data"
-		let cluster = mktemp -t
-		"docker:docker@localhost:4500" | save -f $cluster
-		try { fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
+		let cluster = fdb_cluster
+		try { ^timeout 10 fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
 
 		let tangram_processes = count_tangram_processes
 		if $tangram_processes > 0 {
@@ -707,35 +699,52 @@ export def doc [string: string] {
 }
 
 export def --env snapshot [
-	--name (-n): string
+	--name: string
+	--normalize (-n)
+	--normalize-ids
 	--path (-p)
+	--redact (-r): oneof<list<string>, string>
 	value: any
 	inline?: string
 ] {
-	if $inline != null {
-		snapshot_inline --path=$path --span=(metadata $inline).span $value $inline
-	} else {
-		snapshot_file --name=$name --path=$path $value
-	}
-}
-
-def --env snapshot_inline [
-	--path (-p)
-	--span: record
-	value: any
-	inline: string
-] {
-	let new_value = if $path {
+	let value = if $path {
 		snapshot_path $value | to json -i 2
 	} else {
 		$value | to text
 	}
+	let redactions = if $redact == null {
+		null
+	} else if ($redact | describe) == 'string' {
+		[$redact]
+	} else {
+		$redact
+	}
+	let value = if $redactions == null { $value } else { $value | redact ...$redactions }
+	let value = if $normalize_ids {
+		$value | normalize --normalize-ids
+	} else if $normalize {
+		$value | normalize
+	} else {
+		$value
+	}
 
+	if $inline != null {
+		snapshot_inline --span=(metadata $inline).span $value $inline
+	} else {
+		snapshot_file --name=$name $value
+	}
+}
+
+def --env snapshot_inline [
+	--span: record
+	value: string
+	inline: string
+] {
 	# Get the expected value by processing the snapshot with doc.
 	let expected_value = doc $inline
 
 	# If the values match, return early.
-	if $new_value == $expected_value {
+	if $value == $expected_value {
 		return
 	}
 
@@ -763,14 +772,14 @@ def --env snapshot_inline [
 		position: $position,
 		length: $length,
 		old: $expected_value,
-		new: $new_value,
+		new: $value,
 	}
 
 	$inline_entries | to json | save -f $inline_path
 
 	error make {
 		msg: 'the snapshot does not match',
-		help: (diff $expected_value $new_value),
+		help: (diff $expected_value $value),
 		label: {
 			span: $span,
 			text: 'the snapshot',
@@ -780,15 +789,8 @@ def --env snapshot_inline [
 
 def --env snapshot_file [
 	--name (-n): string
-	--path (-p)
-	value: any
+	value: string
 ] {
-	let new_value = if $path {
-		snapshot_path $value | to json -i 2
-	} else {
-		$value | to text
-	}
-
 	# Get the snapshot path.
 	let test_path = $env.CURRENT_FILE
 	let test_name = $test_path | path parse | get stem
@@ -810,7 +812,7 @@ def --env snapshot_file [
 
 	# Error if the snapshot does not exist.
 	if not ($snapshot_path | path exists) {
-		$new_value | save -f $pending_path
+		$value | save -f $pending_path
 		error make {
 			msg: 'the snapshot does not exist',
 			label: {
@@ -824,8 +826,8 @@ def --env snapshot_file [
 	let old_value = open $snapshot_path
 
 	# Error if the new value does not match the old value.
-	if $new_value != $old_value {
-		$new_value | save -f $pending_path
+	if $value != $old_value {
+		$value | save -f $pending_path
 		error make {
 			msg: 'the snapshot does not match',
 			help: (diff $snapshot_path $pending_path --path),
@@ -926,12 +928,6 @@ export def --env spawn [
 				kind: 'turso',
 				path: 'database',
 			},
-			process: {
-				store: {
-					kind: 'turso',
-					path: 'processes',
-				},
-			},
 		}
 	}
 
@@ -963,11 +959,7 @@ export def --env spawn [
 		cockroach sql --insecure --host=localhost:26257 -e $'create database database_($id)'
 		cockroach sql --insecure --host=localhost:26257 -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
 
-		createdb -U postgres -h localhost $'processes_($id)'
-		psql -U postgres -h localhost -d $'processes_($id)' -f ($repository_path | path join packages/server/src/process/store/postgres.sql)
-
-		let cluster = mktemp -t
-		"docker:docker@localhost:4500" | save -f $cluster
+		let cluster = fdb_cluster
 
 		cqlsh -e $"create keyspace \"objects_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
 		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
@@ -1003,15 +995,6 @@ export def --env spawn [
 					connections: 1,
 					keyspace: $'objects_($id)',
 					kind: 'scylla',
-				},
-			},
-			process: {
-				store: {
-					kind: 'postgres',
-					pool: {
-						max: 1,
-					},
-					url: $'postgres://postgres@localhost:5432/processes_($id)',
 				},
 			},
 			remotes: {},
@@ -1126,7 +1109,7 @@ export def --env spawn [
 			export default env;
 		';
 		$source | save ($path | path join 'tangram.ts')
-		if ($config.authentication?.providers?.insecure? | default false) {
+		if ($config.authentication?.users?.providers?.insecure? | default false) {
 			let user = tg -c ($config_path) login --verbose busyboxer | from json
 			tg -c ($config_path) --token ($user.token) tag 'busybox' $path
 			tg -c ($config_path) --token ($user.token) grant public tag_read 'busybox'
@@ -1144,13 +1127,9 @@ def clean_databases [id: string] {
 	# Drop the Cockroach database.
 	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists database_($id) cascade' }
 
-	# Drop the Postgres database.
-	try { dropdb -U postgres -h localhost $'processes_($id)' }
-
 	# Clear the fdb key range.
-	let cluster = mktemp -t
-	"docker:docker@localhost:4500" | save -f $cluster
-	try { fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
+	let cluster = fdb_cluster
+	try { ^timeout 10 fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"objects_($id)\";" }
@@ -1244,25 +1223,13 @@ export def wait_until [
 	}
 }
 
-# Replace nondeterministic data in the input with canonical tokens for snapshotting. Only the IDs that vary from run to run become their kind in angle brackets, for example `<process>`, and any provided paths become `<path>`. Content-addressed object IDs such as files, directories, and commands are deterministic, so they are left intact. Errors are content-addressed but embed nondeterministic data, so they are redacted. The length floor in the regex keeps identifiers such as `pcs_id` from being redacted.
-export def redact [...paths: string] {
-	mut value = $in
-	let tokens = {
-		err: '<error>',
-		sbx: '<sandbox>',
-		pcs: '<process>',
-		usr: '<user>',
-		grp: '<group>',
-		org: '<organization>',
+# Redact literal strings in the input for snapshotting.
+export def redact [...redactions: string] {
+	mut output = $in
+	for redaction in ($redactions | sort-by { |redaction| $redaction | str length } --reverse) {
+		$output = $output | str replace --all $redaction '<redacted>'
 	}
-	for entry in ($tokens | transpose prefix token) {
-		$value = $value | str replace --all --regex $'($entry.prefix)_[0-9a-z]{20,}' $entry.token
-	}
-	$value = $value | str replace --all --regex 'id = [0-9]+' 'id = <process>'
-	for path in $paths {
-		$value = $value | str replace --all $path '<path>'
-	}
-	$value
+	$output
 }
 
 export def --env failure [
@@ -1302,16 +1269,32 @@ export def xattr_write [name: string, value: string, path: string] {
 	}
 }
 
-export def normalize_ids [value?: string, --prefixes: list<string> = [blb cmd dir fil gph pcs sbx sym]] {
+# Normalize runtime IDs and tokens in a string for snapshotting. With --normalize-ids, include content-addressed IDs. The length floor keeps identifiers such as `pcs_id` from being normalized.
+export def normalize [value?: string, --normalize-ids] {
 	let input = $in
 	let value = ($value | default $input)
-	let prefixes_pattern = ($prefixes | str join '|')
-	let pattern = '(?<id>(' + $prefixes_pattern + ')_[a-z0-9]+)'
 
 	mut output = $value
-	mut counters = {}
+	mut numeric_process_index = 0
+	for id in ($output | parse --regex 'id = (?<id>[0-9]+)' | get id | uniq) {
+		if $numeric_process_index > 9 {
+			error make { msg: 'too many IDs to normalize for the prefix' }
+		}
+		let digit = $numeric_process_index | into string
+		let replacement = 'pcs_00' + (0..<26 | each { $digit } | str join)
+		$numeric_process_index += 1
+		$output = $output | str replace --all $'id = ($id)' $'id = ($replacement)'
+	}
 
-	for id in ($value | parse --regex $pattern | get id | uniq) {
+	let prefixes = if $normalize_ids {
+		[blb cmd dir err fil gph grp org pcs sbx sym usr]
+	} else {
+		[err grp org pcs sbx usr]
+	}
+	let prefixes_pattern = $prefixes | str join '|'
+	let pattern = '(?<id>(' + $prefixes_pattern + ')_[a-z0-9]{20,})'
+	mut counters = {}
+	for id in ($output | parse --regex $pattern | get id | uniq) {
 		let prefix = ($id | split row '_' | first)
 		let suffix = ($id | split row '_' | last)
 		let index = ($counters | get --optional $prefix | default 0)
@@ -1329,10 +1312,10 @@ export def normalize_ids [value?: string, --prefixes: list<string> = [blb cmd di
 		}
 		let replacement = $'($prefix)_($header)($replacement_suffix)'
 		$counters = ($counters | upsert $prefix ($index + 1))
-		$output = ($output | str replace --all $id $replacement)
+		$output = $output | str replace --all $id $replacement
 	}
 
-	$output = ($output | str replace --all --regex '([?&]token=|"token":\s*")[A-Za-z0-9._~+/=-]+' '${1}<token>')
+	$output = $output | str replace --all --regex '([?&]token=|"token":\s*")[A-Za-z0-9._~%+/=-]+' '${1}<token>'
 
 	$output
 }
@@ -1439,6 +1422,27 @@ def process_supervisor [] {
 '
 }
 
+def fdb_cluster [] {
+	let env_cluster = $env.TANGRAM_TEST_FDB_CLUSTER? | default ''
+	if ($env_cluster | str length) > 0 {
+		return $env_cluster
+	}
+
+	let system_cluster = '/etc/foundationdb/fdb.cluster'
+	if ($system_cluster | path exists) {
+		return $system_cluster
+	}
+
+	let user_cluster = ($nu.home-dir | path join '.foundationdb/fdb.cluster')
+	if ($user_cluster | path exists) {
+		return $user_cluster
+	}
+
+	let cluster = mktemp -t
+	"local:local@localhost:4500" | save -f $cluster
+	$cluster
+}
+
 def clean_tangram_processes [] {
 	let pids = tangram_process_pids_list
 	if ($pids | is-empty) {
@@ -1509,7 +1513,7 @@ export def cleanup_background_jobs [temp_path: string] {
 		try { job kill $job.id }
 	}
 
-	for job in (job list | where { ($in.description? | default '') == 'server' }) {
+	for job in (job list | where { ($in.description? | default '') == 'server' } | sort-by id | reverse) {
 		let exit_path = server_exit_path $temp_path $job.id
 		stop_server_job $job.id
 		if not (wait_for_server_exit $exit_path) {

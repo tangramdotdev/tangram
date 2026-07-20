@@ -4,11 +4,6 @@ use {
 };
 
 pub trait Process: Send + Sync + 'static {
-	fn list_processes(
-		&self,
-		arg: tg::process::list::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::process::list::Output>>;
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -45,12 +40,16 @@ pub trait Process: Send + Sync + 'static {
 
 	fn try_get_process_control_stream<'a>(
 		&'a self,
-		id: &'a tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>>,
+		tg::Result<
+			Option<(
+				tg::process::control::Output,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+		>,
 	>;
 
 	fn try_signal_process<'a>(
@@ -105,12 +104,6 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::touch::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
-	fn try_finish_process<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
-
 	fn try_wait_process_future<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
@@ -125,13 +118,6 @@ impl<T> Process for T
 where
 	T: tg::handle::Process,
 {
-	fn list_processes(
-		&self,
-		arg: tg::process::list::Arg,
-	) -> BoxFuture<'_, tg::Result<tg::process::list::Output>> {
-		self.list_processes(arg).boxed()
-	}
-
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -180,15 +166,19 @@ where
 
 	fn try_get_process_control_stream<'a>(
 		&'a self,
-		id: &'a tg::process::Id,
 		arg: tg::process::control::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::control::ResponseEvent>>,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::control::RequestEvent>>>>,
+		tg::Result<
+			Option<(
+				tg::process::control::Output,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+		>,
 	> {
-		self.try_get_process_control_stream(id, arg, stream)
-			.map_ok(|option| option.map(futures::StreamExt::boxed))
+		self.try_get_process_control_stream(arg, stream)
+			.map_ok(|option| option.map(|(output, stream)| (output, stream.boxed())))
 			.boxed()
 	}
 
@@ -265,14 +255,6 @@ where
 		arg: tg::process::touch::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_touch_process(id, arg).boxed()
-	}
-
-	fn try_finish_process<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
-		self.try_finish_process(id, arg).boxed()
 	}
 
 	fn try_wait_process_future<'a>(

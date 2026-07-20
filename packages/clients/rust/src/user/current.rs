@@ -18,7 +18,7 @@ impl tg::Session {
 		let method = http::Method::GET;
 		let uri = Uri::builder()
 			.path("/user")
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

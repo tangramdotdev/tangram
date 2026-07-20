@@ -26,7 +26,7 @@ pub fn convert_diagnostic(
 				},
 			});
 	let location = Some(tg::module::location::Data {
-		module: module.clone(),
+		module: module.without_token(),
 		range,
 	});
 	let message = diagnostic.message.as_ref().to_owned();

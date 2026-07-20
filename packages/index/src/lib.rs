@@ -9,11 +9,13 @@ pub mod authorize;
 pub mod batch;
 pub mod cache;
 pub mod clean;
+pub mod finalization;
 pub mod grant;
 pub mod group;
 pub mod object;
 pub mod organization;
 pub mod process;
+pub mod runner;
 pub mod sandbox;
 pub mod tag;
 pub mod user;
@@ -123,11 +125,87 @@ pub trait Index {
 		ids: &[tg::process::Id],
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
+	fn try_get_cached_processes(
+		&self,
+		command: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
+
+	fn get_process_depth_detections(
+		&self,
+		limit: usize,
+	) -> impl Future<Output = tg::Result<Vec<tg::process::Id>>> + Send;
+
+	fn get_requester_principals(
+		&self,
+		principal: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<tg::grant::Principal>>> + Send;
+
+	fn list_sandboxes_for_creator(
+		&self,
+		creator: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn list_sandboxes_for_owner(
+		&self,
+		owner: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn get_runner_sandboxes(
+		&self,
+		runner: &tg::runner::Id,
+	) -> impl Future<Output = tg::Result<Vec<tg::sandbox::Id>>> + Send;
+
+	fn get_sandbox_processes(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
+
+	fn list_sandboxes(
+		&self,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn get_scheduler_runners(
+		&self,
+		scheduler: &tg::scheduler::Id,
+	) -> impl Future<Output = tg::Result<Vec<tg::runner::Id>>> + Send;
+
+	fn process_has_ancestor(
+		&self,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<bool>> + Send;
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
 		self.try_get_processes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_sandboxes(
+		&self,
+		ids: &[tg::sandbox::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::sandbox::Sandbox>>>> + Send;
+
+	fn try_get_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::sandbox::Sandbox>>> + Send {
+		self.try_get_sandboxes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_runners(
+		&self,
+		ids: &[tg::runner::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::runner::Runner>>>> + Send;
+
+	fn try_get_runner(
+		&self,
+		id: &tg::runner::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::runner::Runner>>> + Send {
+		self.try_get_runners(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
@@ -209,6 +287,30 @@ pub trait Index {
 
 	fn delete_users(&self, ids: &[tg::user::Id]) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn complete_finalization(
+		&self,
+		entry: &crate::finalization::Entry,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn enqueue_finalization(
+		&self,
+		item: &crate::finalization::Item,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn finalization_batch(
+		&self,
+		kind: crate::finalization::Kind,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> impl Future<Output = tg::Result<Vec<crate::finalization::Entry>>> + Send;
+
+	fn finalizations_finished(
+		&self,
+		kind: crate::finalization::Kind,
+		transaction_id: u64,
+	) -> impl Future<Output = tg::Result<bool>> + Send;
+
 	fn updates_finished(
 		&self,
 		transaction_id: u64,
@@ -223,12 +325,7 @@ pub trait Index {
 
 	fn clean(
 		&self,
-		now: i64,
-		max_object_touched_at: i64,
-		max_process_touched_at: i64,
-		batch_size: usize,
-		partition_start: u64,
-		partition_count: u64,
+		arg: crate::clean::Arg,
 	) -> impl Future<Output = tg::Result<crate::clean::Output>> + Send;
 
 	fn get_transaction_id(&self) -> impl Future<Output = tg::Result<u64>> + Send;

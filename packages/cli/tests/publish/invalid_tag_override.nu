@@ -16,7 +16,7 @@ let path = artifact {
 
 let output = tg publish --tag "@@@bad" $path | complete
 failure $output
-snapshot ($output.stderr | redact $path) '
+snapshot --normalize --redact $path $output.stderr '
 	error an error occurred
 	-> failed to parse the tag
 	-> invalid specifier component

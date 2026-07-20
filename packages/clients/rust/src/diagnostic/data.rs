@@ -48,6 +48,15 @@ impl Diagnostic {
 			location.children(children);
 		}
 	}
+
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.location = self
+			.location
+			.map(tg::module::location::Data::without_tokens);
+
+		self
+	}
 }
 
 impl std::fmt::Display for Diagnostic {

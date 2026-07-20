@@ -4,7 +4,7 @@ use {
 		Stream, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	serde_with::serde_as,
+	serde_with::{DisplayFromStr, serde_as},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		future::Future,
@@ -30,6 +30,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
+	#[serde_as(as = "DisplayFromStr")]
 	pub command: tg::Referent<tg::command::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -403,7 +404,8 @@ impl<O: 'static> tg::Process<O> {
 				|| stderr_is_foreground_controlling_tty);
 		arg.tty = tty.map(tg::Either::Right);
 		if arg.stdin.is_tty() || arg.stdout.is_tty() || arg.stderr.is_tty() {
-			let mut object = tg::Command::with_id(arg.command.item.clone())
+			let command = tg::Command::with_referent(arg.command.clone());
+			let mut object = command
 				.object_with_handle(&handle)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to load the command"))?
@@ -450,16 +452,18 @@ impl<O: 'static> tg::Process<O> {
 			let stdin = stdin.clone();
 			let stdout = stdout.clone();
 			let stderr = stderr.clone();
+			let token = output.token.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
 				let arg = super::stdio::StdioTaskArg {
 					handle,
 					id,
 					location,
+					raw,
+					stderr,
 					stdin,
 					stdout,
-					stderr,
+					token,
 					tty: local_tty,
-					raw,
 				};
 				super::stdio::stdio_task(arg).await
 			}))
@@ -481,12 +485,17 @@ impl<O: 'static> tg::Process<O> {
 		} else {
 			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
 		};
+		let handle = (output.lease.is_some() && wait.is_none())
+			.then(|| tg::handle::dynamic::Handle::new(handle.clone()));
+		let owned = std::sync::atomic::AtomicBool::new(handle.is_some());
 		let inner = Arc::new(super::Inner {
 			cached: Some(output.cached),
+			handle,
 			id: tg::Either::Right(id),
 			lease: output.lease,
 			location: Arc::new(RwLock::new(location.map(Into::into))),
 			metadata: RwLock::new(None),
+			owned,
 			state: RwLock::new(None),
 			stderr,
 			stdin,
@@ -520,7 +529,8 @@ impl<O: 'static> tg::Process<O> {
 			));
 		}
 
-		let command = tg::Command::with_id(arg.command.item().clone())
+		let command = tg::Command::with_referent(arg.command.clone());
+		let command = command
 			.data_with_handle(handle)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to load the command"))?;
@@ -541,7 +551,8 @@ impl<O: 'static> tg::Process<O> {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
-		let artifacts = checkout_artifacts(handle, &command).await?;
+		let artifacts =
+			checkout_artifacts(handle, &command, arg.command.options.token.as_ref()).await?;
 		let env = render_env(handle, &command.env, &artifacts, &output_path)?;
 		let (executable, args) =
 			render_command(&command, &artifacts, &output_path, arg.debug.as_ref())?;
@@ -580,6 +591,7 @@ impl<O: 'static> tg::Process<O> {
 			&arg.stdin,
 			tg::process::stdio::Stream::Stdin,
 		)?);
+		command_.kill_on_drop(true);
 		command_.stdout(convert_stdio(
 			&arg.stdout,
 			tg::process::stdio::Stream::Stdout,
@@ -624,20 +636,21 @@ impl<O: 'static> tg::Process<O> {
 			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
 		};
 
-		let mut task = tangram_futures::task::Shared::spawn({
+		let task = tangram_futures::task::Shared::spawn({
 			let handle = handle.clone();
 			let output_path = prepared.output_path;
 			let temp = prepared.temp;
 			move |_| async move { Self::wait_unsandboxed(handle, child, output_path, temp).await }
 		});
-		task.detach();
 
 		let inner = Arc::new(super::Inner {
 			cached: Some(false),
+			handle: None,
 			id: tg::Either::Left(pid),
 			lease: None,
 			location: Arc::new(RwLock::new(None)),
 			metadata: RwLock::new(None),
+			owned: std::sync::atomic::AtomicBool::new(true),
 			state: RwLock::new(None),
 			stderr,
 			stdin,
@@ -798,6 +811,7 @@ impl tg::Session {
 async fn checkout_artifacts<H>(
 	handle: &H,
 	command: &tg::command::Data,
+	token: Option<&tg::grant::Token>,
 ) -> tg::Result<BTreeMap<tg::artifact::Id, PathBuf>>
 where
 	H: tg::Handle,
@@ -810,10 +824,11 @@ where
 		.collect::<BTreeSet<tg::artifact::Id>>();
 	let mut output = BTreeMap::new();
 	for artifact in artifacts {
+		let referent = tg::Referent::with_item_and_token(artifact.clone(), token.cloned());
 		let path = tg::checkout::checkout_with_handle(
 			handle,
 			tg::checkout::Arg {
-				artifact: artifact.clone(),
+				artifact: referent,
 				dependencies: true,
 				extension: None,
 				force: false,
@@ -1023,19 +1038,8 @@ fn render_value_string(
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
-		tg::value::Data::Object(object)
-			if object
-				.clone()
-				.map_right(|object| object.id)
-				.into_inner()
-				.is_artifact() =>
-		{
-			let artifact: tg::artifact::Id = object
-				.clone()
-				.map_right(|object| object.id)
-				.into_inner()
-				.try_into()
-				.unwrap();
+		tg::value::Data::Object(object) if object.item.is_artifact() => {
+			let artifact: tg::artifact::Id = object.item.clone().try_into().unwrap();
 			Ok(artifacts
 				.get(&artifact)
 				.ok_or_else(|| tg::error!("failed to find the artifact path"))?
@@ -1045,12 +1049,7 @@ fn render_value_string(
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts
-				.get(
-					&artifact
-						.clone()
-						.map_right(|artifact| artifact.id)
-						.into_inner(),
-				)
+				.get(&artifact.item)
 				.ok_or_else(|| tg::error!("failed to find the artifact path"))?
 				.to_string_lossy()
 				.into_owned()
@@ -1183,6 +1182,7 @@ fn normalize_sandbox(
 			}
 			let sandbox = tg::sandbox::create::Arg {
 				cpu,
+				host: None,
 				hostname: None,
 				isolation: None,
 				location: None,
@@ -1202,6 +1202,7 @@ fn normalize_sandbox_create_arg(
 ) -> tg::sandbox::create::Arg {
 	tg::sandbox::create::Arg {
 		cpu: sandbox.cpu,
+		host: None,
 		hostname: sandbox.hostname,
 		isolation: sandbox.isolation,
 		location: sandbox.location,

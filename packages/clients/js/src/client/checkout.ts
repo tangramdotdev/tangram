@@ -4,7 +4,7 @@ import type { Client } from "../client.ts";
 
 export namespace Checkout {
 	export type Arg = {
-		artifact: tg.Artifact.Id;
+		artifact: tg.Referent<tg.Artifact.Id>;
 		dependencies?: boolean;
 		extension?: string | null;
 		force?: boolean;
@@ -15,7 +15,7 @@ export namespace Checkout {
 	export namespace Arg {
 		export let toJson = (arg: tg.Checkout.Arg): unknown => {
 			let output: { [key: string]: unknown } = {
-				artifact: arg.artifact,
+				artifact: tg.Referent.toDataString(arg.artifact, (id) => id),
 			};
 			if (arg.dependencies !== undefined && !arg.dependencies) {
 				output.dependencies = arg.dependencies;

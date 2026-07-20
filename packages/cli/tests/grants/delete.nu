@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Deleting a grant removes it, and revoke is an alias for delete.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

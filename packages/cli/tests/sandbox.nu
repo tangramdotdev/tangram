@@ -2,7 +2,7 @@ use ../test.nu *
 
 # A sandbox can be created with hostname, mount, and network options, listed with those options reflected, and destroyed so that it is eventually finalized and no longer found.
 
-let server = spawn
+let server = spawn --config { cleaner: {}, sandbox: { ttl: 0 } }
 
 let create = if $nu.os-info.name == 'linux' {
 	tg sandbox create --hostname sandbox-test --mount /tmp:/sandbox,ro --no-network
@@ -28,9 +28,9 @@ assert (($list | where id == $create | is-empty))
 wait_until { (tg sandbox get $create | complete | get exit_code) != 0 } "the sandbox should be finalized"
 let output = tg sandbox get $create | complete
 failure $output "the sandbox should be finalized"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the sandbox
-	   sandbox = <sandbox>
+	   sandbox = sbx_0000000000000000000000000000
 
 '

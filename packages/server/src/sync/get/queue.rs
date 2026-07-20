@@ -69,6 +69,16 @@ impl Session {
 		state: &State,
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
+		// Store the provided tokens.
+		{
+			let mut graph = state.graph.lock().unwrap();
+			for item in &items {
+				if let Some(token) = &item.token {
+					graph.update_object_token(&item.id, token.clone());
+				}
+			}
+		}
+
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
@@ -173,6 +183,7 @@ impl Session {
 					} else {
 						// If the object is stored but its subtree is not visible, then enqueue the children.
 						let bytes = self
+							.server
 							.try_get_object_local(&item.id, false)
 							.await
 							.map_err(|error| tg::error!(!error, "failed to get the object"))?
@@ -222,6 +233,16 @@ impl Session {
 		state: &State,
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
+		// Store the provided tokens.
+		{
+			let mut graph = state.graph.lock().unwrap();
+			for item in &items {
+				if let Some(token) = &item.token {
+					graph.update_process_token(&item.id, token.clone());
+				}
+			}
+		}
+
 		// Get the ids.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
@@ -292,10 +313,9 @@ impl Session {
 					let metadata = &process.metadata;
 					// Get the process.
 					let data = self
-						.try_get_process_local(&item.id, false)
+						.get_process_local(&item.id, false)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the process"))?
-						.ok_or_else(|| tg::error!("expected the process to exist"))?
 						.data;
 
 					// Update the graph with stored and metadata and data.
@@ -396,11 +416,7 @@ impl Session {
 			for child in children {
 				state.queue.enqueue_process(ProcessItem {
 					eager: state.arg.eager,
-					id: child
-						.process
-						.clone()
-						.map_right(|process| process.id)
-						.into_inner(),
+					id: child.process.item.clone(),
 					parent: Some(id.clone()),
 					token: token.cloned(),
 				});
@@ -441,11 +457,7 @@ impl Session {
 				tg::Either::Right(error) => {
 					let item = ObjectItem {
 						eager: state.arg.eager,
-						id: error
-							.clone()
-							.map_right(|error| error.id)
-							.into_inner()
-							.into(),
+						id: error.clone().item.into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
 						parent: Some(tg::Either::Right(id.clone())),
 						token: token.cloned(),
@@ -462,7 +474,7 @@ impl Session {
 		{
 			let item = ObjectItem {
 				eager: state.arg.eager,
-				id: log.map_right(|log| log.id).into_inner().into(),
+				id: log.item.into(),
 				kind: Some(crate::sync::queue::ObjectKind::Log),
 				parent: Some(tg::Either::Right(id.clone())),
 				token: token.cloned(),

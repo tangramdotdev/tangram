@@ -8,19 +8,22 @@ pub struct Args {
 	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub object: tg::object::Id,
+	pub object: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_object_touch(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let object = self.get_resolved_object(&args.object).await?;
+		let id = object.item;
 		let arg = tg::object::touch::Arg {
 			location: args.locations.get(),
+			token: object.options.token,
 		};
 		client
-			.touch_object(&args.object, arg)
+			.touch_object(&id, arg)
 			.await
-			.map_err(|error| tg::error!(!error, id = %args.object, "failed to touch the object"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?;
 		Ok(())
 	}
 }

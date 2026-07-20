@@ -17,7 +17,7 @@ success $output
 
 let output = tg remote get upstream | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the remote
 	   name = upstream

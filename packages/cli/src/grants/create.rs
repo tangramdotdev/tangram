@@ -14,7 +14,7 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 3)]
-	pub resource: tg::grant::Resource,
+	pub resource: tg::Referent<tg::grant::Resource>,
 }
 
 impl Cli {

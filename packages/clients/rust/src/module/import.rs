@@ -73,11 +73,20 @@ impl Import {
 			path: path.or(reference.options().path.clone()),
 			source: source.or(reference.options().source.clone()),
 			tag: tag.or(reference.options().tag.clone()),
+			token: reference.options().token.clone(),
 		};
 		let reference = tg::Reference::with_item_and_options(reference.item().clone(), options);
 
 		let import = Import { kind, reference };
 
 		Ok(import)
+	}
+
+	#[must_use]
+	pub fn without_token(&self) -> Self {
+		let mut import = self.clone();
+		import.reference = import.reference.without_token();
+
+		import
 	}
 }

@@ -45,7 +45,7 @@ create table logins (
 );
 
 create table user_tokens (
-	id text primary key,
+	token text primary key,
 	"user" text not null,
 	foreign key ("user") references users (id)
 );
@@ -77,8 +77,22 @@ create table github_identities (
 );
 
 create table runner_tokens (
-	id text primary key
+	token text primary key,
+	runner text not null
 );
+
+create table schedulers (
+	id text primary key,
+	status text not null
+);
+
+create table runners (
+	id text primary key,
+	scheduler text,
+	status text not null
+);
+
+create index runners_scheduler_index on runners (scheduler);
 
 create table groups (
 	id text primary key,

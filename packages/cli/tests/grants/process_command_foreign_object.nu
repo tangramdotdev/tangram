@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Referencing a private command by id does not leak it: building tg.Command.withId of a command the builder cannot read must not grant the builder read access to that command.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

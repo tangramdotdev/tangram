@@ -19,7 +19,7 @@ impl Session {
 		&self,
 		arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner) {
+		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner(_)) {
 			return self.list_remotes_runner().await;
 		}
 		let principal = match self

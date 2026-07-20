@@ -20,7 +20,7 @@ mod put;
 mod queue;
 
 impl Session {
-	#[tracing::instrument(fields(get = ?arg.get, put = ?arg.put), level = "trace", name = "sync", skip_all)]
+	#[tracing::instrument(fields(get_count = arg.get.len(), put_count = arg.put.len()), level = "trace", name = "sync", skip_all)]
 	pub(crate) async fn sync(
 		&self,
 		arg: tg::sync::Arg,

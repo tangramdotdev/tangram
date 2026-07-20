@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Building a process with a group owner requires write on that group, so read access alone is not enough.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

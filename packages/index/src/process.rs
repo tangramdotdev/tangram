@@ -6,21 +6,22 @@ use {
 pub mod object;
 pub mod put;
 
-#[derive(
-	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
-)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Process {
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
+	pub data: Option<tg::process::Data>,
+
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub metadata: tg::process::Metadata,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub reference_count: u64,
 
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_default")]
-	pub set: Set,
-
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<tg::sandbox::Id>,
+
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_default")]
+	pub set: Set,
 
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub stored: Stored,

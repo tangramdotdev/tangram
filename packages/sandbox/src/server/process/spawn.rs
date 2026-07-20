@@ -193,17 +193,14 @@ impl Server {
 		// Insert the process.
 		let process = Process {
 			command: arg.command,
-			debug: arg.debug,
-			location: arg.location,
 			pid,
-			retry: arg.retry,
 			stdin,
 			stdout,
 			stderr,
 			pty: pty.map(Arc::new),
 			task,
 		};
-		self.processes.insert(arg.id.clone(), process);
+		self.processes.insert(arg.id, process);
 
 		Ok(crate::client::spawn::Output {})
 	}

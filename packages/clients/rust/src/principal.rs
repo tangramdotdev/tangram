@@ -29,8 +29,8 @@ pub enum Principal {
 	#[display("root")]
 	Root,
 
-	#[display("runner")]
-	Runner,
+	#[display("{_0}")]
+	Runner(tg::runner::Id),
 
 	#[display("{_0}")]
 	Sandbox(tg::sandbox::Id),
@@ -79,8 +79,8 @@ impl std::str::FromStr for Principal {
 		if s == "root" {
 			return Ok(Self::Root);
 		}
-		if s == "runner" {
-			return Ok(Self::Runner);
+		if let Ok(id) = s.parse::<tg::runner::Id>() {
+			return Ok(Self::Runner(id));
 		}
 		if let Ok(id) = s.parse::<tg::sandbox::Id>() {
 			return Ok(Self::Sandbox(id));
@@ -96,10 +96,11 @@ impl Principal {
 	#[must_use]
 	pub fn to_id(&self) -> Option<tg::Id> {
 		match self {
-			Self::Anonymous | Self::Root | Self::Runner => None,
+			Self::Anonymous | Self::Root => None,
 			Self::Group(id) => Some(id.clone().into()),
 			Self::Organization(id) => Some(id.clone().into()),
 			Self::Process(id) => Some(id.clone().into()),
+			Self::Runner(id) => Some(id.clone().into()),
 			Self::Sandbox(id) => Some(id.clone().into()),
 			Self::User(id) => Some(id.clone().into()),
 		}
@@ -113,7 +114,7 @@ impl Principal {
 			Self::Organization(id) => tg::grant::Principal::Organization(id.clone()),
 			Self::Process(id) => tg::grant::Principal::Process(id.clone()),
 			Self::Root => tg::grant::Principal::Root,
-			Self::Runner => tg::grant::Principal::Runner,
+			Self::Runner(id) => tg::grant::Principal::Runner(id.clone()),
 			Self::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
 			Self::User(id) => tg::grant::Principal::User(id.clone()),
 		}
@@ -126,7 +127,7 @@ impl Principal {
 			Self::Organization(id) => Ok(tg::grant::Principal::Organization(id.clone())),
 			Self::Process(id) => Ok(tg::grant::Principal::Process(id.clone())),
 			Self::Root => Ok(tg::grant::Principal::Root),
-			Self::Runner => Ok(tg::grant::Principal::Runner),
+			Self::Runner(id) => Ok(tg::grant::Principal::Runner(id.clone())),
 			Self::Sandbox(id) => Ok(tg::grant::Principal::Sandbox(id.clone())),
 			Self::User(id) => Ok(tg::grant::Principal::User(id.clone())),
 		}

@@ -10,7 +10,7 @@ $contents | save ($dir | path join tangram.ts)
 
 let output = tg format $dir | complete
 failure $output
-snapshot ($output.stderr | redact $dir) '
+snapshot --normalize --redact $dir $output.stderr '
 	error an error occurred
 	-> failed to format
 	-> the request failed
@@ -20,7 +20,7 @@ snapshot ($output.stderr | redact $dir) '
 	-> failed to format the path
 	-> failed to format the file
 	-> failed to format the module
-	   path = <path>/tangram.ts
+	   path = <redacted>/tangram.ts
 	-> failed to format the module
 	-> Expected `)` but found `EOF`
 

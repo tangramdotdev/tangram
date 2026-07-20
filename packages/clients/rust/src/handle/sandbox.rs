@@ -1,4 +1,7 @@
-use {crate::prelude::*, futures::Stream};
+use {
+	crate::prelude::*,
+	futures::{Stream, stream::BoxStream},
+};
 
 pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 	fn create_sandbox(
@@ -23,22 +26,6 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::sandbox::get::Output>>> + Send;
-
-	fn dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::queue::Output>> + Send {
-		async move {
-			self.try_dequeue_sandbox(arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the sandbox"))
-		}
-	}
-
-	fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::queue::Output>>> + Send;
 
 	fn list_sandboxes(
 		&self,
@@ -65,24 +52,6 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::sandbox::destroy::Arg,
 	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
-	fn heartbeat_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::heartbeat::Output>> + Send {
-		async move {
-			self.try_heartbeat_sandbox(id, arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the sandbox"))
-		}
-	}
-
-	fn try_heartbeat_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::heartbeat::Output>>> + Send;
-
 	fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,
@@ -93,23 +62,16 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn dequeue_sandbox_process(
+	fn get_sandbox_control_stream(
 		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::process::queue::Output>> + Send {
-		async move {
-			self.try_dequeue_sandbox_process(sandbox, arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the sandbox"))
-		}
-	}
-
-	fn try_dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> + Send;
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<(
+			tg::sandbox::control::Output,
+			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+		)>,
+	> + Send;
 }
 
 impl tg::handle::Sandbox for tg::Client {
@@ -126,13 +88,6 @@ impl tg::handle::Sandbox for tg::Client {
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		self.session(&self.context).try_get_sandbox(id, arg).await
-	}
-
-	async fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		self.session(&self.context).try_dequeue_sandbox(arg).await
 	}
 
 	async fn list_sandboxes(
@@ -152,16 +107,6 @@ impl tg::handle::Sandbox for tg::Client {
 			.await
 	}
 
-	async fn try_heartbeat_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::heartbeat::Arg,
-	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		self.session(&self.context)
-			.try_heartbeat_sandbox(id, arg)
-			.await
-	}
-
 	async fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,
@@ -174,13 +119,16 @@ impl tg::handle::Sandbox for tg::Client {
 			.await
 	}
 
-	async fn try_dequeue_sandbox_process(
+	async fn get_sandbox_control_stream(
 		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
+		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+	)> {
 		self.session(&self.context)
-			.try_dequeue_sandbox_process(sandbox, arg)
+			.get_sandbox_control_stream(arg, stream)
 			.await
 	}
 }

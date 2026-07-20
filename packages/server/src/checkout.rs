@@ -48,10 +48,11 @@ impl Session {
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path)?;
 		}
+		let artifact = arg.artifact.item.clone();
 
 		// If the path is not provided, then cache.
 		if arg.path.is_none() {
-			let path = self.server.artifacts_path().join(arg.artifact.to_string());
+			let path = self.server.artifacts_path().join(artifact.to_string());
 			if self.server.vfs.lock().unwrap().is_none() {
 				let cache_arg = tg::cache::Arg {
 					artifacts: vec![arg.artifact.clone()],
@@ -68,17 +69,15 @@ impl Session {
 						move |result| {
 							result.and_then(|event| match event {
 								tg::progress::Event::Output(()) => {
-									let path = session
-										.server
-										.artifacts_path()
-										.join(arg.artifact.to_string());
+									let path =
+										session.server.artifacts_path().join(artifact.to_string());
 
 									// Add an extension if necessary.
 									let path = if let Some(extension) = &extension {
 										let path_with_extension = session
 											.server
 											.artifacts_path()
-											.join(format!("{}{extension}", arg.artifact));
+											.join(format!("{artifact}{extension}"));
 										std::fs::hard_link(&path, &path_with_extension).ok();
 										path_with_extension
 									} else {
@@ -105,7 +104,7 @@ impl Session {
 			let path = if let Some(ext) = &arg.extension {
 				self.server
 					.artifacts_path()
-					.join(format!("{}{ext}", arg.artifact))
+					.join(format!("{artifact}{ext}"))
 			} else {
 				path
 			};
@@ -124,6 +123,7 @@ impl Session {
 		let task = Task::spawn({
 			let session = self.clone();
 			let artifact = arg.artifact.clone();
+			let artifact_id = artifact.item.clone();
 			let arg = arg.clone();
 			let progress = progress.clone();
 			move |_| async move {
@@ -132,7 +132,7 @@ impl Session {
 					.checkout_ensure_stored_and_authorized(&artifact, &progress)
 					.await
 					.map_err(
-						|error| tg::error!(!error, %artifact, "failed to ensure the artifact is stored and authorized"),
+						|error| tg::error!(!error, artifact = %artifact_id, "failed to ensure the artifact is stored and authorized"),
 					);
 				if let Err(error) = result {
 					tracing::warn!(error = %error.trace());
@@ -156,7 +156,7 @@ impl Session {
 					None,
 				);
 
-				let result = AssertUnwindSafe(session.checkout_task(artifact, arg, &progress))
+				let result = AssertUnwindSafe(session.checkout_task(artifact_id, arg, &progress))
 					.catch_unwind()
 					.await;
 
@@ -204,16 +204,17 @@ impl Session {
 
 	pub(crate) async fn checkout_ensure_stored_and_authorized(
 		&self,
-		artifact: &tg::artifact::Id,
+		artifact: &tg::Referent<tg::artifact::Id>,
 		progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<()> {
+		let id = &artifact.item;
 		let stored = self
 			.server
 			.index
-			.try_get_object(&artifact.clone().into())
+			.try_get_object(&id.clone().into())
 			.await
 			.map_err(
-				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored and authorized"),
+				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is stored and authorized"),
 			)?
 			.map(|object| object.stored)
 			.unwrap_or_default();
@@ -248,10 +249,10 @@ impl Session {
 		let stored = self
 			.server
 			.index
-			.try_get_object(&artifact.clone().into())
+			.try_get_object(&id.clone().into())
 			.await
 			.map_err(
-				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored and authorized"),
+				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is stored and authorized"),
 			)?
 			.map(|object| object.stored)
 			.unwrap_or_default();
@@ -272,7 +273,11 @@ impl Session {
 		// Pull.
 		let stream = self
 			.pull(tg::pull::Arg {
-				items: vec![tg::Either::Left(tg::Either::Left(artifact.clone().into()))],
+				items: vec![
+					artifact
+						.clone()
+						.map(|artifact| tg::Either::Left(artifact.into())),
+				],
 				..Default::default()
 			})
 			.await
@@ -302,10 +307,10 @@ impl Session {
 		let stored = self
 			.server
 			.index
-			.try_get_object(&artifact.clone().into())
+			.try_get_object(&id.clone().into())
 			.await
 			.map_err(
-				|error| tg::error!(!error, %artifact, "failed to check if the artifact is stored and authorized"),
+				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is stored and authorized"),
 			)?
 			.map(|object| object.stored)
 			.unwrap_or_default();

@@ -20,11 +20,13 @@ let process = tg build --detach --verbose $path | from json
 tg cancel $process.process $process.lease
 let output = tg output $process.process | complete
 failure $output
-let stderr = $output.stderr | ansi strip | str trim | redact | normalize_ids
-snapshot $stderr '
+let stderr = $output.stderr | ansi strip | str trim
+snapshot --normalize-ids $stderr '
 	error an error occurred
 	-> failed to get the process output
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
+	-> failed to run the process
+	   process = pcs_0000000000000000000000000000
 	-> the process was canceled
 '
 
@@ -35,10 +37,12 @@ job kill $id
 
 let output = tg output $process.process | complete
 failure $output
-let stderr = $output.stderr | ansi strip | str trim | redact | normalize_ids
-snapshot $stderr '
+let stderr = $output.stderr | ansi strip | str trim
+snapshot --normalize-ids $stderr '
 	error an error occurred
 	-> failed to get the process output
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
+	-> failed to run the process
+	   process = pcs_0000000000000000000000000000
 	-> the process was canceled
 '

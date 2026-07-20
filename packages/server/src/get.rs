@@ -42,10 +42,7 @@ impl Session {
 		id: &tg::Id,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		if id.kind() == tg::id::Kind::Process && options.path.is_some() {
-			return Err(tg::error!("cannot get path in process"));
-		}
-		let referent = tg::Referent::with_item(tg::get::Item::Id(id.clone()));
+		let referent = tg::Referent::new(tg::get::Item::Id(id.clone()), options.clone().into());
 		let output = tg::get::Output { referent };
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())
@@ -109,7 +106,10 @@ impl Session {
 		pointer: &tg::graph::data::Pointer,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let referent = tg::Referent::with_item(tg::get::Item::Pointer(pointer.clone()));
+		let referent = tg::Referent::with_item_and_token(
+			tg::get::Item::Pointer(pointer.clone()),
+			options.token.clone(),
+		);
 		let output = tg::get::Output { referent };
 		if options.path.is_some() {
 			return Err(tg::error!("cannot get path in pointer"));
@@ -285,7 +285,8 @@ impl Session {
 		match &output.referent.item {
 			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Directory => {
 				let directory = tg::directory::Id::try_from(id.clone())?;
-				let directory = tg::Directory::with_id(directory.clone());
+				let referent = output.referent.clone().map(|_| directory);
+				let directory = tg::Directory::with_referent(referent);
 				let Some(artifact) = directory.try_get_with_handle(self, get).await? else {
 					return Ok(None);
 				};
@@ -302,8 +303,10 @@ impl Session {
 				let graph = pointer
 					.graph
 					.clone()
-					.map(tg::Graph::with_id)
 					.ok_or_else(|| tg::error!("missing graph"))?;
+				let graph =
+					tg::Referent::with_item_and_token(graph, output.referent.options.token.clone());
+				let graph = tg::Graph::with_referent(graph);
 				let directory = tg::Directory::with_pointer(tg::graph::Pointer {
 					graph: Some(graph),
 					index: pointer.index,
@@ -332,7 +335,7 @@ impl Session {
 				Ok(Some(output))
 			},
 			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
-				Err(tg::error!("cannot get path in process"))
+				Err(tg::error!("cannot apply a get option to a process"))
 			},
 			tg::get::Item::Id(_) => Err(tg::error!("unexpected reference get option")),
 		}

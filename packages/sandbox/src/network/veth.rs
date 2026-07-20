@@ -27,7 +27,7 @@ pub(crate) struct Pair {
 
 impl Network {
 	pub(crate) fn new(
-		id: &tg::sandbox::Id,
+		id: u64,
 		identity: &Path,
 		firewall: crate::Firewall,
 		guest: ip::Lease,
@@ -65,14 +65,10 @@ impl Network {
 }
 
 impl Pair {
-	pub(crate) fn new(id: &tg::sandbox::Id, bridge_name: &str) -> tg::Result<Self> {
-		let id_str = id.to_string();
-		if id_str.len() < 9 {
-			return Err(tg::error!(%id, "the sandbox id is too short"));
-		}
-		let truncated = &id_str[..9];
-		let host_name = format!("tg-vh-{truncated}");
-		let guest_name = format!("tg-vc-{truncated}");
+	pub(crate) fn new(id: u64, bridge_name: &str) -> tg::Result<Self> {
+		let suffix = format!("{:09}", id % 1_000_000_000);
+		let host_name = format!("tg-vh-{suffix}");
+		let guest_name = format!("tg-vc-{suffix}");
 
 		let mut netlink = Netlink::new()?;
 		netlink.link_add_veth_pair(&host_name, &guest_name)?;

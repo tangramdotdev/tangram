@@ -26,7 +26,7 @@ let token = tg log $parent.process | str trim
 # Getting a tag with a process token is unauthorized.
 let output = tg --token $token tag get test | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the tag
 	   tag = test

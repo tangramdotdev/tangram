@@ -17,10 +17,10 @@ let path = artifact {
 cd $path
 let output = timeout 10s tg build | complete
 failure $output
-snapshot ($output.stderr | redact $path | normalize_ids) '
+snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred
 	-> the process failed
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> reject is not defined
 	   ╭─[./tangram.ts:3:10]
 	 2 │     let promise = new Promise(() => reject(new Error("kaboom")));

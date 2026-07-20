@@ -18,19 +18,16 @@ let process = tg build --detach --verbose $path | from json
 
 let output = tg cancel $process.process invalidtoken | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to cancel the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to cancel the process
-	   id = <process>
+	   id = pcs_0000000000000000000000000000
 	-> failed to cancel the process
-	   id = <process>
-	-> failed to cancel the process
-	-> database error
-	-> the process lease was not found
+	   id = pcs_0000000000000000000000000000
 	-> the process lease was not found
 
 '

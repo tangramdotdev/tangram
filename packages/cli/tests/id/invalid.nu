@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let output = tg id "not_an_id" | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> invalid id
 
@@ -12,7 +12,7 @@ snapshot ($output.stderr | redact) '
 
 let output = "" | tg id | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> invalid id
 

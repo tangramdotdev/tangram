@@ -13,12 +13,11 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub advanced: Advanced,
 
-	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default, skip_serializing_if = "is_default")]
-	pub authentication: Option<Authentication>,
+	pub authentication: Authentication,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	pub authorization: Authorization,
+	pub grants: Grants,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: Checkin,
@@ -72,6 +71,13 @@ pub struct Config {
 	#[serde(default = "default_runner", skip_serializing_if = "is_default_runner")]
 	pub runner: Option<Runner>,
 
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(
+		default = "default_scheduler",
+		skip_serializing_if = "is_default_scheduler"
+	)]
+	pub scheduler: Option<Scheduler>,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub sandbox: Sandbox,
 
@@ -116,10 +122,33 @@ pub struct Advanced {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 #[serde(deny_unknown_fields)]
 pub struct Authentication {
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub tokens: AuthenticationTokens,
+
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub users: Option<UserAuthentication>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuthenticationTokens {
+	#[serde(flatten)]
+	pub keys: TokenKeys,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub ttl: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UserAuthentication {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	#[serde(default = "default_login_interval", skip_serializing_if = "is_default")]
 	pub interval: Duration,
@@ -168,28 +197,28 @@ pub struct Github {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Authorization {
+pub struct Grants {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(
-		default = "default_authorization_tokens",
-		skip_serializing_if = "is_default_authorization_tokens"
+		default = "default_grant_tokens",
+		skip_serializing_if = "is_default_grant_tokens"
 	)]
-	pub tokens: Option<AuthorizationTokens>,
+	pub tokens: Option<TokenKeys>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationTokens {
+pub struct TokenKeys {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub private_key: Option<AuthorizationPrivateKey>,
+	pub private_key: Option<TokenPrivateKey>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub public_keys: Vec<AuthorizationPublicKey>,
+	pub public_keys: Vec<TokenPublicKey>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationPrivateKey {
+pub struct TokenPrivateKey {
 	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
@@ -200,7 +229,7 @@ pub struct AuthorizationPrivateKey {
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationPublicKey {
+pub struct TokenPublicKey {
 	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
@@ -209,23 +238,32 @@ pub struct AuthorizationPublicKey {
 	pub path: Option<PathBuf>,
 }
 
-impl Default for Authorization {
+impl Default for AuthenticationTokens {
 	fn default() -> Self {
 		Self {
-			tokens: default_authorization_tokens(),
+			keys: TokenKeys::default(),
+			ttl: default_authentication_token_ttl(),
 		}
 	}
 }
 
-impl Default for AuthorizationTokens {
+impl Default for Grants {
 	fn default() -> Self {
 		Self {
-			private_key: Some(AuthorizationPrivateKey {
+			tokens: default_grant_tokens(),
+		}
+	}
+}
+
+impl Default for TokenKeys {
+	fn default() -> Self {
+		Self {
+			private_key: Some(TokenPrivateKey {
 				algorithm: tg::grant::Algorithm::Ed25519,
 				name: "default".to_owned(),
 				path: None,
 			}),
-			public_keys: vec![AuthorizationPublicKey {
+			public_keys: vec![TokenPublicKey {
 				algorithm: tg::grant::Algorithm::Ed25519,
 				name: "default".to_owned(),
 				path: None,
@@ -599,9 +637,6 @@ pub struct Process {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_touch: Duration,
 
-	#[serde(default = "default_process_store")]
-	pub store: Database,
-
 	#[serde(alias = "tti", default = "default_time_to_index")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
@@ -619,10 +654,16 @@ pub struct Process {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Finalizer {
+	pub concurrency: usize,
+
 	pub message_batch_size: usize,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_batch_timeout: Duration,
+
+	pub partition_count: u64,
+
+	pub partition_start: u64,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -685,22 +726,34 @@ pub struct Remote {
 #[serde(default, deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub concurrency: Option<usize>,
-
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub control_timeout: Duration,
-
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub control_ttl: Duration,
+	pub cpus: Option<u64>,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::runner::Id>,
 
 	#[serde(default)]
 	pub js: Js,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory: Option<u64>,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub process_state_ttl: Duration,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub sandbox_state_ttl: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub stdio_drain_timeout: Duration,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -725,6 +778,41 @@ pub enum JsEngine {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct Scheduler {
+	#[serde(default = "default_scheduler_create_sandbox_queue_capacity")]
+	pub create_sandbox_queue_capacity: usize,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub create_sandbox_timeout: Duration,
+
+	#[serde(default = "default_scheduler_cpu")]
+	pub default_cpu: u64,
+
+	#[serde(default = "default_scheduler_memory")]
+	pub default_memory: u64,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub inbox_ttl: Duration,
+
+	#[serde(default = "scheduler_retry_default")]
+	pub message_retry: Retry,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub message_timeout: Duration,
+
+	#[serde(default = "default_scheduler_max_create_sandbox_requests")]
+	pub max_create_sandbox_requests: usize,
+
+	#[serde(default = "default_scheduler_max_create_sandbox_requests_per_runner")]
+	pub max_create_sandbox_requests_per_runner: usize,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub runner_ttl: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_finalizer")]
@@ -736,6 +824,13 @@ pub struct Sandbox {
 	pub network: SandboxNetwork,
 
 	pub nice: u8,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub spawn_process_timeout: Duration,
+
+	#[serde(alias = "ttl", default = "default_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_live: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -1086,12 +1181,12 @@ impl Default for Config {
 	fn default() -> Self {
 		Self {
 			advanced: Advanced::default(),
-			authentication: None,
-			authorization: Authorization::default(),
+			authentication: Authentication::default(),
 			checkin: Checkin::default(),
 			cleaner: None,
 			database: Database::default(),
 			directory: None,
+			grants: Grants::default(),
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
@@ -1103,6 +1198,7 @@ impl Default for Config {
 			regions: None,
 			remotes: None,
 			runner: Some(Runner::default()),
+			scheduler: Some(Scheduler::default()),
 			sandbox: Sandbox::default(),
 			sync: Sync::default(),
 			version: None,
@@ -1126,7 +1222,7 @@ impl Default for Advanced {
 	}
 }
 
-impl Default for Authentication {
+impl Default for UserAuthentication {
 	fn default() -> Self {
 		Self {
 			interval: default_login_interval(),
@@ -1345,7 +1441,6 @@ impl Default for Process {
 			finalizer: Some(Finalizer::default()),
 			grant_time_to_live: default_process_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
-			store: default_process_store(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1356,8 +1451,11 @@ impl Default for Process {
 impl Default for Finalizer {
 	fn default() -> Self {
 		Self {
+			concurrency: 1,
 			message_batch_size: 1024,
 			message_batch_timeout: Duration::from_millis(100),
+			partition_count: 256,
+			partition_start: 0,
 		}
 	}
 }
@@ -1365,12 +1463,34 @@ impl Default for Finalizer {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
-			concurrency: None,
-			control_timeout: Duration::from_secs(1),
-			control_ttl: Duration::from_mins(1),
+			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
+			id: None,
 			js: Js::default(),
+			memory: None,
+			process_state_ttl: Duration::from_mins(1),
 			remote: None,
+			sandbox_state_ttl: Duration::from_mins(1),
+			stdio_drain_timeout: Duration::from_secs(1),
+			token: None,
+		}
+	}
+}
+
+impl Default for Scheduler {
+	fn default() -> Self {
+		Self {
+			create_sandbox_queue_capacity: default_scheduler_create_sandbox_queue_capacity(),
+			create_sandbox_timeout: Duration::from_secs(10),
+			default_cpu: default_scheduler_cpu(),
+			default_memory: default_scheduler_memory(),
+			inbox_ttl: Duration::from_mins(1),
+			message_retry: scheduler_retry_default(),
+			message_timeout: Duration::from_secs(10),
+			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
+			max_create_sandbox_requests_per_runner:
+				default_scheduler_max_create_sandbox_requests_per_runner(),
+			runner_ttl: Duration::from_secs(10),
 		}
 	}
 }
@@ -1382,6 +1502,8 @@ impl Default for Sandbox {
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
+			spawn_process_timeout: Duration::from_secs(10),
+			time_to_live: default_time_to_live(),
 		}
 	}
 }
@@ -1669,17 +1791,22 @@ fn default_vm_max_memory() -> u64 {
 	8 * 1024 * 1024 * 1024
 }
 
-fn default_process_store() -> Database {
-	Database::Sqlite(SqliteDatabase {
-		pool: DatabasePool::default(),
-		path: PathBuf::from("processes"),
-		retry: database_retry_default(),
-	})
-}
-
 fn database_retry_default() -> Retry {
 	let options = tangram_futures::retry::Options {
 		max_retries: 20,
+		..tangram_futures::retry::Options::default()
+	};
+	Retry {
+		backoff: options.backoff,
+		jitter: options.jitter,
+		max_delay: options.max_delay,
+		max_retries: options.max_retries,
+	}
+}
+
+fn scheduler_retry_default() -> Retry {
+	let options = tangram_futures::retry::Options {
+		max_retries: u64::MAX,
 		..tangram_futures::retry::Options::default()
 	};
 	Retry {
@@ -1718,6 +1845,10 @@ fn default_login_ttl() -> Duration {
 	Duration::from_mins(15)
 }
 
+fn default_authentication_token_ttl() -> Duration {
+	Duration::from_hours(24)
+}
+
 fn default_sync_max_frame_size() -> u64 {
 	tg::sync::Config::default().max_frame_size
 }
@@ -1733,8 +1864,8 @@ fn sync_retry_default() -> Retry {
 }
 
 #[expect(clippy::unnecessary_wraps)]
-fn default_authorization_tokens() -> Option<AuthorizationTokens> {
-	Some(AuthorizationTokens::default())
+fn default_grant_tokens() -> Option<TokenKeys> {
+	Some(TokenKeys::default())
 }
 
 #[expect(clippy::unnecessary_wraps)]
@@ -1750,6 +1881,31 @@ fn default_indexer() -> Option<Indexer> {
 #[expect(clippy::unnecessary_wraps)]
 fn default_runner() -> Option<Runner> {
 	Some(Runner::default())
+}
+
+fn default_scheduler_cpu() -> u64 {
+	1
+}
+
+fn default_scheduler_create_sandbox_queue_capacity() -> usize {
+	1024
+}
+
+fn default_scheduler_max_create_sandbox_requests() -> usize {
+	256
+}
+
+fn default_scheduler_max_create_sandbox_requests_per_runner() -> usize {
+	16
+}
+
+fn default_scheduler_memory() -> u64 {
+	1_000_000_000
+}
+
+#[expect(clippy::unnecessary_wraps)]
+fn default_scheduler() -> Option<Scheduler> {
+	Some(Scheduler::default())
 }
 
 #[expect(clippy::unnecessary_wraps)]
@@ -1770,8 +1926,8 @@ where
 }
 
 #[expect(clippy::ref_option)]
-fn is_default_authorization_tokens(value: &Option<AuthorizationTokens>) -> bool {
-	is_serialized_default(value, default_authorization_tokens())
+fn is_default_grant_tokens(value: &Option<TokenKeys>) -> bool {
+	is_serialized_default(value, default_grant_tokens())
 }
 
 #[expect(clippy::ref_option)]
@@ -1787,6 +1943,11 @@ fn is_default_indexer(value: &Option<Indexer>) -> bool {
 #[expect(clippy::ref_option)]
 fn is_default_runner(value: &Option<Runner>) -> bool {
 	is_serialized_default(value, default_runner())
+}
+
+#[expect(clippy::ref_option)]
+fn is_default_scheduler(value: &Option<Scheduler>) -> bool {
+	is_serialized_default(value, default_scheduler())
 }
 
 #[expect(clippy::ref_option)]

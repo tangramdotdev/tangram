@@ -106,6 +106,12 @@ export namespace Module {
 		) {
 			params.push(`tag=${encodeURIComponent(value.referent.options.tag)}`);
 		}
+		if (
+			value.referent.options?.token !== undefined &&
+			value.referent.options.token !== null
+		) {
+			params.push(`token=${encodeURIComponent(value.referent.options.token)}`);
+		}
 		params.push(`kind=${encodeURIComponent(value.kind)}`);
 		string += "?";
 		string += params.join("&");
@@ -159,6 +165,10 @@ export namespace Module {
 						options.tag = decodeURIComponent(value);
 						break;
 					}
+					case "token": {
+						options.token = decodeURIComponent(value);
+						break;
+					}
 					case "kind": {
 						kind = decodeURIComponent(value) as Kind;
 						break;
@@ -188,6 +198,13 @@ export namespace Module {
 		}
 	};
 
+	export let withoutToken = (value: tg.Module): tg.Module => {
+		return {
+			kind: value.kind,
+			referent: tg.Referent.withoutToken(value.referent),
+		};
+	};
+
 	export type Data = {
 		kind: Module.Kind;
 		referent: tg.Referent.Data<tg.Graph.Data.Edge<tg.Object.Id>>;
@@ -204,6 +221,30 @@ export namespace Module {
 				return [];
 			}
 			return tg.Graph.Data.Edge.children(item);
+		};
+
+		export let withoutTokens = (data: tg.Module.Data): tg.Module.Data => {
+			if (typeof data.referent === "string") {
+				let referent = tg.Referent.fromDataString(
+					data.referent,
+					(item) => item,
+				);
+				return {
+					...data,
+					referent: tg.Referent.toDataString(
+						tg.Referent.withoutToken(referent),
+						(item) => item,
+					),
+				};
+			}
+			let referent = tg.Referent.fromData(data.referent, (item) => item);
+			return {
+				...data,
+				referent: tg.Referent.toData(
+					tg.Referent.withoutToken(referent),
+					(item) => item,
+				),
+			};
 		};
 	}
 
@@ -245,6 +286,15 @@ export namespace Module {
 				data: tg.Module.Location.Data,
 			): Array<tg.Object.Id> => {
 				return tg.Module.Data.children(data.module);
+			};
+
+			export let withoutTokens = (
+				data: tg.Module.Location.Data,
+			): tg.Module.Location.Data => {
+				return {
+					...data,
+					module: tg.Module.Data.withoutTokens(data.module),
+				};
 			};
 		}
 	}

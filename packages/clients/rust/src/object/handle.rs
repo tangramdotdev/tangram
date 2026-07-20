@@ -26,6 +26,23 @@ pub enum Object {
 }
 
 impl Object {
+	pub fn try_with_referent<T>(referent: tg::Referent<T>) -> std::result::Result<Self, T::Error>
+	where
+		T: TryInto<Id>,
+	{
+		let referent = referent.try_map(TryInto::try_into)?;
+
+		Ok(Self::with_referent(referent))
+	}
+
+	#[must_use]
+	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
+		let object = Self::with_id(referent.item);
+		object.state().set_token(referent.options.token);
+
+		object
+	}
+
 	#[must_use]
 	pub fn with_id(id: Id) -> Self {
 		match id {

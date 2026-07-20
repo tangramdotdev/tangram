@@ -42,6 +42,7 @@ impl Index {
 			mut receiver_low,
 			concurrency,
 			max_items_per_transaction,
+			max_process_depth,
 			partition_total,
 			metrics,
 		} = arg;
@@ -118,7 +119,15 @@ impl Index {
 			let subspace = subspace.clone();
 			let metrics = metrics.clone();
 			async move {
-				Self::execute_batch(&database, &subspace, batch, partition_total, &metrics).await;
+				Self::execute_batch(
+					&database,
+					&subspace,
+					batch,
+					max_process_depth,
+					partition_total,
+					&metrics,
+				)
+				.await;
 			}
 		})
 		.await;
@@ -200,13 +209,16 @@ impl Index {
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
-			Request::DeleteGrants(_)
+			Request::CompleteFinalization(_)
+			| Request::DeleteGrants(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
 			| Request::DeleteOrganizationMembers(_)
 			| Request::DeleteOrganizations(_)
+			| Request::DeleteSandboxes(_)
 			| Request::DeleteTags(_)
 			| Request::DeleteUsers(_)
+			| Request::EnqueueFinalization(_)
 			| Request::PutCacheEntries(_)
 			| Request::PutGrants(_)
 			| Request::PutGroupMembers(_)
@@ -215,6 +227,7 @@ impl Index {
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
 			| Request::PutProcesses(_)
+			| Request::PutRunners(_)
 			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
 			| Request::PutUsers(_) => Response::Unit,
@@ -231,6 +244,7 @@ impl Index {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
+				max_sandbox_touched_at,
 				now,
 				partition_count,
 				partition_start,
@@ -241,12 +255,17 @@ impl Index {
 					Kind::Clean {
 						max_object_touched_at,
 						max_process_touched_at,
+						max_sandbox_touched_at,
 						now,
 						partition_count,
 						partition_start,
 					},
 				)
 			},
+			Request::CompleteFinalization(entry) => (
+				vec![Item::CompleteFinalization(entry)],
+				Kind::CompleteFinalization,
+			),
 			Request::DeleteGrants(args) => {
 				let items = args.into_iter().map(Item::DeleteGrant).collect();
 				(items, Kind::DeleteGrants)
@@ -270,6 +289,10 @@ impl Index {
 				let items = ids.into_iter().map(Item::DeleteOrganization).collect();
 				(items, Kind::DeleteOrganizations)
 			},
+			Request::DeleteSandboxes(ids) => {
+				let items = ids.into_iter().map(Item::DeleteSandbox).collect();
+				(items, Kind::DeleteSandboxes)
+			},
 			Request::DeleteTags(tags) => {
 				let items = tags.into_iter().map(Item::DeleteTag).collect();
 				(items, Kind::DeleteTags)
@@ -278,6 +301,10 @@ impl Index {
 				let items = ids.into_iter().map(Item::DeleteUser).collect();
 				(items, Kind::DeleteUsers)
 			},
+			Request::EnqueueFinalization(item) => (
+				vec![Item::EnqueueFinalization(item)],
+				Kind::EnqueueFinalization,
+			),
 			Request::PutCacheEntries(args) => {
 				let items = args.into_iter().map(Item::PutCacheEntry).collect();
 				(items, Kind::PutCacheEntries)
@@ -309,6 +336,10 @@ impl Index {
 			Request::PutProcesses(args) => {
 				let items = args.into_iter().map(Item::PutProcess).collect();
 				(items, Kind::PutProcesses)
+			},
+			Request::PutRunners(args) => {
+				let items = args.into_iter().map(Item::PutRunner).collect();
+				(items, Kind::PutRunners)
 			},
 			Request::PutSandboxes(args) => {
 				let items = args.into_iter().map(Item::PutSandbox).collect();
@@ -386,6 +417,7 @@ impl Index {
 			Kind::Clean {
 				max_object_touched_at,
 				max_process_touched_at,
+				max_sandbox_touched_at,
 				now,
 				partition_count,
 				partition_start,
@@ -393,10 +425,18 @@ impl Index {
 				batch_size: items.len(),
 				max_object_touched_at: *max_object_touched_at,
 				max_process_touched_at: *max_process_touched_at,
+				max_sandbox_touched_at: *max_sandbox_touched_at,
 				now: *now,
 				partition_count: *partition_count,
 				partition_start: *partition_start,
 			}),
+			Kind::CompleteFinalization => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::CompleteFinalization(entry)] = items else {
+					unreachable!();
+				};
+				Request::CompleteFinalization(entry)
+			},
 			Kind::DeleteGrants => {
 				let args = items
 					.into_iter()
@@ -447,6 +487,16 @@ impl Index {
 					.collect();
 				Request::DeleteOrganizations(ids)
 			},
+			Kind::DeleteSandboxes => {
+				let ids = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteSandbox(id) => id,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteSandboxes(ids)
+			},
 			Kind::DeleteTags => {
 				let tags = items
 					.into_iter()
@@ -466,6 +516,13 @@ impl Index {
 					})
 					.collect();
 				Request::DeleteUsers(ids)
+			},
+			Kind::EnqueueFinalization => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::EnqueueFinalization(item)] = items else {
+					unreachable!();
+				};
+				Request::EnqueueFinalization(item)
 			},
 			Kind::PutCacheEntries => {
 				let args = items
@@ -546,6 +603,16 @@ impl Index {
 					})
 					.collect();
 				Request::PutProcesses(args)
+			},
+			Kind::PutRunners => {
+				let args = items
+					.into_iter()
+					.map(|item| match item {
+						Item::PutRunner(arg) => arg,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutRunners(args)
 			},
 			Kind::PutSandboxes => {
 				let args = items
@@ -671,6 +738,7 @@ impl Index {
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
 		batch: Batch,
+		max_process_depth: Option<u64>,
 		partition_total: u64,
 		metrics: &Metrics,
 	) {
@@ -681,6 +749,8 @@ impl Index {
 			matches!(
 				request,
 				Request::Clean(_)
+					| Request::CompleteFinalization(_)
+					| Request::EnqueueFinalization(_)
 					| Request::PutCacheEntries(_)
 					| Request::PutGrants(_)
 					| Request::PutGroupMembers(_)
@@ -689,6 +759,7 @@ impl Index {
 					| Request::PutOrganizationMembers(_)
 					| Request::PutOrganizations(_)
 					| Request::PutProcesses(_)
+					| Request::PutRunners(_)
 					| Request::PutSandboxes(_)
 					| Request::PutTags(_)
 					| Request::PutUsers(_)
@@ -708,10 +779,15 @@ impl Index {
 					}
 					let mut responses = Vec::new();
 					for request in requests {
-						let response =
-							Self::execute_request(&txn, &subspace, &request, partition_total)
-								.await
-								.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+						let response = Self::execute_request(
+							&txn,
+							&subspace,
+							&request,
+							max_process_depth,
+							partition_total,
+						)
+						.await
+						.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 						responses.push(response);
 					}
 					Ok(responses)
@@ -758,6 +834,7 @@ impl Index {
 						database,
 						subspace,
 						left,
+						max_process_depth,
 						partition_total,
 						metrics,
 					))
@@ -766,6 +843,7 @@ impl Index {
 						database,
 						subspace,
 						right,
+						max_process_depth,
 						partition_total,
 						metrics,
 					))
@@ -785,6 +863,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &Request,
+		max_process_depth: Option<u64>,
 		partition_total: u64,
 	) -> tg::Result<Response> {
 		match request {
@@ -792,22 +871,28 @@ impl Index {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
+				max_sandbox_touched_at,
 				now,
 				partition_count,
 				partition_start,
 			}) => {
 				let arg = super::clean::TaskCleanArg {
-					txn,
-					subspace,
-					now: *now,
+					batch_size: *batch_size,
 					max_object_touched_at: *max_object_touched_at,
 					max_process_touched_at: *max_process_touched_at,
-					batch_size: *batch_size,
-					partition_start: *partition_start,
+					max_sandbox_touched_at: *max_sandbox_touched_at,
+					now: *now,
 					partition_count: *partition_count,
+					partition_start: *partition_start,
 					partition_total,
+					subspace,
+					txn,
 				};
 				Self::task_clean(arg).await.map(Response::CleanOutput)
+			},
+			Request::CompleteFinalization(entry) => {
+				Self::task_complete_finalization(txn, subspace, entry).await?;
+				Ok(Response::Unit)
 			},
 			Request::DeleteGrants(args) => {
 				Self::task_delete_grants(txn, subspace, args, partition_total).await?;
@@ -829,6 +914,10 @@ impl Index {
 				Self::task_delete_organizations(txn, subspace, ids).await?;
 				Ok(Response::Unit)
 			},
+			Request::DeleteSandboxes(ids) => {
+				Self::task_delete_sandboxes(txn, subspace, ids)?;
+				Ok(Response::Unit)
+			},
 			Request::DeleteUsers(ids) => {
 				Self::task_delete_users(txn, subspace, ids).await?;
 				Ok(Response::Unit)
@@ -837,6 +926,10 @@ impl Index {
 				Self::task_delete_tags(txn, subspace, tags, partition_total)
 					.await
 					.map(|()| Response::Unit)
+			},
+			Request::EnqueueFinalization(item) => {
+				Self::task_enqueue_finalization(txn, subspace, item, partition_total).await?;
+				Ok(Response::Unit)
 			},
 			Request::PutCacheEntries(args) => {
 				Self::task_put_cache_entries(txn, subspace, args, partition_total)?;
@@ -870,8 +963,12 @@ impl Index {
 				Self::task_put_processes(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
+			Request::PutRunners(args) => {
+				Self::task_put_runners(txn, subspace, args).await?;
+				Ok(Response::Unit)
+			},
 			Request::PutSandboxes(args) => {
-				Self::task_put_sandboxes(txn, subspace, args).await?;
+				Self::task_put_sandboxes(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutTags(args) => Self::task_put_tags(txn, subspace, args, partition_total)
@@ -933,6 +1030,7 @@ impl Index {
 				*batch_size,
 				*partition_start,
 				*partition_count,
+				max_process_depth,
 				partition_total,
 			)
 			.await

@@ -6,7 +6,7 @@ use {
 };
 
 impl Server {
-	pub async fn wait(&self, id: tg::process::Id) -> tg::Result<crate::client::wait::Output> {
+	pub async fn wait(&self, id: u64) -> tg::Result<crate::client::wait::Output> {
 		let task = self
 			.processes
 			.get(&id)
@@ -26,7 +26,7 @@ impl Server {
 		_request: http::Request<BoxBody>,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let id: tg::process::Id = id
+		let id: u64 = id
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 		let server = self.clone();

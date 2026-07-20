@@ -13,7 +13,8 @@
               "referent": {
                 "item": "fil_01tnsktbyrrq5rnp50kac3ztbt6f2zn06ezw768wdh9m2j6zzarn8g",
                 "options": {
-                  "path": "tangram.ts"
+                  "path": "tangram.ts",
+                  "token": "<token>"
                 }
               }
             },
@@ -35,7 +36,8 @@
                 "referent": {
                   "item": "fil_01tnsktbyrrq5rnp50kac3ztbt6f2zn06ezw768wdh9m2j6zzarn8g",
                   "options": {
-                    "path": "tangram.ts"
+                    "path": "tangram.ts",
+                    "token": "<token>"
                   }
                 }
               },

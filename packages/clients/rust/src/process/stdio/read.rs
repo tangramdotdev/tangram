@@ -35,6 +35,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -64,7 +67,7 @@ impl tg::Session {
 		let path = format!("/processes/{id}/stdio");
 		let uri = Uri::builder()
 			.path(&path)
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();
@@ -123,13 +126,16 @@ impl<O> tg::Process<O> {
 	pub async fn try_read_stdio_all<H>(
 		&self,
 		handle: &H,
-		arg: tg::process::stdio::read::Arg,
+		mut arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>>
 	where
 		H: tg::Handle,
 	{
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
+		}
+		if arg.token.is_none() {
+			arg.token = self.token();
 		}
 
 		if self.id().is_left() {

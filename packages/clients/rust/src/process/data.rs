@@ -1,9 +1,11 @@
 use {
 	crate::prelude::*,
 	serde::Deserialize as _,
+	serde_with::{DisplayFromStr, serde_as},
 	tangram_util::serde::{is_default, is_false},
 };
 
+#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -36,8 +38,9 @@ pub struct Data {
 	pub debug: Option<tg::process::Debug>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Error>")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Either<tg::error::Data, tg::MaybeWithToken<tg::error::Id>>>,
+	pub error: Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
@@ -55,8 +58,9 @@ pub struct Data {
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DisplayFromStr>")]
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
-	pub log: Option<tg::MaybeWithToken<tg::blob::Id>>,
+	pub log: Option<tg::Referent<tg::blob::Id>>,
 
 	#[tangram_serialize(id = 11)]
 	pub sandbox: tg::sandbox::Id,
@@ -97,6 +101,7 @@ pub struct Data {
 	pub tty: Option<tg::process::Tty>,
 }
 
+#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -111,38 +116,78 @@ pub struct Child {
 	pub cached: bool,
 
 	#[tangram_serialize(id = 2)]
-	pub process: tg::MaybeWithToken<tg::process::Id>,
-
-	#[tangram_serialize(id = 3)]
-	pub options: tg::referent::Options,
+	#[serde_as(as = "DisplayFromStr")]
+	pub process: tg::Referent<tg::process::Id>,
 }
 
+struct Error;
+
 impl Data {
-	pub fn remove_tokens(&mut self) {
-		if let Some(children) = &mut self.children {
-			for child in children {
-				child.remove_tokens();
-			}
-		}
-		if let Some(tg::Either::Right(error)) = &mut self.error
-			&& let tg::Either::Right(error_with_token) = error
-		{
-			*error = tg::Either::Left(error_with_token.id.clone());
-		}
-		if let Some(tg::Either::Right(log)) = &self.log {
-			self.log = Some(tg::Either::Left(log.id.clone()));
-		}
-		if let Some(output) = &mut self.output {
-			output.remove_tokens();
-		}
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.children = self
+			.children
+			.map(|children| children.into_iter().map(Child::without_tokens).collect());
+		self.error = self.error.map(|error| match error {
+			tg::Either::Left(error) => tg::Either::Left(error.without_tokens()),
+			tg::Either::Right(mut error) => {
+				error.options.token.take();
+				tg::Either::Right(error)
+			},
+		});
+		self.log = self.log.map(|mut log| {
+			log.options.token.take();
+			log
+		});
+		self.output = self.output.map(tg::value::Data::without_tokens);
+
+		self
 	}
 }
 
 impl Child {
-	pub fn remove_tokens(&mut self) {
-		if let tg::Either::Right(process) = &self.process {
-			self.process = tg::Either::Left(process.id.clone());
+	#[must_use]
+	pub fn without_tokens(mut self) -> Self {
+		self.process.options.token.take();
+
+		self
+	}
+}
+
+impl serde_with::SerializeAs<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>> for Error {
+	fn serialize_as<S>(
+		source: &tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>,
+		serializer: S,
+	) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		match source {
+			tg::Either::Left(data) => serde::Serialize::serialize(data, serializer),
+			tg::Either::Right(referent) => serializer.collect_str(referent),
 		}
+	}
+}
+
+impl<'de> serde_with::DeserializeAs<'de, tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>
+	for Error
+{
+	fn deserialize_as<D>(
+		deserializer: D,
+	) -> Result<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let value = tg::Either::<tg::error::Data, String>::deserialize(deserializer)?;
+		let value = match value {
+			tg::Either::Left(data) => tg::Either::Left(data),
+			tg::Either::Right(value) => {
+				let referent = value.parse().map_err(serde::de::Error::custom)?;
+				tg::Either::Right(referent)
+			},
+		};
+
+		Ok(value)
 	}
 }
 

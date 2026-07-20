@@ -1,10 +1,8 @@
 use {
 	crate::Session,
-	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
-	indoc::formatdoc,
-	std::ops::ControlFlow,
+	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
+	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -52,85 +50,59 @@ impl Session {
 		Ok(None)
 	}
 
-	async fn try_cancel_process_local(
+	pub(crate) async fn try_cancel_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
-		let id = id.clone();
-		let lease = arg.lease;
-		let session = self.clone();
-		let deleted = self
-			.server
-			.process_store
-			.run(|transaction| {
-				let id = id.clone();
-				let lease = lease.clone();
-				let session = session.clone();
-				async move {
-					session
-						.try_cancel_process_with_transaction(transaction, &id, &lease)
-						.await
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to cancel the process"))?;
-
-		if deleted.is_some_and(|deleted| deleted > 0) {
-			self.server.spawn_publish_watchdog_message_task();
+		if let Some(result) = self.server.runner.state.try_update_process(id, |process| {
+			if process.data.status.is_finished() {
+				return Ok(());
+			}
+			if !process.leases.remove(&arg.lease) {
+				return Err(tg::error!("the process lease was not found"));
+			}
+			if process.leases.is_empty() {
+				process.stopper.stop();
+			}
+			Ok(())
+		}) {
+			result?;
+			return Ok(Some(()));
 		}
-
-		Ok(deleted.map(drop))
-	}
-
-	async fn try_cancel_process_with_transaction(
-		&self,
-		transaction: &crate::database::Transaction<'_>,
-		id: &tg::process::Id,
-		lease: &str,
-	) -> tg::Result<ControlFlow<Option<u64>, crate::database::Error>> {
-		let status = self
-			.server
-			.try_lock_process_with_transaction(transaction, id)
-			.await?;
-		let status = match status {
-			ControlFlow::Break(status) => status,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let Some(status) = status else {
-			return Ok(ControlFlow::Break(None));
-		};
-
-		if status.is_finished() {
-			return Err(tg::error!("the process is already finished"));
-		}
-
-		let p = transaction.p();
-		let statement = formatdoc!(
-			r"
-				delete from process_leases
-				where process = {p}1 and lease = {p}2;
-			"
+		let request = tg::process::control::ServerRequestArg::ReleaseLease(
+			tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
 		);
-		let params = db::params![id.to_string(), lease.to_owned()];
-		let result = transaction.execute(statement.into(), params).await;
-		let deleted = crate::database::retry!(result, "failed to execute the statement");
-
-		if deleted == 0 {
-			return Err(tg::error!("the process lease was not found"));
-		}
-
-		let result = self
-			.server
-			.update_process_lease_count_with_transaction(transaction, id)
-			.await?;
-		match result {
-			ControlFlow::Break(()) => (),
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-
-		Ok(ControlFlow::Break(Some(deleted)))
+		let options = crate::control::Options {
+			retry: tangram_futures::retry::Options::default(),
+			timeout: std::time::Duration::from_secs(10),
+		};
+		let session = self.server.session(&self.server.context);
+		let release_future = self
+			.send_process_control_request(id, request, options)
+			.boxed();
+		let get_future = session.try_get_process_local(id, false, None).boxed();
+		let response = match future::select(pin!(release_future), pin!(get_future)).await {
+			future::Either::Left((response, _)) => response,
+			future::Either::Right((process, release_future)) => {
+				let Some(process) = process
+					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+				else {
+					return Ok(None);
+				};
+				if process.data.status.is_finished() {
+					return Ok(Some(()));
+				}
+				release_future.await
+			},
+		};
+		let response = response
+			.map_err(|error| tg::error!(!error, %id, "failed to release the process lease"))?
+			.map_err(|error| tg::error!(!error, %id, "the release process lease request failed"))?;
+		response
+			.try_unwrap_release_lease()
+			.map_err(|_| tg::error!("expected a release process lease response"))?;
+		Ok(Some(()))
 	}
 
 	async fn try_cancel_process_regions(

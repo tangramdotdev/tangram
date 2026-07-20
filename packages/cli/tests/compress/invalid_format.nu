@@ -8,7 +8,7 @@ let blob = "hello, world!\n" | tg write
 
 let output = tg compress --format lz4 $blob | complete
 failure $output
-snapshot ($output.stderr | redact) r#'
+snapshot --normalize $output.stderr r#'
 	error: invalid value 'lz4' for '--format <FORMAT>': Invalid `CompressionFormat` string representation
 	
 	For more information, try '--help'.

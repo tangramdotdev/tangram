@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # --public publicizes a process even on a cache hit: building privately and then --public the same command must make the output publicly readable.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
@@ -11,7 +11,7 @@ let path = artifact { tangram.ts: 'export default function () { return tg.file("
 
 # Alice builds privately and gets the output file.
 let alice_build = tg --token $alice.token build --detach --verbose $path | from json
-let file = (tg --token $alice.token wait $alice_build.process | from json).output.value.id
+let file = (tg --token $alice.token wait $alice_build.process | from json).output.value | split row '?' | first
 
 # Eve cannot read the private output.
 let before = tg --token $eve.token cat $file | complete

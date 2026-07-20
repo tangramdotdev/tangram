@@ -27,17 +27,14 @@ pub struct Server(Arc<State>);
 pub struct State {
 	library_paths: Vec<std::path::PathBuf>,
 	output_path: std::path::PathBuf,
-	processes: DashMap<tg::process::Id, Process>,
+	processes: DashMap<u64, Process>,
 	tangram_path: std::path::PathBuf,
 }
 
 struct Process {
 	command: Command,
-	debug: Option<tg::process::Debug>,
-	location: Option<tg::Location>,
 	pid: libc::pid_t,
 	pty: Option<Arc<pty::Pty>>,
-	retry: bool,
 	stderr: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStderr>>>,
 	stdin: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>>,
 	stdout: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStdout>>>,

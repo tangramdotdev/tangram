@@ -6,7 +6,7 @@ let server = spawn --config { advanced: { single_process: false } }
 
 let output = tg index | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to index
 	-> the request failed

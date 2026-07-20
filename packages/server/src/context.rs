@@ -6,6 +6,7 @@ pub struct Context {
 	pub principal: tg::Principal,
 	pub sandbox: bool,
 	pub stopper: Option<Stopper>,
+	pub token: Option<String>,
 }
 
 impl Context {
@@ -16,6 +17,7 @@ impl Context {
 			principal: tg::Principal::Root,
 			sandbox: false,
 			stopper: None,
+			token: None,
 		}
 	}
 }

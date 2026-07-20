@@ -242,14 +242,10 @@ impl Reader {
 		let id = blob.id();
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-		let resource = if let Some(token) = blob.state().token() {
-			tg::Either::Right(tg::WithToken {
-				id: tg::object::Id::from(id.clone()),
-				token,
-			})
-		} else {
-			tg::Either::Left(tg::object::Id::from(id.clone()))
-		};
+		let resource = tg::Referent::with_item_and_token(
+			tg::object::Id::from(id.clone()),
+			blob.state().token(),
+		);
 		session
 			.authorize(resource, permission)
 			.await?

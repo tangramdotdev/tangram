@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The owner may still pull and read a live process log. The compaction gate that withholds the log from an unauthorized puller must not withhold it from the process owner, who is authorized to read it. The remote's finalizer is disabled so the log stays live, exercising the on-demand compaction path during the pull.
 
-let remote = spawn --cloud --name remote --config { authentication: { providers: { insecure: true } }, process: { finalizer: false } }
+let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } }, process: { finalizer: false } }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 

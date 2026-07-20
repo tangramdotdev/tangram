@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Revoking one permission from a grant leaves the remaining permissions and their access intact.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json
@@ -19,7 +19,7 @@ assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "g
 tg --token $bob.token group get team
 let output = tg --token $bob.token group create team/bob-sub | complete
 failure $output "revoking write should remove the ability to create a subgroup"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the group
 	   specifier = team/bob-sub

@@ -25,7 +25,7 @@ pub use {
 		directory::Handle as Directory,
 		error::{Error, Result, ok},
 		file::Handle as File,
-		grant::{Grant, MaybeWithToken, WithToken},
+		grant::Grant,
 		graph::Handle as Graph,
 		group::Group,
 		handle::{HANDLE, Handle, init, init_with, try_handle},
@@ -43,6 +43,7 @@ pub use {
 		range::Range,
 		reference::Reference,
 		referent::Referent,
+		sandbox::Sandbox,
 		selector::Selector,
 		session::Session,
 		specifier::Specifier,
@@ -102,7 +103,9 @@ pub mod read;
 pub mod reference;
 pub mod referent;
 pub mod remote;
+pub mod runner;
 pub mod sandbox;
+pub mod scheduler;
 pub mod selector;
 pub mod specifier;
 pub mod symlink;

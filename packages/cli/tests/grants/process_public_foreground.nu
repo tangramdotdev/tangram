@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # --public does not require --detach: a foreground public build is reusable by another owner.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json

@@ -25,7 +25,6 @@ use {
 #[display(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Status {
-	Created,
 	Started,
 	Destroyed,
 }
@@ -59,7 +58,7 @@ impl tg::Session {
 		let path = format!("/sandboxes/{id}/status");
 		let uri = Uri::builder()
 			.path(&path)
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();
@@ -119,7 +118,6 @@ impl std::str::FromStr for Status {
 
 	fn from_str(value: &str) -> Result<Self, Self::Err> {
 		match value {
-			"created" => Ok(Self::Created),
 			"started" => Ok(Self::Started),
 			"destroyed" => Ok(Self::Destroyed),
 			_ => Err(tg::error!(%value, "invalid sandbox status")),

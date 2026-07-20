@@ -169,7 +169,7 @@ impl<'a> Requester<'a> {
 			tg::Principal::Process(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Sandbox(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::User(id) => Some(tg::Id::from(id.clone())),
-			tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner => None,
+			tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner(_) => None,
 		};
 		Self {
 			principal,
@@ -195,6 +195,17 @@ impl Index {
 	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
 		if args.is_empty() {
 			return Ok(Vec::new());
+		}
+		if matches!(principal, tg::Principal::Root) {
+			let outputs = args
+				.iter()
+				.map(|arg| {
+					Some(crate::authorize::Output {
+						permissions: arg.permissions,
+					})
+				})
+				.collect();
+			return Ok(outputs);
 		}
 		let txn = self
 			.database
@@ -230,7 +241,6 @@ impl Index {
 			.filter_map(|(index, (arg, resource))| {
 				let resource = resource.as_ref()?;
 				if crate::authorize::validate(resource, arg.permissions).is_err()
-					|| matches!(principal, tg::Principal::Root)
 					|| matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *resource)
 				{
 					return None;
@@ -266,12 +276,6 @@ impl Index {
 			};
 			if crate::authorize::validate(&id, arg.permissions).is_err() {
 				outputs.push(None);
-				continue;
-			}
-			if matches!(principal, tg::Principal::Root) {
-				outputs.push(Some(crate::authorize::Output {
-					permissions: arg.permissions,
-				}));
 				continue;
 			}
 			if matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == id)
@@ -928,7 +932,7 @@ impl Index {
 							tg::Principal::Process(id) => Some(tg::Id::from(id)),
 							tg::Principal::Anonymous
 							| tg::Principal::Root
-							| tg::Principal::Runner => None,
+							| tg::Principal::Runner(_) => None,
 							tg::Principal::Sandbox(id) => Some(tg::Id::from(id)),
 							tg::Principal::User(id) => Some(tg::Id::from(id)),
 						};
@@ -1308,23 +1312,14 @@ impl Index {
 		}
 		let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(sandbox.clone()));
 		let key = Self::pack(subspace, &key);
-		let owner =
-			txn.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
-				.map(|bytes| {
-					let string = std::str::from_utf8(&bytes)
-						.map_err(|error| tg::error!(!error, "failed to parse the sandbox owner"))?;
-					if string.is_empty() {
-						Ok(None)
-					} else {
-						string.parse().map(Some).map_err(|error| {
-							tg::error!(!error, "failed to parse the sandbox owner")
-						})
-					}
-				})
-				.transpose()?
-				.flatten();
+		let owner = txn
+			.get(&key, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
+			.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
+			.transpose()?
+			.and_then(|sandbox| sandbox.data)
+			.and_then(|data| data.owner);
 		cache.sandbox_owners.insert(sandbox.clone(), owner.clone());
 		Ok(owner)
 	}

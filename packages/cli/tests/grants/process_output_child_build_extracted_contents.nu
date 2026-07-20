@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process can return a file whose contents are extracted from a child build's output file, and the builder can read the contents. The child build returns a file; the parent reads its contents blob and wraps it in a new file.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose alice | from json
 
 let path = artifact {
@@ -19,5 +19,5 @@ let path = artifact {
 let process = tg --token $alice.token build --detach $path | str trim
 let result = tg --token $alice.token wait $process | from json
 assert ($result.exit == 0) "the build should succeed."
-let contents = tg --token $alice.token cat $result.output.value.id | str trim
+let contents = tg --token $alice.token cat $result.output.value | str trim
 assert ($contents == "hello") "the builder should read the file contents extracted from the child build's output."

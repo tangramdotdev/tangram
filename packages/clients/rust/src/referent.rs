@@ -79,6 +79,15 @@ impl<T> Referent<T> {
 		}
 	}
 
+	#[must_use]
+	pub fn with_item_and_token(item: T, token: Option<tg::grant::Token>) -> Self {
+		let options = Options {
+			token,
+			..Default::default()
+		};
+		Self::new(item, options)
+	}
+
 	pub fn item(&self) -> &T {
 		&self.item
 	}
@@ -138,6 +147,17 @@ impl<T> Referent<T> {
 	pub fn inherit<U>(&mut self, parent: &tg::Referent<U>) {
 		self.options.inherit(&parent.options);
 	}
+
+	#[must_use]
+	pub fn without_token(&self) -> Self
+	where
+		T: Clone,
+	{
+		let mut referent = self.clone();
+		referent.options.token.take();
+
+		referent
+	}
 }
 
 impl<T> Referent<T>
@@ -147,39 +167,11 @@ where
 	pub fn to_uri(&self) -> Uri {
 		let path = self.item.to_string();
 		let mut builder = Uri::builder().path(&path);
-		let mut query = Vec::new();
-		if let Some(artifact) = &self.options.artifact {
-			let artifact = artifact.to_string();
-			let artifact = tangram_uri::encode_query_value(&artifact);
-			let artifact = format!("artifact={artifact}");
-			query.push(artifact);
-		}
-		if let Some(id) = &self.options.id {
-			let id = id.to_string();
-			let id = tangram_uri::encode_query_value(&id);
-			let id = format!("id={id}");
-			query.push(id);
-		}
-		if let Some(name) = &self.options.name {
-			let name = tangram_uri::encode_query_value(name);
-			let name = format!("name={name}");
-			query.push(name);
-		}
-		if let Some(path) = &self.options.path {
-			let path = path.to_string_lossy();
-			let path = tangram_uri::encode_query_value(&path);
-			let path = format!("path={path}");
-			query.push(path);
-		}
-		if let Some(tag) = &self.options.tag {
-			let tag = tag.to_string();
-			let tag = tangram_uri::encode_query_value(&tag);
-			let tag = format!("tag={tag}");
-			query.push(tag);
-		}
-		if !query.is_empty() {
-			let query = query.join("&");
-			builder = builder.query_raw(&query);
+		if self.options != Options::default() {
+			builder = builder
+				.query_params(&self.options)
+				.map_err(|error| tg::error!(!error, "failed to serialize the query params"))
+				.unwrap();
 		}
 		builder.build().unwrap()
 	}
@@ -194,45 +186,12 @@ where
 			.path()
 			.parse()
 			.map_err(|_| tg::error!("failed to parse the item"))?;
-		let mut options = Options::default();
-		if let Some(query) = uri.query_raw() {
-			for param in query.split('&') {
-				if let Some((key, value)) = param.split_once('=') {
-					let value = tangram_uri::decode_query_value(value)
-						.map_err(|_| tg::error!("failed to decode the value"))?;
-					match key {
-						"artifact" => {
-							options.artifact.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the artifact"))?,
-							);
-						},
-						"id" => {
-							options.id.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the id"))?,
-							);
-						},
-						"name" => {
-							options.name.replace(value.into_owned());
-						},
-						"path" => {
-							options.path.replace(value.into_owned().into());
-						},
-						"tag" => {
-							options.tag.replace(
-								value
-									.parse()
-									.map_err(|_| tg::error!("failed to parse the tag"))?,
-							);
-						},
-						_ => {},
-					}
-				}
-			}
-		}
+		let options = uri
+			.query_raw()
+			.map(serde_qs::from_str::<Options>)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to deserialize the query params"))?
+			.unwrap_or_default();
 		Ok(Self { item, options })
 	}
 }
@@ -250,6 +209,9 @@ impl Options {
 	}
 
 	pub fn inherit(&mut self, parent: &Options) {
+		if self.token.is_none() {
+			self.token = parent.token.clone();
+		}
 		if self.id.is_none() && self.tag.is_none() {
 			self.id = parent.id.clone();
 			self.tag = parent.tag.clone();

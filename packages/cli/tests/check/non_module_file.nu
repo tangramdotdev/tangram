@@ -10,7 +10,7 @@ let notes = $dir | path join notes.txt
 
 let output = tg check $notes | complete
 failure $output
-snapshot ($output.stderr | redact $notes) '
+snapshot --normalize --redact $notes $output.stderr '
 	error an error occurred
 	-> expected a module path
 

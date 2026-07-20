@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Creating a sandbox owned by a group requires write on that group, so read access to it is not enough to claim it as owner.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json

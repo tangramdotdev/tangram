@@ -2,19 +2,17 @@ use {
 	self::store::{DeleteArg, ReadArg},
 	crate::Session,
 	futures::{
-		FutureExt as _, StreamExt as _,
+		StreamExt as _,
 		stream::{self, BoxStream},
 	},
-	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::{
 		collections::{BTreeSet, VecDeque},
 		io::{Cursor, SeekFrom},
-		ops::ControlFlow,
 	},
 	tangram_client::{self as tg},
-	tangram_database::{self as db, Query as _},
 	tangram_futures::{read::Ext as _, write::Ext as _},
+	tangram_index::prelude::*,
 	tangram_log_store::Store as _,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
@@ -108,13 +106,11 @@ impl Session {
 	}
 
 	pub(crate) async fn compact_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
-		let output = self
-			.try_get_process_local(process, false)
-			.await?
-			.ok_or_else(|| tg::error!("expected the process to exist"))?;
-		if output.data.log.is_some()
-			|| !(output.data.stdout.is_log() || output.data.stderr.is_log())
-		{
+		let indexed = self.get_process_from_index(process).await?;
+		let mut data = indexed
+			.data
+			.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
+		if !Self::process_log_needs_compaction(&data) {
 			return Ok(());
 		}
 
@@ -176,19 +172,36 @@ impl Session {
 
 		let arg = tg::write::Arg::default();
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
+		data.log = Some(tg::Referent::with_item(blob.clone()));
 
 		self.server
-			.process_store
-			.run(|transaction| {
-				let blob = blob.clone();
-				let process = process.clone();
-				async move {
-					Self::update_process_log_with_transaction(transaction, &process, &blob).await
-				}
-				.boxed()
+			.index
+			.batch(tangram_index::batch::Arg {
+				put_processes: vec![tangram_index::process::put::Arg {
+					children: None,
+					command: data.command.clone().into(),
+					data: Some(data.clone()),
+					error: None,
+					id: process.clone(),
+					log: Some(Some(blob.clone().into())),
+					metadata: indexed.metadata,
+					output: None,
+					parent: None,
+					sandbox: Some(data.sandbox.clone()),
+					stored: indexed.stored,
+					time_to_touch: self.server.config.process.time_to_touch,
+					touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+				}],
+				..Default::default()
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to update the process log"))?;
+			.map_err(|error| tg::error!(!error, %process, "failed to update the process log"))?;
+		self.server
+			.runner
+			.state
+			.try_update_process(process, |state| {
+				state.data.log = Some(tg::Referent::with_item(blob.clone()));
+			});
 
 		self.server
 			.log_store
@@ -201,23 +214,8 @@ impl Session {
 		Ok(())
 	}
 
-	async fn update_process_log_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		process: &tg::process::Id,
-		blob: &tg::blob::Id,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				update processes
-				set log = {p}2
-				where id = {p}1 and log is null;
-			"
-		);
-		let params = db::params![process.to_string(), blob.to_string()];
-		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to execute the statement");
-		Ok(ControlFlow::Break(()))
+	pub(crate) fn process_log_needs_compaction(data: &tg::process::Data) -> bool {
+		data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log())
 	}
 
 	pub(crate) async fn process_log_stream(
@@ -238,15 +236,11 @@ impl Session {
 			return Err(tg::error!("invalid stdio stream"));
 		}
 		let output = self
-			.try_get_process_local(id, false)
+			.try_get_process_local(id, false, None)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
-		let mut inner = if let Some(id) = output
-			.data
-			.log
-			.map(|log| log.map_right(|log| log.id).into_inner())
-		{
+		let mut inner = if let Some(id) = output.data.log.map(|log| log.item) {
 			let blob = tg::Blob::with_id(id);
 			let mut reader = crate::read::Reader::new(self, blob).await?;
 			let index = self.read_log_index_from_blob(&mut reader).await?;
@@ -357,11 +351,8 @@ impl Session {
 					&& let Inner::Store(inner) = &state.inner
 					&& let Some(output) = inner
 						.session
-						.try_get_process_local(&inner.process, false)
-						.await? && let Some(blob_id) = output
-					.data
-					.log
-					.map(|log| log.map_right(|log| log.id).into_inner())
+						.try_get_process_local(&inner.process, false, None)
+						.await? && let Some(blob_id) = output.data.log.map(|log| log.item)
 				{
 					let blob = tg::Blob::with_id(blob_id);
 					let mut reader = crate::read::Reader::new(&inner.session, blob).await?;

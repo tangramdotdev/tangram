@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A lease token that was used to cancel a process cannot be used to cancel it again.
+# Cancelling with the same lease token after the process finishes succeeds.
 
 let server = spawn
 
@@ -18,21 +18,4 @@ let process = tg build --detach --verbose $path | from json
 tg cancel $process.process $process.lease
 tg wait $process.process
 
-let output = tg cancel $process.process $process.lease | complete
-failure $output
-snapshot ($output.stderr | redact) '
-	error an error occurred
-	-> failed to cancel the process
-	   id = <process>
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to cancel the process
-	   id = <process>
-	-> failed to cancel the process
-	   id = <process>
-	-> failed to cancel the process
-	-> database error
-	-> the process is already finished
-	-> the process is already finished
-
-'
+tg cancel $process.process $process.lease

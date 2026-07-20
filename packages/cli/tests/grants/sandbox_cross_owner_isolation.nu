@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Two sandbox owners must not see or control each other's sandboxes.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
@@ -28,3 +28,6 @@ failure (tg --token $eve.token sandbox destroy $alice_sandbox | complete) "Eve m
 
 success (tg --token $alice.token sandbox get $alice_sandbox | complete) "Alice's sandbox should still exist"
 success (tg --token $eve.token sandbox get $eve_sandbox | complete) "Eve's sandbox should still exist"
+
+tg --token $alice.token sandbox destroy $alice_sandbox
+tg --token $eve.token sandbox destroy $eve_sandbox

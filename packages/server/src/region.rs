@@ -5,13 +5,11 @@ use {
 
 impl Session {
 	pub(crate) async fn get_region_session(&self, region: &str) -> tg::Result<tg::Session> {
-		let _token = self
-			.context
-			.principal
-			.to_id()
-			.and_then(|id| tg::process::Id::try_from(id).ok());
-		let _client = self.server.get_region_client(region).await?;
-		todo!("propagate process authentication to regions")
+		let client = self.server.get_region_client(region).await?;
+		let context = client.context().clone();
+		context.set_token(self.context.token.clone());
+		let session = client.session(&context);
+		Ok(session)
 	}
 }
 

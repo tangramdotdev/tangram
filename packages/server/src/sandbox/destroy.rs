@@ -1,7 +1,7 @@
 use {
-	crate::{Session, database::Transaction},
-	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
-	std::ops::ControlFlow,
+	crate::Session,
+	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -9,28 +9,6 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-#[cfg(feature = "turso")]
-mod turso;
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Condition {
-	HeartbeatExpired { max_heartbeat_at: i64 },
-}
-
-struct InnerArg {
-	condition: Option<Condition>,
-	now: i64,
-}
-
-struct InnerOutput {
-	destroyed: bool,
-	unfinished_processes: Vec<tg::process::Id>,
-}
 
 impl Session {
 	pub(crate) async fn try_destroy_sandbox(
@@ -50,7 +28,8 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_destroy_sandbox_local(id, arg.error.clone(), None)
+					.try_destroy_sandbox_local(id, arg.error.clone())
+					.boxed()
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
 			{
@@ -82,202 +61,58 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-		condition: Option<Condition>,
 	) -> tg::Result<Option<bool>> {
 		let permission =
 			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
-		let authorized = self.authorize(id.clone(), permission).await?;
-		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
-			return Ok(None);
-		}
-
-		// Verify the sandbox is local.
-		if !self
-			.server
-			.get_sandbox_exists_local(id)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
+		let authorize_future = self.authorize(id.clone(), permission);
+		let get_future = self.try_get_sandbox_from_index(id);
+		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
+		if sandbox.is_none()
+			|| !authorized.is_some_and(|permissions| permissions.contains(permission))
 		{
 			return Ok(None);
 		}
 
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let process_error = {
-			let error = error.unwrap_or_else(|| {
-				tg::Either::Left(tg::error::Data {
-					code: Some(tg::error::Code::Cancellation),
-					message: Some("the process was canceled".into()),
-					..Default::default()
-				})
-			});
-			let error_code = match error.as_ref() {
-				tg::Either::Left(data) => data.code,
-				tg::Either::Right(_) => None,
-			};
-			let error = self.store_process_error(error).await;
-			(error, error_code)
-		};
-		let session = self.clone();
-		let output = self
-			.server
-			.process_store
-			.run(|transaction| {
-				let id = id.clone();
-				let process_error = process_error.clone();
-				let session = session.clone();
-				async move {
-					session
-						.try_destroy_sandbox_with_transaction(
-							transaction,
-							&id,
-							condition,
-							now,
-							process_error,
-						)
-						.await
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to destroy the sandbox"))?;
-
-		let (output, finished_processes) = output;
-		let Some(output) = output else {
-			return Ok(None);
-		};
-		if !output {
-			return Ok(Some(false));
-		}
-
-		// Spawn a task to publish the status message.
-		self.server.spawn_publish_sandbox_status_task(id);
-
-		// Spawn a task to publish the finalize message.
-		self.server.spawn_publish_sandbox_finalize_message_task();
-
-		for process in &finished_processes {
-			self.spawn_process_finish_tasks(process);
-		}
-
-		Ok(Some(true))
-	}
-
-	async fn try_destroy_sandbox_with_transaction(
-		&self,
-		transaction: &Transaction<'_>,
-		id: &tg::sandbox::Id,
-		condition: Option<Condition>,
-		now: i64,
-		process_error: (
-			tg::Either<tg::error::Data, tg::error::Id>,
-			Option<tg::error::Code>,
-		),
-	) -> tg::Result<ControlFlow<(Option<bool>, Vec<tg::process::Id>), crate::database::Error>> {
-		let arg = InnerArg { condition, now };
-
-		let InnerOutput {
-			destroyed,
-			unfinished_processes,
-		} = match self.try_destroy_sandbox_inner(transaction, id, arg).await? {
-			ControlFlow::Break(output) => output,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		if !destroyed {
-			return Ok(ControlFlow::Break((Some(false), Vec::new())));
-		}
-
-		let mut finished_processes = Vec::new();
-		if !unfinished_processes.is_empty() {
-			for process in unfinished_processes {
-				let arg = crate::process::finish::InnerArg {
-					checksum: None,
-					condition: None,
-					error: Some(process_error.0.clone()),
-					error_code: process_error.1,
-					exit: 1,
-					now,
-					output: None,
-				};
-				let finished = self
-					.try_finish_process_inner(transaction, &process, arg)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to finish the process"))?;
-				let finished = match finished {
-					ControlFlow::Break(finished) => finished,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				if finished {
-					finished_processes.push(process);
-				}
-			}
-		}
-
-		match self
-			.server
-			.delete_sandbox_tokens_with_transaction(transaction, id)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the sandbox tokens"))?
-		{
-			ControlFlow::Break(()) => {},
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-		match self
-			.server
-			.delete_sandbox_process_tokens_with_transaction(transaction, id)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the process tokens"))?
-		{
-			ControlFlow::Break(()) => {},
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
-
-		Ok(ControlFlow::Break((Some(true), finished_processes)))
-	}
-
-	async fn try_destroy_sandbox_inner(
-		&self,
-		transaction: &Transaction<'_>,
-		id: &tg::sandbox::Id,
-		arg: InnerArg,
-	) -> tg::Result<ControlFlow<InnerOutput, crate::database::Error>> {
-		match transaction {
-			#[cfg(feature = "postgres")]
-			Transaction::Postgres(transaction) => {
-				match self
-					.try_destroy_sandbox_inner_postgres(transaction, id, arg)
-					.await?
-				{
-					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
-					ControlFlow::Continue(error) => Ok(ControlFlow::Continue(
-						crate::database::Error::Postgres(error),
-					)),
-				}
+		let error = match error {
+			Some(tg::Either::Left(data)) => data,
+			Some(tg::Either::Right(id)) => tg::Error::with_id(id)
+				.data_with_handle(self)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
+			None => tg::error::Data {
+				code: Some(tg::error::Code::Cancellation),
+				message: Some("the process was canceled".into()),
+				..Default::default()
 			},
-			#[cfg(feature = "sqlite")]
-			Transaction::Sqlite(transaction) => {
-				match self
-					.try_destroy_sandbox_inner_sqlite(transaction, id, arg)
-					.await?
-				{
-					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
-					ControlFlow::Continue(error) => {
-						Ok(ControlFlow::Continue(crate::database::Error::Sqlite(error)))
-					},
-				}
+		};
+		let request = tg::sandbox::control::ServerRequestArg::Destroy(
+			tg::sandbox::control::DestroyServerRequestArg { error: Some(error) },
+		);
+		let options = crate::control::Options {
+			retry: tangram_futures::retry::Options::default(),
+			timeout: std::time::Duration::from_secs(10),
+		};
+		let destroy_future = self.send_sandbox_control_request(id, request, options);
+		let status_future = self.try_get_sandbox_status_local(id);
+		let response = match future::select(pin!(destroy_future), pin!(status_future)).await {
+			future::Either::Left((response, _)) => response,
+			future::Either::Right((status, destroy_future)) => match status? {
+				Some(status) if status.is_destroyed() => return Ok(Some(false)),
+				Some(_) => destroy_future.await,
+				None => return Ok(None),
 			},
-			#[cfg(feature = "turso")]
-			Transaction::Turso(transaction) => {
-				match self
-					.try_destroy_sandbox_inner_turso(transaction, id, arg)
-					.await?
-				{
-					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
-					ControlFlow::Continue(error) => {
-						Ok(ControlFlow::Continue(crate::database::Error::Turso(error)))
-					},
-				}
-			},
-		}
+		};
+		let response = response
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to send the destroy sandbox control request"),
+			)?
+			.map_err(
+				|error| tg::error!(!error, %id, "the destroy sandbox control request failed"),
+			)?;
+		let response = response
+			.try_unwrap_destroy()
+			.map_err(|_| tg::error!(%id, "expected a destroy sandbox response"))?;
+		Ok(Some(response.destroyed))
 	}
 
 	async fn try_destroy_sandbox_regions(
@@ -408,6 +243,7 @@ impl Session {
 
 		let Some(destroyed) = self
 			.try_destroy_sandbox(&id, arg)
+			.boxed()
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
 		else {

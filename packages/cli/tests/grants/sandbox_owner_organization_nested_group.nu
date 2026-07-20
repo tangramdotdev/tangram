@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A member of a group that belongs to an organization can access an organization-owned sandbox, and loses access when the group is removed from the organization.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json
@@ -22,3 +22,5 @@ success (tg --token $bob.token sandbox get $sandbox | complete) "a member of a g
 # Removing the team from the organization revokes Bob's transitive access.
 tg --token $alice.token organization members remove acme $team.id
 failure (tg --token $bob.token sandbox get $sandbox | complete) "a member must lose access once their group is removed from the organization"
+
+tg --token $alice.token sandbox destroy $sandbox

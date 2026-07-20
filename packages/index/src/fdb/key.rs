@@ -8,12 +8,14 @@ use {
 pub enum Key {
 	Cache(crate::fdb::cache::Key),
 	Clean(crate::fdb::clean::Key),
+	Finalization(crate::fdb::finalization::Key),
 	Grant(crate::fdb::grant::Key),
 	Group(crate::fdb::group::Key),
 	Node(crate::fdb::node::Key),
 	Object(crate::fdb::object::Key),
 	Organization(crate::fdb::organization::Key),
 	Process(crate::fdb::process::Key),
+	Runner(crate::fdb::runner::Key),
 	Sandbox(crate::fdb::sandbox::Key),
 	Tag(crate::fdb::tag::Key),
 	Update(crate::fdb::update::Key),
@@ -56,6 +58,24 @@ pub enum Kind {
 	Visibility = 30,
 	GrantExpiresAt = 31,
 	Sandbox = 32,
+	CommandCacheableProcess = 33,
+	ProcessDepthDetection = 34,
+	Runner = 35,
+	SchedulerRunner = 36,
+	RunnerScheduler = 37,
+	RunnerSandbox = 38,
+	SandboxRunner = 39,
+	SandboxProcess = 40,
+	ProcessSandbox = 41,
+	CreatorSandbox = 42,
+	OwnerSandbox = 43,
+	UpdateBarrier = 44,
+	ProcessFinalization = 45,
+	ProcessFinalizationBarrier = 46,
+	ProcessFinalizationVersion = 47,
+	SandboxFinalization = 48,
+	SandboxFinalizationBarrier = 49,
+	SandboxFinalizationVersion = 50,
 }
 
 impl fdbt::TuplePack for Key {
@@ -80,6 +100,66 @@ impl fdbt::TuplePack for Key {
 			Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id)) => {
 				(Kind::Sandbox.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
+
+			Key::Runner(crate::fdb::runner::Key::Runner(id)) => {
+				(Kind::Runner.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+			},
+
+			Key::Runner(crate::fdb::runner::Key::SchedulerRunner { scheduler, runner }) => (
+				Kind::SchedulerRunner.to_i32().unwrap(),
+				scheduler.to_bytes().as_ref(),
+				runner.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Runner(crate::fdb::runner::Key::RunnerScheduler { runner, scheduler }) => (
+				Kind::RunnerScheduler.to_i32().unwrap(),
+				runner.to_bytes().as_ref(),
+				scheduler.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Runner(crate::fdb::runner::Key::RunnerSandbox { runner, sandbox }) => (
+				Kind::RunnerSandbox.to_i32().unwrap(),
+				runner.to_bytes().as_ref(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::fdb::sandbox::Key::SandboxRunner { sandbox, runner }) => (
+				Kind::SandboxRunner.to_i32().unwrap(),
+				sandbox.to_bytes().as_ref(),
+				runner.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess { sandbox, process }) => (
+				Kind::SandboxProcess.to_i32().unwrap(),
+				sandbox.to_bytes().as_ref(),
+				process.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::fdb::process::Key::ProcessSandbox { process, sandbox }) => (
+				Kind::ProcessSandbox.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::fdb::sandbox::Key::CreatorSandbox { creator, sandbox }) => (
+				Kind::CreatorSandbox.to_i32().unwrap(),
+				creator.to_string(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Sandbox(crate::fdb::sandbox::Key::OwnerSandbox { owner, sandbox }) => (
+				Kind::OwnerSandbox.to_i32().unwrap(),
+				owner.to_string(),
+				sandbox.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
 
 			Key::Tag(crate::fdb::tag::Key::Tag(id)) => {
 				(Kind::Tag.to_i32().unwrap(), id.to_string()).pack(w, tuple_depth)
@@ -165,6 +245,22 @@ impl fdbt::TuplePack for Key {
 				process.to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
+				command,
+				process,
+			}) => (
+				Kind::CommandCacheableProcess.to_i32().unwrap(),
+				command.to_bytes().as_ref(),
+				process.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Process(crate::fdb::process::Key::ProcessDepthDetection(process)) => (
+				Kind::ProcessDepthDetection.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -333,12 +429,69 @@ impl fdbt::TuplePack for Key {
 				partition.pack(w, tuple_depth)?;
 				touched_at.pack(w, tuple_depth)?;
 				kind.to_i32().unwrap().pack(w, tuple_depth)?;
-				let id = match &id {
-					tg::Either::Left(id) => id.to_bytes(),
-					tg::Either::Right(id) => id.to_bytes(),
-				};
+				let id = id.to_bytes();
 				id.as_ref().pack(w, tuple_depth)
 			},
+
+			Key::Finalization(crate::fdb::finalization::Key::Process(id)) => (
+				Kind::ProcessFinalization.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::ProcessBarrier {
+				id,
+				partition,
+				version,
+			}) => (
+				Kind::ProcessFinalizationBarrier.to_i32().unwrap(),
+				version,
+				partition,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::ProcessVersion {
+				id,
+				partition,
+				version,
+			}) => (
+				Kind::ProcessFinalizationVersion.to_i32().unwrap(),
+				partition,
+				version,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::Sandbox(id)) => (
+				Kind::SandboxFinalization.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::SandboxBarrier {
+				id,
+				partition,
+				version,
+			}) => (
+				Kind::SandboxFinalizationBarrier.to_i32().unwrap(),
+				version,
+				partition,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Finalization(crate::fdb::finalization::Key::SandboxVersion {
+				id,
+				partition,
+				version,
+			}) => (
+				Kind::SandboxFinalizationVersion.to_i32().unwrap(),
+				partition,
+				version,
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
 
 			Key::Update(crate::fdb::update::Key::Update { id, kind }) => {
 				Kind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
@@ -347,6 +500,24 @@ impl fdbt::TuplePack for Key {
 					tg::Either::Right(id) => id.to_bytes(),
 				};
 				let mut offset = id.as_ref().pack(w, tuple_depth)?;
+				offset += pack_update_kind(w, tuple_depth, kind)?;
+				Ok(offset)
+			},
+
+			Key::Update(crate::fdb::update::Key::UpdateBarrier {
+				id,
+				kind,
+				partition,
+				version,
+			}) => {
+				let mut offset = Kind::UpdateBarrier.to_i32().unwrap().pack(w, tuple_depth)?;
+				offset += version.pack(w, tuple_depth)?;
+				offset += partition.pack(w, tuple_depth)?;
+				let id = match &id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				offset += id.as_ref().pack(w, tuple_depth)?;
 				offset += pack_update_kind(w, tuple_depth, kind)?;
 				Ok(offset)
 			},
@@ -408,6 +579,121 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let id = tg::sandbox::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
 				Ok((input, Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id))))
+			},
+
+			Kind::Runner => {
+				let (input, bytes): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::runner::Id::from_slice(&bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				Ok((input, Key::Runner(crate::fdb::runner::Key::Runner(id))))
+			},
+
+			Kind::SchedulerRunner => {
+				let (input, scheduler): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let scheduler = tg::scheduler::Id::from_slice(&scheduler)
+					.map_err(|_| fdbt::PackError::Message("invalid scheduler id".into()))?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				Ok((
+					input,
+					Key::Runner(crate::fdb::runner::Key::SchedulerRunner { scheduler, runner }),
+				))
+			},
+
+			Kind::RunnerScheduler => {
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, scheduler): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				let scheduler = tg::scheduler::Id::from_slice(&scheduler)
+					.map_err(|_| fdbt::PackError::Message("invalid scheduler id".into()))?;
+				Ok((
+					input,
+					Key::Runner(crate::fdb::runner::Key::RunnerScheduler { runner, scheduler }),
+				))
+			},
+
+			Kind::RunnerSandbox => {
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Runner(crate::fdb::runner::Key::RunnerSandbox { runner, sandbox }),
+				))
+			},
+
+			Kind::SandboxRunner => {
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let runner = tg::runner::Id::from_slice(&runner)
+					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
+				Ok((
+					input,
+					Key::Sandbox(crate::fdb::sandbox::Key::SandboxRunner { sandbox, runner }),
+				))
+			},
+
+			Kind::SandboxProcess => {
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess { sandbox, process }),
+				))
+			},
+
+			Kind::ProcessSandbox => {
+				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Process(crate::fdb::process::Key::ProcessSandbox { process, sandbox }),
+				))
+			},
+
+			Kind::CreatorSandbox => {
+				let (input, creator): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let creator = creator
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox creator".into()))?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Sandbox(crate::fdb::sandbox::Key::CreatorSandbox { creator, sandbox }),
+				))
+			},
+
+			Kind::OwnerSandbox => {
+				let (input, owner): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let owner = owner
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox owner".into()))?;
+				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Sandbox(crate::fdb::sandbox::Key::OwnerSandbox { owner, sandbox }),
+				))
 			},
 
 			Kind::Tag => {
@@ -575,6 +861,31 @@ impl fdbt::TupleUnpack<'_> for Key {
 					kind,
 					process,
 				});
+				Ok((input, key))
+			},
+
+			Kind::CommandCacheableProcess => {
+				let (input, command_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let command = tg::object::Id::from_slice(&command_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid command id".into()))?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key = Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
+					command,
+					process,
+				});
+				Ok((input, key))
+			},
+
+			Kind::ProcessDepthDetection => {
+				let (input, process_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key = Key::Process(crate::fdb::process::Key::ProcessDepthDetection(process));
 				Ok((input, key))
 			},
 
@@ -898,18 +1209,87 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
-					tg::Either::Right(id)
-				} else if let Ok(id) = tg::object::Id::try_from(id) {
-					tg::Either::Left(id)
-				} else {
-					return Err(fdbt::PackError::Message("invalid id".into()));
-				};
 				let key = Key::Clean(crate::fdb::clean::Key::Clean {
 					partition,
 					touched_at,
 					kind,
 					id,
+				});
+				Ok((input, key))
+			},
+
+			Kind::ProcessFinalization => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((
+					input,
+					Key::Finalization(crate::fdb::finalization::Key::Process(id)),
+				))
+			},
+
+			Kind::ProcessFinalizationBarrier => {
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key = Key::Finalization(crate::fdb::finalization::Key::ProcessBarrier {
+					id,
+					partition,
+					version,
+				});
+				Ok((input, key))
+			},
+
+			Kind::ProcessFinalizationVersion => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let key = Key::Finalization(crate::fdb::finalization::Key::ProcessVersion {
+					id,
+					partition,
+					version,
+				});
+				Ok((input, key))
+			},
+
+			Kind::SandboxFinalization => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				Ok((
+					input,
+					Key::Finalization(crate::fdb::finalization::Key::Sandbox(id)),
+				))
+			},
+
+			Kind::SandboxFinalizationBarrier => {
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let key = Key::Finalization(crate::fdb::finalization::Key::SandboxBarrier {
+					id,
+					partition,
+					version,
+				});
+				Ok((input, key))
+			},
+
+			Kind::SandboxFinalizationVersion => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::sandbox::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+				let key = Key::Finalization(crate::fdb::finalization::Key::SandboxVersion {
+					id,
+					partition,
+					version,
 				});
 				Ok((input, key))
 			},
@@ -930,6 +1310,29 @@ impl fdbt::TupleUnpack<'_> for Key {
 					input,
 					Key::Update(crate::fdb::update::Key::Update { id, kind }),
 				))
+			},
+
+			Kind::UpdateBarrier => {
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
+				let (input, kind) = unpack_update_kind(input, tuple_depth)?;
+				let key = Key::Update(crate::fdb::update::Key::UpdateBarrier {
+					id,
+					kind,
+					partition,
+					version,
+				});
+				Ok((input, key))
 			},
 
 			Kind::UpdateVersion => {

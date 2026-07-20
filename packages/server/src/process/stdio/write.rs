@@ -42,6 +42,7 @@ impl Session {
 					&arg.streams,
 					input,
 					self.context.stopper.clone(),
+					arg.token.as_ref(),
 				)
 				.await?
 			},
@@ -69,22 +70,28 @@ impl Session {
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
-		let Some(output) = self
-			.try_get_process_local(id, false)
+		let Some(tg::process::get::Output { data, .. }) = self
+			.try_get_process_local(id, false, token)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {
 			return Ok(None);
 		};
-		let data = output.data;
-		self.authorize_process_stdio_write(id, streams).await?;
-		let (sender, receiver) = tokio::sync::mpsc::channel(4);
 
-		// Create a stopper that is triggered when the process is finished. A write to a finished process will never be acknowledged, so the write task must stop.
-		let finished = Stopper::new();
+		self.authorize_process_stdio_write(id, streams, token)
+			.await?;
+
+		if data.status.is_finished() {
+			return Ok(Some(
+				futures::stream::once(future::ok(tg::process::stdio::write::Event::End)).boxed(),
+			));
+		}
 
 		// Spawn the write task.
+		let (sender, receiver) = tokio::sync::mpsc::channel(4);
+		let finished = Stopper::new();
 		let write_task = Task::spawn({
 			let session = self.clone();
 			let data = data.clone();
@@ -138,7 +145,7 @@ impl Session {
 			}
 		});
 
-		// Spawn the status task. When the process is finished, stop the write task. This applies only to stdin: a write to a finished process's stdin will never be acknowledged, whereas logged stdout and stderr must be drained to the end.
+		// Spawn the status task if necessary.
 		let status_task = if streams.contains(&tg::process::stdio::Stream::Stdin) {
 			Some(Task::spawn({
 				let session = self.clone();
@@ -176,6 +183,7 @@ impl Session {
 			Some(status_task) => stream.attach(status_task).boxed(),
 			None => stream.boxed(),
 		};
+
 		Ok(Some(stream))
 	}
 
@@ -183,6 +191,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
+		token: Option<&tg::grant::Token>,
 	) -> tg::Result<()> {
 		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
 		let output = streams
@@ -193,17 +202,19 @@ impl Session {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::Write,
 				);
-				let authorized = self.authorize(id.clone(), permission).await?;
+				let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
+				let authorized = self.authorize(resource, permission).await?;
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));
 				}
 				Ok(())
 			},
 			(false, true) => {
-				if !matches!(
+				let authorized = matches!(
 					&self.context.principal,
 					tg::Principal::Process(process) if process == id
-				) {
+				);
+				if !authorized {
 					return Err(tg::error!("unauthorized"));
 				}
 				Ok(())
@@ -221,11 +232,9 @@ impl Session {
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> tg::Result<()> {
-		// Return if the process is finished, because a write to its piped stdio will never be acknowledged.
 		if data.status.is_finished() {
 			return Ok(());
 		}
-
 		let started_at = data.started_at;
 		let streams = streams.iter().copied().collect::<BTreeSet<_>>();
 		let mut input = pin!(input);
@@ -238,7 +247,6 @@ impl Session {
 			};
 			match event {
 				tg::process::stdio::read::Event::Chunk(mut chunk) => {
-					// Skip empty chunks, except for stdin, where an empty chunk signals EOF.
 					if chunk.bytes.is_empty()
 						&& !matches!(chunk.stream, tg::process::stdio::Stream::Stdin)
 					{
@@ -297,8 +305,6 @@ impl Session {
 							let length = self
 								.write_process_stdio_chunk_local(id, chunk.stream, chunk.bytes)
 								.await?;
-
-							// A write length of zero indicates that the stream reached EOF, either because the process closed the stream or because the client sent an empty chunk to signal EOF, so end the stream.
 							if length == 0 {
 								return Ok(());
 							}
@@ -307,7 +313,6 @@ impl Session {
 					}
 				},
 				tg::process::stdio::read::Event::End => {
-					// Send an empty write to signal EOF if stdin is piped.
 					if streams.contains(&tg::process::stdio::Stream::Stdin)
 						&& matches!(
 							get_destination(&data, tg::process::stdio::Stream::Stdin),
@@ -333,20 +338,28 @@ impl Session {
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<usize> {
-		let request =
-			tg::process::control::RequestKind::Write(tg::process::control::WriteRequest {
-				stream,
-				bytes,
+		let request = tg::process::control::ServerRequestArg::Write(
+			tg::process::control::WriteServerRequestArg { stream, bytes },
+		);
+		let retry = tangram_futures::retry::Options {
+			max_retries: u64::MAX,
+			..Default::default()
+		};
+		let timeout = self
+			.server
+			.config
+			.runner
+			.as_ref()
+			.map_or(std::time::Duration::from_secs(10), |runner| {
+				runner.stdio_drain_timeout
 			});
-		let Some(response) = self
-			.try_send_process_control_request(id, request, u64::MAX)
-			.await?
-		else {
-			return Ok(0);
-		};
-		let tg::process::control::ResponseKind::Write(response) = response.kind else {
-			return Err(tg::error!("expected a write response"));
-		};
+		let options = crate::control::Options { retry, timeout };
+		let response = self
+			.send_process_control_request(id, request, options)
+			.await??;
+		let response = response
+			.try_unwrap_write()
+			.map_err(|_| tg::error!("expected a write response"))?;
 		Ok(response.length)
 	}
 
@@ -366,6 +379,7 @@ impl Session {
 		let arg = tg::process::stdio::write::Arg {
 			location: Some(location.into()),
 			streams: arg.streams.clone(),
+			token: arg.token.clone(),
 		};
 		let stream = client
 			.try_write_process_stdio(id, arg, input)
@@ -388,6 +402,7 @@ impl Session {
 		let arg = tg::process::stdio::write::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			streams: arg.streams.clone(),
+			token: arg.token.clone(),
 		};
 		let stream = client
 			.try_write_process_stdio(id, arg, input)

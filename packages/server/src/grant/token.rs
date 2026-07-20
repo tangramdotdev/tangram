@@ -32,19 +32,14 @@ impl Session {
 				}
 			},
 			tg::value::Data::Object(object) => {
-				let id = object.clone().map_right(|object| object.id).into_inner();
 				let token = self.create_token(
-					tg::grant::Resource::Id(id.clone().into()),
+					tg::grant::Resource::Id(object.item.clone().into()),
 					vec![tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Subtree,
 					)],
 					expires_at,
 				)?;
-				*object = if let Some(token) = token {
-					tg::Either::Right(tg::WithToken { id, token })
-				} else {
-					tg::Either::Left(id)
-				};
+				object.options.token = token;
 			},
 			tg::value::Data::Mutation(mutation) => {
 				self.add_tokens_to_mutation_data(mutation, expires_at)?;
@@ -97,22 +92,14 @@ impl Session {
 	) -> tg::Result<()> {
 		for component in &mut data.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
-				let id = artifact
-					.clone()
-					.map_right(|artifact| artifact.id)
-					.into_inner();
 				let token = self.create_token(
-					tg::grant::Resource::Id(tg::object::Id::from(id.clone()).into()),
+					tg::grant::Resource::Id(tg::object::Id::from(artifact.item.clone()).into()),
 					vec![tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Subtree,
 					)],
 					expires_at,
 				)?;
-				*artifact = if let Some(token) = token {
-					tg::Either::Right(tg::WithToken { id, token })
-				} else {
-					tg::Either::Left(id)
-				};
+				artifact.options.token = token;
 			}
 		}
 		Ok(())

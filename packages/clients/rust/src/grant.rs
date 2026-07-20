@@ -4,7 +4,7 @@ pub use {
 	permission::Permission,
 	principal::Principal,
 	resource::Resource,
-	token::{Algorithm, Body, MaybeWithToken, Metadata, PrivateKey, PublicKey, Token, WithToken},
+	token::{Algorithm, Body, Metadata, PrivateKey, PublicKey, Token},
 };
 
 pub mod create;

@@ -39,6 +39,13 @@ export class File {
 		return this.#state;
 	}
 
+	/** Get a file with a referent. */
+	static withReferent(referent: tg.Referent<tg.File.Id>): tg.File {
+		let file = tg.File.withId(referent.item);
+		file.state.token = referent.options?.token ?? null;
+		return file;
+	}
+
 	/** Get a file with an ID. */
 	static withId(id: tg.File.Id): tg.File {
 		return new tg.File({ id, stored: true });
@@ -548,6 +555,13 @@ export namespace File {
 			} else {
 				return tg.Graph.Data.File.children(data);
 			}
+		};
+
+		export let withoutTokens = (data: tg.File.Data): tg.File.Data => {
+			if (!tg.Graph.Data.Pointer.is(data)) {
+				return tg.Graph.Data.File.withoutTokens(data);
+			}
+			return typeof data === "object" ? { ...data } : data;
 		};
 	}
 

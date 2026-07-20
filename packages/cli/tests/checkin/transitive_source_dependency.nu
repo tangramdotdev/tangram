@@ -19,7 +19,7 @@ tg tag a $'($path)/a.tg.ts'
 # Check in a module that depends on a. This should fail because b is not tagged.
 let output = tg checkin $'($path)/c.tg.ts' | complete
 failure $output "the checkin should fail before b is tagged"
-snapshot ($output.stderr | redact $path) '
+snapshot --normalize --redact $path $output.stderr '
 	error an error occurred
 	-> failed to solve dependencies
 	-> no matching tags were found

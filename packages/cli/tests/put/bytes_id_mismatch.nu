@@ -10,7 +10,7 @@ let fake = "fil_010000000000000000000000000000000000000000000000000000"
 
 let output = $bytes | tg object put $fake --bytes | complete
 failure $output
-snapshot ($output.stderr | redact | normalize_ids) '
+snapshot --normalize-ids $output.stderr '
 	error an error occurred
 	-> failed to put the object
 	   id = fil_010000000000000000000000000000000000000000000000000000

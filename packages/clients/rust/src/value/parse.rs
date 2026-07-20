@@ -7,7 +7,7 @@ use {
 		ascii::float,
 		combinator::{alt, cut_err, delimited, opt, preceded, repeat, separated, separated_pair},
 		prelude::*,
-		token::{any, none_of, one_of, take, take_while},
+		token::{any, none_of, take, take_while},
 	},
 };
 
@@ -134,6 +134,7 @@ fn map(input: &mut Input) -> ModalResult<tg::value::Map> {
 	.parse_next(input)
 }
 
+#[cfg(test)]
 fn id(input: &mut Input) -> ModalResult<tg::id::Id> {
 	(id_kind, "_", "0", id_body)
 		.verify_map(|(kind, _, version, body)| match version {
@@ -143,6 +144,7 @@ fn id(input: &mut Input) -> ModalResult<tg::id::Id> {
 		.parse_next(input)
 }
 
+#[cfg(test)]
 fn id_kind(input: &mut Input) -> ModalResult<tg::id::Kind> {
 	alt((
 		alt((
@@ -163,6 +165,7 @@ fn id_kind(input: &mut Input) -> ModalResult<tg::id::Kind> {
 	.parse_next(input)
 }
 
+#[cfg(test)]
 fn id_body(input: &mut Input) -> ModalResult<tg::id::Body> {
 	alt((
 		preceded("0", id_body_inner)
@@ -173,13 +176,14 @@ fn id_body(input: &mut Input) -> ModalResult<tg::id::Body> {
 	.parse_next(input)
 }
 
+#[cfg(test)]
 fn id_body_inner(input: &mut Input) -> ModalResult<Vec<u8>> {
 	const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 		symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 	};
 	repeat(
 		0..,
-		one_of(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c)),
+		winnow::token::one_of(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c)),
 	)
 	.fold(String::new, |mut string, c| {
 		string.push(c);
@@ -201,23 +205,23 @@ fn object(input: &mut Input) -> ModalResult<tg::Object> {
 }
 
 fn object_id_with_token(input: &mut Input) -> ModalResult<tg::Object> {
-	(id, opt(preceded("&token=", token)))
-		.verify_map(|(id, token)| {
-			let id = tg::object::Id::try_from(id).ok()?;
-			let object = tg::Object::with_id(id);
-			if let Some(token) = token {
-				object.state().set_token(Some(token));
-			}
-			Some(object)
-		})
-		.parse_next(input)
-}
-
-fn token(input: &mut Input) -> ModalResult<tg::grant::Token> {
 	take_while(1.., |c: char| {
 		!c.is_whitespace() && !matches!(c, ',' | ']' | '}' | ')')
 	})
-	.verify_map(|s: &str| s.parse().ok())
+	.verify_map(|string: &str| {
+		let referent = string.parse::<tg::Referent<tg::object::Id>>().ok()?;
+		let options = &referent.options;
+		if options.artifact.is_some()
+			|| options.id.is_some()
+			|| options.name.is_some()
+			|| options.path.is_some()
+			|| options.tag.is_some()
+		{
+			return None;
+		}
+		let object = tg::Object::with_referent(referent);
+		Some(object)
+	})
 	.parse_next(input)
 }
 
@@ -1792,7 +1796,8 @@ mod tests {
 			resource: crate::grant::Resource::Id(id.clone().into()),
 		};
 		let token = crate::grant::Token::sign(body, &private_key).unwrap();
-		let tgon = format!("{id}&token={token}");
+		let tgon =
+			crate::Referent::with_item_and_token(id.clone(), Some(token.clone())).to_string();
 
 		let value = super::parse(&tgon).unwrap();
 		assert_eq!(value.to_string(), tgon);

@@ -115,6 +115,7 @@ libc = "0.2"
 liblzma = { version = "0.4", features = ["static"] }
 log = "0.4"
 lsp-types = "0.97"
+maml = "0.1"
 miette = { version = "7.6", features = ["fancy", "syntect-highlighter"] }
 mime = "0.3"
 neli = "0.7"

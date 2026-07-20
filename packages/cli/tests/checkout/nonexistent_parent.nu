@@ -14,7 +14,7 @@ let path = $dir | path join "nope" "child"
 
 let output = tg checkout $id $path | complete
 failure $output
-snapshot ($output.stderr | redact $path $dir) '
+snapshot --normalize --redact [$path $dir] $output.stderr '
 	error an error occurred
 	-> failed to canonicalize the path
 	-> No such file or directory (os error 2)

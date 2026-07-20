@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Revoking a permission the grant does not hold fails and leaves the existing permissions intact.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json
@@ -13,7 +13,7 @@ tg --token $alice.token grant $bob.user.id read team
 # Revoking write, which was never granted, finds nothing to remove.
 let output = tg --token $alice.token revoke $bob.user.id write team | complete
 failure $output "revoking a permission that was never granted should fail"
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the grant
 

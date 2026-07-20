@@ -8,7 +8,7 @@ let file = tg put 'tg.file("solo")' | str trim
 
 let output = tg get $"($file)?get=foo" | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the reference
 	   reference = fil_01hywsaeq340a2qtmce8y2cxddkj8bshswktye8j3mvj6bgnqc3hk0?get=foo

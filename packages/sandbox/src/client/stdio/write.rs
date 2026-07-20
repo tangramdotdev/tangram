@@ -10,7 +10,7 @@ use {
 impl Client {
 	pub async fn write_stdio(
 		&self,
-		id: &tg::process::Id,
+		id: u64,
 		arg: Arg,
 		stream: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
@@ -19,7 +19,7 @@ impl Client {
 		let path = format!("/processes/{id}/stdio");
 		let uri = Uri::builder()
 			.path(&path)
-			.query_params(&arg)
+			.query_params_strict(&arg)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

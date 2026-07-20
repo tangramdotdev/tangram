@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A sandbox owner can be provided as a specifier, and write on that owner grants sandbox access.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let bob = tg login --verbose bob | from json
@@ -19,3 +19,5 @@ assert equal $data.owner $team.id "the sandbox should store the resolved owner"
 success (tg --token $alice.token sandbox get $sandbox | complete) "Alice should get a sandbox owned by her group"
 success (tg --token $bob.token sandbox get $sandbox | complete) "Bob should get a sandbox owned by a group he can write"
 failure (tg --token $eve.token sandbox get $sandbox | complete) "Eve must not get a sandbox owned by a group she cannot access"
+
+tg --token $bob.token sandbox destroy $sandbox

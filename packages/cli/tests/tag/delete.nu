@@ -43,7 +43,7 @@ assert (($output.deleted | length) == 0) "The command should not delete a parent
 # Try to delete with empty pattern - should fail.
 let output = tg tag delete "" | complete
 failure $output "The command should reject an empty pattern."
-snapshot ($output.stderr | redact) r#'
+snapshot --normalize $output.stderr r#'
 	error: invalid value '' for '<PATTERN>': invalid specifier pattern
 	
 	For more information, try '--help'.

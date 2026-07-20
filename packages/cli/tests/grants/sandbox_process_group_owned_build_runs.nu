@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A build whose sandbox is owned by a group must run, not fail to read its command.
 
-let server = spawn --config { authentication: { providers: { insecure: true } } }
+let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose alice | from json
 tg --token $alice.token group create team
 

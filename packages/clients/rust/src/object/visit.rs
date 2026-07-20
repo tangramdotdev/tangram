@@ -17,6 +17,7 @@ where
 	let mut stack: Vec<tg::Referent<tg::Object>> = vec![object.clone()];
 	let mut visited = HashSet::new();
 	while let Some(referent) = stack.pop() {
+		referent.item.inherit_token(referent.options.token.clone());
 		if !visited.insert(referent.clone().map(|r| r.id())) {
 			continue;
 		}

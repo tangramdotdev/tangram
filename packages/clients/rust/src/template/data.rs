@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use {crate::prelude::*, serde_with::DisplayFromStr};
 
 #[derive(
 	Clone,
@@ -34,31 +34,31 @@ pub enum Component {
 	#[tangram_serialize(id = 0)]
 	String(String),
 	#[tangram_serialize(id = 1)]
-	Artifact(tg::MaybeWithToken<tg::artifact::Id>),
+	Artifact(#[serde(with = "serde_with::As::<DisplayFromStr>")] tg::Referent<tg::artifact::Id>),
 	#[tangram_serialize(id = 2)]
 	Placeholder(tg::placeholder::Data),
 }
 
 impl From<tg::artifact::Id> for Component {
 	fn from(value: tg::artifact::Id) -> Self {
-		Self::Artifact(tg::Either::Left(value))
+		Self::Artifact(tg::Referent::with_item(value))
 	}
 }
 
 impl From<tg::directory::Id> for Component {
 	fn from(value: tg::directory::Id) -> Self {
-		Self::Artifact(tg::Either::Left(value.into()))
+		Self::Artifact(tg::Referent::with_item(value.into()))
 	}
 }
 
 impl From<tg::file::Id> for Component {
 	fn from(value: tg::file::Id) -> Self {
-		Self::Artifact(tg::Either::Left(value.into()))
+		Self::Artifact(tg::Referent::with_item(value.into()))
 	}
 }
 
 impl From<tg::symlink::Id> for Component {
 	fn from(value: tg::symlink::Id) -> Self {
-		Self::Artifact(tg::Either::Left(value.into()))
+		Self::Artifact(tg::Referent::with_item(value.into()))
 	}
 }

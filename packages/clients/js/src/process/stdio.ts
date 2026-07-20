@@ -19,6 +19,7 @@ export namespace Stdio {
 			size?: number | null;
 			streams: Array<tg.Process.Stdio.Stream>;
 			timeout?: number | null;
+			token?: tg.Grant.Token | null;
 		};
 
 		export type Event =
@@ -81,6 +82,7 @@ export namespace Stdio {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 			streams: Array<tg.Process.Stdio.Stream>;
+			token?: tg.Grant.Token | null;
 		};
 
 		export type Event = { kind: "end" } | { kind: "stop" };
@@ -162,6 +164,9 @@ export namespace Stdio {
 						? { location: this.#process.location }
 						: {}),
 					streams: [this.#stream],
+					...(this.#process.token !== null
+						? { token: this.#process.token }
+						: {}),
 				});
 				if (input === null) {
 					throw new Error(`${this.#stream} is not available`);
@@ -280,6 +285,7 @@ export namespace Stdio {
 						{
 							...(location !== null ? { location } : {}),
 							streams: [stream],
+							...(process.token !== null ? { token: process.token } : {}),
 						},
 						(async function* () {
 							yield { kind: "end" };
@@ -324,6 +330,7 @@ export namespace Stdio {
 					{
 						...(location !== null ? { location } : {}),
 						streams: [stream],
+						...(process!.token !== null ? { token: process!.token } : {}),
 					},
 					(async function* () {
 						yield {
@@ -360,6 +367,7 @@ export namespace Stdio {
 export let task = async (
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
+	token: tg.Grant.Token | null,
 	stdin: "pipe" | "tty" | null,
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
@@ -371,7 +379,7 @@ export let task = async (
 	let stdinStopper = stdin !== null ? await tg.host.stopperOpen() : null;
 	let stdinTask_ =
 		stdin !== null && stdinStopper !== null
-			? stdinTask(id, location, stdin, stdinStopper).catch((error) => {
+			? stdinTask(id, location, token, stdin, stdinStopper).catch((error) => {
 					if (!stdinClosing) {
 						stdinError = error;
 						stdinFailed = true;
@@ -383,7 +391,7 @@ export let task = async (
 	let sigwinchListener = tty ? tg.host.listenSignal("sigwinch") : null;
 	let sigwinchTask_ =
 		sigwinchListener !== null
-			? sigwinchTask(id, location, sigwinchListener).catch((error) => {
+			? sigwinchTask(id, location, token, sigwinchListener).catch((error) => {
 					sigwinchError = error;
 					sigwinchFailed = true;
 				})
@@ -392,7 +400,7 @@ export let task = async (
 	let stdoutStderrFailed = false;
 	try {
 		try {
-			await stdoutStderrTask(id, location, stdout, stderr);
+			await stdoutStderrTask(id, location, token, stdout, stderr);
 		} catch (error) {
 			stdoutStderrError = error;
 			stdoutStderrFailed = true;
@@ -439,6 +447,7 @@ async function cleanup(
 async function stdinTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
+	token: tg.Grant.Token | null,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
 ): Promise<void> {
@@ -475,6 +484,7 @@ async function stdinTask(
 				{
 					...(location !== null ? { location } : {}),
 					streams: ["stdin"],
+					...(token !== null ? { token } : {}),
 				},
 				input,
 			),
@@ -502,6 +512,7 @@ async function stdinTask(
 async function stdoutStderrTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
+	token: tg.Grant.Token | null,
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
 ): Promise<void> {
@@ -518,6 +529,7 @@ async function stdoutStderrTask(
 	let iterator = await tg.client.tryReadProcessStdio(id, {
 		...(location !== null ? { location } : {}),
 		streams,
+		...(token !== null ? { token } : {}),
 	});
 	if (iterator === null) {
 		return;
@@ -534,6 +546,7 @@ async function stdoutStderrTask(
 async function sigwinchTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
+	token: tg.Grant.Token | null,
 	signalListener: tg.Host.SignalListener,
 ): Promise<void> {
 	for await (let _ of signalListener) {
@@ -544,6 +557,9 @@ async function sigwinchTask(
 		let arg: tg.Process.Tty.Put.Arg = { size };
 		if (location !== null) {
 			arg.location = location;
+		}
+		if (token !== null) {
+			arg.token = token;
 		}
 		await tg.client.setProcessTtySize(id, arg);
 	}

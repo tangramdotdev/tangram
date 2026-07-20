@@ -6,6 +6,31 @@ use {
 };
 
 impl Index {
+	pub async fn get_requester_principals(
+		&self,
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<tg::grant::Principal>> {
+		tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			let principal = principal.clone();
+			let subspace = self.subspace.clone();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+				Self::requester_principals_with_transaction(
+					&db,
+					&subspace,
+					&transaction,
+					&principal,
+				)
+			}
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+	}
+
 	pub async fn visible(
 		&self,
 		ids: &[tg::Id],
@@ -71,7 +96,7 @@ impl Index {
 			tg::Principal::Anonymous
 			| tg::Principal::Process(_)
 			| tg::Principal::Root
-			| tg::Principal::Runner
+			| tg::Principal::Runner(_)
 			| tg::Principal::Sandbox(_) => None,
 		};
 		if let Some(id) = id {

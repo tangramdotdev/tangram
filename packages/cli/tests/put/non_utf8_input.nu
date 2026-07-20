@@ -6,7 +6,7 @@ let server = spawn
 
 let output = 0x[ff fe fd] | tg put | complete
 failure $output
-snapshot ($output.stderr | redact) '
+snapshot --normalize $output.stderr '
 	error an error occurred
 	-> the input was not valid utf-8
 	-> invalid utf-8 sequence of 1 bytes from index 0

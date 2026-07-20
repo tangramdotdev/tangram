@@ -1,9 +1,9 @@
 use {
 	super::{
-		Db, Index, Request, RequestReceiver, Response, ResponseSender,
+		Index, Request, RequestReceiver, Response, ResponseSender, TaskArg,
 		request::{Item, Kind},
 	},
-	crossbeam_channel as crossbeam, heed as lmdb,
+	crossbeam_channel as crossbeam,
 	std::collections::VecDeque,
 	tangram_client::prelude::*,
 };
@@ -20,15 +20,17 @@ struct Batch {
 }
 
 impl Index {
-	pub(super) fn task(
-		env: &lmdb::Env,
-		db: &Db,
-		subspace: &foundationdb_tuple::Subspace,
-		receiver_high: &RequestReceiver,
-		receiver_medium: &RequestReceiver,
-		receiver_low: &RequestReceiver,
-		max_items_per_transaction: usize,
-	) {
+	pub(super) fn task(arg: TaskArg<'_>) {
+		let TaskArg {
+			db,
+			env,
+			max_items_per_transaction,
+			max_process_depth,
+			receiver_high,
+			receiver_low,
+			receiver_medium,
+			subspace,
+		} = arg;
 		let mut trackers: Vec<RequestTracker> = Vec::new();
 		let mut queue_high: VecDeque<Batch> = VecDeque::new();
 		let mut queue_medium: VecDeque<Batch> = VecDeque::new();
@@ -141,17 +143,23 @@ impl Index {
 						batch_size,
 						max_object_touched_at,
 						max_process_touched_at,
+						max_sandbox_touched_at,
 						now,
-					}) => Self::task_clean(
+					}) => Self::task_clean(crate::lmdb::clean::TaskCleanArg {
+						batch_size,
 						db,
-						subspace,
-						&mut transaction,
-						now,
 						max_object_touched_at,
 						max_process_touched_at,
-						batch_size,
-					)
+						max_sandbox_touched_at,
+						now,
+						subspace,
+						transaction: &mut transaction,
+					})
 					.map(Response::CleanOutput),
+					Request::CompleteFinalization(entry) => {
+						Self::task_complete_finalization(db, subspace, &mut transaction, &entry)
+							.map(|()| Response::Unit)
+					},
 					Request::DeleteGrants(args) => {
 						Self::task_delete_grants(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
@@ -177,12 +185,20 @@ impl Index {
 						Self::task_delete_organizations(db, subspace, &mut transaction, &ids)
 							.map(|()| Response::Unit)
 					},
+					Request::DeleteSandboxes(ids) => {
+						Self::task_delete_sandboxes(db, subspace, &mut transaction, &ids)
+							.map(|()| Response::Unit)
+					},
 					Request::DeleteUsers(ids) => {
 						Self::task_delete_users(db, subspace, &mut transaction, &ids)
 							.map(|()| Response::Unit)
 					},
 					Request::DeleteTags(tags) => {
 						Self::task_delete_tags(db, subspace, &mut transaction, &tags)
+							.map(|()| Response::Unit)
+					},
+					Request::EnqueueFinalization(item) => {
+						Self::task_enqueue_finalization(db, subspace, &mut transaction, &item)
 							.map(|()| Response::Unit)
 					},
 					Request::PutCacheEntries(args) => {
@@ -215,6 +231,10 @@ impl Index {
 					},
 					Request::PutProcesses(args) => {
 						Self::task_put_processes(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
+					},
+					Request::PutRunners(args) => {
+						Self::task_put_runners(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::PutSandboxes(args) => {
@@ -268,10 +288,14 @@ impl Index {
 						time_to_touch,
 					)
 					.map(Response::Processes),
-					Request::Update(crate::lmdb::Update { batch_size }) => {
-						Self::task_update_batch(db, subspace, &mut transaction, batch_size)
-							.map(Response::UpdateCount)
-					},
+					Request::Update(crate::lmdb::Update { batch_size }) => Self::task_update_batch(
+						db,
+						subspace,
+						&mut transaction,
+						batch_size,
+						max_process_depth,
+					)
+					.map(Response::UpdateCount),
 				};
 				results.push(result);
 			}
@@ -381,13 +405,16 @@ impl Index {
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
-			Request::DeleteGrants(_)
+			Request::CompleteFinalization(_)
+			| Request::DeleteGrants(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
 			| Request::DeleteOrganizationMembers(_)
 			| Request::DeleteOrganizations(_)
+			| Request::DeleteSandboxes(_)
 			| Request::DeleteTags(_)
 			| Request::DeleteUsers(_)
+			| Request::EnqueueFinalization(_)
 			| Request::PutCacheEntries(_)
 			| Request::PutGrants(_)
 			| Request::PutGroupMembers(_)
@@ -396,6 +423,7 @@ impl Index {
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
 			| Request::PutProcesses(_)
+			| Request::PutRunners(_)
 			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
 			| Request::PutUsers(_) => Response::Unit,
@@ -412,6 +440,7 @@ impl Index {
 				batch_size,
 				max_object_touched_at,
 				max_process_touched_at,
+				max_sandbox_touched_at,
 				now,
 			}) => {
 				let items = (0..batch_size).map(|_| Item::Clean).collect();
@@ -420,10 +449,15 @@ impl Index {
 					Kind::Clean {
 						max_object_touched_at,
 						max_process_touched_at,
+						max_sandbox_touched_at,
 						now,
 					},
 				)
 			},
+			Request::CompleteFinalization(entry) => (
+				vec![Item::CompleteFinalization(entry)],
+				Kind::CompleteFinalization,
+			),
 			Request::DeleteGrants(args) => {
 				let items = args.into_iter().map(Item::DeleteGrant).collect();
 				(items, Kind::DeleteGrants)
@@ -447,6 +481,10 @@ impl Index {
 				let items = ids.into_iter().map(Item::DeleteOrganization).collect();
 				(items, Kind::DeleteOrganizations)
 			},
+			Request::DeleteSandboxes(ids) => {
+				let items = ids.into_iter().map(Item::DeleteSandbox).collect();
+				(items, Kind::DeleteSandboxes)
+			},
 			Request::DeleteTags(tags) => {
 				let items = tags.into_iter().map(Item::DeleteTag).collect();
 				(items, Kind::DeleteTags)
@@ -455,6 +493,10 @@ impl Index {
 				let items = ids.into_iter().map(Item::DeleteUser).collect();
 				(items, Kind::DeleteUsers)
 			},
+			Request::EnqueueFinalization(item) => (
+				vec![Item::EnqueueFinalization(item)],
+				Kind::EnqueueFinalization,
+			),
 			Request::PutCacheEntries(args) => {
 				let items = args.into_iter().map(Item::PutCacheEntry).collect();
 				(items, Kind::PutCacheEntries)
@@ -486,6 +528,10 @@ impl Index {
 			Request::PutProcesses(args) => {
 				let items = args.into_iter().map(Item::PutProcess).collect();
 				(items, Kind::PutProcesses)
+			},
+			Request::PutRunners(args) => {
+				let items = args.into_iter().map(Item::PutRunner).collect();
+				(items, Kind::PutRunners)
 			},
 			Request::PutSandboxes(args) => {
 				let items = args.into_iter().map(Item::PutSandbox).collect();
@@ -553,13 +599,22 @@ impl Index {
 			Kind::Clean {
 				max_object_touched_at,
 				max_process_touched_at,
+				max_sandbox_touched_at,
 				now,
 			} => Request::Clean(crate::lmdb::Clean {
 				batch_size: items.len(),
 				max_object_touched_at: *max_object_touched_at,
 				max_process_touched_at: *max_process_touched_at,
+				max_sandbox_touched_at: *max_sandbox_touched_at,
 				now: *now,
 			}),
+			Kind::CompleteFinalization => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::CompleteFinalization(entry)] = items else {
+					unreachable!();
+				};
+				Request::CompleteFinalization(entry)
+			},
 			Kind::DeleteGrants => {
 				let args = items
 					.into_iter()
@@ -610,6 +665,16 @@ impl Index {
 					.collect();
 				Request::DeleteOrganizations(ids)
 			},
+			Kind::DeleteSandboxes => {
+				let ids = items
+					.into_iter()
+					.map(|item| match item {
+						Item::DeleteSandbox(id) => id,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteSandboxes(ids)
+			},
 			Kind::DeleteTags => {
 				let tags = items
 					.into_iter()
@@ -629,6 +694,13 @@ impl Index {
 					})
 					.collect();
 				Request::DeleteUsers(ids)
+			},
+			Kind::EnqueueFinalization => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::EnqueueFinalization(item)] = items else {
+					unreachable!();
+				};
+				Request::EnqueueFinalization(item)
 			},
 			Kind::PutCacheEntries => {
 				let args = items
@@ -709,6 +781,18 @@ impl Index {
 					})
 					.collect();
 				Request::PutProcesses(args)
+			},
+			Kind::PutRunners => {
+				let args = items
+					.into_iter()
+					.map(|item| {
+						let Item::PutRunner(arg) = item else {
+							unreachable!();
+						};
+						arg
+					})
+					.collect();
+				Request::PutRunners(args)
 			},
 			Kind::PutSandboxes => {
 				let args = items

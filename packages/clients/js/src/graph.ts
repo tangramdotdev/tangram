@@ -26,6 +26,13 @@ export class Graph {
 		return this.#state;
 	}
 
+	/** Get a graph with a referent. */
+	static withReferent(referent: tg.Referent<tg.Graph.Id>): tg.Graph {
+		let graph = tg.Graph.withId(referent.item);
+		graph.state.token = referent.options?.token ?? null;
+		return graph;
+	}
+
 	/** Get a graph with an ID. */
 	static withId(id: tg.Graph.Id): tg.Graph {
 		return new tg.Graph({ id, stored: true });
@@ -1063,6 +1070,13 @@ export namespace Graph {
 			return data.nodes.flatMap(tg.Graph.Data.Node.children);
 		};
 
+		export let withoutTokens = (data: tg.Graph.Data): tg.Graph.Data => {
+			return {
+				...data,
+				nodes: data.nodes.map(tg.Graph.Data.Node.withoutTokens),
+			};
+		};
+
 		export type Node =
 			| tg.Graph.Data.DirectoryNode
 			| tg.Graph.Data.FileNode
@@ -1084,6 +1098,16 @@ export namespace Graph {
 						return tg.Graph.Data.Symlink.children(data);
 					}
 				}
+			};
+
+			export let withoutTokens = (
+				data: tg.Graph.Data.Node,
+			): tg.Graph.Data.Node => {
+				if (data.kind === "file") {
+					let file = tg.Graph.Data.File.withoutTokens(data);
+					return { ...file, kind: "file" };
+				}
+				return { ...data };
 			};
 		}
 
@@ -1165,6 +1189,25 @@ export namespace Graph {
 						: [data.contents]),
 					...dependencies,
 				];
+			};
+
+			export let withoutTokens = (
+				data: tg.Graph.Data.File,
+			): tg.Graph.Data.File => {
+				let output = { ...data };
+				if (data.dependencies !== undefined) {
+					output.dependencies = globalThis.Object.fromEntries(
+						globalThis.Object.entries(data.dependencies).map(
+							([reference, dependency]) => [
+								tg.Reference.Data.withoutTokens(reference) as string,
+								dependency === null
+									? null
+									: tg.Graph.Data.Dependency.withoutTokens(dependency),
+							],
+						),
+					);
+				}
+				return output;
 			};
 		}
 
@@ -1257,6 +1300,20 @@ export namespace Graph {
 				} else {
 					return [];
 				}
+			};
+
+			export let withoutTokens = (
+				data: tg.Graph.Dependency.Data,
+			): tg.Graph.Dependency.Data => {
+				if (typeof data === "string") {
+					return data;
+				}
+				let output = { ...data };
+				if (output.options !== undefined) {
+					output.options = { ...output.options };
+					delete output.options.token;
+				}
+				return output;
 			};
 		}
 	}

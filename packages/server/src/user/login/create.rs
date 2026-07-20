@@ -42,6 +42,7 @@ impl Session {
 			.server
 			.config()
 			.authentication
+			.users
 			.as_ref()
 			.ok_or_else(|| tg::error!("no authentication providers are configured"))?;
 
@@ -126,6 +127,7 @@ impl Session {
 			.server
 			.config()
 			.authentication
+			.users
 			.as_ref()
 			.ok_or_else(|| tg::error!("no authentication providers are configured"))?;
 

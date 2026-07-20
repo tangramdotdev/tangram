@@ -29,8 +29,8 @@ pub enum Principal {
 	#[display("root")]
 	Root,
 
-	#[display("runner")]
-	Runner,
+	#[display("{_0}")]
+	Runner(tg::runner::Id),
 
 	#[display("{_0}")]
 	Sandbox(tg::sandbox::Id),
@@ -58,8 +58,8 @@ impl std::str::FromStr for Principal {
 		if s == "root" {
 			return Ok(Self::Root);
 		}
-		if s == "runner" {
-			return Ok(Self::Runner);
+		if let Ok(id) = s.parse::<tg::runner::Id>() {
+			return Ok(Self::Runner(id));
 		}
 		if let Ok(id) = s.parse::<tg::sandbox::Id>() {
 			return Ok(Self::Sandbox(id));
@@ -79,7 +79,7 @@ impl Principal {
 			Self::Process(id) => Ok(tg::Principal::Process(id.clone())),
 			Self::Public => Err(tg::error!("invalid principal")),
 			Self::Root => Ok(tg::Principal::Root),
-			Self::Runner => Ok(tg::Principal::Runner),
+			Self::Runner(id) => Ok(tg::Principal::Runner(id.clone())),
 			Self::Sandbox(id) => Ok(tg::Principal::Sandbox(id.clone())),
 			Self::User(id) => Ok(tg::Principal::User(id.clone())),
 		}

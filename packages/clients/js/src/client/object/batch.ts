@@ -20,6 +20,9 @@ export async function postObjectBatch(
 				: tg.Location.Arg.toDataString(arg.location),
 		objects: arg.objects.map((object) => ({
 			...object,
+			children: object.children?.map((child) =>
+				tg.Referent.toDataString(child, (id) => id),
+			),
 			data: object.data,
 		})),
 	});
@@ -33,5 +36,10 @@ export async function postObjectBatch(
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return await response.json<tg.Object.Batch.Output>();
+	let output = await response.json<{ objects: Array<string> }>();
+	return {
+		objects: output.objects.map((object) =>
+			tg.Referent.fromDataString(object, (id) => id as tg.Object.Id),
+		),
+	};
 }

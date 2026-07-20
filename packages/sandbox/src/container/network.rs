@@ -4,7 +4,7 @@ use {
 };
 
 pub(crate) fn create(
-	id: &tg::sandbox::Id,
+	id: u64,
 	identity: &Path,
 	dns: &[Ipv4Addr],
 	firewall: crate::Firewall,

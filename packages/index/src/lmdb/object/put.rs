@@ -112,7 +112,7 @@ impl Index {
 		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
 			touched_at,
 			kind: ItemKind::Object,
-			id: tg::Either::Left(id.clone()),
+			id: id.clone().into(),
 		});
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])

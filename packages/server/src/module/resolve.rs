@@ -1,8 +1,7 @@
 use {
 	crate::Session,
-	std::{path::Path, pin::pin},
+	std::path::Path,
 	tangram_client::prelude::*,
-	tangram_futures::stream::TryExt as _,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -58,7 +57,9 @@ impl Session {
 					tg::object::Kind::Directory => tg::module::Kind::Directory,
 					tg::object::Kind::File => {
 						let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(edge.clone())?;
-						let file = tg::Artifact::with_edge(edge)
+						let artifact = tg::Artifact::with_edge(edge);
+						artifact.state().set_token(referent.options.token.clone());
+						let file = artifact
 							.clone()
 							.try_unwrap_file()
 							.ok()
@@ -118,7 +119,7 @@ impl Session {
 			name: reference_options.name.clone(),
 			path: reference_options.path.clone(),
 			tag: reference_options.tag.clone(),
-			token: None,
+			token: reference_options.token.clone(),
 		};
 		let referent = tg::Referent { item, options };
 		Ok(referent)
@@ -130,11 +131,12 @@ impl Session {
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
 		let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(referrer.item.clone())?;
-		let file = tg::Artifact::with_edge(edge)
-			.clone()
-			.try_unwrap_file()
-			.ok()
-			.ok_or_else(|| tg::error!(referrer = %referrer.item, "the referrer must be a file"))?;
+		let artifact = tg::Artifact::with_edge(edge);
+		artifact.state().set_token(referrer.options.token.clone());
+		let file =
+			artifact.clone().try_unwrap_file().ok().ok_or_else(
+				|| tg::error!(referrer = %referrer.item, "the referrer must be a file"),
+			)?;
 		let dependency = file
 			.get_dependency_edge_with_handle(self, &import.reference)
 			.await
@@ -349,15 +351,9 @@ impl Session {
 				path,
 				updates,
 			};
-			let stream = self
-				.checkin(arg)
+			tg::checkin::checkin_with_handle(self, arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the path"))?;
-			let stream = pin!(stream);
-			stream
-				.try_last()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to complete the checkin"))?;
 
 			// Get the watch and retrieve the edge from the graph.
 			let entry = self
@@ -392,21 +388,12 @@ impl Session {
 		&self,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		let stream = self
-			.try_get(&import.reference, tg::get::Arg::default())
+		let output = import
+			.reference
+			.get_with_handle(self)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the reference"))?;
-		let stream = pin!(stream);
-		let output = stream
-			.try_last()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to complete the get"))?
-			.ok_or_else(|| tg::error!("expected an event"))?
-			.try_unwrap_output()
-			.ok()
-			.ok_or_else(|| tg::error!("expected the output"))?
-			.ok_or_else(|| tg::error!("expected the reference to exist"))?;
-		let tg::Referent { item, options } = output.referent;
+		let tg::Referent { item, options } = output;
 		let object = match item {
 			tg::get::Item::Id(id) => {
 				let id = tg::object::Id::try_from(id)?;
@@ -426,6 +413,7 @@ impl Session {
 				.into()
 			},
 		};
+		object.state().set_token(options.token.clone());
 		let edge = match &object {
 			tg::Object::Blob(blob) => tg::graph::data::Edge::Object(blob.id().into()),
 			tg::Object::Directory(directory) => {

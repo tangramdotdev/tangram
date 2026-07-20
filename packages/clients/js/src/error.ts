@@ -97,6 +97,13 @@ export class Error {
 		return this.#state;
 	}
 
+	/** Get an error with a referent. */
+	static withReferent(referent: tg.Referent<tg.Error.Id>): tg.Error {
+		let error = tg.Error.withId(referent.item);
+		error.state.token = referent.options?.token ?? null;
+		return error;
+	}
+
 	/** Get an error with an ID. */
 	static withId(id: tg.Error.Id): tg.Error {
 		return new tg.Error({ id, stored: true });
@@ -176,11 +183,12 @@ export class Error {
 
 	static toDataOrId(
 		value: tg.Error,
-	): tg.Error.Data | tg.Grant.MaybeWithToken<tg.Error.Id> {
+	): tg.Error.Data | tg.Referent.Data<tg.Error.Id> {
 		if (value.state.stored) {
 			let id = value.state.id as tg.Error.Id;
 			let token = value.state.token;
-			return token === null ? id : { id, token };
+			let referent = tg.Referent.withItemAndToken(id, token);
+			return tg.Referent.toData(referent, (id) => id);
 		}
 		return tg.Error.toData(value);
 	}
@@ -570,6 +578,41 @@ export namespace Error {
 			return [...diagnostics, ...location, ...stack, ...source];
 		};
 
+		export let withoutTokens = (data: tg.Error.Data): tg.Error.Data => {
+			let output = { ...data };
+			if (data.diagnostics !== undefined && data.diagnostics !== null) {
+				output.diagnostics = data.diagnostics.map(
+					tg.Diagnostic.Data.withoutTokens,
+				);
+			}
+			if (data.location !== undefined && data.location !== null) {
+				output.location = tg.Error.Data.Location.withoutTokens(data.location);
+			}
+			if (data.source !== undefined && data.source !== null) {
+				if (typeof data.source === "string") {
+					let referent = tg.Referent.fromDataString(
+						data.source,
+						(item) => item as tg.Error.Id,
+					);
+					output.source = tg.Referent.toDataString(
+						tg.Referent.withoutToken(referent),
+						(item) => item,
+					);
+				} else {
+					let source = tg.Referent.fromData(data.source, (item) => item);
+					source = tg.Referent.withoutToken(source);
+					if (typeof data.source.item !== "string") {
+						source.item = tg.Error.Data.withoutTokens(data.source.item);
+					}
+					output.source = tg.Referent.toData(source, (item) => item);
+				}
+			}
+			if (data.stack !== undefined && data.stack !== null) {
+				output.stack = data.stack.map(tg.Error.Data.Location.withoutTokens);
+			}
+			return output;
+		};
+
 		export type Location = {
 			symbol?: string | null;
 			file: tg.Error.Data.File;
@@ -586,6 +629,15 @@ export namespace Error {
 			): Array<tg.Object.Id> => {
 				return tg.Error.Data.File.children(data.file);
 			};
+
+			export let withoutTokens = (
+				data: tg.Error.Data.Location,
+			): tg.Error.Data.Location => {
+				return {
+					...data,
+					file: tg.Error.Data.File.withoutTokens(data.file),
+				};
+			};
 		}
 
 		export namespace File {
@@ -595,6 +647,18 @@ export namespace Error {
 				} else {
 					return [];
 				}
+			};
+
+			export let withoutTokens = (
+				data: tg.Error.Data.File,
+			): tg.Error.Data.File => {
+				if (data.kind === "module") {
+					return {
+						...data,
+						value: tg.Module.Data.withoutTokens(data.value),
+					};
+				}
+				return { ...data };
 			};
 		}
 	}

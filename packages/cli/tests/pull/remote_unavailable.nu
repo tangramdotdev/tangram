@@ -18,14 +18,14 @@ wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
 
 let output = tg pull $id | complete
 failure $output
-snapshot ($output.stderr | redact $remote.url $remote.directory | normalize_ids) '
+snapshot --normalize-ids --redact [$remote.url $remote.directory ($remote.directory | path expand)] $output.stderr '
 	error an error occurred
 	-> failed to create the push stream
 	-> failed to sync
 	   remote = default
 	-> failed to send the request
 	-> failed to resolve the socket path
-	   path = <path>/socket
+	   path = <redacted>/socket
 	-> No such file or directory (os error 2)
 
 '

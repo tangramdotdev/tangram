@@ -30,9 +30,12 @@ mod checkin;
 mod checkout;
 mod checksum;
 mod clean;
+mod cleaner;
 mod compiler;
 mod context;
+mod control;
 mod database;
+mod diagnostics;
 mod directory;
 mod document;
 mod format;
@@ -43,6 +46,7 @@ mod handle;
 mod health;
 mod http;
 mod index;
+mod indexer;
 mod list;
 mod location;
 mod log;
@@ -57,8 +61,9 @@ mod push;
 mod read;
 mod region;
 mod remote;
-mod run;
+mod runner;
 mod sandbox;
+mod scheduler;
 mod session;
 mod sync;
 mod tag;
@@ -86,6 +91,7 @@ pub struct Owned {
 pub struct Server(Arc<State>);
 
 pub struct State {
+	authentication_tokens: Tokens,
 	cache_graph_tasks: self::cache::GraphTasks,
 	cache_tasks: self::cache::Tasks,
 	checkin_tasks: self::checkin::Tasks,
@@ -93,6 +99,7 @@ pub struct State {
 	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
+	grant_tokens: Tokens,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
 	#[cfg(target_os = "linux")]
@@ -104,25 +111,21 @@ pub struct State {
 	object_get_tasks: self::object::get::Tasks,
 	object_store: self::object::Store,
 	path: PathBuf,
-	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
 	remote_list_tasks: self::list::remote::Tasks,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_container_root: PathBuf,
-	sandbox_permits: self::sandbox::Permits,
 	sandbox_seatbelt_root: PathBuf,
-	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
 	sandbox_tasks: self::sandbox::Tasks,
 	sandbox_vm_image: Option<PathBuf>,
 	#[cfg(target_os = "linux")]
 	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
-	sandboxes: self::sandbox::Map,
+	runner: self::runner::Runner,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
-	pub tokens: Tokens,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
 	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
@@ -248,14 +251,62 @@ impl Server {
 		// Create the context.
 		let context = Context::root();
 
-		// Create the sandbox permits and semaphore.
-		let sandboxes = DashMap::default();
-		let sandbox_permits = DashMap::default();
-		let permits = config
-			.runner
-			.as_ref()
-			.map_or(0, |runner| runner.concurrency.unwrap_or(parallelism));
-		let sandbox_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
+		if let Some(scheduler) = &config.scheduler {
+			if scheduler.create_sandbox_queue_capacity == 0 {
+				return Err(tg::error!(
+					"the scheduler create sandbox queue capacity must be greater than zero"
+				));
+			}
+			if scheduler.default_cpu == 0 {
+				return Err(tg::error!(
+					"the default sandbox CPU must be greater than zero"
+				));
+			}
+			if scheduler.default_memory == 0 {
+				return Err(tg::error!(
+					"the default sandbox memory must be greater than zero"
+				));
+			}
+			if scheduler.max_create_sandbox_requests == 0 {
+				return Err(tg::error!(
+					"the maximum number of scheduler create sandbox requests must be greater than zero"
+				));
+			}
+			if scheduler.max_create_sandbox_requests_per_runner == 0 {
+				return Err(tg::error!(
+					"the maximum number of scheduler create sandbox requests per runner must be greater than zero"
+				));
+			}
+		}
+
+		// Create the runner state.
+		let capacity = if let Some(runner) = &config.runner {
+			let cpus = runner
+				.cpus
+				.unwrap_or_else(|| u64::try_from(parallelism).unwrap());
+			let default_memory = config.scheduler.as_ref().map_or_else(
+				|| crate::config::Scheduler::default().default_memory,
+				|scheduler| scheduler.default_memory,
+			);
+			let memory = runner
+				.memory
+				.unwrap_or_else(|| default_memory.saturating_mul(cpus));
+			let capacity = tg::runner::Capacity { cpus, memory };
+			if capacity.cpus == 0 {
+				return Err(tg::error!(
+					"the runner CPU capacity must be greater than zero"
+				));
+			}
+			if capacity.memory == 0 {
+				return Err(tg::error!(
+					"the runner memory capacity must be greater than zero"
+				));
+			}
+			capacity
+		} else {
+			tg::runner::Capacity::default()
+		};
+		let runner = self::runner::Runner::new(capacity);
 
 		// Create the sandbox tasks.
 		let sandbox_tasks = tangram_futures::task::Map::default();
@@ -339,90 +390,6 @@ impl Server {
 			},
 		};
 
-		// Create the process store.
-		let process_store = match &config.process.store {
-			self::config::Database::Postgres(options) => {
-				#[cfg(not(feature = "postgres"))]
-				{
-					let _ = options;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with postgres support"
-					));
-				}
-				#[cfg(feature = "postgres")]
-				{
-					let options = db::postgres::DatabaseOptions {
-						max: options.pool.max.unwrap_or(parallelism),
-						min: options.pool.min.unwrap_or(0),
-						retry: options.retry.clone().into(),
-						ttl: options.pool.ttl,
-						url: options.url.clone(),
-					};
-					let process_store =
-						db::postgres::Database::new(options)
-							.await
-							.map_err(|error| {
-								tg::error!(!error, "failed to create the process store")
-							})?;
-					Database::Postgres(process_store)
-				}
-			},
-			self::config::Database::Sqlite(config) => {
-				#[cfg(not(feature = "sqlite"))]
-				{
-					let _ = config;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with sqlite support"
-					));
-				}
-				#[cfg(feature = "sqlite")]
-				{
-					let initialize = Arc::new(self::database::sqlite::initialize);
-					let options = db::sqlite::DatabaseOptions {
-						initialize,
-						max: config.pool.max.unwrap_or(parallelism),
-						min: config.pool.min.unwrap_or(0),
-						path: path.join(&config.path),
-						retry: config.retry.clone().into(),
-						ttl: config.pool.ttl,
-					};
-					let process_store =
-						db::sqlite::Database::new(options).await.map_err(|error| {
-							tg::error!(!error, "failed to create the process store")
-						})?;
-					Database::Sqlite(process_store)
-				}
-			},
-			self::config::Database::Turso(config) => {
-				#[cfg(not(feature = "turso"))]
-				{
-					let _ = config;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with turso support"
-					));
-				}
-				#[cfg(feature = "turso")]
-				{
-					let initialize: db::turso::Initialize = Arc::new(|connection| {
-						Box::pin(self::database::turso::initialize(connection))
-					});
-					let options = db::turso::DatabaseOptions {
-						initialize,
-						max: config.pool.max.unwrap_or(parallelism),
-						min: config.pool.min.unwrap_or(0),
-						path: path.join(&config.path),
-						retry: config.retry.clone().into(),
-						ttl: config.pool.ttl,
-					};
-					let process_store =
-						db::turso::Database::new(options).await.map_err(|error| {
-							tg::error!(!error, "failed to create the process store")
-						})?;
-					Database::Turso(process_store)
-				}
-			},
-		};
-
 		// Create the diagnostics.
 		let diagnostics = Mutex::new(Vec::new());
 
@@ -450,6 +417,10 @@ impl Server {
 						cluster: options.cluster.clone(),
 						concurrency: options.concurrency,
 						max_items_per_transaction: options.max_items_per_transaction,
+						max_process_depth: config
+							.watchdog
+							.as_ref()
+							.map(|config| u64::try_from(config.max_depth).unwrap()),
 						partition_total: options.partition_total,
 						prefix: options.prefix.clone(),
 					};
@@ -478,6 +449,10 @@ impl Server {
 						authorize,
 						map_size: options.map_size,
 						max_items_per_transaction: options.max_items_per_transaction,
+						max_process_depth: config
+							.watchdog
+							.as_ref()
+							.map(|config| u64::try_from(config.max_depth).unwrap()),
 						path,
 					};
 					Index::new_lmdb(&config)
@@ -663,76 +638,13 @@ impl Server {
 		let watches = DashMap::default();
 
 		// Create the token keys.
-		let private_key = match &config.authorization.tokens {
-			Some(tokens) => match &tokens.private_key {
-				Some(config) => {
-					let bytes = match &config.path {
-						Some(path) => match config.algorithm {
-							tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
-								|error| tg::error!(!error, path = %path.display(), "failed to read the private key"),
-							)?,
-						},
-						None => match config.algorithm {
-							tg::grant::Algorithm::Ed25519 => {
-								tg::grant::PrivateKey::generate(
-									config.name.clone(),
-									config.algorithm,
-								)?
-								.bytes
-							},
-						},
-					};
-					Some(tg::grant::PrivateKey::new(
-						config.name.clone(),
-						config.algorithm,
-						bytes,
-					))
-				},
-				None => None,
-			},
-			None => None,
-		};
-		let mut public_keys = BTreeMap::new();
-		if let Some(tokens) = &config.authorization.tokens {
-			for config in &tokens.public_keys {
-				let bytes = match &config.path {
-					Some(path) => match config.algorithm {
-						tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
-							|error| tg::error!(!error, path = %path.display(), "failed to read the public key"),
-						)?,
-					},
-					None => match config.algorithm {
-						tg::grant::Algorithm::Ed25519 => {
-							let matching_private_key = private_key.as_ref().filter(|private_key| {
-								private_key.name == config.name
-									&& private_key.algorithm == config.algorithm
-							});
-							let key = if let Some(private_key) = matching_private_key {
-								tg::grant::PublicKey::from_private_key(private_key)?
-							} else {
-								let private_key = tg::grant::PrivateKey::generate(
-									config.name.clone(),
-									config.algorithm,
-								)?;
-								tg::grant::PublicKey::from_private_key(&private_key)?
-							};
-							key.bytes
-						},
-					},
-				};
-				let key = tg::grant::PublicKey::new(config.name.clone(), config.algorithm, bytes);
-				if public_keys.insert(config.name.clone(), key).is_some() {
-					return Err(tg::error!(name = %config.name, "duplicate public key"));
-				}
-			}
-		}
-		let tokens = Tokens {
-			private_key,
-			public_keys,
-		};
+		let authentication_tokens =
+			load_token_keys(Some(&config.authentication.tokens.keys)).await?;
+		let grant_tokens = load_token_keys(config.grants.tokens.as_ref()).await?;
 
 		// Create the server.
 		let server = Self(Arc::new(State {
+			authentication_tokens,
 			cache_graph_tasks,
 			cache_tasks,
 			checkin_tasks,
@@ -740,6 +652,7 @@ impl Server {
 			context,
 			database,
 			diagnostics,
+			grant_tokens,
 			index,
 			index_tasks,
 			#[cfg(target_os = "linux")]
@@ -751,25 +664,21 @@ impl Server {
 			object_get_tasks,
 			object_store,
 			path,
-			process_store,
 			regions,
 			remote_object_put_tasks,
 			remote_list_tasks,
 			remote_clients,
 			sandbox_container_root,
-			sandbox_permits,
 			sandbox_seatbelt_root,
-			sandbox_semaphore,
 			sandbox_tasks,
 			sandbox_vm_image,
 			#[cfg(target_os = "linux")]
 			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
-			sandboxes,
+			runner,
 			tangram_path,
 			temps,
-			tokens,
 			version,
 			vfs,
 			watches,
@@ -788,21 +697,6 @@ impl Server {
 			self::database::turso::migrate(database)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to migrate the database"))?;
-		}
-
-		// Migrate the process store if necessary.
-		#[cfg(feature = "sqlite")]
-		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
-			self::process::store::sqlite::migrate(process_store)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
-		}
-
-		#[cfg(feature = "turso")]
-		if let Ok(process_store) = server.process_store.try_unwrap_turso_ref() {
-			self::process::store::turso::migrate(process_store)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to migrate the process store"))?;
 		}
 
 		// Destroy unfinished sandboxes if single process mode is enabled.
@@ -848,6 +742,16 @@ impl Server {
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace());
 					}
+				}
+			})
+		});
+
+		// Spawn the scheduler task.
+		let scheduler_task = server.config.scheduler.clone().map(|config| {
+			Task::spawn({
+				let server = server.clone();
+				|_| async move {
+					server.scheduler_task(&config).await;
 				}
 			})
 		});
@@ -1048,16 +952,26 @@ impl Server {
 		});
 
 		// Spawn the runner task.
-		let runner_task = if server.config.runner.is_some() {
-			Some(Task::spawn({
+		if server.config.runner.is_some() {
+			let task = Task::spawn({
 				let server = server.clone();
-				|_| async move {
-					server.runner_task().await;
+				let id = server
+					.config
+					.runner
+					.as_ref()
+					.and_then(|runner| runner.id.clone())
+					.unwrap_or_else(tg::runner::Id::new);
+				let context = Context {
+					principal: tg::Principal::Runner(id.clone()),
+					..server.context.clone()
+				};
+				let session = server.session(&context);
+				|stopper| async move {
+					session.runner_task(id, stopper).boxed().await;
 				}
-			}))
-		} else {
-			None
-		};
+			});
+			server.runner.task.lock().unwrap().replace(task);
+		}
 
 		let shutdown = {
 			let server = server.clone();
@@ -1076,9 +990,10 @@ impl Server {
 					tracing::trace!("http task");
 				}
 
-				// Abort the runner task.
+				// Stop the runner task.
+				let runner_task = server.runner.task.lock().unwrap().take();
 				if let Some(task) = runner_task {
-					task.abort();
+					task.stop();
 					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
@@ -1245,6 +1160,18 @@ impl Server {
 					tracing::trace!("indexer task");
 				}
 
+				// Abort the scheduler task.
+				if let Some(task) = scheduler_task {
+					task.abort();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the scheduler task panicked");
+					}
+					tracing::trace!("scheduler task");
+				}
+
 				// Remove the temp paths.
 				server
 					.temps
@@ -1281,7 +1208,7 @@ impl Server {
 	async fn destroy_unfinished_sandboxes(&self) -> tg::Result<()> {
 		let session = self.session(&self.context);
 		let outputs = session
-			.list_sandboxes_local()
+			.list_sandboxes_local(None, None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
 		outputs
@@ -1296,7 +1223,8 @@ impl Server {
 					};
 					let error = Some(tg::Either::Left(error));
 					if let Err(error) = session
-						.try_destroy_sandbox_local(&output.id, error, None)
+						.try_destroy_sandbox_local(&output.id, error)
+						.boxed()
 						.await
 					{
 						tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
@@ -1481,4 +1409,70 @@ impl Drop for Owned {
 		self.vfs.lock().unwrap().take();
 		self.watches.clear();
 	}
+}
+
+async fn load_token_keys(config: Option<&config::TokenKeys>) -> tg::Result<Tokens> {
+	let private_key = match config.and_then(|config| config.private_key.as_ref()) {
+		Some(config) => {
+			let bytes = match &config.path {
+				Some(path) => match config.algorithm {
+					tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
+						|error| tg::error!(!error, path = %path.display(), "failed to read the private key"),
+					)?,
+				},
+				None => match config.algorithm {
+					tg::grant::Algorithm::Ed25519 => {
+						tg::grant::PrivateKey::generate(config.name.clone(), config.algorithm)?
+							.bytes
+					},
+				},
+			};
+			Some(tg::grant::PrivateKey::new(
+				config.name.clone(),
+				config.algorithm,
+				bytes,
+			))
+		},
+		None => None,
+	};
+	let mut public_keys = BTreeMap::new();
+	if let Some(config) = config {
+		for config in &config.public_keys {
+			let bytes = match &config.path {
+				Some(path) => match config.algorithm {
+					tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
+						|error| tg::error!(!error, path = %path.display(), "failed to read the public key"),
+					)?,
+				},
+				None => match config.algorithm {
+					tg::grant::Algorithm::Ed25519 => {
+						let matching_private_key = private_key.as_ref().filter(|private_key| {
+							private_key.name == config.name
+								&& private_key.algorithm == config.algorithm
+						});
+						let key = if let Some(private_key) = matching_private_key {
+							tg::grant::PublicKey::from_private_key(private_key)?
+						} else {
+							let private_key = tg::grant::PrivateKey::generate(
+								config.name.clone(),
+								config.algorithm,
+							)?;
+							tg::grant::PublicKey::from_private_key(&private_key)?
+						};
+						key.bytes
+					},
+				},
+			};
+			let key = tg::grant::PublicKey::new(config.name.clone(), config.algorithm, bytes);
+			if public_keys.insert(config.name.clone(), key).is_some() {
+				return Err(tg::error!(name = %config.name, "duplicate public key"));
+			}
+		}
+	}
+	let tokens = Tokens {
+		private_key,
+		public_keys,
+	};
+
+	Ok(tokens)
 }

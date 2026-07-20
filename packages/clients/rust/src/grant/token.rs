@@ -71,28 +71,6 @@ pub struct PublicKey {
 	pub name: String,
 }
 
-#[derive(
-	Clone,
-	Debug,
-	Eq,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct WithToken<T> {
-	#[tangram_serialize(id = 0)]
-	pub id: T,
-
-	#[tangram_serialize(id = 1)]
-	pub token: Token,
-}
-
-pub type MaybeWithToken<T> = tg::Either<T, tg::WithToken<T>>;
-
 impl PrivateKey {
 	#[must_use]
 	pub fn new(name: impl Into<String>, algorithm: Algorithm, bytes: impl Into<Vec<u8>>) -> Self {
@@ -340,36 +318,6 @@ impl std::str::FromStr for Token {
 		};
 		token.body.validate()?;
 		Ok(token)
-	}
-}
-
-impl<T> std::fmt::Display for WithToken<T>
-where
-	T: std::fmt::Display,
-{
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}&token={}", self.id, self.token)
-	}
-}
-
-impl<T> std::str::FromStr for WithToken<T>
-where
-	T: std::str::FromStr,
-	T::Err: std::error::Error + Send + Sync + 'static,
-{
-	type Err = tg::Error;
-
-	fn from_str(value: &str) -> tg::Result<Self, Self::Err> {
-		let (id, token) = value
-			.split_once("&token=")
-			.ok_or_else(|| tg::error!("missing the token"))?;
-		let id = id
-			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the id"))?;
-		let token = token
-			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the token"))?;
-		Ok(Self { id, token })
 	}
 }
 

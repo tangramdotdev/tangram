@@ -71,11 +71,7 @@ impl Cli {
 						return Err(tg::error!("expected an object or process id"));
 					},
 				};
-				let item = if let Some(token) = referent.options.token {
-					tg::Either::Right(tg::WithToken { id: item, token })
-				} else {
-					tg::Either::Left(item)
-				};
+				let item = tg::Referent::with_item_and_token(item, referent.options.token);
 				Ok::<_, tg::Error>(item)
 			})
 			.try_collect()?;
@@ -135,7 +131,7 @@ impl Cli {
 		for (reference, item) in std::iter::zip(&args.references, &items) {
 			if reference.item().is_specifier() {
 				let item = item_id(item);
-				let message = format!("tagged {reference} {item}");
+				let message = format!("tagged {} {item}", reference.without_token());
 				self.print_info_message(&message);
 			}
 		}
@@ -145,16 +141,13 @@ impl Cli {
 }
 
 fn item_id(
-	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
 ) -> &tg::Either<tg::object::Id, tg::process::Id> {
-	match item {
-		tg::Either::Left(item) => item,
-		tg::Either::Right(item) => &item.id,
-	}
+	&item.item
 }
 
 fn tag_item_from_item(
-	item: &tg::MaybeWithToken<tg::Either<tg::object::Id, tg::process::Id>>,
+	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
 ) -> tg::tag::data::Item {
 	item_id(item).clone().into()
 }

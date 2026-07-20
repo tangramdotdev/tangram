@@ -708,10 +708,8 @@ export class Printer {
 	}
 
 	private objectId(state: tg.Object.State): string {
-		let string = state.id;
-		if (state.token !== null) {
-			string += `&token=${state.token}`;
-		}
+		let referent = tg.Referent.withItemAndToken(state.id, state.token);
+		let string = tg.Referent.toDataString(referent, (id) => id);
 		return this.id(string);
 	}
 

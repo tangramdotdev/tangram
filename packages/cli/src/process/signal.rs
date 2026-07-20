@@ -8,7 +8,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub process: tg::process::Id,
+	pub process: tg::Reference,
 
 	#[arg(default_value = "INT", long, short)]
 	pub signal: tg::process::Signal,
@@ -17,10 +17,13 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_signal(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let process = self.get_resolved_process(&args.process).await?;
+		let id = process.item;
 		let process = tg::Process::<tg::Value>::new(
-			args.process.clone(),
+			id,
 			tg::process::Options {
 				location: args.location.get(),
+				token: process.options.token,
 				..Default::default()
 			},
 		);

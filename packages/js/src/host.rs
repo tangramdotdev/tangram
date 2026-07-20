@@ -330,6 +330,7 @@ impl Host {
 			command.current_dir(cwd);
 		}
 		command.stdin(arg.stdin.to_std());
+		command.kill_on_drop(true);
 		command.stdout(arg.stdout.to_std());
 		command.stderr(arg.stderr.to_std());
 		let mut child = command.spawn().map_err(|error| {
@@ -451,19 +452,20 @@ impl Host {
 		let status = match stopper {
 			Some(stopper) => {
 				if stopper.stopped() {
-					self.0.processes.insert(pid, tokio::sync::Mutex::new(child));
-					return Err(stopped_error());
-				}
-				let result = tokio::select! {
-					result = child.wait() => Ok(result),
-					() = stopper.wait() => Err(stopped_error()),
-				};
-				match result {
-					Ok(result) => result,
-					Err(error) => {
-						self.0.processes.insert(pid, tokio::sync::Mutex::new(child));
-						return Err(error);
-					},
+					child
+						.start_kill()
+						.map_err(|error| tg::error!(!error, %pid, "failed to kill the process"))?;
+					child.wait().await
+				} else {
+					tokio::select! {
+						result = child.wait() => result,
+						() = stopper.wait() => {
+							child
+								.start_kill()
+								.map_err(|error| tg::error!(!error, %pid, "failed to kill the process"))?;
+							child.wait().await
+						},
+					}
 				}
 			},
 			None => child.wait().await,

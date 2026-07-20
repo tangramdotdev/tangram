@@ -132,7 +132,7 @@ impl Session {
 					)
 					.into(),
 				),
-				resource: tg::grant::Resource::Id(id.clone().into()),
+				resource: tg::Referent::with_item(tg::grant::Resource::Id(id.clone().into())),
 			};
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;

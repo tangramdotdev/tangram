@@ -4,7 +4,10 @@ use {
 		marker::PhantomData,
 		ops::Deref,
 		path::PathBuf,
-		sync::{Arc, Mutex, RwLock},
+		sync::{
+			Arc, Mutex, RwLock,
+			atomic::{AtomicBool, Ordering},
+		},
 		time::Duration,
 	},
 	tangram_util::arc::Ext as _,
@@ -36,10 +39,8 @@ pub mod data;
 pub mod debug;
 pub mod env;
 pub mod exec;
-pub mod finish;
 pub mod get;
 pub mod id;
-pub mod list;
 pub mod metadata;
 pub mod put;
 pub mod run;
@@ -58,10 +59,13 @@ pub struct Process<O = tg::Value>(Arc<Inner>, PhantomData<fn() -> O>);
 #[derive(derive_more::Debug)]
 pub struct Inner {
 	cached: Option<bool>,
+	#[debug(ignore)]
+	handle: Option<tg::handle::dynamic::Handle>,
 	id: tg::Either<u32, Id>,
 	lease: Option<String>,
 	location: Arc<RwLock<Option<tg::location::Arg>>>,
 	metadata: RwLock<Option<Arc<Metadata>>>,
+	owned: AtomicBool,
 	state: RwLock<Option<Arc<State>>>,
 	stderr: tg::process::stdio::Reader,
 	stdin: tg::process::stdio::Writer,
@@ -135,6 +139,25 @@ pub struct SandboxCreateArg {
 }
 
 impl<O> Process<O> {
+	pub fn try_with_referent<T>(referent: tg::Referent<T>) -> std::result::Result<Self, T::Error>
+	where
+		T: TryInto<Id>,
+	{
+		let referent = referent.try_map(TryInto::try_into)?;
+
+		Ok(Self::with_referent(referent))
+	}
+
+	#[must_use]
+	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
+		let options = tg::process::Options {
+			token: referent.options.token,
+			..Default::default()
+		};
+
+		Self::new(referent.item, options)
+	}
+
 	#[must_use]
 	pub fn new(id: Id, options: tg::process::Options) -> Self {
 		let tg::process::Options {
@@ -153,10 +176,12 @@ impl<O> Process<O> {
 		let stdout = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stdout);
 		let inner = Arc::new(Inner {
 			cached,
+			handle: None,
 			id: tg::Either::Right(id),
 			lease,
 			location: location.clone(),
 			metadata,
+			owned: AtomicBool::new(false),
 			state,
 			stderr,
 			stdin,
@@ -229,6 +254,10 @@ impl<O> Process<O> {
 		self.lease.as_ref()
 	}
 
+	pub fn detach(&self) {
+		self.0.owned.store(false, Ordering::SeqCst);
+	}
+
 	#[must_use]
 	pub fn stdin(&self) -> tg::process::stdio::Writer {
 		self.0.stdin.clone()
@@ -292,6 +321,7 @@ impl<O> Process<O> {
 		let arg = tg::process::get::Arg {
 			location: self.location(),
 			metadata: false,
+			token: self.token(),
 		};
 		let Some(output) = handle.try_get_process(id, arg).await? else {
 			return Ok(None);
@@ -371,6 +401,7 @@ impl<O> Process<O> {
 		let arg = tg::process::signal::post::Arg {
 			location: self.location(),
 			signal,
+			token: self.token(),
 		};
 		let id = self.id().unwrap_right();
 		handle.signal_process(id, arg).await?;
@@ -404,11 +435,13 @@ impl<O> Process<O> {
 			let wait: tg::process::Wait = output.try_into()?;
 			let token = self.token();
 			wait.inherit_token(token.as_ref());
+			self.detach();
 			return Ok(wait);
 		}
 		if let Some(wait) = self.wait.lock().unwrap().take() {
 			let token = self.token();
 			wait.inherit_token(token.as_ref());
+			self.detach();
 			return Ok(wait);
 		}
 		if arg.location.is_none() {
@@ -428,6 +461,8 @@ impl<O> Process<O> {
 		let wait: tg::process::Wait = handle.wait_process(id, arg).await?.try_into()?;
 		let token = self.token();
 		wait.inherit_token(token.as_ref());
+		self.detach();
+
 		Ok(wait)
 	}
 
@@ -458,6 +493,36 @@ impl<O> Process<O> {
 		output
 			.try_into()
 			.map_err(|error| tg::error!(source = error, "failed to convert the process output"))
+	}
+}
+
+impl Drop for Inner {
+	fn drop(&mut self) {
+		let owned = self.owned.swap(false, Ordering::SeqCst);
+		if self.id.is_left() {
+			if !owned && let Some(task) = &mut self.task {
+				task.detach();
+			}
+			return;
+		}
+		if !owned {
+			return;
+		}
+		let Some(handle) = self.handle.take() else {
+			return;
+		};
+		let Some(lease) = self.lease.clone() else {
+			return;
+		};
+		let id = self.id.as_ref().unwrap_right().clone();
+		let location = self.location.read().unwrap().clone();
+		let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+			return;
+		};
+		runtime.spawn(async move {
+			let arg = tg::process::cancel::Arg { location, lease };
+			handle.try_cancel_process(&id, arg).await.ok();
+		});
 	}
 }
 
