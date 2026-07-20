@@ -314,7 +314,7 @@ where
 			tg::progress::Event::Diagnostic(diagnostic) => {
 				let item = diagnostic.try_into().unwrap();
 				let referent = tg::Referent::with_item(item);
-				self.print_diagnostic(referent).await;
+				self.print_diagnostic(referent).boxed_local().await;
 			},
 
 			tg::progress::Event::Indicators(indicators) => {

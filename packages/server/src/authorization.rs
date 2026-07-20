@@ -1,6 +1,6 @@
 use {
-	crate::Session, tangram_client::prelude::*, tangram_futures::stream::TryExt,
-	tangram_index::prelude::*,
+	crate::Session, futures::FutureExt as _, tangram_client::prelude::*,
+	tangram_futures::stream::TryExt, tangram_index::prelude::*,
 };
 
 impl Session {
@@ -71,8 +71,10 @@ impl Session {
 				tg::Principal::Sandbox(sandbox),
 			) = (&resource, permissions, &self.context.principal)
 				&& let Ok(process) = tg::process::Id::try_from(id.clone())
-				&& let Some(output) = self.try_get_process_local_inner(&process, false).await?
-				&& output.data.sandbox == *sandbox
+				&& let Some(output) = self
+					.try_get_process_local_inner(&process, false)
+					.boxed()
+					.await? && output.data.sandbox == *sandbox
 			{
 				outputs.push(Some(permissions));
 				continue;

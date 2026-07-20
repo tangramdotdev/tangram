@@ -358,6 +358,7 @@ impl Session {
 					Err(_) => Ok(ControlFlow::Continue(None)),
 				}
 			}
+			.boxed()
 		})
 		.await;
 

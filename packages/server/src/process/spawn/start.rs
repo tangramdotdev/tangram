@@ -1,5 +1,8 @@
 use {
-	super::local::Output, crate::Session, futures::TryStreamExt as _, tangram_client::prelude::*,
+	super::local::Output,
+	crate::Session,
+	futures::{FutureExt as _, TryStreamExt as _},
+	tangram_client::prelude::*,
 	tangram_messenger::Messenger as _,
 };
 
@@ -115,6 +118,7 @@ impl Session {
 		};
 		let response = self
 			.send_sandbox_control_request(&sandbox, request, options)
+			.boxed()
 			.await
 			.map_err(
 				|error| tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request"),
