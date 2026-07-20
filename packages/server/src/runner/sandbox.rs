@@ -872,6 +872,12 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
 
+		// Destroy the sandbox while retaining its process and control state.
+		sandbox
+			.destroy()
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox process"))?;
+
 		let data = {
 			let mut state = self
 				.server

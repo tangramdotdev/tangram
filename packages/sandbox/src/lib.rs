@@ -48,8 +48,7 @@ pub struct State {
 
 	next_process_id: AtomicU64,
 
-	#[expect(dead_code)]
-	process: tokio::process::Child,
+	process: tokio::sync::Mutex<tokio::process::Child>,
 }
 
 #[derive(Clone, Debug)]
@@ -342,7 +341,7 @@ impl Sandbox {
 			#[cfg(target_os = "linux")]
 			network,
 			next_process_id: AtomicU64::new(1),
-			process,
+			process: tokio::sync::Mutex::new(process),
 		}));
 
 		Ok(sandbox)
@@ -486,6 +485,25 @@ impl Sandbox {
 			.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?;
 		let listener = crate::server::Server::listen(&host_url).await?;
 		Ok((listener, guest_url))
+	}
+
+	pub async fn destroy(&self) -> tg::Result<()> {
+		let mut process = self.0.process.lock().await;
+		if process
+			.try_wait()
+			.map_err(|error| tg::error!(!error, "failed to query the sandbox process"))?
+			.is_none()
+		{
+			process
+				.start_kill()
+				.map_err(|error| tg::error!(!error, "failed to kill the sandbox process"))?;
+		}
+		process
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"))?;
+
+		Ok(())
 	}
 
 	#[must_use]
