@@ -1,13 +1,12 @@
 use {
-	crate::Session,
-	futures::{FutureExt as _, Stream, StreamExt as _, stream},
+	crate::{Server, Session},
+	futures::{FutureExt as _, Stream, StreamExt as _},
 	std::{panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::{self as index, prelude::*},
-	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::IntervalStream,
+	tangram_index::{self as index, Index as _},
+	tangram_object_store::Store as _,
 };
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -465,25 +464,24 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn finalizations_finished(
+	async fn try_get_oldest_finalization_transaction_id(
 		&self,
 		kind: index::finalization::Kind,
-		transaction_id: u64,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Option<u64>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.finalizations_finished(kind, transaction_id).await,
+			Self::Fdb(index) => index.try_get_oldest_finalization_transaction_id(kind).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.finalizations_finished(kind, transaction_id).await,
+			Self::Lmdb(index) => index.try_get_oldest_finalization_transaction_id(kind).await,
 		}
 	}
 
-	async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
+	async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.updates_finished(transaction_id).await,
+			Self::Fdb(index) => index.try_get_oldest_update_transaction_id().await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.updates_finished(transaction_id).await,
+			Self::Lmdb(index) => index.try_get_oldest_update_transaction_id().await,
 		}
 	}
 
@@ -546,12 +544,48 @@ impl index::Index for Index {
 	}
 }
 
+impl Server {
+	pub(crate) async fn index_batch(&self, arg: index::batch::Arg) -> tg::Result<()> {
+		if arg.is_empty() {
+			return Ok(());
+		}
+		if !self.config.advanced.single_process {
+			let config = &self.config.object.outbox;
+			let partition_end = config
+				.partition_start
+				.checked_add(config.partition_count)
+				.ok_or_else(|| tg::error!("the outbox partition range overflowed"))?;
+			let partition = rand::random_range(config.partition_start..partition_end);
+			let payload = arg.serialize()?.into();
+			let arg = crate::object::outbox::EnqueueArg { partition, payload };
+			self.object_store
+				.enqueue_outbox(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
+
+			return Ok(());
+		}
+		self.index_tasks
+			.spawn({
+				let server = self.clone();
+				|_| async move {
+					if let Err(error) = server.index.batch(arg).await {
+						tracing::error!(error = %error.trace(), "failed to index a batch");
+					}
+				}
+			})
+			.detach();
+
+		Ok(())
+	}
+}
+
 impl Session {
 	pub(crate) async fn index(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
-		if !self.server.config.advanced.single_process {
-			return Err(tg::error!("cannot index in multi-process mode"));
+		if self.server.config.indexer.is_none() && self.server.config.advanced.single_process {
+			return Err(tg::error!("cannot index when the indexer is disabled"));
 		}
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
@@ -586,83 +620,16 @@ impl Session {
 	}
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
-		// Subscribe to process finalizer progress.
-		let wakeups = self
-			.server
-			.messenger
-			.subscribe::<()>("processes.finalizer.progress".to_owned())
+		progress.spinner("index", "waiting for indexing");
+		let output = self
+			.send_indexer_request(crate::indexer::RequestArg::Index)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to subscribe to finalizer progress"))?;
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).skip(1);
-		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
-
-		// Wait for the process finalization transaction barrier.
-		let transaction_id = self
-			.server
-			.index
-			.get_transaction_id()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the transaction id"))?;
-		progress.spinner("finalize", "waiting for process finalizations");
-		loop {
-			let finished = self
-				.server
-				.index
-				.finalizations_finished(index::finalization::Kind::Process, transaction_id)
-				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to check whether finalizations are finished")
-				})?;
-			if finished {
-				break;
-			}
-			wakeups.next().await;
-		}
-		progress.finish("finalize");
-
-		// Wait for remote object put tasks to enqueue their index tasks.
-		progress.spinner("tasks", "waiting for tasks");
-		self.server.remote_object_put_tasks.wait().await;
-		progress.finish("tasks");
-
-		// Wait for outstanding index tasks to finish.
-		progress.spinner("tasks", "waiting for tasks");
-		self.server.index_tasks.wait().await;
-		progress.finish("tasks");
-
-		// Subscribe to indexer progress.
-		let wakeups = self
-			.server
-			.messenger
-			.subscribe::<()>("indexer_progress".to_owned())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to subscribe to indexer progress"))?;
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).skip(1);
-		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
-
-		// Wait until the index no longer has updates whose transaction id is less than or equal to the current transaction id.
-		let transaction_id = self
-			.server
-			.index
-			.get_transaction_id()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the transaction id"))?;
-		progress.spinner("updates", "waiting for index updates");
-		loop {
-			let finished = self
-				.server
-				.index
-				.updates_finished(transaction_id)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to check if updates are finished"))?;
-			if finished {
-				break;
-			}
-			wakeups.next().await;
-		}
-		progress.finish("updates");
-
-		Ok::<_, tg::Error>(())
+			.map_err(|error| tg::error!(!error, "failed to send the indexer request"))??;
+		output
+			.try_unwrap_index()
+			.map_err(|_| tg::error!("expected an index response"))?;
+		progress.finish("index");
+		Ok(())
 	}
 }
 

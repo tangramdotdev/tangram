@@ -121,10 +121,6 @@ impl Server {
 					tokio::time::sleep(Duration::from_secs(1)).await;
 					break;
 				}
-				self.messenger
-					.publish("processes.finalizer.progress".to_owned(), ())
-					.await
-					.ok();
 			}
 			if wakeups.next().await.is_none() {
 				break;

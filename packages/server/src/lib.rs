@@ -251,6 +251,55 @@ impl Server {
 		// Create the context.
 		let context = Context::root();
 
+		// Validate the indexer configuration.
+		if let Some(indexer) = &config.indexer {
+			if indexer.batch_size == 0 {
+				return Err(tg::error!(
+					"the indexer batch size must be greater than zero"
+				));
+			}
+			if indexer.concurrency == 0 {
+				return Err(tg::error!(
+					"the indexer concurrency must be greater than zero"
+				));
+			}
+			if indexer.message_timeout.is_zero() {
+				return Err(tg::error!(
+					"the indexer message timeout must be greater than zero"
+				));
+			}
+			if indexer.partition_count == 0 {
+				return Err(tg::error!(
+					"the indexer partition count must be greater than zero"
+				));
+			}
+			if indexer.poll_interval.is_zero() {
+				return Err(tg::error!(
+					"the indexer poll interval must be greater than zero"
+				));
+			}
+		}
+
+		// Validate the outbox configuration.
+		let outbox = &config.object.outbox;
+		if outbox.batch_size == 0 {
+			return Err(tg::error!(
+				"the outbox batch size must be greater than zero"
+			));
+		}
+		if outbox.partition_count == 0 {
+			return Err(tg::error!(
+				"the outbox partition count must be greater than zero"
+			));
+		}
+		if outbox
+			.partition_start
+			.checked_add(outbox.partition_count)
+			.is_none()
+		{
+			return Err(tg::error!("the outbox partition range overflowed"));
+		}
+
 		if let Some(scheduler) = &config.scheduler {
 			if scheduler.create_sandbox_queue_capacity == 0 {
 				return Err(tg::error!(

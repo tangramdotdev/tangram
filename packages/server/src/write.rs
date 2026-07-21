@@ -13,7 +13,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
@@ -508,27 +507,17 @@ impl Session {
 			self.server.config.object.grant_time_to_touch,
 			self.server.config.object.time_to_touch,
 		);
+		let arg = tangram_index::batch::Arg {
+			put_cache_entries: put_cache_entry_args,
+			put_grants: put_grant_args,
+			put_objects: put_object_args,
+			..Default::default()
+		};
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let session = self.clone();
-				async move {
-					if let Err(error) = session
-						.server
-						.index
-						.batch(tangram_index::batch::Arg {
-							put_cache_entries: put_cache_entry_args,
-							put_grants: put_grant_args,
-							put_objects: put_object_args,
-							..Default::default()
-						})
-						.await
-					{
-						tracing::error!(error = %error.trace(), "failed to index the write");
-					}
-				}
-			})
-			.detach();
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the write"))?;
+
 		Ok(())
 	}
 

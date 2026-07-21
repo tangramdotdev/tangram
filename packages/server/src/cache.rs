@@ -515,12 +515,22 @@ impl Session {
 		.map_err(|error| tg::error!(!error, "failed to cache the dependencies"))?;
 
 		// Rename the temp to the cache directory.
-		tokio::task::spawn_blocking({
+		let put_cache_entry_arg = tokio::task::spawn_blocking({
 			let session = self.clone();
 			move || session.cache_rename(item, &temp, &dependency_ids)
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
+
+		// Index the cache entry.
+		let arg = tangram_index::batch::Arg {
+			put_cache_entries: vec![put_cache_entry_arg],
+			..Default::default()
+		};
+		self.server
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the cache entry"))?;
 
 		Ok(())
 	}
@@ -619,21 +629,33 @@ impl Session {
 		.map_err(|error| tg::error!(!error, "failed to cache the dependencies"))?;
 
 		// Rename all entries to the cache directory.
-		tokio::task::spawn_blocking({
+		let put_cache_entry_args = tokio::task::spawn_blocking({
 			let session = self.clone();
 			move || {
+				let mut put_cache_entry_args = Vec::with_capacity(outputs.len());
 				for (item, temp, dependencies) in outputs {
 					let dependency_ids: Vec<tg::artifact::Id> = dependencies
 						.iter()
 						.map(|dependency| dependency.id.clone())
 						.collect();
-					session.cache_rename(item, &temp, &dependency_ids)?;
+					let put_cache_entry_arg = session.cache_rename(item, &temp, &dependency_ids)?;
+					put_cache_entry_args.push(put_cache_entry_arg);
 				}
-				Ok::<_, tg::Error>(())
+				Ok::<_, tg::Error>(put_cache_entry_args)
 			}
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
+
+		// Index the cache entries.
+		let arg = tangram_index::batch::Arg {
+			put_cache_entries: put_cache_entry_args,
+			..Default::default()
+		};
+		self.server
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the cache entries"))?;
 
 		Ok(())
 	}
@@ -958,7 +980,7 @@ impl Session {
 		item: Item,
 		temp: &Temp,
 		dependencies: &[tg::artifact::Id],
-	) -> tg::Result<()> {
+	) -> tg::Result<tangram_index::cache::put::Arg> {
 		// Create the path.
 		let path = self.server.cache_path().join(item.id.to_string());
 
@@ -1002,32 +1024,13 @@ impl Session {
 
 		// Index the cache entry.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let put_cache_entry_arg = tangram_index::cache::put::Arg {
+		let arg = tangram_index::cache::put::Arg {
 			id: item.id,
 			touched_at,
 			dependencies: dependencies.to_vec(),
 		};
-		self.server
-			.index_tasks
-			.spawn(|_| {
-				let session = self.clone();
-				async move {
-					if let Err(error) = session
-						.server
-						.index
-						.batch(tangram_index::batch::Arg {
-							put_cache_entries: vec![put_cache_entry_arg],
-							..Default::default()
-						})
-						.await
-					{
-						tracing::error!(error = %error.trace(), "failed to put cache entry to index");
-					}
-				}
-			})
-			.detach();
 
-		Ok(())
+		Ok(arg)
 	}
 
 	fn cache_get_item(&self, edge: tg::graph::data::Edge<tg::artifact::Id>) -> tg::Result<Item> {

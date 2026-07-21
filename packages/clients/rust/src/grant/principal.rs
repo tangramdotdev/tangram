@@ -12,7 +12,10 @@ use crate::prelude::*;
 	derive_more::IsVariant,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
+#[tangram_serialize(display, from_str)]
 pub enum Principal {
 	#[display("{_0}")]
 	Group(tg::group::Id),

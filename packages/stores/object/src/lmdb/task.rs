@@ -36,6 +36,12 @@ impl Store {
 							Self::task_delete_object(db, &mut transaction, request)
 						})
 					},
+					Request::DeleteOutbox(arg) => {
+						Self::task_delete_outbox(db, &mut transaction, arg)
+					},
+					Request::EnqueueOutbox(request) => {
+						Self::task_enqueue_outbox(db, &mut transaction, request)
+					},
 					Request::Put(request) => Self::task_put_object(db, &mut transaction, request),
 					Request::PutBatch(requests) => requests.into_iter().try_for_each(|request| {
 						Self::task_put_object(db, &mut transaction, request)

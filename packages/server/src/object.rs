@@ -1,4 +1,4 @@
-pub use self::store::Store;
+pub use self::store::{Store, outbox};
 
 pub mod batch;
 pub mod get;

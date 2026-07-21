@@ -2,6 +2,7 @@ use {
 	super::{Index, Kind as KeyKind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::{self as fdbt, Subspace},
+	futures::future,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
@@ -98,34 +99,53 @@ impl Index {
 		Ok(output)
 	}
 
-	pub async fn finalizations_finished(
+	pub async fn try_get_oldest_finalization_transaction_id(
 		&self,
 		kind: crate::finalization::Kind,
-		transaction_id: u64,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Option<u64>> {
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
-		let key_kind = Self::finalization_barrier_kind(kind).to_i32().unwrap();
-		let mut bytes = [0u8; 10];
-		bytes[..8].copy_from_slice(&transaction_id.to_be_bytes());
-		bytes[8..].copy_from_slice(&u16::MAX.to_be_bytes());
-		let version = fdbt::Versionstamp::complete(bytes, 0);
-		let begin = Self::pack(&self.subspace, &(key_kind,));
-		let end = Self::pack(&self.subspace, &(key_kind, version));
-		let range = fdb::RangeOption {
-			begin: fdb::KeySelector::first_greater_or_equal(begin),
-			end: fdb::KeySelector::first_greater_or_equal(end),
-			limit: Some(1),
-			mode: fdb::options::StreamingMode::WantAll,
-			..Default::default()
-		};
-		let entries = txn.get_range(&range, 1, false).await.map_err(|error| {
-			tg::error!(!error, "failed to check whether finalizations are finished")
-		})?;
+		let key_kind = Self::finalization_version_kind(kind).to_i32().unwrap();
+		let futures = (0..self.partition_total).map(|partition| {
+			let begin = Self::pack(&self.subspace, &(key_kind, partition));
+			let end = Self::pack(&self.subspace, &(key_kind, partition.saturating_add(1)));
+			let range = fdb::RangeOption {
+				begin: fdb::KeySelector::first_greater_or_equal(begin),
+				end: fdb::KeySelector::first_greater_or_equal(end),
+				limit: Some(1),
+				mode: fdb::options::StreamingMode::WantAll,
+				..Default::default()
+			};
+			let txn = &txn;
+			async move {
+				let entries = txn
+					.get_range(&range, 1, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the finalization range"))?;
+				let Some(entry) = entries.first() else {
+					return Ok(None);
+				};
+				let key = Self::unpack(&self.subspace, entry.key())?;
+				let crate::fdb::Key::Finalization(
+					Key::ProcessVersion { version, .. } | Key::SandboxVersion { version, .. },
+				) = key
+				else {
+					return Err(tg::error!("unexpected finalization key"));
+				};
+				let transaction_id =
+					u64::from_be_bytes(version.as_bytes()[..8].try_into().unwrap());
+				Ok(Some(transaction_id))
+			}
+		});
+		let transaction_id = future::try_join_all(futures)
+			.await?
+			.into_iter()
+			.flatten()
+			.min();
 
-		Ok(entries.is_empty())
+		Ok(transaction_id)
 	}
 
 	pub(super) async fn task_complete_finalization(
@@ -153,9 +173,6 @@ impl Index {
 		let worker = Self::finalization_version_key(&entry.item, partition, version.clone());
 		let worker = Self::pack(subspace, &worker);
 		txn.clear(&worker);
-		let barrier = Self::finalization_barrier_key(&entry.item, partition, version);
-		let barrier = Self::pack(subspace, &barrier);
-		txn.clear(&barrier);
 
 		Ok(())
 	}
@@ -198,42 +215,7 @@ impl Index {
 			fdb::options::MutationType::SetVersionstampedKey,
 		);
 
-		let barrier = Self::finalization_barrier_key(item, partition, version);
-		let barrier = Self::pack_with_versionstamp(subspace, &barrier);
-		txn.atomic_op(
-			&barrier,
-			&[],
-			fdb::options::MutationType::SetVersionstampedKey,
-		);
-
 		Ok(())
-	}
-
-	fn finalization_barrier_key(
-		item: &crate::finalization::Item,
-		partition: u64,
-		version: fdbt::Versionstamp,
-	) -> crate::fdb::Key {
-		let key = match item {
-			crate::finalization::Item::Process(id) => Key::ProcessBarrier {
-				id: id.clone(),
-				partition,
-				version,
-			},
-			crate::finalization::Item::Sandbox(id) => Key::SandboxBarrier {
-				id: id.clone(),
-				partition,
-				version,
-			},
-		};
-		crate::fdb::Key::Finalization(key)
-	}
-
-	fn finalization_barrier_kind(kind: crate::finalization::Kind) -> KeyKind {
-		match kind {
-			crate::finalization::Kind::Process => KeyKind::ProcessFinalizationBarrier,
-			crate::finalization::Kind::Sandbox => KeyKind::SandboxFinalizationBarrier,
-		}
 	}
 
 	fn finalization_identity_key(item: &crate::finalization::Item) -> crate::fdb::Key {

@@ -2,7 +2,9 @@
 use std::path::Path;
 use {tangram_client::prelude::*, tangram_object_store as object_store};
 
-pub use object_store::{CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput};
+pub use object_store::{
+	CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput, outbox,
+};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -270,6 +272,51 @@ impl object_store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.delete_batch(args).await,
+		}
+	}
+
+	async fn delete_outbox(&self, arg: outbox::DeleteArg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.delete_outbox(arg).await,
+			Self::Memory(memory) => object_store::Store::delete_outbox(memory, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.delete_outbox(arg).await,
+		}
+	}
+
+	async fn dequeue_outbox(&self, arg: outbox::DequeueArg) -> tg::Result<Vec<outbox::Item>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.dequeue_outbox(arg).await,
+			Self::Memory(memory) => object_store::Store::dequeue_outbox(memory, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.dequeue_outbox(arg).await,
+		}
+	}
+
+	async fn enqueue_outbox(&self, arg: outbox::EnqueueArg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.enqueue_outbox(arg).await,
+			Self::Memory(memory) => object_store::Store::enqueue_outbox(memory, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.enqueue_outbox(arg).await,
+		}
+	}
+
+	async fn try_get_outbox_id_at_or_before(
+		&self,
+		arg: outbox::TryGetIdArg,
+	) -> tg::Result<Option<outbox::Id>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_outbox_id_at_or_before(arg).await,
+			Self::Memory(memory) => {
+				object_store::Store::try_get_outbox_id_at_or_before(memory, arg).await
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get_outbox_id_at_or_before(arg).await,
 		}
 	}
 

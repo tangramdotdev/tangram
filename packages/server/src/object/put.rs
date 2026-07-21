@@ -6,7 +6,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
 
@@ -137,23 +136,15 @@ impl Session {
 			resource: id.clone().into(),
 			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 		});
+		let arg = tangram_index::batch::Arg {
+			put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
+			put_objects: vec![arg],
+			..Default::default()
+		};
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let session = self.clone();
-				async move {
-					let arg = tangram_index::batch::Arg {
-						put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
-						put_objects: vec![arg],
-						..Default::default()
-					};
-					let result = session.server.index.batch(arg).await;
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), "failed to put the object to the index");
-					}
-				}
-			})
-			.detach();
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the object"))?;
 
 		let token = self.create_token(
 			tg::grant::Resource::Id(id.clone().into()),

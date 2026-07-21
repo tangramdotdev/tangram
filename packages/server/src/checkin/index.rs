@@ -6,7 +6,6 @@ use {
 	num::ToPrimitive as _,
 	std::path::Path,
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -88,16 +87,16 @@ impl Session {
 		});
 
 		// Index.
+		let arg = tangram_index::batch::Arg {
+			put_cache_entries: put_index_cache_entry_args,
+			put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
+			put_objects: put_index_object_args,
+			..Default::default()
+		};
 		self.server
-			.index
-			.batch(tangram_index::batch::Arg {
-				put_cache_entries: put_index_cache_entry_args,
-				put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
-				put_objects: put_index_object_args,
-				..Default::default()
-			})
+			.index_batch(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?;
+			.map_err(|error| tg::error!(!error, "failed to index the checkin"))?;
 
 		Ok(())
 	}

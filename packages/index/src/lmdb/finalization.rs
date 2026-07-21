@@ -92,11 +92,10 @@ impl Index {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))?
 	}
 
-	pub async fn finalizations_finished(
+	pub async fn try_get_oldest_finalization_transaction_id(
 		&self,
 		kind: crate::finalization::Kind,
-		transaction_id: u64,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Option<u64>> {
 		let db = self.db;
 		let env = self.env.clone();
 		let subspace = self.subspace.clone();
@@ -113,7 +112,7 @@ impl Index {
 				.transpose()
 				.map_err(|error| tg::error!(!error, "failed to read the finalization entry"))?;
 			let Some((key, _)) = entry else {
-				return Ok(true);
+				return Ok(None);
 			};
 			let key = Self::unpack(&subspace, key)?;
 			let crate::lmdb::Key::Finalization(
@@ -123,7 +122,7 @@ impl Index {
 				return Err(tg::error!("unexpected finalization key"));
 			};
 
-			Ok(version > transaction_id)
+			Ok(Some(version))
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))?

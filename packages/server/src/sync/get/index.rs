@@ -5,7 +5,6 @@ use {
 	num::ToPrimitive as _,
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
@@ -289,14 +288,14 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
 
 		// Index the objects and processes.
+		let arg = tangram_index::batch::Arg {
+			put_grants: put_grant_args,
+			put_objects: put_object_args,
+			put_processes: put_process_args,
+			..Default::default()
+		};
 		self.server
-			.index
-			.batch(tangram_index::batch::Arg {
-				put_grants: put_grant_args,
-				put_objects: put_object_args,
-				put_processes: put_process_args,
-				..Default::default()
-			})
+			.index_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the sync"))?;
 
