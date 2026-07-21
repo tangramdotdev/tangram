@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	dashmap::DashMap,
 	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
-	std::{marker::PhantomData, ops::ControlFlow, sync::Arc, time::Duration},
+	std::{marker::PhantomData, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_messenger::{Messenger as _, Payload},
 };
@@ -218,69 +218,57 @@ impl Session {
 			marker: _,
 		} = arg;
 		let server = self.server.clone();
-		let result = tangram_futures::retry::retry(&options.retry, || {
-			let ack = ack.clone();
-			let client_subject = client_subject.clone();
-			let request = request.clone();
-			let response = response.clone();
-			let server = server.clone();
-			let server_subject = server_subject.clone();
-			let timeout = options.timeout;
-			async move {
-				let responses = server
-					.messenger
-					.subscribe::<I>(client_subject)
-					.await
-					.map_err(|source| {
-						Some(tg::error!(!source, "failed to subscribe to the response"))
-					})?;
-				let mut responses = std::pin::pin!(responses);
+		let Options { retry, timeout } = options;
 
-				server
-					.messenger
-					.publish(server_subject.clone(), request)
-					.await
-					.map_err(|source| Some(tg::error!(!source, "failed to publish the request")))?;
+		// Keep the subscription alive across retries so a response published between attempts is not dropped for lack of a subscriber.
+		let responses = server
+			.messenger
+			.subscribe::<I>(client_subject)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe to the response"))?;
+		let mut responses = std::pin::pin!(responses);
 
-				let result = tokio::time::timeout(timeout, async {
-					loop {
-						let message = responses
-							.next()
-							.await
-							.ok_or_else(|| tg::error!("the response stream ended"))?
-							.map_err(|source| {
-								tg::error!(!source, "failed to receive the response")
-							})?;
-						let Some((id, response)) = response(message.payload)? else {
-							continue;
-						};
-						let ack = ack(id);
-						server
-							.messenger
-							.publish(server_subject.clone(), ack)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(%error, "failed to ack the response");
-							})
-							.ok();
-						return Ok::<_, tg::Error>(response);
-					}
-				})
-				.await;
-
-				match result {
-					Ok(Ok(response)) => Ok(ControlFlow::Break(response)),
-					Ok(Err(error)) => Err(Some(error)),
-					Err(_) => Ok(ControlFlow::Continue(None)),
-				}
+		let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
+		loop {
+			if retries.next().await.is_none() {
+				return Err(tg::error!("timed out waiting for the response"));
 			}
-		})
-		.await;
 
-		match result {
-			Ok(response) => Ok(response),
-			Err(None) => Err(tg::error!("timed out waiting for the response")),
-			Err(Some(error)) => Err(error),
+			server
+				.messenger
+				.publish(server_subject.clone(), request.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
+
+			let result = tokio::time::timeout(timeout, async {
+				loop {
+					let message = responses
+						.next()
+						.await
+						.ok_or_else(|| tg::error!("the response stream ended"))?
+						.map_err(|source| tg::error!(!source, "failed to receive the response"))?;
+					let Some((id, response)) = response(message.payload)? else {
+						continue;
+					};
+					let ack = ack(id);
+					server
+						.messenger
+						.publish(server_subject.clone(), ack)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(%error, "failed to ack the response");
+						})
+						.ok();
+					return Ok::<_, tg::Error>(response);
+				}
+			})
+			.await;
+
+			match result {
+				Ok(Ok(response)) => return Ok(response),
+				Ok(Err(error)) => return Err(error),
+				Err(_) => (),
+			}
 		}
 	}
 }
