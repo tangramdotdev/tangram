@@ -220,7 +220,6 @@ impl Session {
 		let server = self.server.clone();
 		let Options { retry, timeout } = options;
 
-		// Keep the subscription alive across retries so a response published between attempts is not dropped for lack of a subscriber.
 		let responses = server
 			.messenger
 			.subscribe::<I>(client_subject)
