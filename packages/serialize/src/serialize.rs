@@ -5,6 +5,7 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		io::Result,
 		sync::Arc,
+		time::Duration,
 	},
 };
 
@@ -75,6 +76,12 @@ impl Serialize for f32 {
 impl Serialize for f64 {
 	fn serialize(&self, serializer: &mut Serializer<'_>) -> Result<()> {
 		serializer.serialize_f64(*self)
+	}
+}
+
+impl Serialize for Duration {
+	fn serialize(&self, serializer: &mut Serializer<'_>) -> Result<()> {
+		serializer.serialize(&(self.as_secs(), self.subsec_nanos()))
 	}
 }
 

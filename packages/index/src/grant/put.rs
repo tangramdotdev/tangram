@@ -1,9 +1,4 @@
-use {
-	crate::duration::{
-		deserialize_option as deserialize_duration, serialize_option as serialize_duration,
-	},
-	tangram_client::prelude::*,
-};
+use tangram_client::prelude::*;
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
@@ -19,10 +14,6 @@ pub struct Arg {
 	pub principal: tg::grant::Principal,
 	#[tangram_serialize(id = 5)]
 	pub resource: tg::Id,
-	#[tangram_serialize(
-		deserialize_with = "deserialize_duration",
-		id = 6,
-		serialize_with = "serialize_duration"
-	)]
+	#[tangram_serialize(id = 6)]
 	pub time_to_touch: Option<std::time::Duration>,
 }

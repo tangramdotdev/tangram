@@ -1,7 +1,5 @@
 use {futures::FutureExt as _, std::time::Duration, tangram_client::prelude::*};
 
-mod duration;
-
 #[cfg(feature = "foundationdb")]
 pub mod fdb;
 #[cfg(feature = "lmdb")]
