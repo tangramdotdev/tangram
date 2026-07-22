@@ -13,7 +13,7 @@ use {
 			Arc, Mutex,
 			atomic::{AtomicU64, Ordering},
 		},
-		time::{Duration, Instant},
+		time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 	},
 	tangram_client::prelude::*,
 	tangram_object_store as object_store,
@@ -60,6 +60,27 @@ pub struct Config {
 
 	/// An optional base name for the object store's POSIX lock semaphores. It must match the name the server opens the object store with so that the sandboxed provider and the server share the same lock.
 	pub object_store_posix_sem_prefix: Option<String>,
+
+	/// The principal the mount serves. When it is `None` or the root principal, the mount is unenforced and every artifact is accessible. Otherwise the provider authorizes access to each artifact subtree.
+	pub principal: Option<tg::Principal>,
+
+	/// The grant tokens the mount holds, which authorize access to their artifacts and, by extension, their subtrees without consulting the server.
+	pub tokens: Vec<tg::grant::Token>,
+}
+
+impl Default for Config {
+	fn default() -> Self {
+		Self {
+			data_directory: None,
+			object_store_map_size: DEFAULT_OBJECT_STORE_MAP_SIZE,
+			object_store_path: PathBuf::from(DEFAULT_OBJECT_STORE_PATH),
+			object_store_posix_sem_prefix: None,
+			node_ttl: DEFAULT_NODE_TTL,
+			node_eviction_interval: DEFAULT_NODE_EVICTION_INTERVAL,
+			principal: None,
+			tokens: Vec::new(),
+		}
+	}
 }
 
 pub struct Provider {
@@ -73,6 +94,8 @@ struct Inner {
 	file_handle_count: AtomicU64,
 	file_handles: Mutex<BTreeMap<u64, FileHandle>>,
 	nodes: Nodes,
+	principal: Option<tg::Principal>,
+	tokens: Vec<tg::grant::Token>,
 }
 
 /// The state the fast path requires. It reads the object store and the cache directory directly instead of sending a request to the server.
@@ -159,6 +182,8 @@ impl Provider {
 			file_handle_count: AtomicU64::new(1000),
 			file_handles: Mutex::new(BTreeMap::new()),
 			nodes: Nodes::new(),
+			principal: config.principal.clone(),
+			tokens: config.tokens.clone(),
 		});
 
 		// Spawn a background task that evicts cache-only nodes the kernel never referenced, bounding node table growth; it is aborted when the runtime is dropped with the provider.
@@ -355,6 +380,47 @@ impl Inner {
 			.collect())
 	}
 
+	// Determine whether the mount's principal is authorized to access an artifact and, by extension, its entire subtree. Authorization is checked once at the root of each artifact subtree, so all descendants inherit it.
+	async fn authorized(&self, artifact: &tg::artifact::Id) -> bool {
+		// The mount is unenforced when it has no principal or serves the root principal.
+		let Some(principal) = &self.principal else {
+			return true;
+		};
+		if matches!(principal, tg::Principal::Root) {
+			return true;
+		}
+
+		let resource = tg::grant::Resource::Id(tg::object::Id::from(artifact.clone()).into());
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+
+		// Tier 1: authorize with a locally held grant token that grants the artifact's subtree.
+		let now = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.map(|duration| duration.as_secs().to_i64().unwrap_or(i64::MAX))
+			.unwrap_or(0);
+		if self.tokens.iter().any(|token| {
+			token.body.expires_at > now
+				&& token.body.resource == resource
+				&& token.body.grants(permission)
+		}) {
+			return true;
+		}
+
+		// Tier 2: on a token miss, fall back to the server's authorize endpoint with the mount's principal.
+		let arg = tg::authorize::Arg {
+			permissions: permission.into(),
+			principal: Some(principal.clone()),
+			resource,
+		};
+		self.client
+			.authorize(arg)
+			.await
+			.ok()
+			.and_then(|output| output.permissions)
+			.is_some_and(|permissions| permissions.contains(permission))
+	}
+
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
 		self.lookup_inner(parent, name, false).await
 	}
@@ -418,7 +484,14 @@ impl Inner {
 				.unwrap_or(name);
 			name.parse().ok().map(|artifact| (artifact, 1))
 		} else {
-			None
+			let Ok(artifact) = name.parse::<tg::artifact::Id>() else {
+				return Ok(None);
+			};
+			// Return not found if the mount's principal is not authorized to access the artifact.
+			if !self.authorized(&artifact).await {
+				return Ok(None);
+			}
+			Some((artifact, 1))
 		};
 
 		let entry = if entry.is_some() {
@@ -1650,19 +1723,6 @@ impl ReaddirPlusPage {
 	fn entry_size(name_len: usize) -> usize {
 		let padding = (8 - (Self::FUSE_DIRENT_PLUS_HEADER_SIZE + name_len) % 8) % 8;
 		Self::FUSE_DIRENT_PLUS_HEADER_SIZE + name_len + padding
-	}
-}
-
-impl Default for Config {
-	fn default() -> Self {
-		Self {
-			data_directory: None,
-			node_eviction_interval: DEFAULT_NODE_EVICTION_INTERVAL,
-			node_ttl: DEFAULT_NODE_TTL,
-			object_store_map_size: DEFAULT_OBJECT_STORE_MAP_SIZE,
-			object_store_path: PathBuf::from(DEFAULT_OBJECT_STORE_PATH),
-			object_store_posix_sem_prefix: None,
-		}
 	}
 }
 

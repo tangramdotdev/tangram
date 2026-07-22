@@ -53,6 +53,9 @@ struct SandboxTaskArg {
 struct CreateSandboxArg {
 	arg: tg::sandbox::create::Arg,
 	expected_id: Option<tg::sandbox::Id>,
+	location: tg::Location,
+	principal: tg::Principal,
+	token: Option<String>,
 }
 
 struct CreateSandboxOutput {
@@ -62,6 +65,8 @@ struct CreateSandboxOutput {
 	temp: Temp,
 	#[cfg(target_os = "linux")]
 	vfs: Option<crate::vfs::Server>,
+	#[cfg(target_os = "linux")]
+	vfs_mount: Option<std::path::PathBuf>,
 }
 
 pub(crate) enum Event {
@@ -270,6 +275,9 @@ impl Session {
 		let create = self.create_sandbox_with_pool(CreateSandboxArg {
 			arg: arg.clone(),
 			expected_id: expected_id.clone(),
+			location: location.clone(),
+			principal: context.principal.clone(),
+			token: token.clone(),
 		});
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let data = tg::sandbox::control::Data {
@@ -441,7 +449,17 @@ impl Session {
 	}
 
 	async fn create_sandbox_inner(&self, arg: CreateSandboxArg) -> tg::Result<CreateSandboxOutput> {
-		let CreateSandboxArg { arg, expected_id } = arg;
+		let CreateSandboxArg {
+			arg,
+			expected_id,
+			location,
+			principal,
+			token,
+		} = arg;
+
+		// The principal is used only to bind the per-sandbox virtiofs mount, which exists on Linux.
+		#[cfg(not(target_os = "linux"))]
+		let _ = &principal;
 
 		let isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
@@ -508,18 +526,45 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
-		// Start the per-sandbox VFS if necessary.
+		// Start the per-sandbox VFS. VM isolation serves the artifacts over virtiofs. Container isolation serves them over a per-sandbox FUSE mount when the VFS is enabled, so the sandbox can access only the artifacts its principal is authorized for; otherwise the shared artifacts directory holds real files.
 		#[cfg(target_os = "linux")]
-		let vfs = if let tangram_sandbox::Isolation::Vm(vm) = &isolation {
-			let socket = temp.path().join("vfs.sock");
-			let vfs = crate::vfs::Server::start_virtiofs(&self.server, &socket, vm.dax)
+		let (vfs, vfs_mount) = match &isolation {
+			tangram_sandbox::Isolation::Vm(vm) => {
+				let socket = temp.path().join("vfs.sock");
+				let vfs = crate::vfs::Server::start_virtiofs(
+					&self.server,
+					&socket,
+					vm.dax,
+					principal.clone(),
+				)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
 				})?;
-			Some(vfs)
-		} else {
-			None
+				(Some(vfs), None)
+			},
+			tangram_sandbox::Isolation::Container(_) if self.server.config.vfs.is_some() => {
+				let mount_path = temp.path().join("artifacts");
+				tokio::fs::create_dir_all(&mount_path)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "failed to create the artifacts mount directory")
+					})?;
+				let options = self.server.config.vfs.unwrap_or_default();
+				let vfs = crate::vfs::Server::start(
+					&self.server,
+					crate::vfs::Kind::Fuse,
+					&mount_path,
+					options,
+					principal.clone(),
+				)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
+				})?;
+				(Some(vfs), Some(mount_path))
+			},
+			_ => (None, None),
 		};
 
 		// Create the listener.
@@ -534,12 +579,16 @@ impl Session {
 					)
 				})?;
 
-		// Create the sandbox. Include the artifacts directory as a readonly mount.
+		// Create the sandbox. Include the artifacts directory as a readonly mount. When a per-sandbox VFS mount is in use, its mountpoint is the source, so the sandbox reads artifacts through its principal-scoped VFS rather than the shared host mount.
 		let artifacts_path = self.server.artifacts_path();
+		#[cfg(target_os = "linux")]
+		let artifacts_source = vfs_mount.clone().unwrap_or_else(|| artifacts_path.clone());
+		#[cfg(not(target_os = "linux"))]
+		let artifacts_source = artifacts_path.clone();
 		let mut mounts = arg.mounts;
 		mounts.push(tg::sandbox::Mount {
 			readonly: true,
-			source: artifacts_path.clone(),
+			source: artifacts_source.clone(),
 			target: artifacts_path.clone(),
 		});
 		let network = match arg.network {
@@ -553,7 +602,7 @@ impl Session {
 			Some(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
 		};
 		let arg = tangram_sandbox::Arg {
-			artifacts_path,
+			artifacts_path: artifacts_source,
 			cpu: arg.cpu,
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
@@ -600,6 +649,8 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			vfs,
+			#[cfg(target_os = "linux")]
+			vfs_mount,
 		};
 
 		Ok(output)
@@ -628,10 +679,26 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			vfs,
+			#[cfg(target_os = "linux")]
+			vfs_mount,
 		} = create_output;
 		let _temp = temp;
 		#[cfg(target_os = "linux")]
 		let _vfs = vfs;
+
+		// Unmount the per-sandbox FUSE mount on a background task once the sandbox ends, so its temp directory can be removed. A leaked mount is the worst case.
+		#[cfg(target_os = "linux")]
+		scopeguard::defer! {
+			if let Some(mount_path) = vfs_mount.clone() {
+				tokio::spawn(async move {
+					if let Err(error) =
+						crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, &mount_path).await
+					{
+						tracing::error!(?error, "failed to unmount the per-sandbox vfs");
+					}
+				});
+			}
+		}
 
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		self.server.runner.state.sandboxes.insert(
@@ -642,6 +709,7 @@ impl Session {
 				processes: HashMap::new(),
 				sandbox: Some(sandbox.clone()),
 				token: Some(token.clone()),
+				tokens: Vec::new(),
 			},
 		);
 		scopeguard::defer! {

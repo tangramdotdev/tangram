@@ -71,7 +71,8 @@ impl Server {
 			})?;
 		let _vfs = {
 			let socket = temp.path().join("vfs.sock");
-			crate::vfs::Server::start_virtiofs(self, &socket, vm.dax)
+			// The snapshot is reused to start many differently-owned sandboxes, so no principal may be baked into it. Enforcement is applied entirely by the per-sandbox mount at resume. This mount only builds the snapshot, so it runs as the trusted root principal.
+			crate::vfs::Server::start_virtiofs(self, &socket, vm.dax, tg::Principal::Root)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to start the artifacts vfs"))?
 		};

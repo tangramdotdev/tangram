@@ -313,6 +313,12 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		// permits both processes to open. LMDB appends an 'r' or 'w' character.
 		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? appGroupIdentifier
 
+		// The server sends the principal the mount serves and the grant tokens the
+		// mount holds, which the provider uses to authorize access to each artifact.
+		// An empty principal leaves the mount unenforced.
+		let principal = options["principal"] ?? ""
+		let tokens = options["tokens"] ?? ""
+
 		// The client connects to the server over the unix socket the server sends as
 		// a mount option, which lets concurrent servers each serve on their own
 		// socket. It falls back to the socket in the shared app group container, the
@@ -337,15 +343,21 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 			dataDirectory.withCString { dataDirectory in
 				objectStorePath.withCString { objectStorePath in
 					objectStorePosixSemPrefix.withCString { objectStorePosixSemPrefix in
-						var config = TgConfig(
-							data_directory: dataDirectory,
-							node_eviction_interval_secs: nodeEvictionIntervalSeconds,
-							node_ttl_secs: nodeTTLSeconds,
-							object_store_map_size: objectStoreMapSize,
-							object_store_path: objectStorePath,
-							object_store_posix_sem_prefix: objectStorePosixSemPrefix,
-						)
-						return tg_provider_new(socket, &config, &provider)
+						principal.withCString { principal in
+							tokens.withCString { tokens in
+								var config = TgConfig(
+									data_directory: dataDirectory,
+									node_eviction_interval_secs: nodeEvictionIntervalSeconds,
+									node_ttl_secs: nodeTTLSeconds,
+									object_store_map_size: objectStoreMapSize,
+									object_store_path: objectStorePath,
+									object_store_posix_sem_prefix: objectStorePosixSemPrefix,
+									principal: principal,
+									tokens: tokens,
+								)
+								return tg_provider_new(socket, &config, &provider)
+							}
+						}
 					}
 				}
 			}

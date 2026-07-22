@@ -1053,9 +1053,14 @@ impl Session {
 			}
 
 			// Cache the process's children.
-			self.checkout_process_artifacts(&state.command, progress_sender.clone(), &state.stderr)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
+			self.checkout_process_artifacts(
+				&state.command,
+				&state.sandbox,
+				progress_sender.clone(),
+				&state.stderr,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
 
 			let sandbox_process = sandbox.create_process();
 			let guest_artifacts_path = sandbox.guest_artifacts_path();
@@ -1364,14 +1369,10 @@ impl Session {
 	async fn checkout_process_artifacts(
 		&self,
 		command: &tg::Command,
+		sandbox: &tg::sandbox::Id,
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stderr: &tg::process::Stdio,
 	) -> tg::Result<()> {
-		// Do nothing if the VFS is enabled.
-		if self.server.vfs.lock().unwrap().is_some() {
-			return Ok(());
-		}
-
 		// Get the process's command's children that are artifacts.
 		let artifacts = command
 			.children_with_handle(self)
@@ -1384,6 +1385,17 @@ impl Session {
 				Some(artifact)
 			})
 			.collect::<Vec<_>>();
+
+		// If the VFS is enabled, then the artifacts are served through the per-sandbox mount rather than checked out. Track the artifacts' tokens with the sandbox so the provider can authorize access to their subtrees without a deep index check.
+		if self.server.vfs.lock().unwrap().is_some() {
+			let tokens = artifacts
+				.iter()
+				.filter_map(|artifact| artifact.options.token.clone());
+			if let Some(mut state) = self.server.runner.state.sandboxes.get_mut(sandbox) {
+				state.tokens.extend(tokens);
+			}
+			return Ok(());
+		}
 
 		// Check out the artifacts.
 		let arg = tg::cache::Arg { artifacts };

@@ -59,6 +59,7 @@ pub use {
 pub(crate) use self::handle::handle;
 
 pub mod artifact;
+pub mod authorize;
 pub mod blob;
 pub mod builtin;
 pub mod bytes;
@@ -308,6 +309,10 @@ impl Client {
 
 	pub fn set_token(&self, token: Option<String>) {
 		self.context.set_token(token);
+	}
+
+	pub async fn authorize(&self, arg: tg::authorize::Arg) -> tg::Result<tg::authorize::Output> {
+		self.session(&self.context).authorize(arg).await
 	}
 
 	#[must_use]

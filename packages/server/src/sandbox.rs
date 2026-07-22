@@ -24,6 +24,8 @@ pub struct State {
 	pub processes: HashMap<tg::process::Id, crate::process::State>,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,
 	pub token: Option<String>,
+	/// The grant tokens tracked as the sandbox's processes spawn. The per-sandbox VFS provider uses them to authorize access to an artifact's subtree without a deep index check.
+	pub tokens: Vec<tg::grant::Token>,
 }
 
 pub type Tasks = tangram_futures::task::Map<String, ()>;
