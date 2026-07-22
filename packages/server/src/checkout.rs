@@ -703,6 +703,11 @@ impl Session {
 				.len();
 			state.progress.increment("bytes", len);
 
+			// Set the permissions.
+			let permissions = std::fs::Permissions::from_mode(0o644);
+			std::fs::set_permissions(dst, permissions)
+				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
+
 			if cfg!(target_os = "linux") {
 				// Set the dependencies attr.
 				let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
