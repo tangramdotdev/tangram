@@ -12,7 +12,12 @@ for index in 0..<1000 {
 }
 let expected = ls $source | get name | each { path basename } | sort
 
-for io in ['io_uring' 'read_write'] {
+let transports = if (fuse_io_uring_available) {
+	['io_uring' 'read_write']
+} else {
+	['read_write']
+}
+for io in $transports {
 	let server_path = mktemp --directory
 	let server = spawn --directory $server_path --config {
 		vfs: {

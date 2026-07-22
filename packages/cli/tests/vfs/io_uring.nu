@@ -5,6 +5,9 @@ use ../../test.nu *
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
+if not (fuse_io_uring_available) {
+	skip_test 'this test requires FUSE io_uring support'
+}
 
 let server_path = mktemp --directory
 let server = spawn --directory $server_path --config {

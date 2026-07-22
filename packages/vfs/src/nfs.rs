@@ -56,18 +56,25 @@ use {
 };
 
 mod provider;
+#[cfg(test)]
+mod tests;
 
 pub mod rpc;
 pub mod types;
 pub mod xdr;
 
 const ROOT: nfs_fh4 = nfs_fh4(crate::ROOT_NODE_ID);
+const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 const MAX_COMPOUND_OPERATIONS: usize = 128;
 const MAX_READ_SIZE: u32 = 2 * 1024 * 1024;
 const MAX_CONNECTIONS: usize = 64;
 const MAX_GLOBAL_IN_FLIGHT_REQUESTS: usize = 64;
 const MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: usize = 8;
+const MAX_NAME_LENGTH: usize = 512;
 const MAX_PENDING_RESPONSES: usize = 1;
+const PROVIDER_READDIR_LENGTH_OVERHEAD: usize = 288;
+const PROVIDER_READDIR_MIN_LENGTH: usize =
+	(FUSE_DIRENT_HEADER_SIZE + MAX_NAME_LENGTH).next_multiple_of(8);
 const LEASE_REAPER_INTERVAL_SECONDS: u64 = 15;
 const LEASE_TIME_SECONDS: u32 = 60;
 
@@ -1385,26 +1392,22 @@ where
 			return READDIR4res::Error(nfsstat4::NFS4ERR_TOOSMALL);
 		}
 		let provider_offset = if arg.cookie == 0 { 2 } else { arg.cookie };
-		let provider_length = maxcount.saturating_add(288).to_u64().unwrap();
+		let provider_length = maxcount
+			.saturating_add(PROVIDER_READDIR_LENGTH_OVERHEAD)
+			.max(PROVIDER_READDIR_MIN_LENGTH)
+			.to_u64()
+			.unwrap();
 		let handle = match self.provider.opendir(fh.0).await {
 			Ok(handle) => handle,
 			Err(error) => return READDIR4res::Error(error.into()),
 		};
-		let entries = self
-			.provider
-			.readdir(handle, provider_offset, provider_length)
-			.await;
+		let page =
+			read_directory_page(&self.provider, handle, provider_offset, provider_length).await;
 		self.provider.close(handle).await;
-		let entries = match entries {
-			Ok(entries) => entries,
+		let (entries, provider_eof) = match page {
+			Ok(page) => page,
 			Err(error) => return READDIR4res::Error(error.into()),
 		};
-		let entries_encoded_size = entries.iter().fold(0usize, |size, (name, _, _)| {
-			let entry_size = 24usize.saturating_add(name.len());
-			let padding = (8 - entry_size % 8) % 8;
-			size.saturating_add(entry_size).saturating_add(padding)
-		});
-		let provider_eof = entries_encoded_size < provider_length.to_usize().unwrap();
 		let entries_len = entries.len();
 		let mut directory_size: usize = 4;
 		let mut reply = Vec::with_capacity(entries.len());
@@ -1642,6 +1645,33 @@ fn listen_addr(host: &str, port: u16) -> String {
 	}
 }
 
+async fn read_directory_page<P>(
+	provider: &P,
+	handle: u64,
+	offset: u64,
+	length: u64,
+) -> std::io::Result<(Vec<(String, u64, crate::EntryKind)>, bool)>
+where
+	P: crate::Provider + Sync,
+{
+	let entries = provider.readdir(handle, offset, length).await?;
+	let eof = if entries.is_empty() {
+		true
+	} else {
+		let next_offset = offset.saturating_add(entries.len().to_u64().unwrap());
+		provider
+			.readdir(
+				handle,
+				next_offset,
+				PROVIDER_READDIR_MIN_LENGTH.to_u64().unwrap(),
+			)
+			.await?
+			.is_empty()
+	};
+
+	Ok((entries, eof))
+}
+
 fn invalid_lock_range(offset: u64, length: u64) -> bool {
 	length == 0 || (length != u64::MAX && offset.checked_add(length).is_none())
 }
@@ -1826,7 +1856,7 @@ impl FileAttrData {
 			homogeneous: true,
 			maxfilesize: u64::MAX,
 			maxlink: u32::MAX,
-			maxname: 512,
+			maxname: MAX_NAME_LENGTH.to_u32().unwrap(),
 			maxread: u64::from(MAX_READ_SIZE),
 			maxwrite: 0,
 			mimetype: Vec::new(),

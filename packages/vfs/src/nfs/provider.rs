@@ -10,6 +10,8 @@ use {
 	tangram_either::Either,
 };
 
+const FUSE_DIRENT_HEADER_SIZE: usize = 24;
+
 pub(super) struct Provider<P> {
 	inner: P,
 	attr_node_count: AtomicU64,
@@ -336,7 +338,14 @@ where
 		let attr_dir = self.files.get(&handle);
 		if let Some(Either::Left(attr_dir)) = attr_dir.as_ref().map(|attr| attr.as_ref()) {
 			let id = self.next_handle_id();
-			let content = attr_dir.attrs.clone();
+			let mut content = Vec::with_capacity(attr_dir.attrs.len() + 2);
+			content.push((".".to_owned(), handle, crate::EntryKind::Directory));
+			content.push((
+				"..".to_owned(),
+				attr_dir.parent,
+				crate::EntryKind::Directory,
+			));
+			content.extend(attr_dir.attrs.iter().cloned());
 			let handle = AttrDirHandle { content };
 			self.handles.insert(id, Either::Left(handle));
 			Ok(id)
@@ -360,8 +369,22 @@ where
 	) -> Result<Vec<(String, u64, crate::EntryKind)>> {
 		let handle_data = self.handles.get(&handle);
 		if let Some(Either::Left(handle)) = handle_data.as_ref().map(|attr| attr.as_ref()) {
-			let content = handle.content.clone();
-			Ok(content)
+			let length = length.to_usize().unwrap_or(usize::MAX);
+			let offset = offset.to_usize().unwrap_or(usize::MAX);
+			let mut entries = Vec::new();
+			let mut size = 0usize;
+			for (name, id, kind) in handle.content.iter().skip(offset) {
+				let entry_size = FUSE_DIRENT_HEADER_SIZE
+					.saturating_add(name.len())
+					.next_multiple_of(8);
+				if size.saturating_add(entry_size) > length {
+					break;
+				}
+				size = size.saturating_add(entry_size);
+				entries.push((name.clone(), *id, *kind));
+			}
+
+			Ok(entries)
 		} else {
 			self.inner.readdir(handle, offset, length).await
 		}
