@@ -76,14 +76,21 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
 	) {
-		Self::enqueue_update_with_kind(txn, subspace, id, Kind::Item, Source::Put, partition_total);
+		Self::enqueue_update_with_kind(
+			txn,
+			subspace,
+			id,
+			&Kind::Item,
+			Source::Put,
+			partition_total,
+		);
 	}
 
 	pub(super) fn enqueue_update_with_kind(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		kind: Kind,
+		kind: &Kind,
 		source: Source,
 		partition_total: u64,
 	) {
@@ -117,49 +124,51 @@ impl Index {
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
-
-		let key = Self::pack_with_versionstamp(
-			subspace,
-			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateBarrier {
-				id: id.clone(),
-				kind,
-				partition,
-				version,
-			}),
-		);
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
 	}
 
-	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
+	pub async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
+		let futures = (0..self.partition_total).map(|partition| {
+			let begin = Self::pack(&self.subspace, &(key_kind, partition));
+			let end = Self::pack(&self.subspace, &(key_kind, partition.saturating_add(1)));
+			let range = fdb::RangeOption {
+				begin: fdb::KeySelector::first_greater_or_equal(begin),
+				end: fdb::KeySelector::first_greater_or_equal(end),
+				limit: Some(1),
+				mode: fdb::options::StreamingMode::WantAll,
+				..Default::default()
+			};
+			let txn = &txn;
+			async move {
+				let entries = txn.get_range(&range, 1, false).await.map_err(|error| {
+					tg::error!(!error, "failed to get the update version range")
+				})?;
+				let Some(entry) = entries.first() else {
+					return Ok(None);
+				};
+				let key = Self::unpack(&self.subspace, entry.key())?;
+				let crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
+					version, ..
+				}) = key
+				else {
+					return Err(tg::error!("unexpected update key"));
+				};
+				let transaction_id =
+					u64::from_be_bytes(version.as_bytes()[..8].try_into().unwrap());
+				Ok(Some(transaction_id))
+			}
+		});
+		let transaction_id = future::try_join_all(futures)
+			.await?
+			.into_iter()
+			.flatten()
+			.min();
 
-		let mut bytes = [0u8; 10];
-		bytes[..8].copy_from_slice(&transaction_id.to_be_bytes());
-		bytes[8..].copy_from_slice(&0xFFFFu16.to_be_bytes());
-		let versionstamp = fdbt::Versionstamp::complete(bytes, 0);
-
-		let key_kind = KeyKind::UpdateBarrier.to_i32().unwrap();
-		let begin = Self::pack(&self.subspace, &(key_kind,));
-		let end = Self::pack(&self.subspace, &(key_kind, versionstamp));
-		let range = fdb::RangeOption {
-			begin: fdb::KeySelector::first_greater_or_equal(begin),
-			end: fdb::KeySelector::first_greater_or_equal(end),
-			limit: Some(1),
-			mode: fdb::options::StreamingMode::WantAll,
-			..Default::default()
-		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to check if updates are finished"))?;
-		let finished = entries.is_empty();
-
-		Ok(finished)
+		Ok(transaction_id)
 	}
 
 	pub async fn update_batch(
@@ -1761,18 +1770,6 @@ impl Index {
 			.unwrap();
 		txn.set(&key, &[]);
 
-		let key = Self::pack(
-			subspace,
-			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateBarrier {
-				id: id.clone(),
-				kind: kind.clone(),
-				partition,
-				version: version.clone(),
-			}),
-		);
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		txn.set(&key, &[]);
 		Ok(())
 	}
 
@@ -1787,17 +1784,6 @@ impl Index {
 		let key = Self::pack(
 			subspace,
 			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
-				id: id.clone(),
-				kind: kind.clone(),
-				partition,
-				version: version.clone(),
-			}),
-		);
-		txn.clear(&key);
-
-		let key = Self::pack(
-			subspace,
-			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateBarrier {
 				id: id.clone(),
 				kind: kind.clone(),
 				partition,

@@ -7,6 +7,7 @@ use {
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
 pub mod memory;
+pub mod outbox;
 #[cfg(feature = "scylla")]
 pub mod scylla;
 
@@ -103,6 +104,26 @@ pub trait Store {
 		&self,
 		args: Vec<DeleteArg>,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn delete_outbox(
+		&self,
+		arg: outbox::DeleteArg,
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn dequeue_outbox(
+		&self,
+		arg: outbox::DequeueArg,
+	) -> impl std::future::Future<Output = tg::Result<Vec<outbox::Item>>> + Send;
+
+	fn enqueue_outbox(
+		&self,
+		arg: outbox::EnqueueArg,
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn try_get_outbox_id_at_or_before(
+		&self,
+		arg: outbox::TryGetIdArg,
+	) -> impl std::future::Future<Output = tg::Result<Option<outbox::Id>>> + Send;
 
 	fn flush(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 }

@@ -12,7 +12,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_index::prelude::*,
 };
 
 pub(super) struct Runners {
@@ -184,26 +183,17 @@ impl Scheduler {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to upsert the runner"))?;
 
+		let arg = tangram_index::batch::Arg {
+			put_runners: vec![tangram_index::runner::put::Arg {
+				id: request.runner.clone(),
+				scheduler: Some(self.id.clone()),
+			}],
+			..Default::default()
+		};
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let server = self.server.clone();
-				let runner = request.runner.clone();
-				let scheduler = self.id.clone();
-				async move {
-					let arg = tangram_index::batch::Arg {
-						put_runners: vec![tangram_index::runner::put::Arg {
-							id: runner,
-							scheduler: Some(scheduler),
-						}],
-						..Default::default()
-					};
-					if let Err(error) = server.index.batch(arg).await {
-						tracing::error!(error = %error.trace(), "failed to put the runner to the index");
-					}
-				}
-			})
-			.detach();
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the runner"))?;
 
 		let output = AddRunnerResponseOutput {
 			connection_index,

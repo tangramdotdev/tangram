@@ -428,16 +428,15 @@ impl crate::Index for Index {
 			.await
 	}
 
-	async fn finalizations_finished(
+	async fn try_get_oldest_finalization_transaction_id(
 		&self,
 		kind: crate::finalization::Kind,
-		transaction_id: u64,
-	) -> tg::Result<bool> {
-		self.finalizations_finished(kind, transaction_id).await
+	) -> tg::Result<Option<u64>> {
+		self.try_get_oldest_finalization_transaction_id(kind).await
 	}
 
-	async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
-		self.updates_finished(transaction_id).await
+	async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
+		self.try_get_oldest_update_transaction_id().await
 	}
 
 	async fn update_batch(

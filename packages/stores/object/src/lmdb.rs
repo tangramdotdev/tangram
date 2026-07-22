@@ -8,6 +8,7 @@ use {
 mod delete;
 mod flush;
 mod get;
+mod outbox;
 mod put;
 mod task;
 
@@ -41,6 +42,8 @@ type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
 enum Request {
 	Delete(self::delete::Request),
 	DeleteBatch(Vec<self::delete::Request>),
+	DeleteOutbox(crate::outbox::DeleteArg),
+	EnqueueOutbox(self::outbox::EnqueueRequest),
 	Put(self::put::Request),
 	PutBatch(Vec<self::put::Request>),
 }
@@ -48,12 +51,16 @@ enum Request {
 #[derive(Debug)]
 enum Key<'a> {
 	Object(&'a tg::object::Id),
+	Outbox { id: u128, partition: u64 },
+	OutboxId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 enum KeyKind {
 	Object = 0,
+	Outbox = 1,
+	OutboxId = 2,
 }
 
 impl Store {
@@ -190,6 +197,28 @@ impl crate::Store for Store {
 		self.delete_batch(args).await
 	}
 
+	async fn delete_outbox(&self, arg: crate::outbox::DeleteArg) -> tg::Result<()> {
+		self.delete_outbox(arg).await
+	}
+
+	async fn dequeue_outbox(
+		&self,
+		arg: crate::outbox::DequeueArg,
+	) -> tg::Result<Vec<crate::outbox::Item>> {
+		self.dequeue_outbox(arg).await
+	}
+
+	async fn enqueue_outbox(&self, arg: crate::outbox::EnqueueArg) -> tg::Result<()> {
+		self.enqueue_outbox(arg).await
+	}
+
+	async fn try_get_outbox_id_at_or_before(
+		&self,
+		arg: crate::outbox::TryGetIdArg,
+	) -> tg::Result<Option<crate::outbox::Id>> {
+		self.try_get_outbox_id_at_or_before(arg).await
+	}
+
 	async fn flush(&self) -> tg::Result<()> {
 		self.flush().await
 	}
@@ -205,6 +234,13 @@ impl fdbt::TuplePack for Key<'_> {
 			Key::Object(id) => {
 				(KeyKind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
+			Key::Outbox { id, partition } => (
+				KeyKind::Outbox.to_i32().unwrap(),
+				partition,
+				id.to_be_bytes().as_slice(),
+			)
+				.pack(w, tuple_depth),
+			Key::OutboxId => (KeyKind::OutboxId.to_i32().unwrap(),).pack(w, tuple_depth),
 		}
 	}
 }

@@ -1,4 +1,4 @@
-use {crate::Session, tangram_client::prelude::*, tangram_index::prelude::*};
+use {crate::Session, tangram_client::prelude::*};
 
 pub(super) struct AddProcessChildArg<'a> {
 	pub cached: bool,
@@ -69,14 +69,9 @@ impl Session {
 				|error| tg::error!(!error, %parent, "failed to send the child spawned notification"),
 			)?;
 
-		// Publish the child index task.
-		self.spawn_process_child_index_task(
-			&parent,
-			&child,
-			&command,
-			sandbox.as_ref(),
-			parent_data,
-		);
+		// Index the child.
+		self.index_process_child(&parent, &child, &command, sandbox.as_ref(), parent_data)
+			.await?;
 
 		// Wake the watchdog so parent depth changes are observed promptly.
 		self.server.spawn_publish_watchdog_message_task();
@@ -84,14 +79,14 @@ impl Session {
 		Ok(())
 	}
 
-	fn spawn_process_child_index_task(
+	async fn index_process_child(
 		&self,
 		parent: &tg::process::Id,
 		child: &tg::process::Id,
 		command: &tg::command::Id,
 		sandbox: Option<&tg::sandbox::Id>,
 		parent_data: tg::process::Data,
-	) {
+	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let parent_data = parent_data.without_tokens();
 		let parent_arg = tangram_index::process::put::Arg {
@@ -129,16 +124,10 @@ impl Session {
 			..Default::default()
 		};
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let server = self.server.clone();
-				async move {
-					let result = server.index.batch(arg).await;
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), "failed to put process to index");
-					}
-				}
-			})
-			.detach();
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the process child"))?;
+
+		Ok(())
 	}
 }

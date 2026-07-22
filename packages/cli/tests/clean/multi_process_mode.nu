@@ -8,10 +8,10 @@ let output = tg clean | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
-	-> failed to index
+	-> failed to clean
 	-> the request failed
 	   status = 500 Internal Server Error
-	-> failed to start the index task
-	-> cannot index in multi-process mode
+	-> failed to start the clean task
+	-> cannot clean in multi-process mode
 
 '

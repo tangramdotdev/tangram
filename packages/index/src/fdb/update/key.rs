@@ -6,12 +6,6 @@ pub enum Key {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,
 	},
-	UpdateBarrier {
-		id: tg::Either<tg::object::Id, tg::process::Id>,
-		kind: Kind,
-		partition: u64,
-		version: fdbt::Versionstamp,
-	},
 	UpdateVersion {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,

@@ -9,18 +9,36 @@ use {crate::prelude::*, std::net::Ipv4Addr};
 	PartialEq,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Network {
-	#[default]
-	Default,
+	#[tangram_serialize(id = 0)]
 	Bridge(Bridge),
+
+	#[default]
+	#[tangram_serialize(id = 1)]
+	Default,
+
+	#[tangram_serialize(id = 2)]
 	Host,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Bridge {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
 	pub ports: Vec<Port>,
 }
 
@@ -33,7 +51,10 @@ pub struct Bridge {
 	PartialEq,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
+#[tangram_serialize(display, from_str)]
 pub struct Port {
 	pub host_ip: Option<Ipv4Addr>,
 	pub host: Option<Range>,

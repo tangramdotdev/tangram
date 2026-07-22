@@ -1,19 +1,32 @@
 use {super::Stored, tangram_client::prelude::*};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
+	#[tangram_serialize(id = 0)]
 	pub children: Option<Vec<tg::process::Id>>,
+	#[tangram_serialize(id = 1)]
 	pub command: tg::object::Id,
+	#[tangram_serialize(id = 2)]
 	pub data: Option<tg::process::Data>,
+	#[tangram_serialize(id = 3)]
 	pub error: Option<Option<Vec<tg::object::Id>>>,
+	#[tangram_serialize(id = 4)]
 	pub id: tg::process::Id,
+	#[tangram_serialize(id = 5)]
 	pub log: Option<Option<tg::object::Id>>,
+	#[tangram_serialize(id = 6)]
 	pub metadata: tg::process::Metadata,
+	#[tangram_serialize(id = 7)]
 	pub output: Option<Option<Vec<tg::object::Id>>>,
+	#[tangram_serialize(id = 8)]
 	pub parent: Option<tg::process::Id>,
+	#[tangram_serialize(id = 9)]
 	pub sandbox: Option<tg::sandbox::Id>,
+	#[tangram_serialize(id = 10)]
 	pub stored: Stored,
+	#[tangram_serialize(id = 11)]
 	pub time_to_touch: std::time::Duration,
+	#[tangram_serialize(id = 12)]
 	pub touched_at: i64,
 }
 

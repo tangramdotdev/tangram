@@ -68,7 +68,7 @@ impl Update {
 }
 
 impl Index {
-	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
+	pub async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
 		let env = self.env.clone();
 		let db = self.db;
 		let subspace = self.subspace.clone();
@@ -78,25 +78,23 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 			let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
 			let prefix = Self::pack(&subspace, prefix);
-			for entry in db
+			let entry = db
 				.prefix_iter(&transaction, &prefix)
 				.map_err(|error| tg::error!(!error, "failed to get update version range"))?
-			{
-				let (key, _) = entry
-					.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
-				let key = Self::unpack(&subspace, key)?;
-				let crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
-					version,
-					..
-				}) = key
-				else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				if version <= transaction_id {
-					return Ok(false);
-				}
-			}
-			Ok(true)
+				.next()
+				.transpose()
+				.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
+			let Some((key, _)) = entry else {
+				return Ok(None);
+			};
+			let key = Self::unpack(&subspace, key)?;
+			let crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
+				version, ..
+			}) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			Ok(Some(version))
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))?

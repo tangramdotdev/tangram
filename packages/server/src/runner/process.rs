@@ -16,7 +16,6 @@ use {
 		stream::TryExt as _,
 		task::{Stopper, Task},
 	},
-	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 	tokio::task::JoinSet,
 	tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream},
@@ -444,13 +443,13 @@ impl Session {
 			location: Some(location.clone().into()),
 			parent,
 		};
-		let connection = session
-			.try_get_process_control_stream_all(arg, control_responses)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the control stream"))
-			.and_then(|connection| {
-				connection.ok_or_else(|| tg::error!("expected a control stream"))
-			});
+		let connection =
+			Box::pin(session.try_get_process_control_stream_all(arg, control_responses))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the control stream"))
+				.and_then(|connection| {
+					connection.ok_or_else(|| tg::error!("expected a control stream"))
+				});
 		let (output, requests) = match connection {
 			Ok(connection) => connection,
 			Err(error) => {
@@ -991,22 +990,14 @@ impl Session {
 			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 		};
 
+		let arg = tangram_index::batch::Arg {
+			put_grants: vec![put_grant],
+			..Default::default()
+		};
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let server = self.server.clone();
-				async move {
-					let arg = tangram_index::batch::Arg {
-						put_grants: vec![put_grant],
-						..Default::default()
-					};
-					let result = server.index.batch(arg).await;
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace(), "failed to grant the process command");
-					}
-				}
-			})
-			.detach();
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the process command grant"))?;
 
 		Ok(())
 	}

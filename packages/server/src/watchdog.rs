@@ -2,6 +2,7 @@ use {
 	crate::Server,
 	dashmap::DashMap,
 	futures::{FutureExt as _, StreamExt as _},
+	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::{
 		ops::{ControlFlow, Deref},
@@ -113,7 +114,7 @@ impl Watchdog {
 	}
 
 	async fn task(&self) -> tg::Result<()> {
-		let _heartbeat_task = self.spawn_heartbeat_task();
+		let _heartbeat_task = self.spawn_scheduler_heartbeat_task();
 		let wakeups = self
 			.server
 			.messenger
@@ -146,7 +147,7 @@ impl Watchdog {
 		count += self.handle_processes().await?;
 
 		// Handle expired schedulers.
-		count += self.handle_expired_schedulers().await?;
+		count += self.handle_schedulers().await?;
 
 		Ok(count)
 	}
@@ -211,7 +212,7 @@ impl Watchdog {
 		Ok(count)
 	}
 
-	async fn handle_expired_schedulers(&self) -> tg::Result<u64> {
+	async fn handle_schedulers(&self) -> tg::Result<u64> {
 		let now = tokio::time::Instant::now();
 		let ttl = self.config.ttl;
 
@@ -277,14 +278,23 @@ impl Watchdog {
 	) -> Result<ControlFlow<(), crate::database::Error>, tg::Error> {
 		for scheduler in expired_schedulers {
 			let p = transaction.p();
-			let statement =
-				format!("update schedulers set status = {p}1 where id = {p}2 and status = {p}3;");
+			let statement = formatdoc!(
+				"
+					update schedulers
+					set status = {p}1
+					where id = {p}2 and status = {p}3;
+				"
+			);
 			let params = db::params!["stopped", scheduler.to_string(), "started",];
 			let result = transaction.execute(statement.into(), params).await;
 			crate::database::retry!(result, "failed to execute the statement");
 
-			let statement = format!(
-				"update runners set status = {p}1, scheduler = null where scheduler = {p}2 and status = {p}3;"
+			let statement = formatdoc!(
+				"
+					update runners
+					set status = {p}1, scheduler = null
+					where scheduler = {p}2 and status = {p}3;
+				"
 			);
 			let params = db::params!["stopped", scheduler.to_string(), "started",];
 			let result = transaction.execute(statement.into(), params).await;
@@ -293,16 +303,19 @@ impl Watchdog {
 		Ok(ControlFlow::Break(()))
 	}
 
-	fn spawn_heartbeat_task(&self) -> Task<tg::Result<()>> {
+	fn spawn_scheduler_heartbeat_task(&self) -> Task<tg::Result<()>> {
 		let watchdog = self.clone();
 		Task::spawn(async move |_| {
-			watchdog.heartbeat_task().await.inspect_err(|error| {
-				tracing::error!(error = %error.trace(), "the watchdog heartbeat task failed");
-			})
+			watchdog
+				.scheduler_heartbeat_task()
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = %error.trace(), "the watchdog heartbeat task failed");
+				})
 		})
 	}
 
-	async fn heartbeat_task(&self) -> tg::Result<()> {
+	async fn scheduler_heartbeat_task(&self) -> tg::Result<()> {
 		let stream = self
 			.server
 			.messenger

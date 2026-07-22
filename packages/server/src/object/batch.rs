@@ -6,7 +6,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
 
@@ -163,27 +162,16 @@ impl Session {
 			}
 		}
 
-		// Spawn a task to index the objects.
+		// Index the objects.
+		let index_arg = tangram_index::batch::Arg {
+			put_grants: put_grant_args,
+			put_objects: put_object_args,
+			..Default::default()
+		};
 		self.server
-			.index_tasks
-			.spawn(|_| {
-				let session = self.clone();
-				async move {
-					if let Err(error) = session
-						.server
-						.index
-						.batch(tangram_index::batch::Arg {
-							put_grants: put_grant_args,
-							put_objects: put_object_args,
-							..Default::default()
-						})
-						.await
-					{
-						tracing::error!(error = %error.trace(), "failed to put object batch to index");
-					}
-				}
-			})
-			.detach();
+			.index_batch(index_arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
 
 		let objects = arg
 			.objects

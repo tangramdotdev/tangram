@@ -305,16 +305,14 @@ pub trait Index {
 		partition_count: u64,
 	) -> impl Future<Output = tg::Result<Vec<crate::finalization::Entry>>> + Send;
 
-	fn finalizations_finished(
+	fn try_get_oldest_finalization_transaction_id(
 		&self,
 		kind: crate::finalization::Kind,
-		transaction_id: u64,
-	) -> impl Future<Output = tg::Result<bool>> + Send;
+	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
 
-	fn updates_finished(
+	fn try_get_oldest_update_transaction_id(
 		&self,
-		transaction_id: u64,
-	) -> impl Future<Output = tg::Result<bool>> + Send;
+	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
 
 	fn update_batch(
 		&self,

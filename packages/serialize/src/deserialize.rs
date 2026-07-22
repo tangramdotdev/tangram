@@ -5,6 +5,7 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		io::Result,
 		sync::Arc,
+		time::Duration,
 	},
 };
 
@@ -87,6 +88,16 @@ impl Deserialize<'_> for f32 {
 impl Deserialize<'_> for f64 {
 	fn deserialize(deserializer: &mut Deserializer<'_>) -> Result<Self> {
 		deserializer.deserialize_f64()
+	}
+}
+
+impl Deserialize<'_> for Duration {
+	fn deserialize(deserializer: &mut Deserializer<'_>) -> Result<Self> {
+		let (seconds, nanoseconds) = deserializer.deserialize::<(u64, u32)>()?;
+		if nanoseconds >= 1_000_000_000 {
+			return Err(std::io::Error::other("invalid duration nanoseconds"));
+		}
+		Ok(Self::new(seconds, nanoseconds))
 	}
 }
 

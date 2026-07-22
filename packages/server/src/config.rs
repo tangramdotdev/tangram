@@ -461,6 +461,7 @@ pub struct LmdbIndex {
 	pub path: PathBuf,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Indexer {
@@ -468,9 +469,18 @@ pub struct Indexer {
 
 	pub concurrency: usize,
 
+	#[serde(default = "message_retry_default")]
+	pub message_retry: Retry,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub message_timeout: Duration,
+
 	pub partition_count: u64,
 
 	pub partition_start: u64,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub poll_interval: Duration,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -537,6 +547,9 @@ pub struct Object {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_touch: Duration,
 
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub outbox: ObjectOutbox,
+
 	#[serde(default)]
 	pub store: ObjectStore,
 
@@ -551,6 +564,16 @@ pub struct Object {
 	#[serde(alias = "ttt", default = "default_time_to_touch")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_touch: Duration,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ObjectOutbox {
+	pub batch_size: usize,
+
+	pub partition_count: u64,
+
+	pub partition_start: u64,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -797,7 +820,7 @@ pub struct Scheduler {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub inbox_ttl: Duration,
 
-	#[serde(default = "scheduler_retry_default")]
+	#[serde(default = "message_retry_default")]
 	pub message_retry: Retry,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
@@ -1376,8 +1399,11 @@ impl Default for Indexer {
 		Self {
 			batch_size: 1024,
 			concurrency: 1,
+			message_retry: message_retry_default(),
+			message_timeout: Duration::from_secs(10),
 			partition_count: 256,
 			partition_start: 0,
+			poll_interval: Duration::from_millis(10),
 		}
 	}
 }
@@ -1422,10 +1448,21 @@ impl Default for Object {
 		Self {
 			grant_time_to_live: default_object_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
+			outbox: ObjectOutbox::default(),
 			store: ObjectStore::default(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
+impl Default for ObjectOutbox {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			partition_count: 256,
+			partition_start: 0,
 		}
 	}
 }
@@ -1508,7 +1545,7 @@ impl Default for Scheduler {
 			default_cpu: default_scheduler_cpu(),
 			default_memory: default_scheduler_memory(),
 			inbox_ttl: Duration::from_mins(1),
-			message_retry: scheduler_retry_default(),
+			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
 			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
 			max_create_sandbox_requests_per_runner:
@@ -1827,7 +1864,7 @@ fn database_retry_default() -> Retry {
 	}
 }
 
-fn scheduler_retry_default() -> Retry {
+fn message_retry_default() -> Retry {
 	let options = tangram_futures::retry::Options {
 		max_retries: u64::MAX,
 		..tangram_futures::retry::Options::default()

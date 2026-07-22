@@ -4,7 +4,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 };
 
@@ -205,17 +204,9 @@ impl Session {
 				..Default::default()
 			};
 			self.server
-				.index_tasks
-				.spawn(|_| {
-					let server = self.server.clone();
-					async move {
-						let result = server.index.batch(index_arg).await;
-						if let Err(error) = result {
-							tracing::error!(error = %error.trace(), "failed to put the sandbox to the index");
-						}
-					}
-				})
-				.detach();
+				.index_batch(index_arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the sandbox"))?;
 		}
 
 		session

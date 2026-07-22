@@ -8,6 +8,7 @@ use {
 mod delete;
 mod flush;
 mod get;
+mod outbox;
 mod put;
 
 #[derive(Clone, Debug)]
@@ -39,9 +40,14 @@ pub struct Store {
 
 struct Statements {
 	delete_object: scylla::statement::prepared::PreparedStatement,
-	get_object_batch: scylla::statement::prepared::PreparedStatement,
+	delete_outbox: scylla::statement::prepared::PreparedStatement,
+	dequeue_outbox: scylla::statement::prepared::PreparedStatement,
+	enqueue_outbox: scylla::statement::prepared::PreparedStatement,
 	get_object: scylla::statement::prepared::PreparedStatement,
+	get_object_batch: scylla::statement::prepared::PreparedStatement,
 	put_object: scylla::statement::prepared::PreparedStatement,
+	try_get_outbox_id: scylla::statement::prepared::PreparedStatement,
+	try_get_outbox_id_at_or_before: scylla::statement::prepared::PreparedStatement,
 }
 
 impl Store {
@@ -140,12 +146,82 @@ impl Store {
 			.map_err(|error| tg::error!(!error, "failed to prepare the put statement"))?;
 		put_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
+		let statement = indoc!(
+			"
+				delete from outbox
+				where partition = ? and id = ?;
+			"
+		);
+		let mut delete_outbox = session
+			.prepare(statement)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the delete outbox statement"))?;
+		delete_outbox.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
+		let statement = indoc!(
+			"
+				select id, partition, payload
+				from outbox
+				where partition in ?
+				limit ?;
+			"
+		);
+		let mut dequeue_outbox = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the dequeue outbox statement")
+		})?;
+		dequeue_outbox.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				insert into outbox (partition, id, payload)
+				values (?, now(), ?);
+			"
+		);
+		let mut enqueue_outbox = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the enqueue outbox statement")
+		})?;
+		enqueue_outbox.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
+		let statement = indoc!(
+			"
+				select max(id)
+				from outbox
+				where partition in ?;
+			"
+		);
+		let mut try_get_outbox_id = session
+			.prepare(statement)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the get outbox id statement"))?;
+		try_get_outbox_id.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
+		let statement = indoc!(
+			"
+				select max(id)
+				from outbox
+				where partition in ? and id <= ?;
+			"
+		);
+		let mut try_get_outbox_id_at_or_before =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the bounded get outbox id statement"
+				)
+			})?;
+		try_get_outbox_id_at_or_before.set_consistency(scylla::statement::Consistency::LocalQuorum);
+
 		let scylla = Self {
 			statements: Statements {
 				delete_object,
-				get_object_batch,
+				delete_outbox,
+				dequeue_outbox,
+				enqueue_outbox,
 				get_object,
+				get_object_batch,
 				put_object,
+				try_get_outbox_id,
+				try_get_outbox_id_at_or_before,
 			},
 			session,
 		};
@@ -177,6 +253,28 @@ impl crate::Store for Store {
 
 	async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
 		self.delete_batch(args).await
+	}
+
+	async fn delete_outbox(&self, arg: crate::outbox::DeleteArg) -> tg::Result<()> {
+		self.delete_outbox(arg).await
+	}
+
+	async fn dequeue_outbox(
+		&self,
+		arg: crate::outbox::DequeueArg,
+	) -> tg::Result<Vec<crate::outbox::Item>> {
+		self.dequeue_outbox(arg).await
+	}
+
+	async fn enqueue_outbox(&self, arg: crate::outbox::EnqueueArg) -> tg::Result<()> {
+		self.enqueue_outbox(arg).await
+	}
+
+	async fn try_get_outbox_id_at_or_before(
+		&self,
+		arg: crate::outbox::TryGetIdArg,
+	) -> tg::Result<Option<crate::outbox::Id>> {
+		self.try_get_outbox_id_at_or_before(arg).await
 	}
 
 	async fn flush(&self) -> tg::Result<()> {

@@ -561,35 +561,16 @@ impl Session {
 			});
 		}
 
-		// Spawn the index task.
-		self.server
-			.index_tasks
-			.spawn({
-				let session = self.clone();
-				let arg = arg.clone();
-				let graph = graph.clone();
-				let root = root.to_owned();
-				move |_| {
-					async move {
-						session
-							.checkin_index(
-								&arg,
-								&graph,
-								index_object_args,
-								index_cache_entry_args,
-								&root,
-								touched_at,
-							)
-							.await
-					}
-					.map(|result| {
-						if let Err(error) = result {
-							tracing::error!(error = %error.trace(), "the index task failed");
-						}
-					})
-				}
-			})
-			.detach();
+		// Index the objects.
+		self.checkin_index(
+			&arg,
+			&graph,
+			index_object_args,
+			index_cache_entry_args,
+			root,
+			touched_at,
+		)
+		.await?;
 
 		let output = TaskOutput {
 			graph,

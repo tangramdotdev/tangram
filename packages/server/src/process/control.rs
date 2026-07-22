@@ -8,7 +8,6 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_index::prelude::*,
 	tangram_messenger::Messenger,
 };
 
@@ -237,17 +236,9 @@ impl Session {
 			};
 			session
 				.server
-				.index_tasks
-				.spawn(|_| {
-					let server = self.server.clone();
-					async move {
-						let result = server.index.batch(index_arg).await;
-						if let Err(error) = result {
-							tracing::error!(error = %error.trace(), "failed to put the process to the index");
-						}
-					}
-				})
-				.detach();
+				.index_batch(index_arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the process"))?;
 		}
 
 		session

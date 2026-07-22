@@ -150,30 +150,28 @@ impl Session {
 			}
 		});
 
-		// Spawn the index task after the get finishes, even if it is interrupted.
-		let _index_guard = scopeguard::guard((), {
-			let graph = state.graph.clone();
-			|()| {
-				self.server
-					.index_tasks
-					.spawn({
-						let session = self.clone();
-						|_| {
-							async move {
-								let result = session.sync_get_index_put(graph).await;
-								if let Err(error) = result {
-									tracing::error!(error = %error.trace());
-								}
-							}
-							.instrument(tracing::Span::current())
+		// Index the partial graph on a best-effort basis if the sync is interrupted.
+		let index_guard = scopeguard::guard(state.graph.clone(), {
+			let session = self.clone();
+			let span = tracing::Span::current();
+			move |graph| {
+				tokio::spawn(
+					async move {
+						if let Err(error) = session.sync_get_index_put(graph).await {
+							tracing::error!(error = %error.trace(), "failed to index the partial sync");
 						}
-					})
-					.detach();
+					}
+					.instrument(span),
+				);
 			}
 		});
 
 		// Await the futures.
 		future::try_join4(input_future, queue_future, index_future, store_future).await?;
+
+		// Index the objects and processes.
+		let graph = scopeguard::ScopeGuard::into_inner(index_guard);
+		self.sync_get_index_put(graph).await?;
 
 		// Stop and await the progress task.
 		progress_task.stop();

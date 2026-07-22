@@ -10,9 +10,12 @@ use crate::prelude::*;
 	PartialEq,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[display(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case", tag = "kind")]
+#[tangram_serialize(display, from_str)]
 pub enum Isolation {
 	Container,
 	Seatbelt,
