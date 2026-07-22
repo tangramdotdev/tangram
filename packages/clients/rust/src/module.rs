@@ -184,7 +184,6 @@ pub fn is_non_root_module_path(path: &Path) -> bool {
 		&& (name.ends_with(".tg.js") || name.ends_with(".tg.ts"))
 }
 
-#[cfg(feature = "native")]
 pub async fn try_get_root_module_file_name(
 	package: tg::Either<&tg::Directory, &Path>,
 ) -> tg::Result<Option<&'static str>> {
@@ -192,7 +191,6 @@ pub async fn try_get_root_module_file_name(
 	try_get_root_module_file_name_with_handle(handle, package).await
 }
 
-#[cfg(feature = "native")]
 pub async fn try_get_root_module_file_name_with_handle<H>(
 	handle: &H,
 	package: tg::Either<&tg::Directory, &Path>,

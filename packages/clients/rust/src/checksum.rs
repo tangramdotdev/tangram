@@ -181,7 +181,7 @@ impl Writer {
 	#[must_use]
 	pub fn new(algorithm: Algorithm) -> Self {
 		match algorithm {
-			Algorithm::Blake3 => Self::Blake3(Box::new(blake3::Hasher::new())),
+			Algorithm::Blake3 => Self::Blake3(Box::default()),
 			Algorithm::Sha256 => Self::Sha256(Box::new(sha2::Sha256::new())),
 			Algorithm::Sha512 => Self::Sha512(Box::new(sha2::Sha512::new())),
 		}

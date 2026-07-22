@@ -1,14 +1,18 @@
+#[cfg(feature = "tls")]
+use rustls_platform_verifier::BuilderVerifierExt as _;
+use tangram_http::body::Ext as _;
 use {
 	crate::prelude::*,
 	std::{
 		error::Error as _,
 		ops::ControlFlow,
+		path::Path,
 		pin::Pin,
 		str::FromStr,
 		task::{Context, Poll},
 		time::Duration,
 	},
-	tangram_http::{body::Ext as _, request::Ext as _},
+	tangram_http::request::Ext as _,
 	tangram_uri::Uri,
 	time::format_description::well_known::Rfc3339,
 	tokio::io::{AsyncRead, AsyncWrite},
@@ -160,7 +164,6 @@ impl tg::Client {
 		self.pool.clear();
 	}
 
-	#[cfg(feature = "native")]
 	pub(crate) async fn connect_h1(
 		url: &Uri,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
@@ -202,7 +205,7 @@ impl tg::Client {
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				let stream = Self::connect_unix(std::path::Path::new(path)).await?;
+				let stream = Self::connect_unix(Path::new(path)).await?;
 				Self::handshake_h1(stream).await
 			},
 			Some("http+vsock") => {
@@ -227,14 +230,6 @@ impl tg::Client {
 		}
 	}
 
-	#[cfg(not(feature = "native"))]
-	pub(crate) async fn connect_h1(
-		_url: &Uri,
-	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
-		Err(tg::error!("the native feature is disabled"))
-	}
-
-	#[cfg(feature = "native")]
 	async fn connect_h2(
 		url: &Uri,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
@@ -275,7 +270,7 @@ impl tg::Client {
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				let stream = Self::connect_unix(std::path::Path::new(path)).await?;
+				let stream = Self::connect_unix(Path::new(path)).await?;
 				Self::handshake_h2(stream).await
 			},
 			Some("http+vsock") => {
@@ -300,14 +295,6 @@ impl tg::Client {
 		}
 	}
 
-	#[cfg(not(feature = "native"))]
-	async fn connect_h2(
-		_url: &Uri,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
-		Err(tg::error!("the native feature is disabled"))
-	}
-
-	#[cfg(feature = "native")]
 	async fn handshake_h1<S>(
 		stream: S,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>>
@@ -375,7 +362,6 @@ impl tg::Client {
 		Ok(sender)
 	}
 
-	#[cfg(feature = "native")]
 	pub(crate) async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
 		let addr = format!("{host}:{port}");
 		tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
@@ -390,8 +376,6 @@ impl tg::Client {
 		port: u16,
 		protocols: Vec<Vec<u8>>,
 	) -> tg::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
-		use rustls_platform_verifier::BuilderVerifierExt as _;
-
 		let stream = Self::connect_tcp(host, port).await?;
 
 		// Create the connector.
@@ -420,8 +404,7 @@ impl tg::Client {
 		Ok(stream)
 	}
 
-	#[cfg(feature = "native")]
-	async fn connect_unix(path: &std::path::Path) -> tg::Result<tokio::net::UnixStream> {
+	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
 		let path_ = tangram_util::io::unix::resolve(path).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to resolve the socket path"),
 		)?;

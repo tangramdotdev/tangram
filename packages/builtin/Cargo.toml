@@ -25,9 +25,9 @@ async_zip = { workspace = true }
 futures = { workspace = true }
 num = { workspace = true }
 reqwest = { workspace = true }
-tangram_client = { workspace = true, features = ["all"] }
+tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
-tangram_util = { workspace = true, features = ["all"] }
+tangram_util = { workspace = true }
 tangram_uri = { workspace = true }
-tokio = { workspace = true, features = ["full", "tracing"] }
-tokio-util = { workspace = true, features = ["full"] }
+tokio = { workspace = true }
+tokio-util = { workspace = true }

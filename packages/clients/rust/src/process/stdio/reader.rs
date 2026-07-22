@@ -1,12 +1,10 @@
-#[cfg(feature = "native")]
-use tokio::io::AsyncReadExt as _;
 use {
 	super::Stream,
 	crate::prelude::*,
 	bytes::Bytes,
 	futures::{StreamExt as _, stream::BoxStream},
 	std::sync::{Arc, Weak},
-	tokio::sync::Mutex,
+	tokio::{io::AsyncReadExt as _, sync::Mutex},
 };
 
 #[derive(Clone)]
@@ -19,40 +17,9 @@ struct State {
 	stream: Stream,
 }
 
-#[cfg(feature = "native")]
 enum Fd {
 	Stderr(tokio::process::ChildStderr),
 	Stdout(tokio::process::ChildStdout),
-}
-
-#[cfg(not(feature = "native"))]
-enum Fd {}
-
-#[cfg(feature = "native")]
-impl Fd {
-	async fn read(&mut self) -> tg::Result<Option<Bytes>> {
-		let mut buffer = [0; 4096];
-		let count = match self {
-			Self::Stderr(stderr) => stderr
-				.read(&mut buffer)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read stderr"))?,
-			Self::Stdout(stdout) => stdout
-				.read(&mut buffer)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read stdout"))?,
-		};
-		let bytes = (count > 0).then(|| Bytes::copy_from_slice(&buffer[..count]));
-
-		Ok(bytes)
-	}
-}
-
-#[cfg(not(feature = "native"))]
-impl Fd {
-	async fn read(&mut self) -> tg::Result<Option<Bytes>> {
-		match *self {}
-	}
 }
 
 impl Reader {
@@ -73,17 +40,14 @@ impl Reader {
 		Self::new(None, None, stream)
 	}
 
-	#[cfg(feature = "native")]
 	pub(crate) fn from_stderr(stderr: tokio::process::ChildStderr) -> Self {
 		Self::new(Some(Fd::Stderr(stderr)), None, Stream::Stderr)
 	}
 
-	#[cfg(feature = "native")]
 	pub(crate) fn from_stdout(stdout: tokio::process::ChildStdout) -> Self {
 		Self::new(Some(Fd::Stdout(stdout)), None, Stream::Stdout)
 	}
 
-	#[cfg(feature = "native")]
 	pub(crate) fn unavailable(stream: Stream) -> Self {
 		Self::new(None, None, stream)
 	}
@@ -111,12 +75,23 @@ impl Reader {
 	{
 		let mut state = self.0.lock().await;
 		if let Some(fd) = state.fd.as_mut() {
-			let Some(bytes) = fd.read().await? else {
+			let mut buffer = [0; 4096];
+			let count = match fd {
+				Fd::Stderr(stderr) => stderr
+					.read(&mut buffer)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to read stderr"))?,
+				Fd::Stdout(stdout) => stdout
+					.read(&mut buffer)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to read stdout"))?,
+			};
+			if count == 0 {
 				state.fd = None;
 				state.process = None;
 				return Ok(None);
-			};
-			return Ok(Some(bytes));
+			}
+			return Ok(Some(Bytes::copy_from_slice(&buffer[..count])));
 		}
 		if state.process.is_none() {
 			return Err(tg::error!("{} is not available", state.stream));

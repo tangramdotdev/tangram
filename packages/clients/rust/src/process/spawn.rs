@@ -1,16 +1,21 @@
 use {
 	crate::prelude::*,
-	futures::{Stream, stream::BoxStream},
+	futures::{
+		Stream, StreamExt as _, TryStreamExt as _, future,
+		stream::{self, BoxStream},
+	},
 	serde_with::{DisplayFromStr, serde_as},
-	std::future::Future,
-	tangram_util::serde::{is_default, is_false},
-};
-#[cfg(feature = "native")]
-use {
-	futures::{StreamExt as _, TryStreamExt as _},
-	std::os::unix::process::ExitStatusExt as _,
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		future::Future,
+		os::unix::process::ExitStatusExt as _,
+		path::{Path, PathBuf},
+		sync::{Arc, Mutex, RwLock},
+		time::Duration,
+	},
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::{is_default, is_false},
 };
 
 #[serde_as]
@@ -79,13 +84,12 @@ pub struct Output {
 	pub wait: Option<tg::process::wait::Output>,
 }
 
-#[cfg(feature = "native")]
 pub(super) struct PrepareUnsandboxedCommandOutput {
 	pub args: Vec<String>,
-	pub cwd: Option<std::path::PathBuf>,
-	pub env: std::collections::BTreeMap<String, String>,
-	pub executable: std::path::PathBuf,
-	pub output_path: std::path::PathBuf,
+	pub cwd: Option<PathBuf>,
+	pub env: BTreeMap<String, String>,
+	pub executable: PathBuf,
+	pub output_path: PathBuf,
 	pub temp: tangram_util::fs::Temp,
 }
 
@@ -101,7 +105,6 @@ where
 	tg::Process::<tg::Value>::spawn_with_handle(handle, arg).await
 }
 
-#[cfg(feature = "native")]
 pub(crate) async fn spawn_arg_with_handle<H>(
 	handle: &H,
 	arg: tg::process::Arg,
@@ -236,7 +239,6 @@ where
 	Ok(spawn_arg)
 }
 
-#[cfg(feature = "native")]
 impl<O: 'static> tg::Process<O> {
 	pub async fn spawn(arg: tg::process::Arg) -> tg::Result<tg::Process<O>>
 	where
@@ -319,9 +321,7 @@ impl<O: 'static> tg::Process<O> {
 				token: None,
 				wait: None,
 			};
-			let stream =
-				futures::stream::once(futures::future::ok(tg::progress::Event::Output(output)))
-					.boxed();
+			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
 			progress(stream).await?;
 			return Ok(process);
 		}
@@ -488,40 +488,34 @@ impl<O: 'static> tg::Process<O> {
 		let handle = (output.lease.is_some() && wait.is_none())
 			.then(|| tg::handle::dynamic::Handle::new(handle.clone()));
 		let owned = std::sync::atomic::AtomicBool::new(handle.is_some());
-		let inner = std::sync::Arc::new(super::Inner {
+		let inner = Arc::new(super::Inner {
 			cached: Some(output.cached),
 			handle,
 			id: tg::Either::Right(id),
 			lease: output.lease,
-			location: std::sync::Arc::new(std::sync::RwLock::new(location.map(Into::into))),
-			metadata: std::sync::RwLock::new(None),
+			location: Arc::new(RwLock::new(location.map(Into::into))),
+			metadata: RwLock::new(None),
 			owned,
-			state: std::sync::RwLock::new(None),
+			state: RwLock::new(None),
 			stderr,
 			stdin,
 			stdio_task,
 			stdout,
 			task: None,
-			token: std::sync::RwLock::new(output.token),
-			wait: std::sync::Mutex::new(wait),
+			token: RwLock::new(output.token),
+			wait: Mutex::new(wait),
 		});
 		let process = Self(inner, std::marker::PhantomData);
-		process
-			.stdin()
-			.set_process(std::sync::Arc::downgrade(&process.0));
-		process
-			.stdout()
-			.set_process(std::sync::Arc::downgrade(&process.0));
-		process
-			.stderr()
-			.set_process(std::sync::Arc::downgrade(&process.0));
+		process.stdin().set_process(Arc::downgrade(&process.0));
+		process.stdout().set_process(Arc::downgrade(&process.0));
+		process.stderr().set_process(Arc::downgrade(&process.0));
 		Ok(process)
 	}
 
 	pub(super) async fn prepare_unsandboxed_command<H>(
 		handle: &H,
 		arg: &tg::process::spawn::Arg,
-		output_path: Option<std::path::PathBuf>,
+		output_path: Option<PathBuf>,
 	) -> tg::Result<PrepareUnsandboxedCommandOutput>
 	where
 		H: tg::Handle,
@@ -649,40 +643,34 @@ impl<O: 'static> tg::Process<O> {
 			move |_| async move { Self::wait_unsandboxed(handle, child, output_path, temp).await }
 		});
 
-		let inner = std::sync::Arc::new(super::Inner {
+		let inner = Arc::new(super::Inner {
 			cached: Some(false),
 			handle: None,
 			id: tg::Either::Left(pid),
 			lease: None,
-			location: std::sync::Arc::new(std::sync::RwLock::new(None)),
-			metadata: std::sync::RwLock::new(None),
+			location: Arc::new(RwLock::new(None)),
+			metadata: RwLock::new(None),
 			owned: std::sync::atomic::AtomicBool::new(true),
-			state: std::sync::RwLock::new(None),
+			state: RwLock::new(None),
 			stderr,
 			stdin,
 			stdio_task: None,
 			stdout,
 			task: Some(task),
-			token: std::sync::RwLock::new(None),
-			wait: std::sync::Mutex::new(None),
+			token: RwLock::new(None),
+			wait: Mutex::new(None),
 		});
 		let process = Self(inner, std::marker::PhantomData);
-		process
-			.stdin()
-			.set_process(std::sync::Arc::downgrade(&process.0));
-		process
-			.stdout()
-			.set_process(std::sync::Arc::downgrade(&process.0));
-		process
-			.stderr()
-			.set_process(std::sync::Arc::downgrade(&process.0));
+		process.stdin().set_process(Arc::downgrade(&process.0));
+		process.stdout().set_process(Arc::downgrade(&process.0));
+		process.stderr().set_process(Arc::downgrade(&process.0));
 		Ok(process)
 	}
 
 	async fn wait_unsandboxed<H>(
 		handle: H,
 		mut child: tokio::process::Child,
-		output_path: std::path::PathBuf,
+		output_path: PathBuf,
 		_temp: tangram_util::fs::Temp,
 	) -> tg::Result<tg::process::wait::Output>
 	where
@@ -766,52 +754,6 @@ impl<O: 'static> tg::Process<O> {
 	}
 }
 
-#[cfg(not(feature = "native"))]
-impl<O: 'static> tg::Process<O> {
-	pub async fn spawn(_arg: tg::process::Arg) -> tg::Result<tg::Process<O>> {
-		Err(tg::error!("the native feature is disabled"))
-	}
-
-	pub async fn spawn_with_handle<H>(
-		_handle: &H,
-		_arg: tg::process::Arg,
-	) -> tg::Result<tg::Process<O>>
-	where
-		H: tg::Handle,
-	{
-		Err(tg::error!("the native feature is disabled"))
-	}
-
-	pub async fn spawn_with_progress<F, Fut>(
-		_arg: tg::process::Arg,
-		_progress: F,
-	) -> tg::Result<tg::Process<O>>
-	where
-		F: FnOnce(
-			BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
-		) -> Fut,
-		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
-	{
-		Err(tg::error!("the native feature is disabled"))
-	}
-
-	pub async fn spawn_with_progress_with_handle<H, F, Fut>(
-		_handle: &H,
-		_arg: tg::process::Arg,
-		_progress: F,
-	) -> tg::Result<tg::Process<O>>
-	where
-		H: tg::Handle,
-		F: FnOnce(
-			BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
-		) -> Fut,
-		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
-	{
-		Err(tg::error!("the native feature is disabled"))
-	}
-}
-
-#[cfg(feature = "native")]
 impl tg::Session {
 	pub async fn try_spawn_process(
 		&self,
@@ -852,7 +794,7 @@ impl tg::Session {
 			.sse()
 			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
-				futures::future::ready(
+				future::ready(
 					if event.event.as_deref().is_some_and(|event| event == "error") {
 						match event.try_into() {
 							Ok(error) | Err(error) => Err(error),
@@ -866,43 +808,21 @@ impl tg::Session {
 	}
 }
 
-#[cfg(not(feature = "native"))]
-impl tg::Session {
-	pub async fn try_spawn_process(
-		&self,
-		_arg: tg::process::spawn::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
-		+ Send
-		+ 'static
-		+ use<>,
-	> {
-		let result: tg::Result<
-			futures::stream::Empty<
-				tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>,
-			>,
-		> = Err(tg::error!("the native feature is disabled"));
-
-		result
-	}
-}
-
-#[cfg(feature = "native")]
 async fn checkout_artifacts<H>(
 	handle: &H,
 	command: &tg::command::Data,
 	token: Option<&tg::grant::Token>,
-) -> tg::Result<std::collections::BTreeMap<tg::artifact::Id, std::path::PathBuf>>
+) -> tg::Result<BTreeMap<tg::artifact::Id, PathBuf>>
 where
 	H: tg::Handle,
 {
-	let mut objects = std::collections::BTreeSet::new();
+	let mut objects = BTreeSet::new();
 	command.children(&mut objects);
 	let artifacts = objects
 		.into_iter()
 		.filter_map(|object| object.try_into().ok())
-		.collect::<std::collections::BTreeSet<tg::artifact::Id>>();
-	let mut output = std::collections::BTreeMap::new();
+		.collect::<BTreeSet<tg::artifact::Id>>();
+	let mut output = BTreeMap::new();
 	for artifact in artifacts {
 		let referent = tg::Referent::with_item_and_token(artifact.clone(), token.cloned());
 		let path = tg::checkout::checkout_with_handle(
@@ -923,13 +843,12 @@ where
 	Ok(output)
 }
 
-#[cfg(feature = "native")]
 fn render_command(
 	command: &tg::command::Data,
-	artifacts: &std::collections::BTreeMap<tg::artifact::Id, std::path::PathBuf>,
-	output_path: &std::path::Path,
+	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
+	output_path: &Path,
 	debug: Option<&tg::process::Debug>,
-) -> tg::Result<(std::path::PathBuf, Vec<String>)> {
+) -> tg::Result<(PathBuf, Vec<String>)> {
 	match (&command.executable, command.host.as_str()) {
 		(_, "builtin") => {
 			let mut args = render_args_dash_a(&command.args);
@@ -955,11 +874,10 @@ fn render_command(
 	}
 }
 
-#[cfg(feature = "native")]
 fn render_executable(
 	command: &tg::command::Data,
-	artifacts: &std::collections::BTreeMap<tg::artifact::Id, std::path::PathBuf>,
-) -> tg::Result<std::path::PathBuf> {
+	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
+) -> tg::Result<PathBuf> {
 	match &command.executable {
 		tg::command::data::Executable::Artifact(executable) => {
 			let mut path = artifacts
@@ -976,11 +894,10 @@ fn render_executable(
 	}
 }
 
-#[cfg(feature = "native")]
 pub(super) fn resolve_executable(
-	executable: &std::path::Path,
-	env: &std::collections::BTreeMap<String, String>,
-) -> tg::Result<std::path::PathBuf> {
+	executable: &Path,
+	env: &BTreeMap<String, String>,
+) -> tg::Result<PathBuf> {
 	if executable.is_absolute() || executable.components().count() > 1 {
 		return Ok(executable.to_owned());
 	}
@@ -990,7 +907,7 @@ pub(super) fn resolve_executable(
 			"failed to find the executable in PATH"
 		)
 	})?;
-	which(std::path::Path::new(path), executable).ok_or_else(|| {
+	which(Path::new(path), executable).ok_or_else(|| {
 		tg::error!(
 			executable = %executable.display(),
 			"failed to find the executable in PATH"
@@ -998,8 +915,7 @@ pub(super) fn resolve_executable(
 	})
 }
 
-#[cfg(feature = "native")]
-fn which(path: &std::path::Path, executable: &std::path::Path) -> Option<std::path::PathBuf> {
+fn which(path: &Path, executable: &Path) -> Option<PathBuf> {
 	if executable.is_absolute() {
 		return Some(executable.to_owned());
 	}
@@ -1012,18 +928,16 @@ fn which(path: &std::path::Path, executable: &std::path::Path) -> Option<std::pa
 	None
 }
 
-#[cfg(feature = "native")]
 fn render_args_string(
 	args: &[tg::value::Data],
-	artifacts: &std::collections::BTreeMap<tg::artifact::Id, std::path::PathBuf>,
-	output_path: &std::path::Path,
+	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
+	output_path: &Path,
 ) -> tg::Result<Vec<String>> {
 	args.iter()
 		.map(|value| render_value_string(value, artifacts, output_path))
 		.collect()
 }
 
-#[cfg(feature = "native")]
 fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
 	args.iter()
 		.flat_map(|value| {
@@ -1033,7 +947,6 @@ fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
 		.collect()
 }
 
-#[cfg(feature = "native")]
 fn render_js_debug_args(debug: Option<&tg::process::Debug>) -> Vec<String> {
 	let mut args = Vec::new();
 	let Some(debug) = debug else {
@@ -1051,13 +964,12 @@ fn render_js_debug_args(debug: Option<&tg::process::Debug>) -> Vec<String> {
 	args
 }
 
-#[cfg(feature = "native")]
 fn render_env<H>(
 	handle: &H,
 	env: &tg::value::data::Map,
-	artifacts: &std::collections::BTreeMap<tg::artifact::Id, std::path::PathBuf>,
-	output_path: &std::path::Path,
-) -> tg::Result<std::collections::BTreeMap<String, String>>
+	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
+	output_path: &Path,
+) -> tg::Result<BTreeMap<String, String>>
 where
 	H: tg::Handle,
 {
@@ -1086,7 +998,7 @@ where
 			let value = render_value_string(value, artifacts, output_path)?;
 			Ok::<_, tg::Error>((key, value))
 		})
-		.collect::<tg::Result<std::collections::BTreeMap<_, _>>>()?;
+		.collect::<tg::Result<BTreeMap<_, _>>>()?;
 	for (key, value) in &resolved {
 		if matches!(value, tg::value::Data::String(_)) {
 			continue;
@@ -1119,11 +1031,10 @@ where
 	Ok(output)
 }
 
-#[cfg(feature = "native")]
 fn render_value_string(
 	value: &tg::value::Data,
-	artifacts: &std::collections::BTreeMap<tg::artifact::Id, std::path::PathBuf>,
-	output_path: &std::path::Path,
+	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
+	output_path: &Path,
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
@@ -1162,7 +1073,6 @@ fn render_value_string(
 	}
 }
 
-#[cfg(feature = "native")]
 fn convert_stdio(
 	stdio: &tg::process::Stdio,
 	stream: tg::process::stdio::Stream,
@@ -1186,7 +1096,6 @@ fn convert_stdio(
 	}
 }
 
-#[cfg(feature = "native")]
 fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 	if let Some(code) = status.code() {
 		return u8::try_from(code)
@@ -1202,7 +1111,6 @@ fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 	Err(tg::error!("failed to determine the exit status"))
 }
 
-#[cfg(feature = "native")]
 fn normalize_sandbox(
 	arg: &tg::process::Arg,
 ) -> tg::Result<Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>> {
@@ -1282,14 +1190,13 @@ fn normalize_sandbox(
 				mounts,
 				network,
 				owner: arg.owner.clone(),
-				ttl: Some(std::time::Duration::ZERO),
+				ttl: Some(Duration::ZERO),
 			};
 			Ok(Some(tg::Either::Left(sandbox)))
 		},
 	}
 }
 
-#[cfg(feature = "native")]
 fn normalize_sandbox_create_arg(
 	sandbox: tg::process::SandboxCreateArg,
 ) -> tg::sandbox::create::Arg {
@@ -1303,11 +1210,10 @@ fn normalize_sandbox_create_arg(
 		mounts: sandbox.mounts,
 		network: sandbox.network,
 		owner: sandbox.owner,
-		ttl: sandbox.ttl.unwrap_or(Some(std::time::Duration::ZERO)),
+		ttl: sandbox.ttl.unwrap_or(Some(Duration::ZERO)),
 	}
 }
 
-#[cfg(feature = "native")]
 fn normalize_network(
 	network: Option<tg::sandbox::Network>,
 	ports: Vec<tg::sandbox::Port>,
@@ -1331,7 +1237,6 @@ fn normalize_network(
 	}
 }
 
-#[cfg(feature = "native")]
 fn normalize_debug(
 	debug: Option<tg::Either<bool, tg::process::Debug>>,
 ) -> Option<tg::process::Debug> {

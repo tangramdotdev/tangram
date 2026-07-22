@@ -10,11 +10,8 @@ use {
 		marker::PhantomData,
 		sync::{Arc, Weak},
 	},
-	tokio::sync::Mutex,
+	tokio::{io::AsyncWriteExt as _, sync::Mutex},
 };
-
-#[cfg(feature = "native")]
-use tokio::io::AsyncWriteExt as _;
 
 #[derive(Clone)]
 pub struct Writer(Arc<Mutex<State>>);
@@ -25,31 +22,8 @@ struct State {
 	stream: Stream,
 }
 
-#[cfg(feature = "native")]
 enum Fd {
 	Stdin(tokio::process::ChildStdin),
-}
-
-#[cfg(not(feature = "native"))]
-enum Fd {}
-
-#[cfg(feature = "native")]
-impl Fd {
-	async fn write_all(&mut self, input: &[u8]) -> tg::Result<()> {
-		match self {
-			Self::Stdin(stdin) => stdin
-				.write_all(input)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to write stdin")),
-		}
-	}
-}
-
-#[cfg(not(feature = "native"))]
-impl Fd {
-	async fn write_all(&mut self, _input: &[u8]) -> tg::Result<()> {
-		match *self {}
-	}
 }
 
 impl Writer {
@@ -65,12 +39,10 @@ impl Writer {
 		Self::new(None, stream)
 	}
 
-	#[cfg(feature = "native")]
 	pub(crate) fn from_stdin(stdin: tokio::process::ChildStdin) -> Self {
 		Self::new(Some(Fd::Stdin(stdin)), Stream::Stdin)
 	}
 
-	#[cfg(feature = "native")]
 	pub(crate) fn unavailable(stream: Stream) -> Self {
 		Self::new(None, stream)
 	}
@@ -92,7 +64,7 @@ impl Writer {
 		let fd = state.fd.take();
 		let process = state.process.take();
 		let stream = state.stream;
-		if fd.is_some() {
+		if matches!(fd, Some(Fd::Stdin(_))) {
 			drop(fd);
 			return Ok(());
 		}
@@ -125,8 +97,11 @@ impl Writer {
 		if input.is_empty() {
 			return Ok(0);
 		}
-		if let Some(fd) = state.fd.as_mut() {
-			fd.write_all(input).await?;
+		if let Some(Fd::Stdin(stdin)) = state.fd.as_mut() {
+			stdin
+				.write_all(input)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to write stdin"))?;
 			return Ok(input.len());
 		}
 		let Some(process) = state.process.clone() else {

@@ -39,7 +39,7 @@ tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_pool = { workspace = true }
 tangram_uri = { workspace = true }
-tokio = { workspace = true, features = ["full", "tracing"] }
+tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
 turso = { workspace = true, optional = true }
 tracing = { workspace = true }

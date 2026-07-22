@@ -80,10 +80,7 @@ impl PrivateKey {
 			name: name.into(),
 		}
 	}
-}
 
-#[cfg(feature = "native")]
-impl PrivateKey {
 	pub fn generate(name: impl Into<String>, algorithm: Algorithm) -> tg::Result<Self> {
 		let bytes = match algorithm {
 			Algorithm::Ed25519 => {
@@ -98,7 +95,6 @@ impl PrivateKey {
 					.to_vec()
 			},
 		};
-
 		Ok(Self::new(name, algorithm, bytes))
 	}
 }
@@ -112,10 +108,7 @@ impl PublicKey {
 			name: name.into(),
 		}
 	}
-}
 
-#[cfg(feature = "native")]
-impl PublicKey {
 	pub fn from_private_key(private_key: &PrivateKey) -> tg::Result<Self> {
 		let bytes = match private_key.algorithm {
 			Algorithm::Ed25519 => {
@@ -126,7 +119,6 @@ impl PublicKey {
 				key_pair.public_key().as_ref().to_vec()
 			},
 		};
-
 		Ok(Self::new(
 			private_key.name.clone(),
 			private_key.algorithm,
@@ -135,7 +127,6 @@ impl PublicKey {
 	}
 }
 
-#[cfg(feature = "native")]
 impl Token {
 	pub fn sign(body: Body, private_key: &PrivateKey) -> tg::Result<Self> {
 		body.validate()?;
@@ -330,7 +321,7 @@ impl std::str::FromStr for Token {
 	}
 }
 
-#[cfg(all(test, feature = "native"))]
+#[cfg(test)]
 mod tests {
 	use crate as tg;
 

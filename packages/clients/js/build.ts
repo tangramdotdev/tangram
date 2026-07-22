@@ -5,27 +5,22 @@ import { fileURLToPath } from "node:url";
 
 let packagePath = dirname(fileURLToPath(import.meta.url));
 let workspacePath = resolve(packagePath, "../../..");
-let wasmName = "tangram_client_wasm.wasm";
-let wasmPath = resolve(
-	workspacePath,
-	"target/wasm32-wasip1/wasm-release",
-	wasmName,
-);
+let libraryExtension = process.platform === "darwin" ? "dylib" : "so";
+let libraryName = `libtangram_client_native.${libraryExtension}`;
+let libraryPath = resolve(workspacePath, "target/release", libraryName);
+let nativeName = `tangram_client.${process.platform}-${process.arch}.node`;
 
 await run("cargo", [
 	"build",
 	"--manifest-path",
-	resolve(packagePath, "wasm/Cargo.toml"),
-	"--profile",
-	"wasm-release",
-	"--target",
-	"wasm32-wasip1",
+	resolve(packagePath, "native/Cargo.toml"),
+	"--release",
 ]);
 await rm(resolve(packagePath, "dist"), { force: true, recursive: true });
 await run("tsc", [], packagePath);
-let outputPath = resolve(packagePath, "dist/host", wasmName);
+let outputPath = resolve(packagePath, "dist/host", nativeName);
 await mkdir(dirname(outputPath), { recursive: true });
-await cp(wasmPath, outputPath);
+await cp(libraryPath, outputPath);
 
 function run(command: string, args: Array<string>, cwd = workspacePath) {
 	return new Promise<void>((resolve, reject) => {

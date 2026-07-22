@@ -1,12 +1,11 @@
 use {
-	crate::prelude::*, futures::Stream, num::ToPrimitive as _, std::pin::pin,
+	crate::prelude::*,
+	crossterm::{self as ct, style::Stylize as _},
+	futures::{FutureExt as _, Stream, StreamExt as _, future},
+	indexmap::IndexMap,
+	num::ToPrimitive as _,
+	std::{fmt::Write as _, path::Path, pin::pin, time::Duration},
 	tangram_futures::stream::TryExt as _,
-};
-#[cfg(feature = "native")]
-use {
-	crossterm::style::Stylize as _,
-	futures::{FutureExt as _, StreamExt as _, future},
-	std::fmt::Write as _,
 	tokio::io::AsyncReadExt as _,
 };
 
@@ -228,17 +227,15 @@ where
 	}
 }
 
-#[cfg(feature = "native")]
 struct State<H, T, W> {
 	handle: H,
-	indicators: indexmap::IndexMap<String, tg::progress::Indicator>,
+	indicators: IndexMap<String, tg::progress::Indicator>,
 	is_tty: bool,
 	lines: Option<u16>,
 	output: Option<T>,
 	writer: W,
 }
 
-#[cfg(feature = "native")]
 pub async fn write_progress_stream<H, T>(
 	handle: &H,
 	stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
@@ -264,14 +261,14 @@ where
 
 	let mut state = State {
 		handle: handle.clone(),
-		indicators: indexmap::IndexMap::new(),
+		indicators: IndexMap::new(),
 		is_tty,
 		lines: None,
 		writer,
 		output: None,
 	};
 
-	let interval = std::time::Duration::from_millis(100);
+	let interval = Duration::from_millis(100);
 	let mut interval = tokio::time::interval(interval);
 	let mut stream = pin!(stream);
 	loop {
@@ -307,27 +304,6 @@ where
 	Ok(output)
 }
 
-#[cfg(not(feature = "native"))]
-pub async fn write_progress_stream<H, T>(
-	_handle: &H,
-	stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
-	_writer: impl std::io::Write,
-	_is_tty: bool,
-) -> tg::Result<T>
-where
-	H: tg::Handle,
-{
-	let stream = pin!(stream);
-	let output = stream
-		.try_last()
-		.await?
-		.and_then(|event| event.try_unwrap_output().ok())
-		.ok_or_else(|| tg::error!("stream ended without output"))?;
-
-	Ok(output)
-}
-
-#[cfg(feature = "native")]
 impl<H, T, W> State<H, T, W>
 where
 	H: tg::Handle,
@@ -379,10 +355,10 @@ where
 		if let Some(n) = n
 			&& self.is_tty
 		{
-			crossterm::queue!(
+			ct::queue!(
 				self.writer,
-				crossterm::cursor::MoveToPreviousLine(n),
-				crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
+				ct::cursor::MoveToPreviousLine(n),
+				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 			)
 			.unwrap();
 		}
@@ -525,7 +501,7 @@ where
 		title: &str,
 		range: &tg::Range,
 		message: &str,
-		path: &std::path::Path,
+		path: &Path,
 	) {
 		let Ok(file) = tokio::fs::File::open(path).await else {
 			return;

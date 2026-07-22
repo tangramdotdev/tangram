@@ -48,7 +48,7 @@ fn js() {
 	println!("cargo:rerun-if-changed=../../packages/clients/js/build.ts");
 	println!("cargo:rerun-if-changed=../../packages/clients/js/src");
 	println!("cargo:rerun-if-changed=../../packages/clients/js/tsconfig.json");
-	println!("cargo:rerun-if-changed=../../packages/clients/js/wasm");
+	println!("cargo:rerun-if-changed=../../packages/clients/js/native");
 	std::process::Command::new("bun")
 		.args(["run", "build"])
 		.current_dir(&client_path)

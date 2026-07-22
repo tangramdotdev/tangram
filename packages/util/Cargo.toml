@@ -16,19 +16,6 @@ doctest = false
 [lints]
 workspace = true
 
-[features]
-all = ["native"]
-default = ["native"]
-native = [
-  "dep:libc",
-  "dep:rustix",
-  "dep:scopeguard",
-  "dep:uuid",
-  "dep:xattr",
-  "tokio/fs",
-  "tokio/net",
-]
-
 [dependencies]
 bytes = { workspace = true }
 data-encoding = { workspace = true }
@@ -37,17 +24,17 @@ derive_more = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 im = { workspace = true }
-libc = { workspace = true, optional = true }
+libc = { workspace = true }
 num = { workspace = true }
-rustix = { workspace = true, optional = true }
-scopeguard = { workspace = true, optional = true }
+rustix = { workspace = true }
+scopeguard = { workspace = true }
 serde = { workspace = true }
 serde-untagged = { workspace = true }
 serde_with = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
-tokio-stream = { workspace = true, features = ["io-util", "sync", "time"] }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tracing = { workspace = true }
-uuid = { workspace = true, optional = true }
-xattr = { workspace = true, optional = true }
+uuid = { workspace = true }
+xattr = { workspace = true }

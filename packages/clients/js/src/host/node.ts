@@ -3,6 +3,7 @@ import * as childProcess from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as http2 from "node:http2";
+import { createRequire } from "node:module";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -35,21 +36,10 @@ type StopperState = {
 	controller: AbortController;
 };
 
-type Wasm = {
-	allocate(length: number): number;
-	deallocate(pointer: number, length: number): void;
-	memory: { readonly buffer: ArrayBuffer };
-	object_id(pointer: number, length: number): number;
-	parse_value(pointer: number, length: number): number;
-	stringify_value(pointer: number, length: number): number;
-};
-
-type WebAssemblyApi = {
-	Instance: new (
-		module: object,
-		imports: Record<string, Record<string, (...args: Array<number>) => number>>,
-	) => { exports: object };
-	Module: new (bytes: Uint8Array<ArrayBufferLike>) => object;
+type Native = {
+	objectId(input: string): string;
+	parseValue(input: string): string;
+	stringifyValue(input: string): string;
 };
 
 let fileDescriptors = new Map<number, FileDescriptor>();
@@ -57,7 +47,7 @@ let nextToken = 3;
 let processes = new Map<number, ProcessState>();
 let rawModes = new Map<number, RawModeState>();
 let stoppers = new Map<number, StopperState>();
-let wasm: Wasm | undefined;
+let native: Native | undefined;
 
 let http2Host: Host.Http2 = {
 	ClientHttp2Session: function (
@@ -330,7 +320,7 @@ export let host: Host = {
 	},
 
 	objectId(object: tg.Object.Data): tg.Object.Id {
-		return callWasm("object_id", JSON.stringify(object)) as tg.Object.Id;
+		return getNative().objectId(JSON.stringify(object)) as tg.Object.Id;
 	},
 
 	get parallelism(): number {
@@ -338,7 +328,7 @@ export let host: Host = {
 	},
 
 	parseValue(value: string): tg.Value.Data {
-		return JSON.parse(callWasm("parse_value", value)) as tg.Value.Data;
+		return JSON.parse(getNative().parseValue(value)) as tg.Value.Data;
 	},
 
 	async read(
@@ -463,7 +453,7 @@ export let host: Host = {
 	},
 
 	stringifyValue(value: tg.Value.Data): string {
-		return callWasm("stringify_value", JSON.stringify(value));
+		return getNative().stringifyValue(JSON.stringify(value));
 	},
 
 	async wait(
@@ -520,61 +510,15 @@ function addFileDescriptor(descriptor: FileDescriptor): number {
 	return token;
 }
 
-function callWasm(
-	operation: "object_id" | "parse_value" | "stringify_value",
-	input: string,
-): string {
-	let wasm = getWasm();
-	let bytes = new TextEncoder().encode(input);
-	let inputPointer = wasm.allocate(bytes.length);
-	try {
-		new Uint8Array(wasm.memory.buffer, inputPointer, bytes.length).set(bytes);
-		let outputPointer = wasm[operation](inputPointer, bytes.length);
-		let view = new DataView(wasm.memory.buffer, outputPointer, 5);
-		let length = view.getUint32(0, true);
-		let status = view.getUint8(4);
-		try {
-			let output = new Uint8Array(
-				wasm.memory.buffer,
-				outputPointer + 5,
-				length,
-			);
-			let value = new TextDecoder().decode(output);
-			if (status !== 0) {
-				throw new Error(value);
-			}
-			return value;
-		} finally {
-			wasm.deallocate(outputPointer, 5 + length);
-		}
-	} finally {
-		wasm.deallocate(inputPointer, bytes.length);
+function getNative(): Native {
+	if (native !== undefined) {
+		return native;
 	}
-}
+	let name = `tangram_client.${process.platform}-${process.arch}.node`;
+	let require = createRequire(import.meta.url);
+	native = require(path.join(import.meta.dirname, name)) as Native;
 
-function getWasm(): Wasm {
-	if (wasm !== undefined) {
-		return wasm;
-	}
-	let path = new URL("./tangram_client_wasm.wasm", import.meta.url);
-	let bytes = fs.readFileSync(path);
-	let api = (globalThis as unknown as { WebAssembly: WebAssemblyApi })
-		.WebAssembly;
-	let module = new api.Module(bytes);
-	let unavailable = (..._args: Array<number>): number => {
-		throw new Error("the WASM codec attempted an unsupported WASI operation");
-	};
-	let instance = new api.Instance(module, {
-		wasi_snapshot_preview1: {
-			environ_get: unavailable,
-			environ_sizes_get: unavailable,
-			fd_write: unavailable,
-			proc_exit: unavailable,
-			random_get: unavailable,
-		},
-	});
-	wasm = instance.exports as unknown as Wasm;
-	return wasm;
+	return native;
 }
 
 function connectHttp2(

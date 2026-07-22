@@ -82,11 +82,11 @@ serde_json = { workspace = true }
 serde_with = { workspace = true }
 smallvec = { workspace = true }
 sync_wrapper = { workspace = true }
-tangram_client = { workspace = true, features = ["all"] }
+tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_database = { workspace = true }
 tangram_futures = { workspace = true }
-tangram_http = { workspace = true, features = ["all"] }
+tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
 tangram_index = { workspace = true }
 tangram_js = { workspace = true, optional = true }
@@ -97,17 +97,17 @@ tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
-tangram_util = { workspace = true, features = ["all"] }
+tangram_util = { workspace = true }
 tangram_vfs = { workspace = true }
 time = { workspace = true }
-tokio = { workspace = true, features = ["full", "tracing"] }
+tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
-tokio-stream = { workspace = true, features = ["full"] }
-tokio-util = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
-tower-http = { workspace = true, features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
+tower-http = { workspace = true }
 tracing = { workspace = true }
 turso = { workspace = true, optional = true }
 unicode-width = { workspace = true }

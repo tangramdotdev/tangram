@@ -23,4 +23,4 @@ derive_more = { workspace = true }
 num = { workspace = true }
 rquickjs = { workspace = true }
 serde = { workspace = true }
-tangram_client = { workspace = true, features = ["all"] }
+tangram_client = { workspace = true }

@@ -78,7 +78,7 @@ serde_yaml = { workspace = true }
 serde_with = { workspace = true }
 syntect = { workspace = true }
 tangram_builtin = { workspace = true }
-tangram_client = { workspace = true, features = ["all"] }
+tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
@@ -87,9 +87,9 @@ tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }
 tangram_uri = { workspace = true }
-tangram_util = { workspace = true, features = ["all"] }
-tokio = { workspace = true, features = ["full", "tracing"] }
-tokio-util = { workspace = true, features = ["full"] }
+tangram_util = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }

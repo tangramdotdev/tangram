@@ -21,7 +21,7 @@ doctest = false
 workspace = true
 
 [dev-dependencies]
-tangram_util = { workspace = true, features = ["all"] }
+tangram_util = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }
@@ -31,6 +31,6 @@ foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
 heed = { workspace = true, optional = true }
 num = { workspace = true }
-tangram_client = { workspace = true, features = ["all"] }
+tangram_client = { workspace = true }
 tangram_serialize = { workspace = true }
-tokio = { workspace = true, features = ["full", "tracing"] }
+tokio = { workspace = true }

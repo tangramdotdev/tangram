@@ -3,7 +3,7 @@ default-members = ["packages/cli"]
 members = [
   "packages/builtin",
   "packages/cli",
-  "packages/clients/js/wasm",
+  "packages/clients/js/native",
   "packages/clients/rust",
   "packages/compiler",
   "packages/database",
@@ -60,14 +60,6 @@ too_many_lines = "allow"
 type_complexity = "allow"
 unsafe_derive_deserialize = "allow"
 unused_async = "allow"
-
-[profile.wasm-release]
-codegen-units = 1
-inherits = "release"
-lto = true
-opt-level = "z"
-panic = "abort"
-strip = "symbols"
 
 [workspace.dependencies]
 anstream = "1"
@@ -127,6 +119,9 @@ lsp-types = "0.97"
 maml = "0.1"
 miette = { version = "7.6", features = ["fancy", "syntect-highlighter"] }
 mime = "0.3"
+napi = { version = "3.11", default-features = false, features = ["napi4"] }
+napi-build = "2.3"
+napi-derive = "3.6"
 neli = "0.7"
 notify = "8"
 num = "0.4"
@@ -187,13 +182,13 @@ syn = { version = "3", features = ["full"] }
 syntect = "5"
 sync_wrapper = "1"
 tangram_builtin = { path = "packages/builtin" }
-tangram_client = { path = "packages/clients/rust", default-features = false }
+tangram_client = { path = "packages/clients/rust" }
 tangram_compiler = { path = "packages/compiler" }
 tangram_database = { path = "packages/database" }
 tangram_either = { path = "packages/either" }
 tangram_fdb = { path = "packages/fdb" }
 tangram_futures = { path = "packages/futures" }
-tangram_http = { path = "packages/http", default-features = false }
+tangram_http = { path = "packages/http" }
 tangram_ignore = { path = "packages/ignore" }
 tangram_index = { path = "packages/index" }
 tangram_js = { path = "packages/js" }
@@ -206,19 +201,19 @@ tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
 tangram_uri = { path = "packages/uri" }
-tangram_util = { path = "packages/util", default-features = false }
+tangram_util = { path = "packages/util" }
 tangram_v8 = { path = "packages/v8" }
 tangram_vfs = { path = "packages/vfs" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
-tokio = { version = "1", default-features = false }
+tokio = { version = "1", features = ["full", "tracing"] }
 tokio-postgres = { version = "0.7", features = ["runtime", "with-serde_json-1"] }
 tokio-rustls = "0.26"
-tokio-stream = { version = "0.1", default-features = false }
-tokio-util = { version = "0.7", default-features = false }
+tokio-stream = { version = "0.1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["full"] }
 tokio-vsock = "0.7.2"
 toml = { version = "1" }
 tower = { version = "0.5", features = ["timeout", "util"] }
-tower-http = { version = "0.7", default-features = false }
+tower-http = { version = "0.7", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = "0.1.44"
 tracing-opentelemetry = "0.33"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

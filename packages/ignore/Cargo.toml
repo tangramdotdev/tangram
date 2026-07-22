@@ -18,10 +18,10 @@ workspace = true
 [dev-dependencies]
 indoc = { workspace = true }
 pretty_assertions = { workspace = true }
-tangram_util = { workspace = true, features = ["all"] }
+tangram_util = { workspace = true }
 
 [dependencies]
 derive_more = { workspace = true }
 fnv = { workspace = true }
 globset = { workspace = true }
-tokio = { workspace = true, features = ["full", "tracing"] }
+tokio = { workspace = true }

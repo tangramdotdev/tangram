@@ -19,9 +19,8 @@ workspace = true
 [dependencies]
 dashmap = { workspace = true }
 futures = { workspace = true }
-getrandom = { version = "0.4", features = ["wasm_js"] }
 num = { workspace = true }
 pin-project = { workspace = true }
 rand = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "time"] }
-tokio-util = { workspace = true, features = ["rt", "time"] }
+tokio = { workspace = true }
+tokio-util = { workspace = true }

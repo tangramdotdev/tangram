@@ -19,4 +19,4 @@ workspace = true
 [dependencies]
 futures = { workspace = true }
 tangram_futures = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tokio = { workspace = true }

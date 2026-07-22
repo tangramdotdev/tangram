@@ -35,10 +35,10 @@ opentelemetry = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
-tangram_client = { workspace = true, features = ["all"] }
+tangram_client = { workspace = true }
 tangram_serialize = { workspace = true }
-tangram_util = { workspace = true, features = ["all"] }
-tokio = { workspace = true, features = ["full", "tracing"] }
+tangram_util = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
