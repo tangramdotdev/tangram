@@ -134,6 +134,10 @@ mod typescript {
 	pub fn build() {
 		// Get the out dir path.
 		let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+		let manifest_directory_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+		let typescript_path =
+			std::fs::canonicalize(manifest_directory_path.join("../../packages/typescript"))
+				.unwrap();
 
 		// Install dependencies.
 		println!("cargo:rerun-if-env-changed=NODE_PATH");
@@ -157,10 +161,10 @@ mod typescript {
 				.unwrap();
 		}
 
-		// Build typescript.
-		println!("cargo:rerun-if-changed=../../packages/typescript");
-		let manifest_directory_path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-		let typescript_path = format!("{manifest_directory_path}/../../packages/typescript");
+		// Check the compiler.
+		println!("cargo:rerun-if-changed=../../packages/typescript/package.json");
+		println!("cargo:rerun-if-changed=../../packages/typescript/src");
+		println!("cargo:rerun-if-changed=../../packages/typescript/tsconfig.json");
 		if let Ok(node_path) = std::env::var("NODE_PATH") {
 			std::fs::write(
 				out_dir_path.join("tsconfig.json"),
@@ -175,7 +179,8 @@ mod typescript {
 							}},
 							"include": ["{typescript_path}/src/**/*"]
 						}}
-					"#
+					"#,
+					typescript_path = typescript_path.display(),
 				),
 			)
 			.unwrap();
@@ -188,27 +193,36 @@ mod typescript {
 				.unwrap();
 		} else {
 			std::process::Command::new("bun")
-				.args(["run", "--cwd", "../../packages/typescript", "check"])
+				.args(["run", "check"])
+				.current_dir(&typescript_path)
 				.status()
 				.unwrap()
 				.success()
 				.then_some(())
 				.unwrap();
 		}
-		std::process::Command::new("bunx")
-			.args([
-				"esbuild",
-				"--bundle",
-				"--minify",
-				&format!("--outdir={}", out_dir_path.display()),
-				"--sourcemap=external",
-				"../../packages/typescript/src/main.ts",
-			])
+
+		// Build the compiler.
+		std::process::Command::new("bun")
+			.args(["run", "build"])
+			.current_dir(&typescript_path)
 			.status()
 			.unwrap()
 			.success()
 			.then_some(())
 			.unwrap();
+
+		// Copy the compiler.
+		std::fs::copy(
+			typescript_path.join("dist/main.js"),
+			out_dir_path.join("main.js"),
+		)
+		.unwrap();
+		std::fs::copy(
+			typescript_path.join("dist/main.js.map"),
+			out_dir_path.join("main.js.map"),
+		)
+		.unwrap();
 		fixup_source_map(out_dir_path.join("main.js.map"));
 
 		// Initialize V8.

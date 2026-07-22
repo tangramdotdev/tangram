@@ -3,6 +3,7 @@ default-members = ["packages/cli"]
 members = [
   "packages/builtin",
   "packages/cli",
+  "packages/clients/js/native",
   "packages/clients/rust",
   "packages/compiler",
   "packages/database",
@@ -118,6 +119,9 @@ lsp-types = "0.97"
 maml = "0.1"
 miette = { version = "7.6", features = ["fancy", "syntect-highlighter"] }
 mime = "0.3"
+napi = { version = "3.11", default-features = false, features = ["napi4"] }
+napi-build = "2.3"
+napi-derive = "3.6"
 neli = "0.7"
 notify = "8"
 num = "0.4"

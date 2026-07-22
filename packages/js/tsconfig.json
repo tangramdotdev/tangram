@@ -10,9 +10,13 @@
 		"noEmit": true,
 		"noUncheckedIndexedAccess": true,
 		"noUncheckedSideEffectImports": true,
+		"paths": {
+			"@tangramdotdev/client": ["../clients/js/dist/index.d.ts"]
+		},
 		"strict": true,
 		"target": "esnext",
-		"types": [],
+		"typeRoots": ["./node_modules/@types"],
+		"types": ["node"],
 		"verbatimModuleSyntax": true,
 	},
 }

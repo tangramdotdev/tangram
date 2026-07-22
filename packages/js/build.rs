@@ -18,6 +18,8 @@ fn main() {
 fn js() {
 	// Get the out dir path.
 	let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+	let manifest_directory_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+	let client_path = manifest_directory_path.join("../clients/js");
 
 	// Install dependencies.
 	println!("cargo:rerun-if-env-changed=NODE_PATH");
@@ -41,13 +43,25 @@ fn js() {
 			.unwrap();
 	}
 
+	// Build the client.
+	println!("cargo:rerun-if-changed=../../packages/clients/js/package.json");
+	println!("cargo:rerun-if-changed=../../packages/clients/js/build.ts");
+	println!("cargo:rerun-if-changed=../../packages/clients/js/src");
+	println!("cargo:rerun-if-changed=../../packages/clients/js/tsconfig.json");
+	println!("cargo:rerun-if-changed=../../packages/clients/js/native");
+	std::process::Command::new("bun")
+		.args(["run", "build"])
+		.current_dir(&client_path)
+		.status()
+		.unwrap()
+		.success()
+		.then_some(())
+		.unwrap();
+
 	// Build the js.
-	println!("cargo:rerun-if-changed=../../packages/clients/js");
 	println!("cargo:rerun-if-changed=./src");
-	let manifest_directory_path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
 	let node_path = std::env::var("NODE_PATH").ok();
 	if let Some(node_path) = &node_path {
-		let js_path = format!("{manifest_directory_path}/../clients/js");
 		std::fs::write(
 			out_dir_path.join("tsconfig.json"),
 			formatdoc!(
@@ -56,13 +70,15 @@ fn js() {
 						"extends": "{manifest_directory_path}/tsconfig.json",
 						"compilerOptions": {{
 							"paths": {{
-								"@tangramdotdev/client": ["{js_path}/src/index.ts"],
+								"@tangramdotdev/client": ["{client_path}/dist/index.d.ts"],
 								"*": ["{node_path}/*", "{node_path}/../packages/clients/js/node_modules/*"]
 							}}
 						}},
-						"include": ["{manifest_directory_path}/src/**/*", "{js_path}/src/**/*"]
+						"include": ["{manifest_directory_path}/src/**/*"]
 					}}
-				"#
+				"#,
+				client_path = client_path.display(),
+				manifest_directory_path = manifest_directory_path.display(),
 			),
 		)
 		.unwrap();
@@ -82,12 +98,19 @@ fn js() {
 			.then_some(())
 			.unwrap();
 	}
+	let alias = format!(
+		"--alias:@tangramdotdev/client={}",
+		client_path.join("dist/index.js").display()
+	);
+	let outdir = format!("--outdir={}", out_dir_path.display());
 	let mut esbuild = std::process::Command::new("bunx");
 	esbuild.args([
 		"esbuild",
+		&alias,
 		"--bundle",
+		"--define:process=undefined",
 		"--minify",
-		&format!("--outdir={}", out_dir_path.display()),
+		&outdir,
 		"--sourcemap=external",
 		"./src/main.ts",
 	]);
