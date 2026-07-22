@@ -38,8 +38,9 @@ struct InodeFd {
 }
 
 pub struct DirIter {
-	entries: Vec<Item>,
 	cursor: usize,
+	entries: Vec<Item>,
+	offset: u64,
 }
 
 struct Item {
@@ -134,12 +135,10 @@ where
 		let name = name
 			.to_str()
 			.map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
-		let id = self
+		let (id, attrs) = self
 			.0
-			.lookup_sync(parent, name)?
+			.lookup_and_remember_sync(parent, name)?
 			.ok_or_else(|| io::Error::from_raw_os_error(libc::ENOENT))?;
-		let attrs = self.0.getattr_sync(id)?;
-		self.0.remember_sync(id);
 		Ok(virtiofsd::filesystem::Entry {
 			inode: id,
 			generation: 0,
@@ -261,10 +260,10 @@ where
 		_ctx: virtiofsd::filesystem::Context,
 		_inode: u64,
 		handle: u64,
-		_size: u32,
+		size: u32,
 		offset: u64,
 	) -> Result<DirIter> {
-		let entries = self.0.readdir_sync(handle)?;
+		let entries = self.0.readdir_sync(handle, offset, u64::from(size))?;
 		let items = entries
 			.into_iter()
 			.map(|(name, id, typ)| {
@@ -277,10 +276,10 @@ where
 				})
 			})
 			.collect::<Result<Vec<_>>>()?;
-		let cursor = usize::try_from(offset).unwrap_or(0).min(items.len());
 		Ok(DirIter {
+			cursor: 0,
 			entries: items,
-			cursor,
+			offset,
 		})
 	}
 
@@ -373,7 +372,7 @@ impl virtiofsd::filesystem::DirectoryIterator for DirIter {
 		self.cursor += 1;
 		Some(virtiofsd::filesystem::DirEntry {
 			ino: entry.ino as libc::ino64_t,
-			offset: self.cursor as u64,
+			offset: self.offset + self.cursor as u64,
 			type_: entry.type_,
 			name: entry.name.as_c_str(),
 		})
@@ -386,12 +385,13 @@ fn attr_from_attrs(inode: u64, attrs: Attrs) -> virtiofsd::fuse::Attr {
 		AttrsInner::File { executable, size } => {
 			(size, S_IFREG | 0o444 | if executable { 0o111 } else { 0 })
 		},
-		AttrsInner::Symlink => (0, S_IFLNK | 0o444),
+		AttrsInner::Symlink { size } => (size, S_IFLNK | 0o444),
 	};
+	let blocks = size.div_ceil(512);
 	virtiofsd::fuse::Attr {
 		ino: inode,
 		size,
-		blocks: 0,
+		blocks,
 		atime: attrs.atime.secs,
 		mtime: attrs.mtime.secs,
 		ctime: attrs.ctime.secs,

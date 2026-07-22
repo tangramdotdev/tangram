@@ -56,18 +56,25 @@ use {
 };
 
 mod provider;
+#[cfg(test)]
+mod tests;
 
 pub mod rpc;
 pub mod types;
 pub mod xdr;
 
 const ROOT: nfs_fh4 = nfs_fh4(crate::ROOT_NODE_ID);
+const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 const MAX_COMPOUND_OPERATIONS: usize = 128;
 const MAX_READ_SIZE: u32 = 2 * 1024 * 1024;
 const MAX_CONNECTIONS: usize = 64;
 const MAX_GLOBAL_IN_FLIGHT_REQUESTS: usize = 64;
 const MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: usize = 8;
+const MAX_NAME_LENGTH: usize = 512;
 const MAX_PENDING_RESPONSES: usize = 1;
+const PROVIDER_READDIR_LENGTH_OVERHEAD: usize = 288;
+const PROVIDER_READDIR_MIN_LENGTH: usize =
+	(FUSE_DIRENT_HEADER_SIZE + MAX_NAME_LENGTH).next_multiple_of(8);
 const LEASE_REAPER_INTERVAL_SECONDS: u64 = 15;
 const LEASE_TIME_SECONDS: u32 = 60;
 
@@ -773,7 +780,7 @@ where
 			})
 			| ExtAttr::AttrDir => ACCESS4_EXECUTE | ACCESS4_READ | ACCESS4_LOOKUP,
 			ExtAttr::Normal(Attrs {
-				inner: AttrsInner::Symlink,
+				inner: AttrsInner::Symlink { .. },
 				..
 			})
 			| ExtAttr::AttrFile(_) => ACCESS4_READ,
@@ -883,15 +890,7 @@ where
 					let mode = if executable { O_RX } else { O_RDONLY };
 					FileAttrData::new(file_handle, nfs_ftype4::NF4REG, size, mode, attrs)
 				},
-				AttrsInner::Symlink => {
-					let target = match self.provider.readlink(file_handle.0).await {
-						Ok(target) => target,
-						Err(error) => {
-							tracing::error!(%error, ?file_handle, "failed to read a symlink");
-							return None;
-						},
-					};
-					let size = target.len().to_u64().unwrap();
+				AttrsInner::Symlink { size } => {
 					FileAttrData::new(file_handle, nfs_ftype4::NF4LNK, size, O_RDONLY, attrs)
 				},
 			},
@@ -1314,7 +1313,7 @@ where
 				return READ4res::Error(nfsstat4::NFS4ERR_ISDIR);
 			},
 			ExtAttr::Normal(Attrs {
-				inner: AttrsInner::Symlink,
+				inner: AttrsInner::Symlink { .. },
 				..
 			}) => {
 				return READ4res::Error(nfsstat4::NFS4ERR_INVAL);
@@ -1382,31 +1381,6 @@ where
 		if arg.cookie != 0 && arg.cookieverf != cookieverf {
 			return READDIR4res::Error(nfsstat4::NFS4ERR_NOT_SAME);
 		}
-		let handle = match self.provider.opendir(fh.0).await {
-			Ok(handle) => handle,
-			Err(error) => return READDIR4res::Error(error.into()),
-		};
-		let entries = self.provider.readdir(handle).await;
-		self.provider.close(handle).await;
-		let entries = match entries {
-			Ok(entries) => entries,
-			Err(error) => return READDIR4res::Error(error.into()),
-		};
-		let entries = entries
-			.into_iter()
-			.filter(|(name, _, _)| !matches!(name.as_str(), "." | ".."))
-			.collect::<Vec<_>>();
-		let start = if arg.cookie == 0 {
-			0
-		} else {
-			let Ok(start) = usize::try_from(arg.cookie - 2) else {
-				return READDIR4res::Error(nfsstat4::NFS4ERR_BAD_COOKIE);
-			};
-			if start > entries.len() {
-				return READDIR4res::Error(nfsstat4::NFS4ERR_BAD_COOKIE);
-			}
-			start
-		};
 		let maxcount = arg
 			.maxcount
 			.to_usize()
@@ -1417,10 +1391,28 @@ where
 		if encoded_size > maxcount {
 			return READDIR4res::Error(nfsstat4::NFS4ERR_TOOSMALL);
 		}
+		let provider_offset = if arg.cookie == 0 { 2 } else { arg.cookie };
+		let provider_length = maxcount
+			.saturating_add(PROVIDER_READDIR_LENGTH_OVERHEAD)
+			.max(PROVIDER_READDIR_MIN_LENGTH)
+			.to_u64()
+			.unwrap();
+		let handle = match self.provider.opendir(fh.0).await {
+			Ok(handle) => handle,
+			Err(error) => return READDIR4res::Error(error.into()),
+		};
+		let page =
+			read_directory_page(&self.provider, handle, provider_offset, provider_length).await;
+		self.provider.close(handle).await;
+		let (entries, provider_eof) = match page {
+			Ok(page) => page,
+			Err(error) => return READDIR4res::Error(error.into()),
+		};
+		let entries_len = entries.len();
 		let mut directory_size: usize = 4;
 		let mut reply = Vec::with_capacity(entries.len());
 		let attr_request = arg.attr_request;
-		let mut entry_stream = stream::iter(entries.iter().cloned().enumerate().skip(start))
+		let mut entry_stream = stream::iter(entries.iter().cloned().enumerate())
 			.map(move |(index, (name, mut id, _))| {
 				let attr_request = attr_request.clone();
 				async move {
@@ -1463,13 +1455,15 @@ where
 			encoded_size += entry_encoded_size;
 			directory_size += entry_directory_size;
 			let entry = entry4 {
-				cookie: (index + 3).to_u64().unwrap(),
+				cookie: provider_offset
+					.saturating_add(index.to_u64().unwrap())
+					.saturating_add(1),
 				name,
 				attrs,
 			};
 			reply.push(entry);
 		}
-		let eof = start + reply.len() == entries.len();
+		let eof = provider_eof && reply.len() == entries_len;
 		let reply = dirlist4 {
 			entries: reply,
 			eof,
@@ -1649,6 +1643,33 @@ fn listen_addr(host: &str, port: u16) -> String {
 	} else {
 		format!("{host}:{port}")
 	}
+}
+
+async fn read_directory_page<P>(
+	provider: &P,
+	handle: u64,
+	offset: u64,
+	length: u64,
+) -> std::io::Result<(Vec<(String, u64, crate::EntryKind)>, bool)>
+where
+	P: crate::Provider + Sync,
+{
+	let entries = provider.readdir(handle, offset, length).await?;
+	let eof = if entries.is_empty() {
+		true
+	} else {
+		let next_offset = offset.saturating_add(entries.len().to_u64().unwrap());
+		provider
+			.readdir(
+				handle,
+				next_offset,
+				PROVIDER_READDIR_MIN_LENGTH.to_u64().unwrap(),
+			)
+			.await?
+			.is_empty()
+	};
+
+	Ok((entries, eof))
 }
 
 fn invalid_lock_range(offset: u64, length: u64) -> bool {
@@ -1835,7 +1856,7 @@ impl FileAttrData {
 			homogeneous: true,
 			maxfilesize: u64::MAX,
 			maxlink: u32::MAX,
-			maxname: 512,
+			maxname: MAX_NAME_LENGTH.to_u32().unwrap(),
 			maxread: u64::from(MAX_READ_SIZE),
 			maxwrite: 0,
 			mimetype: Vec::new(),

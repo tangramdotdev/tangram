@@ -1198,6 +1198,22 @@ export def skip_if_offline [] {
 	}
 }
 
+# Determine whether the running kernel has enabled the FUSE io_uring transport.
+export def fuse_io_uring_available [] {
+	if $nu.os-info.name != 'linux' {
+		return false
+	}
+	let path = '/sys/module/fuse/parameters/enable_uring'
+	if not ($path | path exists) {
+		return false
+	}
+	try {
+		(open --raw $path | str trim | str lowercase) in ['1' 'y']
+	} catch {
+		false
+	}
+}
+
 # Poll a condition until it returns true, erroring if the timeout elapses. Prefer this over a bare sleep, so the test runs as soon as the condition holds and tolerates slow machines.
 export def wait_until [
 	condition: closure

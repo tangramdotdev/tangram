@@ -82,66 +82,85 @@ impl tangram_vfs::Provider for Provider {
 		async move {
 			let mut responses = Vec::with_capacity(requests.len());
 			for request in requests {
-				let response = match request {
-					tangram_vfs::Request::Close { handle } => {
-						self.close(handle).await;
-						Ok(tangram_vfs::Response::Unit)
-					},
-					tangram_vfs::Request::Forget { .. } | tangram_vfs::Request::Remember { .. } => {
-						Ok(tangram_vfs::Response::Unit)
-					},
-					tangram_vfs::Request::GetAttr { id } => self
-						.getattr(id)
-						.await
-						.map(|attrs| tangram_vfs::Response::GetAttr { attrs }),
-					tangram_vfs::Request::GetXattr { id, name } => self
-						.getxattr(id, &name)
-						.await
-						.map(|value| tangram_vfs::Response::GetXattr { value }),
-					tangram_vfs::Request::ListXattrs { id } => self
-						.listxattrs(id)
-						.await
-						.map(|names| tangram_vfs::Response::ListXattrs { names }),
-					tangram_vfs::Request::Lookup { id, name } => self
-						.lookup(id, &name)
-						.await
-						.map(|id| tangram_vfs::Response::Lookup { id }),
-					tangram_vfs::Request::LookupParent { id } => self
-						.lookup_parent(id)
-						.await
-						.map(|id| tangram_vfs::Response::LookupParent { id }),
-					tangram_vfs::Request::Open { id } => {
-						self.open(id)
+				let response =
+					match request {
+						tangram_vfs::Request::Close { handle } => {
+							self.close(handle).await;
+							Ok(tangram_vfs::Response::Unit)
+						},
+						tangram_vfs::Request::Forget { .. }
+						| tangram_vfs::Request::Remember { .. } => Ok(tangram_vfs::Response::Unit),
+						tangram_vfs::Request::GetAttr { id } => self
+							.getattr(id)
 							.await
-							.map(|handle| tangram_vfs::Response::Open {
-								handle,
-								backing_fd: None,
-							})
-					},
-					tangram_vfs::Request::OpenDir { id } => self
-						.opendir(id)
-						.await
-						.map(|handle| tangram_vfs::Response::OpenDir { handle }),
-					tangram_vfs::Request::Read {
-						handle,
-						position,
-						length,
-					} => self
-						.read(handle, position, length)
-						.await
-						.map(|bytes| tangram_vfs::Response::Read { bytes }),
-					tangram_vfs::Request::ReadDir { handle } => self
-						.readdir(handle)
-						.await
-						.map(|entries| tangram_vfs::Response::ReadDir { entries }),
-					tangram_vfs::Request::ReadDirPlus { .. } => {
-						Err(Error::from_raw_os_error(libc::ENOSYS))
-					},
-					tangram_vfs::Request::ReadLink { id } => self
-						.readlink(id)
-						.await
-						.map(|target| tangram_vfs::Response::ReadLink { target }),
-				};
+							.map(|attrs| tangram_vfs::Response::GetAttr { attrs }),
+						tangram_vfs::Request::GetXattr { id, name } => self
+							.getxattr(id, &name)
+							.await
+							.map(|value| tangram_vfs::Response::GetXattr { value }),
+						tangram_vfs::Request::ListXattrs { id } => self
+							.listxattrs(id)
+							.await
+							.map(|names| tangram_vfs::Response::ListXattrs { names }),
+						tangram_vfs::Request::Lookup { id, name } => self
+							.lookup(id, &name)
+							.await
+							.map(|id| tangram_vfs::Response::Lookup { attrs: None, id }),
+						tangram_vfs::Request::LookupAndRemember { id, name } => {
+							match self.lookup(id, &name).await {
+								Ok(Some(id)) => self.getattr(id).await.map(|attrs| {
+									tangram_vfs::Response::Lookup {
+										attrs: Some(attrs),
+										id: Some(id),
+									}
+								}),
+								Ok(None) => Ok(tangram_vfs::Response::Lookup {
+									attrs: None,
+									id: None,
+								}),
+								Err(error) => Err(error),
+							}
+						},
+						tangram_vfs::Request::LookupParent { id } => self
+							.lookup_parent(id)
+							.await
+							.map(|id| tangram_vfs::Response::LookupParent { id }),
+						tangram_vfs::Request::Open { id } => {
+							self.open(id)
+								.await
+								.map(|handle| tangram_vfs::Response::Open {
+									handle,
+									backing_fd: None,
+								})
+						},
+						tangram_vfs::Request::OpenDir { id } => self
+							.opendir(id)
+							.await
+							.map(|handle| tangram_vfs::Response::OpenDir { handle }),
+						tangram_vfs::Request::Read {
+							handle,
+							position,
+							length,
+						} => self
+							.read(handle, position, length)
+							.await
+							.map(|bytes| tangram_vfs::Response::Read { bytes }),
+						tangram_vfs::Request::ReadDir {
+							handle,
+							length,
+							offset,
+						} => self
+							.readdir(handle, offset, length)
+							.await
+							.map(|entries| tangram_vfs::Response::ReadDir { entries }),
+						tangram_vfs::Request::ReadDirPlus { .. } => {
+							Err(Error::from_raw_os_error(libc::ENOSYS))
+						},
+						tangram_vfs::Request::ReadLink { id } => self
+							.readlink(id)
+							.await
+							.map(|target| tangram_vfs::Response::ReadLink { target }),
+					};
 				responses.push(response);
 			}
 			responses
@@ -188,7 +207,9 @@ impl tangram_vfs::Provider for Provider {
 				executable: false,
 				size: HELLO_WORLD.len().to_u64().unwrap(),
 			}),
-			LINK_NODE_ID => Attrs::new(AttrsInner::Symlink),
+			LINK_NODE_ID => Attrs::new(AttrsInner::Symlink {
+				size: HELLO_PATH.len().to_u64().unwrap(),
+			}),
 			_ => {
 				return Err(Error::from_raw_os_error(libc::ENOENT));
 			},
@@ -258,7 +279,12 @@ impl tangram_vfs::Provider for Provider {
 		Ok(id)
 	}
 
-	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64, tangram_vfs::EntryKind)>> {
+	async fn readdir(
+		&self,
+		handle: u64,
+		offset: u64,
+		_length: u64,
+	) -> Result<Vec<(String, u64, tangram_vfs::EntryKind)>> {
 		tracing::debug!(?handle, "readdir");
 		let Some(handle) = self.open_dirs.get(&handle) else {
 			return Err(Error::from_raw_os_error(libc::EIO));
@@ -279,7 +305,10 @@ impl tangram_vfs::Provider for Provider {
 		} else {
 			Vec::new()
 		};
-		Ok(contents)
+		Ok(contents
+			.into_iter()
+			.skip(offset.to_usize().unwrap())
+			.collect())
 	}
 
 	async fn close(&self, handle: u64) {

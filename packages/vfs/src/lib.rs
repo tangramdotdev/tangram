@@ -1,5 +1,7 @@
 use {bytes::Bytes, futures::Future, std::io::Error, std::os::fd::OwnedFd};
 
+#[doc(hidden)]
+pub mod cache;
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod nfs;
@@ -33,6 +35,10 @@ pub enum Request {
 		id: u64,
 		name: String,
 	},
+	LookupAndRemember {
+		id: u64,
+		name: String,
+	},
 	LookupParent {
 		id: u64,
 	},
@@ -49,6 +55,8 @@ pub enum Request {
 	},
 	ReadDir {
 		handle: u64,
+		length: u64,
+		offset: u64,
 	},
 	ReadDirPlus {
 		handle: u64,
@@ -75,6 +83,7 @@ pub enum Response {
 		names: Vec<String>,
 	},
 	Lookup {
+		attrs: Option<Attrs>,
 		id: Option<u64>,
 	},
 	LookupParent {
@@ -123,7 +132,7 @@ pub struct Attrs {
 pub enum AttrsInner {
 	File { executable: bool, size: u64 },
 	Directory,
-	Symlink,
+	Symlink { size: u64 },
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -141,7 +150,13 @@ pub trait Provider {
 
 	fn handle_batch_sync(&self, requests: Vec<Request>) -> Vec<Result<Response>>;
 
-	/// Close an open file handle.
+	/// Determine whether the provider supports directory reads without open handles.
+	#[must_use]
+	fn supports_no_opendir(&self) -> bool {
+		false
+	}
+
+	/// Close an open file or directory handle.
 	fn close(&self, handle: u64) -> impl Future<Output = ()> + Send
 	where
 		Self: Sync,
@@ -151,7 +166,7 @@ pub trait Provider {
 		}
 	}
 
-	/// Close an open file handle synchronously.
+	/// Close an open file or directory handle synchronously.
 	fn close_sync(&self, handle: u64) {
 		let _ = self.handle_batch_sync(vec![Request::Close { handle }]);
 	}
@@ -270,7 +285,7 @@ pub trait Provider {
 				.next()
 				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
-				Response::Lookup { id } => Ok(id),
+				Response::Lookup { id, .. } => Ok(id),
 				_ => Err(Error::other("unexpected response variant")),
 			}
 		}
@@ -287,7 +302,55 @@ pub trait Provider {
 			.next()
 			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
-			Response::Lookup { id } => Ok(id),
+			Response::Lookup { id, .. } => Ok(id),
+			_ => Err(Error::other("unexpected response variant")),
+		}
+	}
+
+	/// Look up a node and atomically acquire one kernel lookup reference.
+	fn lookup_and_remember(
+		&self,
+		id: u64,
+		name: &str,
+	) -> impl Future<Output = Result<Option<(u64, Attrs)>>> + Send
+	where
+		Self: Sync,
+	{
+		let name = name.to_owned();
+		async move {
+			let response = self
+				.handle_batch(vec![Request::LookupAndRemember { id, name }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
+			match response {
+				Response::Lookup { attrs, id } => match (attrs, id) {
+					(Some(attrs), Some(id)) => Ok(Some((id, attrs))),
+					(None, None) => Ok(None),
+					_ => Err(Error::other("invalid lookup-and-remember response")),
+				},
+				_ => Err(Error::other("unexpected response variant")),
+			}
+		}
+	}
+
+	/// Look up a node and atomically acquire one kernel lookup reference synchronously.
+	fn lookup_and_remember_sync(&self, id: u64, name: &str) -> Result<Option<(u64, Attrs)>> {
+		let response = self
+			.handle_batch_sync(vec![Request::LookupAndRemember {
+				id,
+				name: name.to_owned(),
+			}])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
+		match response {
+			Response::Lookup { attrs, id } => match (attrs, id) {
+				(Some(attrs), Some(id)) => Ok(Some((id, attrs))),
+				(None, None) => Ok(None),
+				_ => Err(Error::other("invalid lookup-and-remember response")),
+			},
 			_ => Err(Error::other("unexpected response variant")),
 		}
 	}
@@ -447,13 +510,19 @@ pub trait Provider {
 	fn readdir(
 		&self,
 		handle: u64,
+		offset: u64,
+		length: u64,
 	) -> impl Future<Output = Result<Vec<(String, u64, EntryKind)>>> + Send
 	where
 		Self: Sync,
 	{
 		async move {
 			let response = self
-				.handle_batch(vec![Request::ReadDir { handle }])
+				.handle_batch(vec![Request::ReadDir {
+					handle,
+					length,
+					offset,
+				}])
 				.await
 				.into_iter()
 				.next()
@@ -466,9 +535,18 @@ pub trait Provider {
 	}
 
 	/// Read from a directory synchronously.
-	fn readdir_sync(&self, handle: u64) -> Result<Vec<(String, u64, EntryKind)>> {
+	fn readdir_sync(
+		&self,
+		handle: u64,
+		offset: u64,
+		length: u64,
+	) -> Result<Vec<(String, u64, EntryKind)>> {
 		let response = self
-			.handle_batch_sync(vec![Request::ReadDir { handle }])
+			.handle_batch_sync(vec![Request::ReadDir {
+				handle,
+				length,
+				offset,
+			}])
 			.into_iter()
 			.next()
 			.ok_or_else(|| Error::other("expected exactly one response"))??;
@@ -476,6 +554,39 @@ pub trait Provider {
 			Response::ReadDir { entries } => Ok(entries),
 			_ => Err(Error::other("unexpected response variant")),
 		}
+	}
+
+	/// Read from a directory without an open handle.
+	fn readdir_node(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> impl Future<Output = Result<Vec<(String, u64, EntryKind)>>> + Send
+	where
+		Self: Sync,
+	{
+		async move {
+			let handle = self.opendir(id).await?;
+			let result = self.readdir(handle, offset, length).await;
+			self.close(handle).await;
+
+			result
+		}
+	}
+
+	/// Read from a directory without an open handle synchronously.
+	fn readdir_node_sync(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> Result<Vec<(String, u64, EntryKind)>> {
+		let handle = self.opendir_sync(id)?;
+		let result = self.readdir_sync(handle, offset, length);
+		self.close_sync(handle);
+
+		result
 	}
 
 	/// Read from a directory with attributes.
@@ -526,6 +637,39 @@ pub trait Provider {
 			Response::ReadDirPlus { entries } => Ok(entries),
 			_ => Err(Error::other("unexpected response variant")),
 		}
+	}
+
+	/// Read from a directory with attributes without an open handle.
+	fn readdirplus_node(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> impl Future<Output = Result<Vec<(String, u64, Attrs)>>> + Send
+	where
+		Self: Sync,
+	{
+		async move {
+			let handle = self.opendir(id).await?;
+			let result = self.readdirplus(handle, offset, length).await;
+			self.close(handle).await;
+
+			result
+		}
+	}
+
+	/// Read from a directory with attributes without an open handle synchronously.
+	fn readdirplus_node_sync(
+		&self,
+		id: u64,
+		offset: u64,
+		length: u64,
+	) -> Result<Vec<(String, u64, Attrs)>> {
+		let handle = self.opendir_sync(id)?;
+		let result = self.readdirplus_sync(handle, offset, length);
+		self.close_sync(handle);
+
+		result
 	}
 
 	/// Read from a symlink.
