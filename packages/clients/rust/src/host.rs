@@ -17,4 +17,8 @@ pub fn current() -> &'static str {
 	{
 		"x86_64-linux"
 	}
+	#[cfg(target_arch = "wasm32")]
+	{
+		"wasm32-unknown"
+	}
 }

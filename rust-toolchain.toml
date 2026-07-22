@@ -1,3 +1,4 @@
 [toolchain]
 channel = "stable"
 components = ["rust-analyzer"]
+targets = ["wasm32-unknown-unknown"]

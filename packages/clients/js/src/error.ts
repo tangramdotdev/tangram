@@ -31,7 +31,6 @@ export namespace error {
 		let stackObject: { stack: Array<tg.Error.Location> | null } = {
 			stack: null,
 		};
-		// @ts-expect-error
 		globalThis.Error.captureStackTrace(stackObject, tg.error.sync);
 		let object: tg.Error.Object = {
 			code: null,
@@ -124,7 +123,6 @@ export class Error {
 		let stackObject: { stack: Array<tg.Error.Location> | null } = {
 			stack: null,
 		};
-		// @ts-expect-error
 		globalThis.Error.captureStackTrace(stackObject, tg.Error.new);
 		let stack = stackObject.stack;
 		let arg = await tg.Error.arg({ stack }, ...args);
@@ -352,7 +350,6 @@ export namespace Error {
 			let stackObject: { stack: Array<tg.Error.Location> | null } = {
 				stack: null,
 			};
-			// @ts-expect-error
 			globalThis.Error.captureStackTrace(stackObject, tg.Error.Builder);
 			let stack = stackObject.stack;
 			this.#args.unshift({ stack });

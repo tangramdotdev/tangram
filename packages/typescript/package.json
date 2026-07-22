@@ -2,8 +2,13 @@
 	"name": "@tangramdotdev/typescript",
 	"private": true,
 	"type": "module",
+	"main": "dist/main.js",
 	"scripts": {
+		"build": "rm -rf dist && esbuild --bundle --minify --outfile=dist/main.js --sourcemap=external src/main.ts",
 		"check": "tsc && oxlint src",
 		"format": "oxfmt --write src"
+	},
+	"devDependencies": {
+		"typescript": "npm:@typescript/typescript6@^6.0.2"
 	}
 }

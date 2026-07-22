@@ -24,7 +24,7 @@ workspace = true
 ignored = ["num-traits"]
 
 [dev-dependencies]
-tangram_util = { workspace = true }
+tangram_util = { workspace = true, features = ["all"] }
 
 [dependencies]
 bytes = { workspace = true }
@@ -39,7 +39,7 @@ num-traits = { workspace = true }
 scylla = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tangram_client = { workspace = true }
+tangram_client = { workspace = true, features = ["all"] }
 tangram_futures = { workspace = true }
 tangram_serialize = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["full", "tracing"] }

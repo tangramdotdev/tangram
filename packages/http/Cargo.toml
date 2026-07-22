@@ -17,6 +17,11 @@ test = false
 [lints]
 workspace = true
 
+[features]
+all = ["zstd"]
+default = ["zstd"]
+zstd = ["dep:zstd"]
+
 [dependencies]
 opentelemetry = { workspace = true }
 bytes = { workspace = true }
@@ -34,8 +39,8 @@ serde_json = { workspace = true }
 serde_qs = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_uri = { workspace = true }
-tokio = { workspace = true }
-tokio-util = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["codec", "io", "rt", "time"] }
 tower = { workspace = true }
 tracing = { workspace = true }
-zstd = { workspace = true }
+zstd = { workspace = true, optional = true }

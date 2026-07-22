@@ -1,6 +1,5 @@
 use {
 	bytes::Bytes,
-	num::ToPrimitive as _,
 	pin_project::pin_project,
 	std::{io::Write as _, pin::Pin, task::Poll},
 };
@@ -29,11 +28,13 @@ pub enum Algorithm {
 
 enum Compressor {
 	Gzip(flate2::write::GzEncoder<Vec<u8>>),
+	#[cfg(feature = "zstd")]
 	Zstd(zstd::stream::write::Encoder<'static, Vec<u8>>),
 }
 
 enum Decompressor {
 	Gzip(flate2::write::GzDecoder<Vec<u8>>),
+	#[cfg(feature = "zstd")]
 	Zstd(zstd::stream::write::Decoder<'static, Vec<u8>>),
 }
 
@@ -45,10 +46,14 @@ impl Compressor {
 					flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(level));
 				Self::Gzip(encoder)
 			},
+			#[cfg(feature = "zstd")]
 			Algorithm::Zstd => {
-				let encoder = zstd::Encoder::new(Vec::new(), level.to_i32().unwrap()).unwrap();
+				let level = i32::try_from(level).unwrap();
+				let encoder = zstd::Encoder::new(Vec::new(), level).unwrap();
 				Self::Zstd(encoder)
 			},
+			#[cfg(not(feature = "zstd"))]
+			Algorithm::Zstd => panic!("zstd compression is disabled"),
 		}
 	}
 
@@ -62,6 +67,7 @@ impl Compressor {
 				buffer.clear();
 				Ok(output)
 			},
+			#[cfg(feature = "zstd")]
 			Self::Zstd(s) => {
 				s.write_all(data)?;
 				s.flush()?;
@@ -80,6 +86,7 @@ impl Compressor {
 				let bytes = s.finish()?;
 				Ok(bytes.into())
 			},
+			#[cfg(feature = "zstd")]
 			Self::Zstd(mut s) => {
 				s.flush()?;
 				let bytes = s.finish()?;
@@ -96,10 +103,13 @@ impl Decompressor {
 				let decoder = flate2::write::GzDecoder::new(Vec::new());
 				Decompressor::Gzip(decoder)
 			},
+			#[cfg(feature = "zstd")]
 			Algorithm::Zstd => {
 				let decoder = zstd::stream::write::Decoder::new(Vec::new()).unwrap();
 				Decompressor::Zstd(decoder)
 			},
+			#[cfg(not(feature = "zstd"))]
+			Algorithm::Zstd => panic!("zstd decompression is disabled"),
 		}
 	}
 
@@ -113,6 +123,7 @@ impl Decompressor {
 				buffer.clear();
 				Ok(output)
 			},
+			#[cfg(feature = "zstd")]
 			Self::Zstd(s) => {
 				s.write_all(data)?;
 				s.flush()?;
@@ -131,6 +142,7 @@ impl Decompressor {
 				let bytes = s.finish()?;
 				Ok(bytes.into())
 			},
+			#[cfg(feature = "zstd")]
 			Self::Zstd(mut s) => {
 				s.flush()?;
 				let bytes = s.into_inner();

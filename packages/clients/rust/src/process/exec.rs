@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::os::unix::process::CommandExt as _};
+use crate::prelude::*;
 
 pub async fn exec(arg: tg::process::Arg) -> tg::Result<()> {
 	let handle = tg::handle()?;
@@ -12,6 +12,7 @@ where
 	tg::Process::<tg::Value>::exec_with_handle(handle, arg).await
 }
 
+#[cfg(feature = "native")]
 impl<O> tg::Process<O> {
 	pub async fn exec(arg: tg::process::Arg) -> tg::Result<()> {
 		let handle = tg::handle()?;
@@ -22,6 +23,8 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
+		use std::os::unix::process::CommandExt as _;
+
 		let arg = super::spawn::spawn_arg_with_handle(handle, arg).await?;
 		if arg.sandbox.is_some() {
 			return Err(tg::error!("an exec must not be sandboxed"));
@@ -56,6 +59,21 @@ impl<O> tg::Process<O> {
 	}
 }
 
+#[cfg(not(feature = "native"))]
+impl<O> tg::Process<O> {
+	pub async fn exec(_arg: tg::process::Arg) -> tg::Result<()> {
+		Err(tg::error!("the native feature is disabled"))
+	}
+
+	pub async fn exec_with_handle<H>(_handle: &H, _arg: tg::process::Arg) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		Err(tg::error!("the native feature is disabled"))
+	}
+}
+
+#[cfg(feature = "native")]
 fn validate_stdio(
 	stdio: &tg::process::Stdio,
 	stream: tg::process::stdio::Stream,
@@ -73,6 +91,7 @@ fn validate_stdio(
 	}
 }
 
+#[cfg(feature = "native")]
 fn convert_stdio(stdio: &tg::process::Stdio) -> std::process::Stdio {
 	match stdio {
 		tg::process::Stdio::Inherit => std::process::Stdio::inherit(),

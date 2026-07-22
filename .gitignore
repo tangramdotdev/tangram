@@ -3,6 +3,8 @@
 /.claude
 /.config
 /.tangram
+/packages/clients/js/dist
+/packages/typescript/dist
 /release
 /target
 node_modules

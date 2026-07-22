@@ -11,8 +11,27 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-tls = ["dep:rustls", "dep:rustls-platform-verifier", "dep:tokio-rustls"]
-vsock = ["dep:tokio-vsock"]
+all = ["native", "tls", "vsock"]
+default = ["native"]
+native = [
+  "dep:aws-lc-rs",
+  "dep:crossterm",
+  "dep:libc",
+  "dep:miette",
+  "dep:xattr",
+  "tangram_http/all",
+  "tangram_util/all",
+  "tokio/fs",
+  "tokio/io-std",
+  "tokio/net",
+  "tokio/process",
+  "tokio/rt-multi-thread",
+  "tokio/signal",
+  "tower-http/compression-zstd",
+  "tower-http/decompression-zstd",
+]
+tls = ["native", "dep:rustls", "dep:rustls-platform-verifier", "dep:tokio-rustls"]
+vsock = ["native", "dep:tokio-vsock"]
 
 [lib]
 doctest = false
@@ -25,13 +44,13 @@ insta = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }
-aws-lc-rs = { workspace = true }
+aws-lc-rs = { workspace = true, optional = true }
 bitflags = { workspace = true }
 blake3 = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
-crossterm = { workspace = true }
+crossterm = { workspace = true, optional = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
@@ -43,10 +62,10 @@ hyper-util = { workspace = true }
 indoc = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
-libc = { workspace = true }
+libc = { workspace = true, optional = true }
 lsp-types = { workspace = true }
-miette = { workspace = true }
 mime = { workspace = true }
+miette = { workspace = true, optional = true }
 num = { workspace = true }
 regex = { workspace = true }
 rustls = { workspace = true, optional = true }
@@ -65,14 +84,14 @@ tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 time = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time", "tracing"] }
 tokio-rustls = { workspace = true, optional = true }
-tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync", "time"] }
+tokio-util = { workspace = true, features = ["codec", "io", "io-util", "rt", "time"] }
 tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
-tower-http = { workspace = true }
+tower-http = { workspace = true, features = ["add-extension", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["js"] }
 winnow = { workspace = true }
-xattr = { workspace = true }
+xattr = { workspace = true, optional = true }

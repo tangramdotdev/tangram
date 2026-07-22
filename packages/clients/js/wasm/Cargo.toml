@@ -1,5 +1,5 @@
 [package]
-name = "tangram_v8"
+name = "tangram_client_wasm"
 
 description = { workspace = true }
 edition = { workspace = true }
@@ -11,16 +11,12 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [lib]
+crate-type = ["cdylib"]
 doctest = false
-test = false
 
 [lints]
 workspace = true
 
 [dependencies]
-bytes = { workspace = true }
-derive_more = { workspace = true }
-num = { workspace = true }
-serde = { workspace = true }
-tangram_client = { workspace = true, features = ["all"] }
-v8 = { workspace = true }
+serde_json = { workspace = true }
+tangram_client = { workspace = true }

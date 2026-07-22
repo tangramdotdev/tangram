@@ -1,10 +1,15 @@
 import type * as tg from "./index.ts";
 
-export let host: Host = {} as any;
+export let host = {} as Host;
 
 export let setHost = (newHost: Host) => {
 	Object.defineProperties(host, Object.getOwnPropertyDescriptors(newHost));
 };
+
+if (typeof process !== "undefined" && process.versions?.node !== undefined) {
+	let { host: nodeHost } = await import("./host/node.ts");
+	setHost(nodeHost);
+}
 
 export type Host = {
 	http2: tg.Host.Http2;
@@ -162,20 +167,20 @@ export namespace Host {
 	};
 
 	export type SpawnArg = {
-		executable: string;
 		args: Array<string>;
 		cwd: string | null;
 		env: { [key: string]: string };
+		executable: string;
+		stderr: tg.Host.Stdio;
 		stdin: tg.Host.Stdio;
 		stdout: tg.Host.Stdio;
-		stderr: tg.Host.Stdio;
 	};
 
 	export type SpawnOutput = {
 		pid: number;
+		stderr: number | null;
 		stdin: number | null;
 		stdout: number | null;
-		stderr: number | null;
 	};
 
 	export type WaitOutput = {

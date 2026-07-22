@@ -1,18 +1,23 @@
 {
 	"compilerOptions": {
 		"allowImportingTsExtensions": true,
+		"declaration": true,
 		"exactOptionalPropertyTypes": true,
 		"isolatedModules": true,
 		"lib": ["esnext"],
 		"module": "esnext",
 		"moduleDetection": "force",
 		"moduleResolution": "bundler",
-		"noEmit": true,
 		"noUncheckedIndexedAccess": true,
 		"noUncheckedSideEffectImports": true,
+		"outDir": "./dist",
+		"rewriteRelativeImportExtensions": true,
+		"rootDir": "./src",
 		"strict": true,
 		"target": "esnext",
-		"types": [],
+		"typeRoots": ["./node_modules/@types"],
+		"types": ["node"],
 		"verbatimModuleSyntax": true
-	}
+	},
+	"include": ["./src/**/*"]
 }

@@ -1,13 +1,8 @@
+use {crate::prelude::*, bytes::Bytes, serde_with::serde_as, tangram_util::serde::BytesBase64};
+#[cfg(feature = "native")]
 use {
-	crate::prelude::*,
-	bytes::Bytes,
-	futures::{
-		StreamExt as _, TryStreamExt as _, future,
-		stream::{self},
-	},
-	serde_with::serde_as,
+	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	tangram_futures::task::Task,
-	tangram_util::{io, serde::BytesBase64},
 	tokio::io::AsyncWriteExt as _,
 };
 
@@ -114,6 +109,7 @@ impl std::str::FromStr for Stdio {
 	}
 }
 
+#[cfg(feature = "native")]
 pub(super) struct StdioTaskArg<H> {
 	pub handle: H,
 	pub id: tg::process::Id,
@@ -126,6 +122,7 @@ pub(super) struct StdioTaskArg<H> {
 	pub tty: bool,
 }
 
+#[cfg(feature = "native")]
 pub(super) async fn stdio_task<H>(arg: StdioTaskArg<H>) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -192,6 +189,7 @@ where
 	Ok(())
 }
 
+#[cfg(feature = "native")]
 async fn stdin_task<H>(
 	handle: &H,
 	id: tg::process::Id,
@@ -241,7 +239,7 @@ where
 		streams: vec![tg::process::stdio::Stream::Stdin],
 		token,
 	};
-	let input = io::stdin()
+	let input = tangram_util::io::stdin()
 		.map_err(|error| tg::error!(!error, "failed to open stdin"))?
 		.filter_map(|result| {
 			future::ready(match result {
@@ -263,6 +261,7 @@ where
 	handle.write_process_stdio_all(&id, arg, input).await
 }
 
+#[cfg(feature = "native")]
 async fn stdout_stderr_task<H>(
 	handle: &H,
 	id: tg::process::Id,
@@ -336,6 +335,7 @@ where
 	Ok(())
 }
 
+#[cfg(feature = "native")]
 async fn sigwinch_task<H>(
 	handle: &H,
 	id: tg::process::Id,
@@ -364,6 +364,7 @@ where
 	Ok(())
 }
 
+#[cfg(feature = "native")]
 pub(super) fn get_tty_size() -> Option<tg::process::tty::Size> {
 	let size = tangram_util::tty::get_controlling_tty_size()?;
 	Some(tg::process::tty::Size {

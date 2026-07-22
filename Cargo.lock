@@ -7783,6 +7783,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_client_wasm"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "tangram_client",
+]
+
+[[package]]
 name = "tangram_compiler"
 version = "0.0.0"
 dependencies = [
@@ -7869,6 +7877,7 @@ version = "0.0.0"
 dependencies = [
  "dashmap",
  "futures",
+ "getrandom 0.4.3",
  "num",
  "pin-project",
  "rand 0.10.2",

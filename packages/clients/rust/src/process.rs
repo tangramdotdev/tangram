@@ -384,17 +384,22 @@ impl<O> Process<O> {
 		H: tg::Handle,
 	{
 		if let Some(pid) = self.id().left() {
-			let pid = i32::try_from(*pid)
-				.map_err(|error| tg::error!(!error, "failed to convert the process id"))?;
-			let signal = i32::from(signal as u8);
-			let ret = unsafe { libc::kill(pid, signal) };
-			if ret < 0 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to signal the process"
-				));
+			#[cfg(not(feature = "native"))]
+			return Err(tg::error!(pid = %pid, "the native feature is disabled"));
+			#[cfg(feature = "native")]
+			{
+				let pid = i32::try_from(*pid)
+					.map_err(|error| tg::error!(!error, "failed to convert the process id"))?;
+				let signal = i32::from(signal as u8);
+				let ret = unsafe { libc::kill(pid, signal) };
+				if ret < 0 {
+					return Err(tg::error!(
+						source = std::io::Error::last_os_error(),
+						"failed to signal the process"
+					));
+				}
+				return Ok(());
 			}
-			return Ok(());
 		}
 
 		self.ensure_location_with_handle(handle).await?;

@@ -1,12 +1,17 @@
 pub mod arc;
+#[cfg(feature = "native")]
 pub mod artifact;
 pub mod collections;
+#[cfg(feature = "native")]
 pub mod env;
+#[cfg(feature = "native")]
 pub mod fs;
+#[cfg(feature = "native")]
 pub mod io;
 pub mod iter;
 pub mod path;
 pub mod read;
 pub mod serde;
+#[cfg(feature = "native")]
 pub mod tty;
 pub mod varint;

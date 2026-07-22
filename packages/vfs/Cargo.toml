@@ -30,8 +30,8 @@ num = { workspace = true }
 rustix = { workspace = true, features = ["event", "net", "process"] }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
-tokio = { workspace = true }
-tokio-util = { workspace = true }
+tokio = { workspace = true, features = ["full", "tracing"] }
+tokio-util = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 zerocopy = { workspace = true }
 
