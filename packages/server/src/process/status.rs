@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	futures::{
 		FutureExt as _, StreamExt as _, future,
-		stream::{BoxStream, FuturesUnordered},
+		stream::{self, BoxStream, FuturesUnordered},
 	},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -14,7 +14,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::ReceiverStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
 impl Session {
@@ -118,21 +118,22 @@ impl Session {
 		let wakeups = if timeout == Some(Duration::ZERO) {
 			None
 		} else {
-			let subject = format!("processes.{id}.status");
-			let wakeups = self
-				.server
-				.messenger
-				.subscribe::<()>(subject)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-				.map(|_| ());
-			let wakeups = match timeout {
-				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
-				None => wakeups.boxed(),
-			};
-			Some(wakeups.with_stopper(stopper))
+			Some(
+				self.create_process_status_wakeup_stream(id, stopper, timeout)
+					.await?,
+			)
 		};
+		let stream = self.create_process_status_stream_local_with_wakeups(id, None, wakeups);
 
+		Ok(stream)
+	}
+
+	pub(super) fn create_process_status_stream_local_with_wakeups(
+		&self,
+		id: &tg::process::Id,
+		initial: Option<tg::process::Status>,
+		wakeups: Option<BoxStream<'static, ()>>,
+	) -> BoxStream<'static, tg::Result<tg::process::status::Event>> {
 		// Create the channel.
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 
@@ -141,40 +142,74 @@ impl Session {
 		let id = id.clone();
 		let task = Task::spawn(|_| async move {
 			let result = session
-				.try_get_process_status_stream_local_task(&id, sender.clone(), wakeups)
+				.try_get_process_status_stream_local_task(&id, sender.clone(), initial, wakeups)
 				.await;
 			if let Err(error) = result {
 				sender.send(Err(error)).await.ok();
 			}
 		});
 
-		let stream = ReceiverStream::new(receiver).attach(task).boxed();
+		ReceiverStream::new(receiver).attach(task).boxed()
+	}
 
-		Ok(stream)
+	pub(super) async fn create_process_status_wakeup_stream(
+		&self,
+		id: &tg::process::Id,
+		stopper: Option<Stopper>,
+		timeout: Option<Duration>,
+	) -> tg::Result<BoxStream<'static, ()>> {
+		let subject = format!("processes.{id}.status");
+		let notifications = self
+			.server
+			.messenger
+			.subscribe::<()>(subject)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to subscribe to the process status stream")
+			})?
+			.map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+			.skip(1)
+			.map(|_| ());
+		let wakeups = stream::select(notifications, interval);
+		let wakeups = match timeout {
+			Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
+			None => wakeups.boxed(),
+		};
+		let wakeups = wakeups.with_stopper(stopper);
+
+		Ok(wakeups)
 	}
 
 	async fn try_get_process_status_stream_local_task(
 		&self,
 		id: &tg::process::Id,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::status::Event>>,
+		mut initial: Option<tg::process::Status>,
 		mut wakeups: Option<BoxStream<'static, ()>>,
 	) -> tg::Result<()> {
 		let mut previous: Option<tg::process::Status> = None;
 		loop {
-			// Retry the read when the status changes while the request is in flight.
-			let status = match &mut wakeups {
-				None => self.try_get_process_status_local(id).await?,
-				Some(wakeups) => {
-					tokio::select! {
-						result = self.try_get_process_status_local(id) => result?,
-						wakeup = wakeups.next() => {
-							if wakeup.is_none() {
-								return Ok(());
+			let status = if let Some(initial) = initial.take() {
+				Some(initial)
+			} else {
+				// Retry the read when the status changes while the request is in flight.
+				match &mut wakeups {
+					None => self.try_get_process_status_local(id).await?,
+					Some(wakeups) => {
+						tokio::select! {
+							result = self.try_get_process_local_inner_attempt(id, false) => {
+								result?.map(|output| output.data.status)
+							},
+							wakeup = wakeups.next() => {
+								if wakeup.is_none() {
+									return Ok(());
+								}
+								continue;
 							}
-							continue;
-						},
-					}
-				},
+						}
+					},
+				}
 			}
 			.unwrap_or(tg::process::Status::Finished);
 			if previous != Some(status) {

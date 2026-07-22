@@ -2,7 +2,7 @@ use {
 	crate::{Server, Session},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
-		stream::{self, FuturesUnordered},
+		stream::{self, BoxStream, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
@@ -101,6 +101,39 @@ impl Session {
 	}
 
 	pub(crate) async fn try_get_process_local_inner(
+		&self,
+		id: &tg::process::Id,
+		metadata: bool,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		// Subscribe before reading to avoid missing a status change between the read and subscription.
+		let mut wakeups = self
+			.create_process_status_wakeup_stream(id, None, None)
+			.await?;
+		self.try_get_process_local_inner_with_wakeups(id, metadata, &mut wakeups)
+			.await
+	}
+
+	pub(super) async fn try_get_process_local_inner_with_wakeups(
+		&self,
+		id: &tg::process::Id,
+		metadata: bool,
+		wakeups: &mut BoxStream<'static, ()>,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		loop {
+			tokio::select! {
+				output = self.try_get_process_local_inner_attempt(id, metadata) => {
+					return output;
+				},
+				wakeup = wakeups.next() => {
+					if wakeup.is_none() {
+						return Err(tg::error!("the process status wakeup stream ended"));
+					}
+				},
+			}
+		}
+	}
+
+	pub(super) async fn try_get_process_local_inner_attempt(
 		&self,
 		id: &tg::process::Id,
 		metadata: bool,

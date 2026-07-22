@@ -120,42 +120,26 @@ impl Session {
 		let resource = tg::Referent::with_item_and_token(id.clone(), token);
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		let mut wakeups = self
+			.create_process_status_wakeup_stream(id, None, None)
+			.await?;
 		let authorize_future = self.authorize(resource, permissions).boxed();
-		let get_future = self.try_get_process_local_inner(id, false).boxed();
-		let check_future = async {
-			let (permissions, process) = future::try_join(authorize_future, get_future).await?;
-			Ok::<_, tg::Error>(process.is_some().then_some(permissions).flatten())
-		}
-		.boxed();
-		let create_future = self
-			.create_process_status_stream_local(id, None, None)
+		let get_future = self
+			.try_get_process_local_inner_with_wakeups(id, false, &mut wakeups)
 			.boxed();
-		let (permissions, stream) = match future::select(check_future, create_future).await {
-			future::Either::Left((permissions, create_future)) => {
-				let Some(permissions) = permissions? else {
-					return Ok(None);
-				};
-				if !permissions.contains(permission) {
-					return Ok(None);
-				}
-				let stream = create_future.await.map_err(
-					|error| tg::error!(!error, %id, "failed to get the process status stream"),
-				)?;
-				(permissions, stream)
-			},
-			future::Either::Right((stream, check_future)) => {
-				let Some(permissions) = check_future.await? else {
-					return Ok(None);
-				};
-				if !permissions.contains(permission) {
-					return Ok(None);
-				}
-				let stream = stream.map_err(
-					|error| tg::error!(!error, %id, "failed to get the process status stream"),
-				)?;
-				(permissions, stream)
-			},
+		let (permissions, process) = future::try_join(authorize_future, get_future).await?;
+		let Some(permissions) = permissions else {
+			return Ok(None);
 		};
+		let Some(process) = process else {
+			return Ok(None);
+		};
+		if !permissions.contains(permission) {
+			return Ok(None);
+		}
+		let initial = process.data.status;
+		let stream =
+			self.create_process_status_stream_local_with_wakeups(id, Some(initial), Some(wakeups));
 		let session = self.clone();
 		let id = id.clone();
 		let stream = stream.boxed();
