@@ -73,6 +73,14 @@ impl Session {
 			.get(&sandbox)
 			.and_then(|sandbox| sandbox.sandbox.clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
+
+		// Serve a shared artifacts path through the per-sandbox VFS mount.
+		if self.server.vfs.lock().unwrap().is_some() {
+			if let Ok(rest) = path.strip_prefix(self.server.artifacts_path()) {
+				return Ok(sandbox.guest_artifacts_path().join(rest));
+			}
+		}
+
 		sandbox
 			.guest_path_for_host_path(path)
 			.ok_or_else(|| tg::error!(path = %path.display(), "no guest path for host path"))

@@ -1,7 +1,7 @@
 #[cfg(feature = "lmdb")]
 use heed as lmdb;
 use {
-	crate::Server,
+	crate::{Server, Session, context::Context},
 	bytes::Bytes,
 	dashmap::DashMap,
 	futures::TryStreamExt as _,
@@ -18,6 +18,7 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 	tangram_vfs as vfs,
 };
@@ -29,6 +30,8 @@ pub struct Provider {
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	handle_count: AtomicU64,
 	nodes: Nodes,
+	principal: Arc<Mutex<Option<tg::Principal>>>,
+	runtime: tokio::runtime::Handle,
 	server: Server,
 }
 
@@ -113,7 +116,10 @@ const DIRECTORY_SNAPSHOT_READ_ENTRY_LIMIT: usize = 65_536;
 const NAME_MAX: usize = 255;
 
 impl Provider {
-	pub async fn new(server: &Server) -> tg::Result<Self> {
+	pub async fn new(
+		server: &Server,
+		principal: Arc<Mutex<Option<tg::Principal>>>,
+	) -> tg::Result<Self> {
 		// Create the nodes.
 		let nodes = Nodes::new();
 
@@ -125,6 +131,7 @@ impl Provider {
 		));
 		let file_handles = DashMap::default();
 		let handle_count = AtomicU64::new(1000);
+		let runtime = tokio::runtime::Handle::current();
 		let server = server.clone();
 		let provider = Self {
 			directory_handles,
@@ -133,10 +140,83 @@ impl Provider {
 			file_handles,
 			handle_count,
 			nodes,
+			principal,
+			runtime,
 			server,
 		};
 
 		Ok(provider)
+	}
+
+	// Determine whether the mount's principal is authorized to access an artifact and, by extension, its entire subtree. Authorization is checked once at the root of each artifact subtree, so all descendants inherit it.
+	async fn artifact_authorized(&self, artifact: &tg::artifact::Id) -> bool {
+		let id: tg::Id = artifact.clone().into();
+
+		// Deny until the mount is bound to a principal.
+		let Some(principal) = self.principal.lock().unwrap().clone() else {
+			return false;
+		};
+
+		// The root principal is authorized for every artifact.
+		if matches!(principal, tg::Principal::Root) {
+			return true;
+		}
+
+		// Check for a token tracked with the sandbox that grants the artifact's subtree, which avoids a deep index check.
+		if let tg::Principal::Sandbox(sandbox) = &principal {
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let authorized = self
+				.server
+				.runner
+				.state()
+				.sandboxes()
+				.get(sandbox)
+				.and_then(|state| state.tokens.get(artifact).cloned())
+				.is_some_and(|token| {
+					token.body.expires_at > now && token.body.grants(permission)
+				});
+			if authorized {
+				return true;
+			}
+		}
+
+		// Check the materialized visibility fast path.
+		let visible = self
+			.server
+			.index
+			.visible(std::slice::from_ref(&id), &principal)
+			.await
+			.ok()
+			.and_then(|mut visible| visible.pop())
+			.unwrap_or(false);
+		if visible {
+			return true;
+		}
+
+		// Fall back to a deep authorization check against the index.
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let context = Context {
+			id: None,
+			principal,
+			sandbox: true,
+			stopper: None,
+			token: None,
+		};
+		let session = Session::new(self.server.clone(), context);
+		session
+			.authorize(tg::grant::Resource::Id(id), permission)
+			.await
+			.ok()
+			.flatten()
+			.is_some_and(|permissions| permissions.contains(permission))
+	}
+
+	// Synchronously determine whether the mount's principal is authorized to access an artifact. The virtiofs transport dispatches on a blocking thread, so it drives the asynchronous check to completion on the server's runtime.
+	fn artifact_authorized_sync(&self, id: &tg::artifact::Id) -> bool {
+		self.runtime.block_on(self.artifact_authorized(id))
 	}
 
 	pub fn handle_batch(
@@ -543,9 +623,13 @@ impl Provider {
 				.or_else(|| name.strip_suffix(".tg.js"))
 				.or_else(|| Path::new(name).file_stem().and_then(|s| s.to_str()))
 				.unwrap_or(name);
-			let Ok(id) = name.parse() else {
+			let Ok(id) = name.parse::<tg::artifact::Id>() else {
 				return Ok(None);
 			};
+			// Return not found if the principal is not authorized to access the artifact.
+			if !self.artifact_authorized(&id).await {
+				return Ok(None);
+			}
 			let artifact = ArtifactInfo { data: None, id };
 			Some((artifact, 1))
 		};
@@ -654,9 +738,13 @@ impl Provider {
 				.or_else(|| name.strip_suffix(".tg.js"))
 				.or_else(|| Path::new(name).file_stem().and_then(|s| s.to_str()))
 				.unwrap_or(name);
-			let Ok(id) = name.parse() else {
+			let Ok(id) = name.parse::<tg::artifact::Id>() else {
 				return Ok(None);
 			};
+			// Return not found if the principal is not authorized to access the artifact.
+			if !self.artifact_authorized_sync(&id) {
+				return Ok(None);
+			}
 			let artifact = ArtifactInfo { data: None, id };
 			Some((artifact, 1))
 		};

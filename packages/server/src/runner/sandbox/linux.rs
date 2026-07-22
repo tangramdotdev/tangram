@@ -1,5 +1,6 @@
 use {
 	crate::{Server, Session, temp::Temp},
+	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 };
 
@@ -71,7 +72,9 @@ impl Server {
 			})?;
 		let _vfs = {
 			let socket = temp.path().join("vfs.sock");
-			crate::vfs::Server::start_virtiofs(self, &socket, vm.dax)
+			// This mount only builds the snapshot, which is reused to start many differently-owned sandboxes, so it runs as root. Enforcement is applied entirely by the per-sandbox mount at resume.
+			let principal = Arc::new(Mutex::new(Some(tg::Principal::Root)));
+			crate::vfs::Server::start_virtiofs(self, &socket, vm.dax, principal)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to start the artifacts vfs"))?
 		};

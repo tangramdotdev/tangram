@@ -118,6 +118,10 @@ typedef struct {
 	const char *object_store_path;
 	// The prefix for the object store's POSIX lock semaphores. It must match the server's. NULL or empty selects the default hash-derived names.
 	const char *object_store_posix_sem_prefix;
+	// The principal the mount serves, in the display form of a principal. NULL or empty leaves the mount unenforced.
+	const char *principal;               
+	// The grant tokens the mount holds, as a JSON array of grant tokens. NULL or empty provides no tokens.
+	const char *tokens;                  
 } TgConfig;
 
 // Manage provider lifecycle; the optional config pointer selects the provider configuration, and NULL selects the defaults.

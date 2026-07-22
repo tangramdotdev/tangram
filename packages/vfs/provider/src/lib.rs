@@ -10,6 +10,7 @@ use {
 		path::PathBuf,
 		time::Duration,
 	},
+	tangram_client as tg,
 	tangram_vfs::{Attrs, AttrsInner, EntryKind, Request, Response, Result, Timestamp},
 };
 
@@ -162,6 +163,10 @@ pub struct TgConfig {
 	pub object_store_path: *const c_char,
 	/// The prefix for the object store's POSIX lock semaphores, a null-terminated UTF-8 string owned by the caller. It must match the prefix the server opens the object store with so that the sandboxed provider and the server share the same lock. A null pointer or an empty string selects the default hash-derived names.
 	pub object_store_posix_sem_prefix: *const c_char,
+	/// The principal the mount serves, a null-terminated UTF-8 string owned by the caller in the display form of a principal. A null pointer or an empty string leaves the mount unenforced.
+	pub principal: *const c_char,
+	/// The grant tokens the mount holds, a null-terminated UTF-8 string owned by the caller containing a JSON array of grant tokens. A null pointer or an empty string provides no tokens.
+	pub tokens: *const c_char,
 }
 
 impl From<Status> for i32 {
@@ -268,6 +273,25 @@ fn config_from_c(config: &TgConfig) -> Config {
 				.ok()
 				.filter(|prefix| !prefix.is_empty())
 				.map(ToOwned::to_owned)
+		},
+		principal: if config.principal.is_null() {
+			None
+		} else {
+			unsafe { CStr::from_ptr(config.principal) }
+				.to_str()
+				.ok()
+				.filter(|principal| !principal.is_empty())
+				.and_then(|principal| principal.parse::<tg::Principal>().ok())
+		},
+		tokens: if config.tokens.is_null() {
+			Vec::new()
+		} else {
+			unsafe { CStr::from_ptr(config.tokens) }
+				.to_str()
+				.ok()
+				.filter(|tokens| !tokens.is_empty())
+				.and_then(|tokens| serde_json::from_str::<Vec<tg::grant::Token>>(tokens).ok())
+				.unwrap_or_default()
 		},
 	}
 }

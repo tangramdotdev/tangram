@@ -76,12 +76,14 @@ private struct VfsBrokerRequest: Decodable {
 	let dataDirectory: String
 	let mountPath: String
 	let objectStore: VfsBrokerObjectStore?
+	let principal: String?
 	let socket: String
 
 	private enum CodingKeys: String, CodingKey {
 		case dataDirectory = "data_directory"
 		case mountPath = "mount_path"
 		case objectStore = "object_store"
+		case principal
 		case socket
 		case token
 		case type
@@ -319,9 +321,16 @@ private final class VfsBroker: @unchecked Sendable {
 		throw VfsBrokerError.extensionApprovalTimedOut(lastMessage)
 	}
 
-	private func mountOptions(_ objectStore: VfsBrokerObjectStore?, socket: String) -> String {
+	private func mountOptions(_ objectStore: VfsBrokerObjectStore?, socket: String, principal: String?) -> String {
 		var options = ["nobrowse", "nodev", "nosuid"]
 		options.append("socket=\(socket)")
+		if let principal, !principal.isEmpty {
+			if !principal.contains(",") {
+				options.append("principal=\(principal)")
+			} else {
+				logger.error("the principal contains a comma, so it cannot be sent to the file system extension")
+			}
+		}
 		if let objectStore {
 			options.append("object_store_map_size=\(objectStore.mapSize)")
 			if !objectStore.path.contains(",") {
@@ -362,7 +371,7 @@ private final class VfsBroker: @unchecked Sendable {
 		let arguments = [
 			"-F",
 			"-t", "tangram",
-			"-o", mountOptions(objectStore, socket: socket),
+			"-o", mountOptions(objectStore, socket: socket, principal: request.principal),
 			URL(filePath: dataDirectory, directoryHint: .isDirectory).standardizedFileURL.path(),
 			path,
 		]

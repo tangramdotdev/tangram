@@ -1,6 +1,9 @@
 use {
-	crate::Session, futures::FutureExt as _, tangram_client::prelude::*,
-	tangram_futures::stream::TryExt, tangram_index::prelude::*,
+	crate::Session,
+	futures::FutureExt as _,
+	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt,
+	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -121,7 +124,9 @@ impl Session {
 			.authorize_batch(&index_args, &self.context.principal)
 			.await?;
 		for (position, output) in std::iter::zip(index_positions, index_outputs) {
-			if let Some(output) = output {
+			if let Some(output) = output
+				&& !output.permissions.is_empty()
+			{
 				outputs[position] = Some(output.permissions);
 			}
 		}

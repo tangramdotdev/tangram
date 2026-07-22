@@ -13,7 +13,6 @@ def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from cockroach, scylla, and nats.
 	--cloud # Enable cloud database backends (cockroach, scylla, nats) for spawn --cloud.
-	--fskit # Run every test against the fskit VFS. Requires the macOS app and its file system extension to be installed and enabled.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--preserve-temps # Keep the temporary directories.
@@ -28,6 +27,7 @@ def main [
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 60sec # The timeout for each test.
 	--turso # Use Turso for the server database.
+	--vfs # Run every test against the VFS: fskit on macos, fuse on linux. On macos, requires the app and its file system extension to be installed and enabled.
 	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
@@ -45,10 +45,8 @@ def main [
 	if $release and $tangram_path != null {
 		error make { msg: '--release may not be combined with --tangram-path' }
 	}
-	# Validate the fskit flag.
-	if $fskit and $nu.os-info.name != 'macos' {
-		error make { msg: '--fskit is only supported on macos' }
-	}
+	# The vfs flag uses the fskit vfs on macos.
+	let fskit = $vfs and $nu.os-info.name == 'macos'
 	# Validate the stress flag combination.
 	let stress = $stress or $stress_count != null
 	if $stress and ($accept or $review) {
@@ -180,6 +178,7 @@ def main [
 		stress: $stress,
 		timeout: $timeout,
 		turso: $turso,
+		vfs: $vfs,
 		vm: $vm,
 		kernel_path: ($kernel_path | default "" | into string),
 	}
@@ -535,6 +534,7 @@ def run_test [test: record, options: record] {
 		TANGRAM_TEST_OFFLINE: (if $options.offline { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $options.quickjs { "1" } else { "" }),
 		TANGRAM_TEST_TURSO: (if $options.turso { "1" } else { "" }),
+		TANGRAM_TEST_VFS: (if $options.vfs { "1" } else { "" }),
 		TANGRAM_TEST_VM: (if $options.vm { "1" } else { "" }),
 		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
 		TMPDIR: $temp_path,
@@ -991,6 +991,8 @@ export def --env spawn [
 		}
 	}
 
+	let use_vfs = (($env.TANGRAM_TEST_VFS? | default "") | str length) > 0
+
 
 	let use_vm = (($env.TANGRAM_TEST_VM? | default "") | str length) > 0
 	if $use_vm {
@@ -1065,15 +1067,16 @@ export def --env spawn [
 	# Write the config.
 	let config = $default_config | merge deep --strategy append ($config | default {})
 
-	# Force the vfs kind for every server when fskit is enabled, because a test that configures the vfs itself would otherwise override it. A test that disables the vfs is left alone.
-	let config = if not $use_fskit {
+	# Force the vfs on for every server when fskit or vfs is enabled, because a test that omits or configures the vfs itself would otherwise override it. A test that disables the vfs is left alone.
+	let forced_vfs_kind = if $use_fskit { 'fskit' } else if $use_vfs { 'fuse' } else { null }
+	let config = if $forced_vfs_kind == null {
 		$config
 	} else if ($config | get --optional vfs) == false {
 		$config
 	} else if (($config | get --optional vfs | describe) | str starts-with 'record') {
-		$config | upsert vfs ($config | get vfs | upsert kind 'fskit')
+		$config | upsert vfs ($config | get vfs | upsert kind $forced_vfs_kind)
 	} else {
-		$config | upsert vfs { kind: 'fskit' }
+		$config | upsert vfs { kind: $forced_vfs_kind }
 	}
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'

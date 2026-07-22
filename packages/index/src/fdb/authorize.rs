@@ -1043,6 +1043,17 @@ impl Index {
 				)
 				.await?
 			},
+			// A sandbox contains its own processes, so it may access the objects they create, the processes they spawn, and their outputs.
+			tg::grant::Principal::Process(process) => {
+				if let tg::Principal::Sandbox(sandbox) = requester.principal {
+					Self::try_get_process_with_transaction(txn, subspace, process)
+						.await?
+						.and_then(|process| process.sandbox)
+						.as_ref() == Some(sandbox)
+				} else {
+					false
+				}
+			},
 			_ => false,
 		};
 		requester

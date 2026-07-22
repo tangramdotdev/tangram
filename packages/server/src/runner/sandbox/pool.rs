@@ -103,6 +103,10 @@ async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		mut temp,
 		#[cfg(target_os = "linux")]
 		vfs,
+		#[cfg(target_os = "linux")]
+		vfs_mount,
+		#[cfg(target_os = "linux")]
+		vfs_principal: _,
 	} = output;
 
 	// Stop the serve task.
@@ -118,9 +122,21 @@ async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		.await
 		.map_err(|error| tg::error!(!error, "failed to destroy the pooled sandbox process"));
 
-	// Stop the VFS.
+	// Unmount and stop the VFS.
 	#[cfg(target_os = "linux")]
-	drop(vfs);
+	let vfs_result = {
+		let result = match vfs_mount {
+			Some(mount_path) => crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, &mount_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to unmount the pooled sandbox vfs")),
+			None => Ok(()),
+		};
+		if let Some(vfs) = vfs {
+			vfs.stop();
+			vfs.wait().await;
+		}
+		result
+	};
 
 	// Remove the temp directory.
 	let temp_result = temp
@@ -129,6 +145,8 @@ async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to remove the pooled sandbox temp directory"));
 	serve_result?;
 	sandbox_result?;
+	#[cfg(target_os = "linux")]
+	vfs_result?;
 	temp_result?;
 
 	Ok(())
