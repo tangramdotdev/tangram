@@ -110,6 +110,7 @@ const DIRECTORY_SNAPSHOT_CACHE_CAPACITY: usize = 64 * 1024 * 1024;
 const DIRECTORY_SNAPSHOT_ENTRY_OVERHEAD: usize = 256;
 const DIRECTORY_SNAPSHOT_OVERHEAD: usize = 256;
 const DIRECTORY_SNAPSHOT_READ_ENTRY_LIMIT: usize = 65_536;
+const NAME_MAX: usize = 255;
 
 impl Provider {
 	pub async fn new(server: &Server) -> tg::Result<Self> {
@@ -960,7 +961,7 @@ impl Provider {
 		};
 		let entry_weight = std::mem::size_of::<DirectorySnapshotEntry>()
 			.saturating_add(DIRECTORY_SNAPSHOT_ENTRY_OVERHEAD)
-			.saturating_add(libc::NAME_MAX.to_usize().unwrap());
+			.saturating_add(NAME_MAX);
 		let estimated_weight = count
 			.to_usize()
 			.unwrap_or(usize::MAX)
@@ -3135,7 +3136,7 @@ mod tests {
 	fn large_directory_branches_are_paged() {
 		let entry_weight = std::mem::size_of::<DirectorySnapshotEntry>()
 			+ DIRECTORY_SNAPSHOT_ENTRY_OVERHEAD
-			+ libc::NAME_MAX.to_usize().unwrap();
+			+ NAME_MAX;
 		let count = (DIRECTORY_SNAPSHOT_CACHE_CAPACITY / entry_weight + 1)
 			.to_u64()
 			.unwrap();
