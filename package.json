@@ -22,7 +22,12 @@
 		"stg": "PATH=\"$PWD/target/debug:$PATH\" cargo build --all-features && sudo target/debug/tangram -c .config/tangram/config.json -d .tangram -m client",
 		"tgr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m client",
 		"tgx": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram  -m client run -b",
-		"tgxr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram  -m client run -b"
+		"tgxr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram  -m client run -b",
+		"macos:build": "nu scripts/macos/build.nu",
+		"macos:check": "nu scripts/macos/check.nu",
+		"macos:doctor": "nu scripts/macos/doctor.nu",
+		"macos:release": "nu scripts/macos/release.nu",
+		"macos:run": "nu scripts/macos/run.nu"
 	},
 	"dependencies": {
 		"@types/bun": "^1.3.14",

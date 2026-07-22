@@ -570,6 +570,9 @@ pub struct LmdbObjectStore {
 	pub map_size: usize,
 
 	pub path: PathBuf,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub posix_sem_prefix: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1094,19 +1097,26 @@ pub struct SyncPutStore {
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
-pub enum Vfs {
-	Fuse(VfsFuse),
-
-	Nfs,
-}
-
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct VfsFuse {
+pub struct Vfs {
+	pub kind: VfsKind,
+
 	pub io: VfsIo,
 
 	pub passthrough: VfsPassthrough,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VfsKind {
+	#[default]
+	Auto,
+
+	Fskit,
+
+	Fuse,
+
+	Nfs,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1431,7 +1441,20 @@ impl Default for LmdbObjectStore {
 		Self {
 			map_size: 1_099_511_627_776,
 			path: PathBuf::from("objects"),
+			posix_sem_prefix: None,
 		}
+	}
+}
+
+impl LmdbObjectStore {
+	/// Returns the POSIX semaphore prefix, falling back to the macOS app group identifier that the app passes in the environment. This lets the server and the sandboxed file system extension share the same lock by default, because the sandbox permits both processes to open a semaphore named for their shared app group. The server and the extension resolve the same value so the writer and the reader agree.
+	#[must_use]
+	pub fn resolved_posix_sem_prefix(&self) -> Option<String> {
+		self.posix_sem_prefix.clone().or_else(|| {
+			std::env::var("TANGRAM_MACOS_APP_GROUP_IDENTIFIER")
+				.ok()
+				.filter(|value| !value.is_empty())
+		})
 	}
 }
 
@@ -1656,10 +1679,10 @@ impl Default for SyncPutStore {
 
 impl Default for Vfs {
 	fn default() -> Self {
-		if cfg!(target_os = "linux") {
-			Self::Fuse(VfsFuse::default())
-		} else {
-			Self::Nfs
+		Self {
+			kind: VfsKind::Auto,
+			io: VfsIo::Auto,
+			passthrough: VfsPassthrough::Auto,
 		}
 	}
 }

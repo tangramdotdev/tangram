@@ -4,6 +4,7 @@
 # rustflags = ["-Zthreads=8"]
 
 [env]
+MACOSX_DEPLOYMENT_TARGET = "26.0"
 RUSTY_V8_MIRROR = "https://github.com/denoland/rusty_v8/releases/download"
 
 [profile.dev]

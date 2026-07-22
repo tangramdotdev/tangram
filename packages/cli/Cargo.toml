@@ -101,3 +101,4 @@ v8 = { workspace = true, optional = true }
 waitpid-any = { workspace = true }
 webbrowser = { workspace = true }
 xattr = { workspace = true }
+tracing-oslog = "0.3.0"

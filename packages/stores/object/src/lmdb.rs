@@ -15,6 +15,13 @@ mod task;
 pub struct Config {
 	pub map_size: usize,
 	pub path: std::path::PathBuf,
+
+	/// An optional prefix for the POSIX lock semaphores. When set, LMDB derives
+	/// the reader and writer semaphore names by appending `r` and `w` to this
+	/// prefix instead of hashing the lock file, which lets processes in
+	/// different sandboxes share the same lock. See
+	/// `heed::EnvOpenOptions::semaphore_name`.
+	pub posix_sem_prefix: Option<String>,
 }
 
 pub struct Store {
@@ -60,20 +67,23 @@ impl Store {
 			.map_err(
 				|error| tg::error!(!error, path = %config.path.display(), "failed to open the lmdb file"),
 			)?;
+		let mut options = lmdb::EnvOpenOptions::new();
+		options
+			.map_size(config.map_size)
+			.max_dbs(3)
+			.max_readers(1_000);
+		unsafe {
+			options.flags(
+				lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::WRITE_MAP | lmdb::EnvFlags::MAP_ASYNC,
+			);
+		}
+		if let Some(prefix) = &config.posix_sem_prefix {
+			options.semaphore_name(prefix.clone());
+		}
 		let env = unsafe {
-			lmdb::EnvOpenOptions::new()
-				.map_size(config.map_size)
-				.max_dbs(3)
-				.max_readers(1_000)
-				.flags(
-					lmdb::EnvFlags::NO_SUB_DIR
-						| lmdb::EnvFlags::WRITE_MAP
-						| lmdb::EnvFlags::MAP_ASYNC,
-				)
-				.open(&config.path)
-				.map_err(|error| {
-					tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
-				})?
+			options.open(&config.path).map_err(|error| {
+				tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
+			})?
 		};
 		let mut transaction = env.write_txn().unwrap();
 		let db = env
@@ -95,6 +105,43 @@ impl Store {
 			env,
 			handle: Some(handle),
 			sender: Some(sender),
+		})
+	}
+
+	/// Opens an existing store read only and without locking. LMDB permits a process to open an environment read only while another process has it open read write, provided the map size is at least the writer's. The store returned by this function has no writer thread, so every write method panics.
+	pub fn new_readonly(config: &Config) -> tg::Result<Self> {
+		if !std::fs::exists(&config.path).unwrap_or(false) {
+			return Err(tg::error!(path = %config.path.display(), "the lmdb file does not exist"));
+		}
+		let mut options = lmdb::EnvOpenOptions::new();
+		options
+			.map_size(config.map_size)
+			.max_dbs(3)
+			.max_readers(1_000);
+		unsafe {
+			options.flags(lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::READ_ONLY);
+		}
+		if let Some(prefix) = &config.posix_sem_prefix {
+			options.semaphore_name(prefix.clone());
+		}
+		let env = unsafe {
+			options.open(&config.path).map_err(|error| {
+				tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment read only")
+			})?
+		};
+		let transaction = env
+			.read_txn()
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let db = env
+			.open_database(&transaction, None)
+			.map_err(|error| tg::error!(!error, "failed to open the database"))?
+			.ok_or_else(|| tg::error!("the database does not exist"))?;
+		drop(transaction);
+		Ok(Self {
+			db,
+			env,
+			handle: None,
+			sender: None,
 		})
 	}
 
@@ -174,6 +221,7 @@ mod tests {
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
+			posix_sem_prefix: None,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -213,6 +261,7 @@ mod tests {
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
+			posix_sem_prefix: None,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -275,6 +324,7 @@ mod tests {
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
+			posix_sem_prefix: None,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -313,6 +363,7 @@ mod tests {
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
+			posix_sem_prefix: None,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -349,6 +400,7 @@ mod tests {
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
+			posix_sem_prefix: None,
 		};
 		let store = Store::new(&config).unwrap();
 
