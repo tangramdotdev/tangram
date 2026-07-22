@@ -61,6 +61,9 @@ type_complexity = "allow"
 unsafe_derive_deserialize = "allow"
 unused_async = "allow"
 
+[profile.client]
+inherits = "release"
+
 [workspace.dependencies]
 anstream = "1"
 astral-tokio-tar = "0.6"

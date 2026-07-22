@@ -7,14 +7,15 @@ let packagePath = dirname(fileURLToPath(import.meta.url));
 let workspacePath = resolve(packagePath, "../../..");
 let libraryExtension = process.platform === "darwin" ? "dylib" : "so";
 let libraryName = `libtangram_client_native.${libraryExtension}`;
-let libraryPath = resolve(workspacePath, "target/release", libraryName);
+let libraryPath = resolve(workspacePath, "target/client", libraryName);
 let nativeName = `tangram_client.${process.platform}-${process.arch}.node`;
 
 await run("cargo", [
 	"build",
 	"--manifest-path",
 	resolve(packagePath, "native/Cargo.toml"),
-	"--release",
+	"--profile",
+	"client",
 ]);
 await rm(resolve(packagePath, "dist"), { force: true, recursive: true });
 await run("tsc", [], packagePath);

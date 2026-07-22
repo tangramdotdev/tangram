@@ -39,6 +39,7 @@ impl Version {
 	}
 
 	#[must_use]
+	#[cfg(feature = "foundationdb")]
 	pub(crate) fn bytes(&self) -> &[u8; 12] {
 		&self.0
 	}
