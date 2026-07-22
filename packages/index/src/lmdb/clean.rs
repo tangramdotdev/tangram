@@ -41,7 +41,7 @@ impl Index {
 			max_process_touched_at,
 			max_sandbox_touched_at,
 			now,
-			partition_count: _,
+			partition_end: _,
 			partition_start: _,
 		} = arg;
 		let (sender, receiver) = tokio::sync::oneshot::channel();

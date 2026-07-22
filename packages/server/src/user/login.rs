@@ -5,7 +5,6 @@ use {
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_index::prelude::*,
 };
 
 pub mod create;
@@ -29,7 +28,7 @@ impl Session {
 	pub(super) async fn finish_login(&self, arg: FinishLoginArg) -> tg::Result<tg::User> {
 		// Finish the login.
 		let current = self.clone();
-		let (user, batch) = self
+		let user = self
 			.server
 			.database
 			.run(|transaction| {
@@ -96,21 +95,15 @@ impl Session {
 					.await?
 					.unwrap();
 					let user = Self::user_from_node_with_transaction(transaction, node).await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break((user, batch)))
+					current
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(user))
 				}
 				.boxed()
 			})
 			.await?;
-
-		// Index the user.
-		if !batch.is_empty() {
-			current
-				.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the user"))?;
-		}
 
 		Ok(user)
 	}

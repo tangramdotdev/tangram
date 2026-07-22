@@ -129,7 +129,7 @@ impl Session {
 					n: batch_size,
 					now,
 					object_time_to_live,
-					partition_count: partition_total,
+					partition_end: partition_total,
 					partition_start: 0,
 					process_time_to_live,
 					sandbox_time_to_live,

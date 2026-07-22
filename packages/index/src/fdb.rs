@@ -405,9 +405,9 @@ impl crate::Index for Index {
 		kind: crate::finalization::Kind,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 	) -> tg::Result<Vec<crate::finalization::Entry>> {
-		self.finalization_batch(kind, batch_size, partition_start, partition_count)
+		self.finalization_batch(kind, batch_size, partition_start, partition_end)
 			.await
 	}
 
@@ -426,9 +426,9 @@ impl crate::Index for Index {
 		&self,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 	) -> tg::Result<usize> {
-		self.update_batch(batch_size, partition_start, partition_count)
+		self.update_batch(batch_size, partition_start, partition_end)
 			.await
 	}
 

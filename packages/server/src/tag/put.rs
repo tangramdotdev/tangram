@@ -10,7 +10,6 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -45,8 +44,7 @@ impl Session {
 		}
 		let permissions = self.recorded_tag_permissions(&arg.item).await?;
 		let session = self.clone();
-		let (data, mut batch) = self
-			.server
+		self.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
@@ -57,29 +55,26 @@ impl Session {
 					let data = session
 						.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break((data, batch)))
+					batch.put_tags.push(tangram_index::tag::put::Arg {
+						id: data.id,
+						item: match data.item {
+							tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+							tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+						},
+						name: data.name,
+						parent: data.parent,
+						permissions: data.permissions,
+						specifier: data.specifier,
+					});
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
 				}
 				.boxed()
 			})
 			.await?;
-		batch.put_tags.push(tangram_index::tag::put::Arg {
-			id: data.id,
-			item: match data.item {
-				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-				tg::tag::data::Item::Process(id) => tg::Either::Right(id),
-			},
-			name: data.name,
-			parent: data.parent,
-			permissions: data.permissions,
-			specifier: data.specifier,
-		});
-		if !batch.is_empty() {
-			self.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the tag"))?;
-		}
 		Ok(())
 	}
 

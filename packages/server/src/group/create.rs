@@ -6,7 +6,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -43,7 +42,7 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 		let session = self.clone();
-		let (output, batch) = self
+		let output = self
 			.server
 			.database
 			.run(|transaction| {
@@ -55,18 +54,15 @@ impl Session {
 						.create_group_with_transaction(transaction, arg, &mut batch)
 						.await?;
 					let output = tg::group::create::Output { group };
-					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
 				}
 				.boxed()
 			})
 			.await?;
-		if !batch.is_empty() {
-			self.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the group"))?;
-		}
 		Ok(output)
 	}
 

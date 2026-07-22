@@ -38,7 +38,7 @@ pub(super) struct Clean {
 	pub max_process_touched_at: i64,
 	pub max_sandbox_touched_at: i64,
 	pub now: i64,
-	pub partition_count: u64,
+	pub partition_end: u64,
 	pub partition_start: u64,
 }
 
@@ -66,7 +66,7 @@ pub(super) struct TouchProcesses {
 #[derive(Clone)]
 pub(super) struct Update {
 	pub batch_size: usize,
-	pub partition_count: u64,
+	pub partition_end: u64,
 	pub partition_start: u64,
 }
 
@@ -106,7 +106,7 @@ pub(super) enum Kind {
 		max_process_touched_at: i64,
 		max_sandbox_touched_at: i64,
 		now: i64,
-		partition_count: u64,
+		partition_end: u64,
 		partition_start: u64,
 	},
 	CompleteFinalization,
@@ -144,7 +144,7 @@ pub(super) enum Kind {
 		touched_at: i64,
 	},
 	Update {
-		partition_count: u64,
+		partition_end: u64,
 		partition_start: u64,
 	},
 }

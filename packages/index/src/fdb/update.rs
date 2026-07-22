@@ -175,12 +175,12 @@ impl Index {
 		&self,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 	) -> tg::Result<usize> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Update(crate::fdb::Update {
 			batch_size,
-			partition_count,
+			partition_end,
 			partition_start,
 		});
 		self.sender_low
@@ -200,14 +200,13 @@ impl Index {
 		subspace: &Subspace,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 		max_process_depth: Option<u64>,
 		partition_total: u64,
 	) -> tg::Result<usize> {
 		let mut entries = Vec::new();
 
 		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
-		let partition_end = partition_start.saturating_add(partition_count);
 		for partition in partition_start..partition_end {
 			let remaining = batch_size.saturating_sub(entries.len());
 			if remaining == 0 {

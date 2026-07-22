@@ -12,7 +12,7 @@ pub(crate) struct CleanerTaskInnerArg {
 	pub n: usize,
 	pub now: i64,
 	pub object_time_to_live: Duration,
-	pub partition_count: u64,
+	pub partition_end: u64,
 	pub partition_start: u64,
 	pub process_time_to_live: Duration,
 	pub sandbox_time_to_live: Duration,
@@ -20,8 +20,19 @@ pub(crate) struct CleanerTaskInnerArg {
 
 impl Server {
 	pub(crate) async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {
+		if config.concurrency == 0 {
+			return Err(tg::error!(
+				"the cleaner concurrency must be greater than zero"
+			));
+		}
+		if config.partition_end <= config.partition_start {
+			return Err(tg::error!(
+				"the cleaner partition end must be greater than the partition start"
+			));
+		}
 		let partition_start = config.partition_start;
-		let partition_count = config.partition_count;
+		let partition_end = config.partition_end;
+		let partition_length = partition_end - partition_start;
 		let concurrency = config.concurrency.to_u64().unwrap();
 		loop {
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -32,16 +43,17 @@ impl Server {
 
 			let futures = (0..config.concurrency).map(|task_index| {
 				let task_index = task_index.to_u64().unwrap();
-				let partitions_per_task = partition_count / concurrency;
-				let extra = partition_count % concurrency;
+				let partitions_per_task = partition_length / concurrency;
+				let extra = partition_length % concurrency;
 				let task_start =
 					partition_start + task_index * partitions_per_task + task_index.min(extra);
 				let task_count = partitions_per_task + u64::from(task_index < extra);
+				let task_end = task_start + task_count;
 				self.cleaner_task_inner(CleanerTaskInnerArg {
 					n,
 					now,
 					object_time_to_live,
-					partition_count: task_count,
+					partition_end: task_end,
 					partition_start: task_start,
 					process_time_to_live,
 					sandbox_time_to_live,
@@ -70,7 +82,7 @@ impl Server {
 			n,
 			now,
 			object_time_to_live,
-			partition_count,
+			partition_end,
 			partition_start,
 			process_time_to_live,
 			sandbox_time_to_live,
@@ -88,7 +100,7 @@ impl Server {
 				max_process_touched_at,
 				max_sandbox_touched_at,
 				now,
-				partition_count,
+				partition_end,
 				partition_start,
 			})
 			.await?;

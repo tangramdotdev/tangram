@@ -7,7 +7,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -42,7 +41,7 @@ impl Session {
 			Some(_) => return Err(tg::error!("unauthorized")),
 		}
 		let session = self.clone();
-		let (output, batch) = self
+		let output = self
 			.server
 			.database
 			.run(|transaction| {
@@ -57,18 +56,15 @@ impl Session {
 							&mut batch,
 						)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
 				}
 				.boxed()
 			})
 			.await?;
-		if !batch.is_empty() {
-			self.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the organization"))?;
-		}
 		Ok(output)
 	}
 

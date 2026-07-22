@@ -254,12 +254,16 @@ impl Watchdog {
 		}
 
 		let handled_for_transaction = handled.clone();
+		let watchdog = self.clone();
 		self.server
 			.database
 			.run(|transaction| {
 				let handled = handled_for_transaction.clone();
+				let watchdog = watchdog.clone();
 				async move {
-					Self::handle_expired_schedulers_with_transaction(transaction, &handled).await
+					watchdog
+						.handle_expired_schedulers_with_transaction(transaction, &handled)
+						.await
 				}
 				.boxed()
 			})
@@ -273,9 +277,17 @@ impl Watchdog {
 	}
 
 	async fn handle_expired_schedulers_with_transaction(
+		&self,
 		transaction: &crate::database::Transaction<'_>,
 		expired_schedulers: &[tg::scheduler::Id],
 	) -> Result<ControlFlow<(), crate::database::Error>, tg::Error> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::runner::Id,
+		}
+
+		let mut index_arg = tangram_index::batch::Arg::default();
 		for scheduler in expired_schedulers {
 			let p = transaction.p();
 			let statement = formatdoc!(
@@ -293,13 +305,26 @@ impl Watchdog {
 				"
 					update runners
 					set status = {p}1, scheduler = null
-					where scheduler = {p}2 and status = {p}3;
+					where scheduler = {p}2 and status = {p}3
+					returning id;
 				"
 			);
 			let params = db::params!["stopped", scheduler.to_string(), "started",];
-			let result = transaction.execute(statement.into(), params).await;
-			crate::database::retry!(result, "failed to execute the statement");
+			let result = transaction
+				.query_all_into::<Row>(statement.into(), params)
+				.await;
+			let rows = crate::database::retry!(result, "failed to execute the statement");
+			index_arg.put_runners.extend(rows.into_iter().map(|row| {
+				tangram_index::runner::put::Arg {
+					id: row.id,
+					scheduler: None,
+				}
+			}));
 		}
+		self.server
+			.enqueue_database_outbox_with_transaction(transaction, &index_arg)
+			.await?;
+
 		Ok(ControlFlow::Break(()))
 	}
 

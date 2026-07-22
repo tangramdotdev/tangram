@@ -45,14 +45,13 @@ impl Index {
 		kind: crate::finalization::Kind,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 	) -> tg::Result<Vec<crate::finalization::Entry>> {
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
 		let key_kind = Self::finalization_version_kind(kind).to_i32().unwrap();
-		let partition_end = partition_start.saturating_add(partition_count);
 		let mut output = Vec::new();
 		for partition in partition_start..partition_end {
 			let remaining = batch_size.saturating_sub(output.len());

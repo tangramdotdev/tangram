@@ -246,7 +246,7 @@ impl Index {
 				max_process_touched_at,
 				max_sandbox_touched_at,
 				now,
-				partition_count,
+				partition_end,
 				partition_start,
 			}) => {
 				let items = (0..batch_size).map(|_| Item::Clean).collect();
@@ -257,7 +257,7 @@ impl Index {
 						max_process_touched_at,
 						max_sandbox_touched_at,
 						now,
-						partition_count,
+						partition_end,
 						partition_start,
 					},
 				)
@@ -398,14 +398,14 @@ impl Index {
 			Request::Update(crate::fdb::Update {
 				batch_size,
 				partition_start,
-				partition_count,
+				partition_end,
 			}) => {
 				let items = (0..batch_size).map(|_| Item::Update).collect();
 				(
 					items,
 					Kind::Update {
 						partition_start,
-						partition_count,
+						partition_end,
 					},
 				)
 			},
@@ -419,7 +419,7 @@ impl Index {
 				max_process_touched_at,
 				max_sandbox_touched_at,
 				now,
-				partition_count,
+				partition_end,
 				partition_start,
 			} => Request::Clean(crate::fdb::Clean {
 				batch_size: items.len(),
@@ -427,7 +427,7 @@ impl Index {
 				max_process_touched_at: *max_process_touched_at,
 				max_sandbox_touched_at: *max_sandbox_touched_at,
 				now: *now,
-				partition_count: *partition_count,
+				partition_end: *partition_end,
 				partition_start: *partition_start,
 			}),
 			Kind::CompleteFinalization => {
@@ -697,11 +697,11 @@ impl Index {
 			},
 			Kind::Update {
 				partition_start,
-				partition_count,
+				partition_end,
 			} => Request::Update(crate::fdb::Update {
 				batch_size: items.len(),
 				partition_start: *partition_start,
-				partition_count: *partition_count,
+				partition_end: *partition_end,
 			}),
 		}
 	}
@@ -873,7 +873,7 @@ impl Index {
 				max_process_touched_at,
 				max_sandbox_touched_at,
 				now,
-				partition_count,
+				partition_end,
 				partition_start,
 			}) => {
 				let arg = super::clean::TaskCleanArg {
@@ -882,7 +882,7 @@ impl Index {
 					max_process_touched_at: *max_process_touched_at,
 					max_sandbox_touched_at: *max_sandbox_touched_at,
 					now: *now,
-					partition_count: *partition_count,
+					partition_end: *partition_end,
 					partition_start: *partition_start,
 					partition_total,
 					subspace,
@@ -1023,13 +1023,13 @@ impl Index {
 			Request::Update(crate::fdb::Update {
 				batch_size,
 				partition_start,
-				partition_count,
+				partition_end,
 			}) => Self::task_update(
 				txn,
 				subspace,
 				*batch_size,
 				*partition_start,
-				*partition_count,
+				*partition_end,
 				max_process_depth,
 				partition_total,
 			)

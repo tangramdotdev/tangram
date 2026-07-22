@@ -311,7 +311,7 @@ pub struct Cleaner {
 
 	pub concurrency: usize,
 
-	pub partition_count: u64,
+	pub partition_end: u64,
 
 	pub partition_start: u64,
 }
@@ -328,13 +328,24 @@ pub enum Database {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct PostgresDatabase {
-	pub pool: DatabasePool,
+pub struct DatabaseOutbox {
+	pub batch_size: usize,
 
-	pub url: Uri,
+	pub partition_total: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PostgresDatabase {
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub outbox: DatabaseOutbox,
+
+	pub pool: DatabasePool,
 
 	#[serde(default = "database_retry_default")]
 	pub retry: Retry,
+
+	pub url: Uri,
 }
 
 #[serde_as]
@@ -355,6 +366,9 @@ pub struct DatabasePool {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SqliteDatabase {
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub outbox: DatabaseOutbox,
+
 	pub path: PathBuf,
 
 	pub pool: DatabasePool,
@@ -366,6 +380,9 @@ pub struct SqliteDatabase {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TursoDatabase {
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub outbox: DatabaseOutbox,
+
 	pub path: PathBuf,
 
 	pub pool: DatabasePool,
@@ -475,7 +492,7 @@ pub struct Indexer {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_timeout: Duration,
 
-	pub partition_count: u64,
+	pub partition_end: u64,
 
 	pub partition_start: u64,
 
@@ -571,9 +588,7 @@ pub struct Object {
 pub struct ObjectOutbox {
 	pub batch_size: usize,
 
-	pub partition_count: u64,
-
-	pub partition_start: u64,
+	pub partition_total: u64,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -687,7 +702,7 @@ pub struct Finalizer {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_batch_timeout: Duration,
 
-	pub partition_count: u64,
+	pub partition_end: u64,
 
 	pub partition_start: u64,
 }
@@ -1295,7 +1310,7 @@ impl Default for Cleaner {
 		Self {
 			batch_size: 1024,
 			concurrency: 1,
-			partition_count: 256,
+			partition_end: 256,
 			partition_start: 0,
 		}
 	}
@@ -1307,12 +1322,33 @@ impl Default for Database {
 	}
 }
 
+impl Database {
+	#[must_use]
+	pub fn outbox(&self) -> &DatabaseOutbox {
+		match self {
+			Self::Postgres(config) => &config.outbox,
+			Self::Sqlite(config) => &config.outbox,
+			Self::Turso(config) => &config.outbox,
+		}
+	}
+}
+
+impl Default for DatabaseOutbox {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			partition_total: 256,
+		}
+	}
+}
+
 impl Default for PostgresDatabase {
 	fn default() -> Self {
 		Self {
+			outbox: DatabaseOutbox::default(),
 			pool: DatabasePool::default(),
-			url: "postgres://localhost:5432".parse().unwrap(),
 			retry: database_retry_default(),
+			url: "postgres://localhost:5432".parse().unwrap(),
 		}
 	}
 }
@@ -1320,6 +1356,7 @@ impl Default for PostgresDatabase {
 impl Default for SqliteDatabase {
 	fn default() -> Self {
 		Self {
+			outbox: DatabaseOutbox::default(),
 			path: PathBuf::from("database"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
@@ -1330,6 +1367,7 @@ impl Default for SqliteDatabase {
 impl Default for TursoDatabase {
 	fn default() -> Self {
 		Self {
+			outbox: DatabaseOutbox::default(),
 			path: PathBuf::from("database"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
@@ -1401,7 +1439,7 @@ impl Default for Indexer {
 			concurrency: 1,
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
-			partition_count: 256,
+			partition_end: 256,
 			partition_start: 0,
 			poll_interval: Duration::from_millis(10),
 		}
@@ -1461,8 +1499,7 @@ impl Default for ObjectOutbox {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
-			partition_count: 256,
-			partition_start: 0,
+			partition_total: 256,
 		}
 	}
 }
@@ -1514,7 +1551,7 @@ impl Default for Finalizer {
 			concurrency: 1,
 			message_batch_size: 1024,
 			message_batch_timeout: Duration::from_millis(100),
-			partition_count: 256,
+			partition_end: 256,
 			partition_start: 0,
 		}
 	}

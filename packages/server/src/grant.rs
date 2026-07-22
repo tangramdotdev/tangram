@@ -8,7 +8,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 };
 
 mod token;
@@ -57,7 +56,7 @@ impl Session {
 			},
 		}
 		let session = self.clone();
-		let (grant, batch) = self
+		let grant = self
 			.server
 			.database
 			.run(|transaction| {
@@ -72,18 +71,15 @@ impl Session {
 					if !inserted {
 						return Err(tg::error!("the grant already exists").into());
 					}
-					Ok::<_, crate::database::Error>(ControlFlow::Break((grant, batch)))
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(grant))
 				}
 				.boxed()
 			})
 			.await?;
-		if !batch.is_empty() {
-			self.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the grant"))?;
-		}
 		Ok(grant)
 	}
 
@@ -111,7 +107,7 @@ impl Session {
 			},
 		}
 		let session = self.clone();
-		let (output, batch) = self
+		let output = self
 			.server
 			.database
 			.run(|transaction| {
@@ -123,18 +119,15 @@ impl Session {
 					let output = session
 						.delete_grant_with_transaction(transaction, arg, &mut batch)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
 				}
 				.boxed()
 			})
 			.await?;
-		if !batch.is_empty() {
-			self.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the grant"))?;
-		}
 		Ok(output)
 	}
 

@@ -13,15 +13,13 @@ impl Store {
 	}
 
 	pub fn dequeue_outbox(&self, arg: DequeueArg) -> tg::Result<Vec<Item>> {
-		let partition_end = arg
-			.partition_start
-			.checked_add(arg.partition_count)
-			.ok_or_else(|| tg::error!("the outbox partition range overflowed"))?;
 		let state = self.state();
 		let items = state
 			.outbox
 			.iter()
-			.filter(|((partition, _), _)| (arg.partition_start..partition_end).contains(partition))
+			.filter(|((partition, _), _)| {
+				(arg.partition_start..arg.partition_end).contains(partition)
+			})
 			.take(arg.batch_size)
 			.map(|((partition, id), payload)| Item {
 				id: Id::new(*id),
@@ -46,16 +44,12 @@ impl Store {
 	}
 
 	pub fn try_get_outbox_id_at_or_before(&self, arg: TryGetIdArg) -> tg::Result<Option<Id>> {
-		let partition_end = arg
-			.partition_start
-			.checked_add(arg.partition_count)
-			.ok_or_else(|| tg::error!("the outbox partition range overflowed"))?;
 		let state = self.state();
 		let id = state
 			.outbox
 			.keys()
 			.filter(|(partition, id)| {
-				(arg.partition_start..partition_end).contains(partition)
+				(arg.partition_start..arg.partition_end).contains(partition)
 					&& arg.id.is_none_or(|target| *id <= target.value())
 			})
 			.map(|(_, id)| *id)
@@ -99,7 +93,7 @@ mod tests {
 		let items = store
 			.dequeue_outbox(DequeueArg {
 				batch_size: 1,
-				partition_count: 1,
+				partition_end: 1,
 				partition_start: 0,
 			})
 			.unwrap();
@@ -109,7 +103,7 @@ mod tests {
 		let target = store
 			.try_get_outbox_id_at_or_before(TryGetIdArg {
 				id: None,
-				partition_count: 2,
+				partition_end: 2,
 				partition_start: 0,
 			})
 			.unwrap()
@@ -123,7 +117,7 @@ mod tests {
 		let newest = store
 			.try_get_outbox_id_at_or_before(TryGetIdArg {
 				id: None,
-				partition_count: 2,
+				partition_end: 2,
 				partition_start: 0,
 			})
 			.unwrap()
@@ -132,7 +126,7 @@ mod tests {
 		let items = store
 			.dequeue_outbox(DequeueArg {
 				batch_size: usize::MAX,
-				partition_count: 2,
+				partition_end: 2,
 				partition_start: 0,
 			})
 			.unwrap();
@@ -149,7 +143,7 @@ mod tests {
 			store
 				.try_get_outbox_id_at_or_before(TryGetIdArg {
 					id: Some(target),
-					partition_count: 2,
+					partition_end: 2,
 					partition_start: 0,
 				})
 				.unwrap()
@@ -159,7 +153,7 @@ mod tests {
 			store
 				.try_get_outbox_id_at_or_before(TryGetIdArg {
 					id: None,
-					partition_count: 2,
+					partition_end: 2,
 					partition_start: 0,
 				})
 				.unwrap(),

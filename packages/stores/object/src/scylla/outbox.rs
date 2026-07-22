@@ -28,7 +28,7 @@ impl Store {
 	}
 
 	pub async fn dequeue_outbox(&self, arg: DequeueArg) -> tg::Result<Vec<Item>> {
-		let partitions = partitions(arg.partition_start, arg.partition_count)?;
+		let partitions = partitions(arg.partition_start, arg.partition_end)?;
 		if partitions.is_empty() || arg.batch_size == 0 {
 			return Ok(Vec::new());
 		}
@@ -63,7 +63,7 @@ impl Store {
 	}
 
 	pub async fn try_get_outbox_id_at_or_before(&self, arg: TryGetIdArg) -> tg::Result<Option<Id>> {
-		let partitions = partitions(arg.partition_start, arg.partition_count)?;
+		let partitions = partitions(arg.partition_start, arg.partition_end)?;
 		if partitions.is_empty() {
 			return Ok(None);
 		}
@@ -137,10 +137,7 @@ impl Store {
 	}
 }
 
-fn partitions(partition_start: u64, partition_count: u64) -> tg::Result<Vec<i64>> {
-	let partition_end = partition_start
-		.checked_add(partition_count)
-		.ok_or_else(|| tg::error!("the outbox partition range overflowed"))?;
+fn partitions(partition_start: u64, partition_end: u64) -> tg::Result<Vec<i64>> {
 	(partition_start..partition_end)
 		.map(|partition| {
 			partition

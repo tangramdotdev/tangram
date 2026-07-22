@@ -5,7 +5,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -42,28 +41,19 @@ impl Session {
 					let deleted = session
 						.delete_tags_with_transaction(transaction, &arg, &mut batch)
 						.await?;
+					batch
+						.delete_tags
+						.extend(deleted.iter().map(|tag| tag.id.clone()));
 					let output = tg::tag::delete::Output { deleted };
-					Ok::<_, crate::database::Error>(ControlFlow::Break((output, batch)))
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
 				}
 				.boxed()
 			})
 			.await?;
-		let (output, mut batch) = output;
-		let tags = output
-			.deleted
-			.iter()
-			.map(|tag| tag.id.clone())
-			.collect::<Vec<_>>();
-		if !tags.is_empty() {
-			batch.delete_tags.extend(tags);
-		}
-		if !batch.is_empty() {
-			self.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the deleted tags"))?;
-		}
 		Ok(output)
 	}
 

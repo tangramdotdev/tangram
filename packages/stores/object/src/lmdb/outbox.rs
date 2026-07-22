@@ -31,10 +31,6 @@ impl Store {
 	}
 
 	pub async fn dequeue_outbox(&self, arg: DequeueArg) -> tg::Result<Vec<Item>> {
-		let partition_end = arg
-			.partition_start
-			.checked_add(arg.partition_count)
-			.ok_or_else(|| tg::error!("the outbox partition range overflowed"))?;
 		let db = self.db;
 		let env = self.env.clone();
 		tokio::task::spawn_blocking(move || {
@@ -42,7 +38,7 @@ impl Store {
 				.read_txn()
 				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 			let mut items = Vec::new();
-			for partition in arg.partition_start..partition_end {
+			for partition in arg.partition_start..arg.partition_end {
 				let prefix = fdbt::pack(&(KeyKind::Outbox.to_i32().unwrap(), partition));
 				let entries = db
 					.prefix_iter(&transaction, &prefix)
@@ -86,10 +82,6 @@ impl Store {
 	}
 
 	pub async fn try_get_outbox_id_at_or_before(&self, arg: TryGetIdArg) -> tg::Result<Option<Id>> {
-		let partition_end = arg
-			.partition_start
-			.checked_add(arg.partition_count)
-			.ok_or_else(|| tg::error!("the outbox partition range overflowed"))?;
 		let db = self.db;
 		let env = self.env.clone();
 		tokio::task::spawn_blocking(move || {
@@ -97,7 +89,7 @@ impl Store {
 				.read_txn()
 				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 			let mut output = None;
-			for partition in arg.partition_start..partition_end {
+			for partition in arg.partition_start..arg.partition_end {
 				let prefix = fdbt::pack(&(KeyKind::Outbox.to_i32().unwrap(), partition));
 				let entries = db
 					.rev_prefix_iter(&transaction, &prefix)
@@ -211,7 +203,7 @@ mod tests {
 			store
 				.try_get_outbox_id_at_or_before(TryGetIdArg {
 					id: None,
-					partition_count: 2,
+					partition_end: 2,
 					partition_start: 0,
 				})
 				.await
@@ -224,7 +216,7 @@ mod tests {
 			store
 				.try_get_outbox_id_at_or_before(TryGetIdArg {
 					id: None,
-					partition_count: 2,
+					partition_end: 2,
 					partition_start: 0,
 				})
 				.await
@@ -241,7 +233,7 @@ mod tests {
 		let newest = store
 			.try_get_outbox_id_at_or_before(TryGetIdArg {
 				id: None,
-				partition_count: 2,
+				partition_end: 2,
 				partition_start: 0,
 			})
 			.await
@@ -251,7 +243,7 @@ mod tests {
 		let items = store
 			.dequeue_outbox(DequeueArg {
 				batch_size: usize::MAX,
-				partition_count: 2,
+				partition_end: 2,
 				partition_start: 0,
 			})
 			.await
@@ -273,7 +265,7 @@ mod tests {
 			store
 				.try_get_outbox_id_at_or_before(TryGetIdArg {
 					id: Some(target),
-					partition_count: 2,
+					partition_end: 2,
 					partition_start: 0,
 				})
 				.await
@@ -284,7 +276,7 @@ mod tests {
 			store
 				.try_get_outbox_id_at_or_before(TryGetIdArg {
 					id: None,
-					partition_count: 2,
+					partition_end: 2,
 					partition_start: 0,
 				})
 				.await

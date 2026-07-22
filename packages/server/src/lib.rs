@@ -268,9 +268,21 @@ impl Server {
 					"the indexer message timeout must be greater than zero"
 				));
 			}
-			if indexer.partition_count == 0 {
+			if indexer.partition_end <= indexer.partition_start {
 				return Err(tg::error!(
-					"the indexer partition count must be greater than zero"
+					"the indexer partition end must be greater than the partition start"
+				));
+			}
+			if indexer.partition_end > config.database.outbox().partition_total {
+				return Err(tg::error!(
+					"the indexer partition range exceeds the database outbox partition total"
+				));
+			}
+			if !config.advanced.single_process
+				&& indexer.partition_end > config.object.outbox.partition_total
+			{
+				return Err(tg::error!(
+					"the indexer partition range exceeds the object outbox partition total"
 				));
 			}
 			if indexer.poll_interval.is_zero() {
@@ -280,24 +292,42 @@ impl Server {
 			}
 		}
 
-		// Validate the outbox configuration.
+		// Validate the database outbox configuration.
+		let outbox = config.database.outbox();
+		if outbox.batch_size == 0 {
+			return Err(tg::error!(
+				"the database outbox batch size must be greater than zero"
+			));
+		}
+		if outbox.partition_total == 0 {
+			return Err(tg::error!(
+				"the database outbox partition total must be greater than zero"
+			));
+		}
+
+		// Validate the object outbox configuration.
 		let outbox = &config.object.outbox;
 		if outbox.batch_size == 0 {
 			return Err(tg::error!(
-				"the outbox batch size must be greater than zero"
+				"the object outbox batch size must be greater than zero"
 			));
 		}
-		if outbox.partition_count == 0 {
+		if outbox.partition_total == 0 {
 			return Err(tg::error!(
-				"the outbox partition count must be greater than zero"
+				"the object outbox partition total must be greater than zero"
 			));
 		}
-		if outbox
-			.partition_start
-			.checked_add(outbox.partition_count)
-			.is_none()
+
+		// Validate the regions.
+		if config.region.as_ref().is_some_and(String::is_empty) {
+			return Err(tg::error!("the region must not be empty"));
+		}
+		if config
+			.regions
+			.as_ref()
+			.is_some_and(|regions| regions.iter().any(|region| region.name.is_empty()))
 		{
-			return Err(tg::error!("the outbox partition range overflowed"));
+			return Err(tg::error!("the region name must not be empty"));
 		}
 
 		if let Some(scheduler) = &config.scheduler {

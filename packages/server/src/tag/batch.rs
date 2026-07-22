@@ -8,7 +8,6 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -48,15 +47,13 @@ impl Session {
 			permissions.push(self.recorded_tag_permissions(&item.item).await?);
 		}
 		let session = self.clone();
-		let data = self
-			.server
+		self.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
 				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
-					let mut data = Vec::new();
 					let mut batch = tangram_index::batch::Arg::default();
 					for (item, permissions) in std::iter::zip(arg.tags, permissions) {
 						let arg = tg::tag::put::Arg {
@@ -66,42 +63,30 @@ impl Session {
 							public: false,
 							specifier: item.specifier,
 						};
-						data.push(
-							session
-								.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
-								.await?,
-						);
+						let data = session
+							.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
+							.await?;
+						batch.put_tags.push(tangram_index::tag::put::Arg {
+							id: data.id,
+							item: match data.item {
+								tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+								tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+							},
+							name: data.name,
+							parent: data.parent,
+							permissions: data.permissions,
+							specifier: data.specifier,
+						});
 					}
-					Ok::<_, crate::database::Error>(ControlFlow::Break((data, batch)))
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
 				}
 				.boxed()
 			})
 			.await?;
-		let (data, mut batch) = data;
-		let args = data
-			.into_iter()
-			.map(|data| tangram_index::tag::put::Arg {
-				id: data.id,
-				item: match data.item {
-					tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-					tg::tag::data::Item::Process(id) => tg::Either::Right(id),
-				},
-				name: data.name,
-				parent: data.parent,
-				permissions: data.permissions,
-				specifier: data.specifier,
-			})
-			.collect::<Vec<_>>();
-		if !args.is_empty() {
-			batch.put_tags.extend(args);
-		}
-		if !batch.is_empty() {
-			self.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the tags"))?;
-		}
 		Ok(())
 	}
 

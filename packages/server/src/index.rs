@@ -446,19 +446,19 @@ impl index::Index for Index {
 		kind: index::finalization::Kind,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 	) -> tg::Result<Vec<index::finalization::Entry>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
 				index
-					.finalization_batch(kind, batch_size, partition_start, partition_count)
+					.finalization_batch(kind, batch_size, partition_start, partition_end)
 					.await
 			},
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => {
 				index
-					.finalization_batch(kind, batch_size, partition_start, partition_count)
+					.finalization_batch(kind, batch_size, partition_start, partition_end)
 					.await
 			},
 		}
@@ -489,19 +489,19 @@ impl index::Index for Index {
 		&self,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 	) -> tg::Result<usize> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
 				index
-					.update_batch(batch_size, partition_start, partition_count)
+					.update_batch(batch_size, partition_start, partition_end)
 					.await
 			},
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => {
 				index
-					.update_batch(batch_size, partition_start, partition_count)
+					.update_batch(batch_size, partition_start, partition_end)
 					.await
 			},
 		}
@@ -551,11 +551,7 @@ impl Server {
 		}
 		if !self.config.advanced.single_process {
 			let config = &self.config.object.outbox;
-			let partition_end = config
-				.partition_start
-				.checked_add(config.partition_count)
-				.ok_or_else(|| tg::error!("the outbox partition range overflowed"))?;
-			let partition = rand::random_range(config.partition_start..partition_end);
+			let partition = rand::random_range(0..config.partition_total);
 			let payload = arg.serialize()?.into();
 			let arg = crate::object::outbox::EnqueueArg { partition, payload };
 			self.object_store

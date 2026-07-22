@@ -52,24 +52,26 @@ impl Server {
 				"the finalizer concurrency must be greater than zero"
 			));
 		}
-		if config.partition_count == 0 {
+		if config.partition_end <= config.partition_start {
 			return Err(tg::error!(
-				"the finalizer partition count must be greater than zero"
+				"the finalizer partition end must be greater than the partition start"
 			));
 		}
 
 		let partition_start = config.partition_start;
-		let partition_count = config.partition_count;
+		let partition_end = config.partition_end;
+		let partition_length = partition_end - partition_start;
 		let concurrency = config.concurrency.to_u64().unwrap();
 		let futures = (0..config.concurrency).filter_map(|task_index| {
 			let task_index = task_index.to_u64().unwrap();
-			let partitions_per_task = partition_count / concurrency;
-			let extra = partition_count % concurrency;
+			let partitions_per_task = partition_length / concurrency;
+			let extra = partition_length % concurrency;
 			let task_start =
 				partition_start + task_index * partitions_per_task + task_index.min(extra);
 			let task_count = partitions_per_task + u64::from(task_index < extra);
+			let task_end = task_start + task_count;
 			(task_count > 0)
-				.then(|| self.finalizer_task_inner(config, task_start, task_count, stopper.clone()))
+				.then(|| self.finalizer_task_inner(config, task_start, task_end, stopper.clone()))
 		});
 		future::try_join_all(futures).await?;
 
@@ -80,7 +82,7 @@ impl Server {
 		&self,
 		config: &crate::config::Finalizer,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let batch_size = config.message_batch_size.max(1);
@@ -104,7 +106,7 @@ impl Server {
 						index::finalization::Kind::Process,
 						batch_size,
 						partition_start,
-						partition_count,
+						partition_end,
 					)
 					.await
 				{

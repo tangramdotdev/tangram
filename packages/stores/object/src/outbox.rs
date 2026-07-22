@@ -24,7 +24,7 @@ pub struct DeleteArg {
 #[derive(Clone, Copy, Debug)]
 pub struct DequeueArg {
 	pub batch_size: usize,
-	pub partition_count: u64,
+	pub partition_end: u64,
 	pub partition_start: u64,
 }
 
@@ -37,7 +37,7 @@ pub struct EnqueueArg {
 #[derive(Clone, Copy, Debug)]
 pub struct TryGetIdArg {
 	pub id: Option<Id>,
-	pub partition_count: u64,
+	pub partition_end: u64,
 	pub partition_start: u64,
 }
 

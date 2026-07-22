@@ -5,15 +5,17 @@ use {
 	tangram_database::{self as db, Database as _, Error as _, Transaction as _},
 };
 
+mod retry;
+
+pub(crate) use retry::retry;
+
+pub(crate) mod outbox;
+
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
 #[cfg(feature = "turso")]
 pub mod turso;
-
-mod retry;
-
-pub(crate) use retry::retry;
 
 #[derive(
 	Debug,

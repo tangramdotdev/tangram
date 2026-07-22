@@ -156,12 +156,22 @@ impl Scheduler {
 		request: AddRunnerRequestArg,
 	) -> tg::Result<AddRunnerResponseOutput> {
 		// Upsert the runner into the database.
+		let index_arg = tangram_index::batch::Arg {
+			put_runners: vec![tangram_index::runner::put::Arg {
+				id: request.runner.clone(),
+				scheduler: Some(self.id.clone()),
+			}],
+			..Default::default()
+		};
 		let scheduler_id = self.id.clone();
+		let server = self.server.clone();
 		let runner_id = request.runner.clone();
 		self.server
 			.database
 			.run(|transaction| {
+				let index_arg = index_arg.clone();
 				let scheduler_id = scheduler_id.clone();
+				let server = server.clone();
 				let runner_id = runner_id.clone();
 				async move {
 					let p = transaction.p();
@@ -176,24 +186,15 @@ impl Scheduler {
 						db::params![runner_id.to_string(), scheduler_id.to_string(), "started"];
 					let result = transaction.execute(statement.into(), params).await;
 					crate::database::retry!(result, "failed to execute the statement");
+					server
+						.enqueue_database_outbox_with_transaction(transaction, &index_arg)
+						.await?;
 					Ok::<_, tg::Error>(ControlFlow::Break(()))
 				}
 				.boxed()
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to upsert the runner"))?;
-
-		let arg = tangram_index::batch::Arg {
-			put_runners: vec![tangram_index::runner::put::Arg {
-				id: request.runner.clone(),
-				scheduler: Some(self.id.clone()),
-			}],
-			..Default::default()
-		};
-		self.server
-			.index_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the runner"))?;
 
 		let output = AddRunnerResponseOutput {
 			connection_index,
@@ -216,13 +217,23 @@ impl Scheduler {
 			)?;
 
 		// Mark the runner as stopped and clear its scheduler in the database.
+		let index_arg = tangram_index::batch::Arg {
+			put_runners: vec![tangram_index::runner::put::Arg {
+				id: request.runner.clone(),
+				scheduler: None,
+			}],
+			..Default::default()
+		};
 		let runner_id = request.runner.clone();
 		let scheduler_id = self.id.clone();
+		let server = self.server.clone();
 		self.server
 			.database
 			.run(|transaction| {
+				let index_arg = index_arg.clone();
 				let runner_id = runner_id.clone();
 				let scheduler_id = scheduler_id.clone();
+				let server = server.clone();
 				async move {
 					let p = transaction.p();
 					let statement = formatdoc!(
@@ -236,6 +247,9 @@ impl Scheduler {
 						db::params!["stopped", runner_id.to_string(), scheduler_id.to_string(),];
 					let result = transaction.execute(statement.into(), params).await;
 					crate::database::retry!(result, "failed to execute the statement");
+					server
+						.enqueue_database_outbox_with_transaction(transaction, &index_arg)
+						.await?;
 					Ok::<_, tg::Error>(ControlFlow::Break(()))
 				}
 				.boxed()

@@ -8,7 +8,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -40,8 +39,7 @@ impl Session {
 			Some(_) => return Err(tg::error!("unauthorized")),
 		}
 		let session = self.clone();
-		let batch = self
-			.server
+		self.server
 			.database
 			.run(|transaction| {
 				let group = group.clone();
@@ -52,18 +50,15 @@ impl Session {
 					session
 						.add_group_member_with_transaction(transaction, &group, &member, &mut batch)
 						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(batch))
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
 				}
 				.boxed()
 			})
 			.await?;
-		if !batch.is_empty() {
-			self.server
-				.index
-				.batch(batch)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the group member"))?;
-		}
 		Ok(())
 	}
 

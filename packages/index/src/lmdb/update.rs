@@ -104,7 +104,7 @@ impl Index {
 		&self,
 		batch_size: usize,
 		_partition_start: u64,
-		_partition_count: u64,
+		_partition_end: u64,
 	) -> tg::Result<usize> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Update(crate::lmdb::Update { batch_size });

@@ -302,7 +302,7 @@ pub trait Index {
 		kind: crate::finalization::Kind,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 	) -> impl Future<Output = tg::Result<Vec<crate::finalization::Entry>>> + Send;
 
 	fn try_get_oldest_finalization_transaction_id(
@@ -318,7 +318,7 @@ pub trait Index {
 		&self,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 	) -> impl Future<Output = tg::Result<usize>> + Send;
 
 	fn clean(

@@ -169,3 +169,11 @@ create table remotes (
 );
 
 create unique index remotes_principal_name_index on remotes (coalesce(principal, ''), name);
+
+create table outbox (
+	region text not null,
+	partition integer not null,
+	id blob not null,
+	payload blob not null,
+	primary key (region, partition, id)
+);

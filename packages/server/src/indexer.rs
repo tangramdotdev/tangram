@@ -22,6 +22,7 @@ struct Indexer {
 
 struct State {
 	barriers: Barriers,
+	database_outbox_id: Option<crate::database::outbox::Id>,
 	object_outbox_id: Option<crate::object::outbox::Id>,
 	requests: BTreeMap<String, IndexRequest>,
 }
@@ -31,6 +32,8 @@ struct IndexRequest {
 }
 
 enum IndexRequestState {
+	DatabaseOutbox,
+	DatabaseOutboxPending,
 	Finalizations { transaction_id: Option<u64> },
 	ObjectOutbox,
 	ObjectOutboxPending,
@@ -95,16 +98,26 @@ impl Server {
 		};
 		let poll_interval = config.poll_interval;
 
-		// Spawn the object outbox task.
-		let object_outbox_task = Task::spawn({
-			let config =
-				(!self.config.advanced.single_process).then(|| self.config.object.outbox.clone());
+		// Spawn the database outbox task.
+		let database_outbox_task = Task::spawn({
+			let config = config.clone();
 			let indexer = indexer.clone();
+			let outbox = self.config.database.outbox().clone();
+			let region = self.config.region.clone().unwrap_or_default();
 			move |_| async move {
 				indexer
-					.object_outbox_task(config.as_ref(), poll_interval)
+					.database_outbox_task(&config, &outbox, &region)
 					.await
 			}
+		});
+
+		// Spawn the object outbox task.
+		let object_outbox_task = Task::spawn({
+			let config = config.clone();
+			let outbox =
+				(!self.config.advanced.single_process).then(|| self.config.object.outbox.clone());
+			let indexer = indexer.clone();
+			move |_| async move { indexer.object_outbox_task(&config, outbox.as_ref()).await }
 		});
 
 		// Spawn the update task.
@@ -121,6 +134,12 @@ impl Server {
 		});
 
 		// Wait for the tasks.
+		let database_outbox_future = async move {
+			database_outbox_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the database outbox task panicked"))?
+		};
 		let object_outbox_future = async move {
 			object_outbox_task
 				.wait()
@@ -139,7 +158,13 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "the indexer request task panicked"))?
 		};
-		future::try_join3(object_outbox_future, update_future, request_future).await?;
+		future::try_join4(
+			database_outbox_future,
+			object_outbox_future,
+			update_future,
+			request_future,
+		)
+		.await?;
 
 		Ok(())
 	}
@@ -192,18 +217,94 @@ impl Session {
 }
 
 impl Indexer {
+	async fn database_outbox_task(
+		&self,
+		config: &crate::config::Indexer,
+		outbox: &crate::config::DatabaseOutbox,
+		region: &str,
+	) -> tg::Result<()> {
+		loop {
+			match self.database_outbox_batch(config, outbox, region).await {
+				Ok(0) => {
+					tokio::time::sleep(config.poll_interval).await;
+				},
+				Ok(_) => {},
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to service the database outbox");
+					tokio::time::sleep(Duration::from_secs(1)).await;
+				},
+			}
+		}
+	}
+
+	async fn database_outbox_batch(
+		&self,
+		config: &crate::config::Indexer,
+		outbox: &crate::config::DatabaseOutbox,
+		region: &str,
+	) -> tg::Result<usize> {
+		// Dequeue a batch.
+		let arg = crate::database::outbox::DequeueArg {
+			batch_size: outbox.batch_size,
+			partition_end: config.partition_end,
+			partition_start: config.partition_start,
+			region: region.to_owned(),
+		};
+		let items = self
+			.server
+			.database
+			.dequeue_outbox(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to dequeue the database outbox"))?;
+		if items.is_empty() {
+			return Ok(0);
+		}
+
+		// Deserialize and combine the index batches.
+		let count = items.len();
+		let mut arg = tangram_index::batch::Arg::default();
+		let mut keys = Vec::with_capacity(count);
+		for item in items {
+			let item_arg = tangram_index::batch::Arg::deserialize(&item.payload)?;
+			append_index_batch(&mut arg, item_arg);
+			let key = crate::database::outbox::Key {
+				id: item.id,
+				partition: item.partition,
+			};
+			keys.push(key);
+		}
+
+		// Write the batch to the index before deleting the durable intents.
+		self.server
+			.index
+			.batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index a database outbox batch"))?;
+		let arg = crate::database::outbox::DeleteArg {
+			keys,
+			region: region.to_owned(),
+		};
+		self.server
+			.database
+			.delete_outbox(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to delete a database outbox batch"))?;
+
+		Ok(count)
+	}
+
 	async fn object_outbox_task(
 		&self,
-		config: Option<&crate::config::ObjectOutbox>,
-		poll_interval: Duration,
+		config: &crate::config::Indexer,
+		outbox: Option<&crate::config::ObjectOutbox>,
 	) -> tg::Result<()> {
-		let Some(config) = config else {
+		let Some(outbox) = outbox else {
 			return future::pending().await;
 		};
 		loop {
-			match self.object_outbox_batch(config).await {
+			match self.object_outbox_batch(config, outbox).await {
 				Ok(0) => {
-					tokio::time::sleep(poll_interval).await;
+					tokio::time::sleep(config.poll_interval).await;
 				},
 				Ok(_) => {},
 				Err(error) => {
@@ -214,11 +315,15 @@ impl Indexer {
 		}
 	}
 
-	async fn object_outbox_batch(&self, config: &crate::config::ObjectOutbox) -> tg::Result<usize> {
+	async fn object_outbox_batch(
+		&self,
+		config: &crate::config::Indexer,
+		outbox: &crate::config::ObjectOutbox,
+	) -> tg::Result<usize> {
 		// Dequeue a batch.
 		let arg = crate::object::outbox::DequeueArg {
-			batch_size: config.batch_size,
-			partition_count: config.partition_count,
+			batch_size: outbox.batch_size,
+			partition_end: config.partition_end,
 			partition_start: config.partition_start,
 		};
 		let items = self
@@ -363,19 +468,21 @@ impl Indexer {
 
 	async fn update_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		let concurrency = config.concurrency.to_u64().unwrap();
-		let partition_count = config.partition_count;
+		let partition_end = config.partition_end;
 		let partition_start = config.partition_start;
+		let partition_length = partition_end - partition_start;
 		loop {
 			let futures = (0..config.concurrency).map(|task_index| {
 				let task_index = task_index.to_u64().unwrap();
-				let partitions_per_task = partition_count / concurrency;
-				let extra = partition_count % concurrency;
+				let partitions_per_task = partition_length / concurrency;
+				let extra = partition_length % concurrency;
 				let task_start =
 					partition_start + task_index * partitions_per_task + task_index.min(extra);
 				let task_count = partitions_per_task + u64::from(task_index < extra);
+				let task_end = task_start + task_count;
 				self.server
 					.index
-					.update_batch(config.batch_size, task_start, task_count)
+					.update_batch(config.batch_size, task_start, task_end)
 			});
 			let result = future::try_join_all(futures)
 				.await
@@ -406,6 +513,7 @@ impl State {
 	fn new() -> Self {
 		Self {
 			barriers: Barriers::new(),
+			database_outbox_id: None,
 			object_outbox_id: None,
 			requests: BTreeMap::new(),
 		}
@@ -414,6 +522,9 @@ impl State {
 	async fn poll(&mut self, server: &Server, sender: &Sender) -> tg::Result<()> {
 		// Wait for the object outbox.
 		self.poll_object_outbox(server).await?;
+
+		// Wait for the database outbox.
+		self.poll_database_outbox(server).await?;
 
 		// Wait for the process finalization queue.
 		self.set_finalization_targets(server).await?;
@@ -436,8 +547,8 @@ impl State {
 		if let Some(id) = self.object_outbox_id {
 			let arg = crate::object::outbox::TryGetIdArg {
 				id: Some(id),
-				partition_count: config.partition_count,
-				partition_start: config.partition_start,
+				partition_end: config.partition_total,
+				partition_start: 0,
 			};
 			let id = server
 				.object_store
@@ -449,9 +560,7 @@ impl State {
 			}
 			for request in self.requests.values_mut() {
 				if matches!(request.state, IndexRequestState::ObjectOutboxPending) {
-					request.state = IndexRequestState::Finalizations {
-						transaction_id: None,
-					};
+					request.state = IndexRequestState::DatabaseOutbox;
 				}
 			}
 			self.object_outbox_id = None;
@@ -469,8 +578,8 @@ impl State {
 		}
 		let arg = crate::object::outbox::TryGetIdArg {
 			id: None,
-			partition_count: config.partition_count,
-			partition_start: config.partition_start,
+			partition_end: config.partition_total,
+			partition_start: 0,
 		};
 		let id = server
 			.object_store
@@ -484,12 +593,78 @@ impl State {
 			request.state = if id.is_some() {
 				IndexRequestState::ObjectOutboxPending
 			} else {
+				IndexRequestState::DatabaseOutbox
+			};
+		}
+		self.object_outbox_id = id;
+
+		Ok(())
+	}
+
+	async fn poll_database_outbox(&mut self, server: &Server) -> tg::Result<()> {
+		let config = server.config.database.outbox();
+		let region = server.config.region.clone().unwrap_or_default();
+
+		// Poll the active cohort.
+		if let Some(id) = self.database_outbox_id {
+			let arg = crate::database::outbox::TryGetIdArg {
+				id: Some(id),
+				partition_end: config.partition_total,
+				partition_start: 0,
+				region,
+			};
+			let id = server
+				.database
+				.try_get_outbox_id_at_or_before(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to poll the database outbox"))?;
+			if id.is_some() {
+				return Ok(());
+			}
+			for request in self.requests.values_mut() {
+				if matches!(request.state, IndexRequestState::DatabaseOutboxPending) {
+					request.state = IndexRequestState::Finalizations {
+						transaction_id: None,
+					};
+				}
+			}
+			self.database_outbox_id = None;
+
+			return Ok(());
+		}
+
+		// Snapshot the next cohort.
+		let snapshot = self
+			.requests
+			.values()
+			.any(|request| matches!(request.state, IndexRequestState::DatabaseOutbox));
+		if !snapshot {
+			return Ok(());
+		}
+		let arg = crate::database::outbox::TryGetIdArg {
+			id: None,
+			partition_end: config.partition_total,
+			partition_start: 0,
+			region,
+		};
+		let id = server
+			.database
+			.try_get_outbox_id_at_or_before(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to snapshot the database outbox"))?;
+		for request in self.requests.values_mut() {
+			if !matches!(request.state, IndexRequestState::DatabaseOutbox) {
+				continue;
+			}
+			request.state = if id.is_some() {
+				IndexRequestState::DatabaseOutboxPending
+			} else {
 				IndexRequestState::Finalizations {
 					transaction_id: None,
 				}
 			};
 		}
-		self.object_outbox_id = id;
+		self.database_outbox_id = id;
 
 		Ok(())
 	}
@@ -586,9 +761,7 @@ impl State {
 				request.state = if object_outbox {
 					IndexRequestState::ObjectOutbox
 				} else {
-					IndexRequestState::Finalizations {
-						transaction_id: None,
-					}
+					IndexRequestState::DatabaseOutbox
 				};
 			}
 		}
@@ -657,6 +830,7 @@ impl State {
 
 	fn fail(&mut self, error: &tg::Error, sender: &Sender) {
 		let error = error.to_string();
+		self.database_outbox_id = None;
 		self.object_outbox_id = None;
 		let ids = std::mem::take(&mut self.requests).into_keys();
 		for id in ids {
@@ -696,7 +870,9 @@ impl State {
 		self.requests.values().any(|request| {
 			matches!(
 				request.state,
-				IndexRequestState::Finalizations { .. }
+				IndexRequestState::DatabaseOutbox
+					| IndexRequestState::DatabaseOutboxPending
+					| IndexRequestState::Finalizations { .. }
 					| IndexRequestState::ObjectOutbox
 					| IndexRequestState::ObjectOutboxPending
 					| IndexRequestState::Updates { .. }

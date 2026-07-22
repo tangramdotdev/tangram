@@ -31,7 +31,7 @@ pub(super) struct TaskCleanArg<'a> {
 	pub max_process_touched_at: i64,
 	pub max_sandbox_touched_at: i64,
 	pub now: i64,
-	pub partition_count: u64,
+	pub partition_end: u64,
 	pub partition_start: u64,
 	pub partition_total: u64,
 	pub subspace: &'a Subspace,
@@ -46,7 +46,7 @@ impl Index {
 			max_process_touched_at,
 			max_sandbox_touched_at,
 			now,
-			partition_count,
+			partition_end,
 			partition_start,
 		} = arg;
 		let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -56,7 +56,7 @@ impl Index {
 			max_process_touched_at,
 			max_sandbox_touched_at,
 			now,
-			partition_count,
+			partition_end,
 			partition_start,
 		});
 		self.sender_low
@@ -78,7 +78,7 @@ impl Index {
 			max_process_touched_at,
 			max_sandbox_touched_at,
 			now,
-			partition_count,
+			partition_end,
 			partition_start,
 			partition_total,
 			subspace,
@@ -90,7 +90,7 @@ impl Index {
 			now,
 			batch_size,
 			partition_start,
-			partition_count,
+			partition_end,
 			partition_total,
 		)
 		.await?;
@@ -105,7 +105,6 @@ impl Index {
 		let max_touched_at = max_object_touched_at
 			.max(max_process_touched_at)
 			.max(max_sandbox_touched_at);
-		let partition_end = partition_start.saturating_add(partition_count);
 		for partition in partition_start..partition_end {
 			let begin = Self::pack(subspace, &(key_kind, partition, 0i64));
 			let end = Self::pack(subspace, &(key_kind, partition, max_touched_at + 1));
@@ -231,11 +230,10 @@ impl Index {
 		now: i64,
 		batch_size: usize,
 		partition_start: u64,
-		partition_count: u64,
+		partition_end: u64,
 		partition_total: u64,
 	) -> tg::Result<usize> {
 		let key_kind = Kind::GrantExpiresAt.to_i32().unwrap();
-		let partition_end = partition_start.saturating_add(partition_count);
 		let mut args = Vec::new();
 		for partition in partition_start..partition_end {
 			if args.len() >= batch_size {

@@ -7,7 +7,7 @@ pub struct Arg {
 	pub max_process_touched_at: i64,
 	pub max_sandbox_touched_at: i64,
 	pub now: i64,
-	pub partition_count: u64,
+	pub partition_end: u64,
 	pub partition_start: u64,
 }
 
