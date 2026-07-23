@@ -607,10 +607,20 @@ impl Session {
 			return Ok(());
 		};
 
-		// If the target is in the cache directory, then treat it as an artifact symlink.
-		if let Ok(path_in_cache_path) = absolute_target.strip_prefix(self.server.cache_path()) {
+		// If the target is in the cache or VFS artifacts directory, then treat it as an artifact symlink.
+		let cache_path = self.server.cache_path();
+		let artifacts_path = self.server.artifacts_path();
+		let target_in_artifact_path = absolute_target
+			.strip_prefix(&cache_path)
+			.map(|path| (&cache_path, path))
+			.or_else(|_| {
+				absolute_target
+					.strip_prefix(&artifacts_path)
+					.map(|path| (&artifacts_path, path))
+			});
+		if let Ok((artifact_path, path_in_artifact_path)) = target_in_artifact_path {
 			// Get the artifact.
-			let mut components = path_in_cache_path.components();
+			let mut components = path_in_artifact_path.components();
 			let Some(artifact) = components.next().and_then(|component| {
 				if let std::path::Component::Normal(component) = component {
 					component.to_str()?.parse::<tg::artifact::Id>().ok()
@@ -631,7 +641,7 @@ impl Session {
 
 			// If this is a destructive checkin and the target is absolute, make it relative.
 			if state.arg.options.destructive && target.is_absolute() {
-				let mut source = self.server.cache_path().join("_");
+				let mut source = artifact_path.join("_");
 				if let Ok(path) = path.strip_prefix(state.root) {
 					source.push(path);
 				}
