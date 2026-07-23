@@ -68,7 +68,6 @@ pub struct SpawnArg {
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
-	pub creator: Option<tg::Principal>,
 	pub dns: Vec<Ipv4Addr>,
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
@@ -78,17 +77,14 @@ pub struct Arg {
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
 	pub isolation: Isolation,
-	pub location: tg::Location,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<Network>,
 	pub nice: u8,
-	pub owner: Option<tg::Principal>,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub tangram_socket_path: Option<PathBuf>,
-	pub token: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, derive_more::Display, derive_more::FromStr)]
@@ -524,26 +520,6 @@ impl Sandbox {
 		};
 		self.0.client.spawn(spawn_arg).await?;
 		Ok(())
-	}
-
-	#[must_use]
-	pub fn creator(&self) -> Option<&tg::Principal> {
-		self.0.arg.creator.as_ref()
-	}
-
-	#[must_use]
-	pub fn location(&self) -> &tg::Location {
-		&self.0.arg.location
-	}
-
-	#[must_use]
-	pub fn owner(&self) -> Option<&tg::Principal> {
-		self.0.arg.owner.as_ref()
-	}
-
-	#[must_use]
-	pub fn token(&self) -> Option<&str> {
-		self.0.arg.token.as_deref()
 	}
 
 	pub async fn set_tty_size(

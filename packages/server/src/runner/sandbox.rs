@@ -14,6 +14,9 @@ use {
 #[cfg(target_os = "linux")]
 mod linux;
 mod listener;
+mod pool;
+
+pub(super) use self::pool::Pool;
 
 type SandboxControlSender = crate::control::Sender<
 	tg::sandbox::control::ServerMessage,
@@ -49,10 +52,7 @@ struct SandboxTaskArg {
 
 struct CreateSandboxArg {
 	arg: tg::sandbox::create::Arg,
-	creator: Option<tg::Principal>,
 	expected_id: Option<tg::sandbox::Id>,
-	location: tg::Location,
-	token: Option<String>,
 }
 
 struct CreateSandboxOutput {
@@ -267,12 +267,9 @@ impl Session {
 		let connection_session = self.server.session(&context);
 
 		// Create the sandbox concurrently with its control stream.
-		let create = self.create_sandbox_inner(CreateSandboxArg {
+		let create = self.create_sandbox_with_pool(CreateSandboxArg {
 			arg: arg.clone(),
-			creator: creator.clone(),
 			expected_id: expected_id.clone(),
-			location: location.clone(),
-			token: token.clone(),
 		});
 		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let data = tg::sandbox::control::Data {
@@ -411,14 +408,40 @@ impl Session {
 		result
 	}
 
+	async fn create_sandbox_with_pool(
+		&self,
+		arg: CreateSandboxArg,
+	) -> tg::Result<CreateSandboxOutput> {
+		let expected_id = arg.expected_id.clone();
+		if let Some(task) = self.server.runner.sandbox_pool.take(&arg.arg, self) {
+			match task.wait().await {
+				Ok(Ok(output)) => {
+					tracing::debug!(?expected_id, "claimed a sandbox from the pool");
+
+					return Ok(output);
+				},
+				Ok(Err(error)) => {
+					tracing::warn!(
+						error = %error.trace(),
+						?expected_id,
+						"failed to claim a sandbox from the pool; falling back to cold creation",
+					);
+				},
+				Err(error) => {
+					tracing::warn!(
+						?error,
+						?expected_id,
+						"the sandbox pool task panicked; falling back to cold creation",
+					);
+				},
+			}
+		}
+
+		self.create_sandbox_inner(arg).await
+	}
+
 	async fn create_sandbox_inner(&self, arg: CreateSandboxArg) -> tg::Result<CreateSandboxOutput> {
-		let CreateSandboxArg {
-			arg,
-			creator,
-			expected_id,
-			location,
-			token,
-		} = arg;
+		let CreateSandboxArg { arg, expected_id } = arg;
 
 		let isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
@@ -532,7 +555,6 @@ impl Session {
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: arg.cpu,
-			creator,
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
 			firewall: match self.server.config.sandbox.network.firewall {
@@ -547,17 +569,14 @@ impl Session {
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
 			isolation,
-			location,
 			memory: arg.memory,
 			mounts,
 			network,
 			nice: self.server.config.sandbox.nice,
-			owner: arg.owner,
 			path: temp.path().to_owned(),
 			rootfs_path,
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
-			token,
 		};
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await

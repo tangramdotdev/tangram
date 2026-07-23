@@ -30,6 +30,17 @@ impl Temp {
 	pub fn path(&self) -> &Path {
 		&self.path
 	}
+
+	pub async fn remove(&mut self) -> std::io::Result<()> {
+		match remove(&self.path).await {
+			Ok(()) => {},
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+			Err(error) => return Err(error),
+		}
+		self.preserve = true;
+
+		Ok(())
+	}
 }
 
 impl AsRef<Path> for Temp {

@@ -29,7 +29,14 @@ pub mod control;
 type RunnerSender =
 	crate::control::Sender<tg::runner::control::ServerMessage, tg::runner::control::ClientMessage>;
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Config {
+	pub capacity: tg::runner::Capacity,
+	pub sandbox_pool_size: usize,
+}
+
 pub struct Runner {
+	sandbox_pool: self::sandbox::Pool,
 	pub state: State,
 	pub task: Mutex<Option<Task<()>>>,
 }
@@ -47,9 +54,9 @@ pub struct State {
 
 impl Runner {
 	#[must_use]
-	pub fn new(capacity: tg::runner::Capacity) -> Self {
+	pub fn new(config: Config) -> Self {
 		let state = State {
-			capacity: self::capacity::Pool::new(capacity),
+			capacity: self::capacity::Pool::new(config.capacity),
 			id: Mutex::new(None),
 			next_sandbox_id: AtomicU64::new(1),
 			process_tokens: dashmap::DashMap::new(),
@@ -58,7 +65,12 @@ impl Runner {
 			sandboxes: crate::sandbox::Map::default(),
 		};
 		let task = Mutex::new(None);
-		Self { state, task }
+		let sandbox_pool = self::sandbox::Pool::new(config.sandbox_pool_size);
+		Self {
+			sandbox_pool,
+			state,
+			task,
+		}
 	}
 }
 
@@ -71,6 +83,7 @@ impl Session {
 			.lock()
 			.unwrap()
 			.replace(id.clone());
+		self.start_sandbox_pool();
 		loop {
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);
@@ -95,6 +108,9 @@ impl Session {
 			}
 		}
 
+		// Stop the sandbox pool.
+		self.stop_sandbox_pool().await;
+
 		// Stop retaining finished sandbox state and wait for running sandboxes to finish.
 		self.server.sandbox_tasks.stop_all();
 		let results = self.server.sandbox_tasks.wait().await;
@@ -105,6 +121,14 @@ impl Session {
 				tracing::error!(?error, "a sandbox task panicked");
 			}
 		}
+	}
+
+	pub(crate) fn start_sandbox_pool(&self) {
+		self.server.runner.sandbox_pool.start(self);
+	}
+
+	pub(crate) async fn stop_sandbox_pool(&self) {
+		self.server.runner.sandbox_pool.stop().await;
 	}
 
 	async fn runner_task_inner(&self, id: &tg::runner::Id, stopper: Stopper) -> tg::Result<()> {

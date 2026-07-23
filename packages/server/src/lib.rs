@@ -385,7 +385,15 @@ impl Server {
 		} else {
 			tg::runner::Capacity::default()
 		};
-		let runner = self::runner::Runner::new(capacity);
+		let sandbox_pool_size = config
+			.runner
+			.as_ref()
+			.map_or(0, |runner| runner.sandbox_pool_size);
+		let runner_config = self::runner::Config {
+			capacity,
+			sandbox_pool_size,
+		};
+		let runner = self::runner::Runner::new(runner_config);
 
 		// Create the sandbox tasks.
 		let sandbox_tasks = tangram_futures::task::Map::default();

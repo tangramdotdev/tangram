@@ -63,6 +63,22 @@ impl Session {
 		&self,
 		progress: &crate::progress::Handle<tg::clean::Output>,
 	) -> tg::Result<tg::clean::Output> {
+		// Stop the sandbox pool.
+		self.stop_sandbox_pool().await;
+
+		// Run the clean task.
+		let result = self.clean_task_inner(progress).await;
+
+		// Restart the sandbox pool.
+		self.start_sandbox_pool();
+
+		result
+	}
+
+	async fn clean_task_inner(
+		&self,
+		progress: &crate::progress::Handle<tg::clean::Output>,
+	) -> tg::Result<tg::clean::Output> {
 		// Clean the temporary directory.
 		tangram_util::fs::remove(self.server.temp_path())
 			.await

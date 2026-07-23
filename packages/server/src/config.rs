@@ -795,6 +795,8 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 
+	pub sandbox_pool_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub sandbox_state_ttl: Duration,
 
@@ -1579,6 +1581,7 @@ impl Default for Runner {
 			memory: None,
 			process_state_ttl: Duration::from_mins(1),
 			remote: None,
+			sandbox_pool_size: 1,
 			sandbox_state_ttl: Duration::from_mins(1),
 			stdio_drain_timeout: Duration::from_secs(1),
 			token: None,
