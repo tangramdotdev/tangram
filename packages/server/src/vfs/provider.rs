@@ -1162,7 +1162,8 @@ impl Provider {
 				break;
 			}
 			size = size.saturating_add(entry_size);
-			entries.push((entry.name, entry.node, entry.kind));
+			let node = self.readdir_entry_node(snapshot, &entry)?;
+			entries.push((entry.name, node, entry.kind));
 		}
 
 		Ok(entries)
@@ -1186,10 +1187,30 @@ impl Provider {
 				break;
 			}
 			size = size.saturating_add(entry_size);
-			entries.push((entry.name, entry.node, entry.kind));
+			let node = self.readdir_entry_node(snapshot, &entry)?;
+			entries.push((entry.name, node, entry.kind));
 		}
 
 		Ok(entries)
+	}
+
+	fn readdir_entry_node(
+		&self,
+		snapshot: &DirectorySnapshot,
+		entry: &DirectorySnapshotEntry,
+	) -> std::io::Result<u64> {
+		let Some(artifact) = &entry.artifact else {
+			return Ok(entry.node);
+		};
+		let attrs = Self::attrs_from_artifact(Some(artifact));
+		self.nodes.get_or_insert_child(
+			snapshot.node,
+			&entry.name,
+			artifact.clone(),
+			snapshot.depth + 1,
+			attrs,
+			false,
+		)
 	}
 
 	async fn directory_snapshot_entries_inner(
