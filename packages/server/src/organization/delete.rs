@@ -126,16 +126,22 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in organization_members {
-			batch.delete_organization_members.push(
-				tangram_index::organization::member::delete::Arg {
-					member: row.member,
-					organization: row.organization,
-				},
-			);
+			batch
+				.items
+				.push(tangram_index::batch::Item::DeleteOrganizationMember(
+					tangram_index::organization::member::delete::Arg {
+						member: row.member,
+						organization: row.organization,
+					},
+				));
 		}
 		self.delete_node_grants_with_transaction(transaction, &node.id, batch)
 			.await?;
-		batch.delete_organizations.push(node.id.clone().try_into()?);
+		batch
+			.items
+			.push(tangram_index::batch::Item::DeleteOrganization(
+				node.id.clone().try_into()?,
+			));
 		for statement in [
 			format!("delete from organization_members where organization = {p}1;"),
 			format!("delete from organizations where id = {p}1;"),

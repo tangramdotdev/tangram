@@ -205,10 +205,12 @@ impl Session {
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			batch.put_users.push(tangram_index::user::put::Arg {
-				id: id.clone(),
-				specifier: node.specifier.clone(),
-			});
+			batch.items.push(tangram_index::batch::Item::PutUser(
+				tangram_index::user::put::Arg {
+					id: id.clone(),
+					specifier: node.specifier.clone(),
+				},
+			));
 			Self::user_from_node_with_transaction(transaction, node).await?
 		};
 

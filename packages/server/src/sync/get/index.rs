@@ -289,10 +289,20 @@ impl Session {
 
 		// Index the objects and processes.
 		let arg = tangram_index::batch::Arg {
-			put_grants: put_grant_args,
-			put_objects: put_object_args,
-			put_processes: put_process_args,
-			..Default::default()
+			items: put_object_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutObject)
+				.chain(
+					put_process_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutProcess),
+				)
+				.chain(
+					put_grant_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutGrant),
+				)
+				.collect(),
 		};
 		self.server
 			.index_batch(arg)

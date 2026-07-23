@@ -939,8 +939,7 @@ impl Session {
 			touched_at,
 		};
 		let arg = tangram_index::batch::Arg {
-			put_objects: vec![put_object_arg],
-			..Default::default()
+			items: vec![tangram_index::batch::Item::PutObject(put_object_arg)],
 		};
 		self.server
 			.index_batch(arg)

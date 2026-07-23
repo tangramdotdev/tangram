@@ -132,11 +132,13 @@ impl Session {
 			return Err(tg::error!("the member is already in the organization"));
 		}
 		batch
-			.put_organization_members
-			.push(tangram_index::organization::member::put::Arg {
-				member: member.clone(),
-				organization: organization.id.clone().try_into()?,
-			});
+			.items
+			.push(tangram_index::batch::Item::PutOrganizationMember(
+				tangram_index::organization::member::put::Arg {
+					member: member.clone(),
+					organization: organization.id.clone().try_into()?,
+				},
+			));
 		let principal = match member {
 			tg::organization::Member::Group(id) => tg::grant::Principal::Group(id.clone()),
 			tg::organization::Member::User(id) => tg::grant::Principal::User(id.clone()),

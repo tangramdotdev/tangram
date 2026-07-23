@@ -217,22 +217,23 @@ impl Session {
 		if let Some(data) = data {
 			let data = data.without_tokens();
 			let index_arg = tangram_index::batch::Arg {
-				put_processes: vec![tangram_index::process::put::Arg {
-					children: None,
-					command: data.command.clone().into(),
-					data: Some(data.clone()),
-					error: None,
-					id: id.clone(),
-					log: None,
-					metadata: tg::process::Metadata::default(),
-					output: None,
-					parent,
-					sandbox: Some(data.sandbox.clone()),
-					stored: tangram_index::process::Stored::default(),
-					time_to_touch: session.server.config.process.time_to_touch,
-					touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
-				}],
-				..Default::default()
+				items: vec![tangram_index::batch::Item::PutProcess(
+					tangram_index::process::put::Arg {
+						children: None,
+						command: data.command.clone().into(),
+						data: Some(data.clone()),
+						error: None,
+						id: id.clone(),
+						log: None,
+						metadata: tg::process::Metadata::default(),
+						output: None,
+						parent,
+						sandbox: Some(data.sandbox.clone()),
+						stored: tangram_index::process::Stored::default(),
+						time_to_touch: session.server.config.process.time_to_touch,
+						touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+					},
+				)],
 			};
 			session
 				.server

@@ -1,5 +1,6 @@
 use {
-	super::{Index, Request},
+	super::{Db, Index, Request, Response},
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -8,56 +9,134 @@ impl Index {
 		if arg.is_empty() {
 			return Ok(());
 		}
-		self.delete_grants(&arg.delete_grants).await?;
-		self.delete_group_members(&arg.delete_group_members).await?;
-		self.delete_organization_members(&arg.delete_organization_members)
-			.await?;
-		self.delete_groups(&arg.delete_groups).await?;
-		self.delete_organizations(&arg.delete_organizations).await?;
-		self.delete_sandboxes(&arg.delete_sandboxes).await?;
-		self.delete_tags(&arg.delete_tags).await?;
-		self.delete_users(&arg.delete_users).await?;
-		if !arg.put_cache_entries.is_empty() {
-			self.enqueue_batch_request(Request::PutCacheEntries(arg.put_cache_entries))
-				.await?;
-		}
-		self.put_groups(&arg.put_groups).await?;
-		self.put_group_members(&arg.put_group_members).await?;
-		if !arg.put_objects.is_empty() {
-			self.enqueue_batch_request(Request::PutObjects(arg.put_objects))
-				.await?;
-		}
-		self.put_organizations(&arg.put_organizations).await?;
-		self.put_organization_members(&arg.put_organization_members)
-			.await?;
-		if !arg.put_processes.is_empty() {
-			self.enqueue_batch_request(Request::PutProcesses(arg.put_processes))
-				.await?;
-		}
-		if !arg.put_runners.is_empty() {
-			self.enqueue_batch_request(Request::PutRunners(arg.put_runners))
-				.await?;
-		}
-		if !arg.put_sandboxes.is_empty() {
-			self.enqueue_batch_request(Request::PutSandboxes(arg.put_sandboxes))
-				.await?;
-		}
-		self.put_tags(&arg.put_tags).await?;
-		self.put_users(&arg.put_users).await?;
-		self.put_grants(&arg.put_grants).await?;
-		Ok(())
-	}
-
-	async fn enqueue_batch_request(&self, request: Request) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Batch(arg);
 		self.sender_medium
 			.as_ref()
 			.unwrap()
 			.send((request, sender))
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		receiver
+		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+
+		Ok(())
+	}
+
+	pub(crate) fn task_batch(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &crate::batch::Arg,
+	) -> tg::Result<()> {
+		for item in &arg.items {
+			match item {
+				crate::batch::Item::DeleteGrant(arg) => {
+					Self::task_delete_grants(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+				crate::batch::Item::DeleteGroup(id) => {
+					Self::task_delete_groups(db, subspace, transaction, std::slice::from_ref(id))?;
+				},
+				crate::batch::Item::DeleteGroupMember(arg) => {
+					Self::task_delete_group_members(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
+				},
+				crate::batch::Item::DeleteOrganization(id) => {
+					Self::task_delete_organizations(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(id),
+					)?;
+				},
+				crate::batch::Item::DeleteOrganizationMember(arg) => {
+					Self::task_delete_organization_members(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
+				},
+				crate::batch::Item::DeleteSandbox(id) => {
+					Self::task_delete_sandboxes(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(id),
+					)?;
+				},
+				crate::batch::Item::DeleteTag(id) => {
+					Self::task_delete_tags(db, subspace, transaction, std::slice::from_ref(id))?;
+				},
+				crate::batch::Item::DeleteUser(id) => {
+					Self::task_delete_users(db, subspace, transaction, std::slice::from_ref(id))?;
+				},
+				crate::batch::Item::PutCacheEntry(arg) => {
+					Self::task_put_cache_entries(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
+				},
+				crate::batch::Item::PutGrant(arg) => {
+					Self::task_put_grants(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+				crate::batch::Item::PutGroup(arg) => {
+					Self::task_put_groups(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+				crate::batch::Item::PutGroupMember(arg) => {
+					Self::task_put_group_members(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
+				},
+				crate::batch::Item::PutObject(arg) => {
+					Self::task_put_objects(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+				crate::batch::Item::PutOrganization(arg) => {
+					Self::task_put_organizations(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
+				},
+				crate::batch::Item::PutOrganizationMember(arg) => {
+					Self::task_put_organization_members(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
+				},
+				crate::batch::Item::PutProcess(arg) => {
+					Self::task_put_processes(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+				crate::batch::Item::PutRunner(arg) => {
+					Self::task_put_runners(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+				crate::batch::Item::PutSandbox(arg) => {
+					Self::task_put_sandboxes(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+				crate::batch::Item::PutTag(arg) => {
+					Self::task_put_tags(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+				crate::batch::Item::PutUser(arg) => {
+					Self::task_put_users(db, subspace, transaction, std::slice::from_ref(arg))?;
+				},
+			}
+		}
+
 		Ok(())
 	}
 }

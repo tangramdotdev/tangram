@@ -314,11 +314,11 @@ impl Watchdog {
 				.query_all_into::<Row>(statement.into(), params)
 				.await;
 			let rows = crate::database::retry!(result, "failed to execute the statement");
-			index_arg.put_runners.extend(rows.into_iter().map(|row| {
-				tangram_index::runner::put::Arg {
+			index_arg.items.extend(rows.into_iter().map(|row| {
+				tangram_index::batch::Item::PutRunner(tangram_index::runner::put::Arg {
 					id: row.id,
 					scheduler: None,
-				}
+				})
 			}));
 		}
 		self.server

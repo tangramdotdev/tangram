@@ -508,10 +508,20 @@ impl Session {
 			self.server.config.object.time_to_touch,
 		);
 		let arg = tangram_index::batch::Arg {
-			put_cache_entries: put_cache_entry_args,
-			put_grants: put_grant_args,
-			put_objects: put_object_args,
-			..Default::default()
+			items: put_cache_entry_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutCacheEntry)
+				.chain(
+					put_object_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutObject),
+				)
+				.chain(
+					put_grant_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutGrant),
+				)
+				.collect(),
 		};
 		self.server
 			.index_batch(arg)

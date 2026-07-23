@@ -2,6 +2,7 @@ use tangram_client::prelude::*;
 
 #[derive(Clone)]
 pub(super) enum Request {
+	Batch(crate::batch::Arg),
 	Clean(Clean),
 	CompleteFinalization(crate::finalization::Entry),
 	DeleteGrants(Vec<crate::grant::delete::Arg>),

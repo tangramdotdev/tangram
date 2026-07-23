@@ -159,6 +159,32 @@ impl Index {
 				response: Ok(Self::create_initial_response(&request)),
 				sender: Some(sender),
 			}));
+			if let Request::Batch(arg) = request {
+				let count = arg.items.len();
+				if !current_batch.requests.is_empty()
+					&& current_count.saturating_add(count) > max_items
+				{
+					batches.push(current_batch);
+					current_batch = Batch {
+						requests: Vec::new(),
+						trackers: Vec::new(),
+					};
+					current_count = 0;
+				}
+				current_batch.requests.push(Request::Batch(arg));
+				current_batch.trackers.push(tracker.clone());
+				tracker.lock().unwrap().remaining = 1;
+				current_count = current_count.saturating_add(count);
+				if current_count >= max_items {
+					batches.push(current_batch);
+					current_batch = Batch {
+						requests: Vec::new(),
+						trackers: Vec::new(),
+					};
+					current_count = 0;
+				}
+				continue;
+			}
 
 			let (items, kind) = Self::request_into_items(request);
 			let mut iter = items.into_iter().peekable();
@@ -209,7 +235,8 @@ impl Index {
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
-			Request::CompleteFinalization(_)
+			Request::Batch(_)
+			| Request::CompleteFinalization(_)
 			| Request::DeleteGrants(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
@@ -240,6 +267,7 @@ impl Index {
 
 	fn request_into_items(request: Request) -> (Vec<Item>, Kind) {
 		match request {
+			Request::Batch(_) => unreachable!(),
 			Request::Clean(crate::fdb::Clean {
 				batch_size,
 				max_object_touched_at,
@@ -748,7 +776,8 @@ impl Index {
 		let priority_batch = batch.requests.iter().all(|request| {
 			matches!(
 				request,
-				Request::Clean(_)
+				Request::Batch(_)
+					| Request::Clean(_)
 					| Request::CompleteFinalization(_)
 					| Request::EnqueueFinalization(_)
 					| Request::PutCacheEntries(_)
@@ -867,6 +896,10 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<Response> {
 		match request {
+			Request::Batch(arg) => {
+				Self::task_batch(txn, subspace, arg, partition_total).await?;
+				Ok(Response::Unit)
+			},
 			Request::Clean(crate::fdb::Clean {
 				batch_size,
 				max_object_touched_at,

@@ -180,11 +180,13 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		batch.put_groups.push(tangram_index::group::put::Arg {
-			id: id.clone(),
-			parent: node.parent.clone(),
-			specifier: node.specifier.clone(),
-		});
+		batch.items.push(tangram_index::batch::Item::PutGroup(
+			tangram_index::group::put::Arg {
+				id: id.clone(),
+				parent: node.parent.clone(),
+				specifier: node.specifier.clone(),
+			},
+		));
 		if !matches!(
 			self.context.principal,
 			tg::Principal::Anonymous | tg::Principal::Root

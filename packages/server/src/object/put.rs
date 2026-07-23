@@ -137,9 +137,9 @@ impl Session {
 			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 		});
 		let arg = tangram_index::batch::Arg {
-			put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
-			put_objects: vec![arg],
-			..Default::default()
+			items: std::iter::once(tangram_index::batch::Item::PutObject(arg))
+				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
+				.collect(),
 		};
 		self.server
 			.index_batch(arg)

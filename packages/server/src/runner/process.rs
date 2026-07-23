@@ -991,8 +991,7 @@ impl Session {
 		};
 
 		let arg = tangram_index::batch::Arg {
-			put_grants: vec![put_grant],
-			..Default::default()
+			items: vec![tangram_index::batch::Item::PutGrant(put_grant)],
 		};
 		self.server
 			.index_batch(arg)

@@ -126,11 +126,13 @@ impl Session {
 			return Ok(None);
 		}
 		batch
-			.delete_organization_members
-			.push(tangram_index::organization::member::delete::Arg {
-				member: member.clone(),
-				organization: organization.id.clone().try_into()?,
-			});
+			.items
+			.push(tangram_index::batch::Item::DeleteOrganizationMember(
+				tangram_index::organization::member::delete::Arg {
+					member: member.clone(),
+					organization: organization.id.clone().try_into()?,
+				},
+			));
 		let principal = match member {
 			tg::organization::Member::Group(id) => tg::grant::Principal::Group(id.clone()),
 			tg::organization::Member::User(id) => tg::grant::Principal::User(id.clone()),

@@ -241,7 +241,7 @@ impl Session {
 
 		// Write the processes to the index.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let put_processes = batch
+		let put_processes: Vec<_> = batch
 			.iter()
 			.map(|(id, data, metadata)| tangram_index::process::put::Arg {
 				children: None,
@@ -262,8 +262,10 @@ impl Session {
 		self.server
 			.index
 			.batch(tangram_index::batch::Arg {
-				put_processes,
-				..Default::default()
+				items: put_processes
+					.into_iter()
+					.map(tangram_index::batch::Item::PutProcess)
+					.collect(),
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the processes in the index"))?;

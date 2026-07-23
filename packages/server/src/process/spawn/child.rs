@@ -120,8 +120,10 @@ impl Session {
 			touched_at: now,
 		};
 		let arg = tangram_index::batch::Arg {
-			put_processes: vec![parent_arg, child_arg],
-			..Default::default()
+			items: vec![
+				tangram_index::batch::Item::PutProcess(parent_arg),
+				tangram_index::batch::Item::PutProcess(child_arg),
+			],
 		};
 		self.server
 			.index_batch(arg)

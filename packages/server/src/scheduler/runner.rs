@@ -157,11 +157,12 @@ impl Scheduler {
 	) -> tg::Result<AddRunnerResponseOutput> {
 		// Upsert the runner into the database.
 		let index_arg = tangram_index::batch::Arg {
-			put_runners: vec![tangram_index::runner::put::Arg {
-				id: request.runner.clone(),
-				scheduler: Some(self.id.clone()),
-			}],
-			..Default::default()
+			items: vec![tangram_index::batch::Item::PutRunner(
+				tangram_index::runner::put::Arg {
+					id: request.runner.clone(),
+					scheduler: Some(self.id.clone()),
+				},
+			)],
 		};
 		let scheduler_id = self.id.clone();
 		let server = self.server.clone();
@@ -218,11 +219,12 @@ impl Scheduler {
 
 		// Mark the runner as stopped and clear its scheduler in the database.
 		let index_arg = tangram_index::batch::Arg {
-			put_runners: vec![tangram_index::runner::put::Arg {
-				id: request.runner.clone(),
-				scheduler: None,
-			}],
-			..Default::default()
+			items: vec![tangram_index::batch::Item::PutRunner(
+				tangram_index::runner::put::Arg {
+					id: request.runner.clone(),
+					scheduler: None,
+				},
+			)],
 		};
 		let runner_id = request.runner.clone();
 		let scheduler_id = self.id.clone();

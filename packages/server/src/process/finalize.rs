@@ -211,8 +211,7 @@ impl Server {
 		};
 		self.index
 			.batch(index::batch::Arg {
-				put_processes: vec![put_process],
-				..Default::default()
+				items: vec![index::batch::Item::PutProcess(put_process)],
 			})
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;

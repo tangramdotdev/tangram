@@ -177,22 +177,23 @@ impl Session {
 		self.server
 			.index
 			.batch(tangram_index::batch::Arg {
-				put_processes: vec![tangram_index::process::put::Arg {
-					children: None,
-					command: data.command.clone().into(),
-					data: Some(data.clone()),
-					error: None,
-					id: process.clone(),
-					log: Some(Some(blob.clone().into())),
-					metadata: indexed.metadata,
-					output: None,
-					parent: None,
-					sandbox: Some(data.sandbox.clone()),
-					stored: indexed.stored,
-					time_to_touch: self.server.config.process.time_to_touch,
-					touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
-				}],
-				..Default::default()
+				items: vec![tangram_index::batch::Item::PutProcess(
+					tangram_index::process::put::Arg {
+						children: None,
+						command: data.command.clone().into(),
+						data: Some(data.clone()),
+						error: None,
+						id: process.clone(),
+						log: Some(Some(blob.clone().into())),
+						metadata: indexed.metadata,
+						output: None,
+						parent: None,
+						sandbox: Some(data.sandbox.clone()),
+						stored: indexed.stored,
+						time_to_touch: self.server.config.process.time_to_touch,
+						touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+					},
+				)],
 			})
 			.await
 			.map_err(|error| tg::error!(!error, %process, "failed to update the process log"))?;

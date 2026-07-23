@@ -260,13 +260,13 @@ impl Indexer {
 			return Ok(0);
 		}
 
-		// Deserialize and combine the index batches.
+		// Deserialize the index batches.
 		let count = items.len();
-		let mut arg = tangram_index::batch::Arg::default();
+		let mut args = Vec::with_capacity(count);
 		let mut keys = Vec::with_capacity(count);
 		for item in items {
-			let item_arg = tangram_index::batch::Arg::deserialize(&item.payload)?;
-			append_index_batch(&mut arg, item_arg);
+			let arg = tangram_index::batch::Arg::deserialize(&item.payload)?;
+			args.push(arg);
 			let key = crate::database::outbox::Key {
 				id: item.id,
 				partition: item.partition,
@@ -274,10 +274,8 @@ impl Indexer {
 			keys.push(key);
 		}
 
-		// Write the batch to the index before deleting the durable intents.
-		self.server
-			.index
-			.batch(arg)
+		// Submit each outbox item separately to preserve its transaction boundary.
+		future::try_join_all(args.into_iter().map(|arg| self.server.index.batch(arg)))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index a database outbox batch"))?;
 		let arg = crate::database::outbox::DeleteArg {
@@ -336,13 +334,13 @@ impl Indexer {
 			return Ok(0);
 		}
 
-		// Deserialize and combine the index batches.
+		// Deserialize the index batches.
 		let count = items.len();
-		let mut arg = tangram_index::batch::Arg::default();
+		let mut args = Vec::with_capacity(count);
 		let mut keys = Vec::with_capacity(count);
 		for item in items {
-			let item_arg = tangram_index::batch::Arg::deserialize(&item.payload)?;
-			append_index_batch(&mut arg, item_arg);
+			let arg = tangram_index::batch::Arg::deserialize(&item.payload)?;
+			args.push(arg);
 			let key = crate::object::outbox::Key {
 				id: item.id,
 				partition: item.partition,
@@ -350,10 +348,8 @@ impl Indexer {
 			keys.push(key);
 		}
 
-		// Write the batch to the index before deleting the durable intents.
-		self.server
-			.index
-			.batch(arg)
+		// Submit each outbox item separately to preserve its transaction boundary.
+		future::try_join_all(args.into_iter().map(|arg| self.server.index.batch(arg)))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index an object outbox batch"))?;
 		let arg = crate::object::outbox::DeleteArg { keys };
@@ -934,53 +930,4 @@ impl Payload for ServerMessage {
 		let bytes = serde_json::to_vec(self).map_err(tangram_messenger::Error::serialization)?;
 		Ok(bytes.into())
 	}
-}
-
-fn append_index_batch(batch: &mut tangram_index::batch::Arg, arg: tangram_index::batch::Arg) {
-	let tangram_index::batch::Arg {
-		delete_grants,
-		delete_group_members,
-		delete_groups,
-		delete_organization_members,
-		delete_organizations,
-		delete_sandboxes,
-		delete_tags,
-		delete_users,
-		put_cache_entries,
-		put_grants,
-		put_group_members,
-		put_groups,
-		put_objects,
-		put_organization_members,
-		put_organizations,
-		put_processes,
-		put_runners,
-		put_sandboxes,
-		put_tags,
-		put_users,
-	} = arg;
-	batch.delete_grants.extend(delete_grants);
-	batch.delete_group_members.extend(delete_group_members);
-	batch.delete_groups.extend(delete_groups);
-	batch
-		.delete_organization_members
-		.extend(delete_organization_members);
-	batch.delete_organizations.extend(delete_organizations);
-	batch.delete_sandboxes.extend(delete_sandboxes);
-	batch.delete_tags.extend(delete_tags);
-	batch.delete_users.extend(delete_users);
-	batch.put_cache_entries.extend(put_cache_entries);
-	batch.put_grants.extend(put_grants);
-	batch.put_group_members.extend(put_group_members);
-	batch.put_groups.extend(put_groups);
-	batch.put_objects.extend(put_objects);
-	batch
-		.put_organization_members
-		.extend(put_organization_members);
-	batch.put_organizations.extend(put_organizations);
-	batch.put_processes.extend(put_processes);
-	batch.put_runners.extend(put_runners);
-	batch.put_sandboxes.extend(put_sandboxes);
-	batch.put_tags.extend(put_tags);
-	batch.put_users.extend(put_users);
 }

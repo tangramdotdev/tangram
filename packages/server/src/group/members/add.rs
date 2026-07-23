@@ -121,12 +121,12 @@ impl Session {
 		if inserted == 0 {
 			return Err(tg::error!("the member is already in the group"));
 		}
-		batch
-			.put_group_members
-			.push(tangram_index::group::member::put::Arg {
+		batch.items.push(tangram_index::batch::Item::PutGroupMember(
+			tangram_index::group::member::put::Arg {
 				group: group.id.clone().try_into()?,
 				member: member.clone(),
-			});
+			},
+		));
 		let principal = match member {
 			tg::group::Member::Group(id) => tg::grant::Principal::Group(id.clone()),
 			tg::group::Member::User(id) => tg::grant::Principal::User(id.clone()),

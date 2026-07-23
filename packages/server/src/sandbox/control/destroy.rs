@@ -26,8 +26,7 @@ impl Session {
 		self.server
 			.index
 			.batch(tangram_index::batch::Arg {
-				put_sandboxes: vec![put_sandbox],
-				..Default::default()
+				items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
 			})
 			.await
 			.map_err(

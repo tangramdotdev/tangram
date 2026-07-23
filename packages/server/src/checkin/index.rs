@@ -88,10 +88,16 @@ impl Session {
 
 		// Index.
 		let arg = tangram_index::batch::Arg {
-			put_cache_entries: put_index_cache_entry_args,
-			put_grants: put_grant.map(|arg| vec![arg]).unwrap_or_default(),
-			put_objects: put_index_object_args,
-			..Default::default()
+			items: put_index_cache_entry_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutCacheEntry)
+				.chain(
+					put_index_object_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutObject),
+				)
+				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
+				.collect(),
 		};
 		self.server
 			.index_batch(arg)

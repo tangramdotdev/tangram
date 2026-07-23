@@ -235,15 +235,17 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			(created_at, Some(creator.clone()), permissions, true)
 		};
-		batch.put_grants.push(tangram_index::grant::put::Arg {
-			created_at,
-			creator: output_creator.clone(),
-			expires_at: None,
-			permissions,
-			principal: principal.clone(),
-			resource: resource.clone(),
-			time_to_touch: None,
-		});
+		batch.items.push(tangram_index::batch::Item::PutGrant(
+			tangram_index::grant::put::Arg {
+				created_at,
+				creator: output_creator.clone(),
+				expires_at: None,
+				permissions,
+				principal: principal.clone(),
+				resource: resource.clone(),
+				time_to_touch: None,
+			},
+		));
 		Ok((
 			tg::Grant {
 				created_at,
@@ -357,13 +359,15 @@ impl Session {
 			}
 		}
 		if !deleted.is_empty() {
-			batch.delete_grants.push(tangram_index::grant::delete::Arg {
-				creator: Some(creator),
-				expires_at: None,
-				permissions: deleted,
-				principal,
-				resource,
-			});
+			batch.items.push(tangram_index::batch::Item::DeleteGrant(
+				tangram_index::grant::delete::Arg {
+					creator: Some(creator),
+					expires_at: None,
+					permissions: deleted,
+					principal,
+					resource,
+				},
+			));
 		}
 		Ok(Some(()))
 	}
@@ -500,13 +504,15 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in rows {
-			batch.delete_grants.push(tangram_index::grant::delete::Arg {
-				creator: Some(row.creator),
-				expires_at: None,
-				permissions: row.permissions,
-				principal: row.principal,
-				resource: row.resource,
-			});
+			batch.items.push(tangram_index::batch::Item::DeleteGrant(
+				tangram_index::grant::delete::Arg {
+					creator: Some(row.creator),
+					expires_at: None,
+					permissions: row.permissions,
+					principal: row.principal,
+					resource: row.resource,
+				},
+			));
 		}
 		let statement = formatdoc!(
 			"
@@ -530,13 +536,15 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in rows {
-			batch.delete_grants.push(tangram_index::grant::delete::Arg {
-				creator: Some(row.creator),
-				expires_at: None,
-				permissions: row.permissions,
-				principal: row.principal,
-				resource: row.resource,
-			});
+			batch.items.push(tangram_index::batch::Item::DeleteGrant(
+				tangram_index::grant::delete::Arg {
+					creator: Some(row.creator),
+					expires_at: None,
+					permissions: row.permissions,
+					principal: row.principal,
+					resource: row.resource,
+				},
+			));
 		}
 		let statement = formatdoc!(
 			"

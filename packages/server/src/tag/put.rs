@@ -55,17 +55,19 @@ impl Session {
 					let data = session
 						.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 						.await?;
-					batch.put_tags.push(tangram_index::tag::put::Arg {
-						id: data.id,
-						item: match data.item {
-							tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-							tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+					batch.items.push(tangram_index::batch::Item::PutTag(
+						tangram_index::tag::put::Arg {
+							id: data.id,
+							item: match data.item {
+								tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+								tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+							},
+							name: data.name,
+							parent: data.parent,
+							permissions: data.permissions,
+							specifier: data.specifier,
 						},
-						name: data.name,
-						parent: data.parent,
-						permissions: data.permissions,
-						specifier: data.specifier,
-					});
+					));
 					session
 						.server
 						.enqueue_database_outbox_with_transaction(transaction, &batch)

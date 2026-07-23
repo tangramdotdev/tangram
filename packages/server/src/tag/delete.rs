@@ -41,9 +41,11 @@ impl Session {
 					let deleted = session
 						.delete_tags_with_transaction(transaction, &arg, &mut batch)
 						.await?;
-					batch
-						.delete_tags
-						.extend(deleted.iter().map(|tag| tag.id.clone()));
+					batch.items.extend(
+						deleted
+							.iter()
+							.map(|tag| tangram_index::batch::Item::DeleteTag(tag.id.clone())),
+					);
 					let output = tg::tag::delete::Output { deleted };
 					session
 						.server

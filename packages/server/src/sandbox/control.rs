@@ -194,14 +194,15 @@ impl Session {
 
 		if let Some(data) = data {
 			let index_arg = tangram_index::batch::Arg {
-				put_sandboxes: vec![tangram_index::sandbox::put::Arg {
-					created_at,
-					data: Some(data),
-					id: id.clone(),
-					runner,
-					touched_at: created_at,
-				}],
-				..Default::default()
+				items: vec![tangram_index::batch::Item::PutSandbox(
+					tangram_index::sandbox::put::Arg {
+						created_at,
+						data: Some(data),
+						id: id.clone(),
+						runner,
+						touched_at: created_at,
+					},
+				)],
 			};
 			self.server
 				.index_batch(index_arg)

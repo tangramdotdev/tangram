@@ -1,47 +1,73 @@
 use tangram_client::prelude::*;
 
+/// An ordered sequence of mutations that executes in one transaction, which other args may share.
 #[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub delete_grants: Vec<crate::grant::delete::Arg>,
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
-	pub delete_group_members: Vec<crate::group::member::delete::Arg>,
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
-	pub delete_groups: Vec<tg::group::Id>,
-	#[tangram_serialize(default, id = 3, skip_serializing_if = "Vec::is_empty")]
-	pub delete_organization_members: Vec<crate::organization::member::delete::Arg>,
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
-	pub delete_organizations: Vec<tg::organization::Id>,
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
-	pub delete_sandboxes: Vec<tg::sandbox::Id>,
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "Vec::is_empty")]
-	pub delete_tags: Vec<tg::tag::Id>,
-	#[tangram_serialize(default, id = 7, skip_serializing_if = "Vec::is_empty")]
-	pub delete_users: Vec<tg::user::Id>,
-	#[tangram_serialize(default, id = 8, skip_serializing_if = "Vec::is_empty")]
-	pub put_cache_entries: Vec<crate::cache::put::Arg>,
-	#[tangram_serialize(default, id = 9, skip_serializing_if = "Vec::is_empty")]
-	pub put_grants: Vec<crate::grant::put::Arg>,
-	#[tangram_serialize(default, id = 10, skip_serializing_if = "Vec::is_empty")]
-	pub put_group_members: Vec<crate::group::member::put::Arg>,
-	#[tangram_serialize(default, id = 11, skip_serializing_if = "Vec::is_empty")]
-	pub put_groups: Vec<crate::group::put::Arg>,
-	#[tangram_serialize(default, id = 12, skip_serializing_if = "Vec::is_empty")]
-	pub put_objects: Vec<crate::object::put::Arg>,
-	#[tangram_serialize(default, id = 13, skip_serializing_if = "Vec::is_empty")]
-	pub put_organization_members: Vec<crate::organization::member::put::Arg>,
-	#[tangram_serialize(default, id = 14, skip_serializing_if = "Vec::is_empty")]
-	pub put_organizations: Vec<crate::organization::put::Arg>,
-	#[tangram_serialize(default, id = 15, skip_serializing_if = "Vec::is_empty")]
-	pub put_processes: Vec<crate::process::put::Arg>,
-	#[tangram_serialize(default, id = 16, skip_serializing_if = "Vec::is_empty")]
-	pub put_runners: Vec<crate::runner::put::Arg>,
-	#[tangram_serialize(default, id = 17, skip_serializing_if = "Vec::is_empty")]
-	pub put_sandboxes: Vec<crate::sandbox::put::Arg>,
-	#[tangram_serialize(default, id = 18, skip_serializing_if = "Vec::is_empty")]
-	pub put_tags: Vec<crate::tag::put::Arg>,
-	#[tangram_serialize(default, id = 19, skip_serializing_if = "Vec::is_empty")]
-	pub put_users: Vec<crate::user::put::Arg>,
+	pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub enum Item {
+	#[tangram_serialize(id = 0)]
+	DeleteGrant(crate::grant::delete::Arg),
+
+	#[tangram_serialize(id = 1)]
+	DeleteGroup(tg::group::Id),
+
+	#[tangram_serialize(id = 2)]
+	DeleteGroupMember(crate::group::member::delete::Arg),
+
+	#[tangram_serialize(id = 3)]
+	DeleteOrganization(tg::organization::Id),
+
+	#[tangram_serialize(id = 4)]
+	DeleteOrganizationMember(crate::organization::member::delete::Arg),
+
+	#[tangram_serialize(id = 5)]
+	DeleteSandbox(tg::sandbox::Id),
+
+	#[tangram_serialize(id = 6)]
+	DeleteTag(tg::tag::Id),
+
+	#[tangram_serialize(id = 7)]
+	DeleteUser(tg::user::Id),
+
+	#[tangram_serialize(id = 8)]
+	PutCacheEntry(crate::cache::put::Arg),
+
+	#[tangram_serialize(id = 9)]
+	PutGrant(crate::grant::put::Arg),
+
+	#[tangram_serialize(id = 10)]
+	PutGroup(crate::group::put::Arg),
+
+	#[tangram_serialize(id = 11)]
+	PutGroupMember(crate::group::member::put::Arg),
+
+	#[tangram_serialize(id = 12)]
+	PutObject(crate::object::put::Arg),
+
+	#[tangram_serialize(id = 13)]
+	PutOrganization(crate::organization::put::Arg),
+
+	#[tangram_serialize(id = 14)]
+	PutOrganizationMember(crate::organization::member::put::Arg),
+
+	#[tangram_serialize(id = 15)]
+	PutProcess(crate::process::put::Arg),
+
+	#[tangram_serialize(id = 16)]
+	PutRunner(crate::runner::put::Arg),
+
+	#[tangram_serialize(id = 17)]
+	PutSandbox(crate::sandbox::put::Arg),
+
+	#[tangram_serialize(id = 18)]
+	PutTag(crate::tag::put::Arg),
+
+	#[tangram_serialize(id = 19)]
+	PutUser(crate::user::put::Arg),
 }
 
 impl Arg {
@@ -57,26 +83,7 @@ impl Arg {
 
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
-		self.delete_grants.is_empty()
-			&& self.delete_group_members.is_empty()
-			&& self.delete_groups.is_empty()
-			&& self.delete_organization_members.is_empty()
-			&& self.delete_organizations.is_empty()
-			&& self.delete_sandboxes.is_empty()
-			&& self.delete_tags.is_empty()
-			&& self.delete_users.is_empty()
-			&& self.put_cache_entries.is_empty()
-			&& self.put_grants.is_empty()
-			&& self.put_group_members.is_empty()
-			&& self.put_groups.is_empty()
-			&& self.put_objects.is_empty()
-			&& self.put_organization_members.is_empty()
-			&& self.put_organizations.is_empty()
-			&& self.put_processes.is_empty()
-			&& self.put_runners.is_empty()
-			&& self.put_sandboxes.is_empty()
-			&& self.put_tags.is_empty()
-			&& self.put_users.is_empty()
+		self.items.is_empty()
 	}
 }
 
@@ -108,58 +115,64 @@ mod tests {
 			ttl: Some(std::time::Duration::new(60, 123)),
 		};
 		let arg = Arg {
-			delete_grants: vec![crate::grant::delete::Arg {
-				creator: Some(tg::Principal::Root),
-				expires_at: None,
-				permissions: tg::grant::permission::Set::Group(
-					tg::grant::permission::group::Set::READ,
-				),
-				principal: tg::grant::Principal::Root,
-				resource: group.clone().into(),
-			}],
-			delete_groups: vec![group.clone()],
-			delete_organizations: vec![organization.clone()],
-			delete_tags: vec![tag],
-			delete_users: vec![user.clone()],
-			put_grants: vec![crate::grant::put::Arg {
-				created_at: 1,
-				creator: Some(tg::Principal::Root),
-				expires_at: None,
-				permissions: tg::grant::permission::Set::Group(
-					tg::grant::permission::group::Set::READ,
-				),
-				principal: tg::grant::Principal::Root,
-				resource: group.clone().into(),
-				time_to_touch: Some(std::time::Duration::new(30, 456)),
-			}],
-			put_group_members: vec![crate::group::member::put::Arg {
-				group,
-				member: tg::group::Member::User(user.clone()),
-			}],
-			put_organization_members: vec![crate::organization::member::put::Arg {
-				member: tg::organization::Member::User(user),
-				organization,
-			}],
-			put_sandboxes: vec![crate::sandbox::put::Arg {
-				created_at: 1,
-				data: Some(data),
-				id: sandbox,
-				runner: None,
-				touched_at: 2,
-			}],
-			..Default::default()
+			items: vec![
+				Item::DeleteGrant(crate::grant::delete::Arg {
+					creator: Some(tg::Principal::Root),
+					expires_at: None,
+					permissions: tg::grant::permission::Set::Group(
+						tg::grant::permission::group::Set::READ,
+					),
+					principal: tg::grant::Principal::Root,
+					resource: group.clone().into(),
+				}),
+				Item::DeleteGroup(group.clone()),
+				Item::DeleteOrganization(organization.clone()),
+				Item::DeleteTag(tag),
+				Item::DeleteUser(user.clone()),
+				Item::PutGrant(crate::grant::put::Arg {
+					created_at: 1,
+					creator: Some(tg::Principal::Root),
+					expires_at: None,
+					permissions: tg::grant::permission::Set::Group(
+						tg::grant::permission::group::Set::READ,
+					),
+					principal: tg::grant::Principal::Root,
+					resource: group.clone().into(),
+					time_to_touch: Some(std::time::Duration::new(30, 456)),
+				}),
+				Item::PutGroupMember(crate::group::member::put::Arg {
+					group,
+					member: tg::group::Member::User(user.clone()),
+				}),
+				Item::PutOrganizationMember(crate::organization::member::put::Arg {
+					member: tg::organization::Member::User(user),
+					organization,
+				}),
+				Item::PutSandbox(crate::sandbox::put::Arg {
+					created_at: 1,
+					data: Some(data),
+					id: sandbox,
+					runner: None,
+					touched_at: 2,
+				}),
+			],
 		};
 		let bytes = arg.serialize().unwrap();
 		let arg = Arg::deserialize(&bytes).unwrap();
-		assert!(!arg.is_empty());
-		assert_eq!(arg.delete_grants.len(), 1);
+		assert_eq!(arg.items.len(), 9);
+		let Item::PutGrant(grant_arg) = &arg.items[5] else {
+			panic!();
+		};
 		assert_eq!(
-			arg.put_grants[0].time_to_touch,
+			grant_arg.time_to_touch,
 			Some(std::time::Duration::new(30, 456))
 		);
-		assert_eq!(arg.put_group_members.len(), 1);
-		assert_eq!(arg.put_organization_members.len(), 1);
-		let data = arg.put_sandboxes[0].data.as_ref().unwrap();
+		assert!(matches!(&arg.items[6], Item::PutGroupMember(_)));
+		assert!(matches!(&arg.items[7], Item::PutOrganizationMember(_)));
+		let Item::PutSandbox(sandbox_arg) = &arg.items[8] else {
+			panic!();
+		};
+		let data = sandbox_arg.data.as_ref().unwrap();
 		assert_eq!(data.cpu, Some(2));
 		assert_eq!(data.ttl, Some(std::time::Duration::new(60, 123)));
 		assert_eq!(data.network.as_ref().unwrap().ports().len(), 1);

@@ -524,8 +524,9 @@ impl Session {
 
 		// Index the cache entry.
 		let arg = tangram_index::batch::Arg {
-			put_cache_entries: vec![put_cache_entry_arg],
-			..Default::default()
+			items: vec![tangram_index::batch::Item::PutCacheEntry(
+				put_cache_entry_arg,
+			)],
 		};
 		self.server
 			.index_batch(arg)
@@ -649,8 +650,10 @@ impl Session {
 
 		// Index the cache entries.
 		let arg = tangram_index::batch::Arg {
-			put_cache_entries: put_cache_entry_args,
-			..Default::default()
+			items: put_cache_entry_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutCacheEntry)
+				.collect(),
 		};
 		self.server
 			.index_batch(arg)

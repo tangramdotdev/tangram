@@ -108,11 +108,13 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		batch
-			.put_organizations
-			.push(tangram_index::organization::put::Arg {
-				id: id.clone(),
-				specifier: node.specifier.clone(),
-			});
+			.items
+			.push(tangram_index::batch::Item::PutOrganization(
+				tangram_index::organization::put::Arg {
+					id: id.clone(),
+					specifier: node.specifier.clone(),
+				},
+			));
 		if !matches!(
 			self.context.principal,
 			tg::Principal::Anonymous | tg::Principal::Root

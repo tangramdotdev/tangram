@@ -110,11 +110,13 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in group_members {
 			batch
-				.delete_group_members
-				.push(tangram_index::group::member::delete::Arg {
-					group: row.group,
-					member: row.member,
-				});
+				.items
+				.push(tangram_index::batch::Item::DeleteGroupMember(
+					tangram_index::group::member::delete::Arg {
+						group: row.group,
+						member: row.member,
+					},
+				));
 		}
 		#[derive(db::row::Deserialize)]
 		struct OrganizationMemberRow {
@@ -138,16 +140,20 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in organization_members {
-			batch.delete_organization_members.push(
-				tangram_index::organization::member::delete::Arg {
-					member: row.member,
-					organization: row.organization,
-				},
-			);
+			batch
+				.items
+				.push(tangram_index::batch::Item::DeleteOrganizationMember(
+					tangram_index::organization::member::delete::Arg {
+						member: row.member,
+						organization: row.organization,
+					},
+				));
 		}
 		self.delete_node_grants_with_transaction(transaction, &node.id, batch)
 			.await?;
-		batch.delete_groups.push(node.id.clone().try_into()?);
+		batch.items.push(tangram_index::batch::Item::DeleteGroup(
+			node.id.clone().try_into()?,
+		));
 		for statement in [
 			format!("delete from group_members where \"group\" = {p}1 or member = {p}1;"),
 			format!("delete from organization_members where member = {p}1;"),

@@ -139,6 +139,8 @@ impl Index {
 			let mut results: Vec<tg::Result<Response>> = Vec::new();
 			for request in batch.requests {
 				let result = match request {
+					Request::Batch(arg) => Self::task_batch(db, subspace, &mut transaction, &arg)
+						.map(|()| Response::Unit),
 					Request::Clean(crate::lmdb::Clean {
 						batch_size,
 						max_object_touched_at,
@@ -355,6 +357,32 @@ impl Index {
 				response: Ok(Self::create_initial_response(&request)),
 				sender: Some(sender),
 			});
+			if let Request::Batch(arg) = request {
+				let count = arg.items.len();
+				if !current_batch.requests.is_empty()
+					&& current_count.saturating_add(count) > max_items
+				{
+					batches.push(current_batch);
+					current_batch = Batch {
+						requests: Vec::new(),
+						tracker_indices: Vec::new(),
+					};
+					current_count = 0;
+				}
+				current_batch.requests.push(Request::Batch(arg));
+				current_batch.tracker_indices.push(tracker_idx);
+				trackers[tracker_idx].remaining = 1;
+				current_count = current_count.saturating_add(count);
+				if current_count >= max_items {
+					batches.push(current_batch);
+					current_batch = Batch {
+						requests: Vec::new(),
+						tracker_indices: Vec::new(),
+					};
+					current_count = 0;
+				}
+				continue;
+			}
 
 			let (items, kind) = Self::request_into_items(request);
 			let mut iter = items.into_iter().peekable();
@@ -405,7 +433,8 @@ impl Index {
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
-			Request::CompleteFinalization(_)
+			Request::Batch(_)
+			| Request::CompleteFinalization(_)
 			| Request::DeleteGrants(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
@@ -436,6 +465,7 @@ impl Index {
 
 	fn request_into_items(request: Request) -> (Vec<Item>, Kind) {
 		match request {
+			Request::Batch(_) => unreachable!(),
 			Request::Clean(crate::lmdb::Clean {
 				batch_size,
 				max_object_touched_at,

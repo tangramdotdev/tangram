@@ -26,11 +26,12 @@ impl Server {
 
 		self.index
 			.batch(tangram_index::batch::Arg {
-				put_runners: vec![tangram_index::runner::put::Arg {
-					id: runner.clone(),
-					scheduler: None,
-				}],
-				..Default::default()
+				items: vec![tangram_index::batch::Item::PutRunner(
+					tangram_index::runner::put::Arg {
+						id: runner.clone(),
+						scheduler: None,
+					},
+				)],
 			})
 			.await
 			.map_err(
@@ -86,22 +87,23 @@ impl Server {
 
 			self.index
 				.batch(tangram_index::batch::Arg {
-					put_processes: vec![tangram_index::process::put::Arg {
-						children: None,
-						command: data.command.clone().into(),
-						data: Some(data.clone()),
-						error: None,
-						id: process.clone(),
-						log: None,
-						metadata: indexed.metadata,
-						output: None,
-						parent: None,
-						sandbox: Some(data.sandbox.clone()),
-						stored: indexed.stored,
-						time_to_touch: self.config.process.time_to_touch,
-						touched_at: now,
-					}],
-					..Default::default()
+					items: vec![tangram_index::batch::Item::PutProcess(
+						tangram_index::process::put::Arg {
+							children: None,
+							command: data.command.clone().into(),
+							data: Some(data.clone()),
+							error: None,
+							id: process.clone(),
+							log: None,
+							metadata: indexed.metadata,
+							output: None,
+							parent: None,
+							sandbox: Some(data.sandbox.clone()),
+							stored: indexed.stored,
+							time_to_touch: self.config.process.time_to_touch,
+							touched_at: now,
+						},
+					)],
 				})
 				.await
 				.map_err(
@@ -127,14 +129,15 @@ impl Server {
 		data.status = tg::sandbox::Status::Destroyed;
 		self.index
 			.batch(tangram_index::batch::Arg {
-				put_sandboxes: vec![tangram_index::sandbox::put::Arg {
-					created_at: indexed.created_at,
-					data: indexed.data,
-					id: id.clone(),
-					runner: indexed.runner,
-					touched_at: now,
-				}],
-				..Default::default()
+				items: vec![tangram_index::batch::Item::PutSandbox(
+					tangram_index::sandbox::put::Arg {
+						created_at: indexed.created_at,
+						data: indexed.data,
+						id: id.clone(),
+						runner: indexed.runner,
+						touched_at: now,
+					},
+				)],
 			})
 			.await
 			.map_err(
