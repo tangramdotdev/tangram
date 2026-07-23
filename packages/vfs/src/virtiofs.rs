@@ -270,7 +270,7 @@ where
 				let name =
 					CString::new(name).map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
 				Ok::<_, io::Error>(Item {
-					ino: id,
+					ino: crate::readdir_inode(id),
 					type_: dir_entry_type(typ),
 					name,
 				})

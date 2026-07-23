@@ -10,6 +10,13 @@ pub mod virtiofs;
 
 pub const ROOT_NODE_ID: u64 = 1;
 
+pub const UNKNOWN_INODE: u64 = 0xffff_ffff;
+
+#[must_use]
+pub fn readdir_inode(node: u64) -> u64 {
+	if node == 0 { UNKNOWN_INODE } else { node }
+}
+
 pub type Result<T> = std::io::Result<T>;
 
 #[derive(Clone, Debug)]

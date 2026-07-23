@@ -599,7 +599,7 @@ where
 
 			let offset = request.offset.saturating_add(offset.to_u64().unwrap());
 			let dirent = FuseDirentHeader {
-				ino: node,
+				ino: crate::readdir_inode(node),
 				namelen: name.len().to_u32().unwrap(),
 				off: offset.saturating_add(1),
 				type_,
