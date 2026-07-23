@@ -97,12 +97,7 @@ impl Session {
 			sandboxes: 0,
 			tags: 0,
 		};
-		let batch_size = self
-			.server
-			.config
-			.cleaner
-			.as_ref()
-			.map_or(1024, |config| config.batch_size);
+		let batch_size = self.server.config.cleaner.batch_size;
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let object_time_to_live = Duration::from_secs(0);
 		let process_time_to_live = Duration::from_secs(0);

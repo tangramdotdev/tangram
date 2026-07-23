@@ -1,10 +1,18 @@
 use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::{collections::BTreeMap, net::Ipv4Addr, path::PathBuf, time::Duration},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		net::Ipv4Addr,
+		path::PathBuf,
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_uri::Uri,
 	tangram_util::serde::BoolOptionDefault,
 };
+
+#[cfg(test)]
+mod test;
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -22,9 +30,8 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: Checkin,
 
-	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default, skip_serializing_if = "is_default")]
-	pub cleaner: Option<Cleaner>,
+	pub cleaner: Cleaner,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub database: Database,
@@ -32,19 +39,14 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_http", skip_serializing_if = "is_default_http")]
-	pub http: Option<Http>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub http: Http,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub index: Index,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(
-		default = "default_indexer",
-		skip_serializing_if = "is_default_indexer"
-	)]
-	pub indexer: Option<Indexer>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub indexer: Indexer,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub logs: Logs,
@@ -67,16 +69,14 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<BTreeMap<String, Remote>>,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_runner", skip_serializing_if = "is_default_runner")]
-	pub runner: Option<Runner>,
+	#[serde(default = "default_roles", skip_serializing_if = "is_default_roles")]
+	pub roles: BTreeSet<Role>,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(
-		default = "default_scheduler",
-		skip_serializing_if = "is_default_scheduler"
-	)]
-	pub scheduler: Option<Scheduler>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub runner: Runner,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub scheduler: Scheduler,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub sandbox: Sandbox,
@@ -95,15 +95,31 @@ pub struct Config {
 	#[serde(default = "default_watch", skip_serializing_if = "is_default_watch")]
 	pub watch: Option<Watch>,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(
-		default = "default_watchdog",
-		skip_serializing_if = "is_default_watchdog"
-	)]
-	pub watchdog: Option<Watchdog>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub watchdog: Watchdog,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub write: Write,
+}
+
+#[derive(
+	Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+	Cleaner,
+
+	Finalizer,
+
+	Http,
+
+	Indexer,
+
+	Runner,
+
+	Scheduler,
+
+	Watchdog,
 }
 
 #[serde_as]
@@ -676,9 +692,8 @@ pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Process {
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_finalizer")]
-	pub finalizer: Option<Finalizer>,
+	#[serde(default)]
+	pub finalizer: Finalizer,
 
 	#[serde(alias = "grant_ttl", default = "default_process_grant_time_to_live")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
@@ -867,9 +882,8 @@ pub struct Scheduler {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_finalizer")]
-	pub finalizer: Option<Finalizer>,
+	#[serde(default)]
+	pub finalizer: Finalizer,
 
 	pub isolation: SandboxIsolation,
 
@@ -1239,13 +1253,13 @@ impl Default for Config {
 			advanced: Advanced::default(),
 			authentication: Authentication::default(),
 			checkin: Checkin::default(),
-			cleaner: None,
+			cleaner: Cleaner::default(),
 			database: Database::default(),
 			directory: None,
 			grants: Grants::default(),
-			http: Some(Http::default()),
+			http: Http::default(),
 			index: Index::default(),
-			indexer: Some(Indexer::default()),
+			indexer: Indexer::default(),
 			logs: Logs::default(),
 			messenger: Messenger::default(),
 			object: Object::default(),
@@ -1253,14 +1267,15 @@ impl Default for Config {
 			region: None,
 			regions: None,
 			remotes: None,
-			runner: Some(Runner::default()),
-			scheduler: Some(Scheduler::default()),
+			roles: default_roles(),
+			runner: Runner::default(),
+			scheduler: Scheduler::default(),
 			sandbox: Sandbox::default(),
 			sync: Sync::default(),
 			version: None,
 			vfs: None,
 			watch: Some(Watch::default()),
-			watchdog: Some(Watchdog::default()),
+			watchdog: Watchdog::default(),
 			write: Write::default(),
 		}
 	}
@@ -1548,7 +1563,7 @@ impl LmdbObjectStore {
 impl Default for Process {
 	fn default() -> Self {
 		Self {
-			finalizer: Some(Finalizer::default()),
+			finalizer: Finalizer::default(),
 			grant_time_to_live: default_process_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
 			time_to_index: default_time_to_index(),
@@ -1609,7 +1624,7 @@ impl Default for Scheduler {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			finalizer: Some(Finalizer::default()),
+			finalizer: Finalizer::default(),
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
@@ -1866,11 +1881,6 @@ mod ip_range {
 	}
 }
 
-#[expect(clippy::unnecessary_wraps)]
-fn default_finalizer() -> Option<Finalizer> {
-	Some(Finalizer::default())
-}
-
 fn default_ip_ranges() -> Vec<IpRange> {
 	vec!["172.18.0.4-172.31.255.255".parse().unwrap()]
 }
@@ -1977,19 +1987,18 @@ fn default_grant_tokens() -> Option<TokenKeys> {
 	Some(TokenKeys::default())
 }
 
-#[expect(clippy::unnecessary_wraps)]
-fn default_http() -> Option<Http> {
-	Some(Http::default())
-}
-
-#[expect(clippy::unnecessary_wraps)]
-fn default_indexer() -> Option<Indexer> {
-	Some(Indexer::default())
-}
-
-#[expect(clippy::unnecessary_wraps)]
-fn default_runner() -> Option<Runner> {
-	Some(Runner::default())
+fn default_roles() -> BTreeSet<Role> {
+	[
+		Role::Cleaner,
+		Role::Finalizer,
+		Role::Http,
+		Role::Indexer,
+		Role::Runner,
+		Role::Scheduler,
+		Role::Watchdog,
+	]
+	.into_iter()
+	.collect()
 }
 
 fn default_scheduler_cpu() -> u64 {
@@ -2013,18 +2022,8 @@ fn default_scheduler_memory() -> u64 {
 }
 
 #[expect(clippy::unnecessary_wraps)]
-fn default_scheduler() -> Option<Scheduler> {
-	Some(Scheduler::default())
-}
-
-#[expect(clippy::unnecessary_wraps)]
 fn default_watch() -> Option<Watch> {
 	Some(Watch::default())
-}
-
-#[expect(clippy::unnecessary_wraps)]
-fn default_watchdog() -> Option<Watchdog> {
-	Some(Watchdog::default())
 }
 
 fn is_default<T>(value: &T) -> bool
@@ -2039,34 +2038,13 @@ fn is_default_grant_tokens(value: &Option<TokenKeys>) -> bool {
 	is_serialized_default(value, default_grant_tokens())
 }
 
-#[expect(clippy::ref_option)]
-fn is_default_http(value: &Option<Http>) -> bool {
-	is_serialized_default(value, default_http())
-}
-
-#[expect(clippy::ref_option)]
-fn is_default_indexer(value: &Option<Indexer>) -> bool {
-	is_serialized_default(value, default_indexer())
-}
-
-#[expect(clippy::ref_option)]
-fn is_default_runner(value: &Option<Runner>) -> bool {
-	is_serialized_default(value, default_runner())
-}
-
-#[expect(clippy::ref_option)]
-fn is_default_scheduler(value: &Option<Scheduler>) -> bool {
-	is_serialized_default(value, default_scheduler())
+fn is_default_roles(value: &BTreeSet<Role>) -> bool {
+	*value == default_roles()
 }
 
 #[expect(clippy::ref_option)]
 fn is_default_watch(value: &Option<Watch>) -> bool {
 	is_serialized_default(value, default_watch())
-}
-
-#[expect(clippy::ref_option)]
-fn is_default_watchdog(value: &Option<Watchdog>) -> bool {
-	is_serialized_default(value, default_watchdog())
 }
 
 fn is_serialized_default<T>(value: &T, default: T) -> bool

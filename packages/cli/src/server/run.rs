@@ -68,8 +68,7 @@ impl Cli {
 				url: url.clone(),
 				tls: None,
 			};
-			let http = config.http.get_or_insert_default();
-			http.listeners = vec![listener];
+			config.http.listeners = vec![listener];
 		}
 
 		// Set the remotes.

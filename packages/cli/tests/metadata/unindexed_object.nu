@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Object metadata for an object that has not been indexed reports only the node.
 
-let server = spawn --config { indexer: false }
+let server = spawn --config { roles: [cleaner finalizer http runner scheduler watchdog] }
 
 let id = tg put 'tg.file("hello")' | str trim
 

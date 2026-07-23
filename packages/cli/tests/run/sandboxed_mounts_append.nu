@@ -3,9 +3,7 @@ use ../../test.nu *
 # Successive .mount calls on a sandboxed process append the mounts in order and the resulting mount list is reported back faithfully.
 
 let server = spawn --config {
-	sandbox: {
-		finalizer: false,
-	},
+	roles: [cleaner http indexer runner scheduler watchdog],
 }
 
 let a = mktemp --directory | str trim

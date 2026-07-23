@@ -55,9 +55,10 @@ impl Session {
 		let location = self
 			.server
 			.config
-			.runner
-			.as_ref()
-			.and_then(|runner| runner.remote.clone())
+			.roles
+			.contains(&crate::config::Role::Runner)
+			.then(|| self.server.config.runner.remote.clone())
+			.flatten()
 			.map(|name| tg::Location::Remote(tg::location::Remote { name, region: None }));
 		Ok(Some(Process {
 			debug: data.debug,
@@ -93,9 +94,10 @@ impl Session {
 		let location = data.location.unwrap_or_else(|| {
 			self.server
 				.config
-				.runner
-				.as_ref()
-				.and_then(|runner| runner.remote.clone())
+				.roles
+				.contains(&crate::config::Role::Runner)
+				.then(|| self.server.config.runner.remote.clone())
+				.flatten()
 				.map_or_else(
 					|| tg::Location::Local(tg::location::Local::default()),
 					|name| tg::Location::Remote(tg::location::Remote { name, region: None }),
@@ -128,9 +130,15 @@ impl Session {
 				Ok(process.inner_token)
 			},
 			tg::Principal::Runner(id) => {
-				let Some(runner) = self.server.config.runner.as_ref() else {
+				if !self
+					.server
+					.config
+					.roles
+					.contains(&crate::config::Role::Runner)
+				{
 					return Ok(None);
-				};
+				}
+				let runner = &self.server.config.runner;
 				if runner.remote.as_deref() != Some(remote) {
 					return Ok(None);
 				}

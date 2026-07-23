@@ -37,7 +37,12 @@ impl Session {
 
 		let processes = if include_processes {
 			// Get the process health.
-			let capacity = if self.server.config.runner.is_some() {
+			let capacity = if self
+				.server
+				.config
+				.roles
+				.contains(&crate::config::Role::Runner)
+			{
 				Some(self.server.runner.state.capacity.get())
 			} else {
 				None

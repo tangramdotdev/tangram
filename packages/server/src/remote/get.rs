@@ -39,9 +39,10 @@ impl Session {
 					) && self
 					.server
 					.config
-					.runner
-					.as_ref()
-					.and_then(|runner| runner.remote.as_deref())
+					.roles
+					.contains(&crate::config::Role::Runner)
+					.then(|| self.server.config.runner.remote.as_deref())
+					.flatten()
 					.is_some_and(|remote| remote == name) =>
 			{
 				return self.try_get_remote_runner(name).await;
@@ -95,9 +96,10 @@ impl Session {
 		let Some(remote) = self
 			.server
 			.config
-			.runner
-			.as_ref()
-			.and_then(|runner| runner.remote.as_deref())
+			.roles
+			.contains(&crate::config::Role::Runner)
+			.then(|| self.server.config.runner.remote.as_deref())
+			.flatten()
 		else {
 			return Ok(None);
 		};

@@ -101,8 +101,7 @@ impl Cli {
 			.or(self
 				.config
 				.as_ref()
-				.and_then(|config| config.server.http.as_ref())
-				.and_then(|config| config.listeners.first())
+				.and_then(|config| config.server.http.listeners.first())
 				.map(|listener| listener.url.clone()))
 			.unwrap_or_else(|| {
 				let path = self.directory_path().join("socket");

@@ -86,27 +86,28 @@ impl Session {
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let location = self.server.location(arg.location.as_ref())?;
-		let runner_matches_location = self.server.config.runner.as_ref().is_some_and(|config| {
-			let runner_location = config.remote.as_ref().map_or_else(
-				|| tg::Location::Local(tg::location::Local::default()),
-				|name| {
-					tg::Location::Remote(tg::location::Remote {
-						name: name.clone(),
-						region: None,
-					})
-				},
-			);
-			runner_location == location
-		});
+		let runner_matches_location = self
+			.server
+			.config
+			.roles
+			.contains(&crate::config::Role::Runner)
+			&& {
+				let config = &self.server.config.runner;
+				let runner_location = config.remote.as_ref().map_or_else(
+					|| tg::Location::Local(tg::location::Local::default()),
+					|name| {
+						tg::Location::Remote(tg::location::Remote {
+							name: name.clone(),
+							region: None,
+						})
+					},
+				);
+				runner_location == location
+			};
 		let new_sandbox = matches!(arg.sandbox, Some(tg::Either::Left(_)));
 		let requested =
 			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
-				let scheduler = self
-					.server
-					.config
-					.scheduler
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing the scheduler configuration"))?;
+				let scheduler = &self.server.config.scheduler;
 				Some(tg::runner::Capacity {
 					cpus: sandbox.cpu.unwrap_or(scheduler.default_cpu),
 					memory: sandbox.memory.unwrap_or(scheduler.default_memory),

@@ -265,13 +265,7 @@ impl Session {
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
 
-		let retention_ttl = self
-			.server
-			.config
-			.runner
-			.as_ref()
-			.unwrap()
-			.process_state_ttl;
+		let retention_ttl = self.server.config.runner.process_state_ttl;
 		tokio::select! {
 			() = retention_stopper.wait() => {},
 			() = tokio::time::sleep(retention_ttl) => {},

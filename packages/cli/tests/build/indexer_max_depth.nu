@@ -7,7 +7,7 @@ let server = spawn --config {
 	indexer: {
 		max_process_depth: 2
 	},
-	watchdog: false,
+	roles: [cleaner finalizer http indexer runner scheduler],
 }
 
 # Create a build that goes deeper than the maximum process depth.

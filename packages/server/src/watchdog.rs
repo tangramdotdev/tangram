@@ -147,8 +147,8 @@ impl Watchdog {
 				)?;
 			let mut failed = false;
 			for runner in runners {
-				if let Err(error) = self.server.cleanup_lost_runner(&runner, &scheduler).await {
-					tracing::error!(error = %error.trace(), %runner, %scheduler, "failed to clean up the lost runner");
+				if let Err(error) = self.server.handle_expired_runner(&runner, &scheduler).await {
+					tracing::error!(error = %error.trace(), %runner, %scheduler, "failed to handle the expired runner");
 					failed = true;
 					break;
 				}

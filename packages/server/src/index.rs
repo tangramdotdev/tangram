@@ -571,7 +571,13 @@ impl Session {
 	pub(crate) async fn index(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
-		if self.server.config.indexer.is_none() && self.server.config.advanced.single_process {
+		if !self
+			.server
+			.config
+			.roles
+			.contains(&crate::config::Role::Indexer)
+			&& self.server.config.advanced.single_process
+		{
 			return Err(tg::error!("cannot index when the indexer is disabled"));
 		}
 		let progress = crate::progress::Handle::new();

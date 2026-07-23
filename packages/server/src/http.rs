@@ -349,10 +349,7 @@ impl Server {
 	}
 
 	fn http_idle_timeout(&self) -> Duration {
-		self.config().http.as_ref().map_or_else(
-			|| crate::config::Http::default().idle_timeout,
-			|config| config.idle_timeout,
-		)
+		self.config().http.idle_timeout
 	}
 
 	async fn serve_connection<S, T>(stream: S, service: T, idle_timeout: Duration, stopper: Stopper)

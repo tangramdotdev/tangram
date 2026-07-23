@@ -370,7 +370,7 @@ impl Session {
 	}
 
 	fn scheduler_message_options(&self) -> SchedulerMessageOptions {
-		let config = self.server.config.scheduler.clone().unwrap_or_default();
+		let config = self.server.config.scheduler.clone();
 		SchedulerMessageOptions {
 			retry: config.message_retry.into(),
 			timeout: config.message_timeout,
@@ -395,8 +395,9 @@ impl Server {
 		Ok(())
 	}
 
-	/// Get the IDs of all started schedulers from the database.
+	/// Get the IDs of all started schedulers in the current region from the database.
 	pub(crate) async fn get_started_schedulers(&self) -> tg::Result<Vec<tg::scheduler::Id>> {
+		let region = self.config.region.clone();
 		let connection = self
 			.database
 			.connection()
@@ -407,15 +408,19 @@ impl Server {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::scheduler::Id,
 		}
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				select id
 				from schedulers
-				where status = 'started';
+				where (
+					(region is null and {p}1 is null) or
+					region = {p}1
+				) and status = 'started';
 			"
 		);
 		let result = connection
-			.query_all_into::<Row>(statement.into(), db::params![])
+			.query_all_into::<Row>(statement.into(), db::params![region])
 			.await;
 		drop(connection);
 		let schedulers =
@@ -437,22 +442,24 @@ impl Owned {
 impl Scheduler {
 	async fn start(server: &Server, config: &crate::config::Scheduler) -> tg::Result<Owned> {
 		let id = tg::scheduler::Id::new();
+		let region = server.config.region.clone();
 
 		// Insert the scheduler into the database.
 		server
 			.database
 			.run(|transaction| {
 				let id = id.clone();
+				let region = region.clone();
 				async move {
 					let p = transaction.p();
 					let statement = formatdoc!(
 						"
-							insert into schedulers (id, status)
-							values ({p}1, {p}2)
-							on conflict (id) do update set status = {p}2;
+							insert into schedulers (id, region, status)
+							values ({p}1, {p}2, {p}3)
+							on conflict (id) do update set region = {p}2, status = {p}3;
 						"
 					);
-					let params = db::params![id.to_string(), "started"];
+					let params = db::params![id.to_string(), region, "started"];
 					let result = transaction.execute(statement.into(), params).await;
 					crate::database::retry!(result, "failed to execute the statement");
 					Ok::<_, tg::Error>(ControlFlow::Break(()))

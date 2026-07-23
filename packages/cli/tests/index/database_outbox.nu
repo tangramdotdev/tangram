@@ -15,7 +15,9 @@ def stop [server: record] {
 let directory = mktemp -d
 
 # Commit a database mutation with the indexer disabled.
-let producer = spawn --name producer --directory $directory --config { indexer: false }
+let producer = spawn --name producer --directory $directory --config {
+	roles: [cleaner finalizer http runner scheduler watchdog]
+}
 let group = tg --url $producer.url group create project | from json
 stop $producer
 

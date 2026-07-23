@@ -14,7 +14,6 @@ use {
 };
 
 mod capacity;
-mod cleanup;
 mod process;
 mod sandbox;
 
@@ -133,21 +132,15 @@ impl Session {
 
 	async fn runner_task_inner(&self, id: &tg::runner::Id, stopper: Stopper) -> tg::Result<()> {
 		// Get the location.
-		let location = self
-			.server
-			.config
-			.runner
-			.as_ref()
-			.and_then(|config| config.remote.as_ref())
-			.map_or_else(
-				|| tg::Location::Local(tg::location::Local::default()),
-				|name| {
-					tg::Location::Remote(tg::location::Remote {
-						name: name.to_owned(),
-						region: None,
-					})
-				},
-			);
+		let location = self.server.config.runner.remote.as_ref().map_or_else(
+			|| tg::Location::Local(tg::location::Local::default()),
+			|name| {
+				tg::Location::Remote(tg::location::Remote {
+					name: name.to_owned(),
+					region: None,
+				})
+			},
+		);
 
 		// Get the runner control stream.
 		let control = self.run_get_runner_control_stream(id, &location).await?;
@@ -308,10 +301,7 @@ impl Session {
 	}
 
 	fn spawn_runner_heartbeat_task(&self, sender: RunnerSender) -> Task<()> {
-		let heartbeat_interval = self.server.config.runner.as_ref().map_or_else(
-			|| Duration::from_secs(1),
-			|config| config.heartbeat_interval,
-		);
+		let heartbeat_interval = self.server.config.runner.heartbeat_interval;
 		Task::spawn({
 			let session = self.clone();
 			move |_| async move {

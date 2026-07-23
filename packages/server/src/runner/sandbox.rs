@@ -246,12 +246,7 @@ impl Session {
 					.state
 					.id()
 					.ok_or_else(|| tg::error!("missing the runner id"))?;
-				let token = self
-					.server
-					.config
-					.runner
-					.as_ref()
-					.and_then(|runner| runner.token.clone());
+				let token = self.server.config.runner.token.clone();
 				Context {
 					principal: tg::Principal::Runner(runner),
 					token,
@@ -985,13 +980,7 @@ impl Session {
 			stopper,
 		} = arg;
 
-		let retention_ttl = self
-			.server
-			.config
-			.runner
-			.as_ref()
-			.unwrap()
-			.sandbox_state_ttl;
+		let retention_ttl = self.server.config.runner.sandbox_state_ttl;
 		let retention = tokio::time::sleep(retention_ttl);
 		let mut retention = pin!(retention);
 		loop {

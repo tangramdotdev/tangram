@@ -85,14 +85,16 @@ impl Session {
 			tg::process::control::SignalServerRequestArg { signal },
 		);
 		let retry = tangram_futures::retry::Options::default();
-		let timeout = self
+		let timeout = if self
 			.server
 			.config
-			.runner
-			.as_ref()
-			.map_or(std::time::Duration::from_secs(10), |runner| {
-				runner.stdio_drain_timeout
-			});
+			.roles
+			.contains(&crate::config::Role::Runner)
+		{
+			self.server.config.runner.stdio_drain_timeout
+		} else {
+			std::time::Duration::from_secs(10)
+		};
 		let options = crate::control::Options { retry, timeout };
 		let response = self
 			.send_process_control_request(id, request, options)

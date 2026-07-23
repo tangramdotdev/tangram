@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Indexing fails when the indexer is disabled.
 
-let server = spawn --config { indexer: false }
+let server = spawn --config { roles: [cleaner finalizer http runner scheduler watchdog] }
 
 let output = tg index | complete
 failure $output

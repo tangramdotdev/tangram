@@ -208,7 +208,7 @@ impl Session {
 	}
 
 	fn indexer_message_options(&self) -> crate::control::Options {
-		let config = self.server.config.indexer.clone().unwrap_or_default();
+		let config = self.server.config.indexer.clone();
 		crate::control::Options {
 			retry: config.message_retry.into(),
 			timeout: config.message_timeout,

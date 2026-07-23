@@ -1,10 +1,10 @@
 use ../test.nu *
 
 let config = {
-	runner: false,
 	advanced: {
 		single_process: false,
 	},
+	roles: [cleaner finalizer http indexer scheduler watchdog],
 	scheduler: {
 		runner_ttl: 3,
 	},

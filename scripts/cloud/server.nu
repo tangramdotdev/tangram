@@ -6,7 +6,6 @@ let config = {
 		single_directory: false,
 		single_process: false,
 	},
-	cleaner: true,
 	database: {
 		kind: 'postgres',
 		url: 'postgres://root@localhost:26257/database?sslmode=disable',
@@ -18,7 +17,6 @@ let config = {
 		cluster: $cluster,
 		kind: 'fdb',
 	},
-	indexer: true,
 	messenger: {
 		kind: 'nats',
 		url: 'nats://localhost:4222',
@@ -37,7 +35,7 @@ let config = {
 		},
 	},
 	remotes: [],
-	runner: false,
+	roles: [cleaner finalizer http indexer scheduler watchdog],
 	telemetry: {
 		endpoint: 'http://localhost:4317',
 		service_name: 'server',

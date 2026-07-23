@@ -194,12 +194,7 @@ impl Session {
 					.state
 					.id()
 					.ok_or_else(|| tg::error!("missing the runner id"))?;
-				let token = self
-					.server
-					.config
-					.runner
-					.as_ref()
-					.and_then(|runner| runner.token.clone());
+				let token = self.server.config.runner.token.clone();
 				crate::Context {
 					principal: tg::Principal::Runner(runner),
 					token,
@@ -1097,7 +1092,7 @@ impl Session {
 					js_args.push("js".to_owned());
 					js_args.push("--host".to_owned());
 					js_args.push(command.host.clone());
-					match &self.server.config.runner.as_ref().unwrap().js.engine {
+					match &self.server.config.runner.js.engine {
 						crate::config::JsEngine::Auto => {
 							js_args.push("--engine=auto".into());
 						},

@@ -7,7 +7,7 @@ use ../../test.nu *
 
 # Start the remote server.
 let config = {
-	runner: false,
+	roles: [cleaner finalizer http indexer scheduler watchdog],
 }
 let remote = spawn --name remote --cloud --config $config
 

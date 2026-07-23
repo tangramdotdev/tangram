@@ -4,10 +4,10 @@ use ../test.nu *
 
 # Spawn a server in a given directory.
 let config =  { 
-	runner: false,
 	advanced: {
 		single_process: false,
 	}
+	roles: [cleaner finalizer http indexer scheduler watchdog],
 }
 let remote = spawn --name remote --cloud --config $config
 

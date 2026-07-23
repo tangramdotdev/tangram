@@ -252,7 +252,8 @@ impl Server {
 		let context = Context::root();
 
 		// Validate the indexer configuration.
-		if let Some(indexer) = &config.indexer {
+		if config.roles.contains(&self::config::Role::Indexer) {
+			let indexer = &config.indexer;
 			if indexer.batch_size == 0 {
 				return Err(tg::error!(
 					"the indexer batch size must be greater than zero"
@@ -330,7 +331,8 @@ impl Server {
 			return Err(tg::error!("the region name must not be empty"));
 		}
 
-		if let Some(scheduler) = &config.scheduler {
+		if config.roles.contains(&self::config::Role::Scheduler) {
+			let scheduler = &config.scheduler;
 			if scheduler.create_sandbox_queue_capacity == 0 {
 				return Err(tg::error!(
 					"the scheduler create sandbox queue capacity must be greater than zero"
@@ -359,14 +361,12 @@ impl Server {
 		}
 
 		// Create the runner state.
-		let capacity = if let Some(runner) = &config.runner {
+		let capacity = if config.roles.contains(&self::config::Role::Runner) {
+			let runner = &config.runner;
 			let cpus = runner
 				.cpus
 				.unwrap_or_else(|| u64::try_from(parallelism).unwrap());
-			let default_memory = config.scheduler.as_ref().map_or_else(
-				|| crate::config::Scheduler::default().default_memory,
-				|scheduler| scheduler.default_memory,
-			);
+			let default_memory = config.scheduler.default_memory;
 			let memory = runner
 				.memory
 				.unwrap_or_else(|| default_memory.saturating_mul(cpus));
@@ -385,10 +385,11 @@ impl Server {
 		} else {
 			tg::runner::Capacity::default()
 		};
-		let sandbox_pool_size = config
-			.runner
-			.as_ref()
-			.map_or(0, |runner| runner.sandbox_pool_size);
+		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner) {
+			config.runner.sandbox_pool_size
+		} else {
+			0
+		};
 		let runner_config = self::runner::Config {
 			capacity,
 			sandbox_pool_size,
@@ -503,9 +504,9 @@ impl Server {
 						authorize,
 						cluster: options.cluster.clone(),
 						max_process_depth: config
-							.indexer
-							.as_ref()
-							.map(|config| u64::try_from(config.max_process_depth).unwrap()),
+							.roles
+							.contains(&self::config::Role::Indexer)
+							.then(|| u64::try_from(config.indexer.max_process_depth).unwrap()),
 						partition_total: options.partition_total,
 						prefix: options.prefix.clone(),
 						read_batch_size: options.read_batch_size,
@@ -538,9 +539,9 @@ impl Server {
 						authorize,
 						map_size: options.map_size,
 						max_process_depth: config
-							.indexer
-							.as_ref()
-							.map(|config| u64::try_from(config.max_process_depth).unwrap()),
+							.roles
+							.contains(&self::config::Role::Indexer)
+							.then(|| u64::try_from(config.indexer.max_process_depth).unwrap()),
 						path,
 						read_batch_size: options.read_batch_size,
 						read_concurrency: options.read_concurrency,
@@ -812,40 +813,55 @@ impl Server {
 		}
 
 		// Spawn the indexer task.
-		let indexer_task = server.config.indexer.clone().map(|config| {
-			Task::spawn({
-				let server = server.clone();
-				|_| async move {
-					let result = server.indexer_task(&config).await;
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace());
+		let indexer_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Indexer)
+			.then(|| {
+				let config = server.config.indexer.clone();
+				Task::spawn({
+					let server = server.clone();
+					|_| async move {
+						let result = server.indexer_task(&config).await;
+						if let Err(error) = result {
+							tracing::error!(error = %error.trace());
+						}
 					}
-				}
-			})
-		});
+				})
+			});
 
 		// Spawn the cleaner task.
-		let cleaner_task = server.config.cleaner.clone().map(|config| {
-			Task::spawn({
-				let server = server.clone();
-				|_| async move {
-					let result = server.cleaner_task(&config).await;
-					if let Err(error) = result {
-						tracing::error!(error = %error.trace());
+		let cleaner_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Cleaner)
+			.then(|| {
+				let config = server.config.cleaner.clone();
+				Task::spawn({
+					let server = server.clone();
+					|_| async move {
+						let result = server.cleaner_task(&config).await;
+						if let Err(error) = result {
+							tracing::error!(error = %error.trace());
+						}
 					}
-				}
-			})
-		});
+				})
+			});
 
 		// Spawn the scheduler task.
-		let scheduler_task = server.config.scheduler.clone().map(|config| {
-			Task::spawn({
-				let server = server.clone();
-				|_| async move {
-					server.scheduler_task(&config).await;
-				}
-			})
-		});
+		let scheduler_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Scheduler)
+			.then(|| {
+				let config = server.config.scheduler.clone();
+				Task::spawn({
+					let server = server.clone();
+					|_| async move {
+						server.scheduler_task(&config).await;
+					}
+				})
+			});
 
 		// Start the VFS if enabled.
 		let artifacts_path = server.artifacts_path();
@@ -919,37 +935,36 @@ impl Server {
 		}
 
 		// Spawn the HTTP task.
-		let http_listeners = server
-			.config()
-			.http
-			.as_ref()
-			.map_or_else(Vec::new, |config| {
-				let mut listeners = if config.listeners.is_empty() {
-					let path = server.path.join("socket");
-					let path = path.to_str().unwrap();
-					let url = Uri::builder()
-						.scheme("http+unix")
-						.authority(path)
-						.path("")
-						.build()
-						.unwrap();
-					vec![crate::config::HttpListener { url, tls: None }]
-				} else {
-					config.listeners.clone()
-				};
-				// On macOS, also listen on the socket in the shared app group
-				// container so the sandboxed file system extension can connect.
-				if let Some(path) = std::env::var_os("TANGRAM_MACOS_APP_GROUP_SOCKET") {
-					let url = Uri::builder()
-						.scheme("http+unix")
-						.authority(path.to_str().unwrap())
-						.path("")
-						.build()
-						.unwrap();
-					listeners.push(crate::config::HttpListener { url, tls: None });
-				}
-				listeners
-			});
+		let http_listeners = if server.config.roles.contains(&self::config::Role::Http) {
+			let config = &server.config.http;
+			let mut listeners = if config.listeners.is_empty() {
+				let path = server.path.join("socket");
+				let path = path.to_str().unwrap();
+				let url = Uri::builder()
+					.scheme("http+unix")
+					.authority(path)
+					.path("")
+					.build()
+					.unwrap();
+				vec![crate::config::HttpListener { url, tls: None }]
+			} else {
+				config.listeners.clone()
+			};
+			// On macOS, also listen on the socket in the shared app group
+			// container so the sandboxed file system extension can connect.
+			if let Some(path) = std::env::var_os("TANGRAM_MACOS_APP_GROUP_SOCKET") {
+				let url = Uri::builder()
+					.scheme("http+unix")
+					.authority(path.to_str().unwrap())
+					.path("")
+					.build()
+					.unwrap();
+				listeners.push(crate::config::HttpListener { url, tls: None });
+			}
+			listeners
+		} else {
+			Vec::new()
+		};
 		let http_task = if http_listeners.is_empty() {
 			None
 		} else {
@@ -1022,63 +1037,77 @@ impl Server {
 		}));
 
 		// Spawn the process finalizer task.
-		let process_finalizer_task = server.config.process.finalizer.clone().map(|config| {
-			Task::spawn({
-				let server = server.clone();
-				|stopper| async move {
-					server
-						.finalizer_task(&config, stopper)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(error = %error.trace(), "the process finalizer task failed");
-						})
-						.ok();
-				}
-			})
-		});
+		let process_finalizer_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Finalizer)
+			.then(|| {
+				let config = server.config.process.finalizer.clone();
+				Task::spawn({
+					let server = server.clone();
+					|stopper| async move {
+						server
+							.finalizer_task(&config, stopper)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(error = %error.trace(), "the process finalizer task failed");
+							})
+							.ok();
+					}
+				})
+			});
 
 		// Spawn the sandbox finalizer task.
-		let sandbox_finalizer_task = server.config.sandbox.finalizer.clone().map(|config| {
-			Task::spawn({
-				let server = server.clone();
-				|stopper| async move {
-					server
-						.sandbox_finalizer_task(&config, stopper)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(error = %error.trace(), "the sandbox finalizer task failed");
-						})
-						.ok();
-				}
-			})
-		});
+		let sandbox_finalizer_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Finalizer)
+			.then(|| {
+				let config = server.config.sandbox.finalizer.clone();
+				Task::spawn({
+					let server = server.clone();
+					|stopper| async move {
+						server
+							.sandbox_finalizer_task(&config, stopper)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(error = %error.trace(), "the sandbox finalizer task failed");
+							})
+							.ok();
+					}
+				})
+			});
 
 		// Spawn the watchdog task.
-		let watchdog_task = server.config.watchdog.as_ref().map(|config| {
-			Task::spawn({
-				let server = server.clone();
-				let config = config.clone();
-				|_| async move {
-					server
-						.watchdog_task(&config)
-						.await
-						.inspect_err(
-							|error| tracing::error!(error = %error.trace(), "the watchdog task failed"),
-						)
-						.ok();
-				}
-			})
-		});
+		let watchdog_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Watchdog)
+			.then(|| {
+				let config = server.config.watchdog.clone();
+				Task::spawn({
+					let server = server.clone();
+					|_| async move {
+						server
+							.watchdog_task(&config)
+							.await
+							.inspect_err(
+								|error| tracing::error!(error = %error.trace(), "the watchdog task failed"),
+							)
+							.ok();
+					}
+				})
+			});
 
 		// Spawn the runner task.
-		if server.config.runner.is_some() {
+		if server.config.roles.contains(&self::config::Role::Runner) {
 			let task = Task::spawn({
 				let server = server.clone();
 				let id = server
 					.config
 					.runner
-					.as_ref()
-					.and_then(|runner| runner.id.clone())
+					.id
+					.clone()
 					.unwrap_or_else(tg::runner::Id::new);
 				let context = Context {
 					principal: tg::Principal::Runner(id.clone()),
@@ -1368,14 +1397,14 @@ impl Server {
 				.build()
 				.unwrap()
 		};
-		let url = match self.config().http.as_ref() {
-			Some(http) if http.listeners.is_empty() => Some(default_url()),
-			Some(http) => http
-				.listeners
+		let http = &self.config().http;
+		let url = if http.listeners.is_empty() {
+			Some(default_url())
+		} else {
+			http.listeners
 				.iter()
 				.find(|listener| !matches!(listener.url.scheme(), Some("http+stdio")))
-				.map(|listener| listener.url.clone()),
-			None => Some(default_url()),
+				.map(|listener| listener.url.clone())
 		};
 		tg::Arg {
 			url,

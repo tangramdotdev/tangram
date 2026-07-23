@@ -83,8 +83,11 @@ create table runner_tokens (
 
 create table schedulers (
 	id text primary key,
+	region text,
 	status text not null
 );
+
+create index schedulers_region_status_index on schedulers (region, status);
 
 create table runners (
 	id text primary key,

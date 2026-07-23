@@ -35,9 +35,10 @@ impl Session {
 					) && self
 					.server
 					.config
-					.runner
-					.as_ref()
-					.and_then(|runner| runner.remote.as_deref())
+					.roles
+					.contains(&crate::config::Role::Runner)
+					.then(|| self.server.config.runner.remote.as_deref())
+					.flatten()
 					.is_some() =>
 			{
 				return self.list_remotes_runner().await;
@@ -88,9 +89,10 @@ impl Session {
 		let Some(remote) = self
 			.server
 			.config
-			.runner
-			.as_ref()
-			.and_then(|runner| runner.remote.as_deref())
+			.roles
+			.contains(&crate::config::Role::Runner)
+			.then(|| self.server.config.runner.remote.as_deref())
+			.flatten()
 		else {
 			return Ok(tg::remote::list::Output { data: Vec::new() });
 		};
