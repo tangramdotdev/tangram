@@ -228,9 +228,6 @@ impl Session {
 			output.sandbox_token = None;
 			output.token = None;
 		}
-		// Wake the watchdog if the process is active.
-		self.spawn_process_wake_watchdog_if_needed(output.as_ref());
-
 		let output = if cacheable && arg.cached.is_none() {
 			self.spawn_process_start_or_get_cached(&arg, output, cache_location)
 				.boxed()

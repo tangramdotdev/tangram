@@ -355,7 +355,7 @@ impl Index {
 							batch_size,
 							max_process_depth,
 						)
-						.map(Response::UpdateCount)
+						.map(Response::UpdateOutput)
 					},
 				};
 				results.push(result);
@@ -538,7 +538,7 @@ impl Index {
 			Request::TouchCacheEntries(_) => Response::CacheEntries(Vec::new()),
 			Request::TouchObjects(_) => Response::Objects(Vec::new()),
 			Request::TouchProcesses(_) => Response::Processes(Vec::new()),
-			Request::Update(_) => Response::UpdateCount(0),
+			Request::Update(_) => Response::UpdateOutput(crate::update::Output::default()),
 		}
 	}
 
@@ -1011,8 +1011,8 @@ impl Index {
 				existing.processes.extend(new.processes);
 				existing.done = new.done;
 			},
-			(Response::UpdateCount(existing), Response::UpdateCount(new)) => {
-				*existing += new;
+			(Response::UpdateOutput(existing), Response::UpdateOutput(new)) => {
+				existing.merge(new);
 			},
 			_ => {},
 		}

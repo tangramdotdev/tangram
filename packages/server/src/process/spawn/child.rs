@@ -73,9 +73,6 @@ impl Session {
 		self.index_process_child(&parent, &child, &command, sandbox.as_ref(), parent_data)
 			.await?;
 
-		// Wake the watchdog so parent depth changes are observed promptly.
-		self.server.spawn_publish_watchdog_message_task();
-
 		Ok(())
 	}
 

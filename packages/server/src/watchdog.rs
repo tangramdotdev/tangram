@@ -38,22 +38,6 @@ struct Scheduler {
 }
 
 impl Server {
-	pub(crate) fn spawn_publish_watchdog_message_task(&self) {
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				server
-					.messenger
-					.publish("watchdog".into(), ())
-					.await
-					.inspect_err(|error| {
-						tracing::error!(?error, "failed to publish the watchdog message");
-					})
-					.ok();
-			}
-		});
-	}
-
 	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) -> tg::Result<()> {
 		loop {
 			let result = self.watchdog_task_inner(config).await;
@@ -115,21 +99,10 @@ impl Watchdog {
 
 	async fn task(&self) -> tg::Result<()> {
 		let _heartbeat_task = self.spawn_scheduler_heartbeat_task();
-		let wakeups = self
-			.server
-			.messenger
-			.subscribe::<()>("watchdog".into())
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to subscribe to the watchdog message stream")
-			})?;
-		let mut wakeups = pin!(wakeups);
 		loop {
 			match self.task_inner().await {
 				Ok(0) => {
-					tokio::time::timeout(self.config.interval, wakeups.next())
-						.await
-						.ok();
+					tokio::time::sleep(self.config.interval).await;
 				},
 				Ok(_) => {},
 				Err(error) => {
@@ -141,73 +114,8 @@ impl Watchdog {
 	}
 
 	async fn task_inner(&self) -> tg::Result<u64> {
-		let mut count = 0u64;
-
-		// Handle processes.
-		count += self.handle_processes().await?;
-
 		// Handle expired schedulers.
-		count += self.handle_schedulers().await?;
-
-		Ok(count)
-	}
-
-	/// Finish processes that have exceeded the maximum depth.
-	async fn handle_processes(&self) -> tg::Result<u64> {
-		// Finish processes that have exceeded the maximum depth.
-		let processes = self
-			.server
-			.index
-			.get_process_depth_detections(self.config.batch_size)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the process depth detections"))?;
-		let count = processes.len().to_u64().unwrap();
-		for id in processes {
-			let error = tg::error::Data {
-				message: Some("maximum depth exceeded".into()),
-				..Default::default()
-			};
-			let request = tg::process::control::ServerRequestArg::Finish(
-				tg::process::control::FinishServerRequestArg {
-					error: Some(error),
-					exit: 1,
-				},
-			);
-			let options = crate::control::Options {
-				retry: tangram_futures::retry::Options::default(),
-				timeout: Duration::from_secs(10),
-			};
-			let session = self.server.session(&self.server.context);
-			let wait_future = session
-				.try_wait_process_future(&id, tg::process::wait::Arg::default())
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
-				.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-			let finish_future = session.send_process_control_request(&id, request, options);
-			let mut wait_future = pin!(wait_future);
-			let mut finish_future = pin!(finish_future);
-			tokio::select! {
-				output = &mut wait_future => {
-					let output = output
-						.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
-					if output.is_none() {
-						return Err(tg::error!(%id, "the process wait ended without output"));
-					}
-				},
-				response = &mut finish_future => {
-					let response = response
-						.map_err(
-							|error| tg::error!(!error, %id, "failed to send the finish process control request"),
-						)?
-						.map_err(
-							|error| tg::error!(!error, %id, "the finish process control request failed"),
-						)?;
-					response
-						.try_unwrap_finish()
-						.map_err(|_| tg::error!(%id, "expected a finish response"))?;
-				},
-			}
-		}
+		let count = self.handle_schedulers().await?;
 
 		Ok(count)
 	}

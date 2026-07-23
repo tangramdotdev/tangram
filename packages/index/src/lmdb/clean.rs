@@ -686,12 +686,6 @@ impl Index {
 			.and_then(|process| process.sandbox);
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
-		let key =
-			crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessDepthDetection(id.clone()));
-		let key = Self::pack(subspace, &key);
-		db.delete(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to delete process depth detection"))?;
-
 		let id_bytes = id.to_bytes();
 		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);

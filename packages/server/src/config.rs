@@ -494,6 +494,8 @@ pub struct Indexer {
 
 	pub concurrency: usize,
 
+	pub max_process_depth: usize,
+
 	#[serde(default = "message_retry_default")]
 	pub message_retry: Retry,
 
@@ -1200,12 +1202,8 @@ pub struct Watch {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Watchdog {
-	pub batch_size: usize,
-
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub interval: Duration,
-
-	pub max_depth: usize,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub ttl: Duration,
@@ -1451,6 +1449,7 @@ impl Default for Indexer {
 		Self {
 			batch_size: 1024,
 			concurrency: 1,
+			max_process_depth: 1024,
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
 			partition_end: 256,
@@ -1787,9 +1786,7 @@ impl Default for Watch {
 impl Default for Watchdog {
 	fn default() -> Self {
 		Self {
-			batch_size: 100,
 			interval: Duration::from_secs(1),
-			max_depth: 1024,
 			ttl: Duration::from_mins(1),
 		}
 	}

@@ -347,12 +347,6 @@ impl Session {
 		Ok(output)
 	}
 
-	pub(super) fn spawn_process_wake_watchdog_if_needed(&self, output: Option<&Output>) {
-		if output.is_some_and(|output| !output.data.status.is_finished()) {
-			self.server.spawn_publish_watchdog_message_task();
-		}
-	}
-
 	pub(super) fn spawn_process_add_tokens(
 		&self,
 		output: &mut tg::process::spawn::Output,

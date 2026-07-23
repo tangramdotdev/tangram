@@ -308,10 +308,6 @@ impl crate::Index for Index {
 		self.try_get_cached_processes(command).await
 	}
 
-	async fn get_process_depth_detections(&self, limit: usize) -> tg::Result<Vec<tg::process::Id>> {
-		self.get_process_depth_detections(limit).await
-	}
-
 	async fn get_requester_principals(
 		&self,
 		principal: &tg::Principal,
@@ -489,7 +485,7 @@ impl crate::Index for Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-	) -> tg::Result<usize> {
+	) -> tg::Result<crate::update::Output> {
 		Index::update_batch(self, batch_size, partition_start, partition_end).await
 	}
 

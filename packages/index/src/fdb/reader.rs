@@ -142,15 +142,6 @@ impl Index {
 				.await?;
 				crate::read::Response::FinalizationBatch(output)
 			},
-			crate::read::Request::GetProcessDepthDetections { limit } => {
-				let output = Self::get_process_depth_detections_with_transaction(
-					transaction,
-					subspace,
-					limit,
-				)
-				.await?;
-				crate::read::Response::GetProcessDepthDetections(output)
-			},
 			crate::read::Request::GetRequesterPrincipals { principal } => {
 				let output =
 					Self::requester_principals_with_transaction(transaction, subspace, &principal)

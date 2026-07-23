@@ -20,7 +20,6 @@ pub enum Key {
 		command: tg::object::Id,
 		process: tg::process::Id,
 	},
-	ProcessDepthDetection(tg::process::Id),
 	ProcessSandbox {
 		process: tg::process::Id,
 		sandbox: tg::sandbox::Id,

@@ -812,11 +812,6 @@ impl Index {
 			.transpose()?
 			.and_then(|process| process.sandbox);
 		txn.clear(&key);
-		let key =
-			crate::fdb::Key::Process(crate::fdb::process::Key::ProcessDepthDetection(id.clone()));
-		let key = Self::pack(subspace, &key);
-		txn.clear(&key);
-
 		let id_bytes = id.to_bytes();
 
 		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());

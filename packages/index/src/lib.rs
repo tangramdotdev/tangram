@@ -19,6 +19,7 @@ mod read;
 pub mod runner;
 pub mod sandbox;
 pub mod tag;
+pub mod update;
 pub mod user;
 
 pub mod prelude {
@@ -130,11 +131,6 @@ pub trait Index {
 		&self,
 		command: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
-
-	fn get_process_depth_detections(
-		&self,
-		limit: usize,
-	) -> impl Future<Output = tg::Result<Vec<tg::process::Id>>> + Send;
 
 	fn get_requester_principals(
 		&self,
@@ -320,7 +316,7 @@ pub trait Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-	) -> impl Future<Output = tg::Result<usize>> + Send;
+	) -> impl Future<Output = tg::Result<crate::update::Output>> + Send;
 
 	fn clean(
 		&self,

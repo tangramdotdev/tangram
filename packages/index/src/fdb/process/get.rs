@@ -8,49 +8,6 @@ use {
 };
 
 impl Index {
-	pub async fn get_process_depth_detections(
-		&self,
-		limit: usize,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let request = crate::read::Request::GetProcessDepthDetections { limit };
-		let response = self.send_read_request(request).await?;
-		let crate::read::Response::GetProcessDepthDetections(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub(crate) async fn get_process_depth_detections_with_transaction(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		limit: usize,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (Kind::ProcessDepthDetection.to_i32().unwrap(),);
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			limit: Some(limit),
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the process depth detections"))?;
-		entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Process(crate::fdb::process::Key::ProcessDepthDetection(process)) = key
-				else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				Ok(process)
-			})
-			.collect()
-	}
-
 	pub async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,

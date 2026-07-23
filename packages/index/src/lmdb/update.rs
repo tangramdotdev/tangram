@@ -46,6 +46,11 @@ struct ProcessGrantSet {
 	output: bool,
 }
 
+struct ProcessOutput {
+	changed: bool,
+	depth_exceeded: bool,
+}
+
 #[derive(Clone, Copy)]
 struct GrantCover {
 	expires_at: Option<i64>,
@@ -109,13 +114,14 @@ impl Index {
 		batch_size: usize,
 		_partition_start: u64,
 		_partition_end: u64,
-	) -> tg::Result<usize> {
+	) -> tg::Result<crate::update::Output> {
 		let request = Request::Update(crate::lmdb::Update { batch_size });
 		let response = self.send_write_request(request).await?;
-		let Response::UpdateCount(count) = response else {
+		let Response::UpdateOutput(output) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
-		Ok(count)
+
+		Ok(output)
 	}
 
 	pub(super) fn update_batch_with_transaction(
@@ -124,7 +130,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch_size: usize,
 		max_process_depth: Option<u64>,
-	) -> tg::Result<usize> {
+	) -> tg::Result<crate::update::Output> {
 		let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
 		let entries = db
@@ -147,7 +153,7 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		let mut count = 0;
+		let mut output = crate::update::Output::default();
 		for (version, id, kind) in entries {
 			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update {
 				id: id.clone(),
@@ -165,7 +171,12 @@ impl Index {
 				Kind::Item => match &id {
 					tg::Either::Left(id) => Self::update_object(db, subspace, transaction, id)?,
 					tg::Either::Right(id) => {
-						Self::update_process(db, subspace, transaction, id, max_process_depth)?
+						let process_output =
+							Self::update_process(db, subspace, transaction, id, max_process_depth)?;
+						if process_output.depth_exceeded {
+							output.processes_with_depth_exceeded.push(id.clone());
+						}
+						process_output.changed
 					},
 				},
 				Kind::Grants(principal) => match &id {
@@ -209,10 +220,10 @@ impl Index {
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete update version key"))?;
 
-			count += 1;
+			output.count += 1;
 		}
 
-		Ok(count)
+		Ok(output)
 	}
 
 	fn update_object(
@@ -772,7 +783,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 		max_process_depth: Option<u64>,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ProcessOutput> {
 		let process_key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let process_key = Self::pack(subspace, &process_key);
 		let bytes = db
@@ -832,10 +843,7 @@ impl Index {
 			changed = true;
 		}
 
-		let depth_detection_key =
-			crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessDepthDetection(id.clone()));
-		let depth_detection_key = Self::pack(subspace, &depth_detection_key);
-		let detected = max_process_depth.is_some_and(|max_depth| {
+		let depth_exceeded = max_process_depth.is_some_and(|max_depth| {
 			process
 				.metadata
 				.subtree
@@ -846,15 +854,6 @@ impl Index {
 					.as_ref()
 					.is_some_and(|data| !data.status.is_finished())
 		});
-		if detected {
-			db.put(transaction, &depth_detection_key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put the process depth detection"))?;
-		} else {
-			db.delete(transaction, &depth_detection_key)
-				.map_err(|error| {
-					tg::error!(!error, "failed to delete the process depth detection")
-				})?;
-		}
 
 		if let Some(object) = &command_object {
 			if process.metadata.node.command.count.is_none()
@@ -1561,7 +1560,12 @@ impl Index {
 				.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 		}
 
-		Ok(changed)
+		let output = ProcessOutput {
+			changed,
+			depth_exceeded,
+		};
+
+		Ok(output)
 	}
 
 	fn enqueue_parents(

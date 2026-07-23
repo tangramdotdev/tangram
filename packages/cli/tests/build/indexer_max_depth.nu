@@ -1,15 +1,16 @@
 use ../../test.nu *
 
-# The watchdog fails a build whose process tree exceeds the configured maximum depth and reports a maximum depth exceeded error.
+# The indexer fails a build whose process tree exceeds the configured maximum depth and reports a maximum depth exceeded error.
 
-# Configure watchdog with low max_depth and fast interval.
+# Configure the indexer with a low maximum depth and disable the watchdog.
 let server = spawn --config {
-	watchdog: {
-		max_depth: 2
-	}
+	indexer: {
+		max_process_depth: 2
+	},
+	watchdog: false,
 }
 
-# Create a build that goes deeper than max_depth.
+# Create a build that goes deeper than the maximum process depth.
 let path = artifact {
 	tangram.ts: '
 		export async function foo() {

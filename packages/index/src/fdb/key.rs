@@ -59,7 +59,6 @@ pub enum Kind {
 	GrantExpiresAt = 31,
 	Sandbox = 32,
 	CommandCacheableProcess = 33,
-	ProcessDepthDetection = 34,
 	Runner = 35,
 	SchedulerRunner = 36,
 	RunnerScheduler = 37,
@@ -251,12 +250,6 @@ impl fdbt::TuplePack for Key {
 			}) => (
 				Kind::CommandCacheableProcess.to_i32().unwrap(),
 				command.to_bytes().as_ref(),
-				process.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Process(crate::fdb::process::Key::ProcessDepthDetection(process)) => (
-				Kind::ProcessDepthDetection.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
@@ -832,15 +825,6 @@ impl fdbt::TupleUnpack<'_> for Key {
 					command,
 					process,
 				});
-				Ok((input, key))
-			},
-
-			Kind::ProcessDepthDetection => {
-				let (input, process_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let process = tg::process::Id::from_slice(&process_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let key = Key::Process(crate::fdb::process::Key::ProcessDepthDetection(process));
 				Ok((input, key))
 			},
 

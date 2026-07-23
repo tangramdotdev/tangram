@@ -44,7 +44,6 @@ let config = {
 	},
 	vfs: false,
 	watchdog: {
-		batch_size: 100,
 		interval: 1,
 		ttl: 60
 	}

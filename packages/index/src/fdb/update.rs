@@ -48,6 +48,11 @@ struct ProcessGrantSet {
 	output: bool,
 }
 
+struct ProcessOutput {
+	changed: bool,
+	depth_exceeded: bool,
+}
+
 #[derive(Clone, Copy)]
 struct GrantCover {
 	expires_at: Option<i64>,
@@ -186,17 +191,18 @@ impl Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-	) -> tg::Result<usize> {
+	) -> tg::Result<crate::update::Output> {
 		let request = Request::Update(crate::fdb::Update {
 			batch_size,
 			partition_end,
 			partition_start,
 		});
 		let response = self.send_write_request(request).await?;
-		let Response::UpdateCount(count) = response else {
+		let Response::UpdateOutput(output) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
-		Ok(count)
+
+		Ok(output)
 	}
 
 	pub(super) async fn update_with_transaction(
@@ -207,7 +213,7 @@ impl Index {
 		partition_end: u64,
 		max_process_depth: Option<u64>,
 		partition_total: u64,
-	) -> tg::Result<usize> {
+	) -> tg::Result<crate::update::Output> {
 		let mut entries = Vec::new();
 
 		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
@@ -244,7 +250,7 @@ impl Index {
 			}
 		}
 
-		let mut count = 0;
+		let mut output = crate::update::Output::default();
 		for (partition, version, id, kind) in entries {
 			let key = Self::pack(
 				subspace,
@@ -260,7 +266,7 @@ impl Index {
 
 			let Some(value) = value else {
 				Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
-				count += 1;
+				output.count += 1;
 				continue;
 			};
 
@@ -270,7 +276,12 @@ impl Index {
 				Kind::Item => match &id {
 					tg::Either::Left(id) => Self::update_object(txn, subspace, id).await?,
 					tg::Either::Right(id) => {
-						Self::update_process(txn, subspace, id, max_process_depth).await?
+						let process_output =
+							Self::update_process(txn, subspace, id, max_process_depth).await?;
+						if process_output.depth_exceeded {
+							output.processes_with_depth_exceeded.push(id.clone());
+						}
+						process_output.changed
 					},
 				},
 				Kind::Grants(principal) => match &id {
@@ -314,10 +325,10 @@ impl Index {
 			txn.clear(&key);
 			Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
 
-			count += 1;
+			output.count += 1;
 		}
 
-		Ok(count)
+		Ok(output)
 	}
 
 	async fn update_object(
@@ -876,7 +887,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		max_process_depth: Option<u64>,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ProcessOutput> {
 		let process_key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let process_key = Self::pack(subspace, &process_key);
 		let bytes = txn
@@ -939,10 +950,7 @@ impl Index {
 			changed = true;
 		}
 
-		let depth_detection_key =
-			crate::fdb::Key::Process(crate::fdb::process::Key::ProcessDepthDetection(id.clone()));
-		let depth_detection_key = Self::pack(subspace, &depth_detection_key);
-		let detected = max_process_depth.is_some_and(|max_depth| {
+		let depth_exceeded = max_process_depth.is_some_and(|max_depth| {
 			process
 				.metadata
 				.subtree
@@ -953,11 +961,6 @@ impl Index {
 					.as_ref()
 					.is_some_and(|data| !data.status.is_finished())
 		});
-		if detected {
-			txn.set(&depth_detection_key, &[]);
-		} else {
-			txn.clear(&depth_detection_key);
-		}
 
 		if let Some(object) = &command_object {
 			if process.metadata.node.command.count.is_none()
@@ -1665,7 +1668,12 @@ impl Index {
 			txn.set(&process_key, &value);
 		}
 
-		Ok(changed)
+		let output = ProcessOutput {
+			changed,
+			depth_exceeded,
+		};
+
+		Ok(output)
 	}
 
 	async fn enqueue_parents(

@@ -5,5 +5,5 @@ pub(super) enum Response {
 	Objects(Vec<Option<crate::object::Object>>),
 	Processes(Vec<Option<crate::process::Process>>),
 	CleanOutput(crate::clean::Output),
-	UpdateCount(usize),
+	UpdateOutput(crate::update::Output),
 }

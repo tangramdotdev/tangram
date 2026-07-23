@@ -17,9 +17,6 @@ pub(crate) enum Request {
 		partition_end: u64,
 		partition_start: u64,
 	},
-	GetProcessDepthDetections {
-		limit: usize,
-	},
 	GetRequesterPrincipals {
 		principal: tg::Principal,
 	},
@@ -75,7 +72,6 @@ pub(crate) enum Request {
 pub(crate) enum Response {
 	AuthorizeBatch(Vec<Option<crate::authorize::Output>>),
 	FinalizationBatch(Vec<crate::finalization::Entry>),
-	GetProcessDepthDetections(Vec<tg::process::Id>),
 	GetRequesterPrincipals(Vec<tg::grant::Principal>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),

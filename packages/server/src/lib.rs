@@ -503,9 +503,9 @@ impl Server {
 						authorize,
 						cluster: options.cluster.clone(),
 						max_process_depth: config
-							.watchdog
+							.indexer
 							.as_ref()
-							.map(|config| u64::try_from(config.max_depth).unwrap()),
+							.map(|config| u64::try_from(config.max_process_depth).unwrap()),
 						partition_total: options.partition_total,
 						prefix: options.prefix.clone(),
 						read_batch_size: options.read_batch_size,
@@ -538,9 +538,9 @@ impl Server {
 						authorize,
 						map_size: options.map_size,
 						max_process_depth: config
-							.watchdog
+							.indexer
 							.as_ref()
-							.map(|config| u64::try_from(config.max_depth).unwrap()),
+							.map(|config| u64::try_from(config.max_process_depth).unwrap()),
 						path,
 						read_batch_size: options.read_batch_size,
 						read_concurrency: options.read_concurrency,

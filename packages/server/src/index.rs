@@ -147,15 +147,6 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn get_process_depth_detections(&self, limit: usize) -> tg::Result<Vec<tg::process::Id>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_process_depth_detections(limit).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_process_depth_detections(limit).await,
-		}
-	}
-
 	async fn get_requester_principals(
 		&self,
 		principal: &tg::Principal,
@@ -490,7 +481,7 @@ impl index::Index for Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-	) -> tg::Result<usize> {
+	) -> tg::Result<index::update::Output> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
