@@ -1,9 +1,8 @@
 use {
-	crate::{Context, Session},
+	crate::Session,
 	futures::FutureExt as _,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 };
 
@@ -133,50 +132,6 @@ impl Session {
 		}
 
 		Ok(outputs)
-	}
-
-	pub(crate) async fn authorize_request(
-		&self,
-		request: http::Request<BoxBody>,
-	) -> tg::Result<http::Response<BoxBody>> {
-		// Get the arg.
-		let arg: tg::authorize::Arg = request
-			.json()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-
-		// Resolve the principal to authorize. Only the root principal, which the trusted vfs provider authenticates as, may authorize on behalf of another principal so that a mount can be bound to the principal it serves. Any other caller authorizes as itself, so it cannot probe another principal's grants.
-		let principal = match arg.principal {
-			Some(principal) if matches!(self.context.principal, tg::Principal::Root) => principal,
-			_ => self.context.principal.clone(),
-		};
-
-		// Authorize.
-		let context = Context {
-			id: None,
-			principal,
-			sandbox: self.context.sandbox,
-			stopper: None,
-			token: None,
-		};
-		let session = Session::new(self.server.clone(), context);
-		let permissions = session
-			.authorize(arg.resource, arg.permissions)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize"))?;
-
-		// Create the response.
-		let output = tg::authorize::Output { permissions };
-		let body = serde_json::to_vec(&output).unwrap();
-		let response = http::Response::builder()
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.body(BoxBody::with_bytes(body))
-			.unwrap();
-
-		Ok(response)
 	}
 
 	pub(crate) async fn authorize_owner(&self, owner: Option<&tg::Principal>) -> tg::Result<()> {

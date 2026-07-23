@@ -381,7 +381,7 @@ impl Inner {
 	}
 
 	// Determine whether the mount's principal is authorized to access an artifact and, by extension, its entire subtree. Authorization is checked once at the root of each artifact subtree, so all descendants inherit it.
-	async fn authorized(&self, artifact: &tg::artifact::Id) -> bool {
+	fn authorized(&self, artifact: &tg::artifact::Id) -> bool {
 		// The mount is unenforced when it has no principal or serves the root principal.
 		let Some(principal) = &self.principal else {
 			return true;
@@ -394,31 +394,16 @@ impl Inner {
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 
-		// Tier 1: authorize with a locally held grant token that grants the artifact's subtree.
+		// Authorize with a locally held grant token that grants the artifact's subtree. On a token miss, deny access.
 		let now = SystemTime::now()
 			.duration_since(UNIX_EPOCH)
 			.map(|duration| duration.as_secs().to_i64().unwrap_or(i64::MAX))
 			.unwrap_or(0);
-		if self.tokens.iter().any(|token| {
+		self.tokens.iter().any(|token| {
 			token.body.expires_at > now
 				&& token.body.resource == resource
 				&& token.body.grants(permission)
-		}) {
-			return true;
-		}
-
-		// Tier 2: on a token miss, fall back to the server's authorize endpoint with the mount's principal.
-		let arg = tg::authorize::Arg {
-			permissions: permission.into(),
-			principal: Some(principal.clone()),
-			resource,
-		};
-		self.client
-			.authorize(arg)
-			.await
-			.ok()
-			.and_then(|output| output.permissions)
-			.is_some_and(|permissions| permissions.contains(permission))
+		})
 	}
 
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
@@ -488,7 +473,7 @@ impl Inner {
 				return Ok(None);
 			};
 			// Return not found if the mount's principal is not authorized to access the artifact.
-			if !self.authorized(&artifact).await {
+			if !self.authorized(&artifact) {
 				return Ok(None);
 			}
 			Some((artifact, 1))
