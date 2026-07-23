@@ -1194,11 +1194,6 @@ impl Provider {
 		Ok(entries)
 	}
 
-	/// Get the node ID to report for a readdir entry. Entries created from an artifact carry
-	/// a node ID of zero until they are looked up, but readdir must report a nonzero inode
-	/// number, because GNU make and other tools ignore directory entries whose inode number
-	/// is zero. The node is inserted without a lookup reference, because readdir, unlike
-	/// readdirplus, does not cause the kernel to hold one.
 	fn readdir_entry_node(
 		&self,
 		snapshot: &DirectorySnapshot,
