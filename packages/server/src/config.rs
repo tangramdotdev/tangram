@@ -1581,7 +1581,7 @@ impl Default for Runner {
 			memory: None,
 			process_state_ttl: Duration::from_mins(1),
 			remote: None,
-			sandbox_pool_size: 1,
+			sandbox_pool_size: 0,
 			sandbox_state_ttl: Duration::from_mins(1),
 			stdio_drain_timeout: Duration::from_secs(1),
 			token: None,
