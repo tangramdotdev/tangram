@@ -102,6 +102,7 @@ fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 			(deny default)
 
 			;; Allow most system operations.
+			(allow dynamic-code-generation)
 			(allow syscall*)
 			(allow system-socket)
 			(allow mach*)
