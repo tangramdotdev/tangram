@@ -11,26 +11,50 @@ impl Index {
 		&self,
 		creator: &tg::Principal,
 	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
-		self.list_sandboxes_for_principal(creator, Kind::CreatorSandbox)
-			.await
+		let request = crate::read::Request::ListSandboxesForCreator {
+			creator: creator.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::ListSandboxes(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
 	pub async fn list_sandboxes_for_owner(
 		&self,
 		owner: &tg::Principal,
 	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
-		self.list_sandboxes_for_principal(owner, Kind::OwnerSandbox)
-			.await
+		let request = crate::read::Request::ListSandboxesForOwner {
+			owner: owner.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::ListSandboxes(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
 	pub async fn list_sandboxes(
 		&self,
 	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
-		let prefix = Self::pack(&self.subspace, &(Kind::Sandbox.to_i32().unwrap(),));
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let response = self
+			.send_read_request(crate::read::Request::ListSandboxes)
+			.await?;
+		let crate::read::Response::ListSandboxes(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn list_sandboxes_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+		let prefix = Self::pack(subspace, &(Kind::Sandbox.to_i32().unwrap(),));
 		let entries = txn
 			.get_range(
 				&fdb::RangeOption {
@@ -45,7 +69,7 @@ impl Index {
 		entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(&self.subspace, entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id)) = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -55,19 +79,13 @@ impl Index {
 			.collect()
 	}
 
-	async fn list_sandboxes_for_principal(
-		&self,
+	pub(crate) async fn list_sandboxes_for_principal_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		principal: &tg::Principal,
 		kind: Kind,
 	) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
-		let prefix = Self::pack(
-			&self.subspace,
-			&(kind.to_i32().unwrap(), principal.to_string()),
-		);
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), principal.to_string()));
 		let entries = txn
 			.get_range(
 				&fdb::RangeOption {
@@ -82,7 +100,7 @@ impl Index {
 		let sandboxes = entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(&self.subspace, entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let sandbox =
 					match key {
 						Key::Sandbox(crate::fdb::sandbox::Key::CreatorSandbox {
@@ -99,7 +117,7 @@ impl Index {
 		drop(entries);
 		let mut output = Vec::with_capacity(sandboxes.len());
 		for sandbox in sandboxes {
-			let data = Self::try_get_sandbox_with_transaction(&txn, &self.subspace, &sandbox)
+			let data = Self::try_get_sandbox_with_transaction(txn, subspace, &sandbox)
 				.await?
 				.ok_or_else(|| tg::error!(%sandbox, "failed to find the principal sandbox"))?;
 			output.push((sandbox, data));

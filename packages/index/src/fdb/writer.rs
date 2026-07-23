@@ -1,7 +1,7 @@
 use {
 	super::{
-		Index, Request, RequestReceiver, Response, ResponseSender, TaskArg,
-		request::{Item, Kind},
+		Index, Request, Response,
+		request::{Item, Kind, Priority},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::{StreamExt as _, stream},
@@ -12,6 +12,31 @@ use {
 	},
 	tangram_client::prelude::*,
 };
+
+pub(super) type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
+pub(super) type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
+pub(super) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
+
+#[derive(Clone)]
+pub struct Metrics {
+	commit_duration: otel::metrics::Histogram<f64>,
+	transaction_conflict_retry: otel::metrics::Counter<u64>,
+	transaction_too_large: otel::metrics::Counter<u64>,
+	transactions: otel::metrics::Counter<u64>,
+}
+
+pub(super) struct Arg {
+	pub database: Arc<fdb::Database>,
+	pub max_process_depth: Option<u64>,
+	pub metrics: Metrics,
+	pub partition_total: u64,
+	pub receiver_high: RequestReceiver,
+	pub receiver_low: RequestReceiver,
+	pub receiver_medium: RequestReceiver,
+	pub subspace: fdbt::Subspace,
+	pub write_batch_size: usize,
+	pub write_concurrency: usize,
+}
 
 struct RequestTracker {
 	remaining: usize,
@@ -24,27 +49,19 @@ struct Batch {
 	trackers: Vec<Arc<Mutex<RequestTracker>>>,
 }
 
-#[derive(Clone)]
-pub struct Metrics {
-	commit_duration: otel::metrics::Histogram<f64>,
-	transaction_conflict_retry: otel::metrics::Counter<u64>,
-	transaction_too_large: otel::metrics::Counter<u64>,
-	transactions: otel::metrics::Counter<u64>,
-}
-
 impl Index {
-	pub(super) async fn task(arg: TaskArg) {
-		let TaskArg {
+	pub(super) async fn writer_task(arg: Arg) {
+		let Arg {
 			database,
-			subspace,
-			mut receiver_high,
-			mut receiver_medium,
-			mut receiver_low,
-			concurrency,
-			max_items_per_transaction,
 			max_process_depth,
-			partition_total,
 			metrics,
+			partition_total,
+			mut receiver_high,
+			mut receiver_low,
+			mut receiver_medium,
+			subspace,
+			write_batch_size,
+			write_concurrency,
 		} = arg;
 		stream::unfold(
 			(&mut receiver_high, &mut receiver_medium, &mut receiver_low),
@@ -97,24 +114,15 @@ impl Index {
 
 				// Create batches with priority ordering: high first, then medium, then low.
 				let mut batches = Vec::new();
-				batches.extend(Self::create_batches(
-					requests_high,
-					max_items_per_transaction,
-				));
-				batches.extend(Self::create_batches(
-					requests_medium,
-					max_items_per_transaction,
-				));
-				batches.extend(Self::create_batches(
-					requests_low,
-					max_items_per_transaction,
-				));
+				batches.extend(Self::create_batches(requests_high, write_batch_size));
+				batches.extend(Self::create_batches(requests_medium, write_batch_size));
+				batches.extend(Self::create_batches(requests_low, write_batch_size));
 
 				Some((batches, (rh, rm, rl)))
 			},
 		)
 		.flat_map(stream::iter)
-		.for_each_concurrent(concurrency, |batch| {
+		.for_each_concurrent(write_concurrency, |batch| {
 			let database = database.clone();
 			let subspace = subspace.clone();
 			let metrics = metrics.clone();
@@ -131,6 +139,23 @@ impl Index {
 			}
 		})
 		.await;
+	}
+
+	pub(super) async fn send_write_request(&self, request: Request) -> tg::Result<Response> {
+		let sender = match request.priority() {
+			Priority::High => &self.writer_sender_high,
+			Priority::Low => &self.writer_sender_low,
+			Priority::Medium => &self.writer_sender_medium,
+		};
+		let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
+		sender
+			.send((request, response_sender))
+			.map_err(|error| tg::error!(!error, "failed to send the write request"))?;
+		let response = response_receiver
+			.await
+			.map_err(|error| tg::error!(!error, "failed to receive the write response"))??;
+
+		Ok(response)
 	}
 
 	fn drain_receiver(receiver: &mut RequestReceiver) -> Vec<(Request, ResponseSender)> {
@@ -897,7 +922,7 @@ impl Index {
 	) -> tg::Result<Response> {
 		match request {
 			Request::Batch(arg) => {
-				Self::task_batch(txn, subspace, arg, partition_total).await?;
+				Self::batch_with_transaction(txn, subspace, arg, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::Clean(crate::fdb::Clean {
@@ -909,7 +934,7 @@ impl Index {
 				partition_end,
 				partition_start,
 			}) => {
-				let arg = super::clean::TaskCleanArg {
+				let arg = super::clean::TransactionArg {
 					batch_size: *batch_size,
 					max_object_touched_at: *max_object_touched_at,
 					max_process_touched_at: *max_process_touched_at,
@@ -921,101 +946,106 @@ impl Index {
 					subspace,
 					txn,
 				};
-				Self::task_clean(arg).await.map(Response::CleanOutput)
+				Self::clean_with_transaction(arg)
+					.await
+					.map(Response::CleanOutput)
 			},
 			Request::CompleteFinalization(entry) => {
-				Self::task_complete_finalization(txn, subspace, entry).await?;
+				Self::complete_finalization_with_transaction(txn, subspace, entry).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteGrants(args) => {
-				Self::task_delete_grants(txn, subspace, args, partition_total).await?;
+				Self::delete_grants_with_transaction(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteGroupMembers(args) => {
-				Self::task_delete_group_members(txn, subspace, args)?;
+				Self::delete_group_members_with_transaction(txn, subspace, args)?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteGroups(ids) => {
-				Self::task_delete_groups(txn, subspace, ids).await?;
+				Self::delete_groups_with_transaction(txn, subspace, ids).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteOrganizationMembers(args) => {
-				Self::task_delete_organization_members(txn, subspace, args)?;
+				Self::delete_organization_members_with_transaction(txn, subspace, args)?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteOrganizations(ids) => {
-				Self::task_delete_organizations(txn, subspace, ids).await?;
+				Self::delete_organizations_with_transaction(txn, subspace, ids).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteSandboxes(ids) => {
-				Self::task_delete_sandboxes(txn, subspace, ids)?;
+				Self::delete_sandboxes_with_transaction(txn, subspace, ids)?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteUsers(ids) => {
-				Self::task_delete_users(txn, subspace, ids).await?;
+				Self::delete_users_with_transaction(txn, subspace, ids).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteTags(tags) => {
-				Self::task_delete_tags(txn, subspace, tags, partition_total)
+				Self::delete_tags_with_transaction(txn, subspace, tags, partition_total)
 					.await
 					.map(|()| Response::Unit)
 			},
 			Request::EnqueueFinalization(item) => {
-				Self::task_enqueue_finalization(txn, subspace, item, partition_total).await?;
+				Self::enqueue_finalization_with_transaction(txn, subspace, item, partition_total)
+					.await?;
 				Ok(Response::Unit)
 			},
 			Request::PutCacheEntries(args) => {
-				Self::task_put_cache_entries(txn, subspace, args, partition_total)?;
+				Self::put_cache_entries_with_transaction(txn, subspace, args, partition_total)?;
 				Ok(Response::Unit)
 			},
 			Request::PutGrants(args) => {
-				Self::task_put_grants(txn, subspace, args, partition_total).await?;
+				Self::put_grants_with_transaction(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutGroupMembers(args) => {
-				Self::task_put_group_members(txn, subspace, args)?;
+				Self::put_group_members_with_transaction(txn, subspace, args)?;
 				Ok(Response::Unit)
 			},
 			Request::PutGroups(args) => {
-				Self::task_put_groups(txn, subspace, args)?;
+				Self::put_groups_with_transaction(txn, subspace, args)?;
 				Ok(Response::Unit)
 			},
 			Request::PutObjects(args) => {
-				Self::task_put_objects(txn, subspace, args, partition_total).await?;
+				Self::put_objects_with_transaction(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutOrganizationMembers(args) => {
-				Self::task_put_organization_members(txn, subspace, args)?;
+				Self::put_organization_members_with_transaction(txn, subspace, args)?;
 				Ok(Response::Unit)
 			},
 			Request::PutOrganizations(args) => {
-				Self::task_put_organizations(txn, subspace, args)?;
+				Self::put_organizations_with_transaction(txn, subspace, args)?;
 				Ok(Response::Unit)
 			},
 			Request::PutProcesses(args) => {
-				Self::task_put_processes(txn, subspace, args, partition_total).await?;
+				Self::put_processes_with_transaction(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutRunners(args) => {
-				Self::task_put_runners(txn, subspace, args).await?;
+				Self::put_runners_with_transaction(txn, subspace, args).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutSandboxes(args) => {
-				Self::task_put_sandboxes(txn, subspace, args, partition_total).await?;
+				Self::put_sandboxes_with_transaction(txn, subspace, args, partition_total).await?;
 				Ok(Response::Unit)
 			},
-			Request::PutTags(args) => Self::task_put_tags(txn, subspace, args, partition_total)
-				.await
-				.map(|()| Response::Unit),
+			Request::PutTags(args) => {
+				Self::put_tags_with_transaction(txn, subspace, args, partition_total)
+					.await
+					.map(|()| Response::Unit)
+			},
 			Request::PutUsers(args) => {
-				Self::task_put_users(txn, subspace, args)?;
+				Self::put_users_with_transaction(txn, subspace, args)?;
 				Ok(Response::Unit)
 			},
 			Request::TouchCacheEntries(crate::fdb::TouchCacheEntries {
 				ids,
 				time_to_touch,
 				touched_at,
-			}) => Self::task_touch_cache_entries(
+			}) => Self::touch_cache_entries_with_transaction(
 				txn,
 				subspace,
 				ids,
@@ -1029,7 +1059,7 @@ impl Index {
 				ids,
 				time_to_touch,
 				touched_at,
-			}) => Self::task_touch_objects(
+			}) => Self::touch_objects_with_transaction(
 				txn,
 				subspace,
 				ids,
@@ -1043,7 +1073,7 @@ impl Index {
 				ids,
 				time_to_touch,
 				touched_at,
-			}) => Self::task_touch_processes(
+			}) => Self::touch_processes_with_transaction(
 				txn,
 				subspace,
 				ids,
@@ -1057,7 +1087,7 @@ impl Index {
 				batch_size,
 				partition_start,
 				partition_end,
-			}) => Self::task_update(
+			}) => Self::update_with_transaction(
 				txn,
 				subspace,
 				*batch_size,

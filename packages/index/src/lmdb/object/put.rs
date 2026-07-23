@@ -132,7 +132,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_put_objects(
+	pub(crate) fn put_objects_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

@@ -5,7 +5,7 @@ use {
 };
 
 impl Index {
-	pub(crate) async fn task_put_runners(
+	pub(crate) async fn put_runners_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::runner::put::Arg],

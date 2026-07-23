@@ -11,16 +11,10 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(());
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::DeleteOrganizations(ids.to_vec());
-		self.sender_high
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::Unit = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 		Ok(())
 	}
@@ -32,21 +26,15 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::DeleteOrganizationMembers(args.to_vec());
-		self.sender_high
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::Unit = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 		Ok(())
 	}
 
-	pub(crate) async fn task_delete_organizations(
+	pub(crate) async fn delete_organizations_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::organization::Id],
@@ -70,7 +58,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_delete_organization_members(
+	pub(crate) fn delete_organization_members_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::member::delete::Arg],

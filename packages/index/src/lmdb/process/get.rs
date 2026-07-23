@@ -11,98 +11,99 @@ impl Index {
 		&self,
 		limit: usize,
 	) -> tg::Result<Vec<tg::process::Id>> {
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let subspace = self.subspace.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let prefix = &(Kind::ProcessDepthDetection.to_i32().unwrap(),);
-				let prefix = Self::pack(&subspace, prefix);
-				let iter = db.prefix_iter(&transaction, &prefix).map_err(|error| {
-					tg::error!(!error, "failed to get the process depth detections")
+		let request = crate::read::Request::GetProcessDepthDetections { limit };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::GetProcessDepthDetections(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn get_process_depth_detections_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		limit: usize,
+	) -> tg::Result<Vec<tg::process::Id>> {
+		let prefix = &(Kind::ProcessDepthDetection.to_i32().unwrap(),);
+		let prefix = Self::pack(subspace, prefix);
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the process depth detections"))?;
+		iter.take(limit)
+			.map(|entry| {
+				let (key, _) = entry.map_err(|error| {
+					tg::error!(!error, "failed to read a process depth detection")
 				})?;
-				iter.take(limit)
-					.map(|entry| {
-						let (key, _) = entry.map_err(|error| {
-							tg::error!(!error, "failed to read a process depth detection")
-						})?;
-						let key = Self::unpack(&subspace, key)?;
-						let Key::Process(crate::lmdb::process::Key::ProcessDepthDetection(process)) =
-							key
-						else {
-							return Err(tg::error!("unexpected key type"));
-						};
-						Ok(process)
-					})
-					.collect()
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+				let key = Self::unpack(subspace, key)?;
+				let Key::Process(crate::lmdb::process::Key::ProcessDepthDetection(process)) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(process)
+			})
+			.collect()
 	}
 
 	pub async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,
 	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
-		tokio::task::spawn_blocking({
-			let command = command.clone();
-			let db = self.db;
-			let env = self.env.clone();
-			let subspace = self.subspace.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let command_bytes = command.to_bytes();
-				let prefix = &(
-					Kind::CommandCacheableProcess.to_i32().unwrap(),
-					command_bytes.as_ref(),
-				);
-				let prefix = Self::pack(&subspace, prefix);
-				let iter = db
-					.prefix_iter(&transaction, &prefix)
-					.map_err(|error| tg::error!(!error, "failed to get the cached processes"))?;
-				let mut output = Vec::new();
-				for entry in iter {
-					let (key, _) = entry.map_err(|error| {
-						tg::error!(!error, "failed to read a cached process entry")
-					})?;
-					let key = Self::unpack(&subspace, key)?;
-					let Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
-						process,
-						..
-					}) = key
-					else {
-						return Err(tg::error!("unexpected key type"));
-					};
-					let Some(data) = Self::try_get_process_with_transaction(
-						&db,
-						&subspace,
-						&transaction,
-						&process,
-					)?
-					else {
-						continue;
-					};
-					if data.data.is_none() {
-						continue;
-					}
-					output.push((process, data));
-				}
-				output.sort_unstable_by(|(a_id, a), (b_id, b)| {
-					let a_created_at = a.data.as_ref().unwrap().created_at;
-					let b_created_at = b.data.as_ref().unwrap().created_at;
-					a_created_at.cmp(&b_created_at).then_with(|| a_id.cmp(b_id))
-				});
-				Ok(output)
+		let request = crate::read::Request::TryGetCachedProcesses {
+			command: command.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetCachedProcesses(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_cached_processes_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		command: &tg::object::Id,
+	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+		let command_bytes = command.to_bytes();
+		let prefix = &(
+			Kind::CommandCacheableProcess.to_i32().unwrap(),
+			command_bytes.as_ref(),
+		);
+		let prefix = Self::pack(subspace, prefix);
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the cached processes"))?;
+		let mut output = Vec::new();
+		for entry in iter {
+			let (key, _) = entry
+				.map_err(|error| tg::error!(!error, "failed to read a cached process entry"))?;
+			let key = Self::unpack(subspace, key)?;
+			let Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
+				process, ..
+			}) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			let Some(data) =
+				Self::try_get_process_with_transaction(db, subspace, transaction, &process)?
+			else {
+				continue;
+			};
+			if data.data.is_none() {
+				continue;
 			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+			output.push((process, data));
+		}
+		output.sort_unstable_by(|(a_id, a), (b_id, b)| {
+			let a_created_at = a.data.as_ref().unwrap().created_at;
+			let b_created_at = b.data.as_ref().unwrap().created_at;
+			a_created_at.cmp(&b_created_at).then_with(|| a_id.cmp(b_id))
+		});
+
+		Ok(output)
 	}
 
 	pub async fn process_has_ancestor(
@@ -113,38 +114,41 @@ impl Index {
 		if process == ancestor {
 			return Ok(true);
 		}
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let ancestor = ancestor.clone();
-			let env = self.env.clone();
-			let process = process.clone();
-			let subspace = self.subspace.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let mut seen = BTreeSet::from([process.clone()]);
-				let mut queue = VecDeque::from([process]);
-				while let Some(process) = queue.pop_front() {
-					for parent in Self::get_process_parents_with_transaction(
-						&db,
-						&subspace,
-						&transaction,
-						&process,
-					)? {
-						if parent == ancestor {
-							return Ok(true);
-						}
-						if seen.insert(parent.clone()) {
-							queue.push_back(parent);
-						}
-					}
+		let request = crate::read::Request::ProcessHasAncestor {
+			ancestor: ancestor.clone(),
+			process: process.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::ProcessHasAncestor(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn process_has_ancestor_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> tg::Result<bool> {
+		let mut seen = BTreeSet::from([process.clone()]);
+		let mut queue = VecDeque::from([process.clone()]);
+		while let Some(process) = queue.pop_front() {
+			for parent in
+				Self::get_process_parents_with_transaction(db, subspace, transaction, &process)?
+			{
+				if &parent == ancestor {
+					return Ok(true);
 				}
-				Ok(false)
+				if seen.insert(parent.clone()) {
+					queue.push_back(parent);
+				}
 			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		}
+
+		Ok(false)
 	}
 
 	pub async fn try_get_processes(
@@ -154,26 +158,26 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let subspace = self.subspace.clone();
-			let ids = ids.to_owned();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let mut outputs = Vec::with_capacity(ids.len());
-				for id in &ids {
-					let option =
-						Self::try_get_process_with_transaction(&db, &subspace, &transaction, id)?;
-					outputs.push(option);
-				}
-				Ok(outputs)
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		let request = crate::read::Request::TryGetProcesses {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetProcesses(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_processes_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		ids.iter()
+			.map(|id| Self::try_get_process_with_transaction(db, subspace, transaction, id))
+			.collect()
 	}
 
 	pub(crate) fn try_get_process_with_transaction(

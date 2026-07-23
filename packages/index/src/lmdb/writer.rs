@@ -1,12 +1,30 @@
 use {
 	super::{
-		Index, Request, RequestReceiver, Response, ResponseSender, TaskArg,
-		request::{Item, Kind},
+		Db, Index, Request, Response,
+		request::{Item, Kind, Priority},
 	},
-	crossbeam_channel as crossbeam,
+	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
 	std::collections::VecDeque,
 	tangram_client::prelude::*,
 };
+
+pub(super) const CHANNEL_CAPACITY: usize = 256;
+
+pub(super) type RequestReceiver = crossbeam::Receiver<(Request, ResponseSender)>;
+pub(super) type RequestSender = crossbeam::Sender<(Request, ResponseSender)>;
+pub(super) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
+
+#[derive(Clone, Copy)]
+pub(super) struct Arg<'a> {
+	pub db: &'a Db,
+	pub env: &'a lmdb::Env,
+	pub max_process_depth: Option<u64>,
+	pub receiver_high: &'a RequestReceiver,
+	pub receiver_low: &'a RequestReceiver,
+	pub receiver_medium: &'a RequestReceiver,
+	pub subspace: &'a fdbt::Subspace,
+	pub write_batch_size: usize,
+}
 
 struct RequestTracker {
 	remaining: usize,
@@ -20,16 +38,16 @@ struct Batch {
 }
 
 impl Index {
-	pub(super) fn task(arg: TaskArg<'_>) {
-		let TaskArg {
+	pub(super) fn writer_task(arg: Arg<'_>) {
+		let Arg {
 			db,
 			env,
-			max_items_per_transaction,
 			max_process_depth,
 			receiver_high,
 			receiver_low,
 			receiver_medium,
 			subspace,
+			write_batch_size,
 		} = arg;
 		let mut trackers: Vec<RequestTracker> = Vec::new();
 		let mut queue_high: VecDeque<Batch> = VecDeque::new();
@@ -41,14 +59,14 @@ impl Index {
 			queue_high.extend(Self::create_batches(
 				Self::drain_receiver(receiver_high),
 				&mut trackers,
-				max_items_per_transaction,
+				write_batch_size,
 			));
 
 			// Drain medium-priority requests.
 			queue_medium.extend(Self::create_batches(
 				Self::drain_receiver(receiver_medium),
 				&mut trackers,
-				max_items_per_transaction,
+				write_batch_size,
 			));
 
 			// If all queues are empty, try low-priority requests.
@@ -56,7 +74,7 @@ impl Index {
 				queue_low.extend(Self::create_batches(
 					Self::drain_receiver(receiver_low),
 					&mut trackers,
-					max_items_per_transaction,
+					write_batch_size,
 				));
 			}
 
@@ -68,7 +86,7 @@ impl Index {
 							queue_high.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
-								max_items_per_transaction,
+								write_batch_size,
 							));
 						}
 					},
@@ -77,7 +95,7 @@ impl Index {
 							queue_medium.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
-								max_items_per_transaction,
+								write_batch_size,
 							));
 						}
 					},
@@ -86,7 +104,7 @@ impl Index {
 							queue_low.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
-								max_items_per_transaction,
+								write_batch_size,
 							));
 						}
 					},
@@ -96,17 +114,17 @@ impl Index {
 				queue_high.extend(Self::create_batches(
 					Self::drain_receiver(receiver_high),
 					&mut trackers,
-					max_items_per_transaction,
+					write_batch_size,
 				));
 				queue_medium.extend(Self::create_batches(
 					Self::drain_receiver(receiver_medium),
 					&mut trackers,
-					max_items_per_transaction,
+					write_batch_size,
 				));
 				queue_low.extend(Self::create_batches(
 					Self::drain_receiver(receiver_low),
 					&mut trackers,
-					max_items_per_transaction,
+					write_batch_size,
 				));
 			}
 
@@ -139,15 +157,17 @@ impl Index {
 			let mut results: Vec<tg::Result<Response>> = Vec::new();
 			for request in batch.requests {
 				let result = match request {
-					Request::Batch(arg) => Self::task_batch(db, subspace, &mut transaction, &arg)
-						.map(|()| Response::Unit),
+					Request::Batch(arg) => {
+						Self::batch_with_transaction(db, subspace, &mut transaction, &arg)
+							.map(|()| Response::Unit)
+					},
 					Request::Clean(crate::lmdb::Clean {
 						batch_size,
 						max_object_touched_at,
 						max_process_touched_at,
 						max_sandbox_touched_at,
 						now,
-					}) => Self::task_clean(crate::lmdb::clean::TaskCleanArg {
+					}) => Self::clean_with_transaction(crate::lmdb::clean::TransactionArg {
 						batch_size,
 						db,
 						max_object_touched_at,
@@ -159,23 +179,33 @@ impl Index {
 					})
 					.map(Response::CleanOutput),
 					Request::CompleteFinalization(entry) => {
-						Self::task_complete_finalization(db, subspace, &mut transaction, &entry)
-							.map(|()| Response::Unit)
+						Self::complete_finalization_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&entry,
+						)
+						.map(|()| Response::Unit)
 					},
 					Request::DeleteGrants(args) => {
-						Self::task_delete_grants(db, subspace, &mut transaction, &args)
+						Self::delete_grants_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::DeleteGroupMembers(args) => {
-						Self::task_delete_group_members(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
+						Self::delete_group_members_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&args,
+						)
+						.map(|()| Response::Unit)
 					},
 					Request::DeleteGroups(ids) => {
-						Self::task_delete_groups(db, subspace, &mut transaction, &ids)
+						Self::delete_groups_with_transaction(db, subspace, &mut transaction, &ids)
 							.map(|()| Response::Unit)
 					},
 					Request::DeleteOrganizationMembers(args) => {
-						Self::task_delete_organization_members(
+						Self::delete_organization_members_with_transaction(
 							db,
 							subspace,
 							&mut transaction,
@@ -184,78 +214,105 @@ impl Index {
 						.map(|()| Response::Unit)
 					},
 					Request::DeleteOrganizations(ids) => {
-						Self::task_delete_organizations(db, subspace, &mut transaction, &ids)
-							.map(|()| Response::Unit)
+						Self::delete_organizations_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&ids,
+						)
+						.map(|()| Response::Unit)
 					},
-					Request::DeleteSandboxes(ids) => {
-						Self::task_delete_sandboxes(db, subspace, &mut transaction, &ids)
-							.map(|()| Response::Unit)
-					},
+					Request::DeleteSandboxes(ids) => Self::delete_sandboxes_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&ids,
+					)
+					.map(|()| Response::Unit),
 					Request::DeleteUsers(ids) => {
-						Self::task_delete_users(db, subspace, &mut transaction, &ids)
+						Self::delete_users_with_transaction(db, subspace, &mut transaction, &ids)
 							.map(|()| Response::Unit)
 					},
 					Request::DeleteTags(tags) => {
-						Self::task_delete_tags(db, subspace, &mut transaction, &tags)
+						Self::delete_tags_with_transaction(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
 					},
 					Request::EnqueueFinalization(item) => {
-						Self::task_enqueue_finalization(db, subspace, &mut transaction, &item)
-							.map(|()| Response::Unit)
+						Self::enqueue_finalization_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&item,
+						)
+						.map(|()| Response::Unit)
 					},
-					Request::PutCacheEntries(args) => {
-						Self::task_put_cache_entries(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
-					},
+					Request::PutCacheEntries(args) => Self::put_cache_entries_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&args,
+					)
+					.map(|()| Response::Unit),
 					Request::PutGrants(args) => {
-						Self::task_put_grants(db, subspace, &mut transaction, &args)
+						Self::put_grants_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
-					Request::PutGroupMembers(args) => {
-						Self::task_put_group_members(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
-					},
+					Request::PutGroupMembers(args) => Self::put_group_members_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&args,
+					)
+					.map(|()| Response::Unit),
 					Request::PutGroups(args) => {
-						Self::task_put_groups(db, subspace, &mut transaction, &args)
+						Self::put_groups_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::PutObjects(args) => {
-						Self::task_put_objects(db, subspace, &mut transaction, &args)
+						Self::put_objects_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::PutOrganizationMembers(args) => {
-						Self::task_put_organization_members(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
+						Self::put_organization_members_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&args,
+						)
+						.map(|()| Response::Unit)
 					},
-					Request::PutOrganizations(args) => {
-						Self::task_put_organizations(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
-					},
+					Request::PutOrganizations(args) => Self::put_organizations_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&args,
+					)
+					.map(|()| Response::Unit),
 					Request::PutProcesses(args) => {
-						Self::task_put_processes(db, subspace, &mut transaction, &args)
+						Self::put_processes_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::PutRunners(args) => {
-						Self::task_put_runners(db, subspace, &mut transaction, &args)
+						Self::put_runners_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::PutSandboxes(args) => {
-						Self::task_put_sandboxes(db, subspace, &mut transaction, &args)
+						Self::put_sandboxes_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::PutTags(tags) => {
-						Self::task_put_tags(db, subspace, &mut transaction, &tags)
+						Self::put_tags_with_transaction(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
 					},
 					Request::PutUsers(args) => {
-						Self::task_put_users(db, subspace, &mut transaction, &args)
+						Self::put_users_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
 					Request::TouchCacheEntries(crate::lmdb::TouchCacheEntries {
 						ids,
 						time_to_touch,
 						touched_at,
-					}) => Self::task_touch_cache_entries(
+					}) => Self::touch_cache_entries_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
@@ -268,7 +325,7 @@ impl Index {
 						ids,
 						time_to_touch,
 						touched_at,
-					}) => Self::task_touch_objects(
+					}) => Self::touch_objects_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
@@ -281,7 +338,7 @@ impl Index {
 						ids,
 						time_to_touch,
 						touched_at,
-					}) => Self::task_touch_processes(
+					}) => Self::touch_processes_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
@@ -290,14 +347,16 @@ impl Index {
 						time_to_touch,
 					)
 					.map(Response::Processes),
-					Request::Update(crate::lmdb::Update { batch_size }) => Self::task_update_batch(
-						db,
-						subspace,
-						&mut transaction,
-						batch_size,
-						max_process_depth,
-					)
-					.map(Response::UpdateCount),
+					Request::Update(crate::lmdb::Update { batch_size }) => {
+						Self::update_batch_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							batch_size,
+							max_process_depth,
+						)
+						.map(Response::UpdateCount)
+					},
 				};
 				results.push(result);
 			}
@@ -324,6 +383,26 @@ impl Index {
 				trackers.pop();
 			}
 		}
+	}
+
+	pub(super) async fn send_write_request(&self, request: Request) -> tg::Result<Response> {
+		let sender = match request.priority() {
+			Priority::High => &self.writer_sender_high,
+			Priority::Low => &self.writer_sender_low,
+			Priority::Medium => &self.writer_sender_medium,
+		};
+		let Some(sender) = sender else {
+			return Err(tg::error!("the writer is unavailable"));
+		};
+		let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
+		sender
+			.send((request, response_sender))
+			.map_err(|error| tg::error!(!error, "failed to send the write request"))?;
+		let response = response_receiver
+			.await
+			.map_err(|error| tg::error!(!error, "failed to receive the write response"))??;
+
+		Ok(response)
 	}
 
 	fn drain_receiver(receiver: &RequestReceiver) -> Vec<(Request, ResponseSender)> {

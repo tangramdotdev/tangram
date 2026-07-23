@@ -456,14 +456,18 @@ pub struct FdbIndex {
 
 	pub cluster: PathBuf,
 
-	pub concurrency: usize,
-
-	pub max_items_per_transaction: usize,
-
 	pub partition_total: u64,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub prefix: Option<String>,
+
+	pub read_batch_size: usize,
+
+	pub read_concurrency: usize,
+
+	pub write_batch_size: usize,
+
+	pub write_concurrency: usize,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -473,9 +477,13 @@ pub struct LmdbIndex {
 
 	pub map_size: usize,
 
-	pub max_items_per_transaction: usize,
-
 	pub path: PathBuf,
+
+	pub read_batch_size: usize,
+
+	pub read_concurrency: usize,
+
+	pub write_batch_size: usize,
 }
 
 #[serde_as]
@@ -1413,10 +1421,12 @@ impl Default for FdbIndex {
 		Self {
 			authorize: FdbIndexAuthorize::default(),
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
-			concurrency: 256,
-			max_items_per_transaction: 8_000,
 			partition_total: 256,
 			prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 64,
+			write_batch_size: 8_000,
+			write_concurrency: 256,
 		}
 	}
 }
@@ -1426,8 +1436,10 @@ impl Default for LmdbIndex {
 		Self {
 			authorize: LmdbIndexAuthorize::default(),
 			map_size: 1_099_511_627_776,
-			max_items_per_transaction: 8_000,
 			path: PathBuf::from("index"),
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
 		}
 	}
 }

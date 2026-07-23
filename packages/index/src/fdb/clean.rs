@@ -25,7 +25,7 @@ enum Item {
 	Sandbox(tg::sandbox::Id),
 }
 
-pub(super) struct TaskCleanArg<'a> {
+pub(super) struct TransactionArg<'a> {
 	pub batch_size: usize,
 	pub max_object_touched_at: i64,
 	pub max_process_touched_at: i64,
@@ -49,7 +49,6 @@ impl Index {
 			partition_end,
 			partition_start,
 		} = arg;
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Clean(crate::fdb::Clean {
 			batch_size,
 			max_object_touched_at,
@@ -59,20 +58,17 @@ impl Index {
 			partition_end,
 			partition_start,
 		});
-		self.sender_low
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::CleanOutput(output) = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 		Ok(output)
 	}
 
-	pub(super) async fn task_clean(arg: TaskCleanArg<'_>) -> tg::Result<crate::clean::Output> {
-		let TaskCleanArg {
+	pub(super) async fn clean_with_transaction(
+		arg: TransactionArg<'_>,
+	) -> tg::Result<crate::clean::Output> {
+		let TransactionArg {
 			batch_size,
 			max_object_touched_at,
 			max_process_touched_at,
@@ -940,7 +936,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
-		Self::task_delete_sandboxes(txn, subspace, std::slice::from_ref(id))
+		Self::delete_sandboxes_with_transaction(txn, subspace, std::slice::from_ref(id))
 	}
 
 	async fn decrement_cache_entry_reference_count(

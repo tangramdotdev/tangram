@@ -142,7 +142,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) async fn task_put_objects(
+	pub(crate) async fn put_objects_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::object::put::Arg],

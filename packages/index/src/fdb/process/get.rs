@@ -12,12 +12,22 @@ impl Index {
 		&self,
 		limit: usize,
 	) -> tg::Result<Vec<tg::process::Id>> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::GetProcessDepthDetections { limit };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::GetProcessDepthDetections(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn get_process_depth_detections_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		limit: usize,
+	) -> tg::Result<Vec<tg::process::Id>> {
 		let prefix = (Kind::ProcessDepthDetection.to_i32().unwrap(),);
-		let prefix = Self::pack(&self.subspace, &prefix);
+		let prefix = Self::pack(subspace, &prefix);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			limit: Some(limit),
@@ -31,7 +41,7 @@ impl Index {
 		entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(&self.subspace, entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ProcessDepthDetection(process)) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
@@ -45,16 +55,28 @@ impl Index {
 		&self,
 		command: &tg::object::Id,
 	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::TryGetCachedProcesses {
+			command: command.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetCachedProcesses(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_cached_processes_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		command: &tg::object::Id,
+	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
 		let command_bytes = command.to_bytes();
 		let prefix = (
 			Kind::CommandCacheableProcess.to_i32().unwrap(),
 			command_bytes.as_ref(),
 		);
-		let prefix = Self::pack(&self.subspace, &prefix);
+		let prefix = Self::pack(subspace, &prefix);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
@@ -67,7 +89,7 @@ impl Index {
 		let processes = entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(&self.subspace, entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
 					process, ..
 				}) = key
@@ -81,7 +103,7 @@ impl Index {
 		let mut output = Vec::new();
 		for process in processes {
 			let Some(data) =
-				Self::try_get_process_with_transaction(&txn, &self.subspace, &process).await?
+				Self::try_get_process_with_transaction(txn, subspace, &process).await?
 			else {
 				continue;
 			};
@@ -106,17 +128,32 @@ impl Index {
 		if process == ancestor {
 			return Ok(true);
 		}
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::ProcessHasAncestor {
+			ancestor: ancestor.clone(),
+			process: process.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::ProcessHasAncestor(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn process_has_ancestor_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> tg::Result<bool> {
 		let mut seen = BTreeSet::from([process.clone()]);
 		let mut frontier = vec![process.clone()];
 		while !frontier.is_empty() {
-			let parents = futures::future::try_join_all(frontier.iter().map(|process| {
-				Self::get_process_parents_with_transaction(&txn, &self.subspace, process)
-			}))
-			.await?;
+			let parents =
+				futures::future::try_join_all(frontier.iter().map(|process| {
+					Self::get_process_parents_with_transaction(txn, subspace, process)
+				}))
+				.await?;
 			frontier = Vec::new();
 			for parent in parents.into_iter().flatten() {
 				if &parent == ancestor {
@@ -137,19 +174,27 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		let request = crate::read::Request::TryGetProcesses {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetProcesses(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
 
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		Ok(output)
+	}
 
-		let outputs = futures::future::try_join_all(
+	pub(crate) async fn try_get_processes_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		futures::future::try_join_all(
 			ids.iter()
-				.map(|id| Self::try_get_process_with_transaction(&txn, &self.subspace, id)),
+				.map(|id| Self::try_get_process_with_transaction(txn, subspace, id)),
 		)
-		.await?;
-
-		Ok(outputs)
+		.await
 	}
 
 	pub(crate) async fn try_get_process_with_transaction(

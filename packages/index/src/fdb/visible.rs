@@ -11,11 +11,15 @@ impl Index {
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::grant::Principal>> {
-		let transaction = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
-		Self::requester_principals_with_transaction(&transaction, &self.subspace, principal).await
+		let request = crate::read::Request::GetRequesterPrincipals {
+			principal: principal.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::GetRequesterPrincipals(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
 	pub async fn visible(
@@ -26,19 +30,34 @@ impl Index {
 		if matches!(principal, tg::Principal::Root) {
 			return Ok(vec![true; ids.len()]);
 		}
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::Visible {
+			ids: ids.to_owned(),
+			principal: principal.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::Visible(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn visible_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::Id],
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<bool>> {
+		if matches!(principal, tg::Principal::Root) {
+			return Ok(vec![true; ids.len()]);
+		}
 		let principals =
-			Self::requester_principals_with_transaction(&txn, &self.subspace, principal).await?;
+			Self::requester_principals_with_transaction(txn, subspace, principal).await?;
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
 			let mut visible = false;
 			for principal in &principals {
-				if Self::try_get_visibility_with_transaction(&txn, &self.subspace, id, principal)
-					.await?
-				{
+				if Self::try_get_visibility_with_transaction(txn, subspace, id, principal).await? {
 					visible = true;
 					break;
 				}
@@ -48,7 +67,7 @@ impl Index {
 		Ok(output)
 	}
 
-	async fn requester_principals_with_transaction(
+	pub(crate) async fn requester_principals_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		principal: &tg::Principal,

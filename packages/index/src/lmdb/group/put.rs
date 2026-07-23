@@ -1,5 +1,5 @@
 use {
-	crate::lmdb::{Db, Index, Key, Request},
+	crate::lmdb::{Db, Index, Key, Request, Response},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
@@ -9,16 +9,12 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::PutGroups(args.to_vec());
-		self.sender_medium
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+
 		Ok(())
 	}
 
@@ -29,20 +25,16 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::PutGroupMembers(args.to_vec());
-		self.sender_medium
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+
 		Ok(())
 	}
 
-	pub(crate) fn task_put_groups(
+	pub(crate) fn put_groups_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -68,7 +60,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_put_group_members(
+	pub(crate) fn put_group_members_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

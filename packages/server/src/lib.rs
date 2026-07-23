@@ -494,14 +494,16 @@ impl Server {
 					let options = tangram_index::fdb::Options {
 						authorize,
 						cluster: options.cluster.clone(),
-						concurrency: options.concurrency,
-						max_items_per_transaction: options.max_items_per_transaction,
 						max_process_depth: config
 							.watchdog
 							.as_ref()
 							.map(|config| u64::try_from(config.max_depth).unwrap()),
 						partition_total: options.partition_total,
 						prefix: options.prefix.clone(),
+						read_batch_size: options.read_batch_size,
+						read_concurrency: options.read_concurrency,
+						write_batch_size: options.write_batch_size,
+						write_concurrency: options.write_concurrency,
 					};
 					Index::new_fdb(&options)
 						.map_err(|error| tg::error!(!error, "failed to create the index"))?
@@ -527,12 +529,14 @@ impl Server {
 					let config = tangram_index::lmdb::Config {
 						authorize,
 						map_size: options.map_size,
-						max_items_per_transaction: options.max_items_per_transaction,
 						max_process_depth: config
 							.watchdog
 							.as_ref()
 							.map(|config| u64::try_from(config.max_depth).unwrap()),
 						path,
+						read_batch_size: options.read_batch_size,
+						read_concurrency: options.read_concurrency,
+						write_batch_size: options.write_batch_size,
 					};
 					Index::new_lmdb(&config)
 						.map_err(|error| tg::error!(!error, "failed to create the index"))?

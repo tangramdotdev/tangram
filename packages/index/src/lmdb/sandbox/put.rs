@@ -5,7 +5,7 @@ use {
 };
 
 impl Index {
-	pub(crate) fn task_put_sandboxes(
+	pub(crate) fn put_sandboxes_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

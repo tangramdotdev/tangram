@@ -1,5 +1,12 @@
 use tangram_client::prelude::*;
 
+#[derive(Clone, Copy)]
+pub(super) enum Priority {
+	High,
+	Low,
+	Medium,
+}
+
 #[derive(Clone)]
 pub(super) enum Request {
 	Batch(crate::batch::Arg),
@@ -139,4 +146,39 @@ pub(super) enum Kind {
 		touched_at: i64,
 	},
 	Update,
+}
+
+impl Request {
+	#[must_use]
+	pub(super) fn priority(&self) -> Priority {
+		match self {
+			Self::Batch(_)
+			| Self::CompleteFinalization(_)
+			| Self::EnqueueFinalization(_)
+			| Self::PutCacheEntries(_)
+			| Self::PutGrants(_)
+			| Self::PutGroupMembers(_)
+			| Self::PutGroups(_)
+			| Self::PutObjects(_)
+			| Self::PutOrganizationMembers(_)
+			| Self::PutOrganizations(_)
+			| Self::PutProcesses(_)
+			| Self::PutRunners(_)
+			| Self::PutSandboxes(_)
+			| Self::PutUsers(_) => Priority::Medium,
+			Self::Clean(_) | Self::Update(_) => Priority::Low,
+			Self::DeleteGrants(_)
+			| Self::DeleteGroupMembers(_)
+			| Self::DeleteGroups(_)
+			| Self::DeleteOrganizationMembers(_)
+			| Self::DeleteOrganizations(_)
+			| Self::DeleteSandboxes(_)
+			| Self::DeleteTags(_)
+			| Self::DeleteUsers(_)
+			| Self::PutTags(_)
+			| Self::TouchCacheEntries(_)
+			| Self::TouchObjects(_)
+			| Self::TouchProcesses(_) => Priority::High,
+		}
+	}
 }

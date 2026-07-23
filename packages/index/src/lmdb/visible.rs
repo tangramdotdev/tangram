@@ -10,25 +10,15 @@ impl Index {
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<Vec<tg::grant::Principal>> {
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let principal = principal.clone();
-			let subspace = self.subspace.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				Self::requester_principals_with_transaction(
-					&db,
-					&subspace,
-					&transaction,
-					&principal,
-				)
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		let request = crate::read::Request::GetRequesterPrincipals {
+			principal: principal.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::GetRequesterPrincipals(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
 	pub async fn visible(
@@ -39,47 +29,52 @@ impl Index {
 		if matches!(principal, tg::Principal::Root) {
 			return Ok(vec![true; ids.len()]);
 		}
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let subspace = self.subspace.clone();
-			let ids = ids.to_vec();
-			let principal = principal.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let principals = Self::requester_principals_with_transaction(
-					&db,
-					&subspace,
-					&transaction,
-					&principal,
-				)?;
-				let mut output = Vec::with_capacity(ids.len());
-				for id in &ids {
-					let mut visible = false;
-					for principal in &principals {
-						if Self::try_get_visibility_with_transaction(
-							&db,
-							&subspace,
-							&transaction,
-							id,
-							principal,
-						)? {
-							visible = true;
-							break;
-						}
-					}
-					output.push(visible);
-				}
-				Ok(output)
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		let request = crate::read::Request::Visible {
+			ids: ids.to_owned(),
+			principal: principal.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::Visible(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
-	fn requester_principals_with_transaction(
+	pub(crate) fn visible_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		ids: &[tg::Id],
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<bool>> {
+		if matches!(principal, tg::Principal::Root) {
+			return Ok(vec![true; ids.len()]);
+		}
+		let principals =
+			Self::requester_principals_with_transaction(db, subspace, transaction, principal)?;
+		let mut output = Vec::with_capacity(ids.len());
+		for id in ids {
+			let mut visible = false;
+			for principal in &principals {
+				if Self::try_get_visibility_with_transaction(
+					db,
+					subspace,
+					transaction,
+					id,
+					principal,
+				)? {
+					visible = true;
+					break;
+				}
+			}
+			output.push(visible);
+		}
+
+		Ok(output)
+	}
+
+	pub(crate) fn requester_principals_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,

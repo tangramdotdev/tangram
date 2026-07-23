@@ -5,7 +5,7 @@ use {
 };
 
 impl Index {
-	pub(crate) async fn task_put_sandboxes(
+	pub(crate) async fn put_sandboxes_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::sandbox::put::Arg],

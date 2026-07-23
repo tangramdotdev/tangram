@@ -24,17 +24,9 @@ impl Index {
 	}
 
 	async fn send_finalization_request(&self, request: Request) -> tg::Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		self.sender_medium
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::Unit = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 
 		Ok(())
@@ -50,85 +42,105 @@ impl Index {
 		if partition_start > 0 || partition_end == 0 {
 			return Ok(Vec::new());
 		}
-		let db = self.db;
-		let env = self.env.clone();
-		let subspace = self.subspace.clone();
-		tokio::task::spawn_blocking(move || {
-			let transaction = env
-				.read_txn()
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let key_kind = Self::finalization_version_kind(kind).to_i32().unwrap();
-			let prefix = Self::pack(&subspace, &(key_kind,));
-			let entries = db
-				.prefix_iter(&transaction, &prefix)
-				.map_err(|error| tg::error!(!error, "failed to get the finalization range"))?
-				.take(batch_size)
-				.map(|entry| {
-					let (key, _) = entry.map_err(|error| {
-						tg::error!(!error, "failed to read the finalization entry")
-					})?;
-					let key = Self::unpack(&subspace, key)?;
-					let (item, version) = match key {
-						crate::lmdb::Key::Finalization(Key::ProcessVersion { id, version }) => {
-							(crate::finalization::Item::Process(id), version)
-						},
-						crate::lmdb::Key::Finalization(Key::SandboxVersion { id, version }) => {
-							(crate::finalization::Item::Sandbox(id), version)
-						},
-						_ => return Err(tg::error!("unexpected finalization key")),
-					};
-					let version = Self::finalization_version(version);
-					Ok(crate::finalization::Entry {
-						item,
-						partition: 0,
-						version,
-					})
-				})
-				.collect::<tg::Result<Vec<_>>>()?;
+		let request = crate::read::Request::FinalizationBatch {
+			batch_size,
+			kind,
+			partition_end,
+			partition_start,
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::FinalizationBatch(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
 
-			Ok(entries)
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		Ok(output)
+	}
+
+	pub(crate) fn finalization_batch_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		kind: crate::finalization::Kind,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<Vec<crate::finalization::Entry>> {
+		if partition_start > 0 || partition_end == 0 {
+			return Ok(Vec::new());
+		}
+		let key_kind = Self::finalization_version_kind(kind).to_i32().unwrap();
+		let prefix = Self::pack(subspace, &(key_kind,));
+		let entries = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the finalization range"))?
+			.take(batch_size)
+			.map(|entry| {
+				let (key, _) = entry
+					.map_err(|error| tg::error!(!error, "failed to read the finalization entry"))?;
+				let key = Self::unpack(subspace, key)?;
+				let (item, version) = match key {
+					crate::lmdb::Key::Finalization(Key::ProcessVersion { id, version }) => {
+						(crate::finalization::Item::Process(id), version)
+					},
+					crate::lmdb::Key::Finalization(Key::SandboxVersion { id, version }) => {
+						(crate::finalization::Item::Sandbox(id), version)
+					},
+					_ => return Err(tg::error!("unexpected finalization key")),
+				};
+				let version = Self::finalization_version(version);
+				Ok(crate::finalization::Entry {
+					item,
+					partition: 0,
+					version,
+				})
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(entries)
 	}
 
 	pub async fn try_get_oldest_finalization_transaction_id(
 		&self,
 		kind: crate::finalization::Kind,
 	) -> tg::Result<Option<u64>> {
-		let db = self.db;
-		let env = self.env.clone();
-		let subspace = self.subspace.clone();
-		tokio::task::spawn_blocking(move || {
-			let transaction = env
-				.read_txn()
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let key_kind = Self::finalization_version_kind(kind).to_i32().unwrap();
-			let prefix = Self::pack(&subspace, &(key_kind,));
-			let entry = db
-				.prefix_iter(&transaction, &prefix)
-				.map_err(|error| tg::error!(!error, "failed to get the finalization range"))?
-				.next()
-				.transpose()
-				.map_err(|error| tg::error!(!error, "failed to read the finalization entry"))?;
-			let Some((key, _)) = entry else {
-				return Ok(None);
-			};
-			let key = Self::unpack(&subspace, key)?;
-			let crate::lmdb::Key::Finalization(
-				Key::ProcessVersion { version, .. } | Key::SandboxVersion { version, .. },
-			) = key
-			else {
-				return Err(tg::error!("unexpected finalization key"));
-			};
+		let request = crate::read::Request::TryGetOldestFinalizationTransactionId { kind };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetOldestFinalizationTransactionId(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
 
-			Ok(Some(version))
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		Ok(output)
 	}
 
-	pub(super) fn task_complete_finalization(
+	pub(crate) fn try_get_oldest_finalization_transaction_id_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		kind: crate::finalization::Kind,
+	) -> tg::Result<Option<u64>> {
+		let key_kind = Self::finalization_version_kind(kind).to_i32().unwrap();
+		let prefix = Self::pack(subspace, &(key_kind,));
+		let entry = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the finalization range"))?
+			.next()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to read the finalization entry"))?;
+		let Some((key, _)) = entry else {
+			return Ok(None);
+		};
+		let key = Self::unpack(subspace, key)?;
+		let crate::lmdb::Key::Finalization(
+			Key::ProcessVersion { version, .. } | Key::SandboxVersion { version, .. },
+		) = key
+		else {
+			return Err(tg::error!("unexpected finalization key"));
+		};
+
+		Ok(Some(version))
+	}
+
+	pub(super) fn complete_finalization_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -161,7 +173,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(super) fn task_enqueue_finalization(
+	pub(super) fn enqueue_finalization_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

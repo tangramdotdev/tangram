@@ -11,9 +11,11 @@ fn new_index() -> (tempfile::TempDir, Index) {
 			object_subtree: crate::authorize::ObjectSubtreeConfig::default(),
 		},
 		map_size: 1 << 30,
-		max_items_per_transaction: 1,
 		max_process_depth: None,
 		path: dir.path().join("index"),
+		read_batch_size: 64,
+		read_concurrency: 4,
+		write_batch_size: 1,
 	})
 	.unwrap();
 	(dir, index)

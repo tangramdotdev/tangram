@@ -69,35 +69,39 @@ impl Update {
 
 impl Index {
 	pub async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
-		let env = self.env.clone();
-		let db = self.db;
-		let subspace = self.subspace.clone();
-		tokio::task::spawn_blocking(move || {
-			let transaction = env
-				.read_txn()
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
-			let prefix = Self::pack(&subspace, prefix);
-			let entry = db
-				.prefix_iter(&transaction, &prefix)
-				.map_err(|error| tg::error!(!error, "failed to get update version range"))?
-				.next()
-				.transpose()
-				.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
-			let Some((key, _)) = entry else {
-				return Ok(None);
-			};
-			let key = Self::unpack(&subspace, key)?;
-			let crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
-				version, ..
-			}) = key
-			else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			Ok(Some(version))
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		let response = self
+			.send_read_request(crate::read::Request::TryGetOldestUpdateTransactionId)
+			.await?;
+		let crate::read::Response::TryGetOldestUpdateTransactionId(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_oldest_update_transaction_id_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+	) -> tg::Result<Option<u64>> {
+		let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
+		let prefix = Self::pack(subspace, prefix);
+		let entry = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get update version range"))?
+			.next()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
+		let Some((key, _)) = entry else {
+			return Ok(None);
+		};
+		let key = Self::unpack(subspace, key)?;
+		let crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion { version, .. }) = key
+		else {
+			return Err(tg::error!("unexpected key type"));
+		};
+
+		Ok(Some(version))
 	}
 
 	pub async fn update_batch(
@@ -106,23 +110,15 @@ impl Index {
 		_partition_start: u64,
 		_partition_end: u64,
 	) -> tg::Result<usize> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Update(crate::lmdb::Update { batch_size });
-		self.sender_low
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::UpdateCount(count) = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 		Ok(count)
 	}
 
-	pub(super) fn task_update_batch(
+	pub(super) fn update_batch_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

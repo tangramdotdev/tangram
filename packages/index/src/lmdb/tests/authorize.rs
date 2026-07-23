@@ -89,9 +89,11 @@ fn new_index() -> (tempfile::TempDir, Index) {
 			object_subtree: crate::authorize::ObjectSubtreeConfig::default(),
 		},
 		map_size: 1 << 30,
-		max_items_per_transaction: 100_000,
 		max_process_depth: None,
 		path: dir.path().join("index"),
+		read_batch_size: 64,
+		read_concurrency: 4,
+		write_batch_size: 100_000,
 	})
 	.unwrap();
 	(dir, index)
@@ -543,7 +545,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 	let child_tag = tg::tag::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &object);
-	Index::task_put_tags(
+	Index::put_tags_with_transaction(
 		&index.db,
 		&index.subspace,
 		&mut txn,

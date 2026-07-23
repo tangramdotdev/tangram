@@ -26,15 +26,9 @@ impl Index {
 	}
 
 	async fn send_finalization_request(&self, request: Request) -> tg::Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		self.sender_medium
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::Unit = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 
 		Ok(())
@@ -47,10 +41,28 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<Vec<crate::finalization::Entry>> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::FinalizationBatch {
+			batch_size,
+			kind,
+			partition_end,
+			partition_start,
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::FinalizationBatch(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn finalization_batch_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		kind: crate::finalization::Kind,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<Vec<crate::finalization::Entry>> {
 		let key_kind = Self::finalization_version_kind(kind).to_i32().unwrap();
 		let mut output = Vec::new();
 		for partition in partition_start..partition_end {
@@ -58,8 +70,8 @@ impl Index {
 			if remaining == 0 {
 				break;
 			}
-			let begin = Self::pack(&self.subspace, &(key_kind, partition));
-			let end = Self::pack(&self.subspace, &(key_kind, partition.saturating_add(1)));
+			let begin = Self::pack(subspace, &(key_kind, partition));
+			let end = Self::pack(subspace, &(key_kind, partition.saturating_add(1)));
 			let range = fdb::RangeOption {
 				begin: fdb::KeySelector::first_greater_or_equal(begin),
 				end: fdb::KeySelector::first_greater_or_equal(end),
@@ -72,7 +84,7 @@ impl Index {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the finalization range"))?;
 			for entry in entries {
-				let key = Self::unpack(&self.subspace, entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let (item, partition, version) = match key {
 					crate::fdb::Key::Finalization(Key::ProcessVersion {
 						id,
@@ -102,14 +114,25 @@ impl Index {
 		&self,
 		kind: crate::finalization::Kind,
 	) -> tg::Result<Option<u64>> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::TryGetOldestFinalizationTransactionId { kind };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetOldestFinalizationTransactionId(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_oldest_finalization_transaction_id_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		partition_total: u64,
+		kind: crate::finalization::Kind,
+	) -> tg::Result<Option<u64>> {
 		let key_kind = Self::finalization_version_kind(kind).to_i32().unwrap();
-		let futures = (0..self.partition_total).map(|partition| {
-			let begin = Self::pack(&self.subspace, &(key_kind, partition));
-			let end = Self::pack(&self.subspace, &(key_kind, partition.saturating_add(1)));
+		let futures = (0..partition_total).map(|partition| {
+			let begin = Self::pack(subspace, &(key_kind, partition));
+			let end = Self::pack(subspace, &(key_kind, partition.saturating_add(1)));
 			let range = fdb::RangeOption {
 				begin: fdb::KeySelector::first_greater_or_equal(begin),
 				end: fdb::KeySelector::first_greater_or_equal(end),
@@ -117,7 +140,6 @@ impl Index {
 				mode: fdb::options::StreamingMode::WantAll,
 				..Default::default()
 			};
-			let txn = &txn;
 			async move {
 				let entries = txn
 					.get_range(&range, 1, false)
@@ -126,7 +148,7 @@ impl Index {
 				let Some(entry) = entries.first() else {
 					return Ok(None);
 				};
-				let key = Self::unpack(&self.subspace, entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Finalization(
 					Key::ProcessVersion { version, .. } | Key::SandboxVersion { version, .. },
 				) = key
@@ -147,7 +169,7 @@ impl Index {
 		Ok(transaction_id)
 	}
 
-	pub(super) async fn task_complete_finalization(
+	pub(super) async fn complete_finalization_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		entry: &crate::finalization::Entry,
@@ -176,7 +198,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(super) async fn task_enqueue_finalization(
+	pub(super) async fn enqueue_finalization_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		item: &crate::finalization::Item,

@@ -9,24 +9,16 @@ impl Index {
 		if arg.is_empty() {
 			return Ok(());
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Batch(arg);
-		self.sender_medium
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::Unit = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 
 		Ok(())
 	}
 
-	pub(crate) fn task_batch(
+	pub(crate) fn batch_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -35,13 +27,23 @@ impl Index {
 		for item in &arg.items {
 			match item {
 				crate::batch::Item::DeleteGrant(arg) => {
-					Self::task_delete_grants(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::delete_grants_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 				crate::batch::Item::DeleteGroup(id) => {
-					Self::task_delete_groups(db, subspace, transaction, std::slice::from_ref(id))?;
+					Self::delete_groups_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(id),
+					)?;
 				},
 				crate::batch::Item::DeleteGroupMember(arg) => {
-					Self::task_delete_group_members(
+					Self::delete_group_members_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -49,7 +51,7 @@ impl Index {
 					)?;
 				},
 				crate::batch::Item::DeleteOrganization(id) => {
-					Self::task_delete_organizations(
+					Self::delete_organizations_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -57,7 +59,7 @@ impl Index {
 					)?;
 				},
 				crate::batch::Item::DeleteOrganizationMember(arg) => {
-					Self::task_delete_organization_members(
+					Self::delete_organization_members_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -65,7 +67,7 @@ impl Index {
 					)?;
 				},
 				crate::batch::Item::DeleteSandbox(id) => {
-					Self::task_delete_sandboxes(
+					Self::delete_sandboxes_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -73,13 +75,23 @@ impl Index {
 					)?;
 				},
 				crate::batch::Item::DeleteTag(id) => {
-					Self::task_delete_tags(db, subspace, transaction, std::slice::from_ref(id))?;
+					Self::delete_tags_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(id),
+					)?;
 				},
 				crate::batch::Item::DeleteUser(id) => {
-					Self::task_delete_users(db, subspace, transaction, std::slice::from_ref(id))?;
+					Self::delete_users_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(id),
+					)?;
 				},
 				crate::batch::Item::PutCacheEntry(arg) => {
-					Self::task_put_cache_entries(
+					Self::put_cache_entries_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -87,13 +99,23 @@ impl Index {
 					)?;
 				},
 				crate::batch::Item::PutGrant(arg) => {
-					Self::task_put_grants(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::put_grants_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 				crate::batch::Item::PutGroup(arg) => {
-					Self::task_put_groups(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::put_groups_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 				crate::batch::Item::PutGroupMember(arg) => {
-					Self::task_put_group_members(
+					Self::put_group_members_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -101,10 +123,15 @@ impl Index {
 					)?;
 				},
 				crate::batch::Item::PutObject(arg) => {
-					Self::task_put_objects(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::put_objects_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 				crate::batch::Item::PutOrganization(arg) => {
-					Self::task_put_organizations(
+					Self::put_organizations_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -112,7 +139,7 @@ impl Index {
 					)?;
 				},
 				crate::batch::Item::PutOrganizationMember(arg) => {
-					Self::task_put_organization_members(
+					Self::put_organization_members_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -120,19 +147,44 @@ impl Index {
 					)?;
 				},
 				crate::batch::Item::PutProcess(arg) => {
-					Self::task_put_processes(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::put_processes_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 				crate::batch::Item::PutRunner(arg) => {
-					Self::task_put_runners(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::put_runners_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 				crate::batch::Item::PutSandbox(arg) => {
-					Self::task_put_sandboxes(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::put_sandboxes_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 				crate::batch::Item::PutTag(arg) => {
-					Self::task_put_tags(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::put_tags_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 				crate::batch::Item::PutUser(arg) => {
-					Self::task_put_users(db, subspace, transaction, std::slice::from_ref(arg))?;
+					Self::put_users_with_transaction(
+						db,
+						subspace,
+						transaction,
+						std::slice::from_ref(arg),
+					)?;
 				},
 			}
 		}

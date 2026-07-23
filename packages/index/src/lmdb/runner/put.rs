@@ -5,7 +5,7 @@ use {
 };
 
 impl Index {
-	pub(crate) fn task_put_runners(
+	pub(crate) fn put_runners_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

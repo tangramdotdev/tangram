@@ -271,7 +271,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_put_processes(
+	pub(crate) fn put_processes_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

@@ -94,87 +94,106 @@ impl Index {
 				.collect();
 			return Ok(outputs);
 		}
-		let config = self.config;
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let subspace = self.subspace.clone();
-			let args = args.to_owned();
-			let principal = principal.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let mut requester = Requester::new(&principal);
-				if PRECOMPUTE_REQUESTER_PRINCIPALS {
-					Self::load_requester_principals_with_transaction(
-						&db,
-						&subspace,
-						&transaction,
-						&mut requester,
-					)?;
-				}
-				let mut cache = Cache::default();
-				let mut authorization = HashMap::new();
-				let mut outputs = Vec::with_capacity(args.len());
-				for arg in args {
-					let Some(id) = Self::try_resolve_resource_with_transaction(
-						&db,
-						&subspace,
-						&transaction,
-						&arg.resource,
-					)?
-					else {
-						outputs.push(None);
-						continue;
-					};
-					if crate::authorize::validate(&id, arg.permissions).is_err() {
-						outputs.push(None);
-						continue;
-					}
-					if matches!(&principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == id)
-					{
-						outputs.push(Some(crate::authorize::Output {
-							permissions: arg.permissions,
-						}));
-						continue;
-					}
-					let token = if let Some(body) = arg.token {
-						Self::try_resolve_resource_with_transaction(
-							&db,
-							&subspace,
-							&transaction,
-							&body.resource,
-						)?
-						.map(|resource| (body, resource))
-					} else {
-						None
-					};
-					let mut token_authorization = HashMap::new();
-					let authorization = if token.is_some() {
-						&mut token_authorization
-					} else {
-						&mut authorization
-					};
-					let mut context = AuthorizationContext {
-						db: &db,
-						subspace: &subspace,
-						transaction: &transaction,
-						authorize: config,
-						requester: &requester,
-						token,
-						authorization,
-						cache: &mut cache,
-					};
-					let permissions =
-						Self::authorize_with_transaction(&mut context, &id, arg.permissions)?;
-					outputs.push(Some(crate::authorize::Output { permissions }));
-				}
-				Ok(outputs)
+		let request = crate::read::Request::AuthorizeBatch {
+			args: args.to_owned(),
+			principal: principal.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::AuthorizeBatch(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn authorize_batch_with_transaction(
+		authorize: crate::lmdb::AuthorizeConfig,
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		args: &[crate::authorize::Arg],
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
+		if args.is_empty() {
+			return Ok(Vec::new());
+		}
+		if matches!(principal, tg::Principal::Root) {
+			let outputs = args
+				.iter()
+				.map(|arg| {
+					Some(crate::authorize::Output {
+						permissions: arg.permissions,
+					})
+				})
+				.collect();
+			return Ok(outputs);
+		}
+		let mut requester = Requester::new(principal);
+		if PRECOMPUTE_REQUESTER_PRINCIPALS {
+			Self::load_requester_principals_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&mut requester,
+			)?;
+		}
+		let mut cache = Cache::default();
+		let mut authorization = HashMap::new();
+		let mut outputs = Vec::with_capacity(args.len());
+		for arg in args {
+			let Some(id) = Self::try_resolve_resource_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&arg.resource,
+			)?
+			else {
+				outputs.push(None);
+				continue;
+			};
+			if crate::authorize::validate(&id, arg.permissions).is_err() {
+				outputs.push(None);
+				continue;
 			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+			if matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == id)
+			{
+				outputs.push(Some(crate::authorize::Output {
+					permissions: arg.permissions,
+				}));
+				continue;
+			}
+			let token = if let Some(body) = arg.token.clone() {
+				Self::try_resolve_resource_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&body.resource,
+				)?
+				.map(|resource| (body, resource))
+			} else {
+				None
+			};
+			let mut token_authorization = HashMap::new();
+			let authorization = if token.is_some() {
+				&mut token_authorization
+			} else {
+				&mut authorization
+			};
+			let mut context = AuthorizationContext {
+				authorization,
+				authorize,
+				cache: &mut cache,
+				db,
+				requester: &requester,
+				subspace,
+				token,
+				transaction,
+			};
+			let permissions = Self::authorize_with_transaction(&mut context, &id, arg.permissions)?;
+			outputs.push(Some(crate::authorize::Output { permissions }));
+		}
+
+		Ok(outputs)
 	}
 
 	fn load_requester_principals_with_transaction(

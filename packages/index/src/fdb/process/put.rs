@@ -280,7 +280,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) async fn task_put_processes(
+	pub(crate) async fn put_processes_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::process::put::Arg],

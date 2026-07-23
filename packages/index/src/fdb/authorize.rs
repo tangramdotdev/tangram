@@ -207,16 +207,45 @@ impl Index {
 				.collect();
 			return Ok(outputs);
 		}
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::AuthorizeBatch {
+			args: args.to_owned(),
+			principal: principal.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::AuthorizeBatch(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn authorize_batch_with_transaction(
+		config: crate::fdb::AuthorizeConfig,
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		args: &[crate::authorize::Arg],
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
+		if args.is_empty() {
+			return Ok(Vec::new());
+		}
+		if matches!(principal, tg::Principal::Root) {
+			let outputs = args
+				.iter()
+				.map(|arg| {
+					Some(crate::authorize::Output {
+						permissions: arg.permissions,
+					})
+				})
+				.collect();
+			return Ok(outputs);
+		}
 		let mut requester = Requester::new(principal);
 		if PRECOMPUTE_REQUESTER_PRINCIPALS {
 			Self::load_requester_principals_with_transaction(
-				&txn,
-				&self.subspace,
-				self.config.concurrency,
+				txn,
+				subspace,
+				config.concurrency,
 				&mut requester,
 			)
 			.await?;
@@ -226,14 +255,10 @@ impl Index {
 			.map(|arg| arg.resource.clone())
 			.collect::<Vec<_>>();
 		let resources = stream::iter(resource_requests)
-			.map(|resource| {
-				let txn = &txn;
-				let subspace = &self.subspace;
-				async move {
-					Self::try_resolve_resource_with_transaction(txn, subspace, &resource).await
-				}
+			.map(|resource| async move {
+				Self::try_resolve_resource_with_transaction(txn, subspace, &resource).await
 			})
-			.buffered(self.config.concurrency)
+			.buffered(config.concurrency)
 			.try_collect::<Vec<_>>()
 			.await?;
 		let token_requests = std::iter::zip(args, &resources)
@@ -249,17 +274,13 @@ impl Index {
 			})
 			.collect::<Vec<_>>();
 		let resolved_tokens = stream::iter(token_requests)
-			.map(|(index, body)| {
-				let txn = &txn;
-				let subspace = &self.subspace;
-				async move {
-					let resource =
-						Self::try_resolve_resource_with_transaction(txn, subspace, &body.resource)
-							.await?;
-					Ok::<_, tg::Error>((index, resource))
-				}
+			.map(|(index, body)| async move {
+				let resource =
+					Self::try_resolve_resource_with_transaction(txn, subspace, &body.resource)
+						.await?;
+				Ok::<_, tg::Error>((index, resource))
 			})
-			.buffered(self.config.concurrency)
+			.buffered(config.concurrency)
 			.try_collect::<Vec<_>>()
 			.await?;
 		let mut token_resources = vec![None; args.len()];
@@ -293,11 +314,11 @@ impl Index {
 				&mut authorization
 			};
 			let context = AuthorizationContext {
-				txn: &txn,
-				subspace: &self.subspace,
-				config: self.config,
+				config,
 				requester: &requester,
+				subspace,
 				token,
+				txn,
 			};
 			let permissions = Self::authorize_with_transaction(
 				context,
@@ -309,6 +330,7 @@ impl Index {
 			.await?;
 			outputs.push(Some(crate::authorize::Output { permissions }));
 		}
+
 		Ok(outputs)
 	}
 

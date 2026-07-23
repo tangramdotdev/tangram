@@ -21,39 +21,40 @@ mod node;
 mod object;
 mod organization;
 mod process;
+mod reader;
 mod request;
 mod response;
 mod runner;
 mod sandbox;
 mod tag;
-mod task;
 mod update;
 mod user;
 mod visible;
+mod writer;
 
 pub(super) use {
 	key::{Key, Kind},
-	task::Metrics,
+	writer::Metrics,
 };
 
 pub struct Index {
-	config: AuthorizeConfig,
-	database: Arc<fdb::Database>,
 	partition_total: u64,
-	subspace: fdbt::Subspace,
-	sender_high: RequestSender,
-	sender_medium: RequestSender,
-	sender_low: RequestSender,
+	reader_sender: crate::read::Sender,
+	writer_sender_high: writer::RequestSender,
+	writer_sender_low: writer::RequestSender,
+	writer_sender_medium: writer::RequestSender,
 }
 
 pub struct Options {
 	pub authorize: AuthorizeConfig,
 	pub cluster: std::path::PathBuf,
-	pub concurrency: usize,
-	pub max_items_per_transaction: usize,
 	pub max_process_depth: Option<u64>,
 	pub partition_total: u64,
 	pub prefix: Option<String>,
+	pub read_batch_size: usize,
+	pub read_concurrency: usize,
+	pub write_batch_size: usize,
+	pub write_concurrency: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -62,25 +63,10 @@ pub struct AuthorizeConfig {
 	pub object_subtree: crate::authorize::ObjectSubtreeConfig,
 }
 
-struct TaskArg {
-	database: Arc<fdb::Database>,
-	subspace: fdbt::Subspace,
-	receiver_high: RequestReceiver,
-	receiver_medium: RequestReceiver,
-	receiver_low: RequestReceiver,
-	concurrency: usize,
-	max_items_per_transaction: usize,
-	max_process_depth: Option<u64>,
-	partition_total: u64,
-	metrics: Metrics,
-}
-
-type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
-type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
-type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
-
 impl Index {
 	pub fn new(options: &Options) -> tg::Result<Self> {
+		Self::validate_options(options)?;
+
 		let database = fdb::Database::new(Some(options.cluster.to_str().unwrap()))
 			.map_err(|error| tg::error!(!error, "failed to open the foundationdb cluster"))?;
 		let database = Arc::new(database);
@@ -92,51 +78,108 @@ impl Index {
 
 		let partition_total = options.partition_total;
 		let config = AuthorizeConfig {
-			concurrency: options.authorize.concurrency.max(1),
+			concurrency: options.authorize.concurrency,
 			object_subtree: options.authorize.object_subtree,
 		};
 
 		let metrics = Metrics::new();
 
-		let (sender_high, receiver_high) = tokio::sync::mpsc::unbounded_channel();
-		let (sender_medium, receiver_medium) = tokio::sync::mpsc::unbounded_channel();
-		let (sender_low, receiver_low) = tokio::sync::mpsc::unbounded_channel();
+		let (writer_sender_high, writer_receiver_high) = tokio::sync::mpsc::unbounded_channel();
+		let (writer_sender_medium, writer_receiver_medium) = tokio::sync::mpsc::unbounded_channel();
+		let (writer_sender_low, writer_receiver_low) = tokio::sync::mpsc::unbounded_channel();
 
-		let concurrency = options.concurrency;
-		let max_items_per_transaction = options.max_items_per_transaction;
+		// Spawn the reader task.
+		let (reader_sender, reader_receiver) =
+			tokio::sync::mpsc::channel(crate::read::CHANNEL_CAPACITY);
+		tokio::spawn({
+			let database = database.clone();
+			let subspace = subspace.clone();
+			let authorize = config;
+			let read_batch_size = options.read_batch_size;
+			let read_concurrency = options.read_concurrency;
+			async move {
+				Self::reader_task(reader::Arg {
+					authorize,
+					database,
+					partition_total,
+					read_batch_size,
+					read_concurrency,
+					receiver: reader_receiver,
+					subspace,
+				})
+				.await;
+			}
+		});
+
+		// Spawn the writer task.
 		let max_process_depth = options.max_process_depth;
+		let write_batch_size = options.write_batch_size;
+		let write_concurrency = options.write_concurrency;
 		tokio::spawn({
 			let database = database.clone();
 			let subspace = subspace.clone();
 			let metrics = metrics.clone();
 			async move {
-				let arg = TaskArg {
+				let arg = writer::Arg {
 					database,
-					subspace,
-					receiver_high,
-					receiver_medium,
-					receiver_low,
-					concurrency,
-					max_items_per_transaction,
 					max_process_depth,
-					partition_total,
 					metrics,
+					partition_total,
+					receiver_high: writer_receiver_high,
+					receiver_low: writer_receiver_low,
+					receiver_medium: writer_receiver_medium,
+					subspace,
+					write_batch_size,
+					write_concurrency,
 				};
-				Self::task(arg).await;
+				Self::writer_task(arg).await;
 			}
 		});
 
 		let index = Self {
-			config,
-			database,
 			partition_total,
-			subspace,
-			sender_high,
-			sender_medium,
-			sender_low,
+			reader_sender,
+			writer_sender_high,
+			writer_sender_low,
+			writer_sender_medium,
 		};
 
 		Ok(index)
+	}
+
+	fn validate_options(options: &Options) -> tg::Result<()> {
+		if options.authorize.concurrency == 0 {
+			return Err(tg::error!(
+				"the FDB index authorization concurrency must be greater than zero"
+			));
+		}
+		if options.partition_total == 0 {
+			return Err(tg::error!(
+				"the FDB index partition total must be greater than zero"
+			));
+		}
+		if options.read_batch_size == 0 {
+			return Err(tg::error!(
+				"the FDB index read batch size must be greater than zero"
+			));
+		}
+		if options.read_concurrency == 0 {
+			return Err(tg::error!(
+				"the FDB index read concurrency must be greater than zero"
+			));
+		}
+		if options.write_batch_size == 0 {
+			return Err(tg::error!(
+				"the FDB index write batch size must be greater than zero"
+			));
+		}
+		if options.write_concurrency == 0 {
+			return Err(tg::error!(
+				"the FDB index write concurrency must be greater than zero"
+			));
+		}
+
+		Ok(())
 	}
 
 	fn partition_for_id(id_bytes: &[u8], partition_total: u64) -> u64 {
@@ -165,16 +208,14 @@ impl Index {
 	}
 
 	pub async fn get_transaction_id(&self) -> tg::Result<u64> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
-		let version = txn
-			.get_read_version()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the read version"))?
-			.cast_unsigned();
-		Ok(version)
+		let response = self
+			.send_read_request(crate::read::Request::GetTransactionId)
+			.await?;
+		let crate::read::Response::GetTransactionId(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
 	pub async fn sync(&self) -> tg::Result<()> {

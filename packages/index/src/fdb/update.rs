@@ -127,14 +127,25 @@ impl Index {
 	}
 
 	pub async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let response = self
+			.send_read_request(crate::read::Request::TryGetOldestUpdateTransactionId)
+			.await?;
+		let crate::read::Response::TryGetOldestUpdateTransactionId(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_oldest_update_transaction_id_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		partition_total: u64,
+	) -> tg::Result<Option<u64>> {
 		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
-		let futures = (0..self.partition_total).map(|partition| {
-			let begin = Self::pack(&self.subspace, &(key_kind, partition));
-			let end = Self::pack(&self.subspace, &(key_kind, partition.saturating_add(1)));
+		let futures = (0..partition_total).map(|partition| {
+			let begin = Self::pack(subspace, &(key_kind, partition));
+			let end = Self::pack(subspace, &(key_kind, partition.saturating_add(1)));
 			let range = fdb::RangeOption {
 				begin: fdb::KeySelector::first_greater_or_equal(begin),
 				end: fdb::KeySelector::first_greater_or_equal(end),
@@ -142,7 +153,6 @@ impl Index {
 				mode: fdb::options::StreamingMode::WantAll,
 				..Default::default()
 			};
-			let txn = &txn;
 			async move {
 				let entries = txn.get_range(&range, 1, false).await.map_err(|error| {
 					tg::error!(!error, "failed to get the update version range")
@@ -150,7 +160,7 @@ impl Index {
 				let Some(entry) = entries.first() else {
 					return Ok(None);
 				};
-				let key = Self::unpack(&self.subspace, entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
 					version, ..
 				}) = key
@@ -177,25 +187,19 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<usize> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Update(crate::fdb::Update {
 			batch_size,
 			partition_end,
 			partition_start,
 		});
-		self.sender_low
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::UpdateCount(count) = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 		Ok(count)
 	}
 
-	pub(super) async fn task_update(
+	pub(super) async fn update_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		batch_size: usize,

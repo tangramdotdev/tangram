@@ -5,7 +5,7 @@ use {
 		response::Response,
 	},
 	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
-	std::path::PathBuf,
+	std::{path::PathBuf, sync::Arc},
 	tangram_client::prelude::*,
 };
 
@@ -21,17 +21,18 @@ mod node;
 mod object;
 mod organization;
 mod process;
+mod reader;
 mod request;
 mod response;
 mod runner;
 mod sandbox;
 mod tag;
-mod task;
 #[cfg(test)]
 mod tests;
 mod update;
 mod user;
 mod visible;
+mod writer;
 
 pub(super) use key::{Key, Kind};
 
@@ -39,9 +40,11 @@ pub(super) use key::{Key, Kind};
 pub struct Config {
 	pub authorize: AuthorizeConfig,
 	pub map_size: usize,
-	pub max_items_per_transaction: usize,
 	pub max_process_depth: Option<u64>,
 	pub path: PathBuf,
+	pub read_batch_size: usize,
+	pub read_concurrency: usize,
+	pub write_batch_size: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -50,36 +53,25 @@ pub struct AuthorizeConfig {
 }
 
 pub struct Index {
-	config: AuthorizeConfig,
+	#[cfg_attr(not(test), allow(dead_code))]
 	db: Db,
 	env: lmdb::Env,
-	handle: Option<std::thread::JoinHandle<()>>,
-	sender_high: Option<RequestSender>,
-	sender_medium: Option<RequestSender>,
-	sender_low: Option<RequestSender>,
+	reader_handles: Vec<std::thread::JoinHandle<()>>,
+	reader_sender: Option<crate::read::Sender>,
+	#[cfg_attr(not(test), allow(dead_code))]
 	subspace: fdbt::Subspace,
-}
-
-#[derive(Clone, Copy)]
-struct TaskArg<'a> {
-	db: &'a Db,
-	env: &'a lmdb::Env,
-	max_items_per_transaction: usize,
-	max_process_depth: Option<u64>,
-	receiver_high: &'a RequestReceiver,
-	receiver_low: &'a RequestReceiver,
-	receiver_medium: &'a RequestReceiver,
-	subspace: &'a fdbt::Subspace,
+	writer_handle: Option<std::thread::JoinHandle<()>>,
+	writer_sender_high: Option<writer::RequestSender>,
+	writer_sender_low: Option<writer::RequestSender>,
+	writer_sender_medium: Option<writer::RequestSender>,
 }
 
 type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
 
-type RequestSender = crossbeam::Sender<(Request, ResponseSender)>;
-type RequestReceiver = crossbeam::Receiver<(Request, ResponseSender)>;
-type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
-
 impl Index {
 	pub fn new(config: &Config) -> tg::Result<Self> {
+		Self::validate_config(config)?;
+
 		std::fs::OpenOptions::new()
 			.create(true)
 			.truncate(false)
@@ -112,41 +104,91 @@ impl Index {
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
-		let (sender_high, receiver_high) = crossbeam::bounded(256);
-		let (sender_medium, receiver_medium) = crossbeam::bounded(256);
-		let (sender_low, receiver_low) = crossbeam::bounded(256);
+		let (writer_sender_high, writer_receiver_high) =
+			crossbeam::bounded(writer::CHANNEL_CAPACITY);
+		let (writer_sender_medium, writer_receiver_medium) =
+			crossbeam::bounded(writer::CHANNEL_CAPACITY);
+		let (writer_sender_low, writer_receiver_low) = crossbeam::bounded(writer::CHANNEL_CAPACITY);
 
 		let subspace = fdbt::Subspace::all();
 
-		let handle = std::thread::spawn({
+		// Spawn the reader tasks.
+		let (reader_sender, reader_receiver) =
+			tokio::sync::mpsc::channel(crate::read::CHANNEL_CAPACITY);
+		let reader_receiver = Arc::new(std::sync::Mutex::new(reader_receiver));
+		let reader_handles = (0..config.read_concurrency)
+			.map(|_| {
+				let env = env.clone();
+				let reader_receiver = reader_receiver.clone();
+				let subspace = subspace.clone();
+				let authorize = config.authorize;
+				let read_batch_size = config.read_batch_size;
+				std::thread::spawn(move || {
+					Self::reader_task(&reader::Arg {
+						authorize,
+						db,
+						env,
+						read_batch_size,
+						receiver: reader_receiver,
+						subspace,
+						#[cfg(test)]
+						test_hook: None,
+					});
+				})
+			})
+			.collect();
+
+		// Spawn the writer task.
+		let writer_handle = std::thread::spawn({
 			let env = env.clone();
 			let subspace = subspace.clone();
-			let max_items_per_transaction = config.max_items_per_transaction;
 			let max_process_depth = config.max_process_depth;
+			let write_batch_size = config.write_batch_size;
 			move || {
-				Self::task(TaskArg {
+				Self::writer_task(writer::Arg {
 					db: &db,
 					env: &env,
-					max_items_per_transaction,
 					max_process_depth,
-					receiver_high: &receiver_high,
-					receiver_low: &receiver_low,
-					receiver_medium: &receiver_medium,
+					receiver_high: &writer_receiver_high,
+					receiver_low: &writer_receiver_low,
+					receiver_medium: &writer_receiver_medium,
 					subspace: &subspace,
+					write_batch_size,
 				});
 			}
 		});
 
 		Ok(Self {
-			config: config.authorize,
 			db,
 			env,
-			handle: Some(handle),
-			sender_high: Some(sender_high),
-			sender_medium: Some(sender_medium),
-			sender_low: Some(sender_low),
+			reader_handles,
+			reader_sender: Some(reader_sender),
 			subspace,
+			writer_handle: Some(writer_handle),
+			writer_sender_high: Some(writer_sender_high),
+			writer_sender_low: Some(writer_sender_low),
+			writer_sender_medium: Some(writer_sender_medium),
 		})
+	}
+
+	fn validate_config(config: &Config) -> tg::Result<()> {
+		if config.read_batch_size == 0 {
+			return Err(tg::error!(
+				"the LMDB index read batch size must be greater than zero"
+			));
+		}
+		if config.read_concurrency == 0 {
+			return Err(tg::error!(
+				"the LMDB index read concurrency must be greater than zero"
+			));
+		}
+		if config.write_batch_size == 0 {
+			return Err(tg::error!(
+				"the LMDB index write batch size must be greater than zero"
+			));
+		}
+
+		Ok(())
 	}
 
 	fn pack<T: fdbt::TuplePack>(subspace: &fdbt::Subspace, key: &T) -> Vec<u8> {
@@ -163,15 +205,14 @@ impl Index {
 	}
 
 	pub async fn get_transaction_id(&self) -> tg::Result<u64> {
-		let env = self.env.clone();
-		tokio::task::spawn_blocking(move || {
-			let transaction = env
-				.read_txn()
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			Ok(transaction.id() as u64)
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		let response = self
+			.send_read_request(crate::read::Request::GetTransactionId)
+			.await?;
+		let crate::read::Response::GetTransactionId(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
 	pub async fn sync(&self) -> tg::Result<()> {
@@ -190,10 +231,14 @@ impl Index {
 
 impl Drop for Index {
 	fn drop(&mut self) {
-		drop(self.sender_high.take());
-		drop(self.sender_medium.take());
-		drop(self.sender_low.take());
-		if let Some(handle) = self.handle.take() {
+		drop(self.reader_sender.take());
+		drop(self.writer_sender_high.take());
+		drop(self.writer_sender_low.take());
+		drop(self.writer_sender_medium.take());
+		for handle in self.reader_handles.drain(..) {
+			handle.join().ok();
+		}
+		if let Some(handle) = self.writer_handle.take() {
 			handle.join().ok();
 		}
 	}

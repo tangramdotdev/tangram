@@ -14,19 +14,27 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
+		let request = crate::read::Request::TryGetObjects {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetObjects(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
 
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		Ok(output)
+	}
 
-		let outputs = futures::future::try_join_all(
+	pub(crate) async fn try_get_objects_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<crate::object::Object>>> {
+		futures::future::try_join_all(
 			ids.iter()
-				.map(|id| Self::try_get_object_with_transaction(&txn, &self.subspace, id)),
+				.map(|id| Self::try_get_object_with_transaction(txn, subspace, id)),
 		)
-		.await?;
-
-		Ok(outputs)
+		.await
 	}
 
 	pub(crate) async fn try_get_object_with_transaction(

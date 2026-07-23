@@ -11,13 +11,25 @@ impl Index {
 		&self,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::GetSandboxProcesses {
+			sandbox: sandbox.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::GetSandboxProcesses(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn get_sandbox_processes_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
 		let sandbox = sandbox.to_bytes();
 		let prefix = Self::pack(
-			&self.subspace,
+			subspace,
 			&(Kind::SandboxProcess.to_i32().unwrap(), sandbox.as_ref()),
 		);
 		let entries = txn
@@ -34,7 +46,7 @@ impl Index {
 		let processes = entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(&self.subspace, entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess { process, .. }) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
@@ -45,7 +57,7 @@ impl Index {
 		drop(entries);
 		let mut output = Vec::with_capacity(processes.len());
 		for process in processes {
-			let data = Self::try_get_process_with_transaction(&txn, &self.subspace, &process)
+			let data = Self::try_get_process_with_transaction(txn, subspace, &process)
 				.await?
 				.ok_or_else(|| tg::error!(%process, "failed to find the sandbox process"))?;
 			output.push((process, data));
@@ -57,13 +69,25 @@ impl Index {
 		&self,
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<Vec<Option<crate::sandbox::Sandbox>>> {
-		let txn = self
-			.database
-			.create_trx()
-			.map_err(|error| tg::error!(!error, "failed to create the transaction"))?;
+		let request = crate::read::Request::TryGetSandboxes {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetSandboxes(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_sandboxes_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::sandbox::Id],
+	) -> tg::Result<Vec<Option<crate::sandbox::Sandbox>>> {
 		futures::future::try_join_all(ids.iter().map(|id| async {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
-			let key = Self::pack(&self.subspace, &key);
+			let key = Self::pack(subspace, &key);
 			let bytes = txn
 				.get(&key, false)
 				.await

@@ -13,26 +13,26 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			let subspace = self.subspace.clone();
-			let ids = ids.to_owned();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let mut outputs = Vec::with_capacity(ids.len());
-				for id in &ids {
-					let option =
-						Self::try_get_object_with_transaction(&db, &subspace, &transaction, id)?;
-					outputs.push(option);
-				}
-				Ok(outputs)
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		let request = crate::read::Request::TryGetObjects {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetObjects(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_objects_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<crate::object::Object>>> {
+		ids.iter()
+			.map(|id| Self::try_get_object_with_transaction(db, subspace, transaction, id))
+			.collect()
 	}
 
 	pub(crate) fn try_get_object_with_transaction(

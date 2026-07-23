@@ -17,25 +17,19 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::TouchProcesses(crate::fdb::TouchProcesses {
 			ids: ids.to_vec(),
 			time_to_touch,
 			touched_at,
 		});
-		self.sender_high
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		let Response::Processes(processes) = response else {
-			return Err(tg::error!("unexpected response"));
+			return Err(tg::error!("unexpected write response"));
 		};
 		Ok(processes)
 	}
 
-	pub(crate) async fn task_touch_processes(
+	pub(crate) async fn touch_processes_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::process::Id],

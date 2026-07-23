@@ -61,7 +61,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn task_put_cache_entries(
+	pub(crate) fn put_cache_entries_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

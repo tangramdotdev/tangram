@@ -22,7 +22,7 @@ enum Item {
 	Sandbox(tg::sandbox::Id),
 }
 
-pub(super) struct TaskCleanArg<'a, 'b> {
+pub(super) struct TransactionArg<'a, 'b> {
 	pub batch_size: usize,
 	pub db: &'a Db,
 	pub max_object_touched_at: i64,
@@ -44,7 +44,6 @@ impl Index {
 			partition_end: _,
 			partition_start: _,
 		} = arg;
-		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Clean(crate::lmdb::Clean {
 			batch_size,
 			max_object_touched_at,
@@ -52,22 +51,17 @@ impl Index {
 			max_sandbox_touched_at,
 			now,
 		});
-		self.sender_low
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
+		let response = self.send_write_request(request).await?;
 		match response {
 			Response::CleanOutput(output) => Ok(output),
-			_ => Err(tg::error!("unexpected response")),
+			_ => Err(tg::error!("unexpected write response")),
 		}
 	}
 
-	pub(super) fn task_clean(arg: TaskCleanArg<'_, '_>) -> tg::Result<crate::clean::Output> {
-		let TaskCleanArg {
+	pub(super) fn clean_with_transaction(
+		arg: TransactionArg<'_, '_>,
+	) -> tg::Result<crate::clean::Output> {
+		let TransactionArg {
 			batch_size,
 			db,
 			max_object_touched_at,
@@ -818,7 +812,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
-		Self::task_delete_sandboxes(db, subspace, transaction, std::slice::from_ref(id))
+		Self::delete_sandboxes_with_transaction(db, subspace, transaction, std::slice::from_ref(id))
 	}
 
 	fn decrement_cache_entry_reference_count(
