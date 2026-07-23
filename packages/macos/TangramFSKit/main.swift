@@ -307,11 +307,10 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		let objectStoreMapSize = options["object_store_map_size"].flatMap(UInt64.init) ?? 0
 		let objectStorePath = options["object_store_path"] ?? ""
 
-		// The object store's lock semaphores must be named so that the sandboxed
-		// extension and the server can both open them. When the server does not
-		// send a prefix, default to the app group identifier, which the sandbox
-		// permits both processes to open. LMDB appends an 'r' or 'w' character.
-		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? appGroupIdentifier
+		// The object store's lock semaphores must use a service name in the shared
+		// app group so that the sandboxed extension and the server can both open
+		// them. LMDB appends an 'r' or 'w' character.
+		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
 
 		// The client connects to the server over the unix socket the server sends as
 		// a mount option, which lets concurrent servers each serve on their own

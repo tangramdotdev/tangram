@@ -1549,13 +1549,14 @@ impl Default for LmdbObjectStore {
 }
 
 impl LmdbObjectStore {
-	/// Returns the POSIX semaphore prefix, falling back to the macOS app group identifier that the app passes in the environment. This lets the server and the sandboxed file system extension share the same lock by default, because the sandbox permits both processes to open a semaphore named for their shared app group. The server and the extension resolve the same value so the writer and the reader agree.
+	/// Returns the POSIX semaphore prefix, falling back to a service name in the macOS app group that the app passes in the environment. This lets the server and the sandboxed file system extension share the same lock by default. The server and the extension resolve the same value so the writer and the reader agree.
 	#[must_use]
 	pub fn resolved_posix_sem_prefix(&self) -> Option<String> {
 		self.posix_sem_prefix.clone().or_else(|| {
 			std::env::var("TANGRAM_MACOS_APP_GROUP_IDENTIFIER")
 				.ok()
 				.filter(|value| !value.is_empty())
+				.map(|identifier| format!("{identifier}/lmdb"))
 		})
 	}
 }

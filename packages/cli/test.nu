@@ -923,12 +923,19 @@ export def --env spawn [
 	--quickjs # Use QuickJS as the JS engine.
 	--url (-u): string
 ] {
+	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
+
 	# Give the object store's lock semaphores a unique prefix per server. lmdb
 	# appends 'r' and 'w' to form the two POSIX semaphore names, which are global
-	# to the machine, so concurrent test servers must not share a prefix. The
-	# prefix plus one character must fit the platform limit, which is 31
-	# characters on macOS.
-	let object_store_posix_sem_prefix = $'/tg-((random chars) | str lowercase | str substring 0..7)'
+	# to the machine, so concurrent test servers must not share a prefix. FSKit
+	# requires the names to use the app group's IPC namespace. The prefix plus
+	# one character must fit the platform limit of 31 characters on macOS.
+	let object_store_posix_sem_prefix = if $use_fskit {
+		let app_group_identifier = (identifiers).app_group_identifier
+		$'($app_group_identifier)/((random chars) | str lowercase | str substring 0..5)'
+	} else {
+		$'/tg-((random chars) | str lowercase | str substring 0..7)'
+	}
 
 	mut default_config = {
 		advanced: {
@@ -978,7 +985,6 @@ export def --env spawn [
 		}
 	}
 
-	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
 	if $use_fskit {
 		$default_config = $default_config | merge deep {
 			vfs: {
