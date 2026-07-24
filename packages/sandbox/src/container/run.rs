@@ -16,6 +16,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+// The Linux clone3 ABI defines CLONE_INTO_CGROUP as bit 33.
+const CLONE_INTO_CGROUP: u64 = 1 << 33;
+
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub as_pid_1: bool,
@@ -231,7 +234,7 @@ fn fork_with_cgroup(cgroup: &cgroup::Cgroup) -> tg::Result<(libc::pid_t, bool)> 
 
 fn fork_into_cgroup(cgroup_fd: RawFd) -> std::io::Result<libc::pid_t> {
 	let mut args: libc::clone_args = unsafe { std::mem::zeroed() };
-	args.flags = libc::CLONE_INTO_CGROUP.try_into().unwrap();
+	args.flags = CLONE_INTO_CGROUP;
 	args.exit_signal = libc::SIGCHLD as u64;
 	args.cgroup = cgroup_fd.try_into().unwrap();
 	let ret = unsafe {
