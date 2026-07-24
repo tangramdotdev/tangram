@@ -146,6 +146,12 @@ pub(crate) enum ResponseOutput {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct HeartbeatAcknowledgement {
+	pub connection_index: u64,
+	pub heartbeat_index: u64,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct HeartbeatNotification {
 	pub capacity: tg::runner::control::Capacity,
 	pub connection_index: u64,
@@ -768,18 +774,17 @@ impl Scheduler {
 		state: &mut State,
 		notification: &HeartbeatNotification,
 	) {
-		let subject = runner_heartbeat_subject(
-			&self.id,
-			&notification.runner,
-			notification.connection_index,
-		);
-		let heartbeat_index = notification.heartbeat_index;
+		let subject = runner_heartbeat_subject(&self.id, &notification.runner);
+		let acknowledgement = HeartbeatAcknowledgement {
+			connection_index: notification.connection_index,
+			heartbeat_index: notification.heartbeat_index,
+		};
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
 				let result = server
 					.messenger
-					.publish(subject, tangram_messenger::payload::Json(heartbeat_index))
+					.publish(subject, tangram_messenger::payload::Json(acknowledgement))
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to acknowledge the runner heartbeat")
@@ -845,9 +850,8 @@ impl tangram_messenger::Payload for Message {
 pub(crate) fn runner_heartbeat_subject(
 	scheduler: &tg::scheduler::Id,
 	runner: &tg::runner::Id,
-	connection_index: u64,
 ) -> String {
-	format!("schedulers.{scheduler}.runners.{runner}.{connection_index}.heartbeat")
+	format!("schedulers.{scheduler}.runners.{runner}.heartbeat")
 }
 
 pub(crate) fn scheduler_server_subject(scheduler: Option<&tg::scheduler::Id>) -> String {

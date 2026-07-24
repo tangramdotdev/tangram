@@ -106,12 +106,13 @@ impl Session {
 		let output = tg::runner::control::Output {
 			scheduler: scheduler.clone(),
 		};
-		let heartbeat_subject =
-			crate::scheduler::runner_heartbeat_subject(&scheduler, &id, connection_index);
+		let heartbeat_subject = crate::scheduler::runner_heartbeat_subject(&scheduler, &id);
 		let heartbeat_acks = self
 			.server
 			.messenger
-			.subscribe::<tangram_messenger::payload::Json<u64>>(heartbeat_subject)
+			.subscribe::<tangram_messenger::payload::Json<crate::scheduler::HeartbeatAcknowledgement>>(
+				heartbeat_subject,
+			)
 			.await
 			.map_err(|source| {
 				tg::error!(
@@ -189,7 +190,10 @@ impl Session {
 						result = heartbeat_acks.try_next(), if !heartbeat_acks_ended => {
 							match result {
 								Ok(Some(message)) => {
-									if outstanding.contains(&message.payload.0) {
+									let acknowledgement = message.payload.0;
+									if acknowledgement.connection_index == connection_index
+										&& outstanding.contains(&acknowledgement.heartbeat_index)
+									{
 										outstanding.clear();
 										unacknowledged_at = None;
 									}
