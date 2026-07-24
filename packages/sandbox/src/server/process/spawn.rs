@@ -289,12 +289,7 @@ fn start_session(tty: &OwnedFd, stdin: bool, stdout: bool, stderr: bool) {
 	unsafe {
 		let current_tty = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
 		if current_tty >= 0 {
-			#[cfg_attr(target_os = "linux", expect(clippy::useless_conversion))]
-			libc::ioctl(
-				current_tty,
-				libc::TIOCNOTTY.into(),
-				std::ptr::null_mut::<()>(),
-			);
+			libc::ioctl(current_tty, libc::TIOCNOTTY, std::ptr::null_mut::<()>());
 			libc::close(current_tty);
 		}
 
