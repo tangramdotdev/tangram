@@ -19,7 +19,6 @@ workspace = true
 
 [dependencies]
 bytes = { workspace = true }
-derive_more = { workspace = true }
 num = { workspace = true }
 rquickjs = { workspace = true }
 serde = { workspace = true }

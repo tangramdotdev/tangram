@@ -28,7 +28,6 @@ tangram_util = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }
-fnv = { workspace = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }
 heed = { workspace = true, optional = true }
@@ -40,6 +39,5 @@ scylla = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_client = { workspace = true }
-tangram_futures = { workspace = true }
 tangram_serialize = { workspace = true }
 tokio = { workspace = true }
