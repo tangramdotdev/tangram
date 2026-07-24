@@ -402,6 +402,16 @@ impl postgres::types::ToSql for super::Value {
 	where
 		Self: Sized,
 	{
+		if matches!(ty.kind(), postgres::types::Kind::Enum(_)) {
+			return match self {
+				super::Value::Null => Ok(postgres::types::IsNull::Yes),
+				super::Value::Text(value) => {
+					out.extend_from_slice(value.as_bytes());
+					Ok(postgres::types::IsNull::No)
+				},
+				_ => Err("expected a text value for a postgres enum".into()),
+			};
+		}
 		match self {
 			super::Value::Null => Ok(postgres::types::IsNull::Yes),
 			super::Value::Integer(value) => {
@@ -417,7 +427,16 @@ impl postgres::types::ToSql for super::Value {
 		}
 	}
 
-	postgres::types::accepts!(BOOL, INT8, FLOAT8, TEXT, BYTEA);
+	fn accepts(ty: &postgres::types::Type) -> bool {
+		matches!(
+			*ty,
+			postgres::types::Type::BOOL
+				| postgres::types::Type::INT8
+				| postgres::types::Type::FLOAT8
+				| postgres::types::Type::TEXT
+				| postgres::types::Type::BYTEA
+		) || matches!(ty.kind(), postgres::types::Kind::Enum(_))
+	}
 
 	postgres::types::to_sql_checked!();
 }
@@ -433,6 +452,9 @@ impl<'a> postgres::types::FromSql<'a> for super::Value {
 			postgres::types::Type::FLOAT8 => Ok(Self::Real(f64::from_sql(ty, raw)?)),
 			postgres::types::Type::TEXT => Ok(Self::Text(String::from_sql(ty, raw)?)),
 			postgres::types::Type::BYTEA => Ok(Self::Blob(Vec::<u8>::from_sql(ty, raw)?.into())),
+			_ if matches!(ty.kind(), postgres::types::Kind::Enum(_)) => {
+				Ok(Self::Text(std::str::from_utf8(raw)?.to_owned()))
+			},
 			_ => Err("invalid type".into()),
 		}
 	}
@@ -443,5 +465,15 @@ impl<'a> postgres::types::FromSql<'a> for super::Value {
 		Ok(Self::Null)
 	}
 
-	postgres::types::accepts!(BOOL, INT8, NUMERIC, FLOAT8, TEXT, BYTEA);
+	fn accepts(ty: &postgres::types::Type) -> bool {
+		matches!(
+			*ty,
+			postgres::types::Type::BOOL
+				| postgres::types::Type::INT8
+				| postgres::types::Type::NUMERIC
+				| postgres::types::Type::FLOAT8
+				| postgres::types::Type::TEXT
+				| postgres::types::Type::BYTEA
+		) || matches!(ty.kind(), postgres::types::Kind::Enum(_))
+	}
 }
