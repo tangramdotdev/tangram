@@ -26,6 +26,7 @@
 		"macos:build": "nu scripts/macos/build.nu",
 		"macos:check": "nu scripts/macos/check.nu",
 		"macos:doctor": "nu scripts/macos/doctor.nu",
+		"macos:install": "nu scripts/macos/install.nu",
 		"macos:release": "nu scripts/macos/release.nu",
 		"macos:run": "nu scripts/macos/run.nu"
 	},
