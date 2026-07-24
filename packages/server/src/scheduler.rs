@@ -3,9 +3,8 @@ use {
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _,
 		future::BoxFuture,
-		stream::{BoxStream, FuturesUnordered},
+		stream::{self, BoxStream, FuturesUnordered},
 	},
-	indoc::formatdoc,
 	std::{
 		collections::{HashMap, HashSet},
 		fmt::Display,
@@ -14,7 +13,6 @@ use {
 		time::Duration,
 	},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Task,
 	tangram_messenger::Messenger,
 };
@@ -80,7 +78,6 @@ enum Event {
 	Message(Message),
 	Operation(Operation),
 	Schedule,
-	SchedulerHeartbeat,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -95,6 +92,7 @@ pub(crate) enum Message {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Ack {
 	pub id: String,
+	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -136,6 +134,7 @@ pub(crate) struct Response {
 	pub error: Option<tg::error::Data>,
 	pub id: String,
 	pub output: Option<ResponseOutput>,
+	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap, serde::Serialize, serde::Deserialize)]
@@ -165,6 +164,7 @@ pub(crate) struct AddRunnerRequestArg {
 pub(crate) struct AddRunnerResponseOutput {
 	pub connection_index: u64,
 	pub runner: tg::runner::Id,
+	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -181,10 +181,22 @@ pub(crate) struct RemoveRunnerResponseOutput {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CreateSandboxRequestArg {
 	pub arg: tg::sandbox::create::Arg,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub creator: Option<tg::Principal>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::sandbox::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<tg::runner::control::Process>,
+
 	pub sandbox: tg::sandbox::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scheduler: Option<tg::scheduler::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
 
@@ -211,23 +223,50 @@ struct SchedulerMessageOptions {
 }
 
 impl Session {
-	pub(crate) async fn enqueue_sandbox(&self, request: CreateSandboxRequestArg) -> tg::Result<()> {
+	pub(crate) async fn enqueue_sandbox(
+		&self,
+		request: CreateSandboxRequestArg,
+	) -> tg::Result<tg::scheduler::Id> {
 		let mut options = self.scheduler_message_options().retry;
 		options.max_retries = u64::MAX;
 		let result = tangram_futures::retry::retry(&options, || {
 			let request = request.clone();
 			async move {
-				let response = self
-					.send_scheduler_request(RequestArg::CreateSandbox(request))
-					.boxed()
-					.await
-					.map_err(Some)?
-					.map_err(Some)?;
+				let target = if let Some(parent) = &request.parent {
+					let scheduler = request.scheduler.clone().ok_or_else(|| {
+						Some(tg::error!(
+							%parent,
+							"missing the scheduler for the parent sandbox"
+						))
+					})?;
+					Some(scheduler)
+				} else {
+					None
+				};
+				let (scheduler, response) = match target.as_ref() {
+					Some(scheduler) => {
+						let response = self
+							.send_scheduler_request_to(
+								scheduler,
+								RequestArg::CreateSandbox(request),
+							)
+							.boxed()
+							.await
+							.map_err(Some)?;
+						(scheduler.clone(), response)
+					},
+					None => self
+						.send_scheduler_request(RequestArg::CreateSandbox(request))
+						.boxed()
+						.await
+						.map_err(Some)?,
+				};
+				let response = response.map_err(Some)?;
 				let response = response
 					.try_unwrap_create_sandbox()
 					.map_err(|_| Some(tg::error!("expected a create sandbox response")))?;
 				if response.enqueued {
-					Ok(ControlFlow::Break(()))
+					Ok(ControlFlow::Break(scheduler))
 				} else {
 					Ok(ControlFlow::Continue(None::<tg::Error>))
 				}
@@ -237,7 +276,7 @@ impl Session {
 		.boxed()
 		.await;
 		match result {
-			Ok(()) => Ok(()),
+			Ok(scheduler) => Ok(scheduler),
 			Err(Some(error)) => Err(error),
 			Err(None) => unreachable!(),
 		}
@@ -246,64 +285,99 @@ impl Session {
 	pub(crate) async fn send_scheduler_request(
 		&self,
 		arg: RequestArg,
+	) -> tg::Result<(tg::scheduler::Id, tg::Result<ResponseOutput>)> {
+		self.send_scheduler_request_inner(None, arg).await
+	}
+
+	pub(crate) async fn send_scheduler_request_to(
+		&self,
+		scheduler: &tg::scheduler::Id,
+		arg: RequestArg,
 	) -> tg::Result<tg::Result<ResponseOutput>> {
+		let (_, response) = self
+			.send_scheduler_request_inner(Some(scheduler), arg)
+			.await?;
+
+		Ok(response)
+	}
+
+	async fn send_scheduler_request_inner(
+		&self,
+		scheduler: Option<&tg::scheduler::Id>,
+		arg: RequestArg,
+	) -> tg::Result<(tg::scheduler::Id, tg::Result<ResponseOutput>)> {
 		let id = crate::control::id();
 		let request = Request {
 			arg,
 			id: id.clone(),
 		};
-		let mut messages = self
-			.send_scheduler_message(id.clone(), Message::Request(request))
+		let (scheduler, mut messages) = self
+			.send_scheduler_message(scheduler, id.clone(), Message::Request(request))
 			.await?;
-		loop {
-			let message = messages
-				.next()
-				.await
-				.ok_or_else(|| tg::error!("the scheduler message stream ended"))?
-				.map_err(|source| tg::error!(!source, "failed to receive the scheduler message"))?;
-			let Message::Response(message) = message.payload else {
-				continue;
-			};
-			if message.id != id {
-				continue;
+		let timeout = self.scheduler_message_options().timeout;
+		let response = tokio::time::timeout(timeout, async {
+			loop {
+				let message = messages
+					.next()
+					.await
+					.ok_or_else(|| tg::error!("the scheduler message stream ended"))?
+					.map_err(|source| {
+						tg::error!(!source, "failed to receive the scheduler message")
+					})?;
+				let Message::Response(message) = message.payload else {
+					continue;
+				};
+				if message.id == id && message.scheduler == scheduler {
+					break Ok::<_, tg::Error>(message);
+				}
 			}
-			self.server
-				.messenger
-				.publish(
-					Scheduler::server_subject(),
-					Message::Ack(Ack { id: message.id }),
-				)
-				.await
-				.inspect_err(|error| {
-					tracing::error!(%error, "failed to acknowledge the scheduler response");
-				})
-				.ok();
-			if let Some(error) = message.error {
-				let error = tg::Error::try_from(error)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-				break Ok(Err(error));
-			}
-			let Some(output) = message.output else {
-				break Err(tg::error!("missing scheduler response output"));
-			};
-			break Ok(Ok(output));
+		})
+		.await
+		.map_err(|_| tg::error!("timed out waiting for the scheduler response"))??;
+		self.server
+			.messenger
+			.publish(
+				scheduler_server_subject(Some(&scheduler)),
+				Message::Ack(Ack {
+					id: response.id.clone(),
+					scheduler: scheduler.clone(),
+				}),
+			)
+			.await
+			.inspect_err(|error| {
+				tracing::error!(%error, "failed to acknowledge the scheduler response");
+			})
+			.ok();
+		if let Some(error) = response.error {
+			let error = tg::Error::try_from(error)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+			return Ok((scheduler, Err(error)));
 		}
+		let output = response
+			.output
+			.ok_or_else(|| tg::error!("missing scheduler response output"))?;
+
+		Ok((scheduler, Ok(output)))
 	}
 
 	pub(crate) async fn send_scheduler_message(
 		&self,
+		scheduler: Option<&tg::scheduler::Id>,
 		id: String,
 		message: Message,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::scheduler::Id,
 		BoxStream<'static, Result<tangram_messenger::Message<Message>, tangram_messenger::Error>>,
-	> {
+	)> {
 		let options = self.scheduler_message_options();
 		let client_subject = Scheduler::client_subject(&id);
+		let expected_scheduler = scheduler.cloned();
 		let server = self.server.clone();
-		let server_subject = Scheduler::server_subject();
+		let server_subject = scheduler_server_subject(scheduler);
 
 		let result = tangram_futures::retry::retry(&options.retry, || {
 			let client_subject = client_subject.clone();
+			let expected_scheduler = expected_scheduler.clone();
 			let id = id.clone();
 			let message = message.clone();
 			let server = server.clone();
@@ -345,8 +419,12 @@ impl Session {
 						let Message::Ack(ack) = message.payload else {
 							continue;
 						};
-						if ack.id == id {
-							return Ok::<_, tg::Error>(messages);
+						if ack.id == id
+							&& expected_scheduler
+								.as_ref()
+								.is_none_or(|scheduler| scheduler == &ack.scheduler)
+						{
+							return Ok::<_, tg::Error>((ack.scheduler, messages));
 						}
 					}
 				})
@@ -363,7 +441,7 @@ impl Session {
 		.await;
 
 		match result {
-			Ok(messages) => Ok(messages),
+			Ok(output) => Ok(output),
 			Err(None) => Err(tg::error!("timed out waiting for the scheduler ack")),
 			Err(Some(error)) => Err(error),
 		}
@@ -394,39 +472,6 @@ impl Server {
 		scheduler.wait().await?;
 		Ok(())
 	}
-
-	/// Get the IDs of all started schedulers in the current region from the database.
-	pub(crate) async fn get_started_schedulers(&self) -> tg::Result<Vec<tg::scheduler::Id>> {
-		let region = self.config.region.clone();
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		#[derive(Debug, db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::scheduler::Id,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select id
-				from schedulers
-				where (
-					(region is null and {p}1 is null) or
-					region = {p}1
-				) and status = 'started';
-			"
-		);
-		let result = connection
-			.query_all_into::<Row>(statement.into(), db::params![region])
-			.await;
-		drop(connection);
-		let schedulers =
-			result.map_err(|error| tg::error!(!error, "failed to query started schedulers"))?;
-		Ok(schedulers.into_iter().map(|row| row.id).collect())
-	}
 }
 
 impl Owned {
@@ -442,32 +487,6 @@ impl Owned {
 impl Scheduler {
 	async fn start(server: &Server, config: &crate::config::Scheduler) -> tg::Result<Owned> {
 		let id = tg::scheduler::Id::new();
-		let region = server.config.region.clone();
-
-		// Insert the scheduler into the database.
-		server
-			.database
-			.run(|transaction| {
-				let id = id.clone();
-				let region = region.clone();
-				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							insert into schedulers (id, region, status)
-							values ({p}1, {p}2, {p}3)
-							on conflict (id) do update set region = {p}2, status = {p}3;
-						"
-					);
-					let params = db::params![id.to_string(), region, "started"];
-					let result = transaction.execute(statement.into(), params).await;
-					crate::database::retry!(result, "failed to execute the statement");
-					Ok::<_, tg::Error>(ControlFlow::Break(()))
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to upsert the scheduler"))?;
 
 		// Create the config.
 		let config = Config {
@@ -500,12 +519,19 @@ impl Scheduler {
 	}
 
 	async fn task(self) -> tg::Result<()> {
-		let stream = self
+		let shared_stream = self
 			.server
 			.messenger
-			.subscribe::<Message>(Self::server_subject())
+			.queue_subscribe::<Message>(scheduler_server_subject(None), "schedulers".to_owned())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the scheduler stream"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the shared scheduler stream"))?;
+		let private_stream = self
+			.server
+			.messenger
+			.subscribe::<Message>(scheduler_server_subject(Some(&self.id)))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the private scheduler stream"))?;
+		let stream = stream::select(shared_stream, private_stream);
 
 		self.message_handler_task(stream).await
 	}
@@ -521,12 +547,9 @@ impl Scheduler {
 		let mut stream = pin!(stream);
 		let mut cleaner = tokio::time::interval(self.config.runner_ttl);
 		cleaner.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-		let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
-		heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
 			let event = tokio::select! {
 				_ = cleaner.tick() => Event::Clean,
-				_ = heartbeat.tick() => Event::SchedulerHeartbeat,
 				result = stream.try_next() => {
 					let message = result
 						.map_err(|error| tg::error!(!error, "failed to receive a scheduler message"))?
@@ -553,9 +576,6 @@ impl Scheduler {
 				Event::Schedule => {
 					state.schedule_one(self);
 				},
-				Event::SchedulerHeartbeat => {
-					self.publish_scheduler_heartbeat(&mut state);
-				},
 			}
 		}
 	}
@@ -573,7 +593,9 @@ impl Scheduler {
 					state.handle_cancel_sandbox(self, notification);
 				},
 				Notification::Heartbeat(notification) => {
-					state.handle_heartbeat(self, &notification);
+					if state.handle_heartbeat(self, &notification) {
+						self.publish_runner_heartbeat_ack(state, &notification);
+					}
 				},
 			},
 			Message::Request(request) => {
@@ -584,6 +606,9 @@ impl Scheduler {
 	}
 
 	fn handle_ack(&self, state: &mut State, ack: Ack) {
+		if ack.scheduler != self.id {
+			return;
+		}
 		state.requests.outbox.remove(&ack.id);
 		let duration = self.config.inbox_ttl;
 		state.operations.push(
@@ -598,7 +623,10 @@ impl Scheduler {
 	fn acknowledge_request(&self, state: &mut State, request: Request) {
 		let id = request.id.clone();
 		let subject = Self::client_subject(&id);
-		let message = Message::Ack(Ack { id: id.clone() });
+		let message = Message::Ack(Ack {
+			id: id.clone(),
+			scheduler: self.id.clone(),
+		});
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
@@ -636,7 +664,7 @@ impl Scheduler {
 			RequestArg::CreateSandbox(request) => {
 				let result = state.enqueue_sandbox(self, request);
 				let result = result.map(ResponseOutput::CreateSandbox);
-				let response = Self::response(id, result);
+				let response = self.response(id, result);
 				self.send_response(state, response);
 			},
 		}
@@ -661,16 +689,11 @@ impl Scheduler {
 					.entries
 					.get(&runner)
 					.is_some_and(|runner| runner.connection_index == connection_index);
-				if current {
-					if result.is_ok() {
-						state.runners.entries.get_mut(&runner).unwrap().ready = true;
-						state.queue.wake();
-					} else {
-						state.remove_runner(&runner);
-					}
+				if current && result.is_err() {
+					state.remove_runner(&runner);
 				}
 				let result = result.map(ResponseOutput::AddRunner);
-				let response = Self::response(id, result);
+				let response = self.response(id, result);
 				self.send_response(state, response);
 			},
 			Operation::CancelSandbox => {},
@@ -688,7 +711,7 @@ impl Scheduler {
 			Operation::RemoveRunner { id, result } => {
 				if let Some(id) = id {
 					let result = result.map(ResponseOutput::RemoveRunner);
-					let response = Self::response(id, result);
+					let response = self.response(id, result);
 					self.send_response(state, response);
 				} else if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
@@ -740,23 +763,29 @@ impl Scheduler {
 		);
 	}
 
-	fn publish_scheduler_heartbeat(&self, state: &mut State) {
-		let id = self.id.clone();
+	fn publish_runner_heartbeat_ack(
+		&self,
+		state: &mut State,
+		notification: &HeartbeatNotification,
+	) {
+		let subject = runner_heartbeat_subject(
+			&self.id,
+			&notification.runner,
+			notification.connection_index,
+		);
+		let heartbeat_index = notification.heartbeat_index;
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
 				let result = server
 					.messenger
-					.publish(
-						"schedulers.heartbeat".into(),
-						tangram_messenger::payload::Json(id),
-					)
+					.publish(subject, tangram_messenger::payload::Json(heartbeat_index))
 					.await
 					.map_err(|source| {
-						tg::error!(!source, "failed to publish the scheduler heartbeat")
+						tg::error!(!source, "failed to acknowledge the runner heartbeat")
 					});
 				Operation::Publish {
-					context: "failed to publish the scheduler heartbeat",
+					context: "failed to acknowledge the runner heartbeat",
 					result,
 				}
 			}
@@ -764,12 +793,13 @@ impl Scheduler {
 		);
 	}
 
-	fn response(id: String, result: tg::Result<ResponseOutput>) -> Response {
+	fn response(&self, id: String, result: tg::Result<ResponseOutput>) -> Response {
 		match result {
 			Ok(output) => Response {
 				error: None,
 				id,
 				output: Some(output),
+				scheduler: self.id.clone(),
 			},
 			Err(error) => Response {
 				error: Some(tg::error::Data {
@@ -778,6 +808,7 @@ impl Scheduler {
 				}),
 				id,
 				output: None,
+				scheduler: self.id.clone(),
 			},
 		}
 	}
@@ -792,10 +823,6 @@ impl Scheduler {
 
 	fn client_subject(id: impl Display) -> String {
 		format!("scheduler.client.{id}")
-	}
-
-	fn server_subject() -> String {
-		"scheduler.server".to_owned()
 	}
 }
 
@@ -813,4 +840,19 @@ impl tangram_messenger::Payload for Message {
 		let message = serde_json::to_vec(self).map_err(tangram_messenger::Error::serialization)?;
 		Ok(message.into())
 	}
+}
+
+pub(crate) fn runner_heartbeat_subject(
+	scheduler: &tg::scheduler::Id,
+	runner: &tg::runner::Id,
+	connection_index: u64,
+) -> String {
+	format!("schedulers.{scheduler}.runners.{runner}.{connection_index}.heartbeat")
+}
+
+pub(crate) fn scheduler_server_subject(scheduler: Option<&tg::scheduler::Id>) -> String {
+	scheduler.map_or_else(
+		|| "schedulers.server".to_owned(),
+		|scheduler| format!("schedulers.{scheduler}.server"),
+	)
 }

@@ -444,6 +444,7 @@ impl Session {
 			process_token: None,
 			sandbox_arg: None,
 			sandbox_token: None,
+			scheduler: None,
 			token,
 		})
 	}
@@ -527,6 +528,7 @@ impl Session {
 			process_token: None,
 			sandbox_arg: None,
 			sandbox_token: None,
+			scheduler: None,
 			token: output.token,
 		})
 	}

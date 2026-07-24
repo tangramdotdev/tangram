@@ -173,6 +173,10 @@ impl Server {
 		self.create_authentication_token(token::Principal::Process(id))
 	}
 
+	pub fn create_runner_authentication_token(&self, id: tg::runner::Id) -> tg::Result<String> {
+		self.create_authentication_token_inner(token::Principal::Runner(id), i64::MAX)
+	}
+
 	pub(crate) fn create_sandbox_authentication_token(
 		&self,
 		id: tg::sandbox::Id,
@@ -181,17 +185,26 @@ impl Server {
 	}
 
 	fn create_authentication_token(&self, principal: token::Principal) -> tg::Result<String> {
-		let private_key = self
-			.authentication_tokens
-			.private_key
-			.as_ref()
-			.ok_or_else(|| tg::error!("missing the authentication token private key"))?;
 		let issued_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let ttl = i64::try_from(self.config.authentication.tokens.ttl.as_secs())
 			.map_err(|_| tg::error!("invalid authentication token ttl"))?;
 		let expires_at = issued_at
 			.checked_add(ttl)
 			.ok_or_else(|| tg::error!("invalid authentication token expiration"))?;
+		self.create_authentication_token_inner(principal, expires_at)
+	}
+
+	fn create_authentication_token_inner(
+		&self,
+		principal: token::Principal,
+		expires_at: i64,
+	) -> tg::Result<String> {
+		let private_key = self
+			.authentication_tokens
+			.private_key
+			.as_ref()
+			.ok_or_else(|| tg::error!("missing the authentication token private key"))?;
+		let issued_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let body = token::Body {
 			expires_at,
 			issued_at,
@@ -240,16 +253,6 @@ impl Server {
 		}
 
 		if let Some(token) = token {
-			match self.authenticate_runner(token).await {
-				Ok(Some(runner)) => {
-					return Ok(tg::Principal::Runner(runner));
-				},
-				Ok(None) => (),
-				Err(error) => {
-					return Err(error);
-				},
-			}
-
 			match self.authenticate_user(token).await {
 				Ok(Some(user)) => {
 					return Ok(tg::Principal::User(user.id));
@@ -304,42 +307,6 @@ impl Server {
 		token.verify(public_key).ok()?;
 
 		Some(principal)
-	}
-
-	pub(crate) async fn authenticate_runner(
-		&self,
-		token: &str,
-	) -> tg::Result<Option<tg::runner::Id>> {
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "db::value::FromStr")]
-			runner: tg::runner::Id,
-		}
-
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select runner
-				from runner_tokens
-				where token = {p}1;
-			"
-		);
-		let params = db::params![token];
-		let Some(row) = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(None);
-		};
-
-		Ok(Some(row.runner))
 	}
 
 	pub(crate) async fn authenticate_user(

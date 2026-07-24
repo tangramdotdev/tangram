@@ -7,7 +7,7 @@ let config =  {
 	advanced: {
 		single_process: false,
 	}
-	roles: [cleaner finalizer http indexer scheduler watchdog],
+	roles: [cleaner finalizer http indexer scheduler],
 }
 let remote = spawn --name remote --cloud --config $config
 

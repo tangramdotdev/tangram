@@ -22,6 +22,7 @@ pub(super) struct Body {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub(super) enum Principal {
 	Process(tg::process::Id),
+	Runner(tg::runner::Id),
 	Sandbox(tg::sandbox::Id),
 }
 
@@ -127,6 +128,7 @@ impl From<Principal> for tg::Principal {
 	fn from(value: Principal) -> Self {
 		match value {
 			Principal::Process(process) => Self::Process(process),
+			Principal::Runner(runner) => Self::Runner(runner),
 			Principal::Sandbox(sandbox) => Self::Sandbox(sandbox),
 		}
 	}
@@ -187,5 +189,32 @@ impl std::str::FromStr for Token {
 		};
 
 		Ok(token)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn runner() {
+		let private_key =
+			tg::grant::PrivateKey::generate("test", tg::grant::Algorithm::Ed25519).unwrap();
+		let public_key = tg::grant::PublicKey::from_private_key(&private_key).unwrap();
+		let runner = tg::runner::Id::new();
+		let token = Token::sign(
+			Body {
+				expires_at: i64::MAX,
+				issued_at: 0,
+				principal: Principal::Runner(runner.clone()),
+			},
+			&private_key,
+		)
+		.unwrap();
+		token.verify_at(&public_key, 1).unwrap();
+		let token = token.to_string().parse::<Token>().unwrap();
+		let principal = tg::Principal::from(token.body.principal);
+
+		assert_eq!(principal, tg::Principal::Runner(runner));
 	}
 }

@@ -140,10 +140,6 @@ impl Index {
 					)
 					.await?;
 				},
-				crate::batch::Item::PutRunner(arg) => {
-					Self::put_runners_with_transaction(txn, subspace, std::slice::from_ref(arg))
-						.await?;
-				},
 				crate::batch::Item::PutSandbox(arg) => {
 					Self::put_sandboxes_with_transaction(
 						txn,

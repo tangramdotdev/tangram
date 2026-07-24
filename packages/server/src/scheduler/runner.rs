@@ -5,14 +5,11 @@ use {
 	},
 	crate::Server,
 	futures::FutureExt as _,
-	indoc::formatdoc,
 	std::{
 		collections::{HashMap, HashSet},
-		ops::ControlFlow,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
 };
 
@@ -134,7 +131,7 @@ impl State {
 					runner: request.runner,
 				};
 				let response =
-					Scheduler::response(id, Ok(super::ResponseOutput::RemoveRunner(output)));
+					scheduler.response(id, Ok(super::ResponseOutput::RemoveRunner(output)));
 				scheduler.send_response(self, response);
 			}
 			return;
@@ -157,51 +154,10 @@ impl Scheduler {
 		connection_index: u64,
 		request: AddRunnerRequestArg,
 	) -> tg::Result<AddRunnerResponseOutput> {
-		// Upsert the runner into the database.
-		let index_arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(
-				tangram_index::runner::put::Arg {
-					id: request.runner.clone(),
-					scheduler: Some(self.id.clone()),
-				},
-			)],
-		};
-		let scheduler_id = self.id.clone();
-		let server = self.server.clone();
-		let runner_id = request.runner.clone();
-		self.server
-			.database
-			.run(|transaction| {
-				let index_arg = index_arg.clone();
-				let scheduler_id = scheduler_id.clone();
-				let server = server.clone();
-				let runner_id = runner_id.clone();
-				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							insert into runners (id, scheduler, status)
-							values ({p}1, {p}2, {p}3)
-							on conflict (id) do update set scheduler = {p}2, status = {p}3;
-						"
-					);
-					let params =
-						db::params![runner_id.to_string(), scheduler_id.to_string(), "started"];
-					let result = transaction.execute(statement.into(), params).await;
-					crate::database::retry!(result, "failed to execute the statement");
-					server
-						.enqueue_database_outbox_with_transaction(transaction, &index_arg)
-						.await?;
-					Ok::<_, tg::Error>(ControlFlow::Break(()))
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to upsert the runner"))?;
-
 		let output = AddRunnerResponseOutput {
 			connection_index,
 			runner: request.runner,
+			scheduler: self.id.clone(),
 		};
 
 		Ok(output)
@@ -212,54 +168,12 @@ impl Scheduler {
 		request: RemoveRunnerRequestArg,
 	) -> tg::Result<RemoveRunnerResponseOutput> {
 		self.server
-			.handle_expired_runner(&request.runner, &self.id)
+			.handle_expired_runner(&request.runner)
 			.boxed()
 			.await
 			.map_err(
 				|error| tg::error!(!error, runner = %request.runner, "failed to handle the expired runner"),
 			)?;
-
-		// Mark the runner as stopped and clear its scheduler in the database.
-		let index_arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutRunner(
-				tangram_index::runner::put::Arg {
-					id: request.runner.clone(),
-					scheduler: None,
-				},
-			)],
-		};
-		let runner_id = request.runner.clone();
-		let scheduler_id = self.id.clone();
-		let server = self.server.clone();
-		self.server
-			.database
-			.run(|transaction| {
-				let index_arg = index_arg.clone();
-				let runner_id = runner_id.clone();
-				let scheduler_id = scheduler_id.clone();
-				let server = server.clone();
-				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							update runners
-							set status = {p}1, scheduler = null
-							where id = {p}2 and scheduler = {p}3;
-						"
-					);
-					let params =
-						db::params!["stopped", runner_id.to_string(), scheduler_id.to_string(),];
-					let result = transaction.execute(statement.into(), params).await;
-					crate::database::retry!(result, "failed to execute the statement");
-					server
-						.enqueue_database_outbox_with_transaction(transaction, &index_arg)
-						.await?;
-					Ok::<_, tg::Error>(ControlFlow::Break(()))
-				}
-				.boxed()
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to update the runner"))?;
 
 		let output = RemoveRunnerResponseOutput {
 			runner: request.runner,
@@ -270,19 +184,7 @@ impl Scheduler {
 }
 
 impl Server {
-	pub(crate) async fn handle_expired_runner(
-		&self,
-		runner: &tg::runner::Id,
-		scheduler: &tg::scheduler::Id,
-	) -> tg::Result<()> {
-		let indexed = self
-			.index
-			.try_get_runner(runner)
-			.await
-			.map_err(|error| tg::error!(!error, %runner, "failed to get the runner"))?;
-		if indexed.is_some_and(|runner| runner.scheduler.as_ref() != Some(scheduler)) {
-			return Ok(());
-		}
+	pub(crate) async fn handle_expired_runner(&self, runner: &tg::runner::Id) -> tg::Result<()> {
 		let sandboxes =
 			self.index.get_runner_sandboxes(runner).await.map_err(
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
@@ -290,20 +192,6 @@ impl Server {
 		for sandbox in sandboxes {
 			self.destroy_expired_runner_sandbox(&sandbox).await?;
 		}
-
-		self.index
-			.batch(tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutRunner(
-					tangram_index::runner::put::Arg {
-						id: runner.clone(),
-						scheduler: None,
-					},
-				)],
-			})
-			.await
-			.map_err(
-				|error| tg::error!(!error, %runner, "failed to update the runner in the index"),
-			)?;
 
 		Ok(())
 	}

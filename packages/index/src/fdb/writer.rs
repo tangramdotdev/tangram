@@ -279,7 +279,6 @@ impl Index {
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
 			| Request::PutProcesses(_)
-			| Request::PutRunners(_)
 			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
 			| Request::PutUsers(_) => Response::Unit,
@@ -389,10 +388,6 @@ impl Index {
 			Request::PutProcesses(args) => {
 				let items = args.into_iter().map(Item::PutProcess).collect();
 				(items, Kind::PutProcesses)
-			},
-			Request::PutRunners(args) => {
-				let items = args.into_iter().map(Item::PutRunner).collect();
-				(items, Kind::PutRunners)
 			},
 			Request::PutSandboxes(args) => {
 				let items = args.into_iter().map(Item::PutSandbox).collect();
@@ -657,16 +652,6 @@ impl Index {
 					.collect();
 				Request::PutProcesses(args)
 			},
-			Kind::PutRunners => {
-				let args = items
-					.into_iter()
-					.map(|item| match item {
-						Item::PutRunner(arg) => arg,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutRunners(args)
-			},
 			Kind::PutSandboxes => {
 				let args = items
 					.into_iter()
@@ -813,7 +798,6 @@ impl Index {
 					| Request::PutOrganizationMembers(_)
 					| Request::PutOrganizations(_)
 					| Request::PutProcesses(_)
-					| Request::PutRunners(_)
 					| Request::PutSandboxes(_)
 					| Request::PutTags(_)
 					| Request::PutUsers(_)
@@ -1022,10 +1006,6 @@ impl Index {
 			},
 			Request::PutProcesses(args) => {
 				Self::put_processes_with_transaction(txn, subspace, args, partition_total).await?;
-				Ok(Response::Unit)
-			},
-			Request::PutRunners(args) => {
-				Self::put_runners_with_transaction(txn, subspace, args).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutSandboxes(args) => {

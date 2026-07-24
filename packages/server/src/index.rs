@@ -216,18 +216,6 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn get_scheduler_runners(
-		&self,
-		scheduler: &tg::scheduler::Id,
-	) -> tg::Result<Vec<tg::runner::Id>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_scheduler_runners(scheduler).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_scheduler_runners(scheduler).await,
-		}
-	}
-
 	async fn process_has_ancestor(
 		&self,
 		process: &tg::process::Id,
@@ -264,18 +252,6 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.try_get_sandboxes(ids).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.try_get_sandboxes(ids).await,
-		}
-	}
-
-	async fn try_get_runners(
-		&self,
-		ids: &[tg::runner::Id],
-	) -> tg::Result<Vec<Option<index::runner::Runner>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_runners(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_runners(ids).await,
 		}
 	}
 

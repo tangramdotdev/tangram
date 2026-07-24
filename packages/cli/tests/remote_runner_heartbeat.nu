@@ -4,7 +4,7 @@ let config = {
 	advanced: {
 		single_process: false,
 	},
-	roles: [cleaner finalizer http indexer scheduler watchdog],
+	roles: [cleaner finalizer http indexer scheduler],
 	scheduler: {
 		runner_ttl: 3,
 	},

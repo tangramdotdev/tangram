@@ -154,14 +154,6 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				crate::batch::Item::PutRunner(arg) => {
-					Self::put_runners_with_transaction(
-						db,
-						subspace,
-						transaction,
-						std::slice::from_ref(arg),
-					)?;
-				},
 				crate::batch::Item::PutSandbox(arg) => {
 					Self::put_sandboxes_with_transaction(
 						db,

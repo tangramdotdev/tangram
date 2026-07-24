@@ -76,27 +76,6 @@ create table github_identities (
 	foreign key ("user") references users (id)
 );
 
-create table runner_tokens (
-	token text primary key,
-	runner text not null
-);
-
-create table schedulers (
-	id text primary key,
-	region text,
-	status text not null
-);
-
-create index schedulers_region_status_index on schedulers (region, status);
-
-create table runners (
-	id text primary key,
-	scheduler text,
-	status text not null
-);
-
-create index runners_scheduler_index on runners (scheduler);
-
 create table groups (
 	id text primary key,
 	name text not null,

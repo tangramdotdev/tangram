@@ -1,14 +1,14 @@
 use ../../test.nu *
 
 # Staggered callers do not receive TOCTOU cancellation errors
-# when the watchdog cancels a shared dependency resolved via remote.
+# for a shared dependency resolved via remote.
 #
 # Only the shared build process is pushed to the remote. Wrapper builds
 # execute locally on the fresh server. Each wrapper's process_task calls
 # tg.build(shared), which produces the same command hash as the pushed
-# process. Staggered arrival (from process semaphore batching) creates
-# the conditions for the TOCTOU: the watchdog cancels the shared process
-# while a later caller has already found it as Started.
+# process. Staggered arrival from process semaphore batching creates
+# the conditions for the TOCTOU while a later caller has already found
+# the shared process as started.
 #
 # Regression test for f347184b (#838).
 

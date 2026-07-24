@@ -57,9 +57,6 @@ pub enum Item {
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),
 
-	#[tangram_serialize(id = 16)]
-	PutRunner(crate::runner::put::Arg),
-
 	#[tangram_serialize(id = 17)]
 	PutSandbox(crate::sandbox::put::Arg),
 

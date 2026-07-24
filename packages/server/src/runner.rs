@@ -49,11 +49,13 @@ pub struct State {
 	pub processes: crate::process::Map,
 	pub reservations: self::capacity::Reservations,
 	pub sandboxes: crate::sandbox::Map,
+	scheduler: tokio::sync::watch::Sender<Option<tg::scheduler::Id>>,
 }
 
 impl Runner {
 	#[must_use]
 	pub fn new(config: Config) -> Self {
+		let (scheduler, _) = tokio::sync::watch::channel(None);
 		let state = State {
 			capacity: self::capacity::Pool::new(config.capacity),
 			id: Mutex::new(None),
@@ -62,6 +64,7 @@ impl Runner {
 			processes: crate::process::Map::default(),
 			reservations: self::capacity::Reservations::new(),
 			sandboxes: crate::sandbox::Map::default(),
+			scheduler,
 		};
 		let task = Mutex::new(None);
 		let sandbox_pool = self::sandbox::Pool::new(config.sandbox_pool_size);
@@ -92,6 +95,7 @@ impl Session {
 			else {
 				break;
 			};
+			self.server.runner.state.set_scheduler(None);
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "the runner task failed");
 				let stop_future = stopper.wait();
@@ -143,7 +147,11 @@ impl Session {
 		);
 
 		// Get the runner control stream.
-		let control = self.run_get_runner_control_stream(id, &location).await?;
+		let (output, control) = self.run_get_runner_control_stream(id, &location).await?;
+		self.server
+			.runner
+			.state
+			.set_scheduler(Some(output.scheduler));
 
 		// Handle the runner control stream.
 		self.run_handle_runner_control_stream(id, location, control, stopper)
@@ -157,12 +165,13 @@ impl Session {
 		&self,
 		id: &tg::runner::Id,
 		location: &tg::Location,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::runner::control::Output,
 		crate::control::Stream<
 			tg::runner::control::ServerMessage,
 			tg::runner::control::ClientMessage,
 		>,
-	> {
+	)> {
 		let (input, input_receiver) =
 			tokio::sync::mpsc::channel::<tg::runner::control::ClientMessage>(256);
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
@@ -171,20 +180,22 @@ impl Session {
 		let heartbeat = self.create_runner_heartbeat(0);
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
+		let scheduler_ttl = self.server.config.runner.scheduler_ttl;
 		let arg = tg::runner::control::Arg {
 			heartbeat,
 			host,
 			id: id.clone(),
 			location,
+			scheduler_ttl,
 		};
-		let output_stream = self
-			.get_runner_control_stream_all(arg, input_stream)
+		let (output, output_stream) = self
+			.get_runner_control_stream_with_context(arg, input_stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the scheduler"))?
-			.boxed();
+			.map_err(|source| tg::error!(!source, "failed to connect to the scheduler"))?;
+		let output_stream = output_stream.boxed();
 		let stream =
 			crate::control::Stream::new(output_stream, input, crate::control::stream_options());
-		Ok(stream)
+		Ok((output, stream))
 	}
 
 	async fn run_handle_runner_control_stream(
@@ -219,9 +230,10 @@ impl Session {
 				break;
 			};
 
-			// Get the request.
-			let tg::runner::control::ServerMessage::Request(message) = message else {
-				unreachable!();
+			let message = match message {
+				tg::runner::control::ServerMessage::Request(message) => message,
+				tg::runner::control::ServerMessage::Ack(_)
+				| tg::runner::control::ServerMessage::Response(_) => unreachable!(),
 			};
 			let id = message.id;
 			let tg::runner::control::ServerRequestArg::CreateSandbox(request) = message.arg;
@@ -371,6 +383,35 @@ impl Session {
 }
 
 impl State {
+	pub async fn wait_for_scheduler(&self) -> tg::scheduler::Id {
+		let mut scheduler = self.scheduler.subscribe();
+		loop {
+			if let Some(scheduler) = scheduler.borrow_and_update().clone() {
+				return scheduler;
+			}
+			scheduler.changed().await.unwrap();
+		}
+	}
+
+	pub async fn wait_for_scheduler_change(
+		&self,
+		current: &tg::scheduler::Id,
+	) -> tg::scheduler::Id {
+		let mut scheduler = self.scheduler.subscribe();
+		loop {
+			if let Some(scheduler) = scheduler.borrow_and_update().clone()
+				&& scheduler != *current
+			{
+				return scheduler;
+			}
+			scheduler.changed().await.unwrap();
+		}
+	}
+
+	pub fn set_scheduler(&self, scheduler: Option<tg::scheduler::Id>) {
+		self.scheduler.send_replace(scheduler);
+	}
+
 	#[must_use]
 	fn create_sandbox_id(&self) -> u64 {
 		let id = self.next_sandbox_id.fetch_add(1, Ordering::Relaxed);

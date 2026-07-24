@@ -1,6 +1,8 @@
 use {
 	crate::prelude::*,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
@@ -18,7 +20,6 @@ pub enum ClientMessage {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerMessage {
 	Ack(ServerAck),
-	Notification(ServerNotification),
 	Request(ServerRequest),
 	Response(ServerResponse),
 }
@@ -62,10 +63,6 @@ pub enum ClientResponseOutput {
 pub struct ServerAck {
 	pub id: String,
 }
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerNotification {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ServerRequest {
@@ -151,6 +148,7 @@ pub struct SandboxDestroyedClientNotification {
 	pub sandbox: tg::sandbox::Id,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub heartbeat: HeartbeatClientNotification,
@@ -161,6 +159,14 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub scheduler_ttl: Duration,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub scheduler: tg::scheduler::Id,
 }
 
 impl tg::Session {
@@ -168,12 +174,13 @@ impl tg::Session {
 		&self,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::runner::control::Output,
 		impl futures::Stream<Item = tg::Result<tg::runner::control::ServerMessage>>
 		+ Send
 		+ 'static
 		+ use<>,
-	> {
+	)> {
 		let method = http::Method::POST;
 		let path = "/runners/control";
 		let uri = Uri::builder()
@@ -212,6 +219,11 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
+		let output_in_body = tangram_http::body::output::get_header(response.headers())
+			.map_err(|error| tg::error!(!error, "failed to parse the output in body header"))?;
+		if !output_in_body {
+			return Err(tg::error!("missing the output in body header"));
+		}
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
@@ -223,8 +235,12 @@ impl tg::Session {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = response
-			.sse()
+		let mut reader = response.reader();
+		let output =
+			tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
+		let stream = tangram_http::sse::decode(reader)
 			.map_err(|error| tg::error!(!error, "failed to read a message"))
 			.and_then(|event| {
 				future::ready(
@@ -237,7 +253,7 @@ impl tg::Session {
 					},
 				)
 			});
-		Ok(stream)
+		Ok((output, stream))
 	}
 }
 
@@ -336,15 +352,6 @@ impl TryFrom<ServerMessage> for tangram_http::sse::Event {
 					..Default::default()
 				}
 			},
-			ServerMessage::Notification(notification) => {
-				let data = serde_json::to_string(&notification)
-					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
-				tangram_http::sse::Event {
-					data,
-					event: Some("notification".to_owned()),
-					..Default::default()
-				}
-			},
 			ServerMessage::Response(response) => {
 				let data = serde_json::to_string(&response)
 					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
@@ -368,11 +375,6 @@ impl TryFrom<tangram_http::sse::Event> for ServerMessage {
 				let ack = serde_json::from_str(&value.data)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
 				Ok(Self::Ack(ack))
-			},
-			Some("notification") => {
-				let notification = serde_json::from_str(&value.data)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-				Ok(Self::Notification(notification))
 			},
 			Some("request") => {
 				let request = serde_json::from_str(&value.data)

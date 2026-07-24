@@ -96,9 +96,6 @@ pub struct Config {
 	pub watch: Option<Watch>,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	pub watchdog: Watchdog,
-
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub write: Write,
 }
 
@@ -118,8 +115,6 @@ pub enum Role {
 	Runner,
 
 	Scheduler,
-
-	Watchdog,
 }
 
 #[serde_as]
@@ -703,6 +698,10 @@ pub struct Process {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_touch: Duration,
 
+	#[serde(default = "default_process_spawn_connection_timeout")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub spawn_connection_timeout: Duration,
+
 	#[serde(alias = "tti", default = "default_time_to_index")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
@@ -818,6 +817,9 @@ pub struct Runner {
 	pub sandbox_state_ttl: Duration,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub scheduler_ttl: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub stdio_drain_timeout: Duration,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -882,6 +884,9 @@ pub struct Scheduler {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub create_connection_timeout: Duration,
+
 	#[serde(default)]
 	pub finalizer: Finalizer,
 
@@ -891,9 +896,6 @@ pub struct Sandbox {
 	pub network: SandboxNetwork,
 
 	pub nice: u8,
-
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub spawn_process_timeout: Duration,
 
 	#[serde(alias = "ttl", default = "default_time_to_live")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
@@ -1212,17 +1214,6 @@ pub struct Watch {
 	pub ttl: Duration,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Watchdog {
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub interval: Duration,
-
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub ttl: Duration,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Write {
@@ -1275,7 +1266,6 @@ impl Default for Config {
 			version: None,
 			vfs: None,
 			watch: Some(Watch::default()),
-			watchdog: Watchdog::default(),
 			write: Write::default(),
 		}
 	}
@@ -1566,6 +1556,7 @@ impl Default for Process {
 			finalizer: Finalizer::default(),
 			grant_time_to_live: default_process_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
+			spawn_connection_timeout: default_process_spawn_connection_timeout(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1597,6 +1588,7 @@ impl Default for Runner {
 			remote: None,
 			sandbox_pool_size: 1,
 			sandbox_state_ttl: Duration::from_mins(1),
+			scheduler_ttl: Duration::from_secs(10),
 			stdio_drain_timeout: Duration::from_secs(1),
 			token: None,
 		}
@@ -1624,11 +1616,11 @@ impl Default for Scheduler {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
+			create_connection_timeout: Duration::from_secs(10),
 			finalizer: Finalizer::default(),
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
-			spawn_process_timeout: Duration::from_secs(10),
 			time_to_live: default_time_to_live(),
 		}
 	}
@@ -1798,15 +1790,6 @@ impl Default for Watch {
 	}
 }
 
-impl Default for Watchdog {
-	fn default() -> Self {
-		Self {
-			interval: Duration::from_secs(1),
-			ttl: Duration::from_mins(1),
-		}
-	}
-}
-
 impl Default for Write {
 	fn default() -> Self {
 		Self {
@@ -1952,6 +1935,10 @@ fn default_process_grant_time_to_live() -> Duration {
 	Duration::from_hours(24)
 }
 
+fn default_process_spawn_connection_timeout() -> Duration {
+	Duration::from_secs(10)
+}
+
 fn default_time_to_touch() -> Duration {
 	Duration::from_hours(1)
 }
@@ -1995,7 +1982,6 @@ fn default_roles() -> BTreeSet<Role> {
 		Role::Indexer,
 		Role::Runner,
 		Role::Scheduler,
-		Role::Watchdog,
 	]
 	.into_iter()
 	.collect()

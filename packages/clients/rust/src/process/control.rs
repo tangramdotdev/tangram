@@ -31,6 +31,8 @@ pub struct Output {
 	pub grant: Option<tg::grant::Token>,
 
 	pub id: tg::process::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
 
@@ -127,6 +129,9 @@ pub struct BorrowableCapacityClientNotification {
 
 	#[tangram_serialize(id = 2)]
 	pub runner: tg::runner::Id,
+
+	#[tangram_serialize(id = 3)]
+	pub scheduler: tg::scheduler::Id,
 }
 
 #[derive(

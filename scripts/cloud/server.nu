@@ -35,16 +35,12 @@ let config = {
 		},
 	},
 	remotes: [],
-	roles: [cleaner finalizer http indexer scheduler watchdog],
+	roles: [cleaner finalizer http indexer scheduler],
 	telemetry: {
 		endpoint: 'http://localhost:4317',
 		service_name: 'server',
 	},
 	vfs: false,
-	watchdog: {
-		interval: 1,
-		ttl: 60
-	}
 }
 let config_path = mktemp -t
 let directory_path = mktemp -d

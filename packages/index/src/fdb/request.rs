@@ -29,7 +29,6 @@ pub(super) enum Request {
 	PutOrganizationMembers(Vec<crate::organization::member::put::Arg>),
 	PutOrganizations(Vec<crate::organization::put::Arg>),
 	PutProcesses(Vec<crate::process::put::Arg>),
-	PutRunners(Vec<crate::runner::put::Arg>),
 	PutSandboxes(Vec<crate::sandbox::put::Arg>),
 	PutTags(Vec<crate::tag::put::Arg>),
 	PutUsers(Vec<crate::user::put::Arg>),
@@ -98,7 +97,6 @@ pub(super) enum Item {
 	PutOrganization(crate::organization::put::Arg),
 	PutOrganizationMember(crate::organization::member::put::Arg),
 	PutProcess(crate::process::put::Arg),
-	PutRunner(crate::runner::put::Arg),
 	PutSandbox(crate::sandbox::put::Arg),
 	PutTag(crate::tag::put::Arg),
 	PutUser(crate::user::put::Arg),
@@ -135,7 +133,6 @@ pub(super) enum Kind {
 	PutOrganizationMembers,
 	PutOrganizations,
 	PutProcesses,
-	PutRunners,
 	PutSandboxes,
 	PutTags,
 	PutUsers,
@@ -172,7 +169,6 @@ impl Request {
 			| Self::PutOrganizationMembers(_)
 			| Self::PutOrganizations(_)
 			| Self::PutProcesses(_)
-			| Self::PutRunners(_)
 			| Self::PutSandboxes(_)
 			| Self::PutUsers(_) => Priority::Medium,
 			Self::Clean(_) | Self::Update(_) => Priority::Low,

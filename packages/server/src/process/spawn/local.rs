@@ -1,5 +1,8 @@
 use {
-	super::child::AddProcessChildArg, crate::Session, futures::FutureExt as _,
+	super::child::AddProcessChildArg,
+	crate::Session,
+	futures::{FutureExt as _, future},
+	std::pin::pin,
 	tangram_client::prelude::*,
 };
 
@@ -16,6 +19,7 @@ pub(super) struct Output {
 	pub process_token: Option<String>,
 	pub sandbox_arg: Option<tg::sandbox::create::Arg>,
 	pub sandbox_token: Option<String>,
+	pub scheduler: Option<tg::scheduler::Id>,
 	pub token: Option<tg::grant::Token>,
 }
 
@@ -129,6 +133,7 @@ impl Session {
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
 		loop {
+			let scheduler = self.server.runner.state.wait_for_scheduler().await;
 			let allocation = allocation.clone().lock_owned().await;
 			let Some((capacity, mut reservation)) = self.server.runner.state.reservations.reserve(
 				allocation,
@@ -142,6 +147,7 @@ impl Session {
 					capacity,
 					parent: parent_sandbox.clone(),
 					runner: runner.clone(),
+					scheduler: scheduler.clone(),
 				},
 			);
 			control
@@ -152,7 +158,15 @@ impl Session {
 				.map_err(
 					|error| tg::error!(!error, %parent, "failed to send the borrowable capacity notification"),
 				)?;
-			reservation.wait().await;
+			let wait = reservation.wait();
+			let wait = pin!(wait);
+			let scheduler_change = self
+				.server
+				.runner
+				.state
+				.wait_for_scheduler_change(&scheduler);
+			let scheduler_change = pin!(scheduler_change);
+			future::select(wait, scheduler_change).await;
 		}
 	}
 
@@ -342,6 +356,7 @@ impl Session {
 			process_token: Some(process_token),
 			sandbox_arg,
 			sandbox_token,
+			scheduler: arg.scheduler.clone(),
 			token,
 		};
 		Ok(output)

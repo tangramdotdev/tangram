@@ -81,7 +81,7 @@ impl Session {
 
 	async fn try_spawn_process_task(
 		&self,
-		arg: tg::process::spawn::Arg,
+		mut arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
@@ -123,6 +123,9 @@ impl Session {
 		let shortcut = runner_matches_location
 			&& arg.cached != Some(true)
 			&& (!new_sandbox || allocation.is_some());
+		if runner_matches_location && new_sandbox && !shortcut && parent_sandbox.is_some() {
+			arg.scheduler = Some(self.server.runner.state.wait_for_scheduler().await);
+		}
 
 		let mut output = if shortcut {
 			self.try_spawn_process_local(arg.clone(), parent_sandbox, allocation, Some(&location))
@@ -235,7 +238,10 @@ impl Session {
 				.await?
 		} else {
 			// Start the local process.
-			let output = self.spawn_process_start_local(&arg, output).boxed().await?;
+			let output = self
+				.spawn_process_start_local(&arg, output, None)
+				.boxed()
+				.await?;
 
 			// Wait for the local process or get a cached process.
 			self.spawn_process_wait_or_get_cached(&arg, output, cacheable)

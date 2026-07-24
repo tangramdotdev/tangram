@@ -51,6 +51,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scheduler: Option<tg::scheduler::Id>,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub stderr: tg::process::Stdio,
 
@@ -230,6 +233,7 @@ where
 		public: arg.public,
 		retry: arg.retry,
 		sandbox,
+		scheduler: None,
 		stderr,
 		stdin: process_stdin,
 		stdout,

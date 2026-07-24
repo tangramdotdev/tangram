@@ -177,15 +177,6 @@ impl Index {
 				)?;
 				crate::read::Response::GetSandboxProcesses(output)
 			},
-			crate::read::Request::GetSchedulerRunners { scheduler } => {
-				let output = Self::get_scheduler_runners_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&scheduler,
-				)?;
-				crate::read::Response::GetSchedulerRunners(output)
-			},
 			crate::read::Request::GetTransactionId => {
 				crate::read::Response::GetTransactionId(transaction.id() as u64)
 			},
@@ -263,11 +254,6 @@ impl Index {
 				let output =
 					Self::try_get_processes_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::TryGetProcesses(output)
-			},
-			crate::read::Request::TryGetRunners { ids } => {
-				let output =
-					Self::try_get_runners_with_transaction(db, subspace, transaction, &ids)?;
-				crate::read::Response::TryGetRunners(output)
 			},
 			crate::read::Request::TryGetSandboxes { ids } => {
 				let output =

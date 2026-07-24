@@ -11,6 +11,7 @@ impl Session {
 		&self,
 		arg: &tg::process::spawn::Arg,
 		mut output: Option<Output>,
+		mut scheduler_sender: Option<tokio::sync::oneshot::Sender<tg::scheduler::Id>>,
 	) -> tg::Result<Option<Output>> {
 		let Some(process) = output.as_mut() else {
 			return Ok(output);
@@ -48,17 +49,32 @@ impl Session {
 						)
 					})?;
 				self.spawn_process_in_new_sandbox(process).await?;
-				let connected = connected
-					.try_next()
-					.await
-					.map_err(|error| {
-						tg::error!(
-							!error,
-							process = %id,
-							"failed to receive the process control connection"
-						)
-					})?
-					.ok_or_else(|| tg::error!("the process control connection stream ended"))?;
+				if let Some(sender) = scheduler_sender.take() {
+					let scheduler = process
+						.scheduler
+						.clone()
+						.ok_or_else(|| tg::error!("missing the scheduler"))?;
+					sender.send(scheduler).ok();
+				}
+				let connected = tokio::time::timeout(
+					self.server.config.process.spawn_connection_timeout,
+					connected.try_next(),
+				)
+				.await
+				.map_err(|_| {
+					tg::error!(
+						process = %id,
+						"timed out waiting for the process control connection"
+					)
+				})?
+				.map_err(|error| {
+					tg::error!(
+						!error,
+						process = %id,
+						"failed to receive the process control connection"
+					)
+				})?
+				.ok_or_else(|| tg::error!("the process control connection stream ended"))?;
 				process.lease = Some(connected.payload.lease);
 			},
 			Some(tg::Either::Right(_)) => {
@@ -190,11 +206,13 @@ impl Session {
 			parent: output.parent_sandbox.clone(),
 			process: Some(process),
 			sandbox: output.data.sandbox.clone(),
+			scheduler: output.scheduler.clone(),
 			token: output.sandbox_token.clone(),
 		};
-		self.enqueue_sandbox(request).await.map_err(|error| {
+		let scheduler = self.enqueue_sandbox(request).await.map_err(|error| {
 			tg::error!(!error, sandbox = %output.data.sandbox, process = %output.id, "failed to enqueue the sandbox")
 		})?;
+		output.scheduler = Some(scheduler);
 		Ok(None)
 	}
 }

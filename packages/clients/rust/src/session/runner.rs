@@ -9,9 +9,10 @@ impl tg::handle::Runner for tg::Session {
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::runner::control::Output,
 			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
-		>,
+		)>,
 	> {
 		self.get_runner_control_stream(arg, stream)
 	}

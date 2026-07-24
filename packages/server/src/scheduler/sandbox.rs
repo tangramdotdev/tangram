@@ -328,20 +328,23 @@ impl State {
 		&mut self,
 		_scheduler: &Scheduler,
 		notification: &HeartbeatNotification,
-	) {
+	) -> bool {
 		let Some(runner) = self.runners.entries.get_mut(&notification.runner) else {
-			return;
+			return false;
 		};
 		if runner.connection_index != notification.connection_index
 			|| runner.heartbeat_index >= notification.heartbeat_index
 		{
-			return;
+			return false;
 		}
 		runner.capacity = notification.capacity;
 		runner.committed = tg::runner::Capacity::default();
 		runner.heartbeat_at = tokio::time::Instant::now();
 		runner.heartbeat_index = notification.heartbeat_index;
+		runner.ready = true;
 		self.queue.wake();
+
+		true
 	}
 
 	pub(super) fn handle_create_sandbox_completion(
@@ -639,16 +642,24 @@ impl State {
 		self.sandboxes.attempts += 1;
 
 		let session = scheduler.server.session(&scheduler.server.context);
+		let scheduler_id = scheduler.id.clone();
 		let timeout = scheduler.config.create_sandbox_timeout;
 		let borrowed = matches!(placement, Placement::Borrowed { .. });
 		let sandbox = id.clone();
 		self.operations.push(
 			async move {
-				let runner = placement.runner().id.clone();
-				let result =
-					create_sandbox(&session, &runner, borrowed, capacity, &request, timeout)
-						.boxed()
-						.await;
+				let runner = placement.runner();
+				let result = create_sandbox(
+					&session,
+					&scheduler_id,
+					runner,
+					borrowed,
+					capacity,
+					&request,
+					timeout,
+				)
+				.boxed()
+				.await;
 				Operation::CreateSandbox(Completion {
 					placement,
 					result,
@@ -697,7 +708,8 @@ async fn cancel_sandbox(
 
 async fn create_sandbox(
 	session: &crate::Session,
-	runner: &tg::runner::Id,
+	scheduler: &tg::scheduler::Id,
+	runner: &RunnerRef,
 	borrowed: bool,
 	capacity: tg::runner::Capacity,
 	request: &CreateSandboxRequestArg,
@@ -720,15 +732,21 @@ async fn create_sandbox(
 		timeout,
 	};
 	let result = session
-		.send_runner_control_request(runner, arg, options)
+		.send_runner_control_request(
+			&runner.id,
+			scheduler,
+			runner.connection_index,
+			arg,
+			options,
+		)
 		.boxed()
 		.await
 		.map_err(|error| {
-			tg::error!(!error, sandbox = %request.sandbox, %runner, "failed to send the create sandbox request to the runner")
+			tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "failed to send the create sandbox request to the runner")
 		})?;
 	let result = result
 		.map_err(|error| {
-			tg::error!(!error, sandbox = %request.sandbox, %runner, "the runner create sandbox request failed")
+			tg::error!(!error, sandbox = %request.sandbox, runner = %runner.id, "the runner create sandbox request failed")
 		})
 		.and_then(|output| {
 			output

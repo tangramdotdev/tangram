@@ -19,8 +19,16 @@ impl Session {
 			(output.sandbox_arg.is_some() && output.allocation.is_none())
 				.then(|| output.data.sandbox.clone())
 		});
+		let (scheduler_sender, scheduler_receiver) = if scheduled_sandbox.is_some() {
+			let (sender, receiver) = tokio::sync::oneshot::channel();
+			(Some(sender), Some(receiver))
+		} else {
+			(None, None)
+		};
 		let cache_future = self.spawn_process_get_cached_process(arg, location, candidate.as_ref());
-		let start_future = self.spawn_process_start_local(arg, output).boxed();
+		let start_future = self
+			.spawn_process_start_local(arg, output, scheduler_sender)
+			.boxed();
 		let (cache, wait, output) = match future::select(start_future, pin!(cache_future)).await {
 			future::Either::Left((result, cache_future)) => {
 				let output = result?;
@@ -32,13 +40,31 @@ impl Session {
 					future::Either::Right((result, _)) => (result?, None, output),
 				}
 			},
-			future::Either::Right((result, start_future)) => {
+			future::Either::Right((result, mut start_future)) => {
 				let cache = result?;
 				if cache.is_some()
 					&& let Some(sandbox) = &scheduled_sandbox
 				{
-					self.spawn_process_cancel_scheduled_candidate(sandbox)
-						.await?;
+					let scheduler_receiver = scheduler_receiver.unwrap();
+					let scheduler_future = async {
+						scheduler_receiver
+							.await
+							.map_err(|_| tg::error!("failed to receive the scheduler"))
+					};
+					let scheduler_future = pin!(scheduler_future);
+					match future::select(start_future.as_mut(), scheduler_future).await {
+						future::Either::Left((result, _)) => {
+							if let Some(output) = result? {
+								self.spawn_process_cancel_candidate(output.id, output.lease)
+									.await?;
+							}
+						},
+						future::Either::Right((result, _)) => {
+							let scheduler = result?;
+							self.spawn_process_cancel_scheduled_candidate(sandbox, &scheduler)
+								.await?;
+						},
+					}
 					return Ok(cache.map(cached::Output::into_output));
 				}
 				let output = start_future.await?;
@@ -221,6 +247,7 @@ impl Session {
 	async fn spawn_process_cancel_scheduled_candidate(
 		&self,
 		sandbox: &tg::sandbox::Id,
+		scheduler: &tg::scheduler::Id,
 	) -> tg::Result<()> {
 		let notification =
 			crate::scheduler::Message::Notification(crate::scheduler::Notification::CancelSandbox(
@@ -230,7 +257,10 @@ impl Session {
 			));
 		self.server
 			.messenger
-			.publish("scheduler.server".to_owned(), notification)
+			.publish(
+				crate::scheduler::scheduler_server_subject(Some(scheduler)),
+				notification,
+			)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %sandbox, "failed to cancel the scheduled sandbox"),

@@ -16,7 +16,6 @@ pub mod object;
 pub mod organization;
 pub mod process;
 mod read;
-pub mod runner;
 pub mod sandbox;
 pub mod tag;
 pub mod update;
@@ -161,11 +160,6 @@ pub trait Index {
 		&self,
 	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
 
-	fn get_scheduler_runners(
-		&self,
-		scheduler: &tg::scheduler::Id,
-	) -> impl Future<Output = tg::Result<Vec<tg::runner::Id>>> + Send;
-
 	fn process_has_ancestor(
 		&self,
 		process: &tg::process::Id,
@@ -190,19 +184,6 @@ pub trait Index {
 		id: &tg::sandbox::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::sandbox::Sandbox>>> + Send {
 		self.try_get_sandboxes(std::slice::from_ref(id))
-			.map(|result| result.map(|mut output| output.pop().unwrap()))
-	}
-
-	fn try_get_runners(
-		&self,
-		ids: &[tg::runner::Id],
-	) -> impl Future<Output = tg::Result<Vec<Option<crate::runner::Runner>>>> + Send;
-
-	fn try_get_runner(
-		&self,
-		id: &tg::runner::Id,
-	) -> impl Future<Output = tg::Result<Option<crate::runner::Runner>>> + Send {
-		self.try_get_runners(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 

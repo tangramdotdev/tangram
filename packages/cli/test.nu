@@ -1054,10 +1054,6 @@ export def --env spawn [
 				},
 			},
 			remotes: {},
-			watchdog: {
-				interval: 1,
-				ttl: 60
-			}
 		}
 		$default_config = $default_config | merge $config
 	}

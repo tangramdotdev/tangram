@@ -1,6 +1,11 @@
 use {
 	crate::Session,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	std::collections::HashSet,
+	std::sync::{
+		Arc,
+		atomic::{AtomicBool, Ordering},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -10,15 +15,22 @@ use {
 #[derive(Clone)]
 pub(crate) struct ClientMessage(pub(crate) tg::runner::control::ClientMessage);
 
-#[derive(Clone)]
-pub(crate) struct ServerMessage(pub(crate) tg::runner::control::ServerMessage);
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub(crate) struct ServerMessage {
+	connection_index: u64,
+	message: tg::runner::control::ServerMessage,
+	scheduler: tg::scheduler::Id,
+}
 
 impl Session {
 	pub(crate) async fn get_runner_control_stream_with_context(
 		&self,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
+	) -> tg::Result<(
+		tg::runner::control::Output,
+		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
+	)> {
 		match &self.context.principal {
 			tg::Principal::Root => (),
 			tg::Principal::Runner(runner) if runner == &arg.id => (),
@@ -32,7 +44,7 @@ impl Session {
 			_ => return Err(tg::error!("unauthorized")),
 		}
 		let location = self.server.location(arg.location.as_ref())?;
-		let stream = match location {
+		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.get_runner_control_stream_local(arg, stream).await?
 			},
@@ -47,15 +59,19 @@ impl Session {
 					.await?
 			},
 		};
-		Ok(stream)
+		Ok(output)
 	}
 
 	async fn get_runner_control_stream_local(
 		&self,
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
+	) -> tg::Result<(
+		tg::runner::control::Output,
+		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
+	)> {
 		let id = arg.id.clone();
+		let scheduler_ttl = arg.scheduler_ttl;
 		let server_messages = self
 			.server
 			.messenger
@@ -74,30 +90,144 @@ impl Session {
 				host: arg.host,
 				runner: id.clone(),
 			});
-		let output = self.send_scheduler_request(request).await??;
+		let (scheduler, output) = self.send_scheduler_request(request).await?;
+		let output = output?;
 		let output = output
 			.try_unwrap_add_runner()
 			.map_err(|_| tg::error!("expected an add runner response"))?;
 		let connection_index = output.connection_index;
+		if output.scheduler != scheduler {
+			return Err(tg::error!(
+				actual = %output.scheduler,
+				expected = %scheduler,
+				"the scheduler returned an invalid ID"
+			));
+		}
+		let output = tg::runner::control::Output {
+			scheduler: scheduler.clone(),
+		};
+		let heartbeat_subject =
+			crate::scheduler::runner_heartbeat_subject(&scheduler, &id, connection_index);
+		let heartbeat_acks = self
+			.server
+			.messenger
+			.subscribe::<tangram_messenger::payload::Json<u64>>(heartbeat_subject)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to subscribe to the scheduler heartbeat acknowledgements"
+				)
+			})?;
 
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
-		let control = crate::control::Stream::new(stream, sender, crate::control::stream_options());
+		let control =
+			crate::control::Stream::new(stream, sender.clone(), crate::control::stream_options());
 		let control_sender = control.sender();
 		let mut server_messages = server_messages;
-		let server_messages_task =
-			Task::spawn(move |_| async move {
+		let server_messages_task = Task::spawn({
+			let scheduler = scheduler.clone();
+			move |_| async move {
 				while let Some(message) = server_messages.try_next().await.map_err(|source| {
 					tg::error!(!source, "failed to get a runner server message")
 				})? {
-					control_sender.send(message.payload.0).await?;
+					if message.payload.scheduler != scheduler
+						|| message.payload.connection_index != connection_index
+					{
+						continue;
+					}
+					control_sender.send(message.payload.message).await?;
 				}
 				Ok::<_, tg::Error>(())
-			});
+			}
+		});
+		let (heartbeat_sender, mut heartbeat_receiver) =
+			tokio::sync::mpsc::channel::<crate::scheduler::HeartbeatNotification>(256);
+		let scheduler_unavailable = Arc::new(AtomicBool::new(false));
+		let (scheduler_unavailable_sender, scheduler_unavailable_receiver) =
+			tokio::sync::oneshot::channel();
+		let scheduler_acknowledgement_task = Task::spawn({
+			let server = self.server.clone();
+			let scheduler = scheduler.clone();
+			let scheduler_unavailable = scheduler_unavailable.clone();
+			let timeout = scheduler_ttl;
+			move |_| async move {
+				let mut heartbeat_acks = std::pin::pin!(heartbeat_acks);
+				let mut heartbeat_acks_ended = false;
+				let mut outstanding = HashSet::new();
+				let mut unacknowledged_at = None;
+				loop {
+					let deadline = unacknowledged_at.map(|time| time + timeout);
+					tokio::select! {
+						heartbeat = heartbeat_receiver.recv() => {
+							let Some(heartbeat) = heartbeat else {
+								break;
+							};
+							outstanding.insert(heartbeat.heartbeat_index);
+							unacknowledged_at.get_or_insert_with(tokio::time::Instant::now);
+							if heartbeat_acks_ended {
+								break;
+							}
+							let notification = crate::scheduler::Message::Notification(
+								crate::scheduler::Notification::Heartbeat(heartbeat),
+							);
+							server
+								.messenger
+								.publish(
+									crate::scheduler::scheduler_server_subject(Some(&scheduler)),
+									notification,
+								)
+								.await
+								.inspect_err(|error| {
+									tracing::error!(
+										%error,
+										"failed to publish the runner heartbeat notification"
+									);
+								})
+								.ok();
+						},
+						result = heartbeat_acks.try_next(), if !heartbeat_acks_ended => {
+							match result {
+								Ok(Some(message)) => {
+									if outstanding.contains(&message.payload.0) {
+										outstanding.clear();
+										unacknowledged_at = None;
+									}
+								},
+								Ok(None) => {
+									heartbeat_acks_ended = true;
+								},
+								Err(error) => {
+									tracing::error!(
+										%error,
+										"failed to receive a scheduler heartbeat acknowledgement"
+									);
+									heartbeat_acks_ended = true;
+								},
+							}
+						},
+						() = async {
+							match deadline {
+								Some(deadline) => tokio::time::sleep_until(deadline).await,
+								None => future::pending().await,
+							}
+						} => break,
+					}
+				}
+				if heartbeat_receiver.is_closed() {
+					return;
+				}
+				scheduler_unavailable.store(true, Ordering::Release);
+				scheduler_unavailable_sender.send(()).ok();
+			}
+		});
 
 		let control_task = Task::spawn({
 			let server = self.server.clone();
 			let session = self.clone();
 			let runner = id.clone();
+			let scheduler = scheduler.clone();
+			let scheduler_unavailable = scheduler_unavailable.clone();
 			move |_| async move {
 				let mut control = control;
 				while let Some(message) = control.recv().await? {
@@ -106,24 +236,15 @@ impl Session {
 						tg::runner::control::ClientNotification::Heartbeat(heartbeat),
 					) = &message
 					{
-						let notification = crate::scheduler::Message::Notification(
-							crate::scheduler::Notification::Heartbeat(
-								crate::scheduler::HeartbeatNotification {
-									capacity: heartbeat.capacity,
-									connection_index,
-									heartbeat_index: heartbeat.index,
-									runner: runner.clone(),
-								},
-							),
-						);
-						server
-							.messenger
-							.publish("scheduler.server".to_owned(), notification)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(%error, "failed to publish the scheduler heartbeat notification");
-							})
-							.ok();
+						let notification = crate::scheduler::HeartbeatNotification {
+							capacity: heartbeat.capacity,
+							connection_index,
+							heartbeat_index: heartbeat.index,
+							runner: runner.clone(),
+						};
+						heartbeat_sender.send(notification).await.map_err(|_| {
+							tg::error!("failed to track the runner heartbeat acknowledgement")
+						})?;
 					}
 					let subject = match message.clone() {
 						tg::runner::control::ClientMessage::Response(response) => {
@@ -145,25 +266,33 @@ impl Session {
 							tg::error!(!source, "failed to publish the runner client message")
 						})?;
 				}
-				let request = crate::scheduler::RequestArg::RemoveRunner(
-					crate::scheduler::RemoveRunnerRequestArg {
-						connection_index,
-						runner: runner.clone(),
-					},
-				);
-				session.send_scheduler_request(request).await??;
+				if !scheduler_unavailable.load(Ordering::Acquire) {
+					let request = crate::scheduler::RequestArg::RemoveRunner(
+						crate::scheduler::RemoveRunnerRequestArg {
+							connection_index,
+							runner: runner.clone(),
+						},
+					);
+					session
+						.send_scheduler_request_to(&scheduler, request)
+						.await??;
+				}
 				Ok::<_, tg::Error>(())
 			}
 		});
 
 		let stream = tokio_stream::wrappers::ReceiverStream::new(receiver)
+			.take_until(async move {
+				scheduler_unavailable_receiver.await.ok();
+			})
 			.attach(server_messages_task)
+			.attach(scheduler_acknowledgement_task)
 			.attach(control_task)
 			.map(Ok)
 			.with_stopper(self.context.stopper.clone())
 			.boxed();
 
-		Ok(stream)
+		Ok((output, stream))
 	}
 
 	async fn get_runner_control_stream_region(
@@ -171,7 +300,10 @@ impl Session {
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 		region: String,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
+	) -> tg::Result<(
+		tg::runner::control::Output,
+		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
+	)> {
 		let id = arg.id.clone();
 		let client = self.get_region_session(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
@@ -183,14 +315,14 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let stream = client
+		let (output, stream) = client
 			.get_runner_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
 			)?;
 		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok(stream)
+		Ok((output, stream))
 	}
 
 	async fn get_runner_control_stream_remote(
@@ -199,7 +331,10 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>> {
+	) -> tg::Result<(
+		tg::runner::control::Output,
+		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
+	)> {
 		let id = arg.id.clone();
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
@@ -208,14 +343,14 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let stream = client
+		let (output, stream) = client
 			.get_runner_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
 		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok(stream)
+		Ok((output, stream))
 	}
 
 	pub(crate) async fn get_runner_control_stream_request(
@@ -263,7 +398,7 @@ impl Session {
 			.boxed();
 
 		// Get the server message stream.
-		let stream = self
+		let (output, stream) = self
 			.get_runner_control_stream_with_context(arg, stream)
 			.await?;
 
@@ -274,10 +409,13 @@ impl Session {
 			Err(error) => error.try_into(),
 		});
 		let body = BoxBody::with_sse_stream(stream);
+		let body = tangram_http::body::output::set(body, &output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
 
 		// Create the response.
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
+			.header(tangram_http::body::output::HEADER, "true")
 			.body(body)
 			.unwrap();
 
@@ -287,6 +425,8 @@ impl Session {
 	pub(crate) async fn send_runner_control_request(
 		&self,
 		runner: &tg::runner::Id,
+		scheduler: &tg::scheduler::Id,
+		connection_index: u64,
 		arg: tg::runner::control::ServerRequestArg,
 		options: crate::control::Options,
 	) -> tg::Result<tg::Result<tg::runner::control::ClientResponseOutput>> {
@@ -296,12 +436,21 @@ impl Session {
 				arg,
 				id: id.clone(),
 			});
-		let request = ServerMessage(request);
+		let request = ServerMessage {
+			connection_index,
+			message: request,
+			scheduler: scheduler.clone(),
+		};
+		let scheduler = scheduler.clone();
 		self.send_control_request(crate::control::SendControlRequestArg {
-			ack: |id| {
-				ServerMessage(tg::runner::control::ServerMessage::Ack(
-					tg::runner::control::ServerAck { id },
-				))
+			ack: move |id| {
+				let message =
+					tg::runner::control::ServerMessage::Ack(tg::runner::control::ServerAck { id });
+				ServerMessage {
+					connection_index,
+					message,
+					scheduler: scheduler.clone(),
+				}
 			},
 			client_subject: format!("runners.{runner}.control.client.{id}"),
 			marker: std::marker::PhantomData,
@@ -351,12 +500,11 @@ impl tangram_messenger::Payload for ServerMessage {
 	{
 		let message =
 			serde_json::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)?;
-		Ok(Self(message))
+		Ok(message)
 	}
 
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
-		let message =
-			serde_json::to_vec(&self.0).map_err(tangram_messenger::Error::serialization)?;
+		let message = serde_json::to_vec(self).map_err(tangram_messenger::Error::serialization)?;
 		Ok(message.into())
 	}
 }
@@ -407,7 +555,7 @@ impl crate::control::Input<tg::runner::control::ServerMessage>
 impl crate::control::Output for tg::runner::control::ServerMessage {
 	fn id(&self) -> Option<&str> {
 		match self {
-			Self::Ack(_) | Self::Notification(_) | Self::Response(_) => None,
+			Self::Ack(_) | Self::Response(_) => None,
 			Self::Request(request) => Some(&request.id),
 		}
 	}
@@ -419,12 +567,10 @@ impl crate::control::Input<tg::runner::control::ClientMessage>
 	fn kind(&self) -> crate::control::InputKind<'_> {
 		match self {
 			Self::Ack(ack) => crate::control::InputKind::Ack { id: &ack.id },
-			Self::Notification(_) | Self::Response(_) => {
-				crate::control::InputKind::Message { id: None }
-			},
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
+			Self::Response(_) => crate::control::InputKind::Message { id: None },
 		}
 	}
 

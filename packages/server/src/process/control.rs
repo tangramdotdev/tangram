@@ -152,19 +152,24 @@ impl Session {
 								notification,
 							),
 						) => {
+							let runner = notification.runner;
+							let scheduler = notification.scheduler;
 							let notification = crate::scheduler::Message::Notification(
 								crate::scheduler::Notification::BorrowableCapacity(
 									crate::scheduler::BorrowableCapacityNotification {
 										capacity: notification.capacity,
 										parent: notification.parent,
-										runner: notification.runner,
+										runner,
 									},
 								),
 							);
 							session
 								.server
 								.messenger
-								.publish("scheduler.server".to_owned(), notification)
+								.publish(
+									crate::scheduler::scheduler_server_subject(Some(&scheduler)),
+									notification,
+								)
 								.await
 								.map_err(|error| {
 									tg::error!(

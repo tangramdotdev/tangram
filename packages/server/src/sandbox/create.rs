@@ -1,6 +1,6 @@
 use {
 	crate::{Server, Session},
-	futures::{TryStreamExt as _, future},
+	futures::TryStreamExt as _,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::Messenger as _,
@@ -75,31 +75,37 @@ impl Session {
 				)
 			})?;
 
-		let create_future = async {
-			let request = crate::scheduler::CreateSandboxRequestArg {
-				arg,
-				creator: Some(creator),
-				parent: None,
-				process: None,
-				sandbox: id.clone(),
-				token: Some(token),
-			};
-			self.enqueue_sandbox(request)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
-			Ok::<_, tg::Error>(())
+		let request = crate::scheduler::CreateSandboxRequestArg {
+			arg,
+			creator: Some(creator),
+			parent: None,
+			process: None,
+			sandbox: id.clone(),
+			scheduler: None,
+			token: Some(token),
 		};
-		let connect_future = async {
-			connected
-				.try_next()
-				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to receive the sandbox control connection")
-				})?
-				.ok_or_else(|| tg::error!("the sandbox control connection stream ended"))?;
-			Ok::<_, tg::Error>(())
-		};
-		future::try_join(create_future, connect_future).await?;
+		self.enqueue_sandbox(request)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
+		tokio::time::timeout(
+			self.server.config.sandbox.create_connection_timeout,
+			connected.try_next(),
+		)
+		.await
+		.map_err(|_| {
+			tg::error!(
+				sandbox = %id,
+				"timed out waiting for the sandbox control connection"
+			)
+		})?
+		.map_err(|error| {
+			tg::error!(
+				!error,
+				sandbox = %id,
+				"failed to receive the sandbox control connection"
+			)
+		})?
+		.ok_or_else(|| tg::error!("the sandbox control connection stream ended"))?;
 
 		let output = tg::sandbox::create::Output { id };
 

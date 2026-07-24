@@ -71,7 +71,6 @@ mod temp;
 mod user;
 mod vfs;
 mod watch;
-mod watchdog;
 mod write;
 
 pub use self::config::Config;
@@ -1078,27 +1077,6 @@ impl Server {
 				})
 			});
 
-		// Spawn the watchdog task.
-		let watchdog_task = server
-			.config
-			.roles
-			.contains(&self::config::Role::Watchdog)
-			.then(|| {
-				let config = server.config.watchdog.clone();
-				Task::spawn({
-					let server = server.clone();
-					|_| async move {
-						server
-							.watchdog_task(&config)
-							.await
-							.inspect_err(
-								|error| tracing::error!(error = %error.trace(), "the watchdog task failed"),
-							)
-							.ok();
-					}
-				})
-			});
-
 		// Spawn the runner task.
 		if server.config.roles.contains(&self::config::Role::Runner) {
 			let task = Task::spawn({
@@ -1198,18 +1176,6 @@ impl Server {
 						tracing::error!(?error, "the sandbox finalizer task panicked");
 					}
 					tracing::trace!("sandbox finalizer task");
-				}
-
-				// Abort the watchdog task.
-				if let Some(task) = watchdog_task {
-					task.abort();
-					let result = task.wait().await;
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "the watchdog task panicked");
-					}
-					tracing::trace!("watchdog task");
 				}
 
 				// Remove the watches.

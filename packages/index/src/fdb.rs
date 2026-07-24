@@ -326,13 +326,6 @@ impl crate::Index for Index {
 		self.list_sandboxes().await
 	}
 
-	async fn get_scheduler_runners(
-		&self,
-		scheduler: &tg::scheduler::Id,
-	) -> tg::Result<Vec<tg::runner::Id>> {
-		self.get_scheduler_runners(scheduler).await
-	}
-
 	async fn process_has_ancestor(
 		&self,
 		process: &tg::process::Id,
@@ -355,13 +348,6 @@ impl crate::Index for Index {
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<Vec<Option<crate::sandbox::Sandbox>>> {
 		self.try_get_sandboxes(ids).await
-	}
-
-	async fn try_get_runners(
-		&self,
-		ids: &[tg::runner::Id],
-	) -> tg::Result<Vec<Option<crate::runner::Runner>>> {
-		self.try_get_runners(ids).await
 	}
 
 	async fn put_grants(&self, args: &[crate::grant::put::Arg]) -> tg::Result<()> {

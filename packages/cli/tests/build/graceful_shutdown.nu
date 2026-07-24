@@ -3,7 +3,7 @@ use ../../test.nu *
 # Restarting the remote server mid-build does not lose log output, and the full stdout and stderr streams are still readable afterward.
 
 let config = {
-	roles: [cleaner finalizer http indexer scheduler watchdog],
+	roles: [cleaner finalizer http indexer scheduler],
 }
 let remote = spawn --name remote  --config $config
 let config = {

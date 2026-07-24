@@ -160,12 +160,6 @@ impl Index {
 						.await?;
 				crate::read::Response::GetSandboxProcesses(output)
 			},
-			crate::read::Request::GetSchedulerRunners { scheduler } => {
-				let output =
-					Self::get_scheduler_runners_with_transaction(transaction, subspace, &scheduler)
-						.await?;
-				crate::read::Response::GetSchedulerRunners(output)
-			},
 			crate::read::Request::GetTransactionId => {
 				let output = transaction
 					.get_read_version()
@@ -251,11 +245,6 @@ impl Index {
 				let output =
 					Self::try_get_processes_with_transaction(transaction, subspace, &ids).await?;
 				crate::read::Response::TryGetProcesses(output)
-			},
-			crate::read::Request::TryGetRunners { ids } => {
-				let output =
-					Self::try_get_runners_with_transaction(transaction, subspace, &ids).await?;
-				crate::read::Response::TryGetRunners(output)
 			},
 			crate::read::Request::TryGetSandboxes { ids } => {
 				let output =

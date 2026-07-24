@@ -59,9 +59,6 @@ pub enum Kind {
 	GrantExpiresAt = 31,
 	Sandbox = 32,
 	CommandCacheableProcess = 33,
-	Runner = 35,
-	SchedulerRunner = 36,
-	RunnerScheduler = 37,
 	RunnerSandbox = 38,
 	SandboxRunner = 39,
 	SandboxProcess = 40,
@@ -96,24 +93,6 @@ impl fdbt::TuplePack for Key {
 			Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id)) => {
 				(Kind::Sandbox.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
-
-			Key::Runner(crate::fdb::runner::Key::Runner(id)) => {
-				(Kind::Runner.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
-			},
-
-			Key::Runner(crate::fdb::runner::Key::SchedulerRunner { scheduler, runner }) => (
-				Kind::SchedulerRunner.to_i32().unwrap(),
-				scheduler.to_bytes().as_ref(),
-				runner.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Runner(crate::fdb::runner::Key::RunnerScheduler { runner, scheduler }) => (
-				Kind::RunnerScheduler.to_i32().unwrap(),
-				runner.to_bytes().as_ref(),
-				scheduler.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
 
 			Key::Runner(crate::fdb::runner::Key::RunnerSandbox { runner, sandbox }) => (
 				Kind::RunnerSandbox.to_i32().unwrap(),
@@ -527,41 +506,6 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let id = tg::sandbox::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
 				Ok((input, Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id))))
-			},
-
-			Kind::Runner => {
-				let (input, bytes): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::runner::Id::from_slice(&bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
-				Ok((input, Key::Runner(crate::fdb::runner::Key::Runner(id))))
-			},
-
-			Kind::SchedulerRunner => {
-				let (input, scheduler): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let scheduler = tg::scheduler::Id::from_slice(&scheduler)
-					.map_err(|_| fdbt::PackError::Message("invalid scheduler id".into()))?;
-				let runner = tg::runner::Id::from_slice(&runner)
-					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
-				Ok((
-					input,
-					Key::Runner(crate::fdb::runner::Key::SchedulerRunner { scheduler, runner }),
-				))
-			},
-
-			Kind::RunnerScheduler => {
-				let (input, runner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, scheduler): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let runner = tg::runner::Id::from_slice(&runner)
-					.map_err(|_| fdbt::PackError::Message("invalid runner id".into()))?;
-				let scheduler = tg::scheduler::Id::from_slice(&scheduler)
-					.map_err(|_| fdbt::PackError::Message("invalid scheduler id".into()))?;
-				Ok((
-					input,
-					Key::Runner(crate::fdb::runner::Key::RunnerScheduler { runner, scheduler }),
-				))
 			},
 
 			Kind::RunnerSandbox => {

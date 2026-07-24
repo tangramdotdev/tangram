@@ -26,9 +26,6 @@ pub(crate) enum Request {
 	GetSandboxProcesses {
 		sandbox: tg::sandbox::Id,
 	},
-	GetSchedulerRunners {
-		scheduler: tg::scheduler::Id,
-	},
 	GetTransactionId,
 	ListSandboxes,
 	ListSandboxesForCreator {
@@ -57,9 +54,6 @@ pub(crate) enum Request {
 	TryGetProcesses {
 		ids: Vec<tg::process::Id>,
 	},
-	TryGetRunners {
-		ids: Vec<tg::runner::Id>,
-	},
 	TryGetSandboxes {
 		ids: Vec<tg::sandbox::Id>,
 	},
@@ -75,7 +69,6 @@ pub(crate) enum Response {
 	GetRequesterPrincipals(Vec<tg::grant::Principal>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),
-	GetSchedulerRunners(Vec<tg::runner::Id>),
 	GetTransactionId(u64),
 	ListSandboxes(Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>),
 	ProcessHasAncestor(bool),
@@ -85,7 +78,6 @@ pub(crate) enum Response {
 	TryGetOldestFinalizationTransactionId(Option<u64>),
 	TryGetOldestUpdateTransactionId(Option<u64>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
-	TryGetRunners(Vec<Option<crate::runner::Runner>>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),
 	Visible(Vec<bool>),
 }
