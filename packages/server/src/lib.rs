@@ -950,7 +950,7 @@ impl Server {
 			} else {
 				config.listeners.clone()
 			};
-			// On macOS, also listen on the socket in the shared app group container so the sandboxed file system extension can connect. The path comes from the environment when the app launches the server, or from the configured app group identifier otherwise.
+			// Add the socket shared with the macOS extension.
 			let group_socket = server
 				.config
 				.vfs

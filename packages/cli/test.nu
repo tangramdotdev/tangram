@@ -927,11 +927,7 @@ export def --env spawn [
 ] {
 	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
 
-	# Give the object store's lock semaphores a unique prefix per server. lmdb
-	# appends 'r' and 'w' to form the two POSIX semaphore names, which are global
-	# to the machine, so concurrent test servers must not share a prefix. FSKit
-	# requires the names to use the app group's IPC namespace. The prefix plus
-	# one character must fit the platform limit of 31 characters on macOS.
+	# Use unique semaphore names in the namespace FSKit can access.
 	let object_store_posix_sem_prefix = if $use_fskit {
 		let app_group_identifier = (identifiers).app_group_identifier
 		$'($app_group_identifier)/((random chars) | str lowercase | str substring 0..5)'
@@ -1206,9 +1202,6 @@ export def --env spawn [
 		rm -rf $path
 	}
 
-	# Determine the physical cache directory. When a VFS is enabled, the
-	# artifacts directory is the mount point and the cache directory is its
-	# backing store.
 	let vfs = $config | get --optional vfs
 	let cache_directory_name = if $vfs == null or $vfs == false { 'artifacts' } else { 'cache' }
 	let cache_directory = $directory_path | path join $cache_directory_name

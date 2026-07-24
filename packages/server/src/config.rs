@@ -1163,7 +1163,7 @@ pub struct SyncPutStore {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Vfs {
-	/// The macos app group identifier the fskit file system extension shares with the server, used to locate the group container's socket when the app does not provide it in the environment.
+	/// The macOS app group identifier.
 	pub app_group_identifier: Option<String>,
 
 	pub kind: VfsKind,
@@ -1552,7 +1552,7 @@ impl Default for LmdbObjectStore {
 }
 
 impl LmdbObjectStore {
-	/// Returns the POSIX semaphore prefix, falling back to a service name in the macOS app group that the app passes in the environment. This lets the server and the sandboxed file system extension share the same lock by default. The server and the extension resolve the same value so the writer and the reader agree.
+	/// Returns the configured POSIX semaphore prefix or the app group default.
 	#[must_use]
 	pub fn resolved_posix_sem_prefix(&self) -> Option<String> {
 		self.posix_sem_prefix.clone().or_else(|| {
@@ -1796,7 +1796,7 @@ impl Default for Vfs {
 }
 
 impl Vfs {
-	/// Resolves the macos app group socket path, preferring the path the app passes in the environment and falling back to the socket in the configured app group's container. This lets a standalone server share the socket with the sandboxed file system extension without being launched by the app.
+	/// Resolves the macOS app group socket path.
 	#[must_use]
 	pub fn resolved_app_group_socket(&self) -> Option<PathBuf> {
 		if let Some(path) = std::env::var_os("TANGRAM_MACOS_APP_GROUP_SOCKET") {

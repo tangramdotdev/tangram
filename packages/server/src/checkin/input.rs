@@ -607,7 +607,7 @@ impl Session {
 			return Ok(());
 		};
 
-		// If the target is in the cache or VFS artifacts directory, then treat it as an artifact symlink.
+		// Check for an artifact symlink.
 		let cache_path = self.server.cache_path();
 		let artifacts_path = self.server.artifacts_path();
 		let target_in_artifact_path = absolute_target

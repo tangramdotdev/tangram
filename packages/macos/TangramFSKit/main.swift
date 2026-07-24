@@ -307,9 +307,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		let objectStoreMapSize = options["object_store_map_size"].flatMap(UInt64.init) ?? 0
 		let objectStorePath = options["object_store_path"] ?? ""
 
-		// The object store's lock semaphores must use a service name in the shared
-		// app group so that the sandboxed extension and the server can both open
-		// them. LMDB appends an 'r' or 'w' character.
+		// Share the LMDB lock through the app group.
 		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
 
 		// The client connects to the server over the unix socket the server sends as
@@ -671,7 +669,6 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 	}
 
 	func closeItem(_ item: FSItem, modes: FSVolume.OpenModes, replyHandler reply: @escaping (Error?) -> Void) {
-		// FSKit reports the modes that remain open, so release the provider handle only after the final close.
 		if modes.isEmpty, let item = item as? TangramItem, let handle = item.handle {
 			_ = self.withProvider { tg_provider_close_sync($0, handle) }
 			item.handle = nil
@@ -698,7 +695,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 			read(handle: handle, offset: offset, length: length, into: buffer, closeAfterRead: false, replyHandler: reply)
 			return
 		}
-		// FSKit can request executable pages before it opens the item, so use a temporary handle for that read.
+		// FSKit can read an executable before opening it.
 		submit({ response, status in
 			var handle: UInt64 = 0
 			guard let response, tg_response_open(response, &handle, nil) == 0 else {
