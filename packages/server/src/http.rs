@@ -567,6 +567,7 @@ impl Server {
 			// Logins.
 			(http::Method::POST, ["logins"]) => session.create_login_request(request).boxed(),
 			(http::Method::POST, ["login", "wait"]) => session.wait_login_request(request).boxed(),
+			(http::Method::POST, ["logout"]) => session.logout_request(request).boxed(),
 			(http::Method::GET, ["oauth", "github", "authorize"]) => {
 				session.oauth_github_authorize_request(request).boxed()
 			},

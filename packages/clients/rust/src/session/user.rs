@@ -15,6 +15,10 @@ impl tg::handle::User for tg::Session {
 		self.create_login(arg)
 	}
 
+	fn logout(&self) -> impl Future<Output = tg::Result<()>> {
+		self.logout()
+	}
+
 	fn try_get_user(
 		&self,
 		user: &tg::user::Selector,

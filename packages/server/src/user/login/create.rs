@@ -83,9 +83,12 @@ impl Session {
 					let statement = formatdoc!(
 						"
 							insert into logins (
-								code, provider, status, name, email, expires_at, interval, created_at, updated_at
+								code, provider, status, name, email, expires_at, interval, created_at,
+								updated_at
 							)
-							values ({p}1, 'insecure', 'started', {p}2, {p}3, {p}4, 0, {p}5, {p}5);
+							values (
+								{p}1, 'insecure', 'started', {p}2, {p}3, {p}4, 0, {p}5, {p}5
+							);
 						"
 					);
 					transaction
@@ -162,9 +165,12 @@ impl Session {
 					let statement = formatdoc!(
 						"
 							insert into logins (
-								code, provider, status, name, email, expires_at, interval, created_at, updated_at
+								code, provider, status, name, email, expires_at, interval, created_at,
+								updated_at
 							)
-							values ({p}1, 'github', 'started', {p}2, {p}3, {p}4, {p}5, {p}6, {p}6);
+							values (
+								{p}1, 'github', 'started', {p}2, {p}3, {p}4, {p}5, {p}6, {p}6
+							);
 						"
 					);
 					transaction

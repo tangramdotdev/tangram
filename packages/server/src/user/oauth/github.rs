@@ -12,11 +12,11 @@ use {
 #[derive(Clone)]
 struct GithubIdentity {
 	access_token: String,
+	avatar_url: String,
 	email: Option<String>,
 	expires_at: Option<i64>,
 	github_user_id: String,
 	html_url: String,
-	avatar_url: String,
 	login: String,
 	name: Option<String>,
 	refresh_token: Option<String>,
@@ -125,7 +125,7 @@ impl Session {
 		let (code, claimed) = self.claim_github_login_state(&state).await?;
 		if !claimed {
 			if self.login_succeeded(&code).await? {
-				return self.login_redirect("succeeded", None);
+				return self.login_redirect("succeeded", &code, None);
 			}
 			return Err(tg::error!("the login has not succeeded"));
 		}
@@ -137,11 +137,11 @@ impl Session {
 		{
 			self.finish_login_with_error(&code, error.to_string())
 				.await?;
-			return self.login_redirect("failed", Some(&error.to_string()));
+			return self.login_redirect("failed", &code, Some(&error.to_string()));
 		}
 
 		// Create the response.
-		self.login_redirect("succeeded", None)
+		self.login_redirect("succeeded", &code, None)
 	}
 
 	fn github_config(&self) -> tg::Result<&Github> {
@@ -168,13 +168,18 @@ impl Session {
 	fn login_redirect(
 		&self,
 		status: &str,
+		code: &str,
 		message: Option<&str>,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Create the location.
-		let mut location = format!("{}/login/{status}", self.login_web_url()?);
+		let code = tangram_uri::encode_query_value(code);
+		let mut location = format!(
+			"{}/login/callback?status={status}&login={code}",
+			self.login_web_url()?
+		);
 		if let Some(message) = message {
 			let message = tangram_uri::encode_query_value(message);
-			location.push_str("?message=");
+			location.push_str("&message=");
 			location.push_str(&message);
 		}
 
@@ -397,12 +402,12 @@ impl Session {
 			access_token,
 			avatar_url: github_user.avatar_url.to_string(),
 			email: github_user.email,
-			refresh_token,
 			expires_at,
 			github_user_id: github_user.id.to_string(),
 			html_url: github_user.html_url.to_string(),
 			login: github_user.login,
 			name: github_user.name,
+			refresh_token,
 			refresh_token_expires_at: None,
 			scope,
 			token_type: "Bearer".to_owned(),
@@ -418,8 +423,8 @@ impl Session {
 		self.server
 			.database
 			.run(|transaction| {
-				let code = code.to_owned();
 				let error = error.clone();
+				let code = code.to_owned();
 				async move {
 					let p = transaction.p();
 					let statement = formatdoc!(

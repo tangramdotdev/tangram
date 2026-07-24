@@ -84,7 +84,7 @@ impl Session {
 					transaction
 						.execute(
 							statement.into(),
-							db::params![user.id.to_string(), token, now, arg.code.clone(),],
+							db::params![user.id.to_string(), token, now, arg.code.clone()],
 						)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;

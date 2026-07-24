@@ -25,6 +25,13 @@ where
 		}
 	}
 
+	fn logout(&self) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.logout().left_future(),
+			tg::Either::Right(s) => s.logout().right_future(),
+		}
+	}
+
 	fn try_get_user(
 		&self,
 		user: &tg::user::Selector,

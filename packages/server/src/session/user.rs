@@ -12,6 +12,10 @@ impl tg::handle::User for Session {
 		self.create_login(arg).await
 	}
 
+	async fn logout(&self) -> tg::Result<()> {
+		self.logout().await
+	}
+
 	async fn try_get_user(
 		&self,
 		user: &tg::user::Selector,

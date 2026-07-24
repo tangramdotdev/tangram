@@ -14,6 +14,8 @@ pub trait User: Send + Sync + 'static {
 		arg: tg::user::login::create::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::user::login::create::Output>>;
 
+	fn logout(&self) -> BoxFuture<'_, tg::Result<()>>;
+
 	fn try_get_user<'a>(
 		&'a self,
 		user: &'a tg::user::Selector,
@@ -42,6 +44,10 @@ where
 		arg: tg::user::login::create::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::user::login::create::Output>> {
 		self.create_login(arg).boxed()
+	}
+
+	fn logout(&self) -> BoxFuture<'_, tg::Result<()>> {
+		self.logout().boxed()
 	}
 
 	fn try_get_user<'a>(
