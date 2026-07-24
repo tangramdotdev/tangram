@@ -866,7 +866,7 @@ impl Server {
 		// Start the VFS if enabled.
 		let artifacts_path = server.artifacts_path();
 		let cache_path = server.path.join("cache");
-		let vfs_kind = match server.config.vfs.unwrap_or_default().kind {
+		let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {
 			config::VfsKind::Auto => {
 				if cfg!(target_os = "macos")
 					&& std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some()
@@ -897,7 +897,7 @@ impl Server {
 		let cache_exists = tokio::fs::try_exists(&cache_path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
-		if let Some(options) = server.config.vfs {
+		if let Some(options) = server.config.vfs.clone() {
 			if artifacts_exists && !cache_exists {
 				tokio::fs::rename(&artifacts_path, &cache_path)
 					.await
@@ -950,9 +950,14 @@ impl Server {
 			} else {
 				config.listeners.clone()
 			};
-			// On macOS, also listen on the socket in the shared app group
-			// container so the sandboxed file system extension can connect.
-			if let Some(path) = std::env::var_os("TANGRAM_MACOS_APP_GROUP_SOCKET") {
+			// On macOS, also listen on the socket in the shared app group container so the sandboxed file system extension can connect. The path comes from the environment when the app launches the server, or from the configured app group identifier otherwise.
+			let group_socket = server
+				.config
+				.vfs
+				.clone()
+				.unwrap_or_default()
+				.resolved_app_group_socket();
+			if let Some(path) = group_socket {
 				let url = Uri::builder()
 					.scheme("http+unix")
 					.authority(path.to_str().unwrap())

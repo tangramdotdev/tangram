@@ -7766,6 +7766,7 @@ dependencies = [
  "indoc",
  "itertools 0.15.0",
  "libc",
+ "liblzma",
  "maml",
  "miette",
  "nu-ansi-term",

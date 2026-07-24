@@ -1160,9 +1160,12 @@ pub struct SyncPutStore {
 	pub process_concurrency: usize,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Vfs {
+	/// The macos app group identifier the fskit file system extension shares with the server, used to locate the group container's socket when the app does not provide it in the environment.
+	pub app_group_identifier: Option<String>,
+
 	pub kind: VfsKind,
 
 	pub io: VfsIo,
@@ -1784,10 +1787,28 @@ impl Default for SyncPutStore {
 impl Default for Vfs {
 	fn default() -> Self {
 		Self {
+			app_group_identifier: None,
 			kind: VfsKind::Auto,
 			io: VfsIo::Auto,
 			passthrough: VfsPassthrough::Auto,
 		}
+	}
+}
+
+impl Vfs {
+	/// Resolves the macos app group socket path, preferring the path the app passes in the environment and falling back to the socket in the configured app group's container. This lets a standalone server share the socket with the sandboxed file system extension without being launched by the app.
+	#[must_use]
+	pub fn resolved_app_group_socket(&self) -> Option<PathBuf> {
+		if let Some(path) = std::env::var_os("TANGRAM_MACOS_APP_GROUP_SOCKET") {
+			return Some(PathBuf::from(path));
+		}
+		let identifier = self.app_group_identifier.as_ref()?;
+		let home = std::env::var_os("HOME")?;
+		let socket = PathBuf::from(home)
+			.join("Library/Group Containers")
+			.join(identifier)
+			.join("socket");
+		Some(socket)
 	}
 }
 
