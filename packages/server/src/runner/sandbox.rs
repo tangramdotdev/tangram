@@ -218,8 +218,7 @@ impl Session {
 					)
 				})
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
-			tg::sandbox::control::ServerRequestArg::SetPrincipal(_)
-			| tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => {
+			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => {
 				Err(tg::error!(%id, "the sandbox was destroyed"))
 			},
 		};
@@ -652,7 +651,7 @@ impl Session {
 	async fn sandbox_task_inner(&self, arg: SandboxTaskInnerArg) -> tg::Result<()> {
 		let SandboxTaskInnerArg {
 			allocation,
-			mut control,
+			control,
 			create_output,
 			event_sender,
 			id,
@@ -694,60 +693,31 @@ impl Session {
 			self.server.runner.state.sandboxes.remove(&id);
 		}
 
-		let result = async {
-			// Bind the sandbox's principal before releasing the process task, because the per-sandbox VFS mount denies every artifact until it is bound.
-			let sender = control.sender();
-			let request = loop {
-				let message = control
-					.recv()
-					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?
-					.ok_or_else(|| {
-						tg::error!(%id, "the sandbox control stream ended before the principal was set")
-					})?;
-				if let tg::sandbox::control::ServerMessage::Request(request) = message {
-					break request;
-				}
-			};
-			let tg::sandbox::control::ServerRequestArg::SetPrincipal(arg) = request.arg else {
-				return Err(tg::error!(%id, "expected the set principal request"));
-			};
-			#[cfg(target_os = "linux")]
-			if let Some(vfs_principal) = &vfs_principal {
-				vfs_principal.lock().unwrap().replace(arg.principal);
-			}
-			#[cfg(not(target_os = "linux"))]
-			let _ = arg;
-			let response = Self::sandbox_control_response(
-				request.id,
-				Ok(tg::sandbox::control::ClientResponseOutput::SetPrincipal(
-					tg::sandbox::control::SetPrincipalClientResponseOutput {},
-				)),
-			);
-			sender
-				.send(response)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to send the sandbox control response"))?;
-
-			sandbox_id_sender.send(id.clone()).ok();
-			let arg = RunSandboxTaskArg {
-				control,
-				event_sender,
-				guest_url,
-				id: id.clone(),
-				location,
-				process_stopper,
-				process_task_output,
-				process_tasks,
-				sandbox,
-				serve_task,
-				state,
-				stopper,
-			};
-
-			self.run_sandbox_task(arg).boxed().await
+		// Bind the per-sandbox VFS mount before releasing the process task, because an unbound mount denies every artifact.
+		#[cfg(target_os = "linux")]
+		if let Some(vfs_principal) = &vfs_principal {
+			vfs_principal
+				.lock()
+				.unwrap()
+				.replace(tg::Principal::Sandbox(id.clone()));
 		}
-		.await;
+
+		sandbox_id_sender.send(id.clone()).ok();
+		let arg = RunSandboxTaskArg {
+			control,
+			event_sender,
+			guest_url,
+			id: id.clone(),
+			location,
+			process_stopper,
+			process_task_output,
+			process_tasks,
+			sandbox,
+			serve_task,
+			state,
+			stopper,
+		};
+		let result = self.run_sandbox_task(arg).boxed().await;
 
 		// Unmount the per-sandbox VFS mount and stop the VFS before removing the temp directory, which contains the mountpoint.
 		#[cfg(target_os = "linux")]
@@ -883,9 +853,6 @@ impl Session {
 								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 							let output = tg::sandbox::control::GetClientResponseOutput { data };
 							Ok(tg::sandbox::control::ClientResponseOutput::Get(output))
-						},
-						tg::sandbox::control::ServerRequestArg::SetPrincipal(_) => {
-							Err(tg::error!(%id, "the sandbox principal was already set"))
 						},
 						tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
 							timer_future.take();

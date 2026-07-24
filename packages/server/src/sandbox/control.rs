@@ -261,34 +261,6 @@ impl Session {
 				tg::error!(!error, "failed to publish the sandbox control connection")
 			})?;
 
-		// Send the sandbox its principal so the runner can bind its per-sandbox VFS mount. The response cannot be awaited here, because the sandbox receives the request on the stream this function returns.
-		let mut task = Task::spawn({
-			let session = session.clone();
-			let id = id.clone();
-			move |_| async move {
-				let request = tg::sandbox::control::ServerRequestArg::SetPrincipal(
-					tg::sandbox::control::SetPrincipalServerRequestArg {
-						principal: tg::Principal::Sandbox(id.clone()),
-					},
-				);
-				let retry = tangram_futures::retry::Options {
-					max_retries: u64::MAX,
-					..Default::default()
-				};
-				let options = crate::control::Options {
-					retry,
-					timeout: std::time::Duration::from_secs(10),
-				};
-				let result = session
-					.send_sandbox_control_request(&id, request, options)
-					.await;
-				if let Err(error) | Ok(Err(error)) = result {
-					tracing::error!(error = %error.trace(), %id, "failed to set the sandbox principal");
-				}
-			}
-		});
-		task.detach();
-
 		let output = tg::sandbox::control::Output { id, token };
 
 		Ok((output, stream))

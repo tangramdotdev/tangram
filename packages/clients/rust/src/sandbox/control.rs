@@ -56,7 +56,6 @@ pub struct ClientResponse {
 pub enum ClientResponseOutput {
 	Destroy(DestroyClientResponseOutput),
 	Get(GetClientResponseOutput),
-	SetPrincipal(SetPrincipalClientResponseOutput),
 	SpawnProcess(SpawnProcessClientResponseOutput),
 }
 
@@ -80,7 +79,6 @@ pub struct ServerRequest {
 pub enum ServerRequestArg {
 	Destroy(DestroyServerRequestArg),
 	Get(GetServerRequestArg),
-	SetPrincipal(SetPrincipalServerRequestArg),
 	SpawnProcess(SpawnProcessServerRequestArg),
 }
 
@@ -122,15 +120,6 @@ pub struct GetServerRequestArg {}
 pub struct GetClientResponseOutput {
 	pub data: tg::sandbox::get::Output,
 }
-
-/// The principal the sandbox serves. The runner binds its per-sandbox VFS mount to it, which denies every artifact until the mount is bound.
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct SetPrincipalServerRequestArg {
-	pub principal: tg::Principal,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct SetPrincipalClientResponseOutput {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SpawnProcessServerRequestArg {
