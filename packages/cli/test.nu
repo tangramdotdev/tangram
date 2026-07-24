@@ -114,6 +114,8 @@ def main [
 	# Build and install the current macOS app and file system extension. Isolate
 	# its default-feature Cargo build from the all-features test binary.
 	if $fskit {
+		force_unmount_vfs (fskit_temp_root)
+		stop_fskit_provider $release
 		let build_args = if $release { ['--release'] } else { [] }
 		let cargo_target_dir = ($repository_path | path join 'target/macos')
 		^bun run macos:build --cargo-target-dir $cargo_target_dir ...$build_args
@@ -1678,6 +1680,35 @@ def force_unmount_vfs_macos [path: string] {
 	for artifacts_path in $artifacts_paths {
 		try { ^umount -f $artifacts_path o> /dev/null e> /dev/null }
 	}
+}
+
+def stop_fskit_provider [release: bool] {
+	let app_name = if $release { 'Tangram' } else { 'Tangram Dev' }
+	let executable = (
+		$env.HOME
+		| path join $'Applications/($app_name).app/Contents/Extensions/TangramFSKit.appex/Contents/MacOS/TangramFSKit'
+	)
+	let pids = fskit_provider_pids $executable
+	for pid in $pids {
+		try { kill --quiet $pid }
+	}
+	for _ in 1..100 {
+		if (fskit_provider_pids $executable | is-empty) {
+			return
+		}
+		sleep 50ms
+	}
+	for pid in (fskit_provider_pids $executable) {
+		try { kill --force --quiet $pid }
+	}
+}
+
+def fskit_provider_pids [executable: path] {
+	ps --long
+	| where { |process|
+		($process.command? | default '') | str starts-with $executable
+	}
+	| get pid
 }
 
 def force_unmount_vfs_linux [path: string] {
