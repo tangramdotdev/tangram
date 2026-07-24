@@ -32,9 +32,9 @@ let path = artifact {
 	'#
 }
 let id = tg build --no-cache-pointers $path
-rm --recursive --force ($server.directory | path join "artifacts")
-mkdir ($server.directory | path join "artifacts")
+rm --recursive --force $server.cache_directory
+mkdir $server.cache_directory
 
 tg cache $id | complete
 
-snapshot --path ($server.directory | path join "artifacts")
+snapshot --path $server.cache_directory

@@ -1206,7 +1206,14 @@ export def --env spawn [
 		rm -rf $path
 	}
 
-	{ config: $config_path, directory: $directory_path, url: $url }
+	# Determine the physical cache directory. When a VFS is enabled, the
+	# artifacts directory is the mount point and the cache directory is its
+	# backing store.
+	let vfs = $config | get --optional vfs
+	let cache_directory_name = if $vfs == null or $vfs == false { 'artifacts' } else { 'cache' }
+	let cache_directory = $directory_path | path join $cache_directory_name
+
+	{ cache_directory: $cache_directory, config: $config_path, directory: $directory_path, url: $url }
 }
 
 def clean_databases [id: string] {

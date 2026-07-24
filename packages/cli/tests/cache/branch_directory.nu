@@ -28,4 +28,4 @@ let id = tg checkin $path
 tg cache $id
 
 # Snapshot the artifacts directory.
-snapshot --path ($server.directory | path join "artifacts")
+snapshot --path $server.cache_directory
