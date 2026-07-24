@@ -104,6 +104,11 @@ impl Cache {
 		permission: tg::grant::Permission,
 	) -> Self {
 		let mut cache = Self::default();
+		if let Some(grants) = self.resource_grants.get(resource) {
+			cache
+				.resource_grants
+				.insert(resource.clone(), grants.clone());
+		}
 		if let Some(parent) = self.resource_parents.get(resource) {
 			cache
 				.resource_parents
@@ -792,6 +797,23 @@ impl Index {
 		cache: &mut Cache,
 	) -> tg::Result<Vec<(tg::Id, tg::grant::Permission)>> {
 		let mut dependencies = Vec::new();
+
+		// Add the process principal grant relationships.
+		let grants =
+			Self::get_cached_resource_grants_with_transaction(txn, subspace, resource, cache)
+				.await?;
+		for (principal, granted_permission) in grants {
+			if !granted_permission.implies(permission) {
+				continue;
+			}
+			let tg::grant::Principal::Process(process) = principal else {
+				continue;
+			};
+			let permission =
+				tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+			dependencies.push((process.into(), permission));
+		}
+
 		match permission {
 			tg::grant::Permission::Object(_) => {
 				let object = tg::object::Id::try_from(resource.clone())?;

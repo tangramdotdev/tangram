@@ -534,6 +534,27 @@ impl Index {
 		cache: &mut Cache,
 	) -> tg::Result<Vec<(tg::Id, tg::grant::Permission)>> {
 		let mut dependencies = Vec::new();
+
+		// Add the process principal grant relationships.
+		let grants = Self::get_cached_resource_grants_with_transaction(
+			db,
+			subspace,
+			transaction,
+			resource,
+			cache,
+		)?;
+		for (principal, granted_permission) in grants {
+			if !granted_permission.implies(permission) {
+				continue;
+			}
+			let tg::grant::Principal::Process(process) = principal else {
+				continue;
+			};
+			let permission =
+				tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+			dependencies.push((process.into(), permission));
+		}
+
 		match permission {
 			tg::grant::Permission::Object(_) => {
 				// Get the requester process and command.
