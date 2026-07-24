@@ -61,6 +61,7 @@ opentelemetry_sdk = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
+liblzma = { workspace = true }
 maml = { workspace = true }
 miette = { workspace = true }
 num = { workspace = true }

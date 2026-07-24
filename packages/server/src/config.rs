@@ -1162,9 +1162,12 @@ pub struct SyncPutStore {
 	pub process_concurrency: usize,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Vfs {
+	/// The macOS app group identifier.
+	pub app_group_identifier: Option<String>,
+
 	pub kind: VfsKind,
 
 	pub io: VfsIo,
@@ -1539,13 +1542,14 @@ impl Default for LmdbObjectStore {
 }
 
 impl LmdbObjectStore {
-	/// Returns the POSIX semaphore prefix, falling back to the macOS app group identifier that the app passes in the environment. This lets the server and the sandboxed file system extension share the same lock by default, because the sandbox permits both processes to open a semaphore named for their shared app group. The server and the extension resolve the same value so the writer and the reader agree.
+	/// Returns the configured POSIX semaphore prefix or the app group default.
 	#[must_use]
 	pub fn resolved_posix_sem_prefix(&self) -> Option<String> {
 		self.posix_sem_prefix.clone().or_else(|| {
 			std::env::var("TANGRAM_MACOS_APP_GROUP_IDENTIFIER")
 				.ok()
 				.filter(|value| !value.is_empty())
+				.map(|identifier| format!("{identifier}/lmdb"))
 		})
 	}
 }
@@ -1775,10 +1779,28 @@ impl Default for SyncPutStore {
 impl Default for Vfs {
 	fn default() -> Self {
 		Self {
+			app_group_identifier: None,
 			kind: VfsKind::Auto,
 			io: VfsIo::Auto,
 			passthrough: VfsPassthrough::Auto,
 		}
+	}
+}
+
+impl Vfs {
+	/// Resolves the macOS app group socket path.
+	#[must_use]
+	pub fn resolved_app_group_socket(&self) -> Option<PathBuf> {
+		if let Some(path) = std::env::var_os("TANGRAM_MACOS_APP_GROUP_SOCKET") {
+			return Some(PathBuf::from(path));
+		}
+		let identifier = self.app_group_identifier.as_ref()?;
+		let home = std::env::var_os("HOME")?;
+		let socket = PathBuf::from(home)
+			.join("Library/Group Containers")
+			.join(identifier)
+			.join("socket");
+		Some(socket)
 	}
 }
 

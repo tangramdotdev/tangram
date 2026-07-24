@@ -19,4 +19,4 @@ let id = tg put $artifact
 tg cache $id
 
 # Snapshot.
-snapshot --path ($server.directory | path join "artifacts")
+snapshot --path $server.cache_directory

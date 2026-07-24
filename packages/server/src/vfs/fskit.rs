@@ -55,6 +55,8 @@ struct Response {
 
 impl Server {
 	pub async fn start(server: &crate::Server, path: &Path) -> tg::Result<Self> {
+		Self::unmount(path).await.ok();
+
 		// Ask the app to mount if the app started this server, because only the app can prompt for the file system extension's approval. Otherwise mount directly, which is the path the test harness takes.
 		if std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some() {
 			Self::start_with_app(server, path).await
@@ -70,7 +72,7 @@ impl Server {
 		let token = std::env::var("TANGRAM_MACOS_APP_TOKEN").map_err(|error| {
 			tg::error!(!error, "missing the macos app token environment variable")
 		})?;
-		let group_socket = Self::group_socket()?;
+		let group_socket = Self::group_socket(server)?;
 
 		// Create the request.
 		let object_store = Self::object_store(server);
@@ -122,7 +124,7 @@ impl Server {
 	}
 
 	async fn start_with_mount(server: &crate::Server, path: &Path) -> tg::Result<Self> {
-		let group_socket = Self::group_socket()?;
+		let group_socket = Self::group_socket(server)?;
 		let object_store = Self::object_store(server);
 		let options = Self::options(object_store.as_ref(), &group_socket);
 		let output = tokio::process::Command::new("/sbin/mount")
@@ -165,10 +167,14 @@ impl Server {
 		Ok(())
 	}
 
-	fn group_socket() -> tg::Result<PathBuf> {
-		let group_socket = std::env::var_os("TANGRAM_MACOS_APP_GROUP_SOCKET")
-			.ok_or_else(|| tg::error!("missing the macos app group socket environment variable"))?;
-		Ok(PathBuf::from(group_socket))
+	fn group_socket(server: &crate::Server) -> tg::Result<PathBuf> {
+		let vfs = server.config.vfs.clone().unwrap_or_default();
+		let group_socket = vfs.resolved_app_group_socket().ok_or_else(|| {
+			tg::error!(
+				"missing the macos app group socket environment variable and the vfs app group identifier is not configured"
+			)
+		})?;
+		Ok(group_socket)
 	}
 
 	fn object_store(server: &crate::Server) -> Option<ObjectStore> {

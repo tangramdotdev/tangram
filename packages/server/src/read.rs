@@ -246,21 +246,25 @@ impl Reader {
 			tg::object::Id::from(id.clone()),
 			blob.state().token(),
 		);
-		session
+		let authorized = session
 			.authorize(resource, permission)
 			.await?
-			.filter(|permissions| permissions.contains(permission))
-			.ok_or_else(|| tg::error!(%id, "failed to get the object"))?;
-		let arg = crate::object::store::TryGetArg {
-			id: id.clone().into(),
+			.is_some_and(|permissions| permissions.contains(permission));
+		let cache_pointer = if authorized {
+			let arg = crate::object::store::TryGetArg {
+				id: id.clone().into(),
+			};
+			session
+				.server
+				.object_store
+				.try_get(arg)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+				.object
+				.and_then(|object| object.cache_pointer)
+		} else {
+			None
 		};
-		let object = session
-			.server
-			.object_store
-			.try_get(arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		let cache_pointer = object.object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = session
 				.server

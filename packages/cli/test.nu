@@ -114,6 +114,8 @@ def main [
 	# Build and install the current macOS app and file system extension. Isolate
 	# its default-feature Cargo build from the all-features test binary.
 	if $fskit {
+		force_unmount_vfs (fskit_temp_root)
+		stop_fskit_provider $release
 		let build_args = if $release { ['--release'] } else { [] }
 		let cargo_target_dir = ($repository_path | path join 'target/macos')
 		^bun run macos:build --cargo-target-dir $cargo_target_dir ...$build_args
@@ -923,12 +925,15 @@ export def --env spawn [
 	--quickjs # Use QuickJS as the JS engine.
 	--url (-u): string
 ] {
-	# Give the object store's lock semaphores a unique prefix per server. lmdb
-	# appends 'r' and 'w' to form the two POSIX semaphore names, which are global
-	# to the machine, so concurrent test servers must not share a prefix. The
-	# prefix plus one character must fit the platform limit, which is 31
-	# characters on macOS.
-	let object_store_posix_sem_prefix = $'/tg-((random chars) | str lowercase | str substring 0..7)'
+	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
+
+	# Use unique semaphore names in the namespace FSKit can access.
+	let object_store_posix_sem_prefix = if $use_fskit {
+		let app_group_identifier = (identifiers).app_group_identifier
+		$'($app_group_identifier)/((random chars) | str lowercase | str substring 0..5)'
+	} else {
+		$'/tg-((random chars) | str lowercase | str substring 0..7)'
+	}
 
 	mut default_config = {
 		advanced: {
@@ -978,7 +983,6 @@ export def --env spawn [
 		}
 	}
 
-	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
 	if $use_fskit {
 		$default_config = $default_config | merge deep {
 			vfs: {
@@ -1194,7 +1198,11 @@ export def --env spawn [
 		rm -rf $path
 	}
 
-	{ config: $config_path, directory: $directory_path, url: $url }
+	let vfs = $config | get --optional vfs
+	let cache_directory_name = if $vfs == null or $vfs == false { 'artifacts' } else { 'cache' }
+	let cache_directory = $directory_path | path join $cache_directory_name
+
+	{ cache_directory: $cache_directory, config: $config_path, directory: $directory_path, url: $url }
 }
 
 def clean_databases [id: string] {
@@ -1668,6 +1676,35 @@ def force_unmount_vfs_macos [path: string] {
 	for artifacts_path in $artifacts_paths {
 		try { ^umount -f $artifacts_path o> /dev/null e> /dev/null }
 	}
+}
+
+def stop_fskit_provider [release: bool] {
+	let app_name = if $release { 'Tangram' } else { 'Tangram Dev' }
+	let executable = (
+		$env.HOME
+		| path join $'Applications/($app_name).app/Contents/Extensions/TangramFSKit.appex/Contents/MacOS/TangramFSKit'
+	)
+	let pids = fskit_provider_pids $executable
+	for pid in $pids {
+		try { kill --quiet $pid }
+	}
+	for _ in 1..100 {
+		if (fskit_provider_pids $executable | is-empty) {
+			return
+		}
+		sleep 50ms
+	}
+	for pid in (fskit_provider_pids $executable) {
+		try { kill --force --quiet $pid }
+	}
+}
+
+def fskit_provider_pids [executable: path] {
+	ps --long
+	| where { |process|
+		($process.command? | default '') | str starts-with $executable
+	}
+	| get pid
 }
 
 def force_unmount_vfs_linux [path: string] {

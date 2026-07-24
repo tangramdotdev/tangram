@@ -307,11 +307,8 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		let objectStoreMapSize = options["object_store_map_size"].flatMap(UInt64.init) ?? 0
 		let objectStorePath = options["object_store_path"] ?? ""
 
-		// The object store's lock semaphores must be named so that the sandboxed
-		// extension and the server can both open them. When the server does not
-		// send a prefix, default to the app group identifier, which the sandbox
-		// permits both processes to open. LMDB appends an 'r' or 'w' character.
-		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? appGroupIdentifier
+		// Share the LMDB lock through the app group.
+		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
 
 		// The client connects to the server over the unix socket the server sends as
 		// a mount option, which lets concurrent servers each serve on their own
@@ -654,6 +651,10 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 			reply(nil)
 			return
 		}
+		if item.handle != nil {
+			reply(nil)
+			return
+		}
 		submit({ response, status in
 			var handle: UInt64 = 0
 			guard let response, tg_response_open(response, &handle, nil) == 0 else {
@@ -668,7 +669,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 	}
 
 	func closeItem(_ item: FSItem, modes: FSVolume.OpenModes, replyHandler reply: @escaping (Error?) -> Void) {
-		if let item = item as? TangramItem, let handle = item.handle {
+		if modes.isEmpty, let item = item as? TangramItem, let handle = item.handle {
 			_ = self.withProvider { tg_provider_close_sync($0, handle) }
 			item.handle = nil
 		}
@@ -682,15 +683,50 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		into buffer: FSMutableFileDataBuffer,
 		replyHandler reply: @escaping (Int, Error?) -> Void,
 	) {
-		guard let item = item as? TangramItem, let handle = item.handle else {
-			reply(0, posixError(EBADF))
+		guard let item = item as? TangramItem else {
+			reply(0, posixError(EINVAL))
 			return
 		}
 		guard offset >= 0 else {
 			reply(0, posixError(EINVAL))
 			return
 		}
+		if let handle = item.handle {
+			read(handle: handle, offset: offset, length: length, into: buffer, closeAfterRead: false, replyHandler: reply)
+			return
+		}
+		// FSKit can read an executable before opening it.
 		submit({ response, status in
+			var handle: UInt64 = 0
+			guard let response, tg_response_open(response, &handle, nil) == 0 else {
+				reply(0, posixError(status < 0 ? -status : EIO))
+				return
+			}
+			self.read(
+				handle: handle,
+				offset: offset,
+				length: length,
+				into: buffer,
+				closeAfterRead: true,
+				replyHandler: reply,
+			)
+		}, { callback, context in
+			self.withProvider { tg_provider_open_async($0, item.nodeID, callback, context) }
+		})
+	}
+
+	private func read(
+		handle: UInt64,
+		offset: off_t,
+		length: Int,
+		into buffer: FSMutableFileDataBuffer,
+		closeAfterRead: Bool,
+		replyHandler reply: @escaping (Int, Error?) -> Void,
+	) {
+		submit({ response, status in
+			if closeAfterRead {
+				_ = self.withProvider { tg_provider_close_sync($0, handle) }
+			}
 			var pointer: UnsafePointer<UInt8>?
 			var count = 0
 			guard let response, tg_response_bytes(response, &pointer, &count) == 0, let pointer else {
