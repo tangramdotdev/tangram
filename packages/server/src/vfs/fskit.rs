@@ -55,6 +55,8 @@ struct Response {
 
 impl Server {
 	pub async fn start(server: &crate::Server, path: &Path) -> tg::Result<Self> {
+		Self::unmount(path).await.ok();
+
 		// Ask the app to mount if the app started this server, because only the app can prompt for the file system extension's approval. Otherwise mount directly, which is the path the test harness takes.
 		if std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some() {
 			Self::start_with_app(server, path).await
