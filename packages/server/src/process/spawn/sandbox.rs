@@ -30,7 +30,8 @@ impl Session {
 				let id = process.id.clone();
 				let mut process_connection_future = self.subscribe_process_connection(&id).await?;
 				let sandbox = process.data.sandbox.clone();
-				let sandbox_connection_future = self.subscribe_sandbox_connection(&sandbox).await?;
+				let mut sandbox_connection_future =
+					self.subscribe_sandbox_connection(&sandbox).await?;
 				self.spawn_process_in_new_sandbox(process).await?;
 				if let Some(sender) = scheduler_sender.take() {
 					let scheduler = process
@@ -44,7 +45,11 @@ impl Session {
 					.clone()
 					.ok_or_else(|| tg::error!("missing the scheduler"))?;
 				let connected = self
-					.try_wait_process_connection(&scheduler, &mut process_connection_future)
+					.try_wait_process_connection(
+						&scheduler,
+						&mut process_connection_future,
+						&mut sandbox_connection_future,
+					)
 					.await?;
 				let Some(connected) = connected else {
 					self.spawn_process_sandbox_cleanup_after_scheduler_heartbeat_expiration(
@@ -76,10 +81,15 @@ impl Session {
 	async fn try_wait_process_connection(
 		&self,
 		scheduler: &tg::scheduler::Id,
-		connection_future: &mut crate::process::ConnectionFuture,
+		process_connection_future: &mut crate::process::ConnectionFuture,
+		sandbox_connection_future: &mut crate::sandbox::ConnectionFuture,
 	) -> tg::Result<Option<crate::process::control::Connected>> {
 		tokio::select! {
-			result = connection_future.as_mut() => result.map(Some),
+			result = process_connection_future.as_mut() => result.map(Some),
+			result = sandbox_connection_future.as_mut() => {
+				result?;
+				process_connection_future.as_mut().await.map(Some)
+			},
 			result = self.scheduler_heartbeat_expired(scheduler) => result.map(|()| None),
 		}
 	}
