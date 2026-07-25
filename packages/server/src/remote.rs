@@ -140,14 +140,14 @@ impl Session {
 			tg::Principal::Process(id) => self
 				.server
 				.runner
-				.state
+				.state()
 				.try_get_process_sandbox(id)
-				.and_then(|sandbox| self.server.runner.state.try_get_sandbox(&sandbox))
+				.and_then(|sandbox| self.server.runner.state().try_get_sandbox(&sandbox))
 				.map(|sandbox| sandbox.owner),
 			tg::Principal::Sandbox(id) => self
 				.server
 				.runner
-				.state
+				.state()
 				.try_get_sandbox(id)
 				.map(|sandbox| sandbox.owner),
 			_ => None,

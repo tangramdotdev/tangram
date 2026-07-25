@@ -1,13 +1,7 @@
-use {
-	super::local::Output,
-	crate::Session,
-	futures::{FutureExt as _, TryStreamExt as _},
-	tangram_client::prelude::*,
-	tangram_messenger::Messenger as _,
-};
+use {super::local::Output, crate::Session, futures::FutureExt as _, tangram_client::prelude::*};
 
 impl Session {
-	pub(super) async fn spawn_process_start_local(
+	pub(super) async fn spawn_process_in_new_or_existing_sandbox(
 		&self,
 		arg: &tg::process::spawn::Arg,
 		mut output: Option<Output>,
@@ -22,32 +16,21 @@ impl Session {
 
 		match &arg.sandbox {
 			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
-				let started = self
+				let ready_event = self
 					.spawn_process_in_new_sandbox(process)
 					.await?
-					.ok_or_else(|| tg::error!("expected the sandbox to be started"))?;
-				let process_connected = started
-					.process
+					.ok_or_else(|| tg::error!("expected the sandbox to be ready"))?;
+				let connected_event = ready_event
+					.connected_event
 					.ok_or_else(|| tg::error!("expected the process to be connected"))?;
-				process.data.sandbox = started.sandbox;
-				Self::spawn_process_apply_connected(process, process_connected)?;
+				process.data.sandbox = ready_event.sandbox;
+				Self::spawn_process_apply_connected(process, connected_event)?;
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
-				let mut connected = self
-					.server
-					.messenger
-					.subscribe::<crate::process::control::Connected>(
-						crate::process::control::connected_subject(&id),
-					)
-					.await
-					.map_err(|error| {
-						tg::error!(
-							!error,
-							process = %id,
-							"failed to subscribe to the process control connection"
-						)
-					})?;
+				let mut process_connection_future = self.subscribe_process_connection(&id).await?;
+				let sandbox = process.data.sandbox.clone();
+				let sandbox_connection_future = self.subscribe_sandbox_connection(&sandbox).await?;
 				self.spawn_process_in_new_sandbox(process).await?;
 				if let Some(sender) = scheduler_sender.take() {
 					let scheduler = process
@@ -56,30 +39,33 @@ impl Session {
 						.ok_or_else(|| tg::error!("missing the scheduler"))?;
 					sender.send(scheduler).ok();
 				}
-				let connected = tokio::time::timeout(
-					self.server.config.process.spawn_connection_timeout,
-					connected.try_next(),
-				)
-				.await
-				.map_err(|_| {
-					tg::error!(
+				let scheduler = process
+					.scheduler
+					.clone()
+					.ok_or_else(|| tg::error!("missing the scheduler"))?;
+				let connected = self
+					.try_wait_process_connection(&scheduler, &mut process_connection_future)
+					.await?;
+				let Some(connected) = connected else {
+					self.spawn_process_sandbox_cleanup_after_scheduler_heartbeat_expiration(
+						id.clone(),
+						sandbox.clone(),
+						scheduler.clone(),
+						sandbox_connection_future,
+					);
+					return Err(tg::error!(
+						code = tg::error::Code::HeartbeatExpiration,
 						process = %id,
-						"timed out waiting for the process control connection"
-					)
-				})?
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						process = %id,
-						"failed to receive the process control connection"
-					)
-				})?
-				.ok_or_else(|| tg::error!("the process control connection stream ended"))?;
-				process.lease = Some(connected.payload.lease);
+						%sandbox,
+						%scheduler,
+						"the scheduler heartbeat expired"
+					));
+				};
+				process.lease = Some(connected.lease);
 			},
 			Some(tg::Either::Right(_)) => {
-				let connected = self.spawn_process_in_existing_sandbox(process).await?;
-				Self::spawn_process_apply_connected(process, connected)?;
+				let connected_event = self.spawn_process_in_existing_sandbox(process).await?;
+				Self::spawn_process_apply_connected(process, connected_event)?;
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		}
@@ -87,20 +73,65 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn try_wait_process_connection(
+		&self,
+		scheduler: &tg::scheduler::Id,
+		connection_future: &mut crate::process::ConnectionFuture,
+	) -> tg::Result<Option<crate::process::control::Connected>> {
+		tokio::select! {
+			result = connection_future.as_mut() => result.map(Some),
+			result = self.scheduler_heartbeat_expired(scheduler) => result.map(|()| None),
+		}
+	}
+
+	fn spawn_process_sandbox_cleanup_after_scheduler_heartbeat_expiration(
+		&self,
+		process: tg::process::Id,
+		sandbox: tg::sandbox::Id,
+		scheduler: tg::scheduler::Id,
+		connection_future: crate::sandbox::ConnectionFuture,
+	) {
+		let error = tg::error::Data {
+			code: Some(tg::error::Code::HeartbeatExpiration),
+			message: Some("the scheduler heartbeat expired".into()),
+			..Default::default()
+		};
+		let arg = tg::sandbox::destroy::Arg {
+			error: Some(tg::Either::Left(error)),
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+		};
+		let session = self.server.session(&self.server.context);
+		tokio::spawn(async move {
+			session
+				.destroy_sandbox_when_available(&sandbox, arg, connection_future)
+				.await
+				.inspect_err(|error| {
+					tracing::error!(
+						error = %error.trace(),
+						%process,
+						%sandbox,
+						%scheduler,
+						"failed to destroy the sandbox after the scheduler heartbeat expired"
+					);
+				})
+				.ok();
+		});
+	}
+
 	fn spawn_process_apply_connected(
 		output: &mut Output,
-		connected: crate::runner::ProcessConnected,
+		connected_event: crate::runner::process::ConnectedEvent,
 	) -> tg::Result<()> {
 		let assigned = output.process_token.is_some();
-		if !assigned && connected.grant.is_none() {
+		if !assigned && connected_event.grant.is_none() {
 			return Err(tg::error!(
-				process = %connected.process,
+				process = %connected_event.process,
 				"missing the process grant"
 			));
 		}
-		output.id = connected.process;
-		output.lease = Some(connected.lease);
-		if let Some(grant) = connected.grant {
+		output.id = connected_event.process;
+		output.lease = Some(connected_event.lease);
+		if let Some(grant) = connected_event.grant {
 			output.token = Some(grant);
 		}
 		Ok(())
@@ -120,7 +151,7 @@ impl Session {
 	async fn spawn_process_in_existing_sandbox(
 		&self,
 		output: &Output,
-	) -> tg::Result<crate::runner::ProcessConnected> {
+	) -> tg::Result<crate::runner::process::ConnectedEvent> {
 		let process = Self::spawn_process_runner_arg(output);
 		let id = output.id.clone();
 		let assigned = process.id.is_some();
@@ -152,19 +183,19 @@ impl Session {
 				"the runner returned an invalid process"
 			));
 		}
-		let connected = crate::runner::ProcessConnected {
+		let connected_event = crate::runner::process::ConnectedEvent {
 			grant: output.grant,
 			lease: output.lease,
 			process: output.process,
 		};
 
-		Ok(connected)
+		Ok(connected_event)
 	}
 
 	async fn spawn_process_in_new_sandbox(
 		&self,
 		output: &mut Output,
-	) -> tg::Result<Option<crate::runner::SandboxStarted>> {
+	) -> tg::Result<Option<crate::runner::sandbox::ReadyEvent>> {
 		let arg = output
 			.sandbox_arg
 			.clone()
@@ -177,30 +208,33 @@ impl Session {
 				.as_ref()
 				.map(|_| output.data.sandbox.clone());
 			let token = output.sandbox_token.clone();
-			let task = self
-				.server
-				.spawn_sandbox_task(crate::runner::SpawnSandboxTaskArg {
-					allocation,
-					arg,
-					creator: Some(self.context.principal.clone()),
-					id,
-					location,
-					process: Some(process),
-					token,
-				});
+			let spawn_sandbox_task_arg = crate::runner::sandbox::SpawnSandboxTaskArg {
+				allocation,
+				arg,
+				creator: Some(self.context.principal.clone()),
+				id,
+				location,
+				process: Some(process),
+				token,
+			};
+			let task = self.server.spawn_sandbox_task(spawn_sandbox_task_arg);
 			let mut events = task.events;
 			let event = events
 				.recv()
 				.await
 				.ok_or_else(|| tg::error!("the sandbox event sender was dropped"))??;
 			match event {
-				crate::runner::SandboxEvent::Destroy => {
-					return Err(tg::error!("the sandbox was destroyed before it started"));
+				crate::runner::sandbox::Event::Destroyed => {
+					return Err(tg::error!(
+						"the sandbox was destroyed before it became ready"
+					));
 				},
-				crate::runner::SandboxEvent::Start(event) => return Ok(Some(event)),
+				crate::runner::sandbox::Event::Ready(ready_event) => {
+					return Ok(Some(ready_event));
+				},
 			}
 		}
-		let request = crate::scheduler::CreateSandboxRequestArg {
+		let request = crate::scheduler::EnqueueSandboxRequestArg {
 			arg,
 			creator: Some(self.context.principal.clone()),
 			parent: output.parent_sandbox.clone(),

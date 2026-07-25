@@ -21,14 +21,14 @@ impl Session {
 		let parent_sandbox = self
 			.server
 			.runner
-			.state
+			.state()
 			.try_get_process_sandbox(&parent)
 			.ok_or_else(|| tg::error!("the parent process was not found"))?;
 		let mut parent_sandbox = self
 			.server
 			.runner
-			.state
-			.sandboxes
+			.state()
+			.sandboxes()
 			.get_mut(&parent_sandbox)
 			.ok_or_else(|| tg::error!("the parent sandbox was not found"))?;
 		let parent_process = parent_sandbox

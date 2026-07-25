@@ -1101,7 +1101,7 @@ impl Server {
 					session.runner_task(id, stopper).boxed().await;
 				}
 			});
-			server.runner.task.lock().unwrap().replace(task);
+			server.runner.task().lock().unwrap().replace(task);
 		}
 
 		let shutdown = {
@@ -1122,7 +1122,7 @@ impl Server {
 				}
 
 				// Stop the runner task.
-				let runner_task = server.runner.task.lock().unwrap().take();
+				let runner_task = server.runner.task().lock().unwrap().take();
 				if let Some(task) = runner_task {
 					task.stop();
 					let result = task.wait().await;

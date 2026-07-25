@@ -138,7 +138,7 @@ impl Session {
 		id: &tg::process::Id,
 		metadata: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		if let Some(data) = self.server.runner.state.try_get_process(id)
+		if let Some(data) = self.server.runner.state().try_get_process(id)
 			&& !data.status.is_finished()
 		{
 			let metadata = if metadata {

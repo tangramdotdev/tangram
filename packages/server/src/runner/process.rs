@@ -72,8 +72,8 @@ struct CollectProcessOutputArg<'a> {
 }
 
 pub(super) enum Event {
-	Connect(ConnectedEvent),
-	Exit,
+	Connected(ConnectedEvent),
+	Exited,
 }
 
 #[derive(Clone, Debug)]
@@ -565,7 +565,7 @@ impl Session {
 			}
 		}
 		event_sender
-			.send(Ok(Event::Connect(ConnectedEvent {
+			.send(Ok(Event::Connected(ConnectedEvent {
 				grant: output.grant,
 				lease: lease.clone(),
 				process: id.clone(),
@@ -647,7 +647,7 @@ impl Session {
 			},
 			Err(error) => Err(error),
 		};
-		event_sender.send(Ok(Event::Exit)).ok();
+		event_sender.send(Ok(Event::Exited)).ok();
 		let arg = FinishProcessTaskArg {
 			control_task,
 			finish_sender,

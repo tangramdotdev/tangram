@@ -79,7 +79,7 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		if let Some(data) = self.server.runner.state.try_get_sandbox(id)
+		if let Some(data) = self.server.runner.state().try_get_sandbox(id)
 			&& !data.status.is_destroyed()
 		{
 			return Ok(Some(data));

@@ -43,11 +43,11 @@ impl Session {
 				.roles
 				.contains(&crate::config::Role::Runner)
 			{
-				Some(self.server.runner.state.capacity.get())
+				Some(self.server.runner.state().capacity().get())
 			} else {
 				None
 			};
-			let started = self.server.runner.state.started_process_count();
+			let started = self.server.runner.state().started_process_count();
 
 			Some(tg::health::Processes { capacity, started })
 		} else {

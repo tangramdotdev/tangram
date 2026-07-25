@@ -199,7 +199,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, %process, "failed to update the process log"))?;
 		self.server
 			.runner
-			.state
+			.state()
 			.try_update_process(process, |state| {
 				state.data.log = Some(tg::Referent::with_item(blob.clone()));
 			});

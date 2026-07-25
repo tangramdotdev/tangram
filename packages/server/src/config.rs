@@ -698,10 +698,6 @@ pub struct Process {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_touch: Duration,
 
-	#[serde(default = "default_process_spawn_connection_timeout")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub spawn_connection_timeout: Duration,
-
 	#[serde(alias = "tti", default = "default_time_to_index")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
@@ -862,6 +858,12 @@ pub struct Scheduler {
 	pub default_memory: u64,
 
 	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub heartbeat_interval: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub heartbeat_ttl: Duration,
+
+	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub inbox_ttl: Duration,
 
 	#[serde(default = "message_retry_default")]
@@ -884,9 +886,6 @@ pub struct Scheduler {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub create_connection_timeout: Duration,
-
 	#[serde(default)]
 	pub finalizer: Finalizer,
 
@@ -1560,7 +1559,6 @@ impl Default for Process {
 			finalizer: Finalizer::default(),
 			grant_time_to_live: default_process_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
-			spawn_connection_timeout: default_process_spawn_connection_timeout(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1606,6 +1604,8 @@ impl Default for Scheduler {
 			create_sandbox_timeout: Duration::from_secs(10),
 			default_cpu: default_scheduler_cpu(),
 			default_memory: default_scheduler_memory(),
+			heartbeat_interval: Duration::from_secs(1),
+			heartbeat_ttl: Duration::from_secs(10),
 			inbox_ttl: Duration::from_mins(1),
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
@@ -1620,7 +1620,6 @@ impl Default for Scheduler {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			create_connection_timeout: Duration::from_secs(10),
 			finalizer: Finalizer::default(),
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
@@ -1955,10 +1954,6 @@ fn default_object_grant_time_to_live() -> Duration {
 
 fn default_process_grant_time_to_live() -> Duration {
 	Duration::from_hours(24)
-}
-
-fn default_process_spawn_connection_timeout() -> Duration {
-	Duration::from_secs(10)
 }
 
 fn default_time_to_touch() -> Duration {

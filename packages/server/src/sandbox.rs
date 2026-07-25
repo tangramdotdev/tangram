@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	dashmap::DashMap,
+	futures::future::BoxFuture,
 	std::{collections::HashMap, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
@@ -15,10 +16,11 @@ pub mod isolation;
 pub mod list;
 pub mod status;
 
+pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<()>>;
 pub type Map = DashMap<tg::sandbox::Id, State, tg::id::BuildHasher>;
 
 pub struct State {
-	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::Allocation>>>>,
+	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::capacity::Allocation>>>>,
 	pub data: tg::sandbox::get::Output,
 	pub processes: HashMap<tg::process::Id, crate::process::State>,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,

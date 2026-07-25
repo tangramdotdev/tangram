@@ -13,15 +13,9 @@ use {
 	tangram_futures::task::{Stopper, Task},
 };
 
-mod capacity;
-mod process;
-mod sandbox;
-
-pub(crate) use self::{
-	capacity::Allocation,
-	process::ConnectedEvent as ProcessConnected,
-	sandbox::{Event as SandboxEvent, SpawnSandboxTaskArg, StartedEvent as SandboxStarted},
-};
+pub(crate) mod capacity;
+pub(crate) mod process;
+pub(crate) mod sandbox;
 
 pub mod control;
 
@@ -36,19 +30,18 @@ pub(super) struct Config {
 
 pub struct Runner {
 	sandbox_pool: self::sandbox::Pool,
-	pub state: State,
-	pub task: Mutex<Option<Task<()>>>,
+	state: State,
+	task: Mutex<Option<Task<()>>>,
 }
 
 pub struct State {
-	pub capacity: self::capacity::Pool,
-	pub id: Mutex<Option<tg::runner::Id>>,
+	capacity: self::capacity::Pool,
+	id: Mutex<Option<tg::runner::Id>>,
 	next_sandbox_id: AtomicU64,
-	pub process_tokens:
-		dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>>,
-	pub processes: crate::process::Map,
-	pub reservations: self::capacity::Reservations,
-	pub sandboxes: crate::sandbox::Map,
+	process_tokens: dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>>,
+	processes: crate::process::Map,
+	reservations: self::capacity::Reservations,
+	sandboxes: crate::sandbox::Map,
 	scheduler: tokio::sync::watch::Sender<Option<tg::scheduler::Id>>,
 }
 
@@ -73,6 +66,16 @@ impl Runner {
 			state,
 			task,
 		}
+	}
+
+	#[must_use]
+	pub(crate) fn state(&self) -> &State {
+		&self.state
+	}
+
+	#[must_use]
+	pub(crate) fn task(&self) -> &Mutex<Option<Task<()>>> {
+		&self.task
 	}
 }
 
@@ -215,11 +218,11 @@ impl Session {
 
 		// Process the messages the scheduler sends to this runner.
 		loop {
-			let receive = control.recv();
-			let receive = pin!(receive);
-			let stop = stopper.wait();
-			let stop = pin!(stop);
-			let result = future::select(receive, stop).await;
+			let receive_future = control.recv();
+			let receive_future = pin!(receive_future);
+			let stop_future = stopper.wait();
+			let stop_future = pin!(stop_future);
+			let result = future::select(receive_future, stop_future).await;
 			let message = match result {
 				future::Either::Left((result, _)) => result.map_err(|source| {
 					tg::error!(!source, "failed to receive a runner control message")
@@ -267,15 +270,17 @@ impl Session {
 				sender.send(message).await.ok();
 				continue;
 			};
-			let task = self.server.spawn_sandbox_task(SpawnSandboxTaskArg {
-				allocation,
-				arg: request.arg,
-				creator: request.creator,
-				id: Some(sandbox.clone()),
-				location: location.clone(),
-				process: request.process,
-				token: Some(token),
-			});
+			let task = self
+				.server
+				.spawn_sandbox_task(self::sandbox::SpawnSandboxTaskArg {
+					allocation,
+					arg: request.arg,
+					creator: request.creator,
+					id: Some(sandbox.clone()),
+					location: location.clone(),
+					process: request.process,
+					token: Some(token),
+				});
 
 			// Send the response.
 			let output = tg::runner::control::CreateSandboxClientResponseOutput { created: true };
@@ -294,8 +299,8 @@ impl Session {
 					let mut events = task.events;
 					while let Some(event) = events.recv().await {
 						match event {
-							Ok(SandboxEvent::Destroy) | Err(_) => break,
-							Ok(SandboxEvent::Start(_)) => {},
+							Ok(self::sandbox::Event::Destroyed) | Err(_) => break,
+							Ok(self::sandbox::Event::Ready(_)) => {},
 						}
 					}
 					let id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
@@ -383,6 +388,33 @@ impl Session {
 }
 
 impl State {
+	#[must_use]
+	pub(crate) fn capacity(&self) -> &self::capacity::Pool {
+		&self.capacity
+	}
+
+	#[must_use]
+	pub(crate) fn processes(&self) -> &crate::process::Map {
+		&self.processes
+	}
+
+	#[must_use]
+	pub(crate) fn process_tokens(
+		&self,
+	) -> &dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>> {
+		&self.process_tokens
+	}
+
+	#[must_use]
+	pub(crate) fn reservations(&self) -> &self::capacity::Reservations {
+		&self.reservations
+	}
+
+	#[must_use]
+	pub(crate) fn sandboxes(&self) -> &crate::sandbox::Map {
+		&self.sandboxes
+	}
+
 	pub async fn wait_for_scheduler(&self) -> tg::scheduler::Id {
 		let mut scheduler = self.scheduler.subscribe();
 		loop {

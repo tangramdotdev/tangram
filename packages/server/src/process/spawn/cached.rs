@@ -285,7 +285,7 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the authenticated process"))?;
 		let sandbox = process.sandbox;
-		let owner = if let Some(sandbox) = self.server.runner.state.sandboxes.get(&sandbox) {
+		let owner = if let Some(sandbox) = self.server.runner.state().sandboxes().get(&sandbox) {
 			sandbox.data.owner.clone()
 		} else {
 			self.get_sandbox_from_index(&sandbox)

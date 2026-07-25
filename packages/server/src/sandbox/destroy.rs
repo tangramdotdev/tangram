@@ -57,6 +57,46 @@ impl Session {
 		Ok(None)
 	}
 
+	pub(crate) async fn destroy_sandbox_when_available(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::destroy::Arg,
+		connection_future: super::ConnectionFuture,
+	) -> tg::Result<()> {
+		match self.try_destroy_sandbox(id, arg.clone()).await {
+			Ok(Some(_)) => return Ok(()),
+			Ok(None) => {},
+			Err(error) => {
+				tracing::error!(
+					error = %error.trace(),
+					%id,
+					"failed to destroy the sandbox before its control connection"
+				);
+			},
+		}
+		let timeout = self.server.config.scheduler.create_sandbox_timeout;
+		tokio::time::timeout(timeout, connection_future)
+			.await
+			.map_err(|_| {
+				tg::error!(
+					%id,
+					"timed out waiting for the sandbox control connection before destroying it"
+				)
+			})??;
+		let output = self
+			.try_destroy_sandbox(id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?;
+		if output.is_none() {
+			return Err(tg::error!(
+				%id,
+				"failed to find the sandbox after its control connection"
+			));
+		}
+
+		Ok(())
+	}
+
 	pub(crate) async fn try_destroy_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,

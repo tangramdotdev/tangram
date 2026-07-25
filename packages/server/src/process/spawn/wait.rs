@@ -4,11 +4,10 @@ use {
 	futures::{FutureExt as _, future},
 	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_messenger::Messenger as _,
 };
 
 impl Session {
-	pub(super) async fn spawn_process_start_or_get_cached(
+	pub(super) async fn spawn_process_in_sandbox_or_get_cached(
 		&self,
 		arg: &tg::process::spawn::Arg,
 		output: Option<Output>,
@@ -19,6 +18,11 @@ impl Session {
 			(output.sandbox_arg.is_some() && output.allocation.is_none())
 				.then(|| output.data.sandbox.clone())
 		});
+		let sandbox_connection_future = if let Some(sandbox) = &scheduled_sandbox {
+			Some(self.subscribe_sandbox_connection(sandbox).await?)
+		} else {
+			None
+		};
 		let (scheduler_sender, scheduler_receiver) = if scheduled_sandbox.is_some() {
 			let (sender, receiver) = tokio::sync::oneshot::channel();
 			(Some(sender), Some(receiver))
@@ -26,10 +30,10 @@ impl Session {
 			(None, None)
 		};
 		let cache_future = self.spawn_process_get_cached_process(arg, location, candidate.as_ref());
-		let start_future = self
-			.spawn_process_start_local(arg, output, scheduler_sender)
+		let spawn_future = self
+			.spawn_process_in_new_or_existing_sandbox(arg, output, scheduler_sender)
 			.boxed();
-		let (cache, wait, output) = match future::select(start_future, pin!(cache_future)).await {
+		let (cache, wait, output) = match future::select(spawn_future, pin!(cache_future)).await {
 			future::Either::Left((result, cache_future)) => {
 				let output = result?;
 				let local_id = output.as_ref().map(|output| output.id.clone());
@@ -40,7 +44,7 @@ impl Session {
 					future::Either::Right((result, _)) => (result?, None, output),
 				}
 			},
-			future::Either::Right((result, mut start_future)) => {
+			future::Either::Right((result, mut spawn_future)) => {
 				let cache = result?;
 				if cache.is_some()
 					&& let Some(sandbox) = &scheduled_sandbox
@@ -52,22 +56,25 @@ impl Session {
 							.map_err(|_| tg::error!("failed to receive the scheduler"))
 					};
 					let scheduler_future = pin!(scheduler_future);
-					match future::select(start_future.as_mut(), scheduler_future).await {
+					match future::select(spawn_future.as_mut(), scheduler_future).await {
 						future::Either::Left((result, _)) => {
 							if let Some(output) = result? {
-								self.spawn_process_cancel_candidate(output.id, output.lease)
+								self.destroy_process_candidate_sandbox(&output.data.sandbox)
 									.await?;
 							}
 						},
 						future::Either::Right((result, _)) => {
 							let scheduler = result?;
-							self.spawn_process_cancel_scheduled_candidate(sandbox, &scheduler)
-								.await?;
+							self.spawn_process_dequeue_sandbox_candidate(
+								sandbox.clone(),
+								scheduler,
+								sandbox_connection_future.unwrap(),
+							);
 						},
 					}
 					return Ok(cache.map(cached::Output::into_output));
 				}
-				let output = start_future.await?;
+				let output = spawn_future.await?;
 				(cache, None, output)
 			},
 		};
@@ -227,6 +234,62 @@ impl Session {
 		Ok(output)
 	}
 
+	fn spawn_process_dequeue_sandbox_candidate(
+		&self,
+		sandbox: tg::sandbox::Id,
+		scheduler: tg::scheduler::Id,
+		connection_future: crate::sandbox::ConnectionFuture,
+	) {
+		let session = self.clone();
+		tokio::spawn(async move {
+			let output = session.dequeue_sandbox(&sandbox, &scheduler).await;
+			let destroy_required = match output {
+				Ok(dequeued) => !dequeued,
+				Err(error) => {
+					tracing::error!(
+						error = %error.trace(),
+						%sandbox,
+						%scheduler,
+						"failed to dequeue the sandbox for the unused process candidate"
+					);
+					true
+				},
+			};
+			if !destroy_required {
+				return;
+			}
+
+			let arg = process_candidate_sandbox_destroy_arg();
+			let session = session.server.session(&session.server.context);
+			session
+				.destroy_sandbox_when_available(&sandbox, arg, connection_future)
+				.await
+				.inspect_err(|error| {
+					tracing::error!(
+						error = %error.trace(),
+						%sandbox,
+						%scheduler,
+						"failed to destroy the connected sandbox for the unused process candidate"
+					);
+				})
+				.ok();
+		});
+	}
+
+	async fn destroy_process_candidate_sandbox(&self, sandbox: &tg::sandbox::Id) -> tg::Result<()> {
+		let arg = process_candidate_sandbox_destroy_arg();
+		let session = self.server.session(&self.server.context);
+		let output = session
+			.try_destroy_sandbox(sandbox, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %sandbox, "failed to destroy the sandbox"))?;
+		if output.is_none() {
+			return Err(tg::error!(%sandbox, "failed to find the sandbox"));
+		}
+
+		Ok(())
+	}
+
 	async fn spawn_process_cancel_candidate(
 		&self,
 		id: tg::process::Id,
@@ -241,30 +304,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, process = %id, "failed to cancel the process"))?
 			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;
-		Ok(())
-	}
-
-	async fn spawn_process_cancel_scheduled_candidate(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		scheduler: &tg::scheduler::Id,
-	) -> tg::Result<()> {
-		let notification =
-			crate::scheduler::Message::Notification(crate::scheduler::Notification::CancelSandbox(
-				crate::scheduler::CancelSandboxNotification {
-					sandbox: sandbox.clone(),
-				},
-			));
-		self.server
-			.messenger
-			.publish(
-				crate::scheduler::scheduler_server_subject(Some(scheduler)),
-				notification,
-			)
-			.await
-			.map_err(
-				|error| tg::error!(!error, %sandbox, "failed to cancel the scheduled sandbox"),
-			)?;
 		Ok(())
 	}
 
@@ -316,5 +355,17 @@ impl Session {
 		} else {
 			Ok(None)
 		}
+	}
+}
+
+fn process_candidate_sandbox_destroy_arg() -> tg::sandbox::destroy::Arg {
+	let error = tg::error::Data {
+		code: Some(tg::error::Code::Cancellation),
+		message: Some("a cached process was found".into()),
+		..Default::default()
+	};
+	tg::sandbox::destroy::Arg {
+		error: Some(tg::Either::Left(error)),
+		location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 	}
 }

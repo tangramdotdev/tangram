@@ -1,6 +1,7 @@
 use {
 	crate::{Server, Session},
 	dashmap::DashMap,
+	futures::future::BoxFuture,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
@@ -21,6 +22,7 @@ pub mod touch;
 pub mod tty;
 pub mod wait;
 
+pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<control::Connected>>;
 pub type Map = DashMap<tg::process::Id, tg::sandbox::Id, tg::id::BuildHasher>;
 
 pub struct State {

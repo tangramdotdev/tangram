@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
@@ -30,6 +30,48 @@ pub(crate) fn connected_subject(id: &tg::process::Id) -> String {
 }
 
 impl Session {
+	pub(crate) async fn subscribe_process_connection(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<super::ConnectionFuture> {
+		let mut event_stream = self
+			.server
+			.messenger
+			.subscribe::<Connected>(connected_subject(id))
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					process = %id,
+					"failed to subscribe to the process control connection"
+				)
+			})?;
+		let id = id.clone();
+		let future = async move {
+			let event = event_stream
+				.try_next()
+				.await
+				.map_err(|error| {
+					tg::error!(
+						!error,
+						process = %id,
+						"failed to receive the process control connection"
+					)
+				})?
+				.ok_or_else(|| {
+					tg::error!(
+						process = %id,
+						"the process control connection subscription ended"
+					)
+				})?;
+
+			Ok(event.payload)
+		}
+		.boxed();
+
+		Ok(future)
+	}
+
 	pub(crate) async fn try_get_process_control_stream_with_context(
 		&self,
 		arg: tg::process::control::Arg,

@@ -34,7 +34,7 @@ impl Session {
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let sandbox = match &self.context.principal {
 			tg::Principal::Process(process) => {
-				self.server.runner.state.try_get_process_sandbox(process)
+				self.server.runner.state().try_get_process_sandbox(process)
 			},
 			_ => None,
 		};
@@ -44,8 +44,8 @@ impl Session {
 		let sandbox = self
 			.server
 			.runner
-			.state
-			.sandboxes
+			.state()
+			.sandboxes()
 			.get(&sandbox)
 			.and_then(|sandbox| sandbox.sandbox.clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
@@ -57,7 +57,7 @@ impl Session {
 	pub(crate) fn guest_path_for_host_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let sandbox = match &self.context.principal {
 			tg::Principal::Process(process) => {
-				self.server.runner.state.try_get_process_sandbox(process)
+				self.server.runner.state().try_get_process_sandbox(process)
 			},
 			_ => None,
 		};
@@ -67,8 +67,8 @@ impl Session {
 		let sandbox = self
 			.server
 			.runner
-			.state
-			.sandboxes
+			.state()
+			.sandboxes()
 			.get(&sandbox)
 			.and_then(|sandbox| sandbox.sandbox.clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;

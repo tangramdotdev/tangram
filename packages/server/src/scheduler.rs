@@ -41,6 +41,8 @@ struct State {
 }
 
 type Operations = FuturesUnordered<BoxFuture<'static, Operation>>;
+type MessageStream =
+	BoxStream<'static, Result<tangram_messenger::Message<Message>, tangram_messenger::Error>>;
 
 struct Requests {
 	inbox: HashSet<String>,
@@ -58,7 +60,6 @@ enum Operation {
 		result: tg::Result<AddRunnerResponseOutput>,
 		runner: tg::runner::Id,
 	},
-	CancelSandbox,
 	CreateSandbox(sandbox::Completion),
 	ExpireRequest {
 		id: String,
@@ -74,10 +75,11 @@ enum Operation {
 }
 
 enum Event {
-	Clean,
+	CleanerTick,
 	Message(Message),
 	Operation(Operation),
 	Schedule,
+	SchedulerHeartbeatTick,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -99,7 +101,6 @@ pub(crate) struct Ack {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub(crate) enum Notification {
 	BorrowableCapacity(BorrowableCapacityNotification),
-	CancelSandbox(CancelSandboxNotification),
 	Heartbeat(HeartbeatNotification),
 }
 
@@ -108,11 +109,6 @@ pub(crate) struct BorrowableCapacityNotification {
 	pub capacity: tg::runner::Capacity,
 	pub parent: tg::sandbox::Id,
 	pub runner: tg::runner::Id,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CancelSandboxNotification {
-	pub sandbox: tg::sandbox::Id,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -125,8 +121,9 @@ pub(crate) struct Request {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub(crate) enum RequestArg {
 	AddRunner(AddRunnerRequestArg),
+	DequeueSandbox(DequeueSandboxRequestArg),
+	EnqueueSandbox(EnqueueSandboxRequestArg),
 	RemoveRunner(RemoveRunnerRequestArg),
-	CreateSandbox(CreateSandboxRequestArg),
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -141,8 +138,9 @@ pub(crate) struct Response {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub(crate) enum ResponseOutput {
 	AddRunner(AddRunnerResponseOutput),
+	DequeueSandbox(DequeueSandboxResponseOutput),
+	EnqueueSandbox(EnqueueSandboxResponseOutput),
 	RemoveRunner(RemoveRunnerResponseOutput),
-	CreateSandbox(CreateSandboxResponseOutput),
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -185,7 +183,17 @@ pub(crate) struct RemoveRunnerResponseOutput {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CreateSandboxRequestArg {
+pub(crate) struct DequeueSandboxRequestArg {
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct DequeueSandboxResponseOutput {
+	pub dequeued: bool,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct EnqueueSandboxRequestArg {
 	pub arg: tg::sandbox::create::Arg,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -207,7 +215,7 @@ pub(crate) struct CreateSandboxRequestArg {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CreateSandboxResponseOutput {
+pub(crate) struct EnqueueSandboxResponseOutput {
 	pub enqueued: bool,
 }
 
@@ -217,6 +225,7 @@ struct Config {
 	create_sandbox_queue_capacity: usize,
 	create_sandbox_timeout: Duration,
 	default_capacity: tg::runner::Capacity,
+	heartbeat_interval: Duration,
 	inbox_ttl: Duration,
 	max_create_sandbox_requests: usize,
 	max_create_sandbox_requests_per_runner: usize,
@@ -229,9 +238,86 @@ struct SchedulerMessageOptions {
 }
 
 impl Session {
+	pub(crate) async fn dequeue_sandbox(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<bool> {
+		let request = RequestArg::DequeueSandbox(DequeueSandboxRequestArg {
+			sandbox: sandbox.clone(),
+		});
+		let response = tokio::select! {
+			result = self.send_scheduler_request_to(scheduler, request) => {
+				result.map_err(
+					|source| tg::error!(!source, %sandbox, %scheduler, "failed to send the dequeue sandbox request"),
+				)?
+			},
+			result = self.scheduler_heartbeat_expired(scheduler) => {
+				result?;
+				return Err(tg::error!(
+					code = tg::error::Code::HeartbeatExpiration,
+					%sandbox,
+					%scheduler,
+					"the scheduler heartbeat expired while dequeuing the sandbox"
+				));
+			},
+		}
+			.map_err(
+				|source| tg::error!(!source, %sandbox, %scheduler, "the dequeue sandbox request failed"),
+			)?;
+		let output = response
+			.try_unwrap_dequeue_sandbox()
+			.map_err(|_| tg::error!("expected a dequeue sandbox response"))?;
+
+		Ok(output.dequeued)
+	}
+
+	pub(crate) async fn scheduler_heartbeat_expired(
+		&self,
+		scheduler: &tg::scheduler::Id,
+	) -> tg::Result<()> {
+		let subject = scheduler_heartbeat_subject(scheduler);
+		let heartbeats = self
+			.server
+			.messenger
+			.subscribe::<()>(subject)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					%scheduler,
+					"failed to subscribe to the scheduler heartbeat"
+				)
+			})?;
+
+		let mut heartbeats = pin!(heartbeats);
+		let ttl = self.server.config.scheduler.heartbeat_ttl;
+		loop {
+			match tokio::time::timeout(ttl, heartbeats.try_next()).await {
+				Ok(Ok(Some(_))) => {},
+				Ok(Ok(None)) => {
+					return Err(tg::error!(
+						%scheduler,
+						"the scheduler heartbeat stream ended"
+					));
+				},
+				Ok(Err(source)) => {
+					return Err(tg::error!(
+						!source,
+						%scheduler,
+						"failed to receive a scheduler heartbeat"
+					));
+				},
+				Err(_) => {
+					return Ok(());
+				},
+			}
+		}
+	}
+
 	pub(crate) async fn enqueue_sandbox(
 		&self,
-		request: CreateSandboxRequestArg,
+		request: EnqueueSandboxRequestArg,
 	) -> tg::Result<tg::scheduler::Id> {
 		let mut options = self.scheduler_message_options().retry;
 		options.max_retries = u64::MAX;
@@ -254,7 +340,7 @@ impl Session {
 						let response = self
 							.send_scheduler_request_to(
 								scheduler,
-								RequestArg::CreateSandbox(request),
+								RequestArg::EnqueueSandbox(request),
 							)
 							.boxed()
 							.await
@@ -262,15 +348,15 @@ impl Session {
 						(scheduler.clone(), response)
 					},
 					None => self
-						.send_scheduler_request(RequestArg::CreateSandbox(request))
+						.send_scheduler_request(RequestArg::EnqueueSandbox(request))
 						.boxed()
 						.await
 						.map_err(Some)?,
 				};
 				let response = response.map_err(Some)?;
 				let response = response
-					.try_unwrap_create_sandbox()
-					.map_err(|_| Some(tg::error!("expected a create sandbox response")))?;
+					.try_unwrap_enqueue_sandbox()
+					.map_err(|_| Some(tg::error!("expected an enqueue sandbox response")))?;
 				if response.enqueued {
 					Ok(ControlFlow::Break(scheduler))
 				} else {
@@ -502,6 +588,7 @@ impl Scheduler {
 				cpus: config.default_cpu,
 				memory: config.default_memory,
 			},
+			heartbeat_interval: config.heartbeat_interval,
 			inbox_ttl: config.inbox_ttl,
 			max_create_sandbox_requests: config.max_create_sandbox_requests,
 			max_create_sandbox_requests_per_runner: config.max_create_sandbox_requests_per_runner,
@@ -537,40 +624,28 @@ impl Scheduler {
 			.subscribe::<Message>(scheduler_server_subject(Some(&self.id)))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the private scheduler stream"))?;
-		let stream = stream::select(shared_stream, private_stream);
+		let stream = stream::select(shared_stream, private_stream).boxed();
 
 		self.message_handler_task(stream).await
 	}
 
-	async fn message_handler_task(
-		&self,
-		stream: impl futures::Stream<
-			Item = Result<tangram_messenger::Message<Message>, tangram_messenger::Error>,
-		> + Send
-		+ 'static,
-	) -> tg::Result<()> {
+	async fn message_handler_task(&self, mut stream: MessageStream) -> tg::Result<()> {
 		let mut state = State::new();
-		let mut stream = pin!(stream);
-		let mut cleaner = tokio::time::interval(self.config.runner_ttl);
-		cleaner.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+		let mut cleaner_interval = tokio::time::interval(self.config.runner_ttl);
+		cleaner_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+		let mut heartbeat_interval = tokio::time::interval(self.config.heartbeat_interval);
+		heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
-			let event = tokio::select! {
-				_ = cleaner.tick() => Event::Clean,
-				result = stream.try_next() => {
-					let message = result
-						.map_err(|error| tg::error!(!error, "failed to receive a scheduler message"))?
-						.ok_or_else(|| tg::error!("the scheduler message stream ended"))?;
-					Event::Message(message.payload)
-				},
-				operation = state.operations.next(), if !state.operations.is_empty() => {
-					Event::Operation(operation.unwrap())
-				},
-				() = tokio::task::yield_now(), if state.can_schedule(self) => {
-					Event::Schedule
-				},
-			};
+			let event = self
+				.next_event(
+					&mut state,
+					&mut stream,
+					&mut cleaner_interval,
+					&mut heartbeat_interval,
+				)
+				.await?;
 			match event {
-				Event::Clean => {
+				Event::CleanerTick => {
 					self.handle_cleaner_tick(&mut state);
 				},
 				Event::Message(message) => {
@@ -582,8 +657,39 @@ impl Scheduler {
 				Event::Schedule => {
 					state.schedule_one(self);
 				},
+				Event::SchedulerHeartbeatTick => {
+					self.publish_scheduler_heartbeat(&mut state);
+				},
 			}
 		}
+	}
+
+	async fn next_event(
+		&self,
+		state: &mut State,
+		stream: &mut MessageStream,
+		cleaner_interval: &mut tokio::time::Interval,
+		heartbeat_interval: &mut tokio::time::Interval,
+	) -> tg::Result<Event> {
+		let event = tokio::select! {
+			_ = cleaner_interval.tick() => Event::CleanerTick,
+			_ = heartbeat_interval.tick() => Event::SchedulerHeartbeatTick,
+			result = Self::receive_message(stream) => Event::Message(result?),
+			operation = state.operations.next(), if !state.operations.is_empty() => Event::Operation(operation.unwrap()),
+			() = tokio::task::yield_now(), if state.can_schedule(self) => Event::Schedule,
+		};
+
+		Ok(event)
+	}
+
+	async fn receive_message(stream: &mut MessageStream) -> tg::Result<Message> {
+		let message = stream
+			.try_next()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to receive a scheduler message"))?
+			.ok_or_else(|| tg::error!("the scheduler message stream ended"))?;
+
+		Ok(message.payload)
 	}
 
 	fn handle_message(&self, state: &mut State, message: Message) {
@@ -594,9 +700,6 @@ impl Scheduler {
 			Message::Notification(notification) => match notification {
 				Notification::BorrowableCapacity(notification) => {
 					state.handle_borrowable_capacity(self, notification);
-				},
-				Notification::CancelSandbox(notification) => {
-					state.handle_cancel_sandbox(self, notification);
 				},
 				Notification::Heartbeat(notification) => {
 					if state.handle_heartbeat(self, &notification) {
@@ -664,14 +767,19 @@ impl Scheduler {
 			RequestArg::AddRunner(request) => {
 				state.handle_add_runner_request(self, id, request);
 			},
-			RequestArg::RemoveRunner(request) => {
-				state.handle_remove_runner_request(self, Some(id), request);
+			RequestArg::DequeueSandbox(request) => {
+				if let Some(output) = state.dequeue_sandbox(id.clone(), request) {
+					self.send_dequeue_sandbox_response(state, id, output);
+				}
 			},
-			RequestArg::CreateSandbox(request) => {
+			RequestArg::EnqueueSandbox(request) => {
 				let result = state.enqueue_sandbox(self, request);
-				let result = result.map(ResponseOutput::CreateSandbox);
+				let result = result.map(ResponseOutput::EnqueueSandbox);
 				let response = self.response(id, result);
 				self.send_response(state, response);
+			},
+			RequestArg::RemoveRunner(request) => {
+				state.handle_remove_runner_request(self, Some(id), request);
 			},
 		}
 	}
@@ -696,15 +804,16 @@ impl Scheduler {
 					.get(&runner)
 					.is_some_and(|runner| runner.connection_index == connection_index);
 				if current && result.is_err() {
-					state.remove_runner(&runner);
+					let completions = state.remove_runner(&runner);
+					self.send_dequeue_sandbox_completions(state, completions);
 				}
 				let result = result.map(ResponseOutput::AddRunner);
 				let response = self.response(id, result);
 				self.send_response(state, response);
 			},
-			Operation::CancelSandbox => {},
 			Operation::CreateSandbox(completion) => {
-				state.handle_create_sandbox_completion(self, completion);
+				let completions = state.handle_create_sandbox_completion(completion);
+				self.send_dequeue_sandbox_completions(state, completions);
 			},
 			Operation::ExpireRequest { id } => {
 				state.requests.inbox.remove(&id);
@@ -766,6 +875,55 @@ impl Scheduler {
 			subject,
 			Message::Response(response),
 			"failed to publish the scheduler response",
+		);
+	}
+
+	fn send_dequeue_sandbox_completion(
+		&self,
+		state: &mut State,
+		completion: sandbox::DequeueCompletion,
+	) {
+		self.send_dequeue_sandbox_response(state, completion.request, completion.output);
+	}
+
+	fn send_dequeue_sandbox_completions(
+		&self,
+		state: &mut State,
+		completions: Vec<sandbox::DequeueCompletion>,
+	) {
+		for completion in completions {
+			self.send_dequeue_sandbox_completion(state, completion);
+		}
+	}
+
+	fn send_dequeue_sandbox_response(
+		&self,
+		state: &mut State,
+		id: String,
+		output: DequeueSandboxResponseOutput,
+	) {
+		let response = self.response(id, Ok(ResponseOutput::DequeueSandbox(output)));
+		self.send_response(state, response);
+	}
+
+	fn publish_scheduler_heartbeat(&self, state: &mut State) {
+		let subject = scheduler_heartbeat_subject(&self.id);
+		let server = self.server.clone();
+		state.operations.push(
+			async move {
+				let result = server
+					.messenger
+					.publish(subject, ())
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to publish the scheduler heartbeat")
+					});
+				Operation::Publish {
+					context: "failed to publish the scheduler heartbeat",
+					result,
+				}
+			}
+			.boxed(),
 		);
 	}
 
@@ -852,6 +1010,10 @@ pub(crate) fn runner_heartbeat_subject(
 	runner: &tg::runner::Id,
 ) -> String {
 	format!("schedulers.{scheduler}.runners.{runner}.heartbeat")
+}
+
+fn scheduler_heartbeat_subject(scheduler: &tg::scheduler::Id) -> String {
+	format!("schedulers.{scheduler}.heartbeat")
 }
 
 pub(crate) fn scheduler_server_subject(scheduler: Option<&tg::scheduler::Id>) -> String {

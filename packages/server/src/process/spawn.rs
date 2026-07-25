@@ -13,7 +13,7 @@ mod child;
 mod grant;
 mod lease;
 mod local;
-mod start;
+mod sandbox;
 mod wait;
 
 impl Session {
@@ -124,7 +124,7 @@ impl Session {
 			&& arg.cached != Some(true)
 			&& (!new_sandbox || allocation.is_some());
 		if runner_matches_location && new_sandbox && !shortcut && parent_sandbox.is_some() {
-			arg.scheduler = Some(self.server.runner.state.wait_for_scheduler().await);
+			arg.scheduler = Some(self.server.runner.state().wait_for_scheduler().await);
 		}
 
 		let mut output = if shortcut {
@@ -199,7 +199,7 @@ impl Session {
 		&self,
 		arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
-		allocation: Option<crate::runner::Allocation>,
+		allocation: Option<crate::runner::capacity::Allocation>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// Authorize the command if a process may be created.
@@ -233,13 +233,13 @@ impl Session {
 			output.token = None;
 		}
 		let output = if cacheable && arg.cached.is_none() {
-			self.spawn_process_start_or_get_cached(&arg, output, cache_location)
+			self.spawn_process_in_sandbox_or_get_cached(&arg, output, cache_location)
 				.boxed()
 				.await?
 		} else {
-			// Start the local process.
+			// Spawn the process in a sandbox.
 			let output = self
-				.spawn_process_start_local(&arg, output, None)
+				.spawn_process_in_new_or_existing_sandbox(&arg, output, None)
 				.boxed()
 				.await?;
 

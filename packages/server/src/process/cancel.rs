@@ -55,18 +55,22 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
-		if let Some(result) = self.server.runner.state.try_update_process(id, |process| {
-			if process.data.status.is_finished() {
-				return Ok(());
-			}
-			if !process.leases.remove(&arg.lease) {
-				return Err(tg::error!("the process lease was not found"));
-			}
-			if process.leases.is_empty() {
-				process.stopper.stop();
-			}
-			Ok(())
-		}) {
+		if let Some(result) = self
+			.server
+			.runner
+			.state()
+			.try_update_process(id, |process| {
+				if process.data.status.is_finished() {
+					return Ok(());
+				}
+				if !process.leases.remove(&arg.lease) {
+					return Err(tg::error!("the process lease was not found"));
+				}
+				if process.leases.is_empty() {
+					process.stopper.stop();
+				}
+				Ok(())
+			}) {
 			result?;
 			return Ok(Some(()));
 		}

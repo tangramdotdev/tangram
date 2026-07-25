@@ -1,7 +1,8 @@
 use {
 	super::{
-		BorrowableCapacityNotification, CancelSandboxNotification, CreateSandboxRequestArg,
-		CreateSandboxResponseOutput, HeartbeatNotification, Operation, Scheduler, State,
+		BorrowableCapacityNotification, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
+		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification, Operation,
+		Scheduler, State,
 		runner::{Reservation, ReservationSource, ReservationState, Runner},
 	},
 	futures::FutureExt as _,
@@ -42,9 +43,9 @@ struct Links {
 
 struct Sandbox {
 	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
-	cancelled: bool,
 	capacity: tg::runner::Capacity,
-	request: CreateSandboxRequestArg,
+	dequeue_requests: Vec<String>,
+	request: EnqueueSandboxRequestArg,
 	state: SandboxState,
 }
 
@@ -80,6 +81,11 @@ pub(super) struct Completion {
 	placement: Placement,
 	result: tg::Result<tg::Result<bool>>,
 	sandbox: tg::sandbox::Id,
+}
+
+pub(super) struct DequeueCompletion {
+	pub output: DequeueSandboxResponseOutput,
+	pub request: String,
 }
 
 impl Parents {
@@ -206,13 +212,13 @@ impl State {
 	pub(super) fn enqueue_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
-		request: CreateSandboxRequestArg,
-	) -> tg::Result<CreateSandboxResponseOutput> {
+		request: EnqueueSandboxRequestArg,
+	) -> tg::Result<EnqueueSandboxResponseOutput> {
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
-			return Ok(CreateSandboxResponseOutput { enqueued: true });
+			return Ok(EnqueueSandboxResponseOutput { enqueued: true });
 		}
 		if self.queue.len() >= scheduler.config.create_sandbox_queue_capacity {
-			return Ok(CreateSandboxResponseOutput { enqueued: false });
+			return Ok(EnqueueSandboxResponseOutput { enqueued: false });
 		}
 		let capacity = tg::runner::Capacity {
 			cpus: request
@@ -234,8 +240,8 @@ impl State {
 		let parent = request.parent.clone();
 		let sandbox = Sandbox {
 			blocked: HashMap::default(),
-			cancelled: false,
 			capacity,
+			dequeue_requests: Vec::new(),
 			request,
 			state: SandboxState::Pending,
 		};
@@ -253,7 +259,7 @@ impl State {
 				.insert(id);
 		}
 
-		Ok(CreateSandboxResponseOutput { enqueued: true })
+		Ok(EnqueueSandboxResponseOutput { enqueued: true })
 	}
 
 	pub(super) fn handle_borrowable_capacity(
@@ -298,32 +304,6 @@ impl State {
 		self.queue.wake();
 	}
 
-	pub(super) fn handle_cancel_sandbox(
-		&mut self,
-		scheduler: &Scheduler,
-		notification: CancelSandboxNotification,
-	) {
-		let id = notification.sandbox;
-		let Some(sandbox) = self.sandboxes.entries.get_mut(&id) else {
-			return;
-		};
-		match &sandbox.state {
-			SandboxState::Creating { .. } => {
-				sandbox.cancelled = true;
-			},
-			SandboxState::Pending => {
-				self.remove_queued_sandbox(&id);
-				self.sandboxes.entries.remove(&id);
-			},
-			SandboxState::Uncertain { placement } => {
-				let placement = placement.clone();
-				self.remove_reservation(&id, &placement, true);
-				self.spawn_cancel_sandbox(scheduler, id.clone());
-				self.sandboxes.entries.remove(&id);
-			},
-		}
-	}
-
 	pub(super) fn handle_heartbeat(
 		&mut self,
 		_scheduler: &Scheduler,
@@ -347,11 +327,41 @@ impl State {
 		true
 	}
 
+	pub(super) fn dequeue_sandbox(
+		&mut self,
+		request_id: String,
+		request: DequeueSandboxRequestArg,
+	) -> Option<DequeueSandboxResponseOutput> {
+		let id = request.sandbox;
+		let Some(sandbox) = self.sandboxes.entries.get_mut(&id) else {
+			return Some(DequeueSandboxResponseOutput { dequeued: false });
+		};
+		let output = match &sandbox.state {
+			SandboxState::Creating { .. } => {
+				sandbox.dequeue_requests.push(request_id);
+				None
+			},
+			SandboxState::Pending => {
+				self.remove_queued_sandbox(&id);
+				self.sandboxes.entries.remove(&id);
+				Some(DequeueSandboxResponseOutput { dequeued: true })
+			},
+			SandboxState::Uncertain { placement } => {
+				let placement = placement.clone();
+				self.remove_reservation(&id, &placement, true);
+				self.sandboxes.entries.remove(&id);
+				Some(DequeueSandboxResponseOutput { dequeued: false })
+			},
+		};
+		self.queue.wake();
+
+		output
+	}
+
 	pub(super) fn handle_create_sandbox_completion(
 		&mut self,
-		scheduler: &Scheduler,
 		completion: Completion,
-	) {
+	) -> Vec<DequeueCompletion> {
 		self.sandboxes.attempts = self.sandboxes.attempts.saturating_sub(1);
 		let Completion {
 			placement,
@@ -359,15 +369,15 @@ impl State {
 			sandbox: id,
 		} = completion;
 		let Some(sandbox) = self.sandboxes.entries.get(&id) else {
-			return;
+			return Vec::new();
 		};
 		let SandboxState::Creating { placement: current } = &sandbox.state else {
-			return;
+			return Vec::new();
 		};
 		if current != &placement {
-			return;
+			return Vec::new();
 		}
-		let cancelled = sandbox.cancelled;
+		let dequeue_requests = sandbox.dequeue_requests.clone();
 		let runner_ref = placement.runner();
 		let runner_current = self
 			.runners
@@ -378,19 +388,15 @@ impl State {
 			tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "the runner failed to create the sandbox");
 		}
 
-		match result {
+		let output = match result {
 			Ok(Ok(true)) if runner_current => {
 				self.remove_reservation(&id, &placement, true);
-				if cancelled {
-					self.spawn_cancel_sandbox(scheduler, id.clone());
-				}
 				self.sandboxes.entries.remove(&id);
+				DequeueSandboxResponseOutput { dequeued: false }
 			},
 			Ok(Ok(false) | Err(_)) => {
 				self.remove_reservation(&id, &placement, false);
-				if cancelled {
-					self.sandboxes.entries.remove(&id);
-				} else {
+				if dequeue_requests.is_empty() {
 					if matches!(placement, Placement::Regular { .. })
 						&& let Some(runner) = self.runners.entries.get(&runner_ref.id)
 					{
@@ -403,15 +409,14 @@ impl State {
 						);
 					}
 					self.requeue_sandbox(&id);
+				} else {
+					self.sandboxes.entries.remove(&id);
 				}
+				DequeueSandboxResponseOutput { dequeued: true }
 			},
 			Err(error) if runner_current => {
 				tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "failed to create the sandbox on the runner");
-				if cancelled {
-					self.remove_reservation(&id, &placement, true);
-					self.spawn_cancel_sandbox(scheduler, id.clone());
-					self.sandboxes.entries.remove(&id);
-				} else {
+				if dequeue_requests.is_empty() {
 					if let Some(runner) = self.runners.entries.get_mut(&runner_ref.id)
 						&& let Some(reservation) = runner.reservations.get_mut(&id)
 					{
@@ -420,21 +425,33 @@ impl State {
 					}
 					self.sandboxes.entries.get_mut(&id).unwrap().state =
 						SandboxState::Uncertain { placement };
+				} else {
+					self.remove_reservation(&id, &placement, true);
+					self.sandboxes.entries.remove(&id);
 				}
+				DequeueSandboxResponseOutput { dequeued: false }
 			},
 			Ok(Ok(true)) | Err(_) => {
-				if cancelled {
-					self.sandboxes.entries.remove(&id);
-				} else {
+				if dequeue_requests.is_empty() {
 					self.requeue_sandbox(&id);
+				} else {
+					self.sandboxes.entries.remove(&id);
 				}
+				DequeueSandboxResponseOutput { dequeued: false }
 			},
-		}
+		};
+		dequeue_requests
+			.into_iter()
+			.map(|request| DequeueCompletion {
+				output: output.clone(),
+				request,
+			})
+			.collect()
 	}
 
-	pub(super) fn remove_runner(&mut self, id: &tg::runner::Id) {
+	pub(super) fn remove_runner(&mut self, id: &tg::runner::Id) -> Vec<DequeueCompletion> {
 		let Some(runner) = self.runners.entries.remove(id) else {
-			return;
+			return Vec::new();
 		};
 		for parent_id in runner.borrowable {
 			let Some(parent) = self.parents.0.get_mut(&parent_id) else {
@@ -449,14 +466,27 @@ impl State {
 			}
 		}
 		let sandboxes = runner.reservations.into_keys().collect::<Vec<_>>();
+		let mut completions = Vec::new();
 		for sandbox in sandboxes {
-			if self.sandboxes.entries[&sandbox].cancelled {
-				self.sandboxes.entries.remove(&sandbox);
-			} else {
+			let dequeue_requests = self.sandboxes.entries[&sandbox].dequeue_requests.clone();
+			if dequeue_requests.is_empty() {
 				self.requeue_sandbox(&sandbox);
+			} else {
+				self.sandboxes.entries.remove(&sandbox);
+				let output = DequeueSandboxResponseOutput { dequeued: false };
+				completions.extend(
+					dequeue_requests
+						.into_iter()
+						.map(|request| DequeueCompletion {
+							output: output.clone(),
+							request,
+						}),
+				);
 			}
 		}
 		self.queue.wake();
+
+		completions
 	}
 
 	pub(super) fn schedule_one(&mut self, scheduler: &Scheduler) {
@@ -577,18 +607,6 @@ impl State {
 		}
 	}
 
-	fn spawn_cancel_sandbox(&mut self, scheduler: &Scheduler, sandbox: tg::sandbox::Id) {
-		let session = scheduler.server.session(&scheduler.server.context);
-		let timeout = scheduler.config.create_sandbox_timeout;
-		self.operations.push(
-			async move {
-				cancel_sandbox(session, sandbox, timeout).boxed().await;
-				Operation::CancelSandbox
-			}
-			.boxed(),
-		);
-	}
-
 	fn try_schedule(&mut self, scheduler: &Scheduler, id: &tg::sandbox::Id) -> bool {
 		let Some(sandbox) = self.sandboxes.entries.get(id) else {
 			return false;
@@ -681,38 +699,13 @@ impl Placement {
 	}
 }
 
-async fn cancel_sandbox(
-	session: crate::Session,
-	sandbox: tg::sandbox::Id,
-	timeout: std::time::Duration,
-) {
-	let error = tg::error::Data {
-		code: Some(tg::error::Code::Cancellation),
-		message: Some("the sandbox was canceled".into()),
-		..Default::default()
-	};
-	let request = tg::sandbox::control::ServerRequestArg::Destroy(
-		tg::sandbox::control::DestroyServerRequestArg { error: Some(error) },
-	);
-	let options = crate::control::Options {
-		retry: tangram_futures::retry::Options::default(),
-		timeout,
-	};
-	let result = session
-		.send_sandbox_control_request(&sandbox, request, options)
-		.await;
-	if let Err(error) | Ok(Err(error)) = result {
-		tracing::error!(error = %error.trace(), %sandbox, "failed to cancel the sandbox");
-	}
-}
-
 async fn create_sandbox(
 	session: &crate::Session,
 	scheduler: &tg::scheduler::Id,
 	runner: &RunnerRef,
 	borrowed: bool,
 	capacity: tg::runner::Capacity,
-	request: &CreateSandboxRequestArg,
+	request: &EnqueueSandboxRequestArg,
 	timeout: std::time::Duration,
 ) -> tg::Result<tg::Result<bool>> {
 	let arg = tg::runner::control::ServerRequestArg::CreateSandbox(
@@ -775,7 +768,7 @@ fn contains(capacity: tg::runner::Capacity, requested: tg::runner::Capacity) -> 
 	capacity.cpus >= requested.cpus && capacity.memory >= requested.memory
 }
 
-fn matches_host(runner: &Runner, request: &CreateSandboxRequestArg) -> bool {
+fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {
 	request
 		.arg
 		.host
@@ -806,6 +799,138 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn dequeue_creating_sandbox_defers_all_responses() {
+		let id = tg::sandbox::Id::new();
+		let runner = RunnerRef {
+			connection_index: 0,
+			id: tg::runner::Id::new(),
+		};
+		let sandbox = Sandbox {
+			blocked: HashMap::default(),
+			capacity: tg::runner::Capacity::default(),
+			dequeue_requests: Vec::new(),
+			request: enqueue_request(id.clone()),
+			state: SandboxState::Creating {
+				placement: Placement::Regular {
+					runner: runner.clone(),
+				},
+			},
+		};
+		let mut state = State::new();
+		state.sandboxes.entries.insert(id.clone(), sandbox);
+
+		let first = state.dequeue_sandbox(
+			"first".into(),
+			DequeueSandboxRequestArg {
+				sandbox: id.clone(),
+			},
+		);
+		let second = state.dequeue_sandbox(
+			"second".into(),
+			DequeueSandboxRequestArg {
+				sandbox: id.clone(),
+			},
+		);
+
+		assert!(first.is_none());
+		assert!(second.is_none());
+		assert_eq!(
+			state.sandboxes.entries[&id].dequeue_requests,
+			["first", "second"]
+		);
+
+		let completions = state.handle_create_sandbox_completion(Completion {
+			placement: Placement::Regular { runner },
+			result: Ok(Ok(true)),
+			sandbox: id.clone(),
+		});
+
+		assert_eq!(completions.len(), 2);
+		assert!(!completions[0].output.dequeued);
+		assert_eq!(completions[0].request, "first");
+		assert!(!completions[1].output.dequeued);
+		assert_eq!(completions[1].request, "second");
+		assert!(!state.sandboxes.entries.contains_key(&id));
+	}
+
+	#[test]
+	fn dequeue_creating_sandbox_that_is_not_created_completes_as_dequeued() {
+		let id = tg::sandbox::Id::new();
+		let runner = RunnerRef {
+			connection_index: 0,
+			id: tg::runner::Id::new(),
+		};
+		let placement = Placement::Regular { runner };
+		let sandbox = Sandbox {
+			blocked: HashMap::default(),
+			capacity: tg::runner::Capacity::default(),
+			dequeue_requests: Vec::new(),
+			request: enqueue_request(id.clone()),
+			state: SandboxState::Creating {
+				placement: placement.clone(),
+			},
+		};
+		let mut state = State::new();
+		state.sandboxes.entries.insert(id.clone(), sandbox);
+		state.dequeue_sandbox(
+			"request".into(),
+			DequeueSandboxRequestArg {
+				sandbox: id.clone(),
+			},
+		);
+
+		let completions = state.handle_create_sandbox_completion(Completion {
+			placement,
+			result: Ok(Ok(false)),
+			sandbox: id.clone(),
+		});
+
+		assert_eq!(completions.len(), 1);
+		assert!(completions[0].output.dequeued);
+		assert_eq!(completions[0].request, "request");
+		assert!(!state.sandboxes.entries.contains_key(&id));
+	}
+
+	#[test]
+	fn dequeue_pending_sandbox_removes_it() {
+		let id = tg::sandbox::Id::new();
+		let sandbox = Sandbox {
+			blocked: HashMap::default(),
+			capacity: tg::runner::Capacity::default(),
+			dequeue_requests: Vec::new(),
+			request: enqueue_request(id.clone()),
+			state: SandboxState::Pending,
+		};
+		let mut state = State::new();
+		state.sandboxes.entries.insert(id.clone(), sandbox);
+		state.queue.insert(id.clone());
+
+		let output = state.dequeue_sandbox(
+			"request".into(),
+			DequeueSandboxRequestArg {
+				sandbox: id.clone(),
+			},
+		);
+
+		assert!(output.unwrap().dequeued);
+		assert!(!state.sandboxes.entries.contains_key(&id));
+		assert_eq!(state.queue.next(), None);
+	}
+
+	#[test]
+	fn dequeue_unknown_sandbox_requires_destruction() {
+		let mut state = State::new();
+		let output = state.dequeue_sandbox(
+			"request".into(),
+			DequeueSandboxRequestArg {
+				sandbox: tg::sandbox::Id::new(),
+			},
+		);
+
+		assert!(!output.unwrap().dequeued);
+	}
+
+	#[test]
 	fn queue_preserves_order_when_removing_entries() {
 		let first = tg::sandbox::Id::new();
 		let middle = tg::sandbox::Id::new();
@@ -827,5 +952,17 @@ mod tests {
 
 		assert!(queue.remove(&last));
 		assert_eq!(queue.next(), None);
+	}
+
+	fn enqueue_request(sandbox: tg::sandbox::Id) -> EnqueueSandboxRequestArg {
+		EnqueueSandboxRequestArg {
+			arg: tg::sandbox::create::Arg::default(),
+			creator: None,
+			parent: None,
+			process: None,
+			sandbox,
+			scheduler: None,
+			token: None,
+		}
 	}
 }

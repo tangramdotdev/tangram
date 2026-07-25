@@ -1,9 +1,7 @@
 use {
 	crate::{Server, Session},
-	futures::TryStreamExt as _,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_messenger::Messenger as _,
 };
 
 mod arg;
@@ -63,19 +61,9 @@ impl Session {
 			.server
 			.create_sandbox_authentication_token(id.clone())?;
 
-		let mut connected = self
-			.server
-			.messenger
-			.subscribe::<()>(super::control::connected_subject(&id))
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					"failed to subscribe to the sandbox control connection"
-				)
-			})?;
+		let mut connection_future = self.subscribe_sandbox_connection(&id).await?;
 
-		let request = crate::scheduler::CreateSandboxRequestArg {
+		let request = crate::scheduler::EnqueueSandboxRequestArg {
 			arg,
 			creator: Some(creator),
 			parent: None,
@@ -84,32 +72,73 @@ impl Session {
 			scheduler: None,
 			token: Some(token),
 		};
-		self.enqueue_sandbox(request)
+		let scheduler = self
+			.enqueue_sandbox(request)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to enqueue the sandbox"))?;
-		tokio::time::timeout(
-			self.server.config.sandbox.create_connection_timeout,
-			connected.try_next(),
-		)
-		.await
-		.map_err(|_| {
-			tg::error!(
+		let connected = self
+			.try_wait_sandbox_connection(&scheduler, &mut connection_future)
+			.await?;
+		if !connected {
+			self.spawn_create_sandbox_cleanup_after_scheduler_heartbeat_expiration(
+				id.clone(),
+				scheduler.clone(),
+				connection_future,
+			);
+			return Err(tg::error!(
+				code = tg::error::Code::HeartbeatExpiration,
 				sandbox = %id,
-				"timed out waiting for the sandbox control connection"
-			)
-		})?
-		.map_err(|error| {
-			tg::error!(
-				!error,
-				sandbox = %id,
-				"failed to receive the sandbox control connection"
-			)
-		})?
-		.ok_or_else(|| tg::error!("the sandbox control connection stream ended"))?;
+				%scheduler,
+				"the scheduler heartbeat expired"
+			));
+		}
 
 		let output = tg::sandbox::create::Output { id };
 
 		Ok(output)
+	}
+
+	async fn try_wait_sandbox_connection(
+		&self,
+		scheduler: &tg::scheduler::Id,
+		connection_future: &mut super::ConnectionFuture,
+	) -> tg::Result<bool> {
+		tokio::select! {
+			result = connection_future.as_mut() => result.map(|()| true),
+			result = self.scheduler_heartbeat_expired(scheduler) => result.map(|()| false),
+		}
+	}
+
+	fn spawn_create_sandbox_cleanup_after_scheduler_heartbeat_expiration(
+		&self,
+		sandbox: tg::sandbox::Id,
+		scheduler: tg::scheduler::Id,
+		connection_future: super::ConnectionFuture,
+	) {
+		let error = tg::error::Data {
+			code: Some(tg::error::Code::HeartbeatExpiration),
+			message: Some("the scheduler heartbeat expired".into()),
+			..Default::default()
+		};
+		let arg = tg::sandbox::destroy::Arg {
+			error: Some(tg::Either::Left(error)),
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+		};
+		let session = self.server.session(&self.server.context);
+		tokio::spawn(async move {
+			session
+				.destroy_sandbox_when_available(&sandbox, arg, connection_future)
+				.await
+				.inspect_err(|error| {
+					tracing::error!(
+						error = %error.trace(),
+						%sandbox,
+						%scheduler,
+						"failed to destroy the sandbox after the scheduler heartbeat expired"
+					);
+				})
+				.ok();
+		});
 	}
 
 	async fn create_sandbox_region(

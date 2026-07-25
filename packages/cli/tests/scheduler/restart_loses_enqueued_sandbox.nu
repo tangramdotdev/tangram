@@ -28,10 +28,10 @@ let config = {
 	grants: {
 		tokens: $keys,
 	},
-	process: {
-		spawn_connection_timeout: 5,
-	},
 	roles: [cleaner finalizer http indexer scheduler],
+	scheduler: {
+		heartbeat_ttl: 3,
+	},
 }
 let remote = spawn --name remote --config $config
 
@@ -45,6 +45,9 @@ let runner = spawn --name runner --config {
 		cpus: 1,
 		remote: "default",
 	},
+	scheduler: {
+		heartbeat_ttl: 3,
+	},
 }
 
 let local = spawn --name local --config {
@@ -52,6 +55,9 @@ let local = spawn --name local --config {
 		default: {
 			url: $remote.url,
 		},
+	},
+	scheduler: {
+		heartbeat_ttl: 3,
 	},
 }
 

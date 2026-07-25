@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -20,6 +20,48 @@ pub(crate) fn connected_subject(id: &tg::sandbox::Id) -> String {
 }
 
 impl Session {
+	pub(crate) async fn subscribe_sandbox_connection(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<super::ConnectionFuture> {
+		let mut event_stream = self
+			.server
+			.messenger
+			.subscribe::<()>(connected_subject(id))
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					sandbox = %id,
+					"failed to subscribe to the sandbox control connection"
+				)
+			})?;
+		let id = id.clone();
+		let future = async move {
+			event_stream
+				.try_next()
+				.await
+				.map_err(|error| {
+					tg::error!(
+						!error,
+						sandbox = %id,
+						"failed to receive the sandbox control connection"
+					)
+				})?
+				.ok_or_else(|| {
+					tg::error!(
+						sandbox = %id,
+						"the sandbox control connection subscription ended"
+					)
+				})?;
+
+			Ok(())
+		}
+		.boxed();
+
+		Ok(future)
+	}
+
 	pub(crate) async fn get_sandbox_control_stream_with_context(
 		&self,
 		arg: tg::sandbox::control::Arg,

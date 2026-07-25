@@ -24,7 +24,7 @@ type SandboxControlSender = crate::control::Sender<
 >;
 
 pub(crate) struct SpawnSandboxTaskArg {
-	pub allocation: crate::runner::Allocation,
+	pub allocation: crate::runner::capacity::Allocation,
 	pub arg: tg::sandbox::create::Arg,
 	pub creator: Option<tg::Principal>,
 	pub id: Option<tg::sandbox::Id>,
@@ -39,7 +39,7 @@ pub(crate) struct SpawnSandboxTaskOutput {
 }
 
 struct SandboxTaskArg {
-	allocation: crate::runner::Allocation,
+	allocation: crate::runner::capacity::Allocation,
 	arg: tg::sandbox::create::Arg,
 	creator: Option<tg::Principal>,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
@@ -65,18 +65,18 @@ struct CreateSandboxOutput {
 }
 
 pub(crate) enum Event {
-	Destroy,
-	Start(StartedEvent),
+	Destroyed,
+	Ready(ReadyEvent),
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct StartedEvent {
-	pub process: Option<ConnectedEvent>,
+pub(crate) struct ReadyEvent {
+	pub connected_event: Option<ConnectedEvent>,
 	pub sandbox: tg::sandbox::Id,
 }
 
 struct SandboxTaskInnerArg {
-	allocation: crate::runner::Allocation,
+	allocation: crate::runner::capacity::Allocation,
 	control: crate::control::Stream<
 		tg::sandbox::control::ServerMessage,
 		tg::sandbox::control::ClientMessage,
@@ -262,7 +262,7 @@ impl Session {
 		let connection_session = self.server.session(&context);
 
 		// Create the sandbox concurrently with its control stream.
-		let create = self.create_sandbox_with_pool(CreateSandboxArg {
+		let create_future = self.create_sandbox_with_pool(CreateSandboxArg {
 			arg: arg.clone(),
 			expected_id: expected_id.clone(),
 		});
@@ -271,7 +271,7 @@ impl Session {
 			arg: arg.clone(),
 			creator: creator.clone(),
 		};
-		let connect = {
+		let connect_future = {
 			let expected_id = expected_id.clone();
 			let location = location.clone();
 			async move {
@@ -280,19 +280,19 @@ impl Session {
 					.await
 			}
 		};
-		let mut create = pin!(create);
-		let mut connect = pin!(connect);
-		let mut connected = None;
+		let mut create_future = pin!(create_future);
+		let mut connect_future = pin!(connect_future);
+		let mut connection = None;
 		let create_output = loop {
 			tokio::select! {
-				result = &mut create => break result?,
-				result = &mut connect, if connected.is_none() => {
-					connected = Some(result?);
+				result = &mut create_future => break result?,
+				result = &mut connect_future, if connection.is_none() => {
+					connection = Some(result?);
 				},
 			}
 		};
 
-		// Start the process before waiting for the control stream.
+		// Spawn the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
 		let process_stopper = Stopper::new();
 		let (sandbox_id_sender, sandbox_id_receiver) = tokio::sync::oneshot::channel();
@@ -309,9 +309,9 @@ impl Session {
 			})
 		});
 
-		let connection = match connected {
+		let connection = match connection {
 			Some(connection) => Ok(connection),
-			None => connect.await,
+			None => connect_future.await,
 		};
 		let connection = connection.and_then(|(output, control)| {
 			if let Some(expected_id) = &expected_id
@@ -683,38 +683,41 @@ impl Session {
 		let mut process_events = StreamMap::new();
 
 		// Create the timer.
-		let mut timer = None;
+		let mut timer_future = None;
 		let reusable = process_task_output.is_none();
 		let ttl = state.ttl;
 
-		let process = if let Some(process_task_output) = process_task_output {
+		let connected_event = if let Some(process_task_output) = process_task_output {
 			let mut events = process_task_output.events;
 			let event = events
 				.recv()
 				.await
 				.ok_or_else(|| tg::error!(%id, "the process event sender was dropped"))??;
-			let ProcessEvent::Connect(event) = event else {
-				return Err(tg::error!(%id, "expected the process connect event"));
+			let ProcessEvent::Connected(connected_event) = event else {
+				return Err(tg::error!(%id, "expected the process connected event"));
 			};
-			process_events.insert(event.process.clone(), UnboundedReceiverStream::new(events));
-			Some(event)
+			process_events.insert(
+				connected_event.process.clone(),
+				UnboundedReceiverStream::new(events),
+			);
+			Some(connected_event)
 		} else if let Some(ttl) = ttl {
-			timer.replace(tokio::time::sleep(ttl).boxed());
+			timer_future.replace(tokio::time::sleep(ttl).boxed());
 			None
 		} else {
 			None
 		};
 		event_sender
-			.send(Ok(Event::Start(StartedEvent {
-				process,
+			.send(Ok(Event::Ready(ReadyEvent {
+				connected_event,
 				sandbox: id.clone(),
 			})))
 			.ok();
 
 		loop {
-			let timer_future = timer.as_mut().map_or_else(
+			let current_timer_future = timer_future.as_mut().map_or_else(
 				|| future::pending().left_future(),
-				|timer| timer.as_mut().right_future(),
+				|timer_future| timer_future.as_mut().right_future(),
 			);
 			tokio::select! {
 				message = control.recv() => {
@@ -775,7 +778,7 @@ impl Session {
 							Ok(tg::sandbox::control::ClientResponseOutput::Get(output))
 						},
 						tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
-							timer.take();
+							timer_future.take();
 
 							// Spawn the process task.
 							let process = Self::prepare_process(request.process, &id)?;
@@ -796,17 +799,17 @@ impl Session {
 								.ok_or_else(|| {
 									tg::error!(%id, "the process event sender was dropped")
 								})??;
-							let ProcessEvent::Connect(event) = event else {
-								return Err(tg::error!(%id, "expected the process connect event"));
+							let ProcessEvent::Connected(connected_event) = event else {
+								return Err(tg::error!(%id, "expected the process connected event"));
 							};
 							process_events.insert(
-								event.process.clone(),
+								connected_event.process.clone(),
 								UnboundedReceiverStream::new(events),
 							);
 							let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
-								grant: event.grant,
-								lease: event.lease,
-								process: event.process,
+								grant: connected_event.grant,
+								lease: connected_event.lease,
+								process: connected_event.process,
 							};
 							Ok(tg::sandbox::control::ClientResponseOutput::SpawnProcess(output))
 						},
@@ -829,17 +832,17 @@ impl Session {
 						break;
 					};
 					match event? {
-						ProcessEvent::Connect(_) => {
-							return Err(tg::error!(%process, "received a duplicate process connect event"));
+						ProcessEvent::Connected(_) => {
+							return Err(tg::error!(%process, "received a duplicate process connected event"));
 						},
-						ProcessEvent::Exit => {
+						ProcessEvent::Exited => {
 							process_events.remove(&process);
 							if process_events.is_empty() {
 								if !reusable {
 									break;
 								}
 								if let Some(ttl) = ttl {
-									timer.replace(tokio::time::sleep(ttl).boxed());
+									timer_future.replace(tokio::time::sleep(ttl).boxed());
 								}
 							}
 						},
@@ -855,7 +858,7 @@ impl Session {
 				},
 
 				// If the timer fires, then break and destroy the sandbox.
-				() = timer_future => {
+				() = current_timer_future => {
 					break;
 				},
 			}
@@ -865,10 +868,12 @@ impl Session {
 		process_stopper.stop();
 		while let Some((process, event)) = process_events.next().await {
 			match event? {
-				ProcessEvent::Connect(_) => {
-					return Err(tg::error!(%process, "received a duplicate process connect event"));
+				ProcessEvent::Connected(_) => {
+					return Err(
+						tg::error!(%process, "received a duplicate process connected event"),
+					);
 				},
-				ProcessEvent::Exit => {
+				ProcessEvent::Exited => {
 					process_events.remove(&process);
 				},
 			}
@@ -954,7 +959,7 @@ impl Session {
 				tg::sandbox::control::ServerMessage::Response(_) => {},
 			}
 		}
-		event_sender.send(Ok(Event::Destroy)).ok();
+		event_sender.send(Ok(Event::Destroyed)).ok();
 
 		// Await the process tasks while they retain their state and control streams.
 		while let Some(result) = process_tasks.join_next().await {
@@ -981,17 +986,17 @@ impl Session {
 		} = arg;
 
 		let retention_ttl = self.server.config.runner.sandbox_state_ttl;
-		let retention = tokio::time::sleep(retention_ttl);
-		let mut retention = pin!(retention);
+		let retention_future = tokio::time::sleep(retention_ttl);
+		let mut retention_future = pin!(retention_future);
 		loop {
 			tokio::select! {
-				() = &mut retention => break,
+				() = &mut retention_future => break,
 				() = stopper.wait() => break,
 				message = control.recv() => {
 					let message = message
 						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
 					let Some(message) = message else {
-						retention.await;
+						retention_future.await;
 						break;
 					};
 					match message {

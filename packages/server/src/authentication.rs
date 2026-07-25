@@ -30,11 +30,11 @@ impl Session {
 		if let Some(sandbox) = self
 			.server
 			.runner
-			.state
-			.processes
+			.state()
+			.processes()
 			.get(id)
 			.map(|sandbox| sandbox.value().clone())
-			&& let Some(sandbox) = self.server.runner.state.sandboxes.get(&sandbox)
+			&& let Some(sandbox) = self.server.runner.state().sandboxes().get(&sandbox)
 			&& let Some(process) = sandbox.processes.get(id)
 		{
 			return Ok(Some(Process {
@@ -73,7 +73,7 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<Sandbox>> {
-		if let Some(sandbox) = self.server.runner.state.sandboxes.get(id) {
+		if let Some(sandbox) = self.server.runner.state().sandboxes().get(id) {
 			let location = sandbox
 				.data
 				.location
@@ -233,8 +233,8 @@ impl Server {
 
 		if let Some(mut process) = token.and_then(|token| {
 			self.runner
-				.state
-				.process_tokens
+				.state()
+				.process_tokens()
 				.get(token)
 				.map(|process| process.value().clone())
 		}) {
@@ -278,10 +278,10 @@ impl Server {
 		let matches = match &principal {
 			tg::Principal::Process(id) => self
 				.runner
-				.state
-				.processes
+				.state()
+				.processes()
 				.get(id)
-				.and_then(|sandbox| self.runner.state.sandboxes.get(sandbox.value()))
+				.and_then(|sandbox| self.runner.state().sandboxes().get(sandbox.value()))
 				.and_then(|sandbox| {
 					sandbox
 						.processes
@@ -291,8 +291,8 @@ impl Server {
 				.unwrap_or(false),
 			tg::Principal::Sandbox(id) => self
 				.runner
-				.state
-				.sandboxes
+				.state()
+				.sandboxes()
 				.get(id)
 				.is_some_and(|sandbox| sandbox.token.as_deref() == Some(value)),
 			_ => false,

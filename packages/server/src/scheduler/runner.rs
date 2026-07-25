@@ -81,7 +81,8 @@ impl State {
 		request: AddRunnerRequestArg,
 	) {
 		let connection_index = self.runners.next_connection_index();
-		self.remove_runner(&request.runner);
+		let completions = self.remove_runner(&request.runner);
+		scheduler.send_dequeue_sandbox_completions(self, completions);
 		let runner = Runner {
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
@@ -136,7 +137,8 @@ impl State {
 			}
 			return;
 		}
-		self.remove_runner(&request.runner);
+		let completions = self.remove_runner(&request.runner);
+		scheduler.send_dequeue_sandbox_completions(self, completions);
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {

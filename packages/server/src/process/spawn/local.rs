@@ -9,7 +9,7 @@ use {
 #[derive(derive_more::Debug)]
 pub(super) struct Output {
 	#[debug(ignore)]
-	pub allocation: Option<crate::runner::Allocation>,
+	pub allocation: Option<crate::runner::capacity::Allocation>,
 	pub cached: bool,
 	pub data: tg::process::Data,
 	pub id: tg::process::Id,
@@ -52,16 +52,17 @@ impl Session {
 		&self,
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
-	) -> Option<crate::runner::Allocation> {
+	) -> Option<crate::runner::capacity::Allocation> {
 		if let Some(parent) = parent
-			&& let Some(sandbox) = self.server.runner.state.sandboxes.get(parent)
+			&& let Some(sandbox) = self.server.runner.state().sandboxes().get(parent)
 			&& let Some(allocation) = sandbox.allocation.clone()
 			&& let Ok(parent) = allocation.try_lock_owned()
-			&& let Some(allocation) = crate::runner::Allocation::try_borrow(parent, requested)
+			&& let Some(allocation) =
+				crate::runner::capacity::Allocation::try_borrow(parent, requested)
 		{
 			return Some(allocation);
 		}
-		self.server.runner.state.capacity.try_acquire(requested)
+		self.server.runner.state().capacity().try_acquire(requested)
 	}
 
 	pub(crate) fn try_acquire_scheduled_sandbox_capacity(
@@ -69,14 +70,14 @@ impl Session {
 		borrowed: bool,
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
-	) -> Option<crate::runner::Allocation> {
+	) -> Option<crate::runner::capacity::Allocation> {
 		if borrowed {
 			let parent = parent?;
 			return self
 				.server
 				.runner
-				.state
-				.reservations
+				.state()
+				.reservations()
 				.try_acquire(parent, requested)
 				.or_else(|| self.try_acquire_parent_sandbox_capacity(parent, requested));
 		}
@@ -88,12 +89,12 @@ impl Session {
 		&self,
 		parent: &tg::sandbox::Id,
 		requested: tg::runner::Capacity,
-	) -> Option<crate::runner::Allocation> {
-		let sandbox = self.server.runner.state.sandboxes.get(parent)?;
+	) -> Option<crate::runner::capacity::Allocation> {
+		let sandbox = self.server.runner.state().sandboxes().get(parent)?;
 		let allocation = sandbox.allocation.clone()?;
 		let parent = allocation.try_lock_owned().ok()?;
 
-		crate::runner::Allocation::try_borrow(parent, requested)
+		crate::runner::capacity::Allocation::try_borrow(parent, requested)
 	}
 
 	pub(super) async fn spawn_process_notify_borrowable_capacity(
@@ -105,8 +106,8 @@ impl Session {
 		let sandbox = self
 			.server
 			.runner
-			.state
-			.sandboxes
+			.state()
+			.sandboxes()
 			.get(parent_sandbox)
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
 		let allocation = sandbox.allocation.clone().ok_or_else(
@@ -116,14 +117,14 @@ impl Session {
 		let runner = self
 			.server
 			.runner
-			.state
+			.state()
 			.id()
 			.ok_or_else(|| tg::error!("failed to find the runner id"))?;
 		let sandbox = self
 			.server
 			.runner
-			.state
-			.sandboxes
+			.state()
+			.sandboxes()
 			.get(parent_sandbox)
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
 		let control = sandbox
@@ -133,13 +134,15 @@ impl Session {
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
 		loop {
-			let scheduler = self.server.runner.state.wait_for_scheduler().await;
+			let scheduler = self.server.runner.state().wait_for_scheduler().await;
 			let allocation = allocation.clone().lock_owned().await;
-			let Some((capacity, mut reservation)) = self.server.runner.state.reservations.reserve(
-				allocation,
-				parent_sandbox.clone(),
-				requested,
-			) else {
+			let Some((capacity, mut reservation)) = self
+				.server
+				.runner
+				.state()
+				.reservations()
+				.reserve(allocation, parent_sandbox.clone(), requested)
+			else {
 				return Ok(());
 			};
 			let notification = tg::process::control::ClientNotification::BorrowableCapacity(
@@ -158,15 +161,15 @@ impl Session {
 				.map_err(
 					|error| tg::error!(!error, %parent, "failed to send the borrowable capacity notification"),
 				)?;
-			let wait = reservation.wait();
-			let wait = pin!(wait);
-			let scheduler_change = self
+			let wait_future = reservation.wait();
+			let wait_future = pin!(wait_future);
+			let scheduler_change_future = self
 				.server
 				.runner
-				.state
+				.state()
 				.wait_for_scheduler_change(&scheduler);
-			let scheduler_change = pin!(scheduler_change);
-			future::select(wait, scheduler_change).await;
+			let scheduler_change_future = pin!(scheduler_change_future);
+			future::select(wait_future, scheduler_change_future).await;
 		}
 	}
 
@@ -272,7 +275,7 @@ impl Session {
 		} else if let Some(parent_sandbox) = parent_sandbox {
 			self.server
 				.runner
-				.state
+				.state()
 				.try_get_sandbox(parent_sandbox)
 				.and_then(|sandbox| sandbox.owner)
 		} else if matches!(
@@ -385,11 +388,11 @@ impl Session {
 		let Some(parent) = &arg.parent else {
 			return Ok(());
 		};
-		if !self.server.runner.state.processes.contains_key(parent) {
+		if !self.server.runner.state().processes().contains_key(parent) {
 			return Ok(());
 		}
 		let child = output.process.as_ref().unwrap_right();
-		let sandbox = self.server.runner.state.try_get_process_sandbox(child);
+		let sandbox = self.server.runner.state().try_get_process_sandbox(child);
 		self.add_process_child(AddProcessChildArg {
 			cached: output.cached,
 			child,
