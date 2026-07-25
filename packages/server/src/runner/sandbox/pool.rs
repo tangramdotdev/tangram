@@ -106,7 +106,7 @@ async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		#[cfg(target_os = "linux")]
 		vfs_mount,
 		#[cfg(target_os = "linux")]
-		vfs_principal: _,
+			vfs_principal: _,
 	} = output;
 
 	// Stop the serve task.

@@ -1,9 +1,6 @@
 use {
-	crate::Session,
-	futures::FutureExt as _,
-	tangram_client::prelude::*,
-	tangram_futures::stream::TryExt,
-	tangram_index::prelude::*,
+	crate::Session, futures::FutureExt as _, tangram_client::prelude::*,
+	tangram_futures::stream::TryExt, tangram_index::prelude::*,
 };
 
 impl Session {

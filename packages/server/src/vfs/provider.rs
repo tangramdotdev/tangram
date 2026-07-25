@@ -174,9 +174,7 @@ impl Provider {
 				.sandboxes()
 				.get(sandbox)
 				.and_then(|state| state.tokens.get(artifact).cloned())
-				.is_some_and(|token| {
-					token.body.expires_at > now && token.body.grants(permission)
-				});
+				.is_some_and(|token| token.body.expires_at > now && token.body.grants(permission));
 			if authorized {
 				return true;
 			}

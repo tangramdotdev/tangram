@@ -52,10 +52,10 @@ impl Session {
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
 
 		// Resolve a guest artifacts path to the cache directory, where the shared artifacts live.
-		if self.server.vfs.lock().unwrap().is_some() {
-			if let Ok(rest) = path.strip_prefix(sandbox.guest_artifacts_path()) {
-				return Ok(self.server.cache_path().join(rest));
-			}
+		if self.server.vfs.lock().unwrap().is_some()
+			&& let Ok(rest) = path.strip_prefix(sandbox.guest_artifacts_path())
+		{
+			return Ok(self.server.cache_path().join(rest));
 		}
 
 		sandbox
@@ -83,10 +83,10 @@ impl Session {
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
 
 		// Serve a shared artifacts path through the per-sandbox VFS mount.
-		if self.server.vfs.lock().unwrap().is_some() {
-			if let Ok(rest) = path.strip_prefix(self.server.artifacts_path()) {
-				return Ok(sandbox.guest_artifacts_path().join(rest));
-			}
+		if self.server.vfs.lock().unwrap().is_some()
+			&& let Ok(rest) = path.strip_prefix(self.server.artifacts_path())
+		{
+			return Ok(sandbox.guest_artifacts_path().join(rest));
 		}
 
 		sandbox

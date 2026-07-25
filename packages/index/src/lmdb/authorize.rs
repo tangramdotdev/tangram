@@ -833,17 +833,6 @@ impl Index {
 					cache,
 				)?
 			},
-			// A sandbox contains its own processes, so it may access the objects they create, the processes they spawn, and their outputs.
-			tg::grant::Principal::Process(process) => {
-				if let tg::Principal::Sandbox(sandbox) = requester.principal {
-					Self::get_cached_process_sandbox_with_transaction(
-						db, subspace, transaction, process, cache,
-					)?
-					.as_ref() == Some(sandbox)
-				} else {
-					false
-				}
-			},
 			_ => false,
 		};
 		cache

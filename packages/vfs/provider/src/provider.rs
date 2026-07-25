@@ -397,8 +397,9 @@ impl Inner {
 		// Authorize with a locally held grant token that grants the artifact's subtree. On a token miss, deny access.
 		let now = SystemTime::now()
 			.duration_since(UNIX_EPOCH)
-			.map(|duration| duration.as_secs().to_i64().unwrap_or(i64::MAX))
-			.unwrap_or(0);
+			.map_or(0, |duration| {
+				duration.as_secs().to_i64().unwrap_or(i64::MAX)
+			});
 		self.tokens.iter().any(|token| {
 			token.body.expires_at > now
 				&& token.body.resource == resource
