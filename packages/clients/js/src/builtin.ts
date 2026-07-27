@@ -1,6 +1,6 @@
 import * as tg from "./index.ts";
 
-export type ArchiveFormat = "tar" | "tgar" | "zip";
+export type ArchiveFormat = "tar" | "zip";
 
 export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 
