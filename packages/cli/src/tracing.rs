@@ -1,5 +1,5 @@
 use {
-	crate::{Cli, Config, telemetry::Telemetry},
+	crate::{Cli, Config, config::TracingOutput, telemetry::Telemetry},
 	tracing_subscriber::prelude::*,
 };
 
@@ -20,25 +20,36 @@ impl Cli {
 			.or(config_tracing.map(|t| &t.filter))
 			.cloned()
 			.unwrap_or_default();
-		let output_layer = if tracing_filter.is_some() || config_tracing.is_some() {
-			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
-			let format = config_tracing
-				.and_then(|t| t.format)
-				.unwrap_or(crate::config::TracingFormat::Pretty);
-			let output_layer = match format {
-				crate::config::TracingFormat::Json => tracing_subscriber::fmt::layer()
-					.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-					.with_writer(std::io::stderr)
-					.json()
-					.boxed(),
-				crate::config::TracingFormat::Pretty => tracing_tree::HierarchicalLayer::new(2)
-					.with_bracketed_fields(true)
-					.with_span_retrace(true)
-					.boxed(),
-			};
-			Some(output_layer.with_filter(filter))
-		} else {
-			None
+		let output = config_tracing
+			.map(|tracing| tracing.output)
+			.or_else(|| tracing_filter.is_some().then_some(TracingOutput::Stderr));
+		let output_layer = match output {
+			Some(TracingOutput::Stderr) => {
+				let filter =
+					tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
+				let format = config_tracing
+					.and_then(|t| t.stderr_format)
+					.unwrap_or(crate::config::TracingFormat::Pretty);
+				let output_layer = match format {
+					crate::config::TracingFormat::Json => tracing_subscriber::fmt::layer()
+						.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+						.with_writer(std::io::stderr)
+						.json()
+						.boxed(),
+					crate::config::TracingFormat::Pretty => tracing_tree::HierarchicalLayer::new(2)
+						.with_bracketed_fields(true)
+						.with_span_retrace(true)
+						.boxed(),
+				};
+				Some(output_layer.with_filter(filter))
+			},
+			None | Some(TracingOutput::Otlp) => None,
+		};
+		let telemetry = match output {
+			Some(TracingOutput::Otlp) => {
+				Some(telemetry.expect("the otlp tracing output requires telemetry configuration"))
+			},
+			None | Some(TracingOutput::Stderr) => None,
 		};
 
 		let telemetry_tracing_layer = telemetry.map(|telemetry| {

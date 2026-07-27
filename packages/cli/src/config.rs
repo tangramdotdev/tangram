@@ -8,7 +8,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_server::config::{Reconnect, Retry},
-	tangram_util::serde::{BoolOptionDefault, is_false},
+	tangram_util::serde::{BoolOptionDefault, is_default, is_false},
 };
 
 #[serde_as]
@@ -127,8 +127,11 @@ pub struct Tracing {
 	#[serde(skip_serializing_if = "String::is_empty")]
 	pub filter: String,
 
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub output: TracingOutput,
+
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub format: Option<TracingFormat>,
+	pub stderr_format: Option<TracingFormat>,
 }
 
 #[derive(
@@ -149,6 +152,14 @@ pub enum TracingFormat {
 	Json,
 	#[default]
 	Pretty,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TracingOutput {
+	Otlp,
+	#[default]
+	Stderr,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -274,7 +285,8 @@ impl Default for Tracing {
 				"tangram_vfs=info",
 			]
 			.join(","),
-			format: Some(TracingFormat::Pretty),
+			output: TracingOutput::Stderr,
+			stderr_format: Some(TracingFormat::Pretty),
 		}
 	}
 }

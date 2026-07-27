@@ -40,6 +40,9 @@ let config = {
 		endpoint: 'http://localhost:4317',
 		service_name: 'server',
 	},
+	tracing: {
+		output: 'otlp',
+	},
 	vfs: false,
 }
 let config_path = mktemp -t
