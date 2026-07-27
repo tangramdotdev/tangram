@@ -550,12 +550,20 @@ def run_test [test: record, options: record] {
 			let exit_code = $env.LAST_EXIT_CODE
 			{ exit_code: $exit_code, stdout: '', stderr: '' }
 		} else {
-			let output = open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e>| complete
-			{
-				exit_code: $output.exit_code,
-				stdout: '',
-				stderr: $output.stdout,
+			# Capture the output to a file rather than a pipe, so a process which survives the timeout cannot block the harness by holding the pipe open.
+			let output_path = $temp_path | path join 'output'
+			let exit_code = try {
+				open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e> $output_path
+				0
+			} catch { |error|
+				$error.exit_code? | default 1
 			}
+			let stderr = if ($output_path | path exists) {
+				open --raw $output_path | decode utf-8
+			} else {
+				''
+			}
+			{ exit_code: $exit_code, stdout: '', stderr: $stderr }
 		}
 	}
 	let end = date now
@@ -922,6 +930,7 @@ export def --env spawn [
 	--config (-c): record
 	--directory (-d): string
 	--name (-n): string
+	--preserve-keys
 	--quickjs # Use QuickJS as the JS engine.
 	--url (-u): string
 ] {
@@ -1064,8 +1073,45 @@ export def --env spawn [
 		$default_config = $default_config | merge $config
 	}
 
+	# Create the directory.
+	let directory_path = $directory | default (mktemp -d)
+
 	# Write the config.
 	let config = $default_config | merge deep --strategy append ($config | default {})
+
+	# Pin the token keys to files in the server directory so a server respawned into the same directory verifies tokens issued before the restart.
+	let config = if $preserve_keys {
+		let private_key_path = $directory_path | path join 'private_key'
+		let public_key_path = $directory_path | path join 'public_key'
+		if not ($private_key_path | path exists) {
+			'U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=' | decode base64 | save -f $private_key_path
+			'MKmfiiYtaN4W/pP+V2hmmjtT2/+ILjYfiMJ9y4EsG1U=' | decode base64 | save -f $public_key_path
+		}
+		let keys = {
+			private_key: {
+				algorithm: "ed25519",
+				name: "default",
+				path: $private_key_path,
+			},
+			public_keys: [{
+				algorithm: "ed25519",
+				name: "default",
+				path: $public_key_path,
+			}],
+		}
+		$config | merge deep {
+			authentication: {
+				tokens: {
+					keys: $keys,
+				},
+			},
+			grants: {
+				tokens: $keys,
+			},
+		}
+	} else {
+		$config
+	}
 
 	# Force the vfs on for every server when fskit or vfs is enabled, because a test that omits or configures the vfs itself would otherwise override it. A test that disables the vfs is left alone.
 	let forced_vfs_kind = if $use_fskit { 'fskit' } else if $use_vfs { 'fuse' } else { null }
@@ -1081,9 +1127,6 @@ export def --env spawn [
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path
-
-	# Create the directory.
-	let directory_path = $directory | default (mktemp -d)
 
 	# Determine the url.
 	let url = $url | default $'http+unix://($directory_path | url encode --all)%2Fsocket'
@@ -1489,15 +1532,20 @@ def process_supervisor [] {
 		esac
 	}
 
+	group_done() {
+		! kill -0 -- -"$child" 2>/dev/null
+	}
+
 	terminate_child() {
 		kill -TERM -- -"$child" 2>/dev/null || true
 		kill -TERM "$child" 2>/dev/null || true
-		for _ in $(seq 1 100); do
-			if child_done; then
+		for _ in $(seq 1 60); do
+			if child_done && group_done; then
 				return
 			fi
 			sleep 0.05
 		done
+		kill -KILL -- -"$child" 2>/dev/null || true
 		kill -KILL "$child" 2>/dev/null || true
 	}
 

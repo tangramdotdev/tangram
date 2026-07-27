@@ -874,6 +874,9 @@ pub struct Scheduler {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_timeout: Duration,
 
+	#[serde(default = "default_scheduler_max_create_sandbox_attempts")]
+	pub max_create_sandbox_attempts: usize,
+
 	#[serde(default = "default_scheduler_max_create_sandbox_requests")]
 	pub max_create_sandbox_requests: usize,
 
@@ -1612,6 +1615,7 @@ impl Default for Scheduler {
 			inbox_ttl: Duration::from_mins(1),
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
+			max_create_sandbox_attempts: default_scheduler_max_create_sandbox_attempts(),
 			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
 			max_create_sandbox_requests_per_runner:
 				default_scheduler_max_create_sandbox_requests_per_runner(),
@@ -2013,6 +2017,10 @@ fn default_scheduler_cpu() -> u64 {
 
 fn default_scheduler_create_sandbox_queue_capacity() -> usize {
 	1024
+}
+
+fn default_scheduler_max_create_sandbox_attempts() -> usize {
+	8
 }
 
 fn default_scheduler_max_create_sandbox_requests() -> usize {

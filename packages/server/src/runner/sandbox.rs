@@ -119,6 +119,8 @@ struct RunSandboxTaskArg {
 	serve_task: Task<()>,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
+	#[cfg(target_os = "linux")]
+	vfs_mount: Option<std::path::PathBuf>,
 }
 
 struct RetainSandboxTaskArg {
@@ -538,7 +540,7 @@ impl Session {
 					.map_err(|error| {
 						tg::error!(!error, "failed to create the artifacts mount directory")
 					})?;
-				let options = self.server.config.vfs.unwrap_or_default();
+				let options = self.server.config.vfs.clone().unwrap_or_default();
 				let vfs = crate::vfs::Server::start(
 					&self.server,
 					crate::vfs::Kind::Fuse,
@@ -716,6 +718,8 @@ impl Session {
 			serve_task,
 			state,
 			stopper,
+			#[cfg(target_os = "linux")]
+			vfs_mount: vfs_mount.clone(),
 		};
 		let result = self.run_sandbox_task(arg).boxed().await;
 
@@ -752,6 +756,8 @@ impl Session {
 			serve_task,
 			state,
 			stopper,
+			#[cfg(target_os = "linux")]
+			vfs_mount,
 		} = arg;
 
 		let sender = control.sender();
@@ -979,6 +985,14 @@ impl Session {
 			.destroy()
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox process"))?;
+
+		// Unmount the per-sandbox VFS eagerly so its resources are released without waiting for the retained state to expire.
+		#[cfg(target_os = "linux")]
+		if let Some(mount_path) = &vfs_mount {
+			crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, mount_path)
+				.await
+				.ok();
+		}
 
 		let data = {
 			let mut state = self

@@ -227,6 +227,7 @@ struct Config {
 	default_capacity: tg::runner::Capacity,
 	heartbeat_interval: Duration,
 	inbox_ttl: Duration,
+	max_create_sandbox_attempts: usize,
 	max_create_sandbox_requests: usize,
 	max_create_sandbox_requests_per_runner: usize,
 	runner_ttl: Duration,
@@ -590,6 +591,7 @@ impl Scheduler {
 			},
 			heartbeat_interval: config.heartbeat_interval,
 			inbox_ttl: config.inbox_ttl,
+			max_create_sandbox_attempts: config.max_create_sandbox_attempts,
 			max_create_sandbox_requests: config.max_create_sandbox_requests,
 			max_create_sandbox_requests_per_runner: config.max_create_sandbox_requests_per_runner,
 			runner_ttl: config.runner_ttl,
@@ -812,7 +814,10 @@ impl Scheduler {
 				self.send_response(state, response);
 			},
 			Operation::CreateSandbox(completion) => {
-				let completions = state.handle_create_sandbox_completion(completion);
+				let completions = state.handle_create_sandbox_completion(
+					self.config.max_create_sandbox_attempts,
+					completion,
+				);
 				self.send_dequeue_sandbox_completions(state, completions);
 			},
 			Operation::ExpireRequest { id } => {

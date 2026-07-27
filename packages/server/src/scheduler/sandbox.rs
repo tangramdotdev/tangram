@@ -45,6 +45,7 @@ struct Sandbox {
 	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
 	capacity: tg::runner::Capacity,
 	dequeue_requests: Vec<String>,
+	failures: usize,
 	request: EnqueueSandboxRequestArg,
 	state: SandboxState,
 }
@@ -242,6 +243,7 @@ impl State {
 			blocked: HashMap::default(),
 			capacity,
 			dequeue_requests: Vec::new(),
+			failures: 0,
 			request,
 			state: SandboxState::Pending,
 		};
@@ -360,6 +362,7 @@ impl State {
 
 	pub(super) fn handle_create_sandbox_completion(
 		&mut self,
+		max_create_sandbox_attempts: usize,
 		completion: Completion,
 	) -> Vec<DequeueCompletion> {
 		self.sandboxes.attempts = self.sandboxes.attempts.saturating_sub(1);
@@ -384,6 +387,7 @@ impl State {
 			.entries
 			.get(&runner_ref.id)
 			.is_some_and(|runner| runner.connection_index == runner_ref.connection_index);
+		let failed = matches!(&result, Ok(Err(_)));
 		if let Ok(Err(error)) = &result {
 			tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "the runner failed to create the sandbox");
 		}
@@ -396,7 +400,17 @@ impl State {
 			},
 			Ok(Ok(false) | Err(_)) => {
 				self.remove_reservation(&id, &placement, false);
-				if dequeue_requests.is_empty() {
+				let sandbox = self.sandboxes.entries.get_mut(&id).unwrap();
+				if failed {
+					sandbox.failures += 1;
+				}
+				let failures = sandbox.failures;
+				if !dequeue_requests.is_empty() {
+					self.sandboxes.entries.remove(&id);
+				} else if failures >= max_create_sandbox_attempts {
+					tracing::error!(sandbox = %id, %failures, "giving up on the sandbox after too many failed creation attempts");
+					self.sandboxes.entries.remove(&id);
+				} else {
 					if matches!(placement, Placement::Regular { .. })
 						&& let Some(runner) = self.runners.entries.get(&runner_ref.id)
 					{
@@ -409,8 +423,6 @@ impl State {
 						);
 					}
 					self.requeue_sandbox(&id);
-				} else {
-					self.sandboxes.entries.remove(&id);
 				}
 				DequeueSandboxResponseOutput { dequeued: true }
 			},
@@ -809,6 +821,7 @@ mod tests {
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
+			failures: 0,
 			request: enqueue_request(id.clone()),
 			state: SandboxState::Creating {
 				placement: Placement::Regular {
@@ -839,7 +852,7 @@ mod tests {
 			["first", "second"]
 		);
 
-		let completions = state.handle_create_sandbox_completion(Completion {
+		let completions = state.handle_create_sandbox_completion(3, Completion {
 			placement: Placement::Regular { runner },
 			result: Ok(Ok(true)),
 			sandbox: id.clone(),
@@ -865,6 +878,7 @@ mod tests {
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
+			failures: 0,
 			request: enqueue_request(id.clone()),
 			state: SandboxState::Creating {
 				placement: placement.clone(),
@@ -879,7 +893,7 @@ mod tests {
 			},
 		);
 
-		let completions = state.handle_create_sandbox_completion(Completion {
+		let completions = state.handle_create_sandbox_completion(3, Completion {
 			placement,
 			result: Ok(Ok(false)),
 			sandbox: id.clone(),
@@ -898,6 +912,7 @@ mod tests {
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
+			failures: 0,
 			request: enqueue_request(id.clone()),
 			state: SandboxState::Pending,
 		};

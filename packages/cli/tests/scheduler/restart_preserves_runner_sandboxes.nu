@@ -2,35 +2,13 @@ use ../../test.nu *
 
 # A runner preserves its sandboxes across a scheduler restart and assigns child work to the new scheduler.
 
-let private_key = mktemp
-let public_key = mktemp
-'U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=' | decode base64 | save -f $private_key
-'MKmfiiYtaN4W/pP+V2hmmjtT2/+ILjYfiMJ9y4EsG1U=' | decode base64 | save -f $public_key
-let keys = {
-	private_key: {
-		algorithm: "ed25519",
-		name: "default",
-		path: $private_key,
-	},
-	public_keys: [{
-		algorithm: "ed25519",
-		name: "default",
-		path: $public_key,
-	}],
-}
 let config = {
 	advanced: {
 		single_process: false,
 	},
-	authentication: {
-		tokens: $keys,
-	},
-	grants: {
-		tokens: $keys,
-	},
 	roles: [cleaner finalizer http indexer scheduler],
 }
-let remote = spawn --name remote --config $config
+let remote = spawn --name remote --preserve-keys --config $config
 
 let runner = spawn --name runner --config {
 	advanced: {
@@ -87,7 +65,7 @@ if $nu.os-info.name == "linux" {
 	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
 }
 
-spawn --directory $remote.directory --name remote --config $config --url $remote.url
+spawn --directory $remote.directory --name remote --preserve-keys --config $config --url $remote.url
 
 tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch

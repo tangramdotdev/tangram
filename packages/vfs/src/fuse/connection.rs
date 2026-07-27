@@ -62,14 +62,14 @@ where
 		let gid = rustix::process::getgid().as_raw();
 		let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
 		// SAFETY: The pre_exec closure only calls async-signal-safe operations.
-		let mut child = unsafe {
+		let child = unsafe {
 			std::process::Command::new("fusermount3")
 				.args(["-o", &options, "--"])
 				.arg(path)
 				.env("_FUSE_COMMFD", commfd_raw.to_string())
 				.stdin(std::process::Stdio::null())
 				.stdout(std::process::Stdio::null())
-				.stderr(std::process::Stdio::null())
+				.stderr(std::process::Stdio::piped())
 				.pre_exec(move || {
 					// Clear CLOEXEC on the comm fd so fusermount3 inherits it.
 					rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
@@ -85,24 +85,29 @@ where
 		let mut cmsg_buffer = RecvAncillaryBuffer::new(&mut cmsg_space);
 		let recv = rustix::net::recvmsg(&recvfd, &mut iovecs, &mut cmsg_buffer, RecvFlags::empty())
 			.map_err(Error::from)?;
-		if recv.bytes == 0 {
-			return Err(Error::other("failed to read the control message"));
-		}
-
 		let mut fd = None;
-		for message in cmsg_buffer.drain() {
-			if let RecvAncillaryMessage::ScmRights(mut fds) = message {
-				fd = fds.next();
-				if fd.is_some() {
-					break;
+		if recv.bytes > 0 {
+			for message in cmsg_buffer.drain() {
+				if let RecvAncillaryMessage::ScmRights(mut fds) = message {
+					fd = fds.next();
+					if fd.is_some() {
+						break;
+					}
 				}
 			}
 		}
-		let fd = fd.ok_or_else(|| Error::other("missing control message"))?;
-		rustix::io::fcntl_setfd(&fd, FdFlags::CLOEXEC).map_err(Error::from)?;
 
-		// Reap the mount helper.
-		child.wait()?;
+		// Reap the mount helper, and raise its error output if it did not send the descriptor.
+		let output = child.wait_with_output()?;
+		let Some(fd) = fd else {
+			let stderr = String::from_utf8_lossy(&output.stderr);
+			let stderr = stderr.trim();
+			return Err(Error::other(format!(
+				"failed to mount, status = {}: {stderr}",
+				output.status,
+			)));
+		};
+		rustix::io::fcntl_setfd(&fd, FdFlags::CLOEXEC).map_err(Error::from)?;
 
 		Ok(Arc::new(fd))
 	}
