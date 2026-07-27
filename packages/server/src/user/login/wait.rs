@@ -27,7 +27,13 @@ impl Session {
 					code: arg.code,
 					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 				};
-				client.wait_login(arg).await
+				let output = client.wait_login(arg).await?;
+				self.set_remote_token(&remote.name, output.token.clone())
+					.await
+					.map_err(
+						|error| tg::error!(!error, remote = %remote.name, "failed to save the remote login"),
+					)?;
+				Ok(output)
 			},
 		}
 	}

@@ -1,5 +1,8 @@
 use {
 	crate::{Server, Session},
+	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
 	tangram_index::prelude::*,
@@ -228,6 +231,59 @@ impl Session {
 		);
 		let session = client.session(&context);
 		Ok(Some(session))
+	}
+
+	pub(crate) async fn set_remote_token(&self, remote: &str, token: String) -> tg::Result<()> {
+		let principal = self.resolve_remote_arg_principal(None).await?;
+		let principal = principal.as_ref().map(ToString::to_string);
+		let remote = remote.to_owned();
+		let n = self
+			.server
+			.database
+			.run(|transaction| {
+				let principal = principal.clone();
+				let remote = remote.clone();
+				let token = token.clone();
+				async move {
+					Self::set_remote_token_with_transaction(
+						transaction,
+						&remote,
+						principal.as_deref(),
+						&token,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "failed to set the remote token"))?;
+		if n == 0 {
+			return Err(tg::error!("failed to find the remote"));
+		}
+		Ok(())
+	}
+
+	async fn set_remote_token_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		remote: &str,
+		principal: Option<&str>,
+		token: &str,
+	) -> tg::Result<ControlFlow<u64, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r"
+				update remotes
+				set token = {p}3
+				where name = {p}1 and (
+					(principal is null and {p}2 is null) or
+					principal = {p}2
+				);
+			",
+		);
+		let params = tangram_database::params![remote, principal, token];
+		let result = transaction.execute(statement.into(), params).await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		Ok(ControlFlow::Break(n))
 	}
 }
 
