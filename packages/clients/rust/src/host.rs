@@ -1,3 +1,6 @@
+// The hosts that do not name a machine.
+const VIRTUAL_HOSTS: [&str; 2] = ["builtin", "js"];
+
 /// Get the current host.
 #[must_use]
 pub fn current() -> &'static str {
@@ -17,4 +20,10 @@ pub fn current() -> &'static str {
 	{
 		"x86_64-linux"
 	}
+}
+
+/// Determine whether a host is virtual, meaning that it does not name a machine, so any runner can run its processes.
+#[must_use]
+pub fn is_virtual(host: &str) -> bool {
+	VIRTUAL_HOSTS.contains(&host)
 }

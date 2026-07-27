@@ -296,7 +296,7 @@ impl Session {
 		let (sandbox, sandbox_arg, sandbox_token) = match &arg.sandbox {
 			Some(tg::Either::Left(sandbox_arg)) => {
 				let mut sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
-				sandbox_arg.host = Some(host.to_owned());
+				sandbox_arg.host = (!tg::host::is_virtual(host)).then(|| host.to_owned());
 				sandbox_arg.location.clone_from(&arg.location);
 				sandbox_arg.owner.clone_from(&owner);
 				let isolation = self.server.resolve_sandbox_isolation()?;
