@@ -306,7 +306,7 @@ where
 		// Clean up a partial startup.
 		if let Err(error) = startup {
 			self.cancel_async_requests();
-			let disconnected = Self::disconnect_transport(path, connection_id).await;
+			let disconnected = self.disconnect_transport(path, connection_id).await;
 			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if disconnected {
 				self.rollback_all_response_resources(fd.as_ref());

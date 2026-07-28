@@ -53,6 +53,7 @@ tracing = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 neli = { workspace = true }
+tangram_vfs = { workspace = true }
 vhost = { workspace = true }
 vhost-user-backend = { workspace = true }
 virtiofsd = { workspace = true }

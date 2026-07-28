@@ -39,7 +39,7 @@ where
 		// Prepare the readers and dispatcher.
 		let reader_fds = match Self::clone_read_write_fds(&connection.fd) {
 			Err(error) => {
-				Self::disconnect_transport(path, connection.id).await;
+				self.disconnect_transport(path, connection.id).await;
 				return Err(error);
 			},
 			Ok(reader_fds) => reader_fds,
@@ -119,7 +119,7 @@ where
 		// Clean up a partial startup.
 		if let Some(error) = startup_error {
 			self.cancel_async_requests();
-			let disconnected = Self::disconnect_transport(path, connection.id).await;
+			let disconnected = self.disconnect_transport(path, connection.id).await;
 			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if !disconnected {
 				dispatcher.abort();

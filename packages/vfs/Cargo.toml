@@ -27,7 +27,7 @@ dashmap = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
-rustix = { workspace = true, features = ["event", "net", "param", "process"] }
+rustix = { workspace = true, features = ["event", "mount", "net", "param", "process"] }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tokio = { workspace = true }

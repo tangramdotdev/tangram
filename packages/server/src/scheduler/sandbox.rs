@@ -893,15 +893,14 @@ mod tests {
 			["first", "second"]
 		);
 
-		let output = state.handle_create_sandbox_completion(
-			&config(),
+		let completions = state.handle_create_sandbox_completion(
+			3,
 			Completion {
 				placement: Placement::Regular { runner },
 				result: Ok(Ok(true)),
 				sandbox: id.clone(),
 			},
 		);
-		let completions = output.dequeue_completions;
 
 		assert_eq!(completions.len(), 2);
 		assert!(output.discarded.is_none());
@@ -939,15 +938,14 @@ mod tests {
 			},
 		);
 
-		let output = state.handle_create_sandbox_completion(
-			&config(),
+		let completions = state.handle_create_sandbox_completion(
+			3,
 			Completion {
 				placement,
 				result: Ok(Ok(false)),
 				sandbox: id.clone(),
 			},
 		);
-		let completions = output.dequeue_completions;
 
 		assert_eq!(completions.len(), 1);
 		assert!(output.discarded.is_none());

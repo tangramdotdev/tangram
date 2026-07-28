@@ -17,73 +17,24 @@ where
 		options: Options,
 		limits: RequestLimits,
 		supports_no_opendir: bool,
+		fd: Arc<OwnedFd>,
+		connection_id: Option<u64>,
 	) -> Result<Connection> {
-		// Mount the filesystem.
-		Self::unmount(path).await.ok();
-		let fd = Self::mount(path)
-			.await
-			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
-
-		// Initialize and identify the connection.
-		let result = Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir)
-			.and_then(|features| {
-				let connection_id = Self::connection_id(path)?;
-				Ok((connection_id, features))
-			});
-		let (connection_id, features) = match result {
-			Err(error) => {
-				drop(fd);
-				Self::unmount(path).await.ok();
-				return Err(error);
-			},
-			Ok(result) => result,
+		let features = Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir)?;
+		let id = match connection_id {
+			None => self::connection_id(path)?,
+			Some(connection_id) => connection_id,
 		};
-
-		Ok(Connection {
-			fd,
-			features,
-			id: connection_id,
-		})
+		Ok(Connection { fd, features, id })
 	}
 
-	pub(super) async fn mount(path: &Path) -> Result<Arc<OwnedFd>> {
-		// Create the helper control socket.
-		let (fuse_commfd, recvfd) = rustix::net::socketpair(
-			AddressFamily::UNIX,
-			SocketType::STREAM,
-			SocketFlags::CLOEXEC,
-			None,
-		)
-		.map_err(Error::from)?;
-
-		// Start the mount helper.
-		let commfd_raw = fuse_commfd.as_raw_fd();
-		let uid = rustix::process::getuid().as_raw();
-		let gid = rustix::process::getgid().as_raw();
-		let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
-		// SAFETY: The pre_exec closure only calls async-signal-safe operations.
-		let child = unsafe {
-			std::process::Command::new("fusermount3")
-				.args(["-o", &options, "--"])
-				.arg(path)
-				.env("_FUSE_COMMFD", commfd_raw.to_string())
-				.stdin(std::process::Stdio::null())
-				.stdout(std::process::Stdio::null())
-				.stderr(std::process::Stdio::piped())
-				.pre_exec(move || {
-					// Clear CLOEXEC on the comm fd so fusermount3 inherits it.
-					rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
-					Ok(())
-				})
-				.spawn()?
-		};
-
+	pub(super) fn mount(recvfd: &OwnedFd) -> Result<(Arc<OwnedFd>, Option<u64>)> {
 		// Receive the mounted FUSE descriptor.
 		let mut read_buffer = [0u8; 8];
 		let mut iovecs = [IoSliceMut::new(&mut read_buffer)];
 		let mut cmsg_space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
 		let mut cmsg_buffer = RecvAncillaryBuffer::new(&mut cmsg_space);
-		let recv = rustix::net::recvmsg(&recvfd, &mut iovecs, &mut cmsg_buffer, RecvFlags::empty())
+		let recv = rustix::net::recvmsg(recvfd, &mut iovecs, &mut cmsg_buffer, RecvFlags::empty())
 			.map_err(Error::from)?;
 		let mut fd = None;
 		if recv.bytes > 0 {
@@ -96,20 +47,13 @@ where
 				}
 			}
 		}
-
-		// Reap the mount helper and report its standard error if it did not send the descriptor.
-		let output = child.wait_with_output()?;
-		let Some(fd) = fd else {
-			let stderr = String::from_utf8_lossy(&output.stderr);
-			let stderr = stderr.trim();
-			return Err(Error::other(format!(
-				"failed to mount, status = {}: {stderr}",
-				output.status,
-			)));
-		};
+		let fd = fd.ok_or_else(|| std::io::Error::other("failed to receive the fuse fd"))?;
 		rustix::io::fcntl_setfd(&fd, FdFlags::CLOEXEC).map_err(Error::from)?;
 
-		Ok(Arc::new(fd))
+		// A sandbox sends the connection id with the descriptor, while fusermount3 sends a single byte.
+		let connection_id = (recv.bytes == 8).then(|| u64::from_le_bytes(read_buffer));
+
+		Ok((Arc::new(fd), connection_id))
 	}
 
 	pub(super) fn init_handshake(
@@ -257,85 +201,6 @@ where
 		}
 	}
 
-	pub(super) fn connection_id(path: &Path) -> Result<u64> {
-		let path = if path.is_absolute() {
-			path.to_owned()
-		} else {
-			std::env::current_dir()?.join(path)
-		};
-		let mountinfo = std::fs::read_to_string("/proc/self/mountinfo")?;
-
-		Self::parse_connection_id(&mountinfo, &path)
-	}
-
-	pub(super) fn parse_connection_id(mountinfo: &str, path: &Path) -> Result<u64> {
-		// Find the most recent matching FUSE mount.
-		for line in mountinfo.lines().rev() {
-			let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
-			let Some(separator) = fields.iter().position(|field| *field == "-") else {
-				continue;
-			};
-			if fields.len() <= separator + 1 || !fields[separator + 1].starts_with("fuse") {
-				continue;
-			}
-			let Some(mountpoint) = fields.get(4) else {
-				continue;
-			};
-			if Self::unescape_mountinfo_path(mountpoint) != path {
-				continue;
-			}
-			let Some((major, minor)) = fields.get(2).and_then(|device| device.split_once(':'))
-			else {
-				continue;
-			};
-			let major = major.parse::<u32>().map_err(|error| {
-				Error::other(format!(
-					"failed to parse the FUSE device major number: {error}"
-				))
-			})?;
-			let minor = minor.parse::<u32>().map_err(|error| {
-				Error::other(format!(
-					"failed to parse the FUSE device minor number: {error}"
-				))
-			})?;
-			let connection_id = libc::makedev(major, minor);
-
-			return Ok(connection_id);
-		}
-
-		Err(Error::other(
-			"failed to find the FUSE connection in mountinfo",
-		))
-	}
-
-	#[must_use]
-	pub(super) fn unescape_mountinfo_path(path: &str) -> std::path::PathBuf {
-		// Decode the mountinfo escape sequences.
-		let bytes = path.as_bytes();
-		let mut output = Vec::with_capacity(bytes.len());
-		let mut index = 0;
-		while index < bytes.len() {
-			if bytes[index] == b'\\'
-				&& index + 3 < bytes.len()
-				&& bytes[index + 1..=index + 3]
-					.iter()
-					.all(|byte| matches!(byte, b'0'..=b'7'))
-			{
-				let value = (bytes[index + 1] - b'0') * 64
-					+ (bytes[index + 2] - b'0') * 8
-					+ bytes[index + 3]
-					- b'0';
-				output.push(value);
-				index += 4;
-			} else {
-				output.push(bytes[index]);
-				index += 1;
-			}
-		}
-
-		OsString::from_vec(output).into()
-	}
-
 	pub async fn unmount(path: &Path) -> Result<()> {
 		let output = tokio::process::Command::new("fusermount3")
 			.args(["-u", "-z"])
@@ -352,14 +217,16 @@ where
 		Ok(())
 	}
 
-	pub(super) async fn disconnect_transport(path: &Path, connection_id: u64) -> bool {
+	pub(super) async fn disconnect_transport(&self, path: &Path, connection_id: u64) -> bool {
 		let aborted = Self::abort_connection(connection_id)
 			.inspect_err(|error| tracing::error!(%error, "failed to abort the FUSE connection"))
 			.is_ok();
-		Self::unmount(path)
-			.await
-			.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
-			.ok();
+		if self.auto_unmount {
+			Self::unmount(path)
+				.await
+				.inspect_err(|error| tracing::error!(%error, "failed to unmount"))
+				.ok();
+		}
 
 		aborted
 	}
@@ -459,4 +326,81 @@ where
 			Some(libc::ENOSYS | libc::ENOTTY | libc::EINVAL)
 		)
 	}
+}
+
+pub(super) fn connection_id(path: &Path) -> Result<u64> {
+	let path = if path.is_absolute() {
+		path.to_owned()
+	} else {
+		std::env::current_dir()?.join(path)
+	};
+	let mountinfo = std::fs::read_to_string("/proc/self/mountinfo")?;
+
+	parse_connection_id(&mountinfo, &path)
+}
+
+pub(super) fn parse_connection_id(mountinfo: &str, path: &Path) -> Result<u64> {
+	// Find the most recent matching FUSE mount.
+	for line in mountinfo.lines().rev() {
+		let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
+		let Some(separator) = fields.iter().position(|field| *field == "-") else {
+			continue;
+		};
+		if fields.len() <= separator + 1 || !fields[separator + 1].starts_with("fuse") {
+			continue;
+		}
+		let Some(mountpoint) = fields.get(4) else {
+			continue;
+		};
+		if unescape_mountinfo_path(mountpoint) != path {
+			continue;
+		}
+		let Some((major, minor)) = fields.get(2).and_then(|device| device.split_once(':')) else {
+			continue;
+		};
+		let major = major.parse::<u32>().map_err(|error| {
+			Error::other(format!(
+				"failed to parse the FUSE device major number: {error}"
+			))
+		})?;
+		let minor = minor.parse::<u32>().map_err(|error| {
+			Error::other(format!(
+				"failed to parse the FUSE device minor number: {error}"
+			))
+		})?;
+		let connection_id = libc::makedev(major, minor);
+
+		return Ok(connection_id);
+	}
+
+	Err(Error::other(
+		"failed to find the FUSE connection in mountinfo",
+	))
+}
+
+#[must_use]
+fn unescape_mountinfo_path(path: &str) -> std::path::PathBuf {
+	// Decode the mountinfo escape sequences.
+	let bytes = path.as_bytes();
+	let mut output = Vec::with_capacity(bytes.len());
+	let mut index = 0;
+	while index < bytes.len() {
+		if bytes[index] == b'\\'
+			&& index + 3 < bytes.len()
+			&& bytes[index + 1..=index + 3]
+				.iter()
+				.all(|byte| matches!(byte, b'0'..=b'7'))
+		{
+			let value =
+				(bytes[index + 1] - b'0') * 64 + (bytes[index + 2] - b'0') * 8 + bytes[index + 3]
+					- b'0';
+			output.push(value);
+			index += 4;
+		} else {
+			output.push(bytes[index]);
+			index += 1;
+		}
+	}
+
+	OsString::from_vec(output).into()
 }

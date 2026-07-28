@@ -1,6 +1,7 @@
 use {
 	provider::Provider,
 	std::{
+		os::fd::OwnedFd,
 		path::Path,
 		sync::{Arc, Mutex},
 	},
@@ -40,6 +41,7 @@ impl Server {
 		path: &Path,
 		options: crate::config::Vfs,
 		principal: Arc<Mutex<Option<tg::Principal>>>,
+		recvfd: Option<OwnedFd>,
 	) -> tg::Result<Self> {
 		// Remove a file at the path if one exists.
 		tokio::fs::remove_file(path).await.ok();
@@ -89,14 +91,24 @@ impl Server {
 							},
 						},
 					};
-					let fuse = vfs::fuse::Server::start(provider, path, options)
+					// Without a sandbox socket, mount with the fusermount3 helper after unmounting a stale mount.
+					let recvfd = match recvfd {
+						None => {
+							vfs::fuse::Server::<Provider>::unmount(path).await.ok();
+							vfs::fuse::fusermount3(path).map_err(|error| {
+								tg::error!(!error, "failed to start the fuse mount helper")
+							})?
+						},
+						Some(recvfd) => recvfd,
+					};
+					let fuse = vfs::fuse::Server::start(provider, path, options, recvfd)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to start the FUSE server"))?;
 					Server::Fuse(fuse)
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
-					let _ = options;
+					let _ = (options, recvfd);
 					return Err(tg::error!("the FUSE VFS is only supported on Linux"));
 				}
 			},

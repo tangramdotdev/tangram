@@ -31,6 +31,8 @@ pub struct Arg {
 	pub command: Vec<OsString>,
 	pub devs: Vec<PathBuf>,
 	pub die_with_parent: bool,
+	pub fuse_fd: Option<i32>,
+	pub fuse_path: Option<PathBuf>,
 	pub gateway_ip: Option<Ipv4Addr>,
 	pub gid: libc::gid_t,
 	pub guest_ip: Option<Ipv4Addr>,
@@ -182,6 +184,21 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			flags |= libc::CLONE_NEWUTS;
 		}
 		unshare(flags, "failed to unshare the sandbox namespaces")?;
+
+		// Mount the fuse filesystem in the new namespaces and send its descriptor to the host.
+		if let Some(fuse_fd) = arg.fuse_fd {
+			let path = arg
+				.fuse_path
+				.as_ref()
+				.ok_or_else(|| tg::error!("the fuse mount requires a path"))?;
+			if fuse_fd < 0 {
+				return Err(tg::error!(fd = %fuse_fd, "the fuse mount requires a valid socket fd"));
+			}
+			// SAFETY: The descriptor is inherited from the host and is exclusively owned here.
+			let sendfd = unsafe { OwnedFd::from_raw_fd(fuse_fd) };
+			tangram_vfs::fuse::mount_dev_fuse(&sendfd, path)
+				.map_err(|error| tg::error!(!error, "failed to mount the fuse filesystem"))?;
+		}
 	}
 
 	if let Some(hostname) = &arg.hostname {
