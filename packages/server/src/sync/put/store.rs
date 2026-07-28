@@ -10,11 +10,13 @@ pub struct ObjectItem {
 	pub eager: bool,
 	pub id: tg::object::Id,
 	pub kind: Option<crate::sync::queue::ObjectKind>,
+	pub token: Option<tg::grant::Token>,
 }
 
 pub struct ProcessItem {
 	pub eager: bool,
 	pub id: tg::process::Id,
+	pub token: Option<tg::grant::Token>,
 }
 
 impl Session {
@@ -69,10 +71,12 @@ impl Session {
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
 		// Get the objects.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+		let objects = items
+			.iter()
+			.map(|item| tg::Referent::with_item_and_token(item.id.clone(), item.token.clone()))
+			.collect::<Vec<_>>();
 		let outputs = self
-			.server
-			.try_get_object_batch_local(&ids, state.arg.metadata)
+			.try_get_object_batch_local_or_regions(&objects, state.arg.metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects"))?;
 
@@ -169,10 +173,12 @@ impl Session {
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
 		// Get the processes.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+		let processes = items
+			.iter()
+			.map(|item| tg::Referent::with_item_and_token(item.id.clone(), item.token.clone()))
+			.collect::<Vec<_>>();
 		let outputs = self
-			.server
-			.try_get_process_batch_local(&ids, state.arg.metadata)
+			.try_get_process_batch_local_or_regions(&processes, state.arg.metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the processes"))?;
 

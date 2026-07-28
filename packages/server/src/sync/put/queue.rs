@@ -159,13 +159,12 @@ impl Session {
 		// Route the objects.
 		let node = Self::sync_put_object_node_permissions();
 		for (item, (inserted, stored)) in std::iter::zip(items, statuses) {
-			let permissions = state
+			let authorization = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_object_local_authorization(&item.id, node)
-				.permissions;
-			if !permissions.contains(node) {
+				.get_object_local_authorization(&item.id, node);
+			if !authorization.permissions.contains(node) {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(
 					tg::sync::PutMissingObjectMessage { id: item.id },
 				));
@@ -183,6 +182,7 @@ impl Session {
 					eager: item.eager,
 					id: item.id,
 					kind: item.kind,
+					token: authorization.token,
 				};
 				store_object_sender
 					.send(item)
@@ -274,13 +274,12 @@ impl Session {
 		// Route the processes.
 		let node = Self::sync_put_process_node_permissions();
 		for (item, (inserted, stored)) in std::iter::zip(items, statuses) {
-			let permissions = state
+			let authorization = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_authorization(&item.id, node)
-				.permissions;
-			if !permissions.contains(node) {
+				.get_process_local_authorization(&item.id, node);
+			if !authorization.permissions.contains(node) {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(
 					tg::sync::PutMissingProcessMessage { id: item.id },
 				));
@@ -297,6 +296,7 @@ impl Session {
 				let item = super::store::ProcessItem {
 					eager: item.eager,
 					id: item.id,
+					token: authorization.token,
 				};
 				store_process_sender
 					.send(item)

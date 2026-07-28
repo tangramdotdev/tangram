@@ -107,73 +107,68 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	#[expect(dead_code)]
-	pub(crate) async fn try_get_object_batch(
+	pub(crate) async fn try_get_object_batch_local_or_regions(
 		&self,
-		ids: &[tg::object::Id],
+		objects: &[tg::Referent<tg::object::Id>],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
 		let outputs = self
-			.try_get_object_batch_local(ids, metadata)
+			.try_get_object_batch_local(objects, metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
+		let location: tg::location::Arg =
+			tg::Location::Local(tg::location::Local::default()).into();
 		let locations = self
-			.locations(None)
+			.locations(Some(&location))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let remotes = locations.remotes;
-		let outputs = std::iter::zip(ids, outputs)
-			.map(|(id, output)| {
+		let outputs = std::iter::zip(objects, outputs)
+			.map(|(object, output)| {
 				let regions = regions.clone();
-				let remotes = remotes.clone();
 				async move {
 					if let Some(output) = output {
 						return Ok(Some(output));
 					}
 
-					if let Some(output) = self
-						.try_get_object_regions(id, &regions, metadata, None)
-						.await?
-					{
-						return Ok(Some(output));
-					}
-
-					if let Some(output) = self
-						.try_get_object_remotes(id, &remotes, metadata, None)
-						.await?
-					{
-						return Ok(Some(output));
-					}
-
-					Ok::<_, tg::Error>(None)
+					self.try_get_object_regions(
+						&object.item,
+						&regions,
+						metadata,
+						object.options.token.as_ref(),
+					)
+					.await
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
+
 		Ok(outputs)
 	}
 
 	pub(crate) async fn try_get_object_batch_local(
 		&self,
-		ids: &[tg::object::Id],
+		objects: &[tg::Referent<tg::object::Id>],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
+		let ids = objects
+			.iter()
+			.map(|object| object.item.clone())
+			.collect::<Vec<_>>();
 		let outputs = self
 			.server
-			.try_get_object_batch_local(ids, metadata)
+			.try_get_object_batch_local(&ids, metadata)
 			.await?;
-		let outputs = std::iter::zip(ids, outputs)
-			.map(|(id, output)| async move {
+		let outputs = std::iter::zip(objects, outputs)
+			.map(|(object, output)| async move {
 				if output.is_none() {
 					return Ok::<_, tg::Error>(None);
 				}
-				let resource = tg::grant::Resource::Id(id.clone().into());
 				let permission =
 					tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
 				if !self
-					.authorize(resource, permission)
+					.authorize(object.clone(), permission)
 					.await?
 					.is_some_and(|permissions| permissions.contains(permission))
 				{
@@ -183,13 +178,16 @@ impl Session {
 				if let Some(output) = &mut output
 					&& let Some(metadata) = output.metadata.take()
 				{
-					output.metadata = self.mask_object_metadata(id, metadata, None).await?;
+					output.metadata = self
+						.mask_object_metadata(&object.item, metadata, object.options.token.as_ref())
+						.await?;
 				}
 				Ok::<_, tg::Error>(output)
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
+
 		Ok(outputs)
 	}
 

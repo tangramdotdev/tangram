@@ -2,7 +2,7 @@ use {
 	crate::{Server, Session},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
-		stream::{self, BoxStream, FuturesUnordered},
+		stream::{self, BoxStream, FuturesOrdered, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
@@ -52,6 +52,30 @@ impl Session {
 		}
 
 		Ok(None)
+	}
+
+	pub(crate) async fn try_get_process_batch_local_or_regions(
+		&self,
+		processes: &[tg::Referent<tg::process::Id>],
+		metadata: bool,
+	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
+		let location: tg::location::Arg =
+			tg::Location::Local(tg::location::Local::default()).into();
+		let outputs = processes
+			.iter()
+			.map(|process| {
+				let arg = tg::process::get::Arg {
+					location: Some(location.clone()),
+					metadata,
+					token: process.options.token.clone(),
+				};
+				self.try_get_process(&process.item, arg)
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+
+		Ok(outputs)
 	}
 
 	pub(crate) async fn try_get_process_local(

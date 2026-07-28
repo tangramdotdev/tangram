@@ -1025,10 +1025,12 @@ impl Graph {
 			.and_then(|(_, node)| node.local_permissions())
 			.map_or_else(|| required.empty_like(), Self::normalize_permissions);
 		if permissions.contains(required) {
-			return Authorization {
-				permissions,
-				token: None,
-			};
+			let token = self
+				.nodes
+				.get_index(index)
+				.and_then(|(_, node)| node.token())
+				.cloned();
+			return Authorization { permissions, token };
 		}
 
 		let mut predecessors = HashMap::new();
@@ -1069,10 +1071,7 @@ impl Graph {
 					.and_then(|(_, node)| node.local_permissions())
 					.map_or_else(|| required.empty_like(), Self::normalize_permissions);
 				if permissions.contains(required) {
-					return Authorization {
-						permissions,
-						token: None,
-					};
+					return Authorization { permissions, token };
 				}
 				continue;
 			}
