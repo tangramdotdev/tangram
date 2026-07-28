@@ -809,8 +809,12 @@ impl Index {
 			let tg::grant::Principal::Process(process) = principal else {
 				continue;
 			};
-			let permission =
-				tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+			let permission = if permission.is_read() {
+				tg::grant::permission::process::Permission::Read
+			} else {
+				tg::grant::permission::process::Permission::Write
+			};
+			let permission = tg::grant::Permission::Process(permission);
 			dependencies.push((process.into(), permission));
 		}
 
@@ -1290,6 +1294,9 @@ impl Index {
 			)),
 			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
 				tg::grant::permission::organization::Permission::Write,
+			)),
+			tg::id::Kind::Process => Ok(tg::grant::Permission::Process(
+				tg::grant::permission::process::Permission::Write,
 			)),
 			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
 				tg::grant::permission::sandbox::Permission::Write,

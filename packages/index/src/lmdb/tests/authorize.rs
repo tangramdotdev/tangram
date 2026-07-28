@@ -235,14 +235,29 @@ async fn deny_secs(index: &Index, resource: &tg::object::Id, user: &tg::user::Id
 #[tokio::test]
 async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 	let (_dir, index) = new_index();
+	let node_reader = tg::user::Id::new();
 	let object = object_id(0);
 	let outsider = tg::user::Id::new();
 	let process = tg::process::Id::new();
+	let process_reader = tg::user::Id::new();
+	let process_writer = tg::user::Id::new();
 	let sandbox = tg::sandbox::Id::new();
+	let sandbox_reader = tg::user::Id::new();
+	let sandbox_writer = tg::user::Id::new();
+	let subtree_reader = tg::user::Id::new();
 	let target = tg::sandbox::Id::new();
-	let user = tg::user::Id::new();
+	let node = tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+	let process_read =
+		tg::grant::Permission::Process(tg::grant::permission::process::Permission::Read);
+	let process_write =
+		tg::grant::Permission::Process(tg::grant::permission::process::Permission::Write);
+	let sandbox_read =
+		tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
+	let sandbox_write =
+		tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
+	let process_subtree =
+		tg::grant::Permission::Process(tg::grant::permission::process::Permission::Subtree);
 	let subtree = object_permission(tg::grant::permission::object::Permission::Subtree);
-	let write = tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &object);
 	put_sandbox(&index, &mut txn, &sandbox);
@@ -259,54 +274,59 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 		&index,
 		&mut txn,
 		target.clone().into(),
-		tg::grant::Principal::Process(process),
-		write,
+		tg::grant::Principal::Process(process.clone()),
+		sandbox_write,
 	);
 	put_resource_grant(
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
-		tg::grant::Principal::User(user.clone()),
-		tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read),
+		tg::grant::Principal::User(sandbox_reader.clone()),
+		sandbox_read,
 	);
+	put_resource_grant(
+		&index,
+		&mut txn,
+		sandbox.clone().into(),
+		tg::grant::Principal::User(sandbox_writer.clone()),
+		sandbox_write,
+	);
+	for (principal, permission) in [
+		(node_reader.clone(), node),
+		(process_reader.clone(), process_read),
+		(process_writer.clone(), process_write),
+		(subtree_reader.clone(), process_subtree),
+	] {
+		put_resource_grant(
+			&index,
+			&mut txn,
+			process.clone().into(),
+			tg::grant::Principal::User(principal),
+			permission,
+		);
+	}
 	txn.commit().unwrap();
 
-	assert!(
-		is_authorized(
-			&index,
-			object.clone().into(),
-			subtree,
-			&tg::Principal::Sandbox(sandbox),
-		)
-		.await
-	);
-	assert!(
-		is_authorized(
-			&index,
-			target.into(),
-			write,
-			&tg::Principal::User(user.clone()),
-		)
-		.await
-	);
-	assert!(
-		is_authorized(
-			&index,
-			object.clone().into(),
-			subtree,
-			&tg::Principal::User(user),
-		)
-		.await
-	);
-	assert!(
-		!is_authorized(
-			&index,
-			object.into(),
-			subtree,
-			&tg::Principal::User(outsider),
-		)
-		.await
-	);
+	for (principal, expected_read, expected_write) in [
+		(tg::Principal::Process(process), true, true),
+		(tg::Principal::Sandbox(sandbox), true, true),
+		(tg::Principal::User(sandbox_reader), true, false),
+		(tg::Principal::User(sandbox_writer), true, true),
+		(tg::Principal::User(node_reader), false, false),
+		(tg::Principal::User(subtree_reader), false, false),
+		(tg::Principal::User(process_reader), true, false),
+		(tg::Principal::User(process_writer), true, true),
+		(tg::Principal::User(outsider), false, false),
+	] {
+		assert_eq!(
+			is_authorized(&index, object.clone().into(), subtree, &principal).await,
+			expected_read,
+		);
+		assert_eq!(
+			is_authorized(&index, target.clone().into(), sandbox_write, &principal,).await,
+			expected_write,
+		);
+	}
 }
 
 #[tokio::test]
@@ -343,6 +363,7 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 		tg::grant::permission::process::Permission::NodeError,
 		tg::grant::permission::process::Permission::NodeLog,
 		tg::grant::permission::process::Permission::NodeOutput,
+		tg::grant::permission::process::Permission::Read,
 		tg::grant::permission::process::Permission::Subtree,
 		tg::grant::permission::process::Permission::SubtreeCommand,
 		tg::grant::permission::process::Permission::SubtreeError,

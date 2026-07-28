@@ -20,6 +20,7 @@ pub enum Permission {
 	NodeError,
 	NodeLog,
 	NodeOutput,
+	Read,
 	Subtree,
 	SubtreeCommand,
 	SubtreeError,
@@ -37,6 +38,7 @@ impl Set {
 	pub const NODE_ERROR: Self = Self(1 << 2);
 	pub const NODE_LOG: Self = Self(1 << 3);
 	pub const NODE_OUTPUT: Self = Self(1 << 4);
+	pub const READ: Self = Self(1 << 11);
 	pub const SUBTREE: Self = Self(1 << 5);
 	pub const SUBTREE_COMMAND: Self = Self(1 << 6);
 	pub const SUBTREE_ERROR: Self = Self(1 << 7);
@@ -54,6 +56,7 @@ impl Permission {
 			Self::NodeError | Self::SubtreeError => Self::SubtreeError,
 			Self::NodeLog | Self::SubtreeLog => Self::SubtreeLog,
 			Self::NodeOutput | Self::SubtreeOutput => Self::SubtreeOutput,
+			Self::Read => Self::Read,
 			Self::Write => Self::Write,
 		}
 	}
@@ -62,7 +65,8 @@ impl Permission {
 	pub fn implies(self, needed: Self) -> bool {
 		self == needed
 			|| self == needed.to_subtree()
-			|| matches!((self, needed), (Self::Write, Self::Node))
+			|| self == Self::Write
+			|| self == Self::Read && needed != Self::Write
 	}
 }
 
@@ -75,6 +79,7 @@ impl Set {
 				| Self::NODE_ERROR.0
 				| Self::NODE_LOG.0
 				| Self::NODE_OUTPUT.0
+				| Self::READ.0
 				| Self::SUBTREE.0
 				| Self::SUBTREE_COMMAND.0
 				| Self::SUBTREE_ERROR.0
@@ -97,6 +102,7 @@ impl Set {
 			Permission::NodeError => Self::NODE_ERROR,
 			Permission::NodeLog => Self::NODE_LOG,
 			Permission::NodeOutput => Self::NODE_OUTPUT,
+			Permission::Read => Self::READ,
 			Permission::Subtree => Self::SUBTREE,
 			Permission::SubtreeCommand => Self::SUBTREE_COMMAND,
 			Permission::SubtreeError => Self::SUBTREE_ERROR,
@@ -130,6 +136,7 @@ impl Set {
 			self.contains(Self::NODE_LOG).then_some(Permission::NodeLog),
 			self.contains(Self::NODE_OUTPUT)
 				.then_some(Permission::NodeOutput),
+			self.contains(Self::READ).then_some(Permission::Read),
 			self.contains(Self::SUBTREE).then_some(Permission::Subtree),
 			self.contains(Self::SUBTREE_COMMAND)
 				.then_some(Permission::SubtreeCommand),

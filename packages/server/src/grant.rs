@@ -415,6 +415,9 @@ impl Session {
 			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
 				tg::grant::permission::organization::Permission::Read,
 			)),
+			tg::id::Kind::Process => Ok(tg::grant::Permission::Process(
+				tg::grant::permission::process::Permission::Read,
+			)),
 			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
 				tg::grant::permission::sandbox::Permission::Read,
 			)),
@@ -460,6 +463,9 @@ impl Session {
 			)),
 			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
 				tg::grant::permission::organization::Permission::Write,
+			)),
+			tg::id::Kind::Process => Ok(tg::grant::Permission::Process(
+				tg::grant::permission::process::Permission::Write,
 			)),
 			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
 				tg::grant::permission::sandbox::Permission::Write,

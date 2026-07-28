@@ -1165,7 +1165,8 @@ impl Graph {
 			},
 			Parent::Process(_) => match permission {
 				tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Subtree
+					tg::grant::permission::process::Permission::Read
+					| tg::grant::permission::process::Permission::Subtree
 					| tg::grant::permission::process::Permission::SubtreeCommand
 					| tg::grant::permission::process::Permission::SubtreeError
 					| tg::grant::permission::process::Permission::SubtreeLog
