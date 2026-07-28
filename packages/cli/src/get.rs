@@ -29,6 +29,10 @@ pub struct Args {
 	#[arg(long, short = 'R')]
 	pub resolve: bool,
 
+	/// Get the storage status.
+	#[arg(long)]
+	pub stored: bool,
+
 	#[command(flatten)]
 	pub ttl: Ttl,
 }
@@ -90,6 +94,7 @@ impl Cli {
 				metadata: args.metadata,
 				object,
 				print,
+				stored: args.stored,
 			};
 			self.command_object_get(args).await?;
 
@@ -109,6 +114,7 @@ impl Cli {
 				metadata: args.metadata,
 				print,
 				process,
+				stored: args.stored,
 			};
 			self.command_process_get(args).await?;
 

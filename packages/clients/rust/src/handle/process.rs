@@ -55,6 +55,12 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> + Send;
 
+	fn try_get_process_stored(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stored::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::Stored>>> + Send;
+
 	fn get_process(
 		&self,
 		id: &tg::process::Id,
@@ -276,6 +282,16 @@ impl tg::handle::Process for tg::Client {
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		self.session(&self.context)
 			.try_get_process_metadata(id, arg)
+			.await
+	}
+
+	async fn try_get_process_stored(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stored::Arg,
+	) -> tg::Result<Option<tg::process::Stored>> {
+		self.session(&self.context)
+			.try_get_process_stored(id, arg)
 			.await
 	}
 

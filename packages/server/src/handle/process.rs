@@ -26,6 +26,16 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
+	async fn try_get_process_stored(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stored::Arg,
+	) -> tg::Result<Option<tg::process::Stored>> {
+		self.session(&self.context)
+			.try_get_process_stored(id, arg)
+			.await
+	}
+
 	async fn try_get_process(
 		&self,
 		id: &tg::process::Id,

@@ -587,6 +587,9 @@ impl Server {
 			(http::Method::GET, ["objects", object, "metadata"]) => session
 				.try_get_object_metadata_request(request, object)
 				.boxed(),
+			(http::Method::GET, ["objects", object, "stored"]) => session
+				.try_get_object_stored_request(request, object)
+				.boxed(),
 			(http::Method::GET, ["objects", object]) => {
 				session.try_get_object_request(request, object).boxed()
 			},
@@ -626,6 +629,9 @@ impl Server {
 			},
 			(http::Method::GET, ["processes", process, "metadata"]) => session
 				.try_get_process_metadata_request(request, process)
+				.boxed(),
+			(http::Method::GET, ["processes", process, "stored"]) => session
+				.try_get_process_stored_request(request, process)
 				.boxed(),
 			(http::Method::GET, ["processes", process]) => {
 				session.try_get_process_request(request, process).boxed()

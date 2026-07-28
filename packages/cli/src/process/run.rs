@@ -96,6 +96,7 @@ impl Cli {
 			let arg = tg::object::get::Arg {
 				location,
 				metadata: false,
+				stored: false,
 				token: None,
 			};
 			self.print_value(&output, print, arg).await?;

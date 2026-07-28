@@ -25,6 +25,10 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
+	/// Get the storage status.
+	#[arg(long)]
+	pub stored: bool,
+
 	#[command(flatten)]
 	pub ttl: crate::get::Ttl,
 }
@@ -39,6 +43,7 @@ impl Cli {
 			print: args.print,
 			reference: args.reference,
 			resolve: true,
+			stored: args.stored,
 			ttl: args.ttl,
 		};
 		self.command_get(args).await

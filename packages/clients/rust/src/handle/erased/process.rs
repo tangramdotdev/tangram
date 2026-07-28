@@ -20,6 +20,12 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::metadata::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::Metadata>>>;
 
+	fn try_get_process_stored<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stored::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Stored>>>;
+
 	fn try_get_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
@@ -138,6 +144,14 @@ where
 		arg: tg::process::metadata::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::Metadata>>> {
 		self.try_get_process_metadata(id, arg).boxed()
+	}
+
+	fn try_get_process_stored<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stored::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Stored>>> {
+		self.try_get_process_stored(id, arg).boxed()
 	}
 
 	fn try_get_process<'a>(

@@ -56,6 +56,7 @@ mod resolve;
 mod sandbox;
 mod server;
 mod shell;
+mod stored;
 mod tag;
 mod tangram;
 mod telemetry;
@@ -371,6 +372,8 @@ enum Command {
 
 	Status(self::process::status::Args),
 
+	Stored(self::stored::Args),
+
 	Tag(self::tag::Args),
 
 	Touch(self::touch::Args),
@@ -677,6 +680,7 @@ impl Cli {
 			Command::Signal(args) => self.command_process_signal(args).boxed_local(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed_local(),
 			Command::Status(args) => self.command_process_status(args).boxed_local(),
+			Command::Stored(args) => self.command_stored(args).boxed_local(),
 			Command::Tag(args) => self.command_tag(args).boxed_local(),
 			Command::Touch(args) => self.command_touch(args).boxed_local(),
 			Command::Tree(args) => self.command_tree(args).boxed_local(),

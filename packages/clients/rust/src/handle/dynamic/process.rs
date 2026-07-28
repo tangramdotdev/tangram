@@ -28,6 +28,16 @@ impl tg::handle::Process for Handle {
 		}
 	}
 
+	fn try_get_process_stored(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stored::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::Stored>>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_process_stored(id, arg))
+		}
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,

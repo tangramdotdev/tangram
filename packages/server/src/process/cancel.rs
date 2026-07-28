@@ -85,7 +85,9 @@ impl Session {
 		let release_future = self
 			.send_process_control_request(id, request, options)
 			.boxed();
-		let get_future = session.try_get_process_local(id, false, None).boxed();
+		let get_future = session
+			.try_get_process_local(id, false, false, None)
+			.boxed();
 		let response = match future::select(pin!(release_future), pin!(get_future)).await {
 			future::Either::Left((response, _)) => response,
 			future::Either::Right((process, release_future)) => {

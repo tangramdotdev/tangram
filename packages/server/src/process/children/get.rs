@@ -68,7 +68,7 @@ impl Session {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let token = arg.token.clone();
 		let check_future = async move {
-			self.try_get_process_local(id, false, token.as_ref())
+			self.try_get_process_local(id, false, false, token.as_ref())
 				.await
 				.map(|output| output.is_some())
 		}

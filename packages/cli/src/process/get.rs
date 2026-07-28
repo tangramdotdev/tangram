@@ -16,6 +16,10 @@ pub struct Args {
 
 	#[arg(index = 1)]
 	pub process: tg::Reference,
+
+	/// Get the process's storage status.
+	#[arg(long)]
+	pub stored: bool,
 }
 
 impl Cli {
@@ -26,6 +30,7 @@ impl Cli {
 		let arg = tg::process::get::Arg {
 			location: args.locations.get(),
 			metadata: args.metadata,
+			stored: args.stored,
 			token: process.options.token,
 		};
 		let output = client
@@ -37,6 +42,11 @@ impl Cli {
 			let metadata = serde_json::to_string(&metadata)
 				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 			self.print_info_message(&metadata);
+		}
+		if let Some(stored) = output.stored {
+			let stored = serde_json::to_string(&stored)
+				.map_err(|error| tg::error!(!error, "failed to serialize the storage status"))?;
+			self.print_info_message(&stored);
 		}
 		self.print_serde(output.data, args.print).await?;
 		Ok(())

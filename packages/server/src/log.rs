@@ -237,7 +237,7 @@ impl Session {
 			return Err(tg::error!("invalid stdio stream"));
 		}
 		let output = self
-			.try_get_process_local(id, false, None)
+			.try_get_process_local(id, false, false, None)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
@@ -352,7 +352,7 @@ impl Session {
 					&& let Inner::Store(inner) = &state.inner
 					&& let Some(output) = inner
 						.session
-						.try_get_process_local(&inner.process, false, None)
+						.try_get_process_local(&inner.process, false, false, None)
 						.await? && let Some(blob_id) = output.data.log.map(|log| log.item)
 				{
 					let blob = tg::Blob::with_id(blob_id);

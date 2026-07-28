@@ -9,6 +9,14 @@ impl tg::handle::Object for tg::Session {
 		self.try_get_object_metadata(id, arg)
 	}
 
+	fn try_get_object_stored(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::stored::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Stored>>> {
+		self.try_get_object_stored(id, arg)
+	}
+
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,

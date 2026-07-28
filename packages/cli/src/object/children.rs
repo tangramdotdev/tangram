@@ -22,6 +22,7 @@ impl Cli {
 		let arg = tg::object::get::Arg {
 			location: args.locations.get(),
 			metadata: false,
+			stored: false,
 			token: object.options.token,
 		};
 		let output = client

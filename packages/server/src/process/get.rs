@@ -26,7 +26,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_get_process_local(id, arg.metadata, arg.token.as_ref())
+					.try_get_process_local(id, arg.metadata, arg.stored, arg.token.as_ref())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			{
@@ -34,7 +34,13 @@ impl Session {
 			}
 
 			if let Some(output) = self
-				.try_get_process_regions(id, &local.regions, arg.metadata, arg.token.as_ref())
+				.try_get_process_regions(
+					id,
+					&local.regions,
+					arg.metadata,
+					arg.stored,
+					arg.token.as_ref(),
+				)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the process from another region"),
@@ -44,7 +50,13 @@ impl Session {
 		}
 
 		if let Some(output) = self
-			.try_get_process_remotes(id, &locations.remotes, arg.metadata, arg.token.as_ref())
+			.try_get_process_remotes(
+				id,
+				&locations.remotes,
+				arg.metadata,
+				arg.stored,
+				arg.token.as_ref(),
+			)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process from a remote"))?
 		{
@@ -67,6 +79,7 @@ impl Session {
 				let arg = tg::process::get::Arg {
 					location: Some(location.clone()),
 					metadata,
+					stored: false,
 					token: process.options.token.clone(),
 				};
 				self.try_get_process(&process.item, arg)
@@ -82,6 +95,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		metadata: bool,
+		stored: bool,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
@@ -107,6 +121,9 @@ impl Session {
 				.mask_process_metadata(id, metadata, token)
 				.boxed()
 				.await?;
+		}
+		if stored && let Some(stored) = self.server.try_get_process_stored_local(id).await? {
+			output.stored = self.mask_process_stored(id, stored, token).await?;
 		}
 		Ok(Some(output))
 	}
@@ -308,6 +325,7 @@ impl Session {
 			id: id.clone(),
 			location: Some(location),
 			metadata,
+			stored: None,
 		}
 	}
 
@@ -316,11 +334,12 @@ impl Session {
 		id: &tg::process::Id,
 		regions: &[String],
 		metadata: bool,
+		stored: bool,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_region(id, region, metadata, token))
+			.map(|region| self.try_get_process_region(id, region, metadata, stored, token))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -346,6 +365,7 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 		metadata: bool,
+		stored: bool,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_region_session(region).await.map_err(
@@ -357,6 +377,7 @@ impl Session {
 		let arg = tg::process::get::Arg {
 			location: Some(location.clone().into()),
 			metadata,
+			stored,
 			token: token.cloned(),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
@@ -374,11 +395,12 @@ impl Session {
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
 		metadata: bool,
+		stored: bool,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_remote(id, remote, metadata, token))
+			.map(|remote| self.try_get_process_remote(id, remote, metadata, stored, token))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -432,6 +454,7 @@ impl Session {
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 		metadata: bool,
+		stored: bool,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
@@ -445,6 +468,7 @@ impl Session {
 		let arg = tg::process::get::Arg {
 			location: Some(location),
 			metadata,
+			stored,
 			token: token.cloned(),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
@@ -522,6 +546,12 @@ impl Session {
 				serde_json::to_string(metadata).unwrap(),
 			);
 		}
+		if let Some(stored) = &output.stored {
+			response = response.header(
+				tg::process::get::STORED_HEADER,
+				serde_json::to_string(stored).unwrap(),
+			);
+		}
 		let response = response.body(body).unwrap();
 
 		Ok(response)
@@ -569,6 +599,7 @@ impl Server {
 					id: id.clone(),
 					location: Some(location.clone()),
 					metadata,
+					stored: None,
 				})
 			})
 			.collect();

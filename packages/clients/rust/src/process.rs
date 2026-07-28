@@ -27,6 +27,7 @@ pub use self::{
 	state::State,
 	status::Status,
 	stdio::Stdio,
+	stored::Stored,
 	tty::Tty,
 	wait::Wait,
 };
@@ -49,6 +50,7 @@ pub mod spawn;
 pub mod state;
 pub mod status;
 pub mod stdio;
+pub mod stored;
 pub mod touch;
 pub mod tty;
 pub mod wait;
@@ -321,6 +323,7 @@ impl<O> Process<O> {
 		let arg = tg::process::get::Arg {
 			location: self.location(),
 			metadata: false,
+			stored: false,
 			token: self.token(),
 		};
 		let Some(output) = handle.try_get_process(id, arg).await? else {

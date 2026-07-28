@@ -9,6 +9,14 @@ impl tg::handle::Object for Session {
 		self.try_get_object_metadata(id, arg).await
 	}
 
+	async fn try_get_object_stored(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::stored::Arg,
+	) -> tg::Result<Option<tg::object::Stored>> {
+		self.try_get_object_stored(id, arg).await
+	}
+
 	async fn try_get_object(
 		&self,
 		id: &tg::object::Id,

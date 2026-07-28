@@ -7,6 +7,7 @@ use {
 };
 
 pub const METADATA_HEADER: &str = "x-tg-process-metadata";
+pub const STORED_HEADER: &str = "x-tg-process-stored";
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -17,6 +18,10 @@ pub struct Arg {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub stored: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<tg::grant::Token>,
@@ -33,6 +38,9 @@ pub struct Output {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::process::Metadata>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stored: Option<tg::process::Stored>,
 }
 
 impl tg::Session {
@@ -75,12 +83,19 @@ impl tg::Session {
 			.header_json(METADATA_HEADER)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to deserialize the metadata header"))?;
+		let stored = response
+			.header_json(STORED_HEADER)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to deserialize the stored header"))?;
 		let mut output = response
 			.json::<tg::process::get::Output>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
 		if let Some(metadata) = metadata {
 			output.metadata = Some(metadata);
+		}
+		if let Some(stored) = stored {
+			output.stored = Some(stored);
 		}
 		Ok(Some(output))
 	}

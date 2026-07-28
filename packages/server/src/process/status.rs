@@ -32,7 +32,7 @@ impl Session {
 			let stopper = self.context.stopper.clone();
 			if local.current {
 				let check_future = async {
-					self.try_get_process_local(id, false, arg.token.as_ref())
+					self.try_get_process_local(id, false, false, arg.token.as_ref())
 						.await
 						.map(|output| output.is_some())
 				}

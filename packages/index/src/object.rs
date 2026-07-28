@@ -1,7 +1,6 @@
-use {
-	tangram_client::prelude::*,
-	tangram_util::serde::{is_default, is_false},
-};
+use {tangram_client::prelude::*, tangram_util::serde::is_default};
+
+pub use tangram_client::object::Stored;
 
 pub mod put;
 
@@ -25,24 +24,6 @@ pub struct Object {
 	pub touched_at: i64,
 }
 
-/// The stored status of an object in the index.
-#[derive(
-	Clone,
-	Debug,
-	Default,
-	Eq,
-	PartialEq,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Stored {
-	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
-	pub subtree: bool,
-}
-
 impl Object {
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
@@ -52,11 +33,5 @@ impl Object {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))
-	}
-}
-
-impl Stored {
-	pub fn merge(&mut self, other: &Self) {
-		self.subtree = self.subtree || other.subtree;
 	}
 }

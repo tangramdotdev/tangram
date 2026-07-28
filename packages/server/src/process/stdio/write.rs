@@ -73,7 +73,7 @@ impl Session {
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
 		let Some(tg::process::get::Output { data, .. }) = self
-			.try_get_process_local(id, false, token)
+			.try_get_process_local(id, false, false, token)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {

@@ -13,6 +13,7 @@ pub mod signal;
 pub mod spawn;
 pub mod status;
 pub mod stdio;
+pub mod stored;
 pub mod touch;
 pub mod wait;
 
@@ -40,6 +41,7 @@ pub enum Command {
 	Spawn(self::spawn::Args),
 	Status(self::status::Args),
 	Stdio(self::stdio::Args),
+	Stored(self::stored::Args),
 	Touch(self::touch::Args),
 	Wait(self::wait::Args),
 }
@@ -82,6 +84,9 @@ impl Cli {
 			},
 			Command::Stdio(args) => {
 				self.command_process_stdio(args).await?;
+			},
+			Command::Stored(args) => {
+				self.command_process_stored(args).await?;
 			},
 			Command::Touch(args) => {
 				self.command_process_touch(args).await?;

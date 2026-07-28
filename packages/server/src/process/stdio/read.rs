@@ -80,7 +80,7 @@ impl Session {
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
 		let output = self
-			.try_get_process_local(id, false, arg.token.as_ref())
+			.try_get_process_local(id, false, false, arg.token.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 		let Some(output) = output else {

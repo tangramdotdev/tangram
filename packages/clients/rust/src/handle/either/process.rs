@@ -41,6 +41,17 @@ where
 		}
 	}
 
+	fn try_get_process_stored(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stored::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::Stored>>> {
+		match self {
+			tg::Either::Left(s) => s.try_get_process_stored(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_process_stored(id, arg).right_future(),
+		}
+	}
+
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,

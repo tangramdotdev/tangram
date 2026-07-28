@@ -4,6 +4,7 @@ pub mod children;
 pub mod get;
 pub mod metadata;
 pub mod put;
+pub mod stored;
 pub mod touch;
 
 /// Manage objects.
@@ -21,6 +22,7 @@ pub enum Command {
 	Metadata(self::metadata::Args),
 	#[command(alias = "add")]
 	Put(self::put::Args),
+	Stored(self::stored::Args),
 	Touch(self::touch::Args),
 }
 
@@ -38,6 +40,9 @@ impl Cli {
 			},
 			Command::Put(args) => {
 				self.command_object_put(args).await?;
+			},
+			Command::Stored(args) => {
+				self.command_object_stored(args).await?;
 			},
 			Command::Touch(args) => {
 				self.command_object_touch(args).await?;

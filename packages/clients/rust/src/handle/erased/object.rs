@@ -10,6 +10,12 @@ pub trait Object: Send + Sync + 'static {
 		arg: tg::object::metadata::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::object::Metadata>>>;
 
+	fn try_get_object_stored<'a>(
+		&'a self,
+		id: &'a tg::object::Id,
+		arg: tg::object::stored::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::object::Stored>>>;
+
 	fn try_get_object<'a>(
 		&'a self,
 		id: &'a tg::object::Id,
@@ -44,6 +50,14 @@ where
 		arg: tg::object::metadata::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::object::Metadata>>> {
 		self.try_get_object_metadata(id, arg).boxed()
+	}
+
+	fn try_get_object_stored<'a>(
+		&'a self,
+		id: &'a tg::object::Id,
+		arg: tg::object::stored::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::object::Stored>>> {
+		self.try_get_object_stored(id, arg).boxed()
 	}
 
 	fn try_get_object<'a>(

@@ -21,6 +21,10 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	/// Get the object's storage status.
+	#[arg(long)]
+	pub stored: bool,
 }
 
 impl Cli {
@@ -33,9 +37,14 @@ impl Cli {
 			let arg = tg::object::get::Arg {
 				location: args.locations.get(),
 				metadata: args.metadata,
+				stored: args.stored,
 				token: token.clone(),
 			};
-			let tg::object::get::Output { bytes, metadata } = client
+			let tg::object::get::Output {
+				bytes,
+				metadata,
+				stored,
+			} = client
 				.try_get_object(&id, arg)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
@@ -44,6 +53,12 @@ impl Cli {
 				let metadata = serde_json::to_string(&metadata)
 					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 				self.print_info_message(&metadata);
+			}
+			if let Some(stored) = stored {
+				let stored = serde_json::to_string(&stored).map_err(|error| {
+					tg::error!(!error, "failed to serialize the storage status")
+				})?;
+				self.print_info_message(&stored);
 			}
 			tokio::io::stdout()
 				.write_all(&bytes)
@@ -59,9 +74,10 @@ impl Cli {
 		let arg = tg::object::get::Arg {
 			location: args.locations.get(),
 			metadata: args.metadata,
+			stored: args.stored,
 			token,
 		};
-		if args.metadata {
+		if args.metadata || args.stored {
 			let output = client
 				.try_get_object(&id, arg.clone())
 				.await
@@ -71,6 +87,12 @@ impl Cli {
 				let metadata = serde_json::to_string(&metadata)
 					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 				self.print_info_message(&metadata);
+			}
+			if let Some(stored) = output.stored {
+				let stored = serde_json::to_string(&stored).map_err(|error| {
+					tg::error!(!error, "failed to serialize the storage status")
+				})?;
+				self.print_info_message(&stored);
 			}
 		}
 		self.print_value(&value, args.print, arg).await?;
