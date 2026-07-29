@@ -115,7 +115,7 @@ where
 	Server(Arc::new(State {
 		active_requests: Mutex::new(HashMap::new()),
 		no_opendir_support: false,
-		passthrough_backing_ids: Mutex::new(HashMap::new()),
+		passthrough_backings: Mutex::new(PassthroughBackings::default()),
 		passthrough_enabled,
 		passthrough_permission_warning_emitted: AtomicBool::new(false),
 		passthrough_required,
