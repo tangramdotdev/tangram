@@ -1,11 +1,11 @@
 import * as tg from "./index.ts";
 
-export type Args<T extends tg.Value = tg.Value> = Array<
+export type Args<T = tg.Value> = Array<
 	tg.Unresolved<tg.ValueOrMaybeMutationMap<T>>
 >;
 
 export namespace Args {
-	type Input<T extends tg.Value, O extends { [key: string]: tg.Value }> = {
+	type Input<T, O extends { [key: string]: tg.Value }> = {
 		args: tg.Args<T>;
 		map: (
 			arg: tg.ValueOrMaybeMutationMap<T>,
@@ -17,10 +17,7 @@ export namespace Args {
 		};
 	};
 
-	export let apply = async <
-		T extends tg.Value,
-		O extends { [key: string]: tg.Value },
-	>(
+	export let apply = async <T, O extends { [key: string]: tg.Value }>(
 		input: Input<T, O>,
 	): Promise<O> => {
 		let { args, map, reduce } = input;
@@ -30,10 +27,7 @@ export namespace Args {
 		return await applyResolved({ args: resolved, map, reduce });
 	};
 
-	export let applyResolved = async <
-		T extends tg.Value,
-		O extends { [key: string]: tg.Value },
-	>(
+	export let applyResolved = async <T, O extends { [key: string]: tg.Value }>(
 		input: Omit<Input<T, O>, "args"> & {
 			args: Array<tg.ValueOrMaybeMutationMap<T>>;
 		},

@@ -16,7 +16,7 @@ export type MaybeMutationMap<
 	? { [key: string]: tg.MaybeMutation<Exclude<T[string & keyof T], undefined>> }
 	: { [K in keyof T]?: tg.MaybeMutation<Exclude<T[K], undefined>> };
 
-export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
+export type ValueOrMaybeMutationMap<T = tg.Value> = T extends
 	| null
 	| boolean
 	| number
@@ -36,7 +36,7 @@ export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 					>;
 				}
 			: { [K in keyof T]?: tg.MaybeMutation<Exclude<T[K], undefined>> }
-		: never;
+		: T;
 
 export type MaybeReferent<T> = T | tg.Referent<T>;
 
