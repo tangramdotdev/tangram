@@ -1100,9 +1100,7 @@ export def --env spawn [
 		}
 		$config | merge deep {
 			authentication: {
-				tokens: {
-					keys: $keys,
-				},
+				tokens: $keys,
 			},
 			grants: {
 				tokens: $keys,

@@ -119,8 +119,6 @@ struct RunSandboxTaskArg {
 	serve_task: Task<()>,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
-	#[cfg(target_os = "linux")]
-	vfs_mount: Option<std::path::PathBuf>,
 }
 
 struct RetainSandboxTaskArg {
@@ -129,6 +127,7 @@ struct RetainSandboxTaskArg {
 		tg::sandbox::control::ClientMessage,
 	>,
 	id: tg::sandbox::Id,
+	process_tasks: JoinSet<tg::Result<()>>,
 	sender: SandboxControlSender,
 	stopper: Stopper,
 }
@@ -718,12 +717,10 @@ impl Session {
 			serve_task,
 			state,
 			stopper,
-			#[cfg(target_os = "linux")]
-			vfs_mount: vfs_mount.clone(),
 		};
 		let result = self.run_sandbox_task(arg).boxed().await;
 
-		// Stop the per-sandbox VFS before removing its mountpoint.
+		// Stop the per-sandbox VFS before retaining the destroyed sandbox state.
 		#[cfg(target_os = "linux")]
 		{
 			if let Some(mount_path) = vfs_mount
@@ -739,10 +736,12 @@ impl Session {
 		}
 		drop(temp);
 
-		result
+		let arg = result?;
+
+		self.retain_sandbox_task(arg).await
 	}
 
-	async fn run_sandbox_task(&self, arg: RunSandboxTaskArg) -> tg::Result<()> {
+	async fn run_sandbox_task(&self, arg: RunSandboxTaskArg) -> tg::Result<RetainSandboxTaskArg> {
 		let RunSandboxTaskArg {
 			mut control,
 			event_sender,
@@ -756,8 +755,6 @@ impl Session {
 			serve_task,
 			state,
 			stopper,
-			#[cfg(target_os = "linux")]
-			vfs_mount,
 		} = arg;
 
 		let sender = control.sender();
@@ -986,14 +983,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox process"))?;
 
-		// Unmount the per-sandbox VFS before retaining the destroyed sandbox state.
-		#[cfg(target_os = "linux")]
-		if let Some(mount_path) = &vfs_mount {
-			crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, mount_path)
-				.await
-				.ok();
-		}
-
 		let data = {
 			let mut state = self
 				.server
@@ -1058,30 +1047,34 @@ impl Session {
 		}
 		event_sender.send(Ok(Event::Destroyed)).ok();
 
-		// Await the process tasks while they retain their state and control streams.
-		while let Some(result) = process_tasks.join_next().await {
-			result
-				.map_err(|error| tg::error!(!error, "a process task panicked"))?
-				.map_err(|error| tg::error!(!error, "a process task failed"))?;
-		}
-		let arg = RetainSandboxTaskArg {
+		let output = RetainSandboxTaskArg {
 			control,
 			id,
+			process_tasks,
 			sender,
 			stopper,
 		};
 
-		self.retain_sandbox_task(arg).await
+		Ok(output)
 	}
 
 	async fn retain_sandbox_task(&self, arg: RetainSandboxTaskArg) -> tg::Result<()> {
 		let RetainSandboxTaskArg {
 			mut control,
 			id,
+			mut process_tasks,
 			sender,
 			stopper,
 		} = arg;
 
+		// Await the process tasks while they retain their state and control streams.
+		while let Some(result) = process_tasks.join_next().await {
+			result
+				.map_err(|error| tg::error!(!error, "a process task panicked"))?
+				.map_err(|error| tg::error!(!error, "a process task failed"))?;
+		}
+
+		// Retain the sandbox state and control stream.
 		let retention_ttl = self.server.config.runner.sandbox_state_ttl;
 		let retention_future = tokio::time::sleep(retention_ttl);
 		let mut retention_future = pin!(retention_future);

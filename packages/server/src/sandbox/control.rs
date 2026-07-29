@@ -15,8 +15,17 @@ pub(crate) struct ClientMessage(pub(crate) tg::sandbox::control::ClientMessage);
 #[derive(Clone)]
 pub(crate) struct ServerMessage(pub(crate) tg::sandbox::control::ServerMessage);
 
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub(crate) struct Discarded {
+	pub error: tg::Either<tg::error::Data, tg::error::Id>,
+}
+
 pub(crate) fn connected_subject(id: &tg::sandbox::Id) -> String {
 	format!("sandboxes.{id}.control.connected")
+}
+
+pub(crate) fn discarded_subject(id: &tg::sandbox::Id) -> String {
+	format!("sandboxes.{id}.control.discarded")
 }
 
 impl Session {
@@ -24,7 +33,7 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<super::ConnectionFuture> {
-		let mut event_stream = self
+		let mut connected_stream = self
 			.server
 			.messenger
 			.subscribe::<()>(connected_subject(id))
@@ -36,26 +45,67 @@ impl Session {
 					"failed to subscribe to the sandbox control connection"
 				)
 			})?;
+		let mut discarded_stream = self
+			.server
+			.messenger
+			.subscribe::<tangram_messenger::payload::Json<Discarded>>(discarded_subject(id))
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					sandbox = %id,
+					"failed to subscribe to sandbox discard notifications"
+				)
+			})?;
 		let id = id.clone();
 		let future = async move {
-			event_stream
-				.try_next()
-				.await
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						sandbox = %id,
-						"failed to receive the sandbox control connection"
-					)
-				})?
-				.ok_or_else(|| {
-					tg::error!(
-						sandbox = %id,
-						"the sandbox control connection subscription ended"
-					)
-				})?;
+			tokio::select! {
+				result = connected_stream.try_next() => {
+					result
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								sandbox = %id,
+								"failed to receive the sandbox control connection"
+							)
+						})?
+						.ok_or_else(|| {
+							tg::error!(
+								sandbox = %id,
+								"the sandbox control connection subscription ended"
+							)
+						})?;
 
-			Ok(())
+					Ok(())
+				},
+				result = discarded_stream.try_next() => {
+					let discarded = result
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								sandbox = %id,
+								"failed to receive a sandbox discard notification"
+							)
+						})?
+						.ok_or_else(|| {
+							tg::error!(
+								sandbox = %id,
+								"the sandbox discard notification subscription ended"
+							)
+						})?
+						.payload
+						.0;
+					let error = tg::Error::try_from(discarded.error).map_err(|source| {
+						tg::error!(
+							!source,
+							sandbox = %id,
+							"failed to deserialize the sandbox discard error"
+						)
+					})?;
+
+					Err(tg::error!(!error, sandbox = %id, "failed to create the sandbox"))
+				},
+			}
 		}
 		.boxed();
 
