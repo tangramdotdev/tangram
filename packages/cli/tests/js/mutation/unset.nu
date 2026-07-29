@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let map = { k: "old" };
-			await tg.Mutation.unset().apply(map, "k");
+			await tg.Mutation.unset().applyTo(map, "k");
 			return map;
 		}
 	'

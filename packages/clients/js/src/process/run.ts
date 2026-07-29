@@ -2,7 +2,10 @@ import * as tg from "../index.ts";
 
 export let builder = (...args: any): any => {
 	if (typeof args[0] === "function") {
-		return new tg.Process.Builder("run", tg.Command.js(args[0], args.slice(1)));
+		let command = tg.Command.js(args[0], args.slice(1)).then((command) => ({
+			command,
+		}));
+		return new tg.Process.Builder("run", command);
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);

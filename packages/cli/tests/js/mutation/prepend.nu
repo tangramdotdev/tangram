@@ -7,12 +7,10 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let map = { k: ["b", "c"] };
-			await (await tg.Mutation.prepend(["a"])).apply(map, "k");
-			return map;
+			return await (await tg.Mutation.prepend(["a"])).apply(["b", "c"]);
 		}
 	'
 }
 
 let output = tg build $path
-snapshot $output '{"k":["a","b","c"]}'
+snapshot $output '["a","b","c"]'

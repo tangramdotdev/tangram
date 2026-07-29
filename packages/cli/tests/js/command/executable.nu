@@ -14,4 +14,4 @@ let path = artifact {
 }
 
 let output = tg build $path
-snapshot $output '{"path":"echo"}'
+snapshot $output '{"artifact":null,"path":"echo"}'

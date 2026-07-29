@@ -1,18 +1,16 @@
 use ../../../test.nu *
 
-# Applying an append mutation creates a new array when the key is absent.
+# Applying an append mutation to an absent value creates a new array.
 
 let server = spawn
 
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let map = {};
-			await (await tg.Mutation.append(["x"])).apply(map, "k");
-			return map;
+			return await (await tg.Mutation.append(["x"])).apply(undefined);
 		}
 	'
 }
 
 let output = tg build $path
-snapshot $output '{"k":["x"]}'
+snapshot $output '["x"]'

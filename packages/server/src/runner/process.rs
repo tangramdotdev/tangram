@@ -1053,34 +1053,7 @@ impl Session {
 			let host_output_path = sandbox.host_output_path_for_process(&sandbox_process);
 
 			// Render the args.
-			let mut args = render_args(&command.args, &guest_artifacts_path, &guest_output_path)?;
-			let js = command.executable.artifact.is_none()
-				&& command.executable.path.as_deref() == Some(Path::new("tg"))
-				&& matches!(
-					command.args.first(),
-					Some(tg::command::data::Value::String(
-						tg::value::Data::String(value)
-					)) if value == "js"
-				);
-			if js {
-				let mut options = Vec::new();
-				if let Some(debug) = state.debug.as_ref() {
-					options.push("--debug".to_owned());
-					if let Some(addr) = debug.addr {
-						options.extend(["--debug-addr".to_owned(), addr.to_string()]);
-					}
-					if debug.mode != tg::process::debug::Mode::Normal {
-						options.extend(["--debug-mode".to_owned(), debug.mode.to_string()]);
-					}
-				}
-				let engine = match self.server.config.runner.js.engine {
-					crate::config::JsEngine::Auto => "auto",
-					crate::config::JsEngine::QuickJs => "quickjs",
-					crate::config::JsEngine::V8 => "v8",
-				};
-				options.push(format!("--engine={engine}"));
-				args.splice(1..1, options);
-			}
+			let args = render_args(&command.args, &guest_artifacts_path, &guest_output_path)?;
 
 			// Get the working directory. On macOS there is no chroot, so "/" is the host root and not writable. Default to the scratch directory instead.
 			let cwd = if let Some(cwd) = &command.cwd {
@@ -1092,15 +1065,33 @@ impl Session {
 			};
 
 			// Render the env.
-			let env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
+			let mut env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
+			let engine = match self.server.config.runner.js.engine {
+				crate::config::JsEngine::Auto => "auto",
+				crate::config::JsEngine::QuickJs => "quickjs",
+				crate::config::JsEngine::V8 => "v8",
+			};
+			env.insert("TANGRAM_JS_ENGINE".to_owned(), engine.to_owned());
+			for key in [
+				"TANGRAM_JS_DEBUG",
+				"TANGRAM_JS_DEBUG_ADDR",
+				"TANGRAM_JS_DEBUG_MODE",
+			] {
+				env.remove(key);
+			}
+			if let Some(debug) = state.debug.as_ref() {
+				env.insert("TANGRAM_JS_DEBUG".to_owned(), "true".to_owned());
+				if let Some(addr) = debug.addr {
+					env.insert("TANGRAM_JS_DEBUG_ADDR".to_owned(), addr.to_string());
+				}
+				if debug.mode != tg::process::debug::Mode::Normal {
+					env.insert("TANGRAM_JS_DEBUG_MODE".to_owned(), debug.mode.to_string());
+				}
+			}
 
 			#[cfg(target_os = "macos")]
-			let env = {
-				let mut env = env;
-				env.entry("TMPDIR".to_owned())
-					.or_insert_with(|| sandbox.host_scratch_path().to_string_lossy().into_owned());
-				env
-			};
+			env.entry("TMPDIR".to_owned())
+				.or_insert_with(|| sandbox.host_scratch_path().to_string_lossy().into_owned());
 
 			// Render the executable.
 			let executable = if let Some(artifact) = &command.executable.artifact {

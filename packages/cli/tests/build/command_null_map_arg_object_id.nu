@@ -23,8 +23,12 @@ let path = artifact {
 
 			// Load it back and assert the null entry survived.
 			let args = await tg.Command.withId(id).args;
-			tg.assert(args.length === 1, "the argument was dropped");
-			let arg = args[0];
+			let value = args[args.length - 1];
+			tg.assert(
+				value instanceof tg.Command.Value && value.kind === "value",
+				"the value argument was dropped",
+			);
+			let arg = value.value;
 			tg.assert(
 				typeof arg === "object" && arg !== null && arg.a === null,
 				"the null map entry was dropped",

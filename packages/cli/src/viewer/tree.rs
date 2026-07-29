@@ -2147,28 +2147,16 @@ impl Tree {
 		let object = command.object_with_handle(client).await.ok()?;
 		let executable = &object.executable;
 
-		// Handle modules.
-		if let Some(module) = object.args.iter().find_map(|arg| match arg {
-			tg::command::Value::Value(tg::Value::Module(module)) => Some(module),
+		// Get the module.
+		let module = object.args.iter().find_map(|arg| match arg {
+			tg::command::Value::String(tg::Value::Module(module))
+			| tg::command::Value::Value(tg::Value::Module(module)) => Some(module),
 			_ => None,
-		}) {
-			let mut title = module.to_string();
-			let export = object.args.windows(2).find_map(|args| match args {
-				[
-					tg::command::Value::String(tg::Value::String(option)),
-					tg::command::Value::String(tg::Value::String(export)),
-				] if option == "--export" => Some(export),
-				_ => None,
-			});
-			if let Some(export) = export {
-				title.push('#');
-				title.push_str(export);
-			}
-			return Some(title);
-		}
+		});
 
 		// Handle paths.
-		if executable.artifact.is_none()
+		if module.is_none()
+			&& executable.artifact.is_none()
 			&& let Some(path) = &executable.path
 		{
 			return Some(path.display().to_string());
@@ -2180,13 +2168,28 @@ impl Tree {
 			(Some(path), Some(tag)) => format!("{tag}:{}", path.display()),
 			(None, Some(tag)) => tag.to_string(),
 			_ => {
-				if let Some(object) = executable.objects().first() {
+				if let Some(object) = module
+					.and_then(|module| module.children().into_iter().next())
+					.or_else(|| executable.objects().into_iter().next())
+				{
 					object.id().to_string()
 				} else {
 					String::new()
 				}
 			},
 		};
+
+		// Handle exports.
+		if module.is_some()
+			&& let Some(export) = object.args.windows(2).find_map(|args| match args {
+				[
+					tg::command::Value::String(tg::Value::String(option)),
+					tg::command::Value::String(tg::Value::String(export)),
+				] if option == "--export" => Some(export),
+				_ => None,
+			}) {
+			return Some(format!("{title}#{export}"));
+		}
 
 		Some(title)
 	}

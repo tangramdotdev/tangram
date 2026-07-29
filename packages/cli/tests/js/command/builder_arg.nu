@@ -16,4 +16,4 @@ let path = artifact {
 }
 
 let output = tg build $path
-snapshot $output '["x"]'
+snapshot $output '[{"kind":"string","value":"x"}]'

@@ -7,9 +7,8 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let map = { k: "hello" };
-			await (await tg.Mutation.suffix("world", " ")).apply(map, "k");
-			return map.k.components;
+			let value = await (await tg.Mutation.suffix("world", " ")).apply("hello");
+			return value.components;
 		}
 	'
 }

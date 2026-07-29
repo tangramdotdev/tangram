@@ -172,11 +172,12 @@ where
 	}
 
 	if !sandboxed {
-		env.extend(
-			tg::process::env()?
-				.into_iter()
-				.map(|(key, value)| (key, tg::command::Value::String(value))),
-		);
+		let mut inherited = tg::process::env()?
+			.into_iter()
+			.map(|(key, value)| (key, tg::command::Value::String(value)))
+			.collect::<BTreeMap<_, _>>();
+		inherited.extend(env);
+		env = inherited;
 	}
 	for (key, value) in arg.env {
 		if let Ok(mutation) = value.try_unwrap_mutation_ref() {
@@ -555,9 +556,19 @@ impl<O: 'static> tg::Process<O> {
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
 		let artifacts =
 			checkout_artifacts(handle, &command, arg.command.options.token.as_ref()).await?;
-		let env = render_env(handle, &command.env, &artifacts, &output_path)?;
-		let (executable, args) =
-			render_command(&command, &artifacts, &output_path, arg.debug.as_ref())?;
+		let mut env = render_env(handle, &command.env, &artifacts, &output_path)?;
+		let engine = std::env::var("TANGRAM_JS_ENGINE").unwrap_or_else(|_| "auto".to_owned());
+		env.insert("TANGRAM_JS_ENGINE".to_owned(), engine);
+		if let Some(debug) = arg.debug.as_ref() {
+			env.insert("TANGRAM_JS_DEBUG".to_owned(), "true".to_owned());
+			if let Some(addr) = debug.addr {
+				env.insert("TANGRAM_JS_DEBUG_ADDR".to_owned(), addr.to_string());
+			}
+			if debug.mode != tg::process::debug::Mode::Normal {
+				env.insert("TANGRAM_JS_DEBUG_MODE".to_owned(), debug.mode.to_string());
+			}
+		}
+		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
 		let cwd = command.cwd.clone();
 
 		let output = PrepareUnsandboxedCommandOutput {
@@ -849,28 +860,9 @@ fn render_command(
 	command: &tg::command::Data,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
-	debug: Option<&tg::process::Debug>,
 ) -> tg::Result<(PathBuf, Vec<String>)> {
 	let executable = render_executable(command, artifacts)?;
-	let mut args = render_args(&command.args, artifacts, output_path)?;
-	let js = command.executable.artifact.is_none()
-		&& command.executable.path.as_deref() == Some(Path::new("tg"))
-		&& matches!(
-			command.args.first(),
-			Some(tg::command::data::Value::String(
-				tg::value::Data::String(value)
-			)) if value == "js"
-		);
-	if js && let Some(debug) = debug {
-		let mut options = vec!["--debug".to_owned()];
-		if let Some(addr) = debug.addr {
-			options.extend(["--debug-addr".to_owned(), addr.to_string()]);
-		}
-		if debug.mode != tg::process::debug::Mode::Normal {
-			options.extend(["--debug-mode".to_owned(), debug.mode.to_string()]);
-		}
-		args.splice(1..1, options);
-	}
+	let args = render_args(&command.args, artifacts, output_path)?;
 	Ok((executable, args))
 }
 
@@ -991,6 +983,10 @@ where
 	for key in [
 		"TANGRAM_CONFIG",
 		"TANGRAM_DIRECTORY",
+		"TANGRAM_JS_DEBUG",
+		"TANGRAM_JS_DEBUG_ADDR",
+		"TANGRAM_JS_DEBUG_MODE",
+		"TANGRAM_JS_ENGINE",
 		"TANGRAM_MODE",
 		"TANGRAM_OUTPUT",
 		"TANGRAM_TOKEN",

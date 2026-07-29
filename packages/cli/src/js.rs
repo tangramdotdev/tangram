@@ -25,7 +25,7 @@ pub struct Args {
 	pub debug: crate::process::spawn::Debug,
 
 	/// The JS engine to use.
-	#[arg(default_value = "auto", long)]
+	#[arg(default_value = "auto", env = "TANGRAM_JS_ENGINE", long)]
 	pub engine: Engine,
 
 	#[arg(long)]
@@ -34,7 +34,7 @@ pub struct Args {
 	#[arg(long)]
 	pub host: Option<String>,
 
-	#[arg(index = 1)]
+	#[arg(index = 1, value_parser = tg::value::parse)]
 	pub module: tg::Value,
 
 	#[arg(index = 2, trailing_var_arg = true)]

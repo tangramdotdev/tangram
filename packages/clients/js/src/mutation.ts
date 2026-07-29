@@ -259,6 +259,15 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		}
 	}
 
+	async applyTo(map: { [key: string]: T }, key: string): Promise<void> {
+		let value = await this.apply(map[key]);
+		if (value === undefined) {
+			delete map[key];
+		} else {
+			map[key] = value;
+		}
+	}
+
 	async apply(value: T | undefined): Promise<T | undefined> {
 		let output: tg.Value | undefined = value;
 		if (this.#inner.kind === "unset") {
@@ -328,12 +337,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 				if (!(mutation instanceof tg.Mutation)) {
 					target[innerKey] = mutation;
 				} else {
-					let value = await mutation.apply(target[innerKey]);
-					if (value === undefined) {
-						delete target[innerKey];
-					} else {
-						target[innerKey] = value;
-					}
+					await mutation.applyTo(target, innerKey);
 				}
 			}
 		}

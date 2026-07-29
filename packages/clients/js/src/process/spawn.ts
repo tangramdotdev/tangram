@@ -3,10 +3,10 @@ import * as stdio from "./stdio.ts";
 
 export let builder = (...args: any): any => {
 	if (typeof args[0] === "function") {
-		return new tg.Process.Builder(
-			"spawn",
-			tg.Command.js(args[0], args.slice(1)),
-		);
+		let command = tg.Command.js(args[0], args.slice(1)).then((command) => ({
+			command,
+		}));
+		return new tg.Process.Builder("spawn", command);
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -66,7 +66,10 @@ let spawnArgFromResolvedWithSandbox = async (
 		if (arg.host === undefined) {
 			arg.host = tg.host.current;
 		}
-		if (arg.executable === tg.process.env.SHELL) {
+		if (
+			arg.executable !== undefined &&
+			arg.executable === tg.process.env.SHELL
+		) {
 			arg.executable = "sh";
 		}
 	}
@@ -412,12 +415,24 @@ export let prepareUnsandboxedCommand = async (
 		arg.command.options?.token ?? null,
 	);
 	let env = await renderEnv(command.env, artifacts, outputPath);
-	let { args, executable } = renderCommand(
-		command,
-		artifacts,
-		outputPath,
-		arg.debug,
-	);
+	env.TANGRAM_JS_ENGINE =
+		typeof tg.process.env.TANGRAM_JS_ENGINE === "string"
+			? tg.process.env.TANGRAM_JS_ENGINE
+			: "auto";
+	if (arg.debug !== undefined && arg.debug !== null) {
+		env.TANGRAM_JS_DEBUG = "true";
+		if (arg.debug.addr !== undefined && arg.debug.addr !== null) {
+			env.TANGRAM_JS_DEBUG_ADDR = arg.debug.addr;
+		}
+		if (
+			arg.debug.mode !== undefined &&
+			arg.debug.mode !== null &&
+			arg.debug.mode !== "normal"
+		) {
+			env.TANGRAM_JS_DEBUG_MODE = arg.debug.mode;
+		}
+	}
+	let { args, executable } = renderCommand(command, artifacts, outputPath);
 	return {
 		args,
 		cwd: command.cwd,
@@ -626,28 +641,8 @@ function renderCommand(
 	command: tg.Command.Object,
 	artifacts: Map<tg.Artifact.Id, string>,
 	outputPath: string,
-	debug?: tg.Process.Debug | null,
 ): { args: Array<string>; executable: string } {
 	let args = renderArgs(command.args, artifacts, outputPath);
-	let js =
-		command.executable.artifact === null &&
-		command.executable.path === "tg" &&
-		command.args[0]?.kind === "string" &&
-		command.args[0].value === "js";
-	if (js && debug !== undefined && debug !== null) {
-		let options = ["--debug"];
-		if (debug.addr !== undefined && debug.addr !== null) {
-			options.push("--debug-addr", debug.addr);
-		}
-		if (
-			debug.mode !== undefined &&
-			debug.mode !== null &&
-			debug.mode !== "normal"
-		) {
-			options.push("--debug-mode", debug.mode);
-		}
-		args.splice(1, 0, ...options);
-	}
 	return {
 		args,
 		executable: renderExecutable(command.executable, artifacts),
@@ -713,6 +708,10 @@ async function renderEnv(
 	for (let key of [
 		"TANGRAM_CONFIG",
 		"TANGRAM_DIRECTORY",
+		"TANGRAM_JS_DEBUG",
+		"TANGRAM_JS_DEBUG_ADDR",
+		"TANGRAM_JS_DEBUG_MODE",
+		"TANGRAM_JS_ENGINE",
 		"TANGRAM_MODE",
 		"TANGRAM_OUTPUT",
 		"TANGRAM_PROCESS",

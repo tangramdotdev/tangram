@@ -1,6 +1,8 @@
 import * as tg from "./index.ts";
 import { Resolve } from "./resolve.ts";
 
+export const setBuilderKind: unique symbol = Symbol();
+
 /** Create a command. */
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
@@ -22,7 +24,12 @@ export function command(
 export function command(...args: tg.Args<tg.Command.Arg>): tg.Command.Builder;
 export function command(...args: any): any {
 	if (typeof args[0] === "function") {
-		return new tg.Command.Builder(tg.Command.js(args[0], args.slice(1)));
+		let command = tg.Command.js(args[0], args.slice(1)).then(
+			(referent) => referent.item,
+		);
+		let builder = new tg.Command.Builder(command);
+		builder[setBuilderKind]("js");
+		return builder;
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -92,7 +99,6 @@ export class Command<
 	static async arg(
 		...args: tg.Args<tg.Command.Arg>
 	): Promise<tg.Command.ResolvedArg> {
-		let js = false;
 		return await tg.Args.apply<
 			tg.Command.Arg,
 			tg.Command.MappedArg,
@@ -101,7 +107,6 @@ export class Command<
 			args,
 			map: async (arg): Promise<tg.Command.MappedArg> => {
 				let output: tg.ValueOrMaybeMutationMap<tg.Command.Arg>;
-				let base = false;
 				if (arg === undefined) {
 					output = {};
 				} else if (
@@ -115,48 +120,10 @@ export class Command<
 						executable: "sh",
 						host,
 					};
-					base = true;
 				} else if (arg instanceof tg.Command) {
 					output = await arg.object();
-					base = true;
 				} else {
 					output = arg;
-				}
-				let executable = output.executable;
-				let args = output.args;
-				let ownJs =
-					executable !== null &&
-					executable !== undefined &&
-					!(executable instanceof tg.Mutation) &&
-					(executable === "tg" ||
-						(typeof executable === "object" &&
-							"path" in executable &&
-							"artifact" in executable &&
-							(executable.artifact === null ||
-								executable.artifact === undefined) &&
-							executable.path === "tg")) &&
-					Array.isArray(args) &&
-					((args[0] instanceof tg.Command.Value &&
-						args[0].kind === "string" &&
-						args[0].value === "js") ||
-						args[0] === "js");
-				if (
-					base ||
-					(executable !== undefined && !(executable instanceof tg.Mutation))
-				) {
-					js = ownJs;
-				}
-				if (js && !ownJs && Array.isArray(output.args)) {
-					output.args = output.args.flatMap((value) => {
-						let value_ =
-							value instanceof tg.Command.Value
-								? value
-								: tg.Command.Value.value(value);
-						return [
-							tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
-							value_,
-						];
-					});
 				}
 				return {
 					...output,
@@ -174,17 +141,22 @@ export class Command<
 		});
 	}
 
-	static js(
+	static async js(
 		function_: Function,
-		args: Array<tg.Value | tg.Command.Value>,
-	): tg.Command.Arg.Object {
+		args: Array<tg.Unresolved<tg.Command.Arg.Value>>,
+	): Promise<tg.Referent<tg.Command>> {
+		let args_ = await Promise.all(args.map(tg.resolve));
 		let target = tg.host.magic(function_);
 		let module = tg.Module.fromData(target.module);
-		let options = module.referent.options;
-		if (!(options?.tag || options?.id)) {
-			let { path: _path, ...rest } = options ?? {};
-			module.referent.options = rest;
-		}
+		let options = { ...module.referent.options };
+		let {
+			id: _id,
+			name: _name,
+			path: _path,
+			tag: _tag,
+			...rest
+		} = module.referent.options ?? {};
+		module.referent.options = rest;
 		let commandArgs = [
 			tg.Command.Value.string("js"),
 			...(target.export === undefined || target.export === null
@@ -197,7 +169,7 @@ export class Command<
 			tg.Command.Value.string(tg.host.current),
 			tg.Command.Value.value(module),
 		];
-		for (let arg of args) {
+		for (let arg of args_) {
 			let arg_ =
 				arg instanceof tg.Command.Value ? arg : tg.Command.Value.value(arg);
 			commandArgs.push(
@@ -205,11 +177,12 @@ export class Command<
 				arg_,
 			);
 		}
-		return {
+		let command = await tg.Command.new({
 			args: commandArgs,
 			executable: "tg",
 			host: tg.host.current,
-		};
+		});
+		return { item: command, options };
 	}
 
 	constructor(arg: tg.Command.ConstructorArg) {
@@ -735,10 +708,12 @@ export namespace Command {
 		O extends tg.Value = tg.Value,
 	> extends Function {
 		#args: tg.Args<tg.Command.Arg.Object>;
+		#kind: "js" | "string";
 
 		constructor(...args: tg.Args<tg.Command.Arg.Object>) {
 			super();
 			this.#args = args;
+			this.#kind = "string";
 			return new Proxy(this, {
 				get(this_: any, prop, _receiver) {
 					if (typeof this_[prop] === "function") {
@@ -756,14 +731,13 @@ export namespace Command {
 		}
 
 		arg(...args: Array<tg.Unresolved<tg.Command.Arg.Value>>): this {
-			this.#args.push({ args });
-			return this;
+			return this.args(args);
 		}
 
 		args(
 			...args: Array<tg.Unresolved<Array<tg.Command.Arg.Value> | null>>
 		): this {
-			this.#args.push(...args.map((args) => ({ args })));
+			this.#args.push(...args.map((args) => this.argsArg(args)));
 			return this;
 		}
 
@@ -791,38 +765,42 @@ export namespace Command {
 
 		/** Build this command and return the process's output. */
 		build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
-			return tg.build(...this.#args, { args }) as tg.Process.Builder<
-				"run",
-				[],
-				O
-			>;
+			let output = tg.build(
+				...this.#args,
+				this.argsArg(args),
+			) as tg.Process.Builder<"run", [], O>;
+			output[setBuilderKind](this.#kind);
+			return output;
 		}
 
 		/** Run this command and return the process's output. */
 		run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
-			return tg.run(...this.#args, { args }) as tg.Process.Builder<
-				"run",
-				[],
-				O
-			>;
+			let output = tg.run(
+				...this.#args,
+				this.argsArg(args),
+			) as tg.Process.Builder<"run", [], O>;
+			output[setBuilderKind](this.#kind);
+			return output;
 		}
 
 		/** Spawn this command and return the process. */
 		spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O> {
-			return tg.spawn(...this.#args, { args }) as tg.Process.Builder<
-				"spawn",
-				[],
-				O
-			>;
+			let output = tg.spawn(
+				...this.#args,
+				this.argsArg(args),
+			) as tg.Process.Builder<"spawn", [], O>;
+			output[setBuilderKind](this.#kind);
+			return output;
 		}
 
 		/** Exec this command. */
 		exec(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"exec", [], never> {
-			return tg.exec(...this.#args, { args }) as tg.Process.Builder<
-				"exec",
-				[],
-				never
-			>;
+			let output = tg.exec(
+				...this.#args,
+				this.argsArg(args),
+			) as tg.Process.Builder<"exec", [], never>;
+			output[setBuilderKind](this.#kind);
+			return output;
 		}
 
 		then<TResult1 = tg.Command<A, O>, TResult2 = never>(
@@ -838,6 +816,35 @@ export namespace Command {
 			return tg.Command.new(...this.#args)
 				.then((command) => command as tg.Command<A, O>)
 				.then(onfulfilled, onrejected);
+		}
+
+		[setBuilderKind](kind: "js" | "string"): void {
+			this.#kind = kind;
+		}
+
+		private argsArg(
+			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
+		): tg.Unresolved<tg.Command.Arg.Object> {
+			if (this.#kind === "string") {
+				return { args };
+			}
+			return tg.resolve(args).then((args) => {
+				if (args === null) {
+					return { args: null };
+				}
+				return {
+					args: args.flatMap((value) => {
+						let value_ =
+							value instanceof tg.Command.Value
+								? value
+								: tg.Command.Value.value(value);
+						return [
+							tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
+							value_,
+						];
+					}),
+				};
+			});
 		}
 	}
 }

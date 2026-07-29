@@ -144,13 +144,21 @@ pub struct Options {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Debug {
-	#[arg(id = "spawn.debug.enabled", long = "debug")]
+	#[arg(env = "TANGRAM_JS_DEBUG", id = "spawn.debug.enabled", long = "debug")]
 	enabled: bool,
 
-	#[arg(id = "spawn.debug.addr", long = "debug-addr")]
+	#[arg(
+		env = "TANGRAM_JS_DEBUG_ADDR",
+		id = "spawn.debug.addr",
+		long = "debug-addr"
+	)]
 	addr: Option<std::net::SocketAddr>,
 
-	#[arg(long = "debug-mode", id = "spawn.debug.mode")]
+	#[arg(
+		env = "TANGRAM_JS_DEBUG_MODE",
+		long = "debug-mode",
+		id = "spawn.debug.mode"
+	)]
 	mode: Option<tg::process::debug::Mode>,
 
 	#[arg(
@@ -631,7 +639,12 @@ impl Cli {
 							.await
 							.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
 						let item = tg::module::Item::Edge(item.into());
-						let referent = referent.clone().map(|_| item);
+						command_options = Some(referent.options.clone());
+						let mut referent = referent.clone().map(|_| item);
+						referent.options.id.take();
+						referent.options.name.take();
+						referent.options.path.take();
+						referent.options.tag.take();
 						let module = tg::Module { kind, referent };
 						let export = reference.export().unwrap_or("default").to_owned();
 						let host = tg::host::current().to_owned();
@@ -677,7 +690,12 @@ impl Cli {
 						};
 						if let Some(kind) = kind {
 							let item = tg::module::Item::Edge(item);
-							let referent = referent.clone().map(|_| item);
+							command_options = Some(referent.options.clone());
+							let mut referent = referent.clone().map(|_| item);
+							referent.options.id.take();
+							referent.options.name.take();
+							referent.options.path.take();
+							referent.options.tag.take();
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let host = tg::host::current().to_owned();

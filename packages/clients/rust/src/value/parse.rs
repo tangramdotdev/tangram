@@ -1735,20 +1735,21 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 	for (key, value) in map {
 		match key.as_str() {
 			"item" => {
-				if value.is_string() {
-					let value = value
-						.try_unwrap_string_ref()
-						.map_err(|_| tg::error!("expected string"))?;
-					item = Some(tg::module::Item::Path(PathBuf::from(value)));
-				} else if value.is_object() {
-					let object = value
-						.try_unwrap_object_ref()
-						.map_err(|_| tg::error!("expected object"))?;
-					let edge = tg::graph::Edge::Object(object.clone());
-					item = Some(tg::module::Item::Edge(edge));
-				} else {
-					return Err(tg::error!("expected string or object for item"));
-				}
+				item = Some(match value {
+					tg::Value::Map(map) => {
+						let pointer = parse_graph_pointer(map)?;
+						let edge = tg::graph::Edge::Pointer(pointer);
+						tg::module::Item::Edge(edge)
+					},
+					tg::Value::Object(object) => {
+						let edge = tg::graph::Edge::Object(object.clone());
+						tg::module::Item::Edge(edge)
+					},
+					tg::Value::String(value) => tg::module::Item::Path(PathBuf::from(value)),
+					_ => {
+						return Err(tg::error!("expected a map, object, or string for item"));
+					},
+				});
 			},
 			"options" => {
 				let value = value
