@@ -310,6 +310,10 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		// Share the LMDB lock through the app group.
 		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
 
+		// Read the principal and grant tokens used to authorize artifacts; an empty principal disables enforcement.
+		let principal = options["principal"] ?? ""
+		let tokens = options["tokens"] ?? ""
+
 		// The client connects to the server over the unix socket the server sends as
 		// a mount option, which lets concurrent servers each serve on their own
 		// socket. It falls back to the socket in the shared app group container, the
@@ -334,15 +338,21 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 			dataDirectory.withCString { dataDirectory in
 				objectStorePath.withCString { objectStorePath in
 					objectStorePosixSemPrefix.withCString { objectStorePosixSemPrefix in
-						var config = TgConfig(
-							data_directory: dataDirectory,
-							node_eviction_interval_secs: nodeEvictionIntervalSeconds,
-							node_ttl_secs: nodeTTLSeconds,
-							object_store_map_size: objectStoreMapSize,
-							object_store_path: objectStorePath,
-							object_store_posix_sem_prefix: objectStorePosixSemPrefix,
-						)
-						return tg_provider_new(socket, &config, &provider)
+						principal.withCString { principal in
+							tokens.withCString { tokens in
+								var config = TgConfig(
+									data_directory: dataDirectory,
+									node_eviction_interval_secs: nodeEvictionIntervalSeconds,
+									node_ttl_secs: nodeTTLSeconds,
+									object_store_map_size: objectStoreMapSize,
+									object_store_path: objectStorePath,
+									object_store_posix_sem_prefix: objectStorePosixSemPrefix,
+									principal: principal,
+									tokens: tokens,
+								)
+								return tg_provider_new(socket, &config, &provider)
+							}
+						}
 					}
 				}
 			}

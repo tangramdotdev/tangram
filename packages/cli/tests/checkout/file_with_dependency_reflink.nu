@@ -43,4 +43,6 @@ let warm_path = $tmp | path join 'warm'
 tg checkout --dependencies=false $id $warm_path
 assert ('user.tangram.dependencies' in (xattr_list $warm_path))
 
+# Stop the server and unmount its sandbox before removing its custom directory.
+cleanup_background_jobs $env.TMPDIR
 rm -rf $tmp

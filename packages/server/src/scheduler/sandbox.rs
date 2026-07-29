@@ -1,8 +1,8 @@
 use {
 	super::{
-		BorrowableCapacityNotification, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
-		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification, Operation,
-		Scheduler, State,
+		BorrowableCapacityNotification, Config, DequeueSandboxRequestArg,
+		DequeueSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		HeartbeatNotification, Operation, Scheduler, State,
 		runner::{Reservation, ReservationSource, ReservationState, Runner},
 	},
 	futures::FutureExt as _,
@@ -42,6 +42,7 @@ struct Links {
 }
 
 struct Sandbox {
+	attempts: usize,
 	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
 	capacity: tg::runner::Capacity,
 	dequeue_requests: Vec<String>,
@@ -83,9 +84,19 @@ pub(super) struct Completion {
 	sandbox: tg::sandbox::Id,
 }
 
+pub(super) struct CreateSandboxCompletionOutput {
+	pub dequeue_completions: Vec<DequeueCompletion>,
+	pub discarded: Option<DiscardedSandbox>,
+}
+
 pub(super) struct DequeueCompletion {
 	pub output: DequeueSandboxResponseOutput,
 	pub request: String,
+}
+
+pub(super) struct DiscardedSandbox {
+	pub error: tg::Either<tg::error::Data, tg::error::Id>,
+	pub sandbox: tg::sandbox::Id,
 }
 
 impl Parents {
@@ -239,6 +250,7 @@ impl State {
 		let id = request.sandbox.clone();
 		let parent = request.parent.clone();
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity,
 			dequeue_requests: Vec::new(),
@@ -360,8 +372,9 @@ impl State {
 
 	pub(super) fn handle_create_sandbox_completion(
 		&mut self,
+		config: &Config,
 		completion: Completion,
-	) -> Vec<DequeueCompletion> {
+	) -> CreateSandboxCompletionOutput {
 		self.sandboxes.attempts = self.sandboxes.attempts.saturating_sub(1);
 		let Completion {
 			placement,
@@ -369,13 +382,22 @@ impl State {
 			sandbox: id,
 		} = completion;
 		let Some(sandbox) = self.sandboxes.entries.get(&id) else {
-			return Vec::new();
+			return CreateSandboxCompletionOutput {
+				dequeue_completions: Vec::new(),
+				discarded: None,
+			};
 		};
 		let SandboxState::Creating { placement: current } = &sandbox.state else {
-			return Vec::new();
+			return CreateSandboxCompletionOutput {
+				dequeue_completions: Vec::new(),
+				discarded: None,
+			};
 		};
 		if current != &placement {
-			return Vec::new();
+			return CreateSandboxCompletionOutput {
+				dequeue_completions: Vec::new(),
+				discarded: None,
+			};
 		}
 		let dequeue_requests = sandbox.dequeue_requests.clone();
 		let runner_ref = placement.runner();
@@ -384,10 +406,17 @@ impl State {
 			.entries
 			.get(&runner_ref.id)
 			.is_some_and(|runner| runner.connection_index == runner_ref.connection_index);
+		let failure = if let Ok(Err(error)) = &result {
+			Some(error.clone())
+		} else {
+			None
+		};
+		let failed = failure.is_some();
 		if let Ok(Err(error)) = &result {
 			tracing::error!(error = %error.trace(), sandbox = %id, runner = %runner_ref.id, "the runner failed to create the sandbox");
 		}
 
+		let mut discarded = None;
 		let output = match result {
 			Ok(Ok(true)) if runner_current => {
 				self.remove_reservation(&id, &placement, true);
@@ -396,7 +425,28 @@ impl State {
 			},
 			Ok(Ok(false) | Err(_)) => {
 				self.remove_reservation(&id, &placement, false);
-				if dequeue_requests.is_empty() {
+				let sandbox = self.sandboxes.entries.get_mut(&id).unwrap();
+				if failed {
+					sandbox.attempts += 1;
+				}
+				if !dequeue_requests.is_empty() {
+					self.sandboxes.entries.remove(&id);
+				} else if failed && sandbox.attempts >= config.max_create_sandbox_attempts {
+					let source = failure.as_ref().unwrap().clone();
+					let attempts = sandbox.attempts;
+					let error = tg::error!(
+						!source,
+						sandbox = %id,
+						%attempts,
+						"failed to create the sandbox after too many attempts"
+					);
+					tracing::error!(error = %error.trace(), "giving up on the sandbox");
+					discarded = Some(DiscardedSandbox {
+						error: error.to_data_or_id(),
+						sandbox: id.clone(),
+					});
+					self.sandboxes.entries.remove(&id);
+				} else {
 					if matches!(placement, Placement::Regular { .. })
 						&& let Some(runner) = self.runners.entries.get(&runner_ref.id)
 					{
@@ -409,8 +459,6 @@ impl State {
 						);
 					}
 					self.requeue_sandbox(&id);
-				} else {
-					self.sandboxes.entries.remove(&id);
 				}
 				DequeueSandboxResponseOutput { dequeued: true }
 			},
@@ -440,13 +488,18 @@ impl State {
 				DequeueSandboxResponseOutput { dequeued: false }
 			},
 		};
-		dequeue_requests
+		let dequeue_completions = dequeue_requests
 			.into_iter()
 			.map(|request| DequeueCompletion {
 				output: output.clone(),
 				request,
 			})
-			.collect()
+			.collect();
+
+		CreateSandboxCompletionOutput {
+			dequeue_completions,
+			discarded,
+		}
 	}
 
 	pub(super) fn remove_runner(&mut self, id: &tg::runner::Id) -> Vec<DequeueCompletion> {
@@ -806,6 +859,7 @@ mod tests {
 			id: tg::runner::Id::new(),
 		};
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
@@ -839,13 +893,18 @@ mod tests {
 			["first", "second"]
 		);
 
-		let completions = state.handle_create_sandbox_completion(Completion {
-			placement: Placement::Regular { runner },
-			result: Ok(Ok(true)),
-			sandbox: id.clone(),
-		});
+		let output = state.handle_create_sandbox_completion(
+			&config(),
+			Completion {
+				placement: Placement::Regular { runner },
+				result: Ok(Ok(true)),
+				sandbox: id.clone(),
+			},
+		);
+		let completions = output.dequeue_completions;
 
 		assert_eq!(completions.len(), 2);
+		assert!(output.discarded.is_none());
 		assert!(!completions[0].output.dequeued);
 		assert_eq!(completions[0].request, "first");
 		assert!(!completions[1].output.dequeued);
@@ -862,6 +921,7 @@ mod tests {
 		};
 		let placement = Placement::Regular { runner };
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
@@ -879,13 +939,18 @@ mod tests {
 			},
 		);
 
-		let completions = state.handle_create_sandbox_completion(Completion {
-			placement,
-			result: Ok(Ok(false)),
-			sandbox: id.clone(),
-		});
+		let output = state.handle_create_sandbox_completion(
+			&config(),
+			Completion {
+				placement,
+				result: Ok(Ok(false)),
+				sandbox: id.clone(),
+			},
+		);
+		let completions = output.dequeue_completions;
 
 		assert_eq!(completions.len(), 1);
+		assert!(output.discarded.is_none());
 		assert!(completions[0].output.dequeued);
 		assert_eq!(completions[0].request, "request");
 		assert!(!state.sandboxes.entries.contains_key(&id));
@@ -895,6 +960,7 @@ mod tests {
 	fn dequeue_pending_sandbox_removes_it() {
 		let id = tg::sandbox::Id::new();
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
@@ -931,6 +997,50 @@ mod tests {
 	}
 
 	#[test]
+	fn failed_sandbox_creation_discards_after_max_attempts() {
+		let id = tg::sandbox::Id::new();
+		let runner = RunnerRef {
+			connection_index: 0,
+			id: tg::runner::Id::new(),
+		};
+		let sandbox = Sandbox {
+			attempts: 0,
+			blocked: HashMap::default(),
+			capacity: tg::runner::Capacity::default(),
+			dequeue_requests: Vec::new(),
+			request: enqueue_request(id.clone()),
+			state: SandboxState::Creating {
+				placement: Placement::Regular {
+					runner: runner.clone(),
+				},
+			},
+		};
+		let mut state = State::new();
+		state.sandboxes.entries.insert(id.clone(), sandbox);
+		let mut config = config();
+		config.max_create_sandbox_attempts = 1;
+
+		let output = state.handle_create_sandbox_completion(
+			&config,
+			Completion {
+				placement: Placement::Regular { runner },
+				result: Ok(Err(tg::error!("the runner rejected the sandbox"))),
+				sandbox: id.clone(),
+			},
+		);
+
+		assert!(output.dequeue_completions.is_empty());
+		let discarded = output.discarded.unwrap();
+		assert_eq!(discarded.sandbox, id);
+		let error = tg::Error::try_from(discarded.error).unwrap();
+		assert_eq!(
+			error.to_string(),
+			"failed to create the sandbox after too many attempts",
+		);
+		assert!(!state.sandboxes.entries.contains_key(&id));
+	}
+
+	#[test]
 	fn queue_preserves_order_when_removing_entries() {
 		let first = tg::sandbox::Id::new();
 		let middle = tg::sandbox::Id::new();
@@ -952,6 +1062,20 @@ mod tests {
 
 		assert!(queue.remove(&last));
 		assert_eq!(queue.next(), None);
+	}
+
+	fn config() -> Config {
+		Config {
+			create_sandbox_queue_capacity: 0,
+			create_sandbox_timeout: std::time::Duration::ZERO,
+			default_capacity: tg::runner::Capacity::default(),
+			heartbeat_interval: std::time::Duration::ZERO,
+			inbox_ttl: std::time::Duration::ZERO,
+			max_create_sandbox_attempts: 3,
+			max_create_sandbox_requests: 0,
+			max_create_sandbox_requests_per_runner: 0,
+			runner_ttl: std::time::Duration::ZERO,
+		}
 	}
 
 	fn enqueue_request(sandbox: tg::sandbox::Id) -> EnqueueSandboxRequestArg {

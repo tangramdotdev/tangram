@@ -24,6 +24,8 @@ struct Request {
 	#[serde(rename = "object_store", skip_serializing_if = "Option::is_none")]
 	object_store: Option<ObjectStore>,
 
+	principal: String,
+
 	socket: PathBuf,
 
 	token: String,
@@ -32,7 +34,7 @@ struct Request {
 	type_: &'static str,
 }
 
-/// The object store the fast path opens. It is sent only if the store is an lmdb store, because the fast path can read no other kind.
+/// The object store the fast path opens. It is sent only for an LMDB store because the fast path can read no other kind.
 #[derive(serde::Serialize)]
 struct ObjectStore {
 	#[serde(rename = "map_size")]
@@ -54,18 +56,26 @@ struct Response {
 }
 
 impl Server {
-	pub async fn start(server: &crate::Server, path: &Path) -> tg::Result<Self> {
+	pub async fn start(
+		server: &crate::Server,
+		path: &Path,
+		principal: tg::Principal,
+	) -> tg::Result<Self> {
 		Self::unmount(path).await.ok();
 
 		// Ask the app to mount if the app started this server, because only the app can prompt for the file system extension's approval. Otherwise mount directly, which is the path the test harness takes.
 		if std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some() {
-			Self::start_with_app(server, path).await
+			Self::start_with_app(server, path, principal).await
 		} else {
-			Self::start_with_mount(server, path).await
+			Self::start_with_mount(server, path, principal).await
 		}
 	}
 
-	async fn start_with_app(server: &crate::Server, path: &Path) -> tg::Result<Self> {
+	async fn start_with_app(
+		server: &crate::Server,
+		path: &Path,
+		principal: tg::Principal,
+	) -> tg::Result<Self> {
 		// Get the environment the app set.
 		let socket = std::env::var_os("TANGRAM_MACOS_APP_SOCKET")
 			.ok_or_else(|| tg::error!("missing the macos app socket environment variable"))?;
@@ -80,6 +90,7 @@ impl Server {
 			data_directory: server.path.clone(),
 			mount_path: path.to_path_buf(),
 			object_store,
+			principal: principal.to_string(),
 			socket: group_socket,
 			token,
 			type_: "mount_vfs",
@@ -123,10 +134,14 @@ impl Server {
 		})
 	}
 
-	async fn start_with_mount(server: &crate::Server, path: &Path) -> tg::Result<Self> {
+	async fn start_with_mount(
+		server: &crate::Server,
+		path: &Path,
+		principal: tg::Principal,
+	) -> tg::Result<Self> {
 		let group_socket = Self::group_socket(server)?;
 		let object_store = Self::object_store(server);
-		let options = Self::options(object_store.as_ref(), &group_socket);
+		let options = Self::options(object_store.as_ref(), &group_socket, &principal);
 		let output = tokio::process::Command::new("/sbin/mount")
 			.arg("-F")
 			.arg("-t")
@@ -189,12 +204,19 @@ impl Server {
 	}
 
 	/// Builds the value of the mount's `-o` option. The generic options come first, which the mount command consumes itself, and it forwards the rest to the file system extension. A path containing a comma cannot be represented, so it is omitted and the extension uses its default.
-	fn options(object_store: Option<&ObjectStore>, socket: &Path) -> String {
+	fn options(
+		object_store: Option<&ObjectStore>,
+		socket: &Path,
+		principal: &tg::Principal,
+	) -> String {
 		let mut options = vec![
 			"nobrowse".to_owned(),
 			"nodev".to_owned(),
 			"nosuid".to_owned(),
 		];
+
+		// Add the mount's principal without encoding; its display form contains no commas.
+		options.push(format!("principal={principal}"));
 		let socket = socket.display().to_string();
 		if socket.contains(',') {
 			tracing::error!(

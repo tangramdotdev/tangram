@@ -1055,9 +1055,14 @@ impl Session {
 			}
 
 			// Cache the process's children.
-			self.checkout_process_artifacts(&state.command, progress_sender.clone(), &state.stderr)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
+			self.checkout_process_artifacts(
+				&state.command,
+				&state.sandbox,
+				progress_sender.clone(),
+				&state.stderr,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
 
 			let sandbox_process = sandbox.create_process();
 			let guest_artifacts_path = sandbox.guest_artifacts_path();
@@ -1372,14 +1377,10 @@ impl Session {
 	async fn checkout_process_artifacts(
 		&self,
 		command: &tg::Command,
+		sandbox: &tg::sandbox::Id,
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stderr: &tg::process::Stdio,
 	) -> tg::Result<()> {
-		// Do nothing if the VFS is enabled.
-		if self.server.vfs.lock().unwrap().is_some() {
-			return Ok(());
-		}
-
 		// Get the process's command's children that are artifacts.
 		let artifacts = command
 			.children_with_handle(self)
@@ -1391,7 +1392,25 @@ impl Session {
 				let artifact = tg::Referent::with_item_and_token(id, object.state().token());
 				Some(artifact)
 			})
-			.collect::<Vec<_>>();
+			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
+
+		// Track each artifact's verified subtree token for the per-sandbox VFS.
+		if self.server.vfs.lock().unwrap().is_some() {
+			let permissions = tg::grant::permission::Set::from(tg::grant::Permission::Object(
+				tg::grant::permission::object::Permission::Subtree,
+			));
+			let tokens = artifacts.iter().filter_map(|artifact| {
+				let token = artifact.options.token.clone()?;
+				let resource =
+					tg::grant::Resource::Id(tg::object::Id::from(artifact.item.clone()).into());
+				self.authorize_token(&resource, permissions, &token)
+					.then(|| (artifact.item.clone(), token))
+			});
+			if let Some(mut state) = self.server.runner.state.sandboxes.get_mut(sandbox) {
+				state.tokens.extend(tokens);
+			}
+			return Ok(());
+		}
 
 		// Check out the artifacts.
 		let arg = tg::cache::Arg { artifacts };

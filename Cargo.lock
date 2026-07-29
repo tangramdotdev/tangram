@@ -8387,6 +8387,7 @@ dependencies = [
  "tangram_client",
  "tangram_object_store",
  "tangram_uri",
+ "tangram_util",
  "tangram_vfs",
  "tokio",
  "tracing",

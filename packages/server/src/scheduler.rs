@@ -227,6 +227,7 @@ struct Config {
 	default_capacity: tg::runner::Capacity,
 	heartbeat_interval: Duration,
 	inbox_ttl: Duration,
+	max_create_sandbox_attempts: usize,
 	max_create_sandbox_requests: usize,
 	max_create_sandbox_requests_per_runner: usize,
 	runner_ttl: Duration,
@@ -590,6 +591,7 @@ impl Scheduler {
 			},
 			heartbeat_interval: config.heartbeat_interval,
 			inbox_ttl: config.inbox_ttl,
+			max_create_sandbox_attempts: config.max_create_sandbox_attempts,
 			max_create_sandbox_requests: config.max_create_sandbox_requests,
 			max_create_sandbox_requests_per_runner: config.max_create_sandbox_requests_per_runner,
 			runner_ttl: config.runner_ttl,
@@ -812,8 +814,11 @@ impl Scheduler {
 				self.send_response(state, response);
 			},
 			Operation::CreateSandbox(completion) => {
-				let completions = state.handle_create_sandbox_completion(completion);
-				self.send_dequeue_sandbox_completions(state, completions);
+				let output = state.handle_create_sandbox_completion(&self.config, completion);
+				self.send_dequeue_sandbox_completions(state, output.dequeue_completions);
+				if let Some(discarded) = output.discarded {
+					self.publish_sandbox_discarded(state, discarded);
+				}
 			},
 			Operation::ExpireRequest { id } => {
 				state.requests.inbox.remove(&id);
@@ -875,6 +880,33 @@ impl Scheduler {
 			subject,
 			Message::Response(response),
 			"failed to publish the scheduler response",
+		);
+	}
+
+	fn publish_sandbox_discarded(&self, state: &mut State, discarded: sandbox::DiscardedSandbox) {
+		let subject = crate::sandbox::control::discarded_subject(&discarded.sandbox);
+		let discarded = crate::sandbox::control::Discarded {
+			error: discarded.error,
+		};
+		let server = self.server.clone();
+		state.operations.push(
+			async move {
+				let result = server
+					.messenger
+					.publish(subject, tangram_messenger::payload::Json(discarded))
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to publish the sandbox discard notification"
+						)
+					});
+				Operation::Publish {
+					context: "failed to publish the sandbox discard notification",
+					result,
+				}
+			}
+			.boxed(),
 		);
 	}
 

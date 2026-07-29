@@ -162,6 +162,10 @@ pub struct TgConfig {
 	pub object_store_path: *const c_char,
 	/// The prefix for the object store's POSIX lock semaphores, a null-terminated UTF-8 string owned by the caller. It must match the prefix the server opens the object store with so that the sandboxed provider and the server share the same lock. A null pointer or an empty string selects the default hash-derived names.
 	pub object_store_posix_sem_prefix: *const c_char,
+	/// The principal the mount serves, a null-terminated UTF-8 string owned by the caller in the display form of a principal. A null pointer or an empty string leaves the mount unenforced.
+	pub principal: *const c_char,
+	/// The grant tokens the mount holds, a null-terminated UTF-8 string owned by the caller containing a JSON array of grant tokens. A null pointer or an empty string provides no tokens.
+	pub tokens: *const c_char,
 }
 
 impl From<Status> for i32 {
@@ -216,12 +220,42 @@ unsafe fn name_arg(name: *const u8, name_len: usize) -> String {
 }
 
 /// Converts a C configuration into a configuration, selecting the default for each field that is zero.
-fn config_from_c(config: &TgConfig) -> Config {
+fn config_from_c(config: &TgConfig) -> std::result::Result<Config, Status> {
 	// Load the defaults.
 	let default = Config::default();
 
+	// Parse the principal.
+	let principal = if config.principal.is_null() {
+		None
+	} else {
+		// SAFETY: The caller guarantees that this non-null field points to a terminated C string.
+		let principal = unsafe { CStr::from_ptr(config.principal) }
+			.to_str()
+			.map_err(|_| Status::InvalidArgument)?;
+		if principal.is_empty() {
+			None
+		} else {
+			Some(principal.parse().map_err(|_| Status::InvalidArgument)?)
+		}
+	};
+
+	// Parse the tokens.
+	let tokens = if config.tokens.is_null() {
+		Vec::new()
+	} else {
+		// SAFETY: The caller guarantees that this non-null field points to a terminated C string.
+		let tokens = unsafe { CStr::from_ptr(config.tokens) }
+			.to_str()
+			.map_err(|_| Status::InvalidArgument)?;
+		if tokens.is_empty() {
+			Vec::new()
+		} else {
+			serde_json::from_str(tokens).map_err(|_| Status::InvalidArgument)?
+		}
+	};
+
 	// Convert the configuration.
-	Config {
+	let config = Config {
 		data_directory: if config.data_directory.is_null() {
 			None
 		} else {
@@ -269,7 +303,11 @@ fn config_from_c(config: &TgConfig) -> Config {
 				.filter(|prefix| !prefix.is_empty())
 				.map(ToOwned::to_owned)
 		},
-	}
+		principal,
+		tokens,
+	};
+
+	Ok(config)
 }
 
 /// Converts an array of C requests into a vector of requests.
@@ -467,7 +505,10 @@ extern "system" fn tg_provider_new(
 			Config::default()
 		} else {
 			// SAFETY: The caller guarantees that the non-null pointer addresses an initialized configuration.
-			config_from_c(unsafe { &*config })
+			let Ok(config) = config_from_c(unsafe { &*config }) else {
+				return Status::InvalidArgument;
+			};
+			config
 		};
 		match Provider::new(uri, &config) {
 			Err(error) => os_error(&error),
@@ -1349,4 +1390,50 @@ extern "system" fn tg_response_batch_free(batch: TgResponseBatch) -> i32 {
 		}
 		Status::Ok
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use {super::*, std::ffi::CString};
+
+	#[test]
+	fn config_from_c_rejects_an_invalid_principal() {
+		let principal = CString::new("invalid principal").unwrap();
+		let config = TgConfig {
+			principal: principal.as_ptr(),
+			..config()
+		};
+
+		assert!(matches!(
+			config_from_c(&config),
+			Err(Status::InvalidArgument),
+		));
+	}
+
+	#[test]
+	fn config_from_c_rejects_invalid_tokens() {
+		let tokens = CString::new("invalid tokens").unwrap();
+		let config = TgConfig {
+			tokens: tokens.as_ptr(),
+			..config()
+		};
+
+		assert!(matches!(
+			config_from_c(&config),
+			Err(Status::InvalidArgument),
+		));
+	}
+
+	fn config() -> TgConfig {
+		TgConfig {
+			data_directory: std::ptr::null(),
+			node_eviction_interval_secs: 0,
+			node_ttl_secs: 0,
+			object_store_map_size: 0,
+			object_store_path: std::ptr::null(),
+			object_store_posix_sem_prefix: std::ptr::null(),
+			principal: std::ptr::null(),
+			tokens: std::ptr::null(),
+		}
+	}
 }

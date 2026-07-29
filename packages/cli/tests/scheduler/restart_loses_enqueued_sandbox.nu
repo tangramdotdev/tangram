@@ -2,38 +2,16 @@ use ../../test.nu *
 
 # A sandbox create acknowledged by a scheduler is lost when that scheduler dies, so its parent fails instead of replaying the create on the replacement scheduler.
 
-let private_key = mktemp
-let public_key = mktemp
-'U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=' | decode base64 | save -f $private_key
-'MKmfiiYtaN4W/pP+V2hmmjtT2/+ILjYfiMJ9y4EsG1U=' | decode base64 | save -f $public_key
-let keys = {
-	private_key: {
-		algorithm: "ed25519",
-		name: "default",
-		path: $private_key,
-	},
-	public_keys: [{
-		algorithm: "ed25519",
-		name: "default",
-		path: $public_key,
-	}],
-}
 let config = {
 	advanced: {
 		single_process: false,
-	},
-	authentication: {
-		tokens: $keys,
-	},
-	grants: {
-		tokens: $keys,
 	},
 	roles: [cleaner finalizer http indexer scheduler],
 	scheduler: {
 		heartbeat_ttl: 3,
 	},
 }
-let remote = spawn --name remote --config $config
+let remote = spawn --name remote --preserve-keys --config $config
 
 let runner = spawn --name runner --config {
 	remotes: {
@@ -95,7 +73,7 @@ if $nu.os-info.name == "linux" {
 	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
 }
 
-spawn --directory $remote.directory --name remote --config $config --url $remote.url
+spawn --directory $remote.directory --name remote --preserve-keys --config $config --url $remote.url
 let replacement_runner = spawn --name replacement_runner --config {
 	remotes: {
 		default: {

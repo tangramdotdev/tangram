@@ -922,9 +922,15 @@ impl Server {
 			tokio::fs::create_dir_all(&cache_path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
-			let vfs = self::vfs::Server::start(&server, vfs_kind, &artifacts_path, options)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
+			let vfs = self::vfs::Server::start(
+				&server,
+				vfs_kind,
+				&artifacts_path,
+				options,
+				Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
 			server.vfs.lock().unwrap().replace(vfs);
 		} else {
 			if cache_exists {

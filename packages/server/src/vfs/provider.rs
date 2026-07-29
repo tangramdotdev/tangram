@@ -1,7 +1,7 @@
 #[cfg(feature = "lmdb")]
 use heed as lmdb;
 use {
-	crate::Server,
+	crate::{Server, Session, context::Context},
 	bytes::Bytes,
 	dashmap::DashMap,
 	futures::TryStreamExt as _,
@@ -29,6 +29,8 @@ pub struct Provider {
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	handle_count: AtomicU64,
 	nodes: Nodes,
+	principal: Arc<Mutex<Option<tg::Principal>>>,
+	runtime: tokio::runtime::Handle,
 	server: Server,
 }
 
@@ -113,7 +115,10 @@ const DIRECTORY_SNAPSHOT_READ_ENTRY_LIMIT: usize = 65_536;
 const NAME_MAX: usize = 255;
 
 impl Provider {
-	pub async fn new(server: &Server) -> tg::Result<Self> {
+	pub async fn new(
+		server: &Server,
+		principal: Arc<Mutex<Option<tg::Principal>>>,
+	) -> tg::Result<Self> {
 		// Create the nodes.
 		let nodes = Nodes::new();
 
@@ -125,6 +130,7 @@ impl Provider {
 		));
 		let file_handles = DashMap::default();
 		let handle_count = AtomicU64::new(1000);
+		let runtime = tokio::runtime::Handle::current();
 		let server = server.clone();
 		let provider = Self {
 			directory_handles,
@@ -133,6 +139,8 @@ impl Provider {
 			file_handles,
 			handle_count,
 			nodes,
+			principal,
+			runtime,
 			server,
 		};
 
@@ -543,9 +551,13 @@ impl Provider {
 				.or_else(|| name.strip_suffix(".tg.js"))
 				.or_else(|| Path::new(name).file_stem().and_then(|s| s.to_str()))
 				.unwrap_or(name);
-			let Ok(id) = name.parse() else {
+			let Ok(id) = name.parse::<tg::artifact::Id>() else {
 				return Ok(None);
 			};
+			// Return not found if the principal is not authorized to access the artifact.
+			if !self.authorize(&id).await {
+				return Ok(None);
+			}
 			let artifact = ArtifactInfo { data: None, id };
 			Some((artifact, 1))
 		};
@@ -654,9 +666,13 @@ impl Provider {
 				.or_else(|| name.strip_suffix(".tg.js"))
 				.or_else(|| Path::new(name).file_stem().and_then(|s| s.to_str()))
 				.unwrap_or(name);
-			let Ok(id) = name.parse() else {
+			let Ok(id) = name.parse::<tg::artifact::Id>() else {
 				return Ok(None);
 			};
+			// Return not found if the principal is not authorized to access the artifact.
+			if !self.authorize_sync(&id) {
+				return Ok(None);
+			}
 			let artifact = ArtifactInfo { data: None, id };
 			Some((artifact, 1))
 		};
@@ -690,6 +706,62 @@ impl Provider {
 			.nodes
 			.get_or_insert_child(parent, name, artifact, depth, attrs, remember)?;
 		Ok(Some(id))
+	}
+
+	// Authorize the artifact subtree for the mount's principal.
+	async fn authorize(&self, artifact: &tg::artifact::Id) -> bool {
+		let id: tg::Id = artifact.clone().into();
+
+		// Deny access until the mount is bound to a principal.
+		let Some(principal) = self.principal.lock().unwrap().clone() else {
+			return false;
+		};
+
+		// Authorize the root principal.
+		if matches!(principal, tg::Principal::Root) {
+			return true;
+		}
+
+		// Check the sandbox's locally tracked subtree token.
+		if let tg::Principal::Sandbox(sandbox) = &principal {
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let authorized = self
+				.server
+				.runner
+				.state()
+				.sandboxes()
+				.get(sandbox)
+				.and_then(|state| state.tokens.get(artifact).cloned())
+				.is_some_and(|token| token.body.expires_at >= now && token.body.grants(permission));
+			if authorized {
+				return true;
+			}
+		}
+
+		// Fall back to deep index authorization.
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let context = Context {
+			id: None,
+			principal,
+			sandbox: true,
+			stopper: None,
+			token: None,
+		};
+		let session = Session::new(self.server.clone(), context);
+		session
+			.authorize(tg::grant::Resource::Id(id), permission)
+			.await
+			.ok()
+			.flatten()
+			.is_some_and(|permissions| permissions.contains(permission))
+	}
+
+	// Drive asynchronous authorization on the server runtime for virtiofs.
+	fn authorize_sync(&self, artifact: &tg::artifact::Id) -> bool {
+		self.runtime.block_on(self.authorize(artifact))
 	}
 
 	pub async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {

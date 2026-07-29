@@ -95,14 +95,18 @@ impl Session {
 			.index
 			.authorize_batch(&index_args, &self.context.principal)
 			.await?;
+		// Refresh the index unless every requested permission was already granted.
+		let needs_index = std::iter::zip(&index_args, &index_outputs).any(|(arg, output)| {
+			output
+				.as_ref()
+				.is_none_or(|output| !output.permissions.contains(arg.permissions))
+		});
 		for (position, output) in std::iter::zip(&index_positions, index_outputs) {
-			if let Some(output) = output
-				&& !output.permissions.is_empty()
-			{
+			if let Some(output) = output {
 				outputs[*position] = Some(output.permissions);
 			}
 		}
-		if index_args.is_empty() || outputs.iter().all(Option::is_some) {
+		if !needs_index {
 			return Ok(outputs);
 		}
 

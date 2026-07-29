@@ -13,7 +13,6 @@ def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from cockroach, scylla, and nats.
 	--cloud # Enable cloud database backends (cockroach, scylla, nats) for spawn --cloud.
-	--fskit # Run every test against the fskit VFS. Requires the macOS app and its file system extension to be installed and enabled.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--preserve-temps # Keep the temporary directories.
@@ -28,6 +27,7 @@ def main [
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 60sec # The timeout for each test.
 	--turso # Use Turso for the server database.
+	--vfs # Run every test against the VFS: FSKit on macOS and FUSE on Linux. On macOS, this requires the app and its file system extension to be installed and enabled.
 	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
@@ -45,10 +45,8 @@ def main [
 	if $release and $tangram_path != null {
 		error make { msg: '--release may not be combined with --tangram-path' }
 	}
-	# Validate the fskit flag.
-	if $fskit and $nu.os-info.name != 'macos' {
-		error make { msg: '--fskit is only supported on macos' }
-	}
+	# Use FSKit for the VFS on macOS.
+	let fskit = $vfs and $nu.os-info.name == 'macos'
 	# Validate the stress flag combination.
 	let stress = $stress or $stress_count != null
 	if $stress and ($accept or $review) {
@@ -173,15 +171,16 @@ def main [
 	let options = {
 		cloud: $cloud,
 		fskit: $fskit,
-		offline: $offline,
-		quickjs: $quickjs,
+		kernel_path: ($kernel_path | default "" | into string),
 		no_capture: $no_capture,
+		offline: $offline,
 		preserve_temps: $preserve_temps,
+		quickjs: $quickjs,
 		stress: $stress,
 		timeout: $timeout,
 		turso: $turso,
+		vfs: $vfs,
 		vm: $vm,
-		kernel_path: ($kernel_path | default "" | into string),
 	}
 	if $no_capture {
 		mut round = 1
@@ -532,11 +531,12 @@ def run_test [test: record, options: record] {
 		TANGRAM_QUIET: true,
 		TANGRAM_TEST_CLOUD: (if $options.cloud { "1" } else { "" }),
 		TANGRAM_TEST_FSKIT: (if $options.fskit { "1" } else { "" }),
+		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
 		TANGRAM_TEST_OFFLINE: (if $options.offline { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $options.quickjs { "1" } else { "" }),
 		TANGRAM_TEST_TURSO: (if $options.turso { "1" } else { "" }),
+		TANGRAM_TEST_VFS: (if $options.vfs { "1" } else { "" }),
 		TANGRAM_TEST_VM: (if $options.vm { "1" } else { "" }),
-		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
 		TMPDIR: $temp_path,
 	} {
 		let command = [
@@ -550,12 +550,20 @@ def run_test [test: record, options: record] {
 			let exit_code = $env.LAST_EXIT_CODE
 			{ exit_code: $exit_code, stdout: '', stderr: '' }
 		} else {
-			let output = open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e>| complete
-			{
-				exit_code: $output.exit_code,
-				stdout: '',
-				stderr: $output.stdout,
+			# Capture output in a file so a surviving process cannot hold a pipe open.
+			let output_path = $temp_path | path join 'output'
+			let exit_code = try {
+				open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e> $output_path
+				0
+			} catch { |error|
+				$error.exit_code? | default 1
 			}
+			let stderr = if ($output_path | path exists) {
+				open --raw $output_path | decode utf-8
+			} else {
+				''
+			}
+			{ exit_code: $exit_code, stdout: '', stderr: $stderr }
 		}
 	}
 	let end = date now
@@ -922,6 +930,7 @@ export def --env spawn [
 	--config (-c): record
 	--directory (-d): string
 	--name (-n): string
+	--preserve-keys
 	--quickjs # Use QuickJS as the JS engine.
 	--url (-u): string
 ] {
@@ -991,6 +1000,7 @@ export def --env spawn [
 		}
 	}
 
+	let use_vfs = (($env.TANGRAM_TEST_VFS? | default "") | str length) > 0
 
 	let use_vm = (($env.TANGRAM_TEST_VM? | default "") | str length) > 0
 	if $use_vm {
@@ -1062,25 +1072,58 @@ export def --env spawn [
 		$default_config = $default_config | merge $config
 	}
 
+	# Create the directory.
+	let directory_path = $directory | default (mktemp -d)
+
 	# Write the config.
 	let config = $default_config | merge deep --strategy append ($config | default {})
 
-	# Force the vfs kind for every server when fskit is enabled, because a test that configures the vfs itself would otherwise override it. A test that disables the vfs is left alone.
-	let config = if not $use_fskit {
+	# Pin token keys to the server directory so restarts can verify existing tokens.
+	let config = if $preserve_keys {
+		let private_key_path = $directory_path | path join 'private_key'
+		let public_key_path = $directory_path | path join 'public_key'
+		if not ($private_key_path | path exists) {
+			'U9ZBC697GDA0dlUBF/VVM4eqoJUVfQqwRNr6L2z8Ajg=' | decode base64 | save -f $private_key_path
+			'MKmfiiYtaN4W/pP+V2hmmjtT2/+ILjYfiMJ9y4EsG1U=' | decode base64 | save -f $public_key_path
+		}
+		let keys = {
+			private_key: {
+				algorithm: 'ed25519',
+				name: 'default',
+				path: $private_key_path,
+			},
+			public_keys: [{
+				algorithm: 'ed25519',
+				name: 'default',
+				path: $public_key_path,
+			}],
+		}
+		$config | merge deep {
+			authentication: {
+				tokens: $keys,
+			},
+			grants: {
+				tokens: $keys,
+			},
+		}
+	} else {
+		$config
+	}
+
+	# Force the selected VFS unless the test disables it.
+	let forced_vfs_kind = if $use_fskit { 'fskit' } else if $use_vfs { 'fuse' } else { null }
+	let config = if $forced_vfs_kind == null {
 		$config
 	} else if ($config | get --optional vfs) == false {
 		$config
 	} else if (($config | get --optional vfs | describe) | str starts-with 'record') {
-		$config | upsert vfs ($config | get vfs | upsert kind 'fskit')
+		$config | upsert vfs ($config | get vfs | upsert kind $forced_vfs_kind)
 	} else {
-		$config | upsert vfs { kind: 'fskit' }
+		$config | upsert vfs { kind: $forced_vfs_kind }
 	}
 	let config_path = mktemp -d
 	let config_path = $config_path | path join 'config.json'
 	$config | to json | save -f $config_path
-
-	# Create the directory.
-	let directory_path = $directory | default (mktemp -d)
 
 	# Determine the url.
 	let url = $url | default $'http+unix://($directory_path | url encode --all)%2Fsocket'
@@ -1486,15 +1529,20 @@ def process_supervisor [] {
 		esac
 	}
 
+	group_done() {
+		! kill -0 -- -"$child" 2>/dev/null
+	}
+
 	terminate_child() {
 		kill -TERM -- -"$child" 2>/dev/null || true
 		kill -TERM "$child" 2>/dev/null || true
-		for _ in $(seq 1 100); do
-			if child_done; then
+		for _ in $(seq 1 60); do
+			if child_done && group_done; then
 				return
 			fi
 			sleep 0.05
 		done
+		kill -KILL -- -"$child" 2>/dev/null || true
 		kill -KILL "$child" 2>/dev/null || true
 	}
 

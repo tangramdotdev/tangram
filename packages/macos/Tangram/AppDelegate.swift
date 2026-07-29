@@ -71,17 +71,19 @@ private let appGroupIdentifier: String = {
 }()
 
 private struct VfsBrokerRequest: Decodable {
-	let type: String
-	let token: String
 	let dataDirectory: String
 	let mountPath: String
 	let objectStore: VfsBrokerObjectStore?
+	let principal: String?
 	let socket: String
+	let token: String
+	let type: String
 
 	private enum CodingKeys: String, CodingKey {
 		case dataDirectory = "data_directory"
 		case mountPath = "mount_path"
 		case objectStore = "object_store"
+		case principal
 		case socket
 		case token
 		case type
@@ -245,6 +247,7 @@ private final class VfsBroker: @unchecked Sendable {
 			generation: generation,
 			at: request.mountPath,
 			objectStore: request.objectStore,
+			principal: request.principal,
 			socket: request.socket,
 		)
 	}
@@ -296,9 +299,17 @@ private final class VfsBroker: @unchecked Sendable {
 		generation: UInt64,
 		at mountPath: String,
 		objectStore: VfsBrokerObjectStore?,
+		principal: String?,
 		socket: String,
 	) throws {
-		let output = try mountOnce(dataDirectory: dataDirectory, generation: generation, at: mountPath, objectStore: objectStore, socket: socket)
+		let output = try mountOnce(
+			dataDirectory: dataDirectory,
+			generation: generation,
+			at: mountPath,
+			objectStore: objectStore,
+			principal: principal,
+			socket: socket,
+		)
 		if output.status == 0 {
 			return
 		}
@@ -310,7 +321,14 @@ private final class VfsBroker: @unchecked Sendable {
 		var lastMessage = output.message
 		for _ in 0 ..< 300 {
 			Thread.sleep(forTimeInterval: 1)
-			let output = try mountOnce(dataDirectory: dataDirectory, generation: generation, at: mountPath, objectStore: objectStore, socket: socket)
+			let output = try mountOnce(
+				dataDirectory: dataDirectory,
+				generation: generation,
+				at: mountPath,
+				objectStore: objectStore,
+				principal: principal,
+				socket: socket,
+			)
 			if output.status == 0 {
 				return
 			}
@@ -319,9 +337,20 @@ private final class VfsBroker: @unchecked Sendable {
 		throw VfsBrokerError.extensionApprovalTimedOut(lastMessage)
 	}
 
-	private func mountOptions(_ objectStore: VfsBrokerObjectStore?, socket: String) -> String {
+	private func mountOptions(
+		_ objectStore: VfsBrokerObjectStore?,
+		principal: String?,
+		socket: String,
+	) -> String {
 		var options = ["nobrowse", "nodev", "nosuid"]
 		options.append("socket=\(socket)")
+		if let principal, !principal.isEmpty {
+			if !principal.contains(",") {
+				options.append("principal=\(principal)")
+			} else {
+				logger.error("the principal contains a comma, so it cannot be sent to the file system extension")
+			}
+		}
 		if let objectStore {
 			options.append("object_store_map_size=\(objectStore.mapSize)")
 			if !objectStore.path.contains(",") {
@@ -345,6 +374,7 @@ private final class VfsBroker: @unchecked Sendable {
 		generation: UInt64,
 		at mountPath: String,
 		objectStore: VfsBrokerObjectStore?,
+		principal: String?,
 		socket: String,
 	) throws -> (status: Int32, message: String) {
 		let mountURL = URL(filePath: mountPath, directoryHint: .isDirectory).standardizedFileURL
@@ -362,7 +392,7 @@ private final class VfsBroker: @unchecked Sendable {
 		let arguments = [
 			"-F",
 			"-t", "tangram",
-			"-o", mountOptions(objectStore, socket: socket),
+			"-o", mountOptions(objectStore, principal: principal, socket: socket),
 			URL(filePath: dataDirectory, directoryHint: .isDirectory).standardizedFileURL.path(),
 			path,
 		]

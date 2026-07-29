@@ -4,7 +4,11 @@ use {
 	},
 	crate::{Context, Server, Session, temp::Temp},
 	futures::{FutureExt as _, StreamExt as _, future},
-	std::{collections::HashMap, pin::pin, sync::Arc},
+	std::{
+		collections::{BTreeMap, HashMap},
+		pin::pin,
+		sync::Arc,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tokio::task::JoinSet,
@@ -62,6 +66,11 @@ struct CreateSandboxOutput {
 	temp: Temp,
 	#[cfg(target_os = "linux")]
 	vfs: Option<crate::vfs::Server>,
+	#[cfg(target_os = "linux")]
+	vfs_mount: Option<std::path::PathBuf>,
+	/// The principal served by the per-sandbox VFS, initially unbound.
+	#[cfg(target_os = "linux")]
+	vfs_principal: Option<Arc<std::sync::Mutex<Option<tg::Principal>>>>,
 }
 
 pub(crate) enum Event {
@@ -118,6 +127,7 @@ struct RetainSandboxTaskArg {
 		tg::sandbox::control::ClientMessage,
 	>,
 	id: tg::sandbox::Id,
+	process_tasks: JoinSet<tg::Result<()>>,
 	sender: SandboxControlSender,
 	stopper: Stopper,
 }
@@ -503,19 +513,50 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
-		// Start the per-sandbox VFS if necessary.
+		// Start an unbound per-sandbox VFS that denies access until its principal is set.
 		#[cfg(target_os = "linux")]
-		let vfs = if let tangram_sandbox::Isolation::Vm(vm) = &isolation {
-			let socket = temp.path().join("vfs.sock");
-			let vfs = crate::vfs::Server::start_virtiofs(&self.server, &socket, vm.dax)
+		let principal = Arc::new(std::sync::Mutex::new(None));
+		#[cfg(target_os = "linux")]
+		let (vfs, vfs_mount) = match &isolation {
+			tangram_sandbox::Isolation::Vm(vm) => {
+				let socket = temp.path().join("vfs.sock");
+				let vfs = crate::vfs::Server::start_virtiofs(
+					&self.server,
+					&socket,
+					vm.dax,
+					principal.clone(),
+				)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
 				})?;
-			Some(vfs)
-		} else {
-			None
+				(Some(vfs), None)
+			},
+			tangram_sandbox::Isolation::Container(_) if self.server.config.vfs.is_some() => {
+				let mount_path = temp.path().join("artifacts");
+				tokio::fs::create_dir_all(&mount_path)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "failed to create the artifacts mount directory")
+					})?;
+				let options = self.server.config.vfs.clone().unwrap_or_default();
+				let vfs = crate::vfs::Server::start(
+					&self.server,
+					crate::vfs::Kind::Fuse,
+					&mount_path,
+					options,
+					principal.clone(),
+				)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
+				})?;
+				(Some(vfs), Some(mount_path))
+			},
+			_ => (None, None),
 		};
+		#[cfg(target_os = "linux")]
+		let vfs_principal = vfs.is_some().then_some(principal);
 
 		// Create the listener.
 		let (listener, guest_url, tangram_socket_path) =
@@ -529,12 +570,16 @@ impl Session {
 					)
 				})?;
 
-		// Create the sandbox. Include the artifacts directory as a readonly mount.
+		// Create the sandbox with a readonly artifacts mount.
 		let artifacts_path = self.server.artifacts_path();
+		#[cfg(target_os = "linux")]
+		let artifacts_source = vfs_mount.clone().unwrap_or_else(|| artifacts_path.clone());
+		#[cfg(not(target_os = "linux"))]
+		let artifacts_source = artifacts_path.clone();
 		let mut mounts = arg.mounts;
 		mounts.push(tg::sandbox::Mount {
 			readonly: true,
-			source: artifacts_path.clone(),
+			source: artifacts_source.clone(),
 			target: artifacts_path.clone(),
 		});
 		let network = match arg.network {
@@ -548,7 +593,7 @@ impl Session {
 			Some(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
 		};
 		let arg = tangram_sandbox::Arg {
-			artifacts_path,
+			artifacts_path: artifacts_source,
 			cpu: arg.cpu,
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
@@ -595,6 +640,10 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			vfs,
+			#[cfg(target_os = "linux")]
+			vfs_mount,
+			#[cfg(target_os = "linux")]
+			vfs_principal,
 		};
 
 		Ok(output)
@@ -623,10 +672,11 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			vfs,
+			#[cfg(target_os = "linux")]
+			vfs_mount,
+			#[cfg(target_os = "linux")]
+			vfs_principal,
 		} = create_output;
-		let _temp = temp;
-		#[cfg(target_os = "linux")]
-		let _vfs = vfs;
 
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		self.server.runner.state.sandboxes.insert(
@@ -637,11 +687,22 @@ impl Session {
 				processes: HashMap::new(),
 				sandbox: Some(sandbox.clone()),
 				token: Some(token.clone()),
+				tokens: BTreeMap::new(),
 			},
 		);
 		scopeguard::defer! {
 			self.server.runner.state.sandboxes.remove(&id);
 		}
+
+		// Bind the per-sandbox VFS before releasing the process task.
+		#[cfg(target_os = "linux")]
+		if let Some(vfs_principal) = &vfs_principal {
+			vfs_principal
+				.lock()
+				.unwrap()
+				.replace(tg::Principal::Sandbox(id.clone()));
+		}
+
 		sandbox_id_sender.send(id.clone()).ok();
 		let arg = RunSandboxTaskArg {
 			control,
@@ -657,11 +718,30 @@ impl Session {
 			state,
 			stopper,
 		};
+		let result = self.run_sandbox_task(arg).boxed().await;
 
-		self.run_sandbox_task(arg).boxed().await
+		// Stop the per-sandbox VFS before retaining the destroyed sandbox state.
+		#[cfg(target_os = "linux")]
+		{
+			if let Some(mount_path) = vfs_mount
+				&& let Err(error) =
+					crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, &mount_path).await
+			{
+				tracing::error!(?error, %id, "failed to unmount the per-sandbox VFS");
+			}
+			if let Some(vfs) = vfs {
+				vfs.stop();
+				vfs.wait().await;
+			}
+		}
+		drop(temp);
+
+		let arg = result?;
+
+		self.retain_sandbox_task(arg).await
 	}
 
-	async fn run_sandbox_task(&self, arg: RunSandboxTaskArg) -> tg::Result<()> {
+	async fn run_sandbox_task(&self, arg: RunSandboxTaskArg) -> tg::Result<RetainSandboxTaskArg> {
 		let RunSandboxTaskArg {
 			mut control,
 			event_sender,
@@ -967,30 +1047,34 @@ impl Session {
 		}
 		event_sender.send(Ok(Event::Destroyed)).ok();
 
-		// Await the process tasks while they retain their state and control streams.
-		while let Some(result) = process_tasks.join_next().await {
-			result
-				.map_err(|error| tg::error!(!error, "a process task panicked"))?
-				.map_err(|error| tg::error!(!error, "a process task failed"))?;
-		}
-		let arg = RetainSandboxTaskArg {
+		let output = RetainSandboxTaskArg {
 			control,
 			id,
+			process_tasks,
 			sender,
 			stopper,
 		};
 
-		self.retain_sandbox_task(arg).await
+		Ok(output)
 	}
 
 	async fn retain_sandbox_task(&self, arg: RetainSandboxTaskArg) -> tg::Result<()> {
 		let RetainSandboxTaskArg {
 			mut control,
 			id,
+			mut process_tasks,
 			sender,
 			stopper,
 		} = arg;
 
+		// Await the process tasks while they retain their state and control streams.
+		while let Some(result) = process_tasks.join_next().await {
+			result
+				.map_err(|error| tg::error!(!error, "a process task panicked"))?
+				.map_err(|error| tg::error!(!error, "a process task failed"))?;
+		}
+
+		// Retain the sandbox state and control stream.
 		let retention_ttl = self.server.config.runner.sandbox_state_ttl;
 		let retention_future = tokio::time::sleep(retention_ttl);
 		let mut retention_future = pin!(retention_future);

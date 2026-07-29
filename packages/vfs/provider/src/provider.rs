@@ -13,7 +13,7 @@ use {
 			Arc, Mutex,
 			atomic::{AtomicU64, Ordering},
 		},
-		time::{Duration, Instant},
+		time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 	},
 	tangram_client::prelude::*,
 	tangram_object_store as object_store,
@@ -60,6 +60,12 @@ pub struct Config {
 
 	/// An optional base name for the object store's POSIX lock semaphores. It must match the name the server opens the object store with so that the sandboxed provider and the server share the same lock.
 	pub object_store_posix_sem_prefix: Option<String>,
+
+	/// The principal the mount serves. When it is `None` or the root principal, the mount is unenforced and every artifact is accessible. Otherwise the provider authorizes access to each artifact subtree.
+	pub principal: Option<tg::Principal>,
+
+	/// The grant tokens the mount holds, which authorize access to their artifacts and, by extension, their subtrees without consulting the server.
+	pub tokens: Vec<tg::grant::Token>,
 }
 
 pub struct Provider {
@@ -73,6 +79,8 @@ struct Inner {
 	file_handle_count: AtomicU64,
 	file_handles: Mutex<BTreeMap<u64, FileHandle>>,
 	nodes: Nodes,
+	principal: Option<tg::Principal>,
+	tokens: BTreeMap<tg::artifact::Id, Vec<tg::grant::Token>>,
 }
 
 /// The state the fast path requires. It reads the object store and the cache directory directly instead of sending a request to the server.
@@ -153,12 +161,26 @@ impl Provider {
 			.data_directory
 			.as_deref()
 			.and_then(|data_directory| Fast::new(data_directory, config));
+
+		// Index the artifact tokens.
+		let mut tokens = BTreeMap::<_, Vec<_>>::new();
+		for token in &config.tokens {
+			let tg::grant::Resource::Id(id) = &token.body.resource else {
+				continue;
+			};
+			let Ok(artifact) = tg::artifact::Id::try_from(id.clone()) else {
+				continue;
+			};
+			tokens.entry(artifact).or_default().push(token.clone());
+		}
 		let inner = Arc::new(Inner {
 			client,
 			fast,
 			file_handle_count: AtomicU64::new(1000),
 			file_handles: Mutex::new(BTreeMap::new()),
 			nodes: Nodes::new(),
+			principal: config.principal.clone(),
+			tokens,
 		});
 
 		// Spawn a background task that evicts cache-only nodes the kernel never referenced, bounding node table growth; it is aborted when the runtime is dropped with the provider.
@@ -409,14 +431,20 @@ impl Inner {
 			return Ok(Some(id));
 		}
 
-		// Resolve a child artifact, treating a root child as an artifact ID with an optional module extension.
+		// Resolve a root child as an artifact ID with an optional module extension.
 		let entry = if parent == vfs::ROOT_NODE_ID {
 			let name = None
 				.or_else(|| name.strip_suffix(".tg.ts"))
 				.or_else(|| name.strip_suffix(".tg.js"))
 				.or_else(|| Path::new(name).file_stem().and_then(|name| name.to_str()))
 				.unwrap_or(name);
-			name.parse().ok().map(|artifact| (artifact, 1))
+			let Ok(artifact) = name.parse::<tg::artifact::Id>() else {
+				return Ok(None);
+			};
+			if !self.authorize(&artifact) {
+				return Ok(None);
+			}
+			Some((artifact, 1))
 		} else {
 			None
 		};
@@ -461,6 +489,31 @@ impl Inner {
 			.get_or_insert_child(parent, name, artifact, depth, attrs, remember)?;
 
 		Ok(Some(id))
+	}
+
+	// Authorize the artifact subtree for the mount's principal.
+	fn authorize(&self, artifact: &tg::artifact::Id) -> bool {
+		let Some(principal) = &self.principal else {
+			return true;
+		};
+		if matches!(principal, tg::Principal::Root) {
+			return true;
+		}
+
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+
+		// Check the locally held subtree tokens and deny access on a miss.
+		let now = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.map_or(0, |duration| {
+				duration.as_secs().to_i64().unwrap_or(i64::MAX)
+			});
+		self.tokens.get(artifact).is_some_and(|tokens| {
+			tokens
+				.iter()
+				.any(|token| token.body.expires_at >= now && token.body.grants(permission))
+		})
 	}
 
 	async fn open(&self, id: u64) -> std::io::Result<u64> {
@@ -1662,6 +1715,8 @@ impl Default for Config {
 			object_store_map_size: DEFAULT_OBJECT_STORE_MAP_SIZE,
 			object_store_path: PathBuf::from(DEFAULT_OBJECT_STORE_PATH),
 			object_store_posix_sem_prefix: None,
+			principal: None,
+			tokens: Vec::new(),
 		}
 	}
 }
@@ -1771,4 +1826,125 @@ fn is_fallback(error: &std::io::Error) -> bool {
 fn eio(error: impl std::fmt::Debug) -> std::io::Error {
 	tracing::error!("{error:?}");
 	std::io::Error::from_raw_os_error(libc::EIO)
+}
+
+#[cfg(test)]
+mod tests {
+	use {super::*, tangram_util::fs::Temp};
+
+	struct Fixture {
+		child: tg::artifact::Id,
+		directory: tg::artifact::Id,
+		provider: Provider,
+		temp: Temp,
+	}
+
+	#[test]
+	fn authorized_root_allows_descendant_traversal() {
+		let fixture = fixture(true);
+		assert!(fixture.temp.path().exists());
+		let inner = fixture.provider.inner.clone();
+		let root = fixture
+			.provider
+			.runtime
+			.block_on(inner.lookup(vfs::ROOT_NODE_ID, &fixture.directory.to_string()))
+			.unwrap()
+			.unwrap();
+		let child = fixture
+			.provider
+			.runtime
+			.block_on(inner.lookup(root, "child"))
+			.unwrap()
+			.unwrap();
+		let info = inner.nodes.get(child).unwrap();
+
+		assert_eq!(info.artifact, Some(fixture.child.clone()));
+	}
+
+	#[test]
+	fn denied_root_is_hidden() {
+		let fixture = fixture(false);
+		let inner = fixture.provider.inner.clone();
+		let root = fixture
+			.provider
+			.runtime
+			.block_on(inner.lookup(vfs::ROOT_NODE_ID, &fixture.directory.to_string()))
+			.unwrap();
+
+		assert_eq!(root, None);
+		assert_eq!(
+			inner
+				.nodes
+				.lookup(vfs::ROOT_NODE_ID, &fixture.directory.to_string()),
+			None,
+		);
+	}
+
+	fn fixture(authorized: bool) -> Fixture {
+		// Create a temporary object store containing a directory and one child.
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let child: tg::artifact::Id = tg::file::Id::new(b"child").into();
+		let entries = BTreeMap::from([(
+			"child".to_owned(),
+			tg::graph::data::Edge::Object(child.clone()),
+		)]);
+		let directory =
+			tg::graph::data::Directory::Leaf(tg::graph::data::DirectoryLeaf { entries });
+		let data: tg::object::Data = tg::directory::Data::Node(directory).into();
+		let bytes = data.serialize().unwrap();
+		let directory: tg::artifact::Id = tg::directory::Id::new(&bytes).into();
+		let object_store_path = PathBuf::from("objects");
+		let store = object_store::lmdb::Store::new(&object_store::lmdb::Config {
+			map_size: 10 * 1024 * 1024,
+			path: temp.path().join(&object_store_path),
+			posix_sem_prefix: None,
+		})
+		.unwrap();
+		store
+			.put_sync(object_store::PutArg {
+				bytes: Some(bytes),
+				cache_pointer: None,
+				id: tg::object::Id::from(directory.clone()),
+				stored_at: 0,
+			})
+			.unwrap();
+		drop(store);
+
+		// Create a provider whose anonymous principal optionally holds the directory's subtree token.
+		let tokens = authorized.then(|| token(&directory)).into_iter().collect();
+		let config = Config {
+			data_directory: Some(temp.path().to_owned()),
+			object_store_map_size: 10 * 1024 * 1024,
+			object_store_path,
+			principal: Some(tg::Principal::Anonymous),
+			tokens,
+			..Config::default()
+		};
+		let provider = Provider::new("/tmp/tangram-vfs-provider.sock", &config).unwrap();
+
+		Fixture {
+			child,
+			directory,
+			provider,
+			temp,
+		}
+	}
+
+	fn token(artifact: &tg::artifact::Id) -> tg::grant::Token {
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		tg::grant::Token {
+			body: tg::grant::Body {
+				expires_at: i64::MAX,
+				permissions: vec![permission],
+				resource: tg::grant::Resource::Id(tg::object::Id::from(artifact.clone()).into()),
+			},
+			metadata: tg::grant::Metadata {
+				algorithm: tg::grant::Algorithm::Ed25519,
+				key: "test".to_owned(),
+			},
+			signature: Vec::new(),
+		}
+	}
 }
