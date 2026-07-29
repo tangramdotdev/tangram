@@ -117,12 +117,7 @@ pub(crate) async fn extract_tar(
 			continue;
 		}
 		let mode = entry.header().mode().unwrap_or(0o644) & 0o777;
-		let mut file = tokio::fs::OpenOptions::new()
-			.create_new(true)
-			.write(true)
-			.open(&path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the file"))?;
+		let mut file = create_entry_file(&path).await?;
 		tokio::io::copy(&mut entry, &mut file)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to write the file"))?;
@@ -174,12 +169,7 @@ pub(crate) async fn extract_zip(
 			tokio::fs::create_dir_all(parent)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
-			let mut file = tokio::fs::OpenOptions::new()
-				.create_new(true)
-				.write(true)
-				.open(&path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the file"))?;
+			let mut file = create_entry_file(&path).await?;
 			tokio::io::copy(&mut entry_reader.compat(), &mut file)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to write the file"))?;
@@ -267,6 +257,55 @@ pub(crate) async fn extract_zip(
 	}
 
 	Ok(())
+}
+
+// Create the file for an archive entry. The file is created exclusively so that an archive cannot overwrite an entry it has already extracted.
+async fn create_entry_file(path: &Path) -> tg::Result<tokio::fs::File> {
+	let result = tokio::fs::OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.open(path)
+		.await;
+	let error = match result {
+		Ok(file) => return Ok(file),
+		Err(error) => error,
+	};
+	if error.kind() != std::io::ErrorKind::AlreadyExists {
+		return Err(tg::error!(!error, ?path, "failed to create the file"));
+	}
+
+	// A case insensitive file system reports that an entry exists when a previously extracted entry has a name differing only in case. Report that cause, because it cannot be inferred from the path alone.
+	let Some(existing) = find_case_conflict(path).await else {
+		return Err(tg::error!(!error, ?path, "failed to create the file"));
+	};
+	let source = tg::error!(
+		!error,
+		%existing,
+		"an entry whose name differs only in case already exists, and the file system is case insensitive"
+	);
+
+	Err(tg::error!(
+		!source,
+		?path,
+		"failed to extract the archive entry"
+	))
+}
+
+// Find an entry in the path's parent directory whose name differs from the path's name only in case.
+async fn find_case_conflict(path: &Path) -> Option<String> {
+	let parent = path.parent()?;
+	let name = path.file_name()?.to_str()?;
+	let mut entries = tokio::fs::read_dir(parent).await.ok()?;
+	while let Ok(Some(entry)) = entries.next_entry().await {
+		let existing = entry.file_name();
+		let Some(existing) = existing.to_str() else {
+			continue;
+		};
+		if existing != name && existing.eq_ignore_ascii_case(name) {
+			return Some(existing.to_owned());
+		}
+	}
+	None
 }
 
 fn resolve_entry_path(root: &Path, path: &Path) -> tg::Result<PathBuf> {
