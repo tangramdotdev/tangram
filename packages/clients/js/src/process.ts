@@ -2,7 +2,6 @@ import type { Cancel as ProcessCancel } from "./client/process/cancel.ts";
 import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
-import { setBuilderKind } from "./command.ts";
 import * as tg from "./index.ts";
 import * as build from "./process/build.ts";
 import * as exec from "./process/exec.ts";
@@ -62,9 +61,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
 	static build(...args: any): any {
-		let output = build.builder(...args);
-		output[setBuilderKind](typeof args[0] === "function" ? "js" : "string");
-		return output;
+		return build
+			.builder(...args)
+			.kind(typeof args[0] === "function" ? "js" : "string");
 	}
 
 	static exec<
@@ -86,9 +85,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"exec", Array<tg.Value>, never>;
 	static exec(...args: any): any {
-		let output = exec.builder(...args);
-		output[setBuilderKind](typeof args[0] === "function" ? "js" : "string");
-		return output;
+		return exec
+			.builder(...args)
+			.kind(typeof args[0] === "function" ? "js" : "string");
 	}
 
 	static run<
@@ -112,9 +111,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
 	static run(...args: any): any {
-		let output = run.builder(...args);
-		output[setBuilderKind](typeof args[0] === "function" ? "js" : "string");
-		return output;
+		return run
+			.builder(...args)
+			.kind(typeof args[0] === "function" ? "js" : "string");
 	}
 
 	static spawn<
@@ -138,9 +137,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"spawn", Array<tg.Value>, tg.Value>;
 	static spawn(...args: any): any {
-		let output = spawn.builder(...args);
-		output[setBuilderKind](typeof args[0] === "function" ? "js" : "string");
-		return output;
+		return spawn
+			.builder(...args)
+			.kind(typeof args[0] === "function" ? "js" : "string");
 	}
 
 	static async arg(
@@ -811,6 +810,11 @@ export namespace Process {
 			return this;
 		}
 
+		kind(kind: "js" | "string"): this {
+			this.#kind = kind;
+			return this;
+		}
+
 		location(
 			location: tg.Unresolved<tg.MaybeMutation<tg.Location.Arg> | null>,
 		): this {
@@ -930,7 +934,7 @@ export namespace Process {
 
 		exec(): tg.Process.Builder<"exec", A, never> {
 			let output = new tg.Process.Builder("exec", ...this.#args);
-			output[setBuilderKind](this.#kind);
+			output.kind(this.#kind);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
@@ -939,7 +943,7 @@ export namespace Process {
 
 		run(): tg.Process.Builder<"run", A, O> {
 			let output = new tg.Process.Builder("run", ...this.#args);
-			output[setBuilderKind](this.#kind);
+			output.kind(this.#kind);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
@@ -948,7 +952,7 @@ export namespace Process {
 
 		spawn(): tg.Process.Builder<"spawn", A, O> {
 			let output = new tg.Process.Builder("spawn", ...this.#args);
-			output[setBuilderKind](this.#kind);
+			output.kind(this.#kind);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
@@ -986,10 +990,6 @@ export namespace Process {
 				return process;
 			}
 			return await process.output();
-		}
-
-		[setBuilderKind](kind: "js" | "string"): void {
-			this.#kind = kind;
 		}
 
 		private argsArg(

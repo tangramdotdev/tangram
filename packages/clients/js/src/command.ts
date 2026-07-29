@@ -1,8 +1,6 @@
 import * as tg from "./index.ts";
 import { Resolve } from "./resolve.ts";
 
-export const setBuilderKind: unique symbol = Symbol();
-
 /** Create a command. */
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
@@ -27,9 +25,7 @@ export function command(...args: any): any {
 		let command = tg.Command.js(args[0], args.slice(1)).then(
 			(referent) => referent.item,
 		);
-		let builder = new tg.Command.Builder(command);
-		builder[setBuilderKind]("js");
-		return builder;
+		return new tg.Command.Builder(command).kind("js");
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -763,44 +759,37 @@ export namespace Command {
 			return this;
 		}
 
+		kind(kind: "js" | "string"): this {
+			this.#kind = kind;
+			return this;
+		}
+
 		/** Build this command and return the process's output. */
 		build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
-			let output = tg.build(
-				...this.#args,
-				this.argsArg(args),
-			) as tg.Process.Builder<"run", [], O>;
-			output[setBuilderKind](this.#kind);
-			return output;
+			return tg
+				.build(...this.#args, this.argsArg(args))
+				.kind(this.#kind) as tg.Process.Builder<"run", [], O>;
 		}
 
 		/** Run this command and return the process's output. */
 		run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
-			let output = tg.run(
-				...this.#args,
-				this.argsArg(args),
-			) as tg.Process.Builder<"run", [], O>;
-			output[setBuilderKind](this.#kind);
-			return output;
+			return tg
+				.run(...this.#args, this.argsArg(args))
+				.kind(this.#kind) as tg.Process.Builder<"run", [], O>;
 		}
 
 		/** Spawn this command and return the process. */
 		spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O> {
-			let output = tg.spawn(
-				...this.#args,
-				this.argsArg(args),
-			) as tg.Process.Builder<"spawn", [], O>;
-			output[setBuilderKind](this.#kind);
-			return output;
+			return tg
+				.spawn(...this.#args, this.argsArg(args))
+				.kind(this.#kind) as tg.Process.Builder<"spawn", [], O>;
 		}
 
 		/** Exec this command. */
 		exec(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"exec", [], never> {
-			let output = tg.exec(
-				...this.#args,
-				this.argsArg(args),
-			) as tg.Process.Builder<"exec", [], never>;
-			output[setBuilderKind](this.#kind);
-			return output;
+			return tg
+				.exec(...this.#args, this.argsArg(args))
+				.kind(this.#kind) as tg.Process.Builder<"exec", [], never>;
 		}
 
 		then<TResult1 = tg.Command<A, O>, TResult2 = never>(
@@ -816,10 +805,6 @@ export namespace Command {
 			return tg.Command.new(...this.#args)
 				.then((command) => command as tg.Command<A, O>)
 				.then(onfulfilled, onrejected);
-		}
-
-		[setBuilderKind](kind: "js" | "string"): void {
-			this.#kind = kind;
 		}
 
 		private argsArg(
