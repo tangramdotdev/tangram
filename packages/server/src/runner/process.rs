@@ -647,6 +647,13 @@ impl Session {
 			},
 			Err(error) => Err(error),
 		};
+		crate::checkpoint!(
+			session.server,
+			"runner.process.finish",
+			command = %state.command,
+			process = %id,
+		)
+		.await;
 		event_sender.send(Ok(Event::Exited)).ok();
 		let arg = FinishProcessTaskArg {
 			control_task,
@@ -1164,6 +1171,12 @@ impl Session {
 				stdin,
 				stdout,
 			};
+			crate::checkpoint!(
+				self.server,
+				"runner.process.start",
+				command = %state.command,
+			)
+			.await;
 			sandbox
 				.spawn(
 					&sandbox_process,

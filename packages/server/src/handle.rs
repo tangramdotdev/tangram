@@ -5,6 +5,7 @@ use {
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
+mod checkpoint;
 mod grant;
 mod group;
 mod module;

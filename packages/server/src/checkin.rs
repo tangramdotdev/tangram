@@ -128,6 +128,12 @@ impl Session {
 							.await;
 					match result {
 						Ok(Ok(output)) => {
+							crate::checkpoint!(
+								session.server,
+								"checkin.progress.output",
+								path = %root.display(),
+							)
+							.await;
 							progress.output(output);
 						},
 						Ok(Err(error)) => {
@@ -161,7 +167,19 @@ impl Session {
 			move |_| async move {
 				// Forward events from the root progress stream.
 				let mut output = None;
+				crate::checkpoint!(
+					session.server,
+					"checkin.progress.subscribe",
+					path = %path.display(),
+				)
+				.await;
 				let mut stream = std::pin::pin!(root_progress.stream());
+				crate::checkpoint!(
+					session.server,
+					"checkin.progress.subscribed",
+					path = %path.display(),
+				)
+				.await;
 				while let Some(event) = stream.next().await {
 					if let Some(output_) = progress.forward(event) {
 						output = Some(output_);

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Cancelling with the same lease token after the process finishes succeeds.
+# Cancelling with the same lease after the process finishes succeeds.
 
 let server = spawn
 

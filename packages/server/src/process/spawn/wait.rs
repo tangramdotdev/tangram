@@ -295,6 +295,12 @@ impl Session {
 		id: tg::process::Id,
 		lease: Option<String>,
 	) -> tg::Result<()> {
+		crate::checkpoint!(
+			self.server,
+			"process.spawn.candidate.cancel",
+			process = %id,
+		)
+		.await;
 		let lease = lease.ok_or_else(|| tg::error!("missing the process lease"))?;
 		let arg = tg::process::cancel::Arg {
 			lease,
@@ -304,6 +310,12 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, process = %id, "failed to cancel the process"))?
 			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;
+		crate::checkpoint!(
+			self.server,
+			"process.spawn.candidate.cancelled",
+			process = %id,
+		)
+		.await;
 		Ok(())
 	}
 

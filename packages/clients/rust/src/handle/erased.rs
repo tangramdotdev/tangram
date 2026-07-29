@@ -4,6 +4,7 @@ use {
 	tangram_futures::{BoxAsyncBufRead, BoxAsyncRead, BoxAsyncWrite},
 };
 
+mod checkpoint;
 mod grant;
 mod group;
 mod module;
@@ -18,13 +19,14 @@ mod user;
 mod watch;
 
 pub use self::{
-	grant::Grant, group::Group, module::Module, object::Object, organization::Organization,
-	process::Process, remote::Remote, runner::Runner, sandbox::Sandbox, tag::Tag, user::User,
-	watch::Watch,
+	checkpoint::Checkpoint, grant::Grant, group::Group, module::Module, object::Object,
+	organization::Organization, process::Process, remote::Remote, runner::Runner, sandbox::Sandbox,
+	tag::Tag, user::User, watch::Watch,
 };
 
 pub trait Handle:
-	Grant
+	Checkpoint
+	+ Grant
 	+ Group
 	+ Module
 	+ Object

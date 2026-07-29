@@ -33,6 +33,9 @@ let config = {
 let remote = spawn --name remote --config $config
 
 let runner = spawn --name runner --config {
+	advanced: {
+		checkpoints: true,
+	},
 	remotes: {
 		default: {
 			url: $remote.url,
@@ -56,7 +59,6 @@ let local = spawn --name local --config {
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			await tg.sleep(6);
 			return await tg.build(child).sandbox();
 		}
 
@@ -66,8 +68,16 @@ let path = artifact {
 	',
 }
 
+let start_watch = (
+	tg --url $runner.url checkpoint watch runner.process.start
+	| from json
+	| get watch
+)
 let process = tg --url $local.url build --detach --remote $path | str trim
-sleep 2sec
+
+# Hold the runner after it installs the parent sandbox, then replace the
+# scheduler before the parent requests its child sandbox.
+tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | ignore
 
 let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 9 $pid
@@ -78,6 +88,9 @@ if $nu.os-info.name == "linux" {
 }
 
 spawn --directory $remote.directory --name remote --config $config --url $remote.url
+
+tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 
 let output = tg --url $local.url wait $process | from json
 assert equal $output.output 42

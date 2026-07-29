@@ -72,6 +72,7 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - Separate phases with blank lines.
 - Leave a blank line before the final return expression in a complex body.
 - Prefer simple return expressions such as `Ok(output)`.
+- In functions returning `Result<()>`, propagate a final fallible operation with `?` and end with `Ok(())` instead of returning the operation's result directly.
 - Bind computed return values to local variables before returning them.
 - Keep simple, linear bodies compact.
 - Do not add phase comments to a simple body.

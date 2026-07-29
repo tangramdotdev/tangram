@@ -18,7 +18,11 @@ let config = {
 		remote: "default",
 	}
 }
-let runner = spawn --name runner --config $config
+let runner = spawn --name runner --config ($config | merge deep {
+	advanced: {
+		checkpoints: true,
+	},
+})
 
 let config = {
 	remotes: {
@@ -46,8 +50,20 @@ let path = artifact {
 	'#
 }
 
+let start_watch = (
+	tg --url $runner.url checkpoint watch runner.process.start
+	| from json
+	| get watch
+)
 let id = tg --url $local.url build --remote --detach -E TANGRAM_QUIET=true $path
+
+# Replace the remote after it schedules the process but before the runner
+# starts it, then verify that the runner delivers the complete logs.
+tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | ignore
 tg --url $remote.url server restart
+tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
+
 let output = tg --url $local.url wait $id
 let stdout = tg --url $local.url log $id --stream=stdout
 snapshot $stdout '

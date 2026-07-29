@@ -880,6 +880,12 @@ impl Session {
 		}
 
 		// Release the sandbox's capacity once all of its underlying processes have exited.
+		crate::checkpoint!(
+			self.server,
+			"runner.sandbox.capacity.release",
+			sandbox = %id,
+		)
+		.await;
 		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut(&id) {
 			state.allocation.take();
 		}
