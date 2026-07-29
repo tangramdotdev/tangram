@@ -1,6 +1,6 @@
 use ../../../test.nu *
 
-# tg.checksum checksums an artifact by its object representation, which differs from the checksum of its raw contents.
+# tg.checksum checksums a file's contents bytes.
 
 let server = spawn
 
@@ -9,4 +9,4 @@ let path = artifact {
 }
 
 let output = tg build $path
-snapshot $output '"sha256:4bc678d476f1906a0e3e5e84f9d02d34957f3913bd5e5eb35cd3efa28ff80f40"'
+snapshot $output '"sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"'

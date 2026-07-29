@@ -1,4 +1,4 @@
-use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Compress a blob or a file.
 #[derive(Clone, Debug, clap::Args)]
@@ -18,9 +18,9 @@ impl Cli {
 	pub async fn command_compress(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let input = self.get_resolved_object(&args.input).await?;
-		let input = match tg::Object::with_referent(input) {
-			tg::Object::Blob(blob) => tg::Either::Left(blob),
-			tg::Object::File(file) => tg::Either::Right(file),
+		let (input, blob) = match tg::Object::with_referent(input) {
+			tg::Object::Blob(blob) => (tg::Either::Left(blob), true),
+			tg::Object::File(file) => (tg::Either::Right(file), false),
 			_ => return Err(tg::error!("expected a blob or file")),
 		};
 		let format = args.format;
@@ -30,12 +30,20 @@ impl Cli {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
+		let options = args.build;
+		let transform = !options.detach && options.checkout.is_none();
 		let args = crate::process::build::Args {
-			options: args.build,
+			options: options.clone(),
 			reference: Some(reference),
 			trailing: Vec::new(),
 		};
-		self.command_build(args).boxed().await?;
-		Ok(())
+		let output = self.build(args).await?;
+		let output = if transform && blob && !output.is_null() {
+			let file: tg::File = output.try_into()?;
+			file.contents_with_handle(&client).await?.into()
+		} else {
+			output
+		};
+		self.print_build_output(&options, output).await
 	}
 }

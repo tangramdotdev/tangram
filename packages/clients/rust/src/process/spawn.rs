@@ -853,28 +853,19 @@ fn render_command(
 	output_path: &Path,
 	debug: Option<&tg::process::Debug>,
 ) -> tg::Result<(PathBuf, Vec<String>)> {
-	match (&command.executable, command.host.as_str()) {
-		(_, "builtin") => {
-			let mut args = render_args_dash_a(&command.args);
-			args.insert(0, "builtin".to_owned());
-			args.insert(1, command.executable.to_string());
-			Ok(("tangram".into(), args))
-		},
-		(tg::command::data::Executable::Module(_), _) | (_, "js") => {
-			let mut args = Vec::new();
-			args.push("js".to_owned());
-			args.push("--host".to_owned());
-			args.push(command.host.clone());
-			args.extend(render_js_debug_args(debug));
-			args.push(command.executable.to_string());
-			args.extend(render_args_dash_a(&command.args));
-			Ok(("tangram".into(), args))
-		},
-		_ => {
-			let executable = render_executable(command, artifacts)?;
-			let args = render_args_string(&command.args, artifacts, output_path)?;
-			Ok((executable, args))
-		},
+	if let tg::command::data::Executable::Module(_) = &command.executable {
+		let mut args = Vec::new();
+		args.push("js".to_owned());
+		args.push("--host".to_owned());
+		args.push(command.host.clone());
+		args.extend(render_js_debug_args(debug));
+		args.push(command.executable.to_string());
+		args.extend(render_args_dash_a(&command.args));
+		Ok(("tangram".into(), args))
+	} else {
+		let executable = render_executable(command, artifacts)?;
+		let args = render_args_string(&command.args, artifacts, output_path)?;
+		Ok((executable, args))
 	}
 }
 

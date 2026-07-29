@@ -26,7 +26,7 @@ let process_data = {
 	created_at: 0,
 	error: $alice_error,
 	exit: 1,
-	host: "test",
+	host: "x86_64-linux",
 	sandbox: "sbx_00041061050r3gg28a1c60t3gf20",
 	status: "finished",
 }

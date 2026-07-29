@@ -2,7 +2,7 @@ import * as tg from "./index.ts";
 
 /** Compute a checksum. */
 export let checksum = (
-	input: string | Uint8Array | tg.Blob | tg.Artifact,
+	input: string | Uint8Array | tg.Blob | tg.File,
 	algorithm: Checksum.Algorithm,
 ): Promise<Checksum> => {
 	return Checksum.new(input, algorithm);
@@ -13,7 +13,7 @@ export type Checksum = `${tg.Checksum.Algorithm}${":" | "-"}${string}`;
 
 export declare namespace Checksum {
 	let new_: (
-		input: string | Uint8Array | tg.Blob | tg.Artifact,
+		input: string | Uint8Array | tg.Blob | tg.File,
 		algorithm: Checksum.Algorithm,
 	) => Promise<Checksum>;
 	export { new_ as new };
@@ -23,29 +23,32 @@ export namespace Checksum {
 	export type Algorithm = "blake3" | "sha256" | "sha512";
 
 	export let new_ = async (
-		input: string | Uint8Array | tg.Blob | tg.Artifact,
+		input: string | Uint8Array | tg.Blob | tg.File,
 		algorithm: Checksum.Algorithm,
 	): Promise<Checksum> => {
 		if (typeof input === "string" || input instanceof Uint8Array) {
 			return tg.host.checksum(input, algorithm);
-		} else if (input instanceof tg.Blob) {
-			let value = await tg.build({
-				args: [input, algorithm],
-				executable: "checksum",
-				host: "builtin",
-			});
-			tg.assert(tg.Checksum.is(value));
-			return value;
-		} else if (tg.Artifact.is(input)) {
-			let value = await tg.build({
-				args: [input, algorithm],
-				executable: "checksum",
-				host: "builtin",
-			});
-			tg.assert(tg.Checksum.is(value));
-			return value;
 		} else {
-			return tg.unreachable();
+			let file = input instanceof tg.Blob ? await tg.file(input) : input;
+			let args = [
+				"builtin",
+				"checksum",
+				"--algorithm",
+				algorithm,
+				"--input",
+				file,
+				"--output",
+				tg.output,
+			];
+			let value = await tg.build({
+				args,
+				executable: "tg",
+				host: tg.host.current,
+			});
+			tg.assert(value instanceof tg.File);
+			let checksum = (await value.text) as tg.Checksum;
+			tg.assert(tg.Checksum.is(checksum));
+			return checksum;
 		}
 	};
 	Checksum.new = new_;

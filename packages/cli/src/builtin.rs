@@ -1,153 +1,39 @@
-use {
-	crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _,
-};
+use crate::Cli;
+
+mod archive;
+mod checksum;
+mod compress;
+mod decompress;
+mod download;
+mod extract;
+mod util;
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// Set arguments as strings.
-	#[arg(
-		action = clap::ArgAction::Append,
-		long = "arg-string",
-		num_args = 1,
-		short = 'a',
-	)]
-	pub arg_strings: Vec<String>,
+	#[command(subcommand)]
+	pub command: Command,
+}
 
-	/// Set arguments as values.
-	#[arg(
-		action = clap::ArgAction::Append,
-		long = "arg-value",
-		num_args = 1,
-		short = 'A',
-	)]
-	pub arg_values: Vec<String>,
-
-	#[arg(index = 1)]
-	pub executable: tg::command::data::Executable,
-
-	#[arg(index = 2, trailing_var_arg = true)]
-	pub trailing: Vec<String>,
+#[derive(Clone, Debug, clap::Subcommand)]
+pub enum Command {
+	Archive(archive::Args),
+	Checksum(checksum::Args),
+	Compress(compress::Args),
+	Decompress(decompress::Args),
+	Download(download::Args),
+	Extract(extract::Args),
 }
 
 impl Cli {
-	pub async fn command_builtin(&mut self, args: Args) -> tg::Result<()> {
-		let exit = self.command_builtin_inner(args).await?;
-		self.exit.replace(exit.into());
-		Ok(())
-	}
-
-	async fn command_builtin_inner(&self, args: Args) -> tg::Result<u8> {
-		// Get the args.
-		let mut args_: Vec<tg::Value> = Vec::new();
-		let mut matches = &self.matches;
-		while let Some((_, matches_)) = matches.subcommand() {
-			matches = matches_;
+	pub async fn command_builtin(&mut self, args: Args) -> tangram_client::Result<()> {
+		match args.command {
+			Command::Archive(args) => archive::run(args).await,
+			Command::Checksum(args) => checksum::run(args).await,
+			Command::Compress(args) => compress::run(args).await,
+			Command::Decompress(args) => decompress::run(args).await,
+			Command::Download(args) => download::run(args).await,
+			Command::Extract(args) => extract::run(args).await,
 		}
-		let arg_string_indices = matches.indices_of("arg_strings").unwrap_or_default();
-		let arg_value_indices = matches.indices_of("arg_values").unwrap_or_default();
-		let mut indexed: Vec<(usize, tg::Value)> = Vec::new();
-		for (index, value) in arg_string_indices.zip(args.arg_strings) {
-			let value = tg::Value::String(value);
-			indexed.push((index, value));
-		}
-		for (index, value) in arg_value_indices.zip(args.arg_values) {
-			let value = value
-				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-			indexed.push((index, value));
-		}
-		indexed.sort_by_key(|&(index, _)| index);
-		args_.extend(indexed.into_iter().map(|(_, value)| value));
-		for arg in args.trailing {
-			args_.push(tg::Value::String(arg));
-		}
-		let args_ = args_.iter().map(tg::Value::to_data).collect();
-
-		// Get the cwd.
-		let cwd = std::env::current_dir()
-			.map_err(|error| tg::error!(!error, "failed to get the current directory"))?;
-
-		// Get the env.
-		let env = tg::process::env()?
-			.into_iter()
-			.map(|(key, value)| (key, value.to_data()))
-			.collect();
-
-		// Get the executable.
-		let executable = args.executable;
-
-		// Create a logger that writes to stdio.
-		let logger = std::sync::Arc::new(|stream: tg::process::stdio::Stream, message: Vec<u8>| {
-			async move {
-				match stream {
-					tg::process::stdio::Stream::Stdout => {
-						let mut stdout = tokio::io::stdout();
-						stdout.write_all(&message).await.ok();
-						stdout.flush().await.ok();
-					},
-					tg::process::stdio::Stream::Stderr => {
-						let mut stderr = tokio::io::stderr();
-						stderr.write_all(&message).await.ok();
-						stderr.flush().await.ok();
-					},
-					tg::process::stdio::Stream::Stdin => {
-						return Err(tg::error!("invalid stdio stream"));
-					},
-				}
-				Ok(())
-			}
-			.boxed()
-		});
-
-		// Create the client.
-		let client = tg::Client::with_env(tg::Arg::default())?;
-
-		// Run.
-		let tangram_builtin::Output {
-			error,
-			exit,
-			output,
-			checksum,
-		} = tangram_builtin::run(&client, args_, cwd, env, executable, logger, None).await?;
-
-		// Write the output.
-		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
-			&& (output.is_some() || error.is_some())
-		{
-			std::fs::write(&output_path, "")
-				.map_err(|error| tg::error!(!error, "failed to write the output"))?;
-			if let Some(checksum) = &checksum {
-				let string = checksum.to_string();
-				xattr::set(&output_path, "user.tangram.checksum", string.as_bytes())
-					.map_err(|error| tg::error!(!error, "failed to write the checksum xattr"))?;
-			}
-			if let Some(output) = &output {
-				let tgon = output.to_string();
-				xattr::set(&output_path, "user.tangram.output", tgon.as_bytes())
-					.map_err(|error| tg::error!(!error, "failed to write the output xattr"))?;
-			}
-			if let Some(error) = &error {
-				if let Some(data) = error
-					.state()
-					.object()
-					.map(|object| object.unwrap_error().to_data())
-				{
-					let json = serde_json::to_vec(&data)
-						.map_err(|error| tg::error!(!error, "failed to serialize the error"))?;
-					xattr::set(&output_path, "user.tangram.error", &json)
-						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
-				} else {
-					xattr::set(
-						&output_path,
-						"user.tangram.error",
-						error.id().to_string().as_bytes(),
-					)
-					.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
-				}
-			}
-		}
-
-		Ok(exit)
 	}
 }

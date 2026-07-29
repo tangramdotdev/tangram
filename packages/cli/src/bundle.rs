@@ -1,4 +1,4 @@
-use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Bundle an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -6,9 +6,6 @@ use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 pub struct Args {
 	#[arg(index = 1)]
 	pub artifact: tg::Reference,
-
-	#[command(flatten)]
-	pub build: crate::process::build::Options,
 }
 
 impl Cli {
@@ -16,18 +13,13 @@ impl Cli {
 		let client = self.client().await?;
 		let artifact = self.get_resolved_artifact(&args.artifact).await?;
 		let artifact = tg::Artifact::with_referent(artifact);
-		let command = tg::builtin::bundle_command(&artifact);
-		let command = command
+		let artifact = tg::builtin::bundle_with_handle(&artifact, &client).await?;
+		let id = artifact
 			.store_with_handle(&client)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-		let reference = tg::Reference::with_object(command.into());
-		let args = crate::process::build::Args {
-			options: args.build,
-			reference: Some(reference),
-			trailing: Vec::new(),
-		};
-		self.command_build(args).boxed().await?;
+			.map_err(|error| tg::error!(!error, "failed to store the artifact"))?;
+		Self::print_display(id);
+
 		Ok(())
 	}
 }

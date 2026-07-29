@@ -7724,29 +7724,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_builtin"
-version = "0.0.0"
-dependencies = [
- "astral-tokio-tar",
- "async-channel",
- "async-compression",
- "async_zip",
- "futures",
- "num",
- "reqwest 0.13.4",
- "tangram_client",
- "tangram_futures",
- "tangram_uri",
- "tangram_util",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
  "anstream",
+ "astral-tokio-tar",
+ "async-compression",
+ "async_zip",
  "byte-unit",
  "byteorder",
  "bytes",
@@ -7781,13 +7765,13 @@ dependencies = [
  "rand 0.10.2",
  "ratatui",
  "reedline",
+ "reqwest 0.13.4",
  "rustls",
  "serde",
  "serde_json",
  "serde_with",
  "serde_yaml",
  "syntect",
- "tangram_builtin",
  "tangram_client",
  "tangram_compiler",
  "tangram_fdb",

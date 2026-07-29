@@ -702,7 +702,7 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 		let mut cwd = None;
 		let mut env = BTreeMap::new();
 		let mut executable = None;
-		let mut host = String::from("builtin");
+		let mut host = None;
 		for (key, value) in entries {
 			match key.as_str() {
 				"args" => {
@@ -730,7 +730,7 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 					let value = value
 						.try_unwrap_string_ref()
 						.map_err(|_| tg::error!("expected string for host"))?;
-					host = value.clone();
+					host = Some(value.clone());
 				},
 				_ => {
 					return Err(tg::error!("unexpected field in command: {}", key));
@@ -738,6 +738,7 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 			}
 		}
 		let executable = executable.ok_or_else(|| tg::error!("missing executable field"))?;
+		let host = host.ok_or_else(|| tg::error!("missing host field"))?;
 		let object = tg::command::Object {
 			args,
 			cwd,

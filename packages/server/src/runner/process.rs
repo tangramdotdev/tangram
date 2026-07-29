@@ -1025,18 +1025,6 @@ impl Session {
 			// Validate the host.
 			let host = command.host.as_str();
 			match host {
-				#[cfg(target_os = "macos")]
-				"builtin" => (),
-
-				#[cfg(target_os = "linux")]
-				"builtin" => (),
-
-				#[cfg(all(feature = "js", target_os = "macos"))]
-				"js" => (),
-
-				#[cfg(all(feature = "js", target_os = "linux"))]
-				"js" => (),
-
 				#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 				"aarch64-darwin" => (),
 
@@ -1065,10 +1053,8 @@ impl Session {
 			let host_output_path = sandbox.host_output_path_for_process(&sandbox_process);
 
 			// Render the args.
-			let mut args = match (&command.executable, command.host.as_str()) {
-				(tg::command::data::Executable::Module(_), _) | (_, "builtin" | "js") => {
-					render_args_dash_a(&command.args)
-				},
+			let mut args = match &command.executable {
+				tg::command::data::Executable::Module(_) => render_args_dash_a(&command.args),
 				_ => render_args_string(&command.args, &guest_artifacts_path, &guest_output_path)?,
 			};
 
@@ -1093,8 +1079,8 @@ impl Session {
 			};
 
 			// Render the executable.
-			let executable = match (&command.executable, command.host.as_str()) {
-				(tg::command::data::Executable::Module(_), _) | (_, "js") => {
+			let executable = match &command.executable {
+				tg::command::data::Executable::Module(_) => {
 					let mut js_args = Vec::new();
 					js_args.push("js".to_owned());
 					js_args.push("--host".to_owned());
@@ -1118,14 +1104,7 @@ impl Session {
 					sandbox.guest_tangram_path()
 				},
 
-				(_, "builtin") => {
-					args.insert(0, "builtin".to_owned());
-					args.insert(1, command.executable.to_string());
-
-					sandbox.guest_tangram_path()
-				},
-
-				(tg::command::data::Executable::Artifact(executable), _) => {
+				tg::command::data::Executable::Artifact(executable) => {
 					let mut path = guest_artifacts_path.join(executable.artifact.to_string());
 					if let Some(executable_path) = &executable.path {
 						path.push(executable_path);
@@ -1133,9 +1112,8 @@ impl Session {
 					path
 				},
 
-				(tg::command::data::Executable::Path(executable), _) => executable.path.clone(),
+				tg::command::data::Executable::Path(executable) => executable.path.clone(),
 			};
-
 			let stdin = match state.stdin {
 				tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 				tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
@@ -1491,6 +1469,13 @@ fn render_value_string(
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
+		tg::value::Data::Object(object) if object.item.is_artifact() => {
+			let artifact: tg::artifact::Id = object.item.clone().try_into().unwrap();
+			Ok(artifacts_path
+				.join(artifact.to_string())
+				.to_string_lossy()
+				.into_owned())
+		},
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path

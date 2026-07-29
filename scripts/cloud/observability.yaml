@@ -1,0 +1,757 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickstack
+  namespace: observability
+data:
+  custom.config.yaml: |
+    exporters:
+      clickhouse:
+        ttl: 72h
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickstack
+  namespace: observability
+spec:
+  selector:
+    app: clickstack
+  ports:
+    - name: otlp
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickstack-ui
+  namespace: observability
+spec:
+  type: LoadBalancer
+  selector:
+    app: clickstack
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickstack
+  namespace: observability
+  labels:
+    app: clickstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickstack
+  template:
+    metadata:
+      labels:
+        app: clickstack
+    spec:
+      containers:
+        - name: clickstack
+          image: clickhouse/clickstack-local:2.32.0@sha256:d82dfdc4b6078bba764c6e3993cb0bef17cb4128635ef1d53f10151802001601
+          ports:
+            - name: health
+              containerPort: 13133
+            - name: otlp
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: http
+              containerPort: 8080
+            - name: clickhouse
+              containerPort: 8123
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: clickhouse-data
+              mountPath: /var/lib/clickhouse
+            - name: clickhouse-logs
+              mountPath: /var/log/clickhouse-server
+            - name: clickstack-config
+              mountPath: /etc/otelcol-contrib/custom.config.yaml
+              readOnly: true
+              subPath: custom.config.yaml
+            - name: mongodb-data
+              mountPath: /data/db
+      volumes:
+        - name: clickhouse-data
+          emptyDir: {}
+        - name: clickhouse-logs
+          emptyDir: {}
+        - name: clickstack-config
+          configMap:
+            name: clickstack
+        - name: mongodb-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-region
+  namespace: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-node
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tangram-local-otel
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+      - namespaces
+      - nodes
+      - nodes/stats
+      - pods
+      - replicationcontrollers
+      - resourcequotas
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tangram-local-otel-region
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tangram-local-otel
+subjects:
+  - kind: ServiceAccount
+    name: otel-region
+    namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tangram-local-otel-node
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tangram-local-otel
+subjects:
+  - kind: ServiceAccount
+    name: otel-node
+    namespace: observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-region
+  namespace: observability
+data:
+  relay.yaml: |
+    exporters:
+      otlphttp/clickstack:
+        compression: gzip
+        endpoint: http://clickstack.observability.svc.cluster.local:4318
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    processors:
+      batch: {}
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      resource:
+        attributes:
+          - action: upsert
+            key: deployment.environment.name
+            value: local
+          - action: upsert
+            key: cloud.region
+            value: local
+          - action: upsert
+            key: k8s.cluster.name
+            value: local
+    receivers:
+      k8s_cluster:
+        auth_type: serviceAccount
+      k8sobjects:
+        auth_type: serviceAccount
+        objects:
+          - group: events.k8s.io
+            mode: watch
+            name: events
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: kubernetes-service-endpoints
+              scrape_interval: 30s
+              kubernetes_sd_configs:
+                - role: endpoints
+              relabel_configs:
+                - action: keep
+                  regex: "true"
+                  source_labels:
+                    - __meta_kubernetes_service_annotation_prometheus_io_scrape
+                - action: replace
+                  regex: (.+)
+                  source_labels:
+                    - __meta_kubernetes_service_annotation_prometheus_io_path
+                  target_label: __metrics_path__
+                - action: replace
+                  regex: ([^:]+)(?::\d+)?;(\d+)
+                  replacement: $1:$2
+                  source_labels:
+                    - __address__
+                    - __meta_kubernetes_service_annotation_prometheus_io_port
+                  target_label: __address__
+                - action: replace
+                  separator: /
+                  source_labels:
+                    - __meta_kubernetes_namespace
+                    - __meta_kubernetes_service_name
+                  target_label: job
+                - action: replace
+                  source_labels:
+                    - __meta_kubernetes_namespace
+                  target_label: k8s_namespace_name
+                - action: replace
+                  source_labels:
+                    - __meta_kubernetes_service_name
+                  target_label: k8s_service_name
+                - action: replace
+                  source_labels:
+                    - __meta_kubernetes_pod_name
+                  target_label: k8s_pod_name
+                - action: replace
+                  source_labels:
+                    - __meta_kubernetes_pod_node_name
+                  target_label: k8s_node_name
+    service:
+      extensions:
+        - health_check
+      pipelines:
+        logs:
+          exporters:
+            - otlphttp/clickstack
+          processors:
+            - memory_limiter
+            - k8sattributes
+            - resource
+            - batch
+          receivers:
+            - k8sobjects
+            - otlp
+        metrics:
+          exporters:
+            - otlphttp/clickstack
+          processors:
+            - memory_limiter
+            - k8sattributes
+            - resource
+            - batch
+          receivers:
+            - k8s_cluster
+            - otlp
+            - prometheus
+        traces:
+          exporters:
+            - otlphttp/clickstack
+          processors:
+            - memory_limiter
+            - k8sattributes
+            - resource
+            - batch
+          receivers:
+            - otlp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-region
+  namespace: observability
+spec:
+  type: LoadBalancer
+  selector:
+    app: otel-region
+  ports:
+    - name: otlp
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-region
+  namespace: observability
+  labels:
+    app: otel-region
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-region
+  template:
+    metadata:
+      labels:
+        app: otel-region
+    spec:
+      serviceAccountName: otel-region
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.146.1@sha256:f6e429c1052ab50f85a7afa5f7e32f25931697751622b0e1f453d10f79a1df3c
+          args:
+            - --config=/conf/relay.yaml
+          ports:
+            - name: health
+              containerPort: 13133
+            - name: otlp
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-region
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-node
+  namespace: observability
+data:
+  relay.yaml: |
+    exporters:
+      otlp:
+        endpoint: otel-region.observability.svc.cluster.local:4317
+        tls:
+          insecure: true
+    extensions:
+      file_storage:
+        create_directory: true
+        directory: /var/lib/otelcol
+      health_check:
+        endpoint: 0.0.0.0:13133
+    processors:
+      batch: {}
+      k8sattributes:
+        auth_type: serviceAccount
+        filter:
+          node_from_env_var: K8S_NODE_NAME
+        passthrough: false
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      resource:
+        attributes:
+          - action: upsert
+            key: deployment.environment.name
+            value: local
+          - action: upsert
+            key: cloud.region
+            value: local
+          - action: upsert
+            key: k8s.cluster.name
+            value: local
+    receivers:
+      filelog:
+        include:
+          - /var/log/pods/*/*/*.log
+        exclude:
+          - /var/log/pods/observability_otel-node*_*/otel-collector/*.log
+        start_at: end
+        retry_on_failure:
+          enabled: true
+        storage: file_storage
+        include_file_path: true
+        include_file_name: false
+        operators:
+          - type: container
+            id: container-parser
+            max_log_size: 102400
+      hostmetrics:
+        root_path: /hostfs
+        collection_interval: 10s
+        scrapers:
+          cpu: {}
+          disk: {}
+          filesystem: {}
+          load: {}
+          memory: {}
+          network: {}
+      kubeletstats:
+        auth_type: serviceAccount
+        endpoint: ${env:K8S_NODE_IP}:10250
+        insecure_skip_verify: true
+    service:
+      extensions:
+        - file_storage
+        - health_check
+      pipelines:
+        logs:
+          exporters:
+            - otlp
+          processors:
+            - memory_limiter
+            - k8sattributes
+            - resource
+            - batch
+          receivers:
+            - filelog
+        metrics:
+          exporters:
+            - otlp
+          processors:
+            - memory_limiter
+            - k8sattributes
+            - resource
+            - batch
+          receivers:
+            - hostmetrics
+            - kubeletstats
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-node
+  namespace: observability
+  labels:
+    app: otel-node
+spec:
+  selector:
+    matchLabels:
+      app: otel-node
+  template:
+    metadata:
+      labels:
+        app: otel-node
+    spec:
+      serviceAccountName: otel-node
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.146.1@sha256:f6e429c1052ab50f85a7afa5f7e32f25931697751622b0e1f453d10f79a1df3c
+          args:
+            - --config=/conf/relay.yaml
+          env:
+            - name: K8S_NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: health
+              containerPort: 13133
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: checkpoints
+              mountPath: /var/lib/otelcol
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            - name: hostfs
+              mountPath: /hostfs
+              readOnly: true
+              mountPropagation: HostToContainer
+            - name: pod-logs
+              mountPath: /var/log/pods
+              readOnly: true
+      volumes:
+        - name: checkpoints
+          hostPath:
+            path: /var/lib/otelcol
+            type: DirectoryOrCreate
+        - name: config
+          configMap:
+            name: otel-node
+        - name: hostfs
+          hostPath:
+            path: /
+        - name: pod-logs
+          hostPath:
+            path: /var/log/pods
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cockroach-metrics
+  namespace: default
+  annotations:
+    prometheus.io/path: /_status/vars
+    prometheus.io/port: "8080"
+    prometheus.io/scrape: "true"
+spec:
+  selector:
+    app: cockroach
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scylla-metrics
+  namespace: default
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "9180"
+    prometheus.io/scrape: "true"
+spec:
+  selector:
+    app: scylla
+  ports:
+    - name: metrics
+      port: 9180
+      targetPort: 9180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats-exporter
+  namespace: default
+  labels:
+    app: nats-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats-exporter
+  template:
+    metadata:
+      labels:
+        app: nats-exporter
+    spec:
+      containers:
+        - name: nats-exporter
+          image: natsio/prometheus-nats-exporter:0.20.1@sha256:4fbf6dacb84780a45a1c3af9b1080c69451a288d20902deae671b80717bb8f61
+          args:
+            - -varz
+            - -connz
+            - -routez
+            - -subz
+            - -gatewayz
+            - -jsz=all
+            - http://nats.default.svc.cluster.local:8222
+          ports:
+            - name: metrics
+              containerPort: 7777
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-metrics
+  namespace: default
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "7777"
+    prometheus.io/scrape: "true"
+spec:
+  selector:
+    app: nats-exporter
+  ports:
+    - name: metrics
+      port: 7777
+      targetPort: metrics
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fdb-exporter
+  namespace: default
+data:
+  fdb.cluster: docker:docker@fdb.default.svc.cluster.local:4500
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fdb-exporter
+  namespace: default
+  labels:
+    app: fdb-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fdb-exporter
+  template:
+    metadata:
+      labels:
+        app: fdb-exporter
+    spec:
+      containers:
+        - name: fdb-exporter
+          image: clevercloud/fdbexporter:2.3.3-7.3.69@sha256:4f106bc1b8c1d8b08160177b57cc17c70dc0a565ee667efa14b9687e47e3b77e
+          command:
+            - /app/fdbexporter
+          args:
+            - -c
+            - /etc/foundationdb/fdb.cluster
+          env:
+            - name: FDB_CLUSTER_FILE
+              value: /etc/foundationdb/fdb.cluster
+          ports:
+            - name: metrics
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+          volumeMounts:
+            - name: cluster-file
+              mountPath: /etc/foundationdb/fdb.cluster
+              readOnly: true
+              subPath: fdb.cluster
+      volumes:
+        - name: cluster-file
+          configMap:
+            name: fdb-exporter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fdb-exporter
+  namespace: default
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "9090"
+    prometheus.io/scrape: "true"
+spec:
+  selector:
+    app: fdb-exporter
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics

@@ -38,6 +38,9 @@ workspace = true
 
 [dependencies]
 anstream = { workspace = true }
+astral-tokio-tar = { workspace = true }
+async-compression = { workspace = true }
+async_zip = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
@@ -72,13 +75,13 @@ radix_trie = { workspace = true }
 rand = { workspace = true }
 ratatui = { workspace = true }
 reedline = { workspace = true }
+reqwest = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 serde_with = { workspace = true }
 syntect = { workspace = true }
-tangram_builtin = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }

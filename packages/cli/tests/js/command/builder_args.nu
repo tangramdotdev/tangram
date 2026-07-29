@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let command = await tg
-				.command({ host: "builtin", executable: "echo" })
+				.command({ host: tg.host.current, executable: "echo" })
 				.args(["y", "z"]);
 			return await command.args;
 		}

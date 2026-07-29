@@ -218,11 +218,6 @@ pub async fn spawn(
 	args: (Serde<crate::host::SpawnArg>,),
 ) -> tg::Result<Serde<crate::host::SpawnOutput>> {
 	let (Serde(arg),) = args;
-	if state.arg.host.as_deref() == Some("js") {
-		return Err(tg::error!(
-			"cannot spawn a host process when the host is js"
-		));
-	}
 	let output = state.host.spawn(arg).await?;
 	Ok(Serde(output))
 }

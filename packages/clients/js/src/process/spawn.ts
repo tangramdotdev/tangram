@@ -652,12 +652,7 @@ function renderCommand(
 	outputPath: string,
 	debug?: tg.Process.Debug | null,
 ): { args: Array<string>; executable: string } {
-	if (command.host === "builtin") {
-		let args = renderArgsDashA(command.args);
-		args.unshift("builtin", renderExecutableUri(command.executable));
-		return { args, executable: "tangram" };
-	}
-	if ("module" in command.executable || command.host === "js") {
+	if ("module" in command.executable) {
 		let args = [
 			"js",
 			"--host",

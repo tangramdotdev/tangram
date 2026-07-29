@@ -1,4 +1,4 @@
-use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tangram_uri::Uri};
+use {crate::Cli, tangram_client::prelude::*, tangram_uri::Uri};
 
 /// Download a blob or an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -30,11 +30,12 @@ impl Cli {
 				.as_ref()
 				.map(tg::Checksum::algorithm)
 		});
-		let options = tg::DownloadOptions {
+		let mode = args.mode.unwrap_or_default();
+		let download_options = tg::DownloadOptions {
 			checksum,
-			mode: args.mode,
+			mode: Some(mode),
 		};
-		let command = tg::builtin::download_command(&args.url, Some(options));
+		let command = tg::builtin::download_command(&args.url, Some(download_options));
 		let command = command
 			.store_with_handle(&client)
 			.await
@@ -45,12 +46,19 @@ impl Cli {
 			options.spawn.sandbox.arg.network =
 				crate::sandbox::Network::with_network(tg::sandbox::Network::default());
 		}
+		let transform = !options.detach && options.checkout.is_none();
 		let args = crate::process::build::Args {
-			options,
+			options: options.clone(),
 			reference: Some(reference),
 			trailing: Vec::new(),
 		};
-		self.command_build(args).boxed().await?;
-		Ok(())
+		let output = self.build(args).await?;
+		let output = if transform && matches!(mode, tg::DownloadMode::Raw) && !output.is_null() {
+			let file: tg::File = output.try_into()?;
+			file.contents_with_handle(&client).await?.into()
+		} else {
+			output
+		};
+		self.print_build_output(&options, output).await
 	}
 }

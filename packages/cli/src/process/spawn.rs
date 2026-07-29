@@ -768,6 +768,7 @@ impl Cli {
 		for arg in trailing {
 			args_.push(tg::Value::String(arg));
 		}
+		let process_args = args_.clone();
 		command = command.args(args_);
 
 		// Set the cwd.
@@ -901,7 +902,11 @@ impl Cli {
 		};
 
 		let arg = tg::process::Arg {
-			args: command.args.clone(),
+			args: if command_options.is_some() {
+				process_args
+			} else {
+				command.args.clone()
+			},
 			cached: options.cached,
 			checksum: options.checksum,
 			command: command_options.map(|options| {
