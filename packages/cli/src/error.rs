@@ -146,7 +146,6 @@ impl Cli {
 	}
 
 	pub(crate) async fn print_error(&mut self, error: tg::Referent<tg::Error>) {
-		let client = self.client().await.ok();
 		let internal = self
 			.config
 			.as_ref()
@@ -166,9 +165,9 @@ impl Cli {
 				.map(|object| object.unwrap_error())
 			{
 				error
-			} else if let Some(error) = match &client {
-				Some(client) => error_referent.item().load_with_handle(client).await.ok(),
-				None => None,
+			} else if let Some(error) = match self.client().await {
+				Ok(client) => error_referent.item().load_with_handle(&client).await.ok(),
+				Err(_) => None,
 			} {
 				error
 			} else {

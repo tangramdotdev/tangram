@@ -227,9 +227,22 @@ impl Cli {
 	pub(crate) async fn stop_server(&self) -> tg::Result<()> {
 		// Read the PID from the lock file.
 		let lock_path = self.directory_path().join("lock");
-		let pid = tokio::fs::read_to_string(&lock_path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read the pid from the lock file"))?
+		let lock = match tokio::fs::read_to_string(&lock_path).await {
+			Ok(lock) => lock,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(());
+			},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"failed to read the pid from the lock file"
+				));
+			},
+		};
+		if lock.is_empty() {
+			return Ok(());
+		}
+		let pid = lock
 			.parse::<i32>()
 			.map_err(|error| tg::error!(!error, "invalid lock file"))?;
 

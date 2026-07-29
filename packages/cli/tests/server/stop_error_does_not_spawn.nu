@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A failing `server stop` does not spawn a server. Printing an error acquires a client, and a client in auto mode spawns a server when it cannot connect.
+# Printing an error from a failing `server stop` does not spawn a server.
 
 let directory = mktemp -d
 'not a pid' | save -f ($directory | path join 'lock')

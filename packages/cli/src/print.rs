@@ -60,7 +60,6 @@ impl Cli {
 		T: serde::Serialize + Send + 'static,
 		S: Stream<Item = tg::Result<T>> + Send + 'static,
 	{
-		let client = self.client().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		let tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
 		let pretty = options.pretty || tty;
@@ -91,15 +90,10 @@ impl Cli {
 			let value = serde_json::to_value(&value)
 				.map_err(|error| tg::error!(!error, "failed to serialize the value"))?;
 			let indent = if pretty { 1 } else { 0 };
-			Self::print_value_inner(
-				&client,
-				&mut stdout,
-				&value.into(),
-				options.clone(),
-				tg::object::get::Arg::default(),
-				indent,
-			)
-			.await?;
+			let value = value.into();
+			self.load_value(&value, options.clone(), tg::object::get::Arg::default())
+				.await?;
+			Self::print_value_inner(&mut stdout, &value, options.clone(), indent).await?;
 			if tty {
 				stdout
 					.flush()
@@ -134,9 +128,9 @@ impl Cli {
 		options: Options,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<()> {
-		let client = self.client().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		Self::print_value_inner(&client, &mut stdout, value, options, arg, 0).await?;
+		self.load_value(value, options.clone(), arg).await?;
+		Self::print_value_inner(&mut stdout, value, options, 0).await?;
 		stdout
 			.write_all(b"\n")
 			.await
@@ -148,12 +142,30 @@ impl Cli {
 		Ok(())
 	}
 
-	pub(crate) async fn print_value_inner(
-		client: &impl tg::Handle,
-		stdout: &mut tokio::io::BufWriter<tokio::io::Stdout>,
+	async fn load_value(
+		&mut self,
 		value: &tg::Value,
 		options: Options,
 		arg: tg::object::get::Arg,
+	) -> tg::Result<()> {
+		let depth = match options.depth.unwrap_or(Depth::Finite(0)) {
+			Depth::Finite(depth) => Some(depth),
+			Depth::Infinite => None,
+		};
+		if depth == Some(0) || value.objects().is_empty() {
+			return Ok(());
+		}
+		let client = self.client().await?;
+		value
+			.load_with_handle(&client, arg, depth, options.blobs)
+			.await?;
+		Ok(())
+	}
+
+	pub(crate) async fn print_value_inner(
+		stdout: &mut tokio::io::BufWriter<tokio::io::Stdout>,
+		value: &tg::Value,
+		options: Options,
 		indent: usize,
 	) -> tg::Result<()> {
 		let depth = match options.depth.unwrap_or(Depth::Finite(0)) {
@@ -161,7 +173,6 @@ impl Cli {
 			Depth::Infinite => None,
 		};
 		let blobs = options.blobs;
-		value.load_with_handle(client, arg, depth, blobs).await?;
 		let tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
 		let indentation = (options.pretty || tty).then_some(INDENTATION);
 		let options = tg::value::print::Options {
