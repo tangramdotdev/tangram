@@ -852,11 +852,14 @@ mod tests {
 			["first", "second"]
 		);
 
-		let completions = state.handle_create_sandbox_completion(3, Completion {
-			placement: Placement::Regular { runner },
-			result: Ok(Ok(true)),
-			sandbox: id.clone(),
-		});
+		let completions = state.handle_create_sandbox_completion(
+			3,
+			Completion {
+				placement: Placement::Regular { runner },
+				result: Ok(Ok(true)),
+				sandbox: id.clone(),
+			},
+		);
 
 		assert_eq!(completions.len(), 2);
 		assert!(!completions[0].output.dequeued);
@@ -893,11 +896,14 @@ mod tests {
 			},
 		);
 
-		let completions = state.handle_create_sandbox_completion(3, Completion {
-			placement,
-			result: Ok(Ok(false)),
-			sandbox: id.clone(),
-		});
+		let completions = state.handle_create_sandbox_completion(
+			3,
+			Completion {
+				placement,
+				result: Ok(Ok(false)),
+				sandbox: id.clone(),
+			},
+		);
 
 		assert_eq!(completions.len(), 1);
 		assert!(completions[0].output.dequeued);

@@ -180,19 +180,6 @@ impl Provider {
 			}
 		}
 
-		// Check the materialized visibility fast path.
-		let visible = self
-			.server
-			.index
-			.visible(std::slice::from_ref(&id), &principal)
-			.await
-			.ok()
-			.and_then(|mut visible| visible.pop())
-			.unwrap_or(false);
-		if visible {
-			return true;
-		}
-
 		// Fall back to a deep authorization check against the index.
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
