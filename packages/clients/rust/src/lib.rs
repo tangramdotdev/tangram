@@ -66,6 +66,7 @@ pub mod cache;
 pub mod check;
 pub mod checkin;
 pub mod checkout;
+pub mod checkpoint;
 pub mod checksum;
 pub mod clean;
 pub mod command;
@@ -120,9 +121,9 @@ pub mod write;
 pub mod prelude {
 	pub use {
 		super::handle::{
-			Ext as _, Grant as _, Group as _, Handle as _, Module as _, Object as _,
-			Organization as _, Process as _, Remote as _, Sandbox as _, Tag as _, User as _,
-			Watch as _,
+			Checkpoint as _, Ext as _, Grant as _, Group as _, Handle as _, Module as _,
+			Object as _, Organization as _, Process as _, Remote as _, Sandbox as _, Tag as _,
+			User as _, Watch as _,
 		},
 		crate as tg,
 	};

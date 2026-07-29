@@ -2,7 +2,14 @@ use ../../test.nu *
 
 # Concurrent index requests share the indexer and all complete.
 
-let server = spawn --config { indexer: { poll_interval: 0.01 } }
+let server = spawn --config {
+	advanced: {
+		checkpoints: true,
+	},
+	indexer: {
+		poll_interval: 0.01,
+	},
+}
 let path = artifact {
 	tangram.ts: '
 		export default function () { return "hello"; }
@@ -10,10 +17,41 @@ let path = artifact {
 }
 let id = tg --url $server.url checkin $path
 
-let outputs = 1..8 | par-each --threads 8 {
-	tg --url $server.url index | complete
+def index_background [url: string] {
+	job spawn {
+		let job_id = job id
+		let output = tg --url $url index | complete
+		$output | job send --tag $job_id 0
+	}
 }
-for output in $outputs {
+
+let barrier_watch = (
+	tg --url $server.url checkpoint watch indexer.request.barrier
+	| from json
+	| get watch
+)
+
+# Hold the first request at its task barrier.
+let first = index_background $server.url
+tg --url $server.url checkpoint wait indexer.request.barrier $barrier_watch 0 | ignore
+
+# Start a second request and hold it after the indexer records it. At this point
+# both requests are live in the indexer.
+let receive_watch = (
+	tg --url $server.url checkpoint watch indexer.request.receive
+	| from json
+	| get watch
+)
+let second = index_background $server.url
+tg --url $server.url checkpoint wait indexer.request.receive $receive_watch 0 | ignore
+
+tg --url $server.url checkpoint continue indexer.request.receive $receive_watch 0
+tg --url $server.url checkpoint unwatch indexer.request.receive $receive_watch
+tg --url $server.url checkpoint continue indexer.request.barrier $barrier_watch 0
+tg --url $server.url checkpoint unwatch indexer.request.barrier $barrier_watch
+
+for index in [$first $second] {
+	let output = job recv --tag $index --timeout 10sec
 	success $output
 }
 

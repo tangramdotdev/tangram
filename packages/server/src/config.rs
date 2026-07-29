@@ -121,6 +121,8 @@ pub enum Role {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Advanced {
+	pub checkpoints: bool,
+
 	pub disable_version_check: bool,
 
 	pub internal_error_locations: bool,
@@ -1276,6 +1278,7 @@ impl Default for Config {
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
+			checkpoints: false,
 			disable_version_check: false,
 			internal_error_locations: false,
 			preserve_temp_directories: false,

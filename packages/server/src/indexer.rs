@@ -422,12 +422,15 @@ impl Indexer {
 				Event::Message(ServerMessage::Ack(_)) => unreachable!(),
 				Event::Message(ServerMessage::Request(request)) => match request.arg {
 					RequestArg::Index => {
+						let id = request.id.clone();
 						state.requests.insert(
 							request.id,
 							IndexRequest {
 								state: IndexRequestState::Tasks,
 							},
 						);
+						crate::checkpoint!(self.server, "indexer.request.receive", request = id,)
+							.await;
 						state.start_barrier(&self.server);
 					},
 				},
@@ -811,6 +814,8 @@ impl State {
 		let server = server.clone();
 		self.barriers.push(
 			async move {
+				let request = ids.first().unwrap().clone();
+				crate::checkpoint!(server, "indexer.request.barrier", request,).await;
 				server.remote_object_put_tasks.wait().await;
 				server.index_tasks.wait().await;
 

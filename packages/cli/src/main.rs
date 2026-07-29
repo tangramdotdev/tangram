@@ -13,6 +13,7 @@ mod cache;
 mod check;
 mod checkin;
 mod checkout;
+mod checkpoint;
 mod checksum;
 mod children;
 mod clean;
@@ -249,6 +250,9 @@ enum Command {
 	Cancel(self::process::cancel::Args),
 
 	Check(self::check::Args),
+
+	#[command(hide = true)]
+	Checkpoint(self::checkpoint::Args),
 
 	#[command(alias = "ci")]
 	Checkin(self::checkin::Args),
@@ -626,6 +630,7 @@ impl Cli {
 			Command::Cache(args) => self.command_cache(args).boxed_local(),
 			Command::Cancel(args) => self.command_process_cancel(args).boxed_local(),
 			Command::Check(args) => self.command_check(args).boxed_local(),
+			Command::Checkpoint(args) => self.command_checkpoint(args).boxed_local(),
 			Command::Checkin(args) => self.command_checkin(args).boxed_local(),
 			Command::Checkout(args) => self.command_checkout(args).boxed_local(),
 			Command::Checksum(args) => self.command_checksum(args).boxed_local(),

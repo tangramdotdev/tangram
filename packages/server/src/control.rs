@@ -266,7 +266,14 @@ impl Session {
 			match result {
 				Ok(Ok(response)) => return Ok(response),
 				Ok(Err(error)) => return Err(error),
-				Err(_) => (),
+				Err(_) => {
+					crate::checkpoint!(
+						server,
+						"control.request.timeout",
+						subject = server_subject.clone(),
+					)
+					.await;
+				},
 			}
 		}
 	}

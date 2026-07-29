@@ -1,32 +1,42 @@
 use ../../test.nu *
 
-# Rapidly canceling many long-running builds under a single-concurrency runner
-# does not prevent a subsequent build from completing.
+# Canceling a running build releases its sandbox's capacity so that a subsequent
+# build can start.
 #
 # Regression test added in cd5bbb68.
 
 let server = spawn --config {
+	advanced: {
+		checkpoints: true,
+	},
 	runner: {
 		cpus: 1,
 		memory: (1e9 | into int),
 	},
 }
 
-# Spawn long-running builds and immediately cancel each.
-
 let long = artifact {
 	tangram.ts: '
-		export default async function (tag: string) {
-			await tg.run`sleep 60; echo ${tag}`.sandbox();
+		export default async function () {
+			await tg.run`sleep 60`.sandbox();
 			return "done";
 		}
 	',
 }
 
-for i in 0..20 {
-	let process = tg build --detach --verbose $"($long)#default" --arg-string $"iter-($i)" | from json
-	tg cancel $process.process $process.lease
-}
+let watch = (
+	tg checkpoint watch runner.sandbox.capacity.release
+	| from json
+	| get watch
+)
+
+let process = tg build --detach --verbose $long | from json
+tg cancel $process.process $process.lease
+
+# Wait until cancellation cleanup reaches the capacity release.
+tg checkpoint wait runner.sandbox.capacity.release $watch 0 | ignore
+tg checkpoint continue runner.sandbox.capacity.release $watch 0
+tg checkpoint unwatch runner.sandbox.capacity.release $watch
 
 let short = artifact {
 	tangram.ts: '
@@ -34,5 +44,5 @@ let short = artifact {
 	',
 }
 
-let output = timeout 15s tg build $short | complete
-success $output "build should not hang after repeated cancels"
+let output = timeout 10s tg build $short | complete
+success $output "build should not hang after cancellation"

@@ -393,6 +393,15 @@ impl Session {
 		}
 		let child = output.process.as_ref().unwrap_right();
 		let sandbox = self.server.runner.state().try_get_process_sandbox(child);
+		crate::checkpoint!(
+			self.server,
+			"process.spawn.child.add",
+			cached = output.cached,
+			child = %child,
+			command = %arg.command.item,
+			parent = %parent,
+		)
+		.await;
 		self.add_process_child(AddProcessChildArg {
 			cached: output.cached,
 			child,

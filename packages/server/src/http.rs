@@ -541,6 +541,42 @@ impl Server {
 			(http::Method::POST, ["write"]) => session.write_request(request).boxed(),
 			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
 
+			// Checkpoints.
+			(http::Method::POST, ["checkpoints", checkpoint, "watches"]) => session
+				.watch_checkpoint_request(request, checkpoint)
+				.boxed(),
+			(
+				http::Method::POST,
+				[
+					"checkpoints",
+					checkpoint,
+					"watches",
+					watch,
+					"hits",
+					hit,
+					"wait",
+				],
+			) => session
+				.wait_checkpoint_hit_request(request, checkpoint, watch, hit)
+				.boxed(),
+			(
+				http::Method::POST,
+				[
+					"checkpoints",
+					checkpoint,
+					"watches",
+					watch,
+					"hits",
+					hit,
+					"continue",
+				],
+			) => session
+				.continue_checkpoint_hit_request(request, checkpoint, watch, hit)
+				.boxed(),
+			(http::Method::DELETE, ["checkpoints", checkpoint, "watches", watch]) => session
+				.unwatch_checkpoint_request(request, checkpoint, watch)
+				.boxed(),
+
 			// Grants.
 			(http::Method::GET, ["grants"]) => session.list_grants_request(request).boxed(),
 			(http::Method::POST, ["grants"]) => session.create_grant_request(request).boxed(),

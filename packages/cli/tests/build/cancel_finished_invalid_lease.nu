@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Cancelling a finished process with an invalid lease token succeeds.
+# Cancelling a finished process with an invalid lease succeeds.
 
 let server = spawn
 
@@ -12,4 +12,4 @@ let path = artifact {
 let process = tg build --detach --verbose $path | from json
 tg wait $process.process
 
-tg cancel $process.process invalidtoken
+tg cancel $process.process invalidlease

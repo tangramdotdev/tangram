@@ -221,6 +221,39 @@ impl Session {
 								})?;
 						},
 						tg::process::control::ClientMessage::Response(response) => {
+							let kind = match response.output.as_ref() {
+								Some(tg::process::control::ClientResponseOutput::AcquireLease(
+									_,
+								)) => "acquire_lease",
+								Some(tg::process::control::ClientResponseOutput::Finish(_)) => {
+									"finish"
+								},
+								Some(tg::process::control::ClientResponseOutput::Get(_)) => "get",
+								Some(tg::process::control::ClientResponseOutput::GetChildren(
+									_,
+								)) => "get_children",
+								Some(tg::process::control::ClientResponseOutput::Read(_)) => "read",
+								Some(tg::process::control::ClientResponseOutput::ReleaseLease(
+									_,
+								)) => "release_lease",
+								Some(tg::process::control::ClientResponseOutput::Signal(_)) => {
+									"signal"
+								},
+								Some(tg::process::control::ClientResponseOutput::Tty(_)) => "tty",
+								Some(tg::process::control::ClientResponseOutput::Write(_)) => {
+									"write"
+								},
+								None => "error",
+							};
+							let request = response.id.clone();
+							crate::checkpoint!(
+								session.server,
+								"process.control.response.publish",
+								kind = %kind,
+								process = %id,
+								request = request.clone(),
+							)
+							.await;
 							let subject = format!("processes.{id}.control.client.{}", response.id);
 							let payload = ClientMessage(
 								tg::process::control::ClientMessage::Response(response),
@@ -234,6 +267,14 @@ impl Session {
 									tracing::error!(%error, "failed to publish the response");
 								})
 								.ok();
+							crate::checkpoint!(
+								session.server,
+								"process.control.response.published",
+								kind = %kind,
+								process = %id,
+								request,
+							)
+							.await;
 						},
 						tg::process::control::ClientMessage::Request(request) => {
 							let request_id = request.id;

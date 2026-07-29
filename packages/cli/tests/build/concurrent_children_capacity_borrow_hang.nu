@@ -7,7 +7,14 @@ use ../../test.nu *
 # the freed capacity, so the parent's remaining children are never scheduled and it
 # hangs forever.
 
-let server = spawn --config { runner: { cpus: 1 } }
+let server = spawn --config {
+	advanced: {
+		checkpoints: true,
+	},
+	runner: {
+		cpus: 1,
+	},
+}
 
 let path = artifact {
 	tangram.ts: '
@@ -16,15 +23,25 @@ let path = artifact {
 		}
 		export default async function () {
 			return await Promise.all(
-				Array.from({ length: 8 }, (_, i) => tg.build(inner, { id: String(i) })),
+				Array.from({ length: 2 }, (_, i) => tg.build(inner, { id: String(i) })),
 			);
 		}
 	'
 }
 
-# The parent must finish; with the bug it hangs forever awaiting children that are
-# never scheduled, so tg wait blocks until the harness times the test out.
+let finish_watch = (
+	tg checkpoint watch runner.process.finish
+	| from json
+	| get watch
+)
+
+# Hold the first borrowing child as it finishes. Once it advances, its capacity
+# must become available to the second child.
 let top = tg build --detach $path | str trim
+tg checkpoint wait runner.process.finish $finish_watch 0 | ignore
+tg checkpoint continue runner.process.finish $finish_watch 0
+tg checkpoint unwatch runner.process.finish $finish_watch
+
 let result = tg wait $top | from json
 assert ($result.exit == 0) "the build must succeed"
-assert equal $result.output ["0", "1", "2", "3", "4", "5", "6", "7"]
+assert equal $result.output ["0", "1"]

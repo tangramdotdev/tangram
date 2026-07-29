@@ -360,6 +360,12 @@ impl Session {
 			.map_err(|_| tg::error!("expected an acquire process lease response"))?;
 		output.data = response.data;
 		output.lease = response.lease;
+		crate::checkpoint!(
+			self.server,
+			"process.spawn.cached.lease.acquire",
+			process = %output.id,
+		)
+		.await;
 		if !output.data.cacheable || (!output.data.status.is_finished() && output.lease.is_none()) {
 			return Ok(None);
 		}

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A lease token that was already used to cancel cannot be reused while the process is still running.
+# A lease that was already used to cancel cannot be reused while the process is still running.
 
 let server = spawn
 
@@ -22,7 +22,7 @@ assert equal $second.process $first.process "the builds should deduplicate to on
 # Cancel the first lease. The second lease keeps the process running.
 tg cancel $first.process $first.lease
 
-# Reusing the first token fails because the lease no longer exists.
+# Reusing the first lease fails because it no longer exists.
 let output = tg cancel $first.process $first.lease | complete
 failure $output
 snapshot --normalize $output.stderr '

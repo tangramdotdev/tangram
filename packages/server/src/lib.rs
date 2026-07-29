@@ -28,6 +28,7 @@ mod cache;
 mod check;
 mod checkin;
 mod checkout;
+mod checkpoint;
 mod checksum;
 mod clean;
 mod cleaner;
@@ -94,6 +95,7 @@ pub struct State {
 	cache_graph_tasks: self::cache::GraphTasks,
 	cache_tasks: self::cache::Tasks,
 	checkin_tasks: self::checkin::Tasks,
+	checkpoints: Option<self::checkpoint::State>,
 	config: Config,
 	context: Context,
 	database: Database,
@@ -246,6 +248,12 @@ impl Server {
 
 		// Create the checkin tasks.
 		let checkin_tasks = tangram_futures::task::Map::default();
+
+		// Create the checkpoints.
+		let checkpoints = config
+			.advanced
+			.checkpoints
+			.then(self::checkpoint::State::new);
 
 		// Create the context.
 		let context = Context::root();
@@ -739,6 +747,7 @@ impl Server {
 			cache_graph_tasks,
 			cache_tasks,
 			checkin_tasks,
+			checkpoints,
 			config,
 			context,
 			database,

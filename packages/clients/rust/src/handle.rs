@@ -5,8 +5,10 @@ use {
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
+mod checkpoint;
 mod either;
 mod ext;
+mod grant;
 mod group;
 mod module;
 mod object;
@@ -20,14 +22,13 @@ mod user;
 mod watch;
 
 pub use self::{
-	ext::Ext, grant::Grant, group::Group, module::Module, object::Object,
+	checkpoint::Checkpoint, ext::Ext, grant::Grant, group::Group, module::Module, object::Object,
 	organization::Organization, process::Process, remote::Remote, runner::Runner, sandbox::Sandbox,
 	tag::Tag, user::User, watch::Watch,
 };
 
 pub mod dynamic;
 pub mod erased;
-mod grant;
 
 pub static HANDLE: OnceLock<tg::Client> = OnceLock::new();
 
@@ -55,7 +56,8 @@ pub(crate) fn handle() -> tg::Result<&'static tg::Client> {
 }
 
 pub trait Handle:
-	Grant
+	Checkpoint
+	+ Grant
 	+ Group
 	+ Module
 	+ Object
