@@ -69,7 +69,7 @@ declare global {
 	function syscall(
 		syscall: "host_magic",
 		value: Function,
-	): tg.Command.Data.Executable;
+	): tg.Host.MagicOutput;
 
 	function syscall(syscall: "host_mkdtemp"): Promise<string>;
 

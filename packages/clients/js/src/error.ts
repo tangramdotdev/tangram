@@ -152,7 +152,11 @@ export class Error {
 	static async argResolved(
 		...args: Array<tg.ValueOrMaybeMutationMap<tg.Error.Arg>>
 	): Promise<tg.Error.Arg.Object> {
-		return await tg.Args.applyResolved<tg.Error.Arg, tg.Error.Arg.Object>({
+		return await tg.Args.applyResolved<
+			tg.Error.Arg,
+			tg.ValueOrMaybeMutationMap<tg.Error.Arg.Object>,
+			tg.Error.Arg.Object
+		>({
 			args,
 			map: async (arg) => {
 				if (typeof arg === "string") {

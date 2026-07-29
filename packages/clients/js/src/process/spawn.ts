@@ -3,11 +3,10 @@ import * as stdio from "./stdio.ts";
 
 export let builder = (...args: any): any => {
 	if (typeof args[0] === "function") {
-		return new tg.Process.Builder("spawn", {
-			host: tg.host.current,
-			executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
-			args: args.slice(1),
-		});
+		return new tg.Process.Builder(
+			"spawn",
+			tg.Command.js(args[0], args.slice(1)),
+		);
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -97,30 +96,7 @@ let spawnArgFromResolvedWithSandbox = async (
 	}
 	let executable: tg.Command.Arg.Executable | null | undefined;
 	if (arg.executable !== undefined) {
-		if (arg.executable === null) {
-			executable = null;
-		} else if (
-			typeof arg.executable === "object" &&
-			!tg.Artifact.is(arg.executable) &&
-			"module" in arg.executable
-		) {
-			options = {
-				...arg.executable.module.referent.options,
-				...options,
-			};
-			executable = {
-				...arg.executable,
-				module: {
-					...arg.executable.module,
-					referent: {
-						...arg.executable.module.referent,
-						options: {},
-					},
-				},
-			};
-		} else {
-			executable = arg.executable;
-		}
+		executable = arg.executable;
 	}
 
 	let checksum = arg.checksum;
@@ -533,7 +509,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 				value !== undefined &&
 				!Object.prototype.hasOwnProperty.call(env, name)
 			) {
-				env[name] = value;
+				env[name] = tg.Command.Value.string(value);
 				changed = true;
 			}
 		}
@@ -652,46 +628,37 @@ function renderCommand(
 	outputPath: string,
 	debug?: tg.Process.Debug | null,
 ): { args: Array<string>; executable: string } {
-	if ("module" in command.executable) {
-		let args = [
-			"js",
-			"--host",
-			command.host,
-			...renderJsDebugArgs(debug),
-			renderExecutableUri(command.executable),
-			...renderArgsDashA(command.args),
-		];
-		return { args, executable: "tangram" };
+	let args = renderArgs(command.args, artifacts, outputPath);
+	let js =
+		command.executable.artifact === null &&
+		command.executable.path === "tg" &&
+		command.args[0]?.kind === "string" &&
+		command.args[0].value === "js";
+	if (js && debug !== undefined && debug !== null) {
+		let options = ["--debug"];
+		if (debug.addr !== undefined && debug.addr !== null) {
+			options.push("--debug-addr", debug.addr);
+		}
+		if (
+			debug.mode !== undefined &&
+			debug.mode !== null &&
+			debug.mode !== "normal"
+		) {
+			options.push("--debug-mode", debug.mode);
+		}
+		args.splice(1, 0, ...options);
 	}
 	return {
-		args: renderArgsString(command.args, artifacts, outputPath),
+		args,
 		executable: renderExecutable(command.executable, artifacts),
 	};
-}
-
-function renderJsDebugArgs(debug?: tg.Process.Debug | null): Array<string> {
-	if (debug === undefined || debug === null) {
-		return [];
-	}
-	let args = ["--debug"];
-	if (debug.addr !== undefined && debug.addr !== null) {
-		args.push("--debug-addr", debug.addr);
-	}
-	if (
-		debug.mode !== undefined &&
-		debug.mode !== null &&
-		debug.mode !== "normal"
-	) {
-		args.push("--debug-mode", debug.mode);
-	}
-	return args;
 }
 
 function renderExecutable(
 	executable: tg.Command.Executable,
 	artifacts: Map<tg.Artifact.Id, string>,
 ): string {
-	if ("artifact" in executable) {
+	if (executable.artifact !== null) {
 		let path = artifacts.get(executable.artifact.id);
 		if (path === undefined) {
 			throw new Error("failed to find the executable artifact path");
@@ -699,45 +666,28 @@ function renderExecutable(
 		return executable.path !== undefined && executable.path !== null
 			? tg.path.join(path, executable.path)
 			: path;
-	} else if ("module" in executable) {
-		throw new Error("invalid executable");
-	} else {
+	} else if (executable.path !== null) {
 		return executable.path;
 	}
+	throw new Error("invalid executable");
 }
 
-function renderExecutableUri(executable: tg.Command.Executable): string {
-	if ("artifact" in executable) {
-		let string = executable.artifact.id;
-		if (executable.path !== undefined && executable.path !== null) {
-			string += `?path=${encodeURIComponent(executable.path)}`;
-		}
-		return string;
-	} else if ("module" in executable) {
-		let string = tg.Module.toDataString(executable.module);
-		if (executable.export !== undefined && executable.export !== null) {
-			string += `#${encodeURIComponent(executable.export)}`;
-		}
-		return string;
-	} else {
-		return executable.path;
-	}
-}
-
-function renderArgsDashA(args: Array<tg.Value>): Array<string> {
-	return args.flatMap((value) => ["-A", tg.Value.stringify(value)]);
-}
-
-function renderArgsString(
-	args: Array<tg.Value>,
+function renderArgs(
+	args: Array<tg.Command.Value>,
 	artifacts: Map<tg.Artifact.Id, string>,
 	outputPath: string,
 ): Array<string> {
-	return args.map((value) => renderValueString(value, artifacts, outputPath));
+	return args.map((arg) => {
+		if (arg.kind === "string") {
+			return renderValueString(arg.value, artifacts, outputPath);
+		} else {
+			return tg.Value.stringify(arg.value);
+		}
+	});
 }
 
 async function renderEnv(
-	env: { [key: string]: tg.Value },
+	env: { [key: string]: tg.Command.Value },
 	artifacts: Map<tg.Artifact.Id, string>,
 	outputPath: string,
 ): Promise<{ [key: string]: string }> {
@@ -746,23 +696,19 @@ async function renderEnv(
 			throw new Error("env vars prefixed with TANGRAM_ENV_ are reserved");
 		}
 	}
-	let resolved: { [key: string]: tg.Value } = {};
+	let rendered: { [key: string]: string } = {};
 	for (let [key, value] of Object.entries(env)) {
-		if (value instanceof tg.Mutation) {
-			await value.apply(resolved, key);
+		if (value.kind === "string") {
+			rendered[key] = renderValueString(value.value, artifacts, outputPath);
 		} else {
-			resolved[key] = value;
+			rendered[key] = tg.Value.stringify(value.value);
 		}
 	}
-	let rendered: { [key: string]: string } = {};
-	for (let [key, value] of Object.entries(resolved)) {
-		rendered[key] = renderValueString(value, artifacts, outputPath);
-	}
-	for (let [key, value] of Object.entries(resolved)) {
-		if (typeof value === "string") {
+	for (let [key, value] of Object.entries(env)) {
+		if (value.kind === "string" && typeof value.value === "string") {
 			continue;
 		}
-		rendered[`TANGRAM_ENV_${key}`] = tg.Value.stringify(value);
+		rendered[`TANGRAM_ENV_${key}`] = tg.Value.stringify(value.value);
 	}
 	for (let key of [
 		"TANGRAM_CONFIG",

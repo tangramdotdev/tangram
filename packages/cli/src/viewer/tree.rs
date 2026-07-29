@@ -475,59 +475,56 @@ impl Tree {
 	) -> tg::Result<()> {
 		let object = command.object_with_handle(client).await?;
 		let mut children = Vec::new();
-		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
-		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
-		let value = match &object.executable {
-			tg::command::Executable::Artifact(executable) => {
+		let args = object
+			.args
+			.iter()
+			.map(|arg| {
 				let mut map = BTreeMap::new();
-				map.insert(
-					"artifact".to_owned(),
-					tg::Value::Object(executable.artifact.clone().into()),
-				);
-				if let Some(path) = &executable.path {
-					let path = path.to_string_lossy().to_string();
-					map.insert("path".to_owned(), tg::Value::String(path));
-				}
-				tg::Value::Map(map)
-			},
-			tg::command::Executable::Module(executable) => {
-				let mut map = BTreeMap::new();
-				map.insert(
-					"kind".to_owned(),
-					tg::Value::String(executable.module.kind.to_string()),
-				);
-				let mut referent = BTreeMap::new();
-				referent.insert(
-					"item".to_owned(),
-					match executable.module.referent.item.clone() {
-						tg::module::Item::Edge(edge) => {
-							let object = match edge {
-								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(client).await?.into()
-								},
-								tg::graph::Edge::Object(object) => object,
-							};
-							tg::Value::Object(object)
-						},
-						tg::module::Item::Path(path) => {
-							tg::Value::String(path.to_string_lossy().into_owned())
-						},
+				match arg {
+					tg::command::Value::String(value) => {
+						map.insert("kind".to_owned(), tg::Value::from("string"));
+						map.insert("value".to_owned(), value.clone());
 					},
-				);
-				if let Some(path) = executable.module.referent.path() {
-					let path = path.to_string_lossy().to_string();
-					referent.insert("path".to_owned(), tg::Value::String(path));
+					tg::command::Value::Value(value) => {
+						map.insert("kind".to_owned(), tg::Value::from("value"));
+						map.insert("value".to_owned(), value.clone());
+					},
 				}
-				if let Some(tag) = executable.module.referent.tag() {
-					referent.insert("tag".to_owned(), tg::Value::String(tag.to_string()));
-				}
-				map.insert("referent".to_owned(), tg::Value::Map(referent));
 				tg::Value::Map(map)
-			},
-			tg::command::Executable::Path(executable) => {
-				tg::Value::String(executable.path.to_string_lossy().to_string())
-			},
-		};
+			})
+			.collect();
+		children.push(("args".to_owned(), tg::Value::Array(args)));
+		let env = object
+			.env
+			.iter()
+			.map(|(key, value)| {
+				let mut map = BTreeMap::new();
+				match value {
+					tg::command::Value::String(value) => {
+						map.insert("kind".to_owned(), tg::Value::from("string"));
+						map.insert("value".to_owned(), value.clone());
+					},
+					tg::command::Value::Value(value) => {
+						map.insert("kind".to_owned(), tg::Value::from("value"));
+						map.insert("value".to_owned(), value.clone());
+					},
+				}
+				(key.clone(), tg::Value::Map(map))
+			})
+			.collect();
+		children.push(("env".to_owned(), tg::Value::Map(env)));
+		let mut executable = BTreeMap::new();
+		if let Some(artifact) = &object.executable.artifact {
+			executable.insert(
+				"artifact".to_owned(),
+				tg::Value::Object(artifact.clone().into()),
+			);
+		}
+		if let Some(path) = &object.executable.path {
+			let path = path.to_string_lossy().into_owned();
+			executable.insert("path".to_owned(), tg::Value::String(path));
+		}
+		let value = tg::Value::Map(executable);
 		children.push(("executable".to_owned(), value));
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
 		let metadata = get_object_metadata_as_value(client, command.id()).await?;
@@ -1519,11 +1516,14 @@ impl Tree {
 			.children_with_handle(client, tg::process::children::get::Arg::default())
 			.await?;
 		let referent_module = command
-			.executable_with_handle(client)
+			.object_with_handle(client)
 			.await?
-			.try_unwrap_module_ref()
-			.ok()
-			.map(tg::command::ModuleExecutable::to_data);
+			.args
+			.iter()
+			.find_map(|arg| match arg {
+				tg::command::Value::Value(tg::Value::Module(module)) => Some(module.to_data()),
+				_ => None,
+			});
 
 		while let Some(child) = children.try_next().await? {
 			let mut child = tg::Referent::new(child.process, child.options);
@@ -1531,16 +1531,20 @@ impl Tree {
 			// Inherit from the referent.
 			let child_module = {
 				let command = child.item.command_with_handle(client).await?;
-				let executable = command.executable_with_handle(client).await?;
-				executable
-					.try_unwrap_module_ref()
-					.ok()
-					.map(tg::command::ModuleExecutable::to_data)
+				command
+					.object_with_handle(client)
+					.await?
+					.args
+					.iter()
+					.find_map(|arg| match arg {
+						tg::command::Value::Value(tg::Value::Module(module)) => {
+							Some(module.to_data())
+						},
+						_ => None,
+					})
 			};
 			let same_module = match (&referent_module, &child_module) {
-				(Some(parent), Some(child)) => {
-					parent.module.referent.item == child.module.referent.item
-				},
+				(Some(parent), Some(child)) => parent.referent.item == child.referent.item,
 				_ => true,
 			};
 			let has_own_referent =
@@ -1923,6 +1927,7 @@ impl Tree {
 				tg::Value::String(string) => format!("\"{string}\""),
 				tg::Value::Array(_) => "array".to_owned(),
 				tg::Value::Map(_) => "map".to_owned(),
+				tg::Value::Module(module) => module.to_string(),
 				tg::Value::Object(object) => Self::object_id(object),
 				tg::Value::Bytes(_) => "bytes".to_owned(),
 				tg::Value::Mutation(_) => "mutation".to_owned(),
@@ -2139,11 +2144,34 @@ impl Tree {
 
 		// Get the original commands' executable.
 		let command = process.item.command_with_handle(client).await.ok()?.clone();
-		let executable = command.executable_with_handle(client).await.ok()?.clone();
+		let object = command.object_with_handle(client).await.ok()?;
+		let executable = &object.executable;
+
+		// Handle modules.
+		if let Some(module) = object.args.iter().find_map(|arg| match arg {
+			tg::command::Value::Value(tg::Value::Module(module)) => Some(module),
+			_ => None,
+		}) {
+			let mut title = module.to_string();
+			let export = object.args.windows(2).find_map(|args| match args {
+				[
+					tg::command::Value::String(tg::Value::String(option)),
+					tg::command::Value::String(tg::Value::String(export)),
+				] if option == "--export" => Some(export),
+				_ => None,
+			});
+			if let Some(export) = export {
+				title.push('#');
+				title.push_str(export);
+			}
+			return Some(title);
+		}
 
 		// Handle paths.
-		if let Ok(path) = executable.try_unwrap_path_ref() {
-			return Some(path.path.display().to_string());
+		if executable.artifact.is_none()
+			&& let Some(path) = &executable.path
+		{
+			return Some(path.display().to_string());
 		}
 
 		// Use the referent if its fields are set.
@@ -2159,15 +2187,6 @@ impl Tree {
 				}
 			},
 		};
-
-		// Handle exports.
-		let export = executable
-			.try_unwrap_module_ref()
-			.ok()
-			.and_then(|exe| exe.export.as_ref());
-		if let Some(export) = export {
-			return Some(format!("{title}#{export}"));
-		}
 
 		Some(title)
 	}

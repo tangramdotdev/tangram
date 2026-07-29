@@ -36,9 +36,13 @@ impl crate::Cli {
 			.into_iter()
 			.map(|(key, value)| (key, value.to_data()))
 			.collect();
-		let executable = tg::command::data::Executable::Path(tg::command::data::PathExecutable {
-			path: PathBuf::from("<repl>"),
-		});
+		let export = None;
+		let module = tg::module::Data {
+			kind: tg::module::Kind::Js,
+			referent: tg::Referent::with_item(tg::module::data::Item::Path(PathBuf::from(
+				"<repl>",
+			))),
+		};
 		let client = tg::handle::dynamic::Handle::new(self.client().await?);
 		let host = tg::host::current().to_owned();
 		let main_runtime_handle = tokio::runtime::Handle::current();
@@ -47,11 +51,12 @@ impl crate::Cli {
 			args,
 			cwd,
 			env,
-			executable,
+			export,
 			handle: client,
 			host: Some(host),
-			main_runtime_handle,
 			inspect: None,
+			main_runtime_handle,
+			module,
 			repl: Some(receiver),
 		};
 		let task = Self::spawn_thread(move || {

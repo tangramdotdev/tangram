@@ -41,7 +41,7 @@ export type Host = {
 
 	listenSignal(signal: tg.Host.Signal): tg.Host.SignalListener;
 
-	magic(value: Function): tg.Command.Data.Executable;
+	magic(value: Function): tg.Host.MagicOutput;
 
 	mkdtemp(): Promise<string>;
 
@@ -85,6 +85,11 @@ export type Host = {
 };
 
 export namespace Host {
+	export type MagicOutput = {
+		export?: string | null;
+		module: tg.Module.Data;
+	};
+
 	export type Http2 = {
 		ClientHttp2Session: {
 			new (

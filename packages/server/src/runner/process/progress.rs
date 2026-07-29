@@ -48,8 +48,14 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to load the command"))?;
 		let quiet = match command.env.get("TANGRAM_QUIET") {
-			Some(tg::Value::Bool(value)) => *value,
-			Some(tg::Value::String(value)) => value.parse().unwrap_or(false),
+			Some(
+				tg::command::Value::String(tg::Value::String(value))
+				| tg::command::Value::Value(tg::Value::String(value)),
+			) => value.parse().unwrap_or(false),
+			Some(
+				tg::command::Value::String(tg::Value::Bool(value))
+				| tg::command::Value::Value(tg::Value::Bool(value)),
+			) => *value,
 			_ => false,
 		};
 		Ok(quiet)

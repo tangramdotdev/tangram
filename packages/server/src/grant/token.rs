@@ -44,6 +44,20 @@ impl Session {
 			tg::value::Data::Mutation(mutation) => {
 				self.add_tokens_to_mutation_data(mutation, expires_at)?;
 			},
+			tg::value::Data::Module(module) => {
+				let mut children = std::collections::BTreeSet::new();
+				module.children(&mut children);
+				if let Some(id) = children.into_iter().next() {
+					let token = self.create_token(
+						tg::grant::Resource::Id(id.into()),
+						vec![tg::grant::Permission::Object(
+							tg::grant::permission::object::Permission::Subtree,
+						)],
+						expires_at,
+					)?;
+					module.referent.options.token = token;
+				}
+			},
 			tg::value::Data::Template(template) => {
 				self.add_tokens_to_template_data(template, expires_at)?;
 			},

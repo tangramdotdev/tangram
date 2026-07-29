@@ -22,19 +22,7 @@ export function command(
 export function command(...args: tg.Args<tg.Command.Arg>): tg.Command.Builder;
 export function command(...args: any): any {
 	if (typeof args[0] === "function") {
-		let executable = tg.Command.Executable.fromData(tg.host.magic(args[0]));
-		if ("module" in executable) {
-			let options = executable.module.referent.options;
-			if (!(options?.tag || options?.id)) {
-				let { path: _path, ...rest } = options ?? {};
-				executable.module.referent.options = rest;
-			}
-		}
-		return new tg.Command.Builder({
-			host: tg.host.current,
-			executable,
-			args: args.slice(1),
-		});
+		return new tg.Command.Builder(tg.Command.js(args[0], args.slice(1)));
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -69,34 +57,13 @@ export class Command<
 		let env = arg.env ?? {};
 		let executable: tg.Command.Executable | undefined;
 		if (tg.Artifact.is(arg.executable)) {
-			executable = { artifact: arg.executable };
+			executable = { artifact: arg.executable, path: null };
 		} else if (typeof arg.executable === "string") {
-			executable = { path: arg.executable };
-		} else if (
-			arg.executable !== undefined &&
-			arg.executable !== null &&
-			"artifact" in arg.executable
-		) {
+			executable = { artifact: null, path: arg.executable };
+		} else if (arg.executable !== undefined && arg.executable !== null) {
 			executable = {
-				artifact: arg.executable.artifact,
+				artifact: arg.executable.artifact ?? null,
 				path: arg.executable.path ?? null,
-			};
-		} else if (
-			arg.executable !== undefined &&
-			arg.executable !== null &&
-			"module" in arg.executable
-		) {
-			executable = {
-				module: arg.executable.module,
-				export: arg.executable.export ?? null,
-			};
-		} else if (
-			arg.executable !== undefined &&
-			arg.executable !== null &&
-			"path" in arg.executable
-		) {
-			executable = {
-				path: arg.executable.path,
 			};
 		}
 		let host = arg.host ?? tg.host.current;
@@ -124,34 +91,125 @@ export class Command<
 
 	static async arg(
 		...args: tg.Args<tg.Command.Arg>
-	): Promise<tg.Command.Arg.Object> {
-		return await tg.Args.apply({
+	): Promise<tg.Command.ResolvedArg> {
+		let js = false;
+		return await tg.Args.apply<
+			tg.Command.Arg,
+			tg.Command.MappedArg,
+			tg.Command.ResolvedArg
+		>({
 			args,
-			map: async (arg) => {
+			map: async (arg): Promise<tg.Command.MappedArg> => {
+				let output: tg.ValueOrMaybeMutationMap<tg.Command.Arg>;
+				let base = false;
 				if (arg === undefined) {
-					return {};
+					output = {};
 				} else if (
 					typeof arg === "string" ||
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
 					let host = tg.host.current;
-					return {
+					output = {
 						args: ["-c", arg],
 						executable: "sh",
 						host,
 					};
+					base = true;
 				} else if (arg instanceof tg.Command) {
-					return await arg.object();
+					output = await arg.object();
+					base = true;
 				} else {
-					return arg;
+					output = arg;
 				}
+				let executable = output.executable;
+				let args = output.args;
+				let ownJs =
+					executable !== null &&
+					executable !== undefined &&
+					!(executable instanceof tg.Mutation) &&
+					(executable === "tg" ||
+						(typeof executable === "object" &&
+							"path" in executable &&
+							"artifact" in executable &&
+							(executable.artifact === null ||
+								executable.artifact === undefined) &&
+							executable.path === "tg")) &&
+					Array.isArray(args) &&
+					((args[0] instanceof tg.Command.Value &&
+						args[0].kind === "string" &&
+						args[0].value === "js") ||
+						args[0] === "js");
+				if (
+					base ||
+					(executable !== undefined && !(executable instanceof tg.Mutation))
+				) {
+					js = ownJs;
+				}
+				if (js && !ownJs && Array.isArray(output.args)) {
+					output.args = output.args.flatMap((value) => {
+						let value_ =
+							value instanceof tg.Command.Value
+								? value
+								: tg.Command.Value.value(value);
+						return [
+							tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
+							value_,
+						];
+					});
+				}
+				return {
+					...output,
+					...(output.args === undefined || output.args === null
+						? {}
+						: {
+								args: output.args.map(tg.Command.Arg.Value.toValue),
+							}),
+				} as tg.Command.MappedArg;
 			},
 			reduce: {
-				args: "append",
-				env: "merge",
+				args: (a, b) => [...(a ?? []), ...(b ?? [])],
+				env: tg.Command.Arg.Env.reduce,
 			},
 		});
+	}
+
+	static js(
+		function_: Function,
+		args: Array<tg.Value | tg.Command.Value>,
+	): tg.Command.Arg.Object {
+		let target = tg.host.magic(function_);
+		let module = tg.Module.fromData(target.module);
+		let options = module.referent.options;
+		if (!(options?.tag || options?.id)) {
+			let { path: _path, ...rest } = options ?? {};
+			module.referent.options = rest;
+		}
+		let commandArgs = [
+			tg.Command.Value.string("js"),
+			...(target.export === undefined || target.export === null
+				? []
+				: [
+						tg.Command.Value.string("--export"),
+						tg.Command.Value.string(target.export),
+					]),
+			tg.Command.Value.string("--host"),
+			tg.Command.Value.string(tg.host.current),
+			tg.Command.Value.value(module),
+		];
+		for (let arg of args) {
+			let arg_ =
+				arg instanceof tg.Command.Value ? arg : tg.Command.Value.value(arg);
+			commandArgs.push(
+				tg.Command.Value.string(arg_.kind === "string" ? "-a" : "-A"),
+				arg_,
+			);
+		}
+		return {
+			args: commandArgs,
+			executable: "tg",
+			host: tg.host.current,
+		};
 	}
 
 	constructor(arg: tg.Command.ConstructorArg) {
@@ -238,7 +296,7 @@ export class Command<
 	}
 
 	/** Get this command's arguments. */
-	get args(): Promise<Array<tg.Value>> {
+	get args(): Promise<Array<tg.Command.Value>> {
 		return (async () => {
 			return (await this.object()).args;
 		})();
@@ -252,7 +310,7 @@ export class Command<
 	}
 
 	/** Get this command's environment. */
-	get env(): Promise<{ [key: string]: tg.Value }> {
+	get env(): Promise<{ [key: string]: tg.Command.Value }> {
 		return (async () => {
 			return (await this.object()).env;
 		})();
@@ -315,6 +373,67 @@ export namespace Command {
 		token?: tg.Grant.Token | null;
 	};
 
+	export class Value {
+		[Resolve.atomic]: null;
+		kind: "string" | "value";
+		value: tg.Value;
+
+		private constructor(kind: "string" | "value", value: tg.Value) {
+			this[Resolve.atomic] = null;
+			this.kind = kind;
+			this.value = value;
+		}
+
+		static string(value: tg.Value): tg.Command.Value {
+			return new tg.Command.Value("string", value);
+		}
+
+		static value(value: tg.Value): tg.Command.Value {
+			return new tg.Command.Value("value", value);
+		}
+	}
+
+	export namespace Value {
+		export type Data =
+			| { kind: "string"; value: tg.Value.Data }
+			| { kind: "value"; value: tg.Value.Data };
+
+		export let toData = (value: tg.Command.Value): tg.Command.Value.Data => {
+			return {
+				kind: value.kind,
+				value: tg.Value.toData(value.value),
+			};
+		};
+
+		export let fromData = (data: tg.Command.Value.Data): tg.Command.Value => {
+			let value = tg.Value.fromData(data.value);
+			return data.kind === "string"
+				? tg.Command.Value.string(value)
+				: tg.Command.Value.value(value);
+		};
+
+		export let children = (value: tg.Command.Value): Array<tg.Object> => {
+			return tg.Value.objects(value.value);
+		};
+
+		export namespace Data {
+			export let children = (
+				data: tg.Command.Value.Data,
+			): Array<tg.Object.Id> => {
+				return tg.Value.Data.children(data.value);
+			};
+
+			export let withoutTokens = (
+				data: tg.Command.Value.Data,
+			): tg.Command.Value.Data => {
+				return {
+					...data,
+					value: tg.Value.Data.withoutTokens(data.value),
+				};
+			};
+		}
+	}
+
 	export type Arg =
 		| string
 		| tg.Artifact
@@ -323,15 +442,25 @@ export namespace Command {
 		| tg.Command.Arg.Object;
 
 	export namespace Arg {
+		export type Value = tg.Value | tg.Command.Value;
+
+		export namespace Value {
+			export let toValue = (value: tg.Command.Arg.Value): tg.Command.Value => {
+				return value instanceof tg.Command.Value
+					? value
+					: tg.Command.Value.string(value);
+			};
+		}
+
 		export type Object = {
 			/** The command's arguments. */
-			args?: Array<tg.Value> | null;
+			args?: Array<tg.Command.Arg.Value> | null;
 
 			/** The command's working directory. */
 			cwd?: string | null;
 
 			/** The command's environment. */
-			env?: tg.MaybeMutationMap | null;
+			env?: tg.Command.Arg.Env | null;
 
 			/** The command's executable. */
 			executable?: tg.Command.Arg.Executable | null;
@@ -349,23 +478,12 @@ export namespace Command {
 		export type Executable =
 			| tg.Artifact
 			| string
-			| tg.Command.Arg.Executable.Artifact
-			| tg.Command.Arg.Executable.Module
-			| tg.Command.Arg.Executable.Path;
+			| tg.Command.Arg.Executable.Object;
 
 		export namespace Executable {
-			export type Artifact = {
-				artifact: tg.Artifact;
+			export type Object = {
+				artifact?: tg.Artifact | null;
 				path?: string | null;
-			};
-
-			export type Module = {
-				module: tg.Module;
-				export?: string | null;
-			};
-
-			export type Path = {
-				path: string;
 			};
 
 			export let is = (value: unknown): value is Executable => {
@@ -374,28 +492,71 @@ export namespace Command {
 					typeof value === "string" ||
 					(typeof value === "object" &&
 						value !== null &&
-						"artifact" in value &&
-						tg.Artifact.is(value.artifact)) ||
-					(typeof value === "object" &&
-						value !== null &&
-						"module" in value &&
-						typeof value.module === "object" &&
-						value.module !== null &&
-						"kind" in value.module &&
-						"referent" in value.module) ||
-					(typeof value === "object" &&
-						value !== null &&
-						"path" in value &&
-						typeof value.path === "string")
+						(!("artifact" in value) ||
+							value.artifact === undefined ||
+							value.artifact === null ||
+							tg.Artifact.is(value.artifact)) &&
+						(!("path" in value) ||
+							value.path === undefined ||
+							value.path === null ||
+							typeof value.path === "string"))
 				);
+			};
+		}
+
+		export type Env = {
+			[key: string]: tg.Command.Arg.Value | tg.Mutation;
+		};
+
+		export namespace Env {
+			export let reduce = async (
+				a: { [key: string]: tg.Command.Value } | null | undefined,
+				b: tg.Command.Arg.Env | null | undefined,
+			): Promise<{ [key: string]: tg.Command.Value } | null | undefined> => {
+				if (b === null || b === undefined) {
+					return b;
+				}
+				let output = { ...a };
+				for (let [key, value] of globalThis.Object.entries(b)) {
+					if (!(value instanceof tg.Mutation)) {
+						output[key] = tg.Command.Arg.Value.toValue(value);
+						continue;
+					}
+					let current = output[key];
+					let kind = current?.kind ?? "string";
+					let inner = await value.apply(current?.value);
+					if (inner === undefined) {
+						delete output[key];
+					} else {
+						let value_ =
+							kind === "string"
+								? tg.Command.Value.string(inner)
+								: tg.Command.Value.value(inner);
+						output[key] = value_;
+					}
+				}
+				return output;
 			};
 		}
 	}
 
+	export type MappedArg = Omit<
+		tg.ValueOrMaybeMutationMap<tg.Command.Arg.Object>,
+		"args" | "env"
+	> & {
+		args?: Array<tg.Command.Value> | null;
+		env?: tg.Command.Arg.Env | null;
+	};
+
+	export type ResolvedArg = Omit<tg.Command.Arg.Object, "args" | "env"> & {
+		args?: Array<tg.Command.Value> | null;
+		env?: { [key: string]: tg.Command.Value } | null;
+	};
+
 	export type Object = {
-		args: Array<tg.Value>;
+		args: Array<tg.Command.Value>;
 		cwd: string | null;
-		env: { [key: string]: tg.Value };
+		env: { [key: string]: tg.Command.Value };
 		executable: tg.Command.Executable;
 		host: string;
 		stdin: tg.Blob | null;
@@ -405,11 +566,11 @@ export namespace Command {
 	export namespace Object {
 		export let toData = (object: tg.Command.Object): tg.Command.Data => {
 			let output: Data = {
-				args: object.args.map(tg.Value.toData),
+				args: object.args.map(tg.Command.Value.toData),
 				env: globalThis.Object.fromEntries(
 					globalThis.Object.entries(object.env).map(([key, value]) => [
 						key,
-						tg.Value.toData(value),
+						tg.Command.Value.toData(value),
 					]),
 				),
 				executable: tg.Command.Executable.toData(object.executable),
@@ -429,12 +590,12 @@ export namespace Command {
 
 		export let fromData = (data: tg.Command.Data): tg.Command.Object => {
 			let object: tg.Command.Object = {
-				args: (data.args ?? []).map(tg.Value.fromData),
+				args: (data.args ?? []).map(tg.Command.Value.fromData),
 				cwd: data.cwd ?? null,
 				env: globalThis.Object.fromEntries(
 					globalThis.Object.entries(data.env ?? {}).map(([key, value]) => [
 						key,
-						tg.Value.fromData(value),
+						tg.Command.Value.fromData(value),
 					]),
 				),
 				executable: tg.Command.Executable.fromData(data.executable),
@@ -450,9 +611,9 @@ export namespace Command {
 
 		export let children = (object: tg.Command.Object): Array<tg.Object> => {
 			return [
-				...object.args.flatMap(tg.Value.objects),
+				...object.args.flatMap(tg.Command.Value.children),
 				...globalThis.Object.entries(object.env).flatMap(([_, value]) =>
-					tg.Value.objects(value),
+					tg.Command.Value.children(value),
 				),
 				...tg.Command.Executable.children(object.executable),
 				...(object.stdin !== null ? [object.stdin] : []),
@@ -460,93 +621,46 @@ export namespace Command {
 		};
 	}
 
-	export type Executable =
-		| tg.Command.Executable.Artifact
-		| tg.Command.Executable.Module
-		| tg.Command.Executable.Path;
+	export type Executable = {
+		artifact: tg.Artifact | null;
+		path: string | null;
+	};
 
 	export namespace Executable {
 		export let toData = (
 			value: tg.Command.Executable,
 		): tg.Command.Data.Executable => {
-			if ("artifact" in value) {
-				let output: tg.Command.Data.Executable = {
-					artifact: value.artifact.id,
-				};
-				if (value.path !== undefined && value.path !== null) {
-					output.path = value.path;
-				}
-				return output;
-			} else if ("module" in value) {
-				let output: tg.Command.Data.Executable = {
-					module: tg.Module.toData(value.module),
-				};
-				if (value.export !== undefined && value.export !== null) {
-					output.export = value.export;
-				}
-				return output;
-			} else if ("path" in value) {
-				return {
-					path: value.path,
-				};
-			} else {
-				throw new Error("invalid executable");
+			let output: tg.Command.Data.Executable = {};
+			if (value.artifact !== null) {
+				output.artifact = value.artifact.id;
 			}
+			if (value.path !== null) {
+				output.path = value.path;
+			}
+			return output;
 		};
 
 		export let fromData = (
 			data: tg.Command.Data.Executable,
 		): tg.Command.Executable => {
-			if ("artifact" in data) {
-				return {
-					artifact: tg.Artifact.withId(data.artifact),
-					path: data.path ?? null,
-				};
-			} else if ("module" in data) {
-				return {
-					module: tg.Module.fromData(data.module),
-					export: data.export ?? null,
-				};
-			} else if ("path" in data) {
-				return {
-					path: data.path,
-				};
-			} else {
-				throw new Error("invalid executable");
-			}
+			return {
+				artifact:
+					data.artifact === undefined || data.artifact === null
+						? null
+						: tg.Artifact.withId(data.artifact),
+				path: data.path ?? null,
+			};
 		};
 
 		export let children = (value: tg.Command.Executable): Array<tg.Object> => {
-			if ("artifact" in value) {
-				return [value.artifact];
-			} else if ("module" in value) {
-				return tg.Module.children(value.module);
-			} else {
-				return [];
-			}
-		};
-	}
-
-	export namespace Executable {
-		export type Artifact = {
-			artifact: tg.Artifact;
-			path?: string | null;
-		};
-
-		export type Module = {
-			module: tg.Module;
-			export?: string | null;
-		};
-
-		export type Path = {
-			path: string;
+			return value.artifact === null ? [] : [value.artifact];
 		};
 	}
 
 	export type Data = {
-		args?: Array<tg.Value.Data>;
+		args?: Array<tg.Command.Value.Data>;
 		cwd?: string | null;
-		env?: { [key: string]: tg.Value.Data };
+		env?: { [key: string]: tg.Command.Value.Data };
 		executable: tg.Command.Data.Executable;
 		host: string;
 		stdin?: tg.Blob.Id | null;
@@ -557,9 +671,9 @@ export namespace Command {
 		export let children = (data: tg.Command.Data): Array<tg.Object.Id> => {
 			return [
 				...tg.Command.Data.Executable.children(data.executable),
-				...(data.args ?? []).flatMap(tg.Value.Data.children),
+				...(data.args ?? []).flatMap(tg.Command.Value.Data.children),
 				...globalThis.Object.values(data.env ?? {}).flatMap(
-					tg.Value.Data.children,
+					tg.Command.Value.Data.children,
 				),
 			];
 		};
@@ -567,13 +681,13 @@ export namespace Command {
 		export let withoutTokens = (data: tg.Command.Data): tg.Command.Data => {
 			let output = { ...data };
 			if (data.args !== undefined) {
-				output.args = data.args.map(tg.Value.Data.withoutTokens);
+				output.args = data.args.map(tg.Command.Value.Data.withoutTokens);
 			}
 			if (data.env !== undefined) {
 				output.env = globalThis.Object.fromEntries(
 					globalThis.Object.entries(data.env).map(([key, value]) => [
 						key,
-						tg.Value.Data.withoutTokens(value),
+						tg.Command.Value.Data.withoutTokens(value),
 					]),
 				);
 			}
@@ -583,47 +697,23 @@ export namespace Command {
 			return output;
 		};
 
-		export type Executable =
-			| tg.Command.Data.Executable.Artifact
-			| tg.Command.Data.Executable.Module
-			| tg.Command.Data.Executable.Path;
+		export type Executable = {
+			artifact?: tg.Artifact.Id | null;
+			path?: string | null;
+		};
 
 		export namespace Executable {
-			export type Artifact = {
-				artifact: tg.Artifact.Id;
-				path?: string | null;
-			};
-
-			export type Module = {
-				module: tg.Module.Data;
-				export?: string | null;
-			};
-
-			export type Path = {
-				path: string;
-			};
-
 			export let children = (
 				data: tg.Command.Data.Executable,
 			): Array<tg.Object.Id> => {
-				if ("artifact" in data) {
-					return [data.artifact];
-				} else if ("module" in data) {
-					return tg.Module.Data.children(data.module);
-				} else {
-					return [];
-				}
+				return data.artifact === undefined || data.artifact === null
+					? []
+					: [data.artifact];
 			};
 
 			export let withoutTokens = (
 				data: tg.Command.Data.Executable,
 			): tg.Command.Data.Executable => {
-				if ("module" in data) {
-					return {
-						...data,
-						module: tg.Module.Data.withoutTokens(data.module),
-					};
-				}
 				return { ...data };
 			};
 		}
@@ -665,13 +755,13 @@ export namespace Command {
 			});
 		}
 
-		arg(...args: Array<tg.Unresolved<tg.Value>>): this {
+		arg(...args: Array<tg.Unresolved<tg.Command.Arg.Value>>): this {
 			this.#args.push({ args });
 			return this;
 		}
 
 		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>> | null>>
+			...args: Array<tg.Unresolved<Array<tg.Command.Arg.Value> | null>>
 		): this {
 			this.#args.push(...args.map((args) => ({ args })));
 			return this;
@@ -682,11 +772,7 @@ export namespace Command {
 			return this;
 		}
 
-		env(
-			...envs: Array<
-				tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap> | null>
-			>
-		): this {
+		env(...envs: Array<tg.Unresolved<tg.Command.Arg.Env | null>>): this {
 			this.#args.push(...envs.map((env) => ({ env })));
 			return this;
 		}

@@ -34,11 +34,11 @@ export let builder = (...args: any): any => {
 		tty: false,
 	};
 	if (typeof args[0] === "function") {
-		return new tg.Process.Builder("run", firstArg, {
-			host: tg.host.current,
-			executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
-			args: args.slice(1),
-		}).validate(validate);
+		return new tg.Process.Builder(
+			"run",
+			firstArg,
+			tg.Command.js(args[0], args.slice(1)),
+		).validate(validate);
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);

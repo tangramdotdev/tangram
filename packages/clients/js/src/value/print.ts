@@ -49,6 +49,8 @@ export class Printer {
 					return this.call("bytes", this.string(bytes));
 				} else if (value_ instanceof tg.Mutation) {
 					return this.mutation(value_);
+				} else if (value_ instanceof tg.Module) {
+					return this.call("module", this.module(value_));
 				} else if (value_ instanceof tg.Template) {
 					return this.template(value_);
 				} else if (value_ instanceof tg.Placeholder) {
@@ -402,7 +404,7 @@ export class Printer {
 		let entries: { [key: string]: Print } = {};
 		if (object.args.length > 0) {
 			entries.args = () =>
-				this.array(object.args.map((arg) => () => this.value(arg)));
+				this.array(object.args.map((arg) => () => this.commandArg(arg)));
 		}
 		if (object.cwd !== null) {
 			entries.cwd = () => this.value(object.cwd!);
@@ -414,7 +416,7 @@ export class Printer {
 					Object.fromEntries(
 						env.map(
 							([key, value_]) =>
-								[key, () => this.value(value_)] satisfies [string, Print],
+								[key, () => this.commandArg(value_)] satisfies [string, Print],
 						),
 					),
 				);
@@ -432,25 +434,21 @@ export class Printer {
 	}
 
 	private commandExecutable(executable: tg.Command.Executable): string {
-		if ("artifact" in executable) {
-			let entries: { [key: string]: Print } = {
-				artifact: () => this.artifact(executable.artifact),
-			};
-			if (executable.path !== undefined && executable.path !== null) {
-				entries.path = () => this.value(executable.path!);
-			}
-			return this.map(entries);
+		let entries: { [key: string]: Print } = {};
+		if (executable.artifact !== null) {
+			entries.artifact = () => this.artifact(executable.artifact!);
 		}
-		if ("module" in executable) {
-			let entries: { [key: string]: Print } = {
-				module: () => this.module(executable.module),
-			};
-			if (executable.export !== undefined && executable.export !== null) {
-				entries.export = () => this.value(executable.export!);
-			}
-			return this.map(entries);
+		if (executable.path !== null) {
+			entries.path = () => this.value(executable.path!);
 		}
-		return this.value(executable.path);
+		return this.map(entries);
+	}
+
+	private commandArg(arg: tg.Command.Value): string {
+		return this.map({
+			kind: () => this.value(arg.kind),
+			value: () => this.value(arg.value),
+		});
 	}
 
 	private errorObject(object: tg.Error.Object): string {

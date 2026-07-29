@@ -127,7 +127,11 @@ export class File {
 		...args: Array<tg.ValueOrMaybeMutationMap<tg.File.Arg>>
 	): Promise<Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>> {
 		type Arg = Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>;
-		return await tg.Args.applyResolved<tg.File.Arg, Arg>({
+		return await tg.Args.applyResolved<
+			tg.File.Arg,
+			tg.ValueOrMaybeMutationMap<Arg>,
+			Arg
+		>({
 			args,
 			map: async (arg) => {
 				if (arg === undefined) {

@@ -1,9 +1,20 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
-export type Module = {
+export class Module {
+	[Resolve.atomic]: null;
 	kind: Module.Kind;
 	referent: tg.Referent<tg.Module.Item>;
-};
+
+	constructor(arg: {
+		kind: Module.Kind;
+		referent: tg.Referent<tg.Module.Item>;
+	}) {
+		this[Resolve.atomic] = null;
+		this.kind = arg.kind;
+		this.referent = arg.referent;
+	}
+}
 
 export namespace Module {
 	export type Kind =
@@ -47,7 +58,7 @@ export namespace Module {
 	};
 
 	export let fromData = (data: tg.Module.Data): tg.Module => {
-		return {
+		return new tg.Module({
 			kind: data.kind,
 			referent: tg.Referent.fromData(data.referent, (item) => {
 				if (
@@ -59,7 +70,7 @@ export namespace Module {
 					return tg.Graph.Edge.fromData(item, tg.Object.withId);
 				}
 			}),
-		};
+		});
 	};
 
 	export let toDataString = (value: tg.Module): string => {
@@ -180,13 +191,13 @@ export namespace Module {
 			}
 		}
 		tg.assert(kind !== undefined);
-		let module = {
+		let module = new tg.Module({
 			kind,
 			referent: {
 				item,
 				options,
 			},
-		};
+		});
 		return module;
 	};
 
@@ -199,10 +210,10 @@ export namespace Module {
 	};
 
 	export let withoutToken = (value: tg.Module): tg.Module => {
-		return {
+		return new tg.Module({
 			kind: value.kind,
 			referent: tg.Referent.withoutToken(value.referent),
-		};
+		});
 	};
 
 	export type Data = {

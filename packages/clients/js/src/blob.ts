@@ -86,7 +86,11 @@ export class Blob {
 	}
 
 	static async arg(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob.Arg.Object> {
-		return await tg.Args.apply({
+		return await tg.Args.apply<
+			tg.Blob.Arg,
+			tg.ValueOrMaybeMutationMap<tg.Blob.Arg.Object>,
+			tg.Blob.Arg.Object
+		>({
 			args,
 			map: async (arg) => {
 				if (arg === undefined) {

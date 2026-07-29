@@ -24,19 +24,29 @@ export type ValueOrMaybeMutationMap<T = tg.Value> = T extends
 	| tg.Object
 	| Uint8Array
 	| tg.Mutation
+	| tg.Module
 	| tg.Template
 	| tg.Placeholder
-	| Array<infer _U extends tg.Value>
+	| Array<unknown>
 	? T
-	: T extends { [key: string]: tg.Value }
-		? string extends keyof T
-			? {
-					[key: string]: tg.MaybeMutation<
-						Exclude<T[string & keyof T], undefined>
-					>;
-				}
-			: { [K in keyof T]?: tg.MaybeMutation<Exclude<T[K], undefined>> }
-		: T;
+	: T extends tg.Resolve.Atomic
+		? T
+		: T extends object
+			? string extends keyof T
+				? {
+						[key: string]: Exclude<
+							T[string & keyof T],
+							undefined
+						> extends tg.Value
+							? tg.MaybeMutation<Exclude<T[string & keyof T], undefined>>
+							: Exclude<T[string & keyof T], undefined>;
+					}
+				: {
+						[K in keyof T]?: Exclude<T[K], undefined> extends tg.Value
+							? tg.MaybeMutation<Exclude<T[K], undefined>>
+							: Exclude<T[K], undefined>;
+					}
+			: T;
 
 export type MaybeReferent<T> = T | tg.Referent<T>;
 

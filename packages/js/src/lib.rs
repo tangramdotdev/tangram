@@ -14,12 +14,19 @@ pub struct Arg {
 	pub args: tg::value::data::Array,
 	pub cwd: PathBuf,
 	pub env: tg::value::data::Map,
-	pub executable: tg::command::data::Executable,
+	pub export: Option<String>,
 	pub handle: tg::handle::dynamic::Handle,
 	pub host: Option<String>,
 	pub inspect: Option<self::inspect::Options>,
 	pub main_runtime_handle: tokio::runtime::Handle,
+	pub module: tg::module::Data,
 	pub repl: Option<self::repl::Receiver>,
+}
+
+#[derive(serde::Serialize)]
+pub struct MagicOutput {
+	pub export: Option<String>,
+	pub module: tg::module::Data,
 }
 
 #[derive(Clone, Debug)]

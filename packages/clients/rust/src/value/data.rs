@@ -53,6 +53,9 @@ pub enum Data {
 
 	#[tangram_serialize(id = 10)]
 	Placeholder(tg::placeholder::Data),
+
+	#[tangram_serialize(id = 11)]
+	Module(tg::module::Data),
 }
 
 pub type Array = Vec<Data>;
@@ -113,6 +116,7 @@ impl Data {
 				children.insert(object.item.clone());
 			},
 			Self::Mutation(mutation) => mutation.children(children),
+			Self::Module(module) => module.children(children),
 			Self::Template(template) => template.children(children),
 		}
 	}
@@ -137,6 +141,7 @@ impl Data {
 			},
 			Self::Object(object) => children.push(object.clone()),
 			Self::Mutation(mutation) => mutation.children_with_tokens(children),
+			Self::Module(module) => module.children_with_tokens(children),
 			Self::Template(template) => template.children_with_tokens(children),
 		}
 	}
@@ -157,6 +162,7 @@ impl Data {
 				Self::Object(object)
 			},
 			Self::Mutation(mutation) => Self::Mutation(mutation.without_tokens()),
+			Self::Module(module) => Self::Module(module.without_tokens()),
 			Self::Template(template) => Self::Template(template.without_tokens()),
 			value @ (Self::Null
 			| Self::Bool(_)
@@ -228,6 +234,12 @@ impl serde::Serialize for Data {
 			Self::Mutation(value) => {
 				let mut map = serializer.serialize_map(Some(2))?;
 				map.serialize_entry("kind", "mutation")?;
+				map.serialize_entry("value", value)?;
+				map.end()
+			},
+			Self::Module(value) => {
+				let mut map = serializer.serialize_map(Some(2))?;
+				map.serialize_entry("kind", "module")?;
 				map.serialize_entry("value", value)?;
 				map.end()
 			},
@@ -372,6 +384,7 @@ impl<'de> serde::Deserialize<'de> for Data {
 										.into(),
 								),
 								"mutation" => Data::Mutation(map.next_value()?),
+								"module" => Data::Module(map.next_value()?),
 								"template" => Data::Template(map.next_value()?),
 								"placeholder" => Data::Placeholder(map.next_value()?),
 								_ => {

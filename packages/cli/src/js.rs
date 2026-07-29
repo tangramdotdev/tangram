@@ -28,11 +28,14 @@ pub struct Args {
 	#[arg(default_value = "auto", long)]
 	pub engine: Engine,
 
-	#[arg(index = 1)]
-	pub executable: tg::command::data::Executable,
+	#[arg(long)]
+	pub export: Option<String>,
 
 	#[arg(long)]
 	pub host: Option<String>,
+
+	#[arg(index = 1)]
+	pub module: tg::Value,
 
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
@@ -91,8 +94,12 @@ impl Cli {
 			.map(|(key, value)| (key, value.to_data()))
 			.collect();
 
-		// Get the executable.
-		let executable = args.executable;
+		// Get the module.
+		let module = args
+			.module
+			.try_unwrap_module()
+			.map_err(|_| tg::error!("expected a module"))?
+			.to_data();
 
 		// Create the client.
 		let client = tg::Client::with_env(tg::Arg::default())?;
@@ -107,7 +114,7 @@ impl Cli {
 			args: args_,
 			cwd,
 			env,
-			executable,
+			export: args.export,
 			handle,
 			host: args.host,
 			inspect: args.debug.get().map(|debug| tangram_js::inspect::Options {
@@ -119,6 +126,7 @@ impl Cli {
 				},
 			}),
 			main_runtime_handle,
+			module,
 			repl: None,
 		};
 

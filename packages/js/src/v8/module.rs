@@ -42,9 +42,8 @@ pub fn host_import_module_dynamically_callback<'s>(
 		None
 	} else if resource_name.is_empty() {
 		if !matches!(
-			&state.arg.executable,
-			tg::command::data::Executable::Path(executable)
-				if executable.path == std::path::Path::new("<repl>")
+			&state.arg.module.referent.item,
+			tg::module::data::Item::Path(path) if path == std::path::Path::new("<repl>")
 		) {
 			let error = tg::error!("expected the REPL executable");
 			let exception = error::to_exception(scope, &error)?;

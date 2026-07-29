@@ -63,6 +63,16 @@ impl Module {
 		}
 	}
 
+	pub fn children_with_tokens(&self, children: &mut Vec<tg::Referent<tg::object::Id>>) {
+		let mut ids = BTreeSet::new();
+		self.children(&mut ids);
+		children.extend(
+			ids.into_iter().map(|id| {
+				tg::Referent::with_item_and_token(id, self.referent.options.token.clone())
+			}),
+		);
+	}
+
 	#[must_use]
 	pub fn without_tokens(mut self) -> Self {
 		self.referent.options.token.take();

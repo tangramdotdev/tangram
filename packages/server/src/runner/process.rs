@@ -1053,10 +1053,34 @@ impl Session {
 			let host_output_path = sandbox.host_output_path_for_process(&sandbox_process);
 
 			// Render the args.
-			let mut args = match &command.executable {
-				tg::command::data::Executable::Module(_) => render_args_dash_a(&command.args),
-				_ => render_args_string(&command.args, &guest_artifacts_path, &guest_output_path)?,
-			};
+			let mut args = render_args(&command.args, &guest_artifacts_path, &guest_output_path)?;
+			let js = command.executable.artifact.is_none()
+				&& command.executable.path.as_deref() == Some(Path::new("tg"))
+				&& matches!(
+					command.args.first(),
+					Some(tg::command::data::Value::String(
+						tg::value::Data::String(value)
+					)) if value == "js"
+				);
+			if js {
+				let mut options = Vec::new();
+				if let Some(debug) = state.debug.as_ref() {
+					options.push("--debug".to_owned());
+					if let Some(addr) = debug.addr {
+						options.extend(["--debug-addr".to_owned(), addr.to_string()]);
+					}
+					if debug.mode != tg::process::debug::Mode::Normal {
+						options.extend(["--debug-mode".to_owned(), debug.mode.to_string()]);
+					}
+				}
+				let engine = match self.server.config.runner.js.engine {
+					crate::config::JsEngine::Auto => "auto",
+					crate::config::JsEngine::QuickJs => "quickjs",
+					crate::config::JsEngine::V8 => "v8",
+				};
+				options.push(format!("--engine={engine}"));
+				args.splice(1..1, options);
+			}
 
 			// Get the working directory. On macOS there is no chroot, so "/" is the host root and not writable. Default to the scratch directory instead.
 			let cwd = if let Some(cwd) = &command.cwd {
@@ -1079,40 +1103,16 @@ impl Session {
 			};
 
 			// Render the executable.
-			let executable = match &command.executable {
-				tg::command::data::Executable::Module(_) => {
-					let mut js_args = Vec::new();
-					js_args.push("js".to_owned());
-					js_args.push("--host".to_owned());
-					js_args.push(command.host.clone());
-					match &self.server.config.runner.js.engine {
-						crate::config::JsEngine::Auto => {
-							js_args.push("--engine=auto".into());
-						},
-						crate::config::JsEngine::QuickJs => {
-							js_args.push("--engine=quickjs".into());
-						},
-						crate::config::JsEngine::V8 => {
-							js_args.push("--engine=v8".into());
-						},
-					}
-					render_js_debug_args(&mut js_args, state.debug.as_ref());
-					js_args.push(command.executable.to_string());
-					js_args.extend(args);
-					args = js_args;
-
-					sandbox.guest_tangram_path()
-				},
-
-				tg::command::data::Executable::Artifact(executable) => {
-					let mut path = guest_artifacts_path.join(executable.artifact.to_string());
-					if let Some(executable_path) = &executable.path {
-						path.push(executable_path);
-					}
-					path
-				},
-
-				tg::command::data::Executable::Path(executable) => executable.path.clone(),
+			let executable = if let Some(artifact) = &command.executable.artifact {
+				let mut path = guest_artifacts_path.join(artifact.to_string());
+				if let Some(executable_path) = &command.executable.path {
+					path.push(executable_path);
+				}
+				path
+			} else if let Some(path) = &command.executable.path {
+				path.clone()
+			} else {
+				return Err(tg::error!("invalid executable"));
 			};
 			let stdin = match state.stdin {
 				tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
@@ -1387,42 +1387,26 @@ impl Session {
 	}
 }
 
-fn render_args_string(
-	args: &[tg::value::Data],
+fn render_args(
+	args: &[tg::command::data::Value],
 	artifacts_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<Vec<String>> {
 	args.iter()
-		.map(|value| render_value_string(value, artifacts_path, output_path))
+		.map(|arg| match arg {
+			tg::command::data::Value::String(value) => {
+				render_value_string(value, artifacts_path, output_path)
+			},
+			tg::command::data::Value::Value(value) => {
+				let value = tg::Value::try_from_data(value.clone())?;
+				Ok(value.to_string())
+			},
+		})
 		.collect::<tg::Result<Vec<_>>>()
 }
 
-fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
-	args.iter()
-		.flat_map(|value| {
-			let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
-			["-A".to_owned(), value]
-		})
-		.collect::<Vec<_>>()
-}
-
-fn render_js_debug_args(args: &mut Vec<String>, debug: Option<&tg::process::Debug>) {
-	let Some(debug) = debug else {
-		return;
-	};
-	args.push("--debug".to_owned());
-	if let Some(addr) = debug.addr {
-		args.push("--debug-addr".to_owned());
-		args.push(addr.to_string());
-	}
-	if debug.mode != tg::process::debug::Mode::Normal {
-		args.push("--debug-mode".to_owned());
-		args.push(debug.mode.to_string());
-	}
-}
-
 fn render_env(
-	env: &tg::value::data::Map,
+	env: &BTreeMap<String, tg::command::data::Value>,
 	artifacts_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
@@ -1434,29 +1418,29 @@ fn render_env(
 			));
 		}
 	}
-	let mut resolved = tg::value::data::Map::new();
-	for (key, value) in env {
-		let mutation = match value {
-			tg::value::Data::Mutation(value) => value.clone(),
-			value => tg::mutation::Data::Set {
-				value: Box::new(value.clone()),
-			},
-		};
-		mutation.apply(&mut resolved, key)?;
-	}
-	let mut output = resolved
+	let mut output = env
 		.iter()
 		.map(|(key, value)| {
 			let key = key.clone();
-			let value = render_value_string(value, artifacts_path, output_path)?;
+			let value = match value {
+				tg::command::data::Value::String(value) => {
+					render_value_string(value, artifacts_path, output_path)?
+				},
+				tg::command::data::Value::Value(value) => {
+					tg::Value::try_from_data(value.clone())?.to_string()
+				},
+			};
 			Ok::<_, tg::Error>((key, value))
 		})
 		.collect::<tg::Result<BTreeMap<_, _>>>()?;
-	for (key, value) in &resolved {
-		if matches!(value, tg::value::Data::String(_)) {
-			continue;
-		}
-		let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
+	for (key, value) in env {
+		let value = match value {
+			tg::command::data::Value::String(tg::value::Data::String(_)) => continue,
+			tg::command::data::Value::String(value) | tg::command::data::Value::Value(value) => {
+				value
+			},
+		};
+		let value = tg::Value::try_from_data(value.clone())?.to_string();
 		output.insert(format!("{}{key}", tg::process::env::PREFIX), value);
 	}
 	Ok(output)

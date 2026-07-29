@@ -294,7 +294,7 @@ export let host: Host = {
 		};
 	},
 
-	magic(value: Function): tg.Command.Data.Executable {
+	magic(value: Function): tg.Host.MagicOutput {
 		let file = process.argv[1];
 		if (file === undefined) {
 			throw new Error("failed to find the module for the function");

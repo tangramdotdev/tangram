@@ -13,7 +13,8 @@ export let process: {
 	args: Array<tg.Value>;
 	cwd: string;
 	env: { [key: string]: tg.Value };
-	executable: tg.Command.Executable;
+	export: string | null;
+	module: tg.Module;
 } = {} as any;
 
 export let setProcess = (newProcess: typeof process) => {
@@ -135,7 +136,7 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	static async arg(
 		...args: tg.Args<tg.Process.Arg>
-	): Promise<tg.Process.ArgObject> {
+	): Promise<tg.Process.ResolvedArgObject> {
 		return await tg.Process.argResolved(
 			...(await Promise.all(args.map(tg.resolve))),
 		);
@@ -143,12 +144,19 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	static async argResolved(
 		...args: Array<tg.ValueOrMaybeMutationMap<tg.Process.Arg>>
-	): Promise<tg.Process.ArgObject> {
-		return await tg.Args.applyResolved({
+	): Promise<tg.Process.ResolvedArgObject> {
+		let js = false;
+		return await tg.Args.applyResolved<
+			tg.Process.Arg,
+			tg.Process.MappedArg,
+			tg.Process.ResolvedArgObject
+		>({
 			args,
-			map: async (arg) => {
+			map: async (arg): Promise<tg.Process.MappedArg> => {
+				let output: tg.ValueOrMaybeMutationMap<tg.Process.Arg>;
+				let base = false;
 				if (arg === undefined) {
-					return {};
+					output = {};
 				} else if (
 					typeof arg === "string" ||
 					tg.Artifact.is(arg) ||
@@ -159,14 +167,15 @@ export class Process<O extends tg.Value = tg.Value> {
 						typeof tg.process.env.SHELL === "string"
 							? tg.process.env.SHELL
 							: "sh";
-					return {
+					output = {
 						args: ["-c", arg],
 						executable,
 						host,
 					};
+					base = true;
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();
-					let output: tg.Process.ArgObject = {
+					output = {
 						args: object.args,
 						env: object.env,
 						executable: object.executable,
@@ -181,14 +190,58 @@ export class Process<O extends tg.Value = tg.Value> {
 					if (object.user !== null) {
 						output.user = object.user;
 					}
-					return output;
+					base = true;
 				} else {
-					return arg;
+					output = arg;
 				}
+				let executable = output.executable;
+				let args = output.args;
+				let ownJs =
+					executable !== null &&
+					executable !== undefined &&
+					!(executable instanceof tg.Mutation) &&
+					(executable === "tg" ||
+						(typeof executable === "object" &&
+							"path" in executable &&
+							"artifact" in executable &&
+							(executable.artifact === null ||
+								executable.artifact === undefined) &&
+							executable.path === "tg")) &&
+					Array.isArray(args) &&
+					((args[0] instanceof tg.Command.Value &&
+						args[0].kind === "string" &&
+						args[0].value === "js") ||
+						args[0] === "js");
+				if (
+					base ||
+					(executable !== undefined && !(executable instanceof tg.Mutation))
+				) {
+					js = ownJs;
+				}
+				if (js && !ownJs && Array.isArray(output.args)) {
+					output.args = output.args.flatMap((value) => {
+						let value_ =
+							value instanceof tg.Command.Value
+								? value
+								: tg.Command.Value.value(value);
+						return [
+							tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
+							value_,
+						];
+					});
+				}
+				return {
+					...output,
+					...(output.args === undefined || output.args === null
+						? {}
+						: {
+								args: output.args.map(tg.Command.Arg.Value.toValue),
+							}),
+				} as tg.Process.MappedArg;
 			},
 			reduce: {
-				args: "append",
-				env: "merge",
+				args: (a, b) => [...(a ?? []), ...(b ?? [])],
+				env: tg.Command.Arg.Env.reduce,
 				mounts: "append",
 				ports: "append",
 			},
@@ -367,7 +420,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command's args. */
-	get args(): Promise<Array<tg.Value>> {
+	get args(): Promise<Array<tg.Command.Value>> {
 		return (async () => {
 			return await (
 				await this.command
@@ -385,11 +438,13 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command's environment. */
-	async env(): Promise<{ [key: string]: tg.Value }>;
-	async env(name: string): Promise<tg.Value | undefined>;
+	async env(): Promise<{ [key: string]: tg.Command.Value }>;
+	async env(name: string): Promise<tg.Command.Value | undefined>;
 	async env(
 		name?: string,
-	): Promise<{ [name: string]: tg.Value } | tg.Value | undefined> {
+	): Promise<
+		{ [name: string]: tg.Command.Value } | tg.Command.Value | undefined
+	> {
 		let env = await (await this.command).env;
 		if (name === undefined) {
 			return { ...env };
@@ -731,13 +786,13 @@ export namespace Process {
 			});
 		}
 
-		arg(...args: Array<tg.Unresolved<tg.Value>>): this {
+		arg(...args: Array<tg.Unresolved<tg.Command.Arg.Value>>): this {
 			this.#args.push({ args });
 			return this;
 		}
 
 		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>> | null>>
+			...args: Array<tg.Unresolved<Array<tg.Command.Arg.Value> | null>>
 		): this {
 			this.#args.push(...args.map((args) => ({ args })));
 			return this;
@@ -769,11 +824,7 @@ export namespace Process {
 			return this;
 		}
 
-		env(
-			...envs: Array<
-				tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap> | null>
-			>
-		): this {
+		env(...envs: Array<tg.Unresolved<tg.Command.Arg.Env | null>>): this {
 			this.#args.push(...envs.map((env) => ({ env })));
 			return this;
 		}
@@ -1007,9 +1058,22 @@ export namespace Process {
 
 	export type Arg = string | tg.Artifact | tg.Template | tg.Command | ArgObject;
 
+	export type MappedArg = Omit<
+		tg.ValueOrMaybeMutationMap<tg.Process.ArgObject>,
+		"args" | "env"
+	> & {
+		args?: Array<tg.Command.Value> | null;
+		env?: tg.Command.Arg.Env | null;
+	};
+
+	export type ResolvedArgObject = Omit<tg.Process.ArgObject, "args" | "env"> & {
+		args?: Array<tg.Command.Value> | null;
+		env?: { [key: string]: tg.Command.Value } | null;
+	};
+
 	export type ArgObject = {
 		/** The command's arguments. */
-		args?: Array<tg.Value> | null;
+		args?: Array<tg.Command.Arg.Value> | null;
 
 		/** The cache location arg. */
 		cache_location?: tg.Location.Arg | null;
@@ -1030,7 +1094,7 @@ export namespace Process {
 		debug?: boolean | tg.Process.Debug | null;
 
 		/** The command's environment. */
-		env?: tg.MaybeMutationMap | null;
+		env?: tg.Command.Arg.Env | null;
 
 		/** The command's executable. */
 		executable?: tg.Command.Arg.Executable | null;

@@ -187,7 +187,7 @@ impl Command {
 }
 
 impl Command {
-	pub async fn args(&self) -> tg::Result<impl Deref<Target = Vec<tg::Value>>> {
+	pub async fn args(&self) -> tg::Result<impl Deref<Target = Vec<tg::command::Value>>> {
 		let handle = tg::handle()?;
 		self.args_with_handle(handle).await
 	}
@@ -195,7 +195,7 @@ impl Command {
 	pub async fn args_with_handle<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl Deref<Target = Vec<tg::Value>> + use<H>>
+	) -> tg::Result<impl Deref<Target = Vec<tg::command::Value>> + use<H>>
 	where
 		H: tg::Handle,
 	{
@@ -223,7 +223,9 @@ impl Command {
 			.map(|object| &object.cwd))
 	}
 
-	pub async fn env(&self) -> tg::Result<impl Deref<Target = BTreeMap<String, tg::Value>>> {
+	pub async fn env(
+		&self,
+	) -> tg::Result<impl Deref<Target = BTreeMap<String, tg::command::Value>>> {
 		let handle = tg::handle()?;
 		self.env_with_handle(handle).await
 	}
@@ -231,7 +233,7 @@ impl Command {
 	pub async fn env_with_handle<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl Deref<Target = BTreeMap<String, tg::Value>>>
+	) -> tg::Result<impl Deref<Target = BTreeMap<String, tg::command::Value>>>
 	where
 		H: tg::Handle,
 	{

@@ -102,9 +102,10 @@ where
 	]);
 	let arg = tg::process::Arg {
 		args,
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "tg".into(),
-		})),
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
 		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
@@ -152,7 +153,7 @@ pub fn archive_command(
 	format: tg::ArchiveFormat,
 	compression: Option<tg::CompressionFormat>,
 ) -> tg::Command {
-	let mut args = vec![tg::Value::from("builtin"), "archive".into()];
+	let mut args: Vec<tg::command::Value> = vec!["builtin".into(), "archive".into()];
 	if let Some(compression) = compression {
 		args.extend(["--compression".into(), compression.to_string().into()]);
 	}
@@ -164,8 +165,10 @@ pub fn archive_command(
 		"--output".into(),
 		tg::Placeholder::new("output").into(),
 	]);
-	let executable =
-		tg::command::Executable::Path(tg::command::PathExecutable { path: "tg".into() });
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
 	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
@@ -249,9 +252,10 @@ where
 	];
 	let arg = tg::process::Arg {
 		args,
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "tg".into(),
-		})),
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
 		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
@@ -275,8 +279,8 @@ pub fn checksum_command(
 		tg::Either::Left(blob) => tg::File::with_contents(blob),
 		tg::Either::Right(file) => file,
 	};
-	let args = vec![
-		tg::Value::from("builtin"),
+	let args: Vec<tg::command::Value> = vec![
+		"builtin".into(),
 		"checksum".into(),
 		"--algorithm".into(),
 		algorithm.to_string().into(),
@@ -285,8 +289,10 @@ pub fn checksum_command(
 		"--output".into(),
 		tg::Placeholder::new("output").into(),
 	];
-	let executable =
-		tg::command::Executable::Path(tg::command::PathExecutable { path: "tg".into() });
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
 	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
@@ -322,9 +328,10 @@ where
 	];
 	let arg = tg::process::Arg {
 		args,
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "tg".into(),
-		})),
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
 		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
@@ -344,8 +351,8 @@ pub fn compress_command(
 		tg::Either::Left(blob) => tg::File::with_contents(blob),
 		tg::Either::Right(file) => file,
 	};
-	let args = vec![
-		tg::Value::from("builtin"),
+	let args: Vec<tg::command::Value> = vec![
+		"builtin".into(),
 		"compress".into(),
 		"--format".into(),
 		format.to_string().into(),
@@ -354,8 +361,10 @@ pub fn compress_command(
 		"--output".into(),
 		tg::Placeholder::new("output").into(),
 	];
-	let executable =
-		tg::command::Executable::Path(tg::command::PathExecutable { path: "tg".into() });
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
 	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
@@ -385,9 +394,10 @@ where
 	];
 	let arg = tg::process::Arg {
 		args,
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "tg".into(),
-		})),
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
 		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
@@ -404,16 +414,18 @@ pub fn decompress_command(input: tg::Either<tg::Blob, tg::File>) -> tg::Command 
 		tg::Either::Left(blob) => tg::File::with_contents(blob),
 		tg::Either::Right(file) => file,
 	};
-	let args = vec![
-		tg::Value::from("builtin"),
+	let args: Vec<tg::command::Value> = vec![
+		"builtin".into(),
 		"decompress".into(),
 		"--input".into(),
 		input.into(),
 		"--output".into(),
 		tg::Placeholder::new("output").into(),
 	];
-	let executable =
-		tg::command::Executable::Path(tg::command::PathExecutable { path: "tg".into() });
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
 	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
@@ -459,9 +471,10 @@ where
 	let arg = tg::process::Arg {
 		args,
 		checksum: Some(checksum),
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "tg".into(),
-		})),
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
 		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
@@ -483,7 +496,7 @@ where
 #[must_use]
 pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Command {
 	let options = options.unwrap_or_default();
-	let mut args = vec![tg::Value::from("builtin"), "download".into()];
+	let mut args: Vec<tg::command::Value> = vec!["builtin".into(), "download".into()];
 	if let Some(algorithm) = options.checksum {
 		args.extend(["--checksum".into(), algorithm.to_string().into()]);
 	}
@@ -494,8 +507,10 @@ pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Comm
 		tg::Placeholder::new("output").into(),
 		url.to_string().into(),
 	]);
-	let executable =
-		tg::command::Executable::Path(tg::command::PathExecutable { path: "tg".into() });
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
 	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
@@ -525,9 +540,10 @@ where
 	];
 	let arg = tg::process::Arg {
 		args,
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "tg".into(),
-		})),
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
 		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
@@ -539,16 +555,18 @@ where
 #[must_use]
 pub fn extract_command(input: &tg::Blob) -> tg::Command {
 	let input = tg::File::with_contents(input.clone());
-	let args = vec![
-		tg::Value::from("builtin"),
+	let args: Vec<tg::command::Value> = vec![
+		"builtin".into(),
 		"extract".into(),
 		"--input".into(),
 		input.into(),
 		"--output".into(),
 		tg::Placeholder::new("output").into(),
 	];
-	let executable =
-		tg::command::Executable::Path(tg::command::PathExecutable { path: "tg".into() });
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
 	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)

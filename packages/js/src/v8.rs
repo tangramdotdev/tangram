@@ -212,9 +212,14 @@ impl Runtime {
 		let value = Serde(&state.arg.env).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
-		// Set executable.
-		let key = v8::String::new_external_onebyte_static(scope, b"executable").unwrap();
-		let value = Serde(&state.arg.executable).serialize(scope)?;
+		// Set the export.
+		let key = v8::String::new_external_onebyte_static(scope, b"export").unwrap();
+		let value = Serde(&state.arg.export).serialize(scope)?;
+		arg.set(scope, key.into(), value);
+
+		// Set the module.
+		let key = v8::String::new_external_onebyte_static(scope, b"module").unwrap();
+		let value = Serde(&state.arg.module).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
 		// Get the init function.
