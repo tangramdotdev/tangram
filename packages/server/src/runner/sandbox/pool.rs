@@ -128,7 +128,7 @@ async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		let result = match vfs_mount {
 			Some(mount_path) => crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, &mount_path)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to unmount the pooled sandbox vfs")),
+				.map_err(|error| tg::error!(!error, "failed to unmount the pooled sandbox VFS")),
 			None => Ok(()),
 		};
 		if let Some(vfs) = vfs {

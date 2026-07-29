@@ -34,7 +34,7 @@ struct Request {
 	type_: &'static str,
 }
 
-/// The object store the fast path opens. It is sent only if the store is an lmdb store, because the fast path can read no other kind.
+/// The object store the fast path opens. It is sent only for an LMDB store because the fast path can read no other kind.
 #[derive(serde::Serialize)]
 struct ObjectStore {
 	#[serde(rename = "map_size")]
@@ -214,7 +214,8 @@ impl Server {
 			"nodev".to_owned(),
 			"nosuid".to_owned(),
 		];
-		// The principal the mount serves. Its display form contains no comma, so it needs no encoding. The root principal leaves the mount unenforced.
+
+		// Add the mount's principal without encoding; its display form contains no commas.
 		options.push(format!("principal={principal}"));
 		let socket = socket.display().to_string();
 		if socket.contains(',') {

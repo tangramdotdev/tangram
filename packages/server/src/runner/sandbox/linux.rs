@@ -72,7 +72,7 @@ impl Server {
 			})?;
 		let _vfs = {
 			let socket = temp.path().join("vfs.sock");
-			// This mount only builds the snapshot, which is reused to start many differently-owned sandboxes, so it runs as root. Enforcement is applied entirely by the per-sandbox mount at resume.
+			// Run the shared VM snapshot mount as root; per-sandbox mounts enforce permissions after resume.
 			let principal = Arc::new(Mutex::new(Some(tg::Principal::Root)));
 			crate::vfs::Server::start_virtiofs(self, &socket, vm.dax, principal)
 				.await

@@ -814,10 +814,7 @@ impl Scheduler {
 				self.send_response(state, response);
 			},
 			Operation::CreateSandbox(completion) => {
-				let completions = state.handle_create_sandbox_completion(
-					self.config.max_create_sandbox_attempts,
-					completion,
-				);
+				let completions = state.handle_create_sandbox_completion(&self.config, completion);
 				self.send_dequeue_sandbox_completions(state, completions);
 			},
 			Operation::ExpireRequest { id } => {

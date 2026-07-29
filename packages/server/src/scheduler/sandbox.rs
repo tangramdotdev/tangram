@@ -1,8 +1,8 @@
 use {
 	super::{
-		BorrowableCapacityNotification, DequeueSandboxRequestArg, DequeueSandboxResponseOutput,
-		EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput, HeartbeatNotification, Operation,
-		Scheduler, State,
+		BorrowableCapacityNotification, Config, DequeueSandboxRequestArg,
+		DequeueSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
+		HeartbeatNotification, Operation, Scheduler, State,
 		runner::{Reservation, ReservationSource, ReservationState, Runner},
 	},
 	futures::FutureExt as _,
@@ -362,7 +362,7 @@ impl State {
 
 	pub(super) fn handle_create_sandbox_completion(
 		&mut self,
-		max_create_sandbox_attempts: usize,
+		config: &Config,
 		completion: Completion,
 	) -> Vec<DequeueCompletion> {
 		self.sandboxes.attempts = self.sandboxes.attempts.saturating_sub(1);
@@ -407,7 +407,7 @@ impl State {
 				let failures = sandbox.failures;
 				if !dequeue_requests.is_empty() {
 					self.sandboxes.entries.remove(&id);
-				} else if failures >= max_create_sandbox_attempts {
+				} else if failures >= config.max_create_sandbox_attempts {
 					tracing::error!(sandbox = %id, %failures, "giving up on the sandbox after too many failed creation attempts");
 					self.sandboxes.entries.remove(&id);
 				} else {
@@ -853,7 +853,7 @@ mod tests {
 		);
 
 		let completions = state.handle_create_sandbox_completion(
-			3,
+			&config(),
 			Completion {
 				placement: Placement::Regular { runner },
 				result: Ok(Ok(true)),
@@ -897,7 +897,7 @@ mod tests {
 		);
 
 		let completions = state.handle_create_sandbox_completion(
-			3,
+			&config(),
 			Completion {
 				placement,
 				result: Ok(Ok(false)),
@@ -973,6 +973,20 @@ mod tests {
 
 		assert!(queue.remove(&last));
 		assert_eq!(queue.next(), None);
+	}
+
+	fn config() -> Config {
+		Config {
+			create_sandbox_queue_capacity: 0,
+			create_sandbox_timeout: std::time::Duration::ZERO,
+			default_capacity: tg::runner::Capacity::default(),
+			heartbeat_interval: std::time::Duration::ZERO,
+			inbox_ttl: std::time::Duration::ZERO,
+			max_create_sandbox_attempts: 3,
+			max_create_sandbox_requests: 0,
+			max_create_sandbox_requests_per_runner: 0,
+			runner_ttl: std::time::Duration::ZERO,
+		}
 	}
 
 	fn enqueue_request(sandbox: tg::sandbox::Id) -> EnqueueSandboxRequestArg {

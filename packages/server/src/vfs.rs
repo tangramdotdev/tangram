@@ -56,7 +56,6 @@ impl Server {
 			Kind::Fskit => {
 				#[cfg(target_os = "macos")]
 				{
-					// An unbound mount serves no one.
 					let principal = principal
 						.lock()
 						.unwrap()

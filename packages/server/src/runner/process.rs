@@ -1394,7 +1394,7 @@ impl Session {
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
 
-		// If the VFS is enabled, then the artifacts are served through the per-sandbox mount rather than checked out. Track each artifact's subtree token with the sandbox so the provider can authorize access without a deep index check. The command's data is untrusted, so each token is verified and matched against its own artifact.
+		// Track each artifact's verified subtree token for the per-sandbox VFS.
 		if self.server.vfs.lock().unwrap().is_some() {
 			let permissions = tg::grant::permission::Set::from(tg::grant::Permission::Object(
 				tg::grant::permission::object::Permission::Subtree,

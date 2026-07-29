@@ -18,7 +18,6 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 	tangram_vfs as vfs,
 };
@@ -146,62 +145,6 @@ impl Provider {
 		};
 
 		Ok(provider)
-	}
-
-	// Determine whether the mount's principal is authorized to access an artifact and, by extension, its entire subtree. Authorization is checked once at the root of each artifact subtree, so all descendants inherit it.
-	async fn artifact_authorized(&self, artifact: &tg::artifact::Id) -> bool {
-		let id: tg::Id = artifact.clone().into();
-
-		// Deny until the mount is bound to a principal.
-		let Some(principal) = self.principal.lock().unwrap().clone() else {
-			return false;
-		};
-
-		// The root principal is authorized for every artifact.
-		if matches!(principal, tg::Principal::Root) {
-			return true;
-		}
-
-		// Check for a token tracked with the sandbox that grants the artifact's subtree, which avoids a deep index check.
-		if let tg::Principal::Sandbox(sandbox) = &principal {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let authorized = self
-				.server
-				.runner
-				.state()
-				.sandboxes()
-				.get(sandbox)
-				.and_then(|state| state.tokens.get(artifact).cloned())
-				.is_some_and(|token| token.body.expires_at > now && token.body.grants(permission));
-			if authorized {
-				return true;
-			}
-		}
-
-		// Fall back to a deep authorization check against the index.
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let context = Context {
-			id: None,
-			principal,
-			sandbox: true,
-			stopper: None,
-			token: None,
-		};
-		let session = Session::new(self.server.clone(), context);
-		session
-			.authorize(tg::grant::Resource::Id(id), permission)
-			.await
-			.ok()
-			.flatten()
-			.is_some_and(|permissions| permissions.contains(permission))
-	}
-
-	// Synchronously determine whether the mount's principal is authorized to access an artifact. The virtiofs transport dispatches on a blocking thread, so it drives the asynchronous check to completion on the server's runtime.
-	fn artifact_authorized_sync(&self, id: &tg::artifact::Id) -> bool {
-		self.runtime.block_on(self.artifact_authorized(id))
 	}
 
 	pub fn handle_batch(
@@ -612,7 +555,7 @@ impl Provider {
 				return Ok(None);
 			};
 			// Return not found if the principal is not authorized to access the artifact.
-			if !self.artifact_authorized(&id).await {
+			if !self.authorize(&id).await {
 				return Ok(None);
 			}
 			let artifact = ArtifactInfo { data: None, id };
@@ -727,7 +670,7 @@ impl Provider {
 				return Ok(None);
 			};
 			// Return not found if the principal is not authorized to access the artifact.
-			if !self.artifact_authorized_sync(&id) {
+			if !self.authorize_sync(&id) {
 				return Ok(None);
 			}
 			let artifact = ArtifactInfo { data: None, id };
@@ -763,6 +706,62 @@ impl Provider {
 			.nodes
 			.get_or_insert_child(parent, name, artifact, depth, attrs, remember)?;
 		Ok(Some(id))
+	}
+
+	// Authorize the artifact subtree for the mount's principal.
+	async fn authorize(&self, artifact: &tg::artifact::Id) -> bool {
+		let id: tg::Id = artifact.clone().into();
+
+		// Deny access until the mount is bound to a principal.
+		let Some(principal) = self.principal.lock().unwrap().clone() else {
+			return false;
+		};
+
+		// Authorize the root principal.
+		if matches!(principal, tg::Principal::Root) {
+			return true;
+		}
+
+		// Check the sandbox's locally tracked subtree token.
+		if let tg::Principal::Sandbox(sandbox) = &principal {
+			let permission =
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let authorized = self
+				.server
+				.runner
+				.state()
+				.sandboxes()
+				.get(sandbox)
+				.and_then(|state| state.tokens.get(artifact).cloned())
+				.is_some_and(|token| token.body.expires_at >= now && token.body.grants(permission));
+			if authorized {
+				return true;
+			}
+		}
+
+		// Fall back to deep index authorization.
+		let permission =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let context = Context {
+			id: None,
+			principal,
+			sandbox: true,
+			stopper: None,
+			token: None,
+		};
+		let session = Session::new(self.server.clone(), context);
+		session
+			.authorize(tg::grant::Resource::Id(id), permission)
+			.await
+			.ok()
+			.flatten()
+			.is_some_and(|permissions| permissions.contains(permission))
+	}
+
+	// Drive asynchronous authorization on the server runtime for virtiofs.
+	fn authorize_sync(&self, artifact: &tg::artifact::Id) -> bool {
+		self.runtime.block_on(self.authorize(artifact))
 	}
 
 	pub async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {

@@ -1,13 +1,7 @@
 use ../../test.nu *
 
-# The per-sandbox VFS mount enforces authorization. A sandboxed process can read
-# the artifacts it is granted, which are its command's inputs delivered through
-# the mount, but not a foreign artifact it was never granted. The provider hides
-# the foreign artifact by returning ENOENT even though it exists in the store.
-#
-# Enforcement requires a principal-scoped per-sandbox mount, which the server
-# starts for container and vm isolation when the vfs is enabled. On Linux the
-# guest always sees the artifacts at /opt/tangram/artifacts.
+# Verify that a per-sandbox VFS grants command inputs and hides unrelated artifacts with ENOENT.
+# The server creates principal-scoped mounts for Linux container and VM isolation when the VFS is enabled.
 
 if $nu.os-info.name != 'linux' {
 	return
@@ -15,18 +9,14 @@ if $nu.os-info.name != 'linux' {
 
 let server = spawn --busybox --config { vfs: true }
 
-# Create a foreign artifact that the build never references, so the build's
-# process principal is not granted access to it.
+# Create a foreign artifact that the build never references.
 let foreign = tg build (artifact {
 	tangram.ts: '
 		export default () => tg.directory({ "secret.txt": tg.file("secret contents") })
 	'
 }) | str trim
 
-# The build reads the foreign artifact through the mount. The provider must deny
-# the lookup with ENOENT, so the shell prints "denied" and never leaks the
-# contents. The busybox environment is itself delivered through the mount, so a
-# successful run is the positive control that granted content is readable.
+# Use the BusyBox input as a positive control while attempting to read the foreign artifact.
 let path = artifact {
 	tangram.ts: '
 		import busybox from "busybox";

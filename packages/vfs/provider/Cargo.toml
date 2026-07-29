@@ -25,6 +25,9 @@ tracing = { workspace = true }
 tracing-oslog = "0.3"
 tracing-subscriber = { workspace = true }
 
+[dev-dependencies]
+tangram_util = { workspace = true }
+
 [lints]
 workspace = true
 

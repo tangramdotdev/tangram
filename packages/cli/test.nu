@@ -27,7 +27,7 @@ def main [
 	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 60sec # The timeout for each test.
 	--turso # Use Turso for the server database.
-	--vfs # Run every test against the VFS: fskit on macos, fuse on linux. On macos, requires the app and its file system extension to be installed and enabled.
+	--vfs # Run every test against the VFS: FSKit on macOS and FUSE on Linux. On macOS, this requires the app and its file system extension to be installed and enabled.
 	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
@@ -45,7 +45,7 @@ def main [
 	if $release and $tangram_path != null {
 		error make { msg: '--release may not be combined with --tangram-path' }
 	}
-	# The vfs flag uses the fskit vfs on macos.
+	# Use FSKit for the VFS on macOS.
 	let fskit = $vfs and $nu.os-info.name == 'macos'
 	# Validate the stress flag combination.
 	let stress = $stress or $stress_count != null
@@ -171,16 +171,16 @@ def main [
 	let options = {
 		cloud: $cloud,
 		fskit: $fskit,
-		offline: $offline,
-		quickjs: $quickjs,
+		kernel_path: ($kernel_path | default "" | into string),
 		no_capture: $no_capture,
+		offline: $offline,
 		preserve_temps: $preserve_temps,
+		quickjs: $quickjs,
 		stress: $stress,
 		timeout: $timeout,
 		turso: $turso,
 		vfs: $vfs,
 		vm: $vm,
-		kernel_path: ($kernel_path | default "" | into string),
 	}
 	if $no_capture {
 		mut round = 1
@@ -531,12 +531,12 @@ def run_test [test: record, options: record] {
 		TANGRAM_QUIET: true,
 		TANGRAM_TEST_CLOUD: (if $options.cloud { "1" } else { "" }),
 		TANGRAM_TEST_FSKIT: (if $options.fskit { "1" } else { "" }),
+		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
 		TANGRAM_TEST_OFFLINE: (if $options.offline { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $options.quickjs { "1" } else { "" }),
 		TANGRAM_TEST_TURSO: (if $options.turso { "1" } else { "" }),
 		TANGRAM_TEST_VFS: (if $options.vfs { "1" } else { "" }),
 		TANGRAM_TEST_VM: (if $options.vm { "1" } else { "" }),
-		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
 		TMPDIR: $temp_path,
 	} {
 		let command = [
@@ -550,7 +550,7 @@ def run_test [test: record, options: record] {
 			let exit_code = $env.LAST_EXIT_CODE
 			{ exit_code: $exit_code, stdout: '', stderr: '' }
 		} else {
-			# Capture the output to a file rather than a pipe, so a process which survives the timeout cannot block the harness by holding the pipe open.
+			# Capture output in a file so a surviving process cannot hold a pipe open.
 			let output_path = $temp_path | path join 'output'
 			let exit_code = try {
 				open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e> $output_path
@@ -1002,7 +1002,6 @@ export def --env spawn [
 
 	let use_vfs = (($env.TANGRAM_TEST_VFS? | default "") | str length) > 0
 
-
 	let use_vm = (($env.TANGRAM_TEST_VM? | default "") | str length) > 0
 	if $use_vm {
 		let kernel_path = $env.TANGRAM_TEST_KERNEL_PATH? | default ""
@@ -1079,7 +1078,7 @@ export def --env spawn [
 	# Write the config.
 	let config = $default_config | merge deep --strategy append ($config | default {})
 
-	# Pin the token keys to files in the server directory so a server respawned into the same directory verifies tokens issued before the restart.
+	# Pin token keys to the server directory so restarts can verify existing tokens.
 	let config = if $preserve_keys {
 		let private_key_path = $directory_path | path join 'private_key'
 		let public_key_path = $directory_path | path join 'public_key'
@@ -1089,13 +1088,13 @@ export def --env spawn [
 		}
 		let keys = {
 			private_key: {
-				algorithm: "ed25519",
-				name: "default",
+				algorithm: 'ed25519',
+				name: 'default',
 				path: $private_key_path,
 			},
 			public_keys: [{
-				algorithm: "ed25519",
-				name: "default",
+				algorithm: 'ed25519',
+				name: 'default',
 				path: $public_key_path,
 			}],
 		}
@@ -1113,7 +1112,7 @@ export def --env spawn [
 		$config
 	}
 
-	# Force the vfs on for every server when fskit or vfs is enabled, because a test that omits or configures the vfs itself would otherwise override it. A test that disables the vfs is left alone.
+	# Force the selected VFS unless the test disables it.
 	let forced_vfs_kind = if $use_fskit { 'fskit' } else if $use_vfs { 'fuse' } else { null }
 	let config = if $forced_vfs_kind == null {
 		$config

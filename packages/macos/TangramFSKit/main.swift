@@ -310,9 +310,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		// Share the LMDB lock through the app group.
 		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
 
-		// The server sends the principal the mount serves and the grant tokens the
-		// mount holds, which the provider uses to authorize access to each artifact.
-		// An empty principal leaves the mount unenforced.
+		// Read the principal and grant tokens used to authorize artifacts; an empty principal disables enforcement.
 		let principal = options["principal"] ?? ""
 		let tokens = options["tokens"] ?? ""
 

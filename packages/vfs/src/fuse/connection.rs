@@ -97,7 +97,7 @@ where
 			}
 		}
 
-		// Reap the mount helper, and raise its error output if it did not send the descriptor.
+		// Reap the mount helper and report its standard error if it did not send the descriptor.
 		let output = child.wait_with_output()?;
 		let Some(fd) = fd else {
 			let stderr = String::from_utf8_lossy(&output.stderr);

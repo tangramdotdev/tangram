@@ -68,7 +68,7 @@ struct CreateSandboxOutput {
 	vfs: Option<crate::vfs::Server>,
 	#[cfg(target_os = "linux")]
 	vfs_mount: Option<std::path::PathBuf>,
-	/// The principal the per-sandbox VFS mount serves. It is unbound until the server sends the sandbox's principal over the control stream, and an unbound mount denies every artifact.
+	/// The principal served by the per-sandbox VFS, initially unbound.
 	#[cfg(target_os = "linux")]
 	vfs_principal: Option<Arc<std::sync::Mutex<Option<tg::Principal>>>>,
 }
@@ -514,7 +514,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
-		// Start the per-sandbox VFS. VM isolation serves the artifacts over virtiofs. Container isolation serves them over a per-sandbox FUSE mount when the VFS is enabled, so the sandbox can access only the artifacts its principal is authorized for; otherwise the shared artifacts directory holds real files. The mount starts unbound and denies every artifact until the server sends the sandbox's principal.
+		// Start an unbound per-sandbox VFS that denies access until its principal is set.
 		#[cfg(target_os = "linux")]
 		let principal = Arc::new(std::sync::Mutex::new(None));
 		#[cfg(target_os = "linux")]
@@ -571,7 +571,7 @@ impl Session {
 					)
 				})?;
 
-		// Create the sandbox. Include the artifacts directory as a readonly mount. When a per-sandbox VFS mount is in use, its mountpoint is the source, so the sandbox reads artifacts through its principal-scoped VFS rather than the shared host mount.
+		// Create the sandbox with a readonly artifacts mount.
 		let artifacts_path = self.server.artifacts_path();
 		#[cfg(target_os = "linux")]
 		let artifacts_source = vfs_mount.clone().unwrap_or_else(|| artifacts_path.clone());
@@ -695,7 +695,7 @@ impl Session {
 			self.server.runner.state.sandboxes.remove(&id);
 		}
 
-		// Bind the per-sandbox VFS mount before releasing the process task, because an unbound mount denies every artifact.
+		// Bind the per-sandbox VFS before releasing the process task.
 		#[cfg(target_os = "linux")]
 		if let Some(vfs_principal) = &vfs_principal {
 			vfs_principal
@@ -723,14 +723,14 @@ impl Session {
 		};
 		let result = self.run_sandbox_task(arg).boxed().await;
 
-		// Unmount the per-sandbox VFS mount and stop the VFS before removing the temp directory, which contains the mountpoint.
+		// Stop the per-sandbox VFS before removing its mountpoint.
 		#[cfg(target_os = "linux")]
 		{
 			if let Some(mount_path) = vfs_mount
 				&& let Err(error) =
 					crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, &mount_path).await
 			{
-				tracing::error!(?error, %id, "failed to unmount the per-sandbox vfs");
+				tracing::error!(?error, %id, "failed to unmount the per-sandbox VFS");
 			}
 			if let Some(vfs) = vfs {
 				vfs.stop();
@@ -986,7 +986,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox process"))?;
 
-		// Unmount the per-sandbox VFS eagerly so its resources are released without waiting for the retained state to expire.
+		// Unmount the per-sandbox VFS before retaining the destroyed sandbox state.
 		#[cfg(target_os = "linux")]
 		if let Some(mount_path) = &vfs_mount {
 			crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, mount_path)
