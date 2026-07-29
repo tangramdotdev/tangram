@@ -492,7 +492,12 @@ where
 						};
 						return Ok(Response::Open(out));
 					};
-					match self.register_passthrough_backing(fd, handle, &backing_fd) {
+					match self.register_passthrough_backing(
+						fd,
+						request.header.nodeid,
+						handle,
+						&backing_fd,
+					) {
 						Err(error) => {
 							if error.raw_os_error() == Some(libc::EPERM)
 								&& !self
@@ -676,9 +681,19 @@ where
 	fn register_passthrough_backing(
 		&self,
 		fd: &OwnedFd,
+		node: u64,
 		fh: u64,
 		backing_fd: &OwnedFd,
 	) -> Result<i32> {
+		let mut backings = self.passthrough_backings.lock().unwrap();
+		if let Some(backing) = backings.nodes.get_mut(&node) {
+			backing.references += 1;
+			let id = backing.id.to_i32().unwrap();
+			backings.handles.insert(fh, node);
+
+			return Ok(id);
+		}
+
 		let mut map = sys::fuse_backing_map {
 			fd: backing_fd.as_raw_fd(),
 			flags: 0,
@@ -699,19 +714,30 @@ where
 			.to_u32()
 			.ok_or_else(|| Error::other("invalid backing id"))?;
 
-		// Track the backing ID for release.
-		self.passthrough_backing_ids
-			.lock()
-			.unwrap()
-			.insert(fh, backing_id_u32);
+		// Track the backing ID for reuse and release.
+		backings.handles.insert(fh, node);
+		backings.nodes.insert(
+			node,
+			PassthroughBacking {
+				id: backing_id_u32,
+				references: 1,
+			},
+		);
+
 		Ok(backing_id)
 	}
 
 	pub(super) fn close_passthrough_backing(&self, fd: &OwnedFd, fh: u64) {
-		let backing_id = self.passthrough_backing_ids.lock().unwrap().remove(&fh);
-		let Some(backing_id) = backing_id else {
+		let mut backings = self.passthrough_backings.lock().unwrap();
+		let Some(node) = backings.handles.remove(&fh) else {
 			return;
 		};
+		let backing = backings.nodes.get_mut(&node).unwrap();
+		backing.references -= 1;
+		if backing.references > 0 {
+			return;
+		}
+		let backing_id = backings.nodes.remove(&node).unwrap().id;
 		let mut backing_id = backing_id;
 		// SAFETY: The ioctl receives a valid pointer to the registered backing ID, and the FUSE
 		// descriptor remains open for the duration of the call.

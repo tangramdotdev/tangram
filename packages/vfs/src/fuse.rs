@@ -90,13 +90,24 @@ pub struct Server<P>(Arc<State<P>>);
 pub struct State<P> {
 	active_requests: Mutex<HashMap<u64, CancellationToken>>,
 	no_opendir_support: bool,
-	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
+	passthrough_backings: Mutex<PassthroughBackings>,
 	passthrough_enabled: bool,
 	passthrough_permission_warning_emitted: AtomicBool,
 	passthrough_required: bool,
 	pending_response_resources: Mutex<HashMap<u64, ResponseResources>>,
 	provider: P,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
+}
+
+#[derive(Default)]
+struct PassthroughBackings {
+	handles: HashMap<u64, u64>,
+	nodes: HashMap<u64, PassthroughBacking>,
+}
+
+struct PassthroughBacking {
+	id: u32,
+	references: u64,
 }
 
 #[derive(Clone, Debug)]

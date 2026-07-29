@@ -36,7 +36,7 @@ where
 		let server = Self(Arc::new(State {
 			active_requests: Mutex::new(HashMap::new()),
 			no_opendir_support: connection.features.no_opendir_support,
-			passthrough_backing_ids: Mutex::new(HashMap::default()),
+			passthrough_backings: Mutex::new(PassthroughBackings::default()),
 			passthrough_enabled: connection.features.passthrough,
 			passthrough_permission_warning_emitted: AtomicBool::new(false),
 			passthrough_required: config.options.passthrough == Passthrough::Required,
