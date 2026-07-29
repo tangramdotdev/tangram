@@ -42,10 +42,10 @@ struct Links {
 }
 
 struct Sandbox {
+	attempts: usize,
 	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
 	capacity: tg::runner::Capacity,
 	dequeue_requests: Vec<String>,
-	failures: usize,
 	request: EnqueueSandboxRequestArg,
 	state: SandboxState,
 }
@@ -250,10 +250,10 @@ impl State {
 		let id = request.sandbox.clone();
 		let parent = request.parent.clone();
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity,
 			dequeue_requests: Vec::new(),
-			failures: 0,
 			request,
 			state: SandboxState::Pending,
 		};
@@ -427,17 +427,17 @@ impl State {
 				self.remove_reservation(&id, &placement, false);
 				let sandbox = self.sandboxes.entries.get_mut(&id).unwrap();
 				if failed {
-					sandbox.failures += 1;
+					sandbox.attempts += 1;
 				}
-				let failures = sandbox.failures;
 				if !dequeue_requests.is_empty() {
 					self.sandboxes.entries.remove(&id);
-				} else if failed && failures >= config.max_create_sandbox_attempts {
+				} else if failed && sandbox.attempts >= config.max_create_sandbox_attempts {
 					let source = failure.as_ref().unwrap().clone();
+					let attempts = sandbox.attempts;
 					let error = tg::error!(
 						!source,
 						sandbox = %id,
-						%failures,
+						%attempts,
 						"failed to create the sandbox after too many attempts"
 					);
 					tracing::error!(error = %error.trace(), "giving up on the sandbox");
@@ -859,10 +859,10 @@ mod tests {
 			id: tg::runner::Id::new(),
 		};
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
-			failures: 0,
 			request: enqueue_request(id.clone()),
 			state: SandboxState::Creating {
 				placement: Placement::Regular {
@@ -921,10 +921,10 @@ mod tests {
 		};
 		let placement = Placement::Regular { runner };
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
-			failures: 0,
 			request: enqueue_request(id.clone()),
 			state: SandboxState::Creating {
 				placement: placement.clone(),
@@ -960,10 +960,10 @@ mod tests {
 	fn dequeue_pending_sandbox_removes_it() {
 		let id = tg::sandbox::Id::new();
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
-			failures: 0,
 			request: enqueue_request(id.clone()),
 			state: SandboxState::Pending,
 		};
@@ -1004,10 +1004,10 @@ mod tests {
 			id: tg::runner::Id::new(),
 		};
 		let sandbox = Sandbox {
+			attempts: 0,
 			blocked: HashMap::default(),
 			capacity: tg::runner::Capacity::default(),
 			dequeue_requests: Vec::new(),
-			failures: 0,
 			request: enqueue_request(id.clone()),
 			state: SandboxState::Creating {
 				placement: Placement::Regular {
