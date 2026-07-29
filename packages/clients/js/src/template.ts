@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create a template. */
 export function template(
@@ -40,9 +41,11 @@ async function joinTemplate(
 
 /** A template. */
 export class Template {
+	[Resolve.atomic]: null;
 	#components: Array<tg.Template.Component>;
 
 	constructor(components: Array<tg.Template.Component>) {
+		this[Resolve.atomic] = null;
 		this.#components = components;
 	}
 

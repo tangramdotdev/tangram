@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create a placeholder. */
 export function placeholder(name: string): tg.Placeholder {
@@ -7,9 +8,11 @@ export function placeholder(name: string): tg.Placeholder {
 
 /** A placeholder. */
 export class Placeholder {
+	[Resolve.atomic]: null;
 	#name: string;
 
 	constructor(name: string) {
+		this[Resolve.atomic] = null;
 		this.#name = name;
 	}
 

@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 import { unindent } from "./template.ts";
 
 /** Create a blob. */
@@ -19,9 +20,11 @@ export function blob(
 }
 
 export class Blob {
+	[Resolve.atomic]: null;
 	#state: tg.Object.State;
 
 	constructor(arg: tg.Blob.ConstructorArg) {
+		this[Resolve.atomic] = null;
 		let object =
 			arg.object !== undefined
 				? { kind: "blob" as const, value: arg.object }

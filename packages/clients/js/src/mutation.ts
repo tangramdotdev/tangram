@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create a mutation. */
 export function mutation<T extends tg.Value = tg.Value>(
@@ -8,9 +9,11 @@ export function mutation<T extends tg.Value = tg.Value>(
 }
 
 export class Mutation<T extends tg.Value = tg.Value> {
+	[Resolve.atomic]: null;
 	#inner: tg.Mutation.Inner<T>;
 
 	constructor(inner: tg.Mutation.Inner<T>) {
+		this[Resolve.atomic] = null;
 		this.#inner = inner;
 	}
 

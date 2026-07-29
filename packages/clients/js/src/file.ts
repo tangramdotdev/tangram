@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 import { unindent } from "./template.ts";
 
 /** Create a file. */
@@ -20,9 +21,11 @@ export function file(
 
 /** A file. */
 export class File {
+	[Resolve.atomic]: null;
 	#state: tg.Object.State;
 
 	constructor(arg: tg.File.ConstructorArg) {
+		this[Resolve.atomic] = null;
 		let object =
 			arg.object !== undefined
 				? { kind: "file" as const, value: arg.object }

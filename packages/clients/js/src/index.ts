@@ -35,8 +35,7 @@ import { Progress } from "./progress.ts";
 import type { Range } from "./range.ts";
 import { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
-import type { Resolved, Unresolved } from "./resolve.ts";
-import { resolve } from "./resolve.ts";
+import { Resolve, resolve, type Resolved, type Unresolved } from "./resolve.ts";
 import { Sandbox } from "./sandbox.ts";
 import { sleep } from "./sleep.ts";
 import { Symlink, symlink } from "./symlink.ts";
@@ -112,6 +111,7 @@ export {
 	Reference,
 	Referent,
 	Request,
+	Resolve,
 	Response,
 	Sandbox,
 	Symlink,

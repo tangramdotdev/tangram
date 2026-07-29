@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create a command. */
 export function command<
@@ -55,6 +56,7 @@ export class Command<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	O extends tg.Value = tg.Value,
 > {
+	[Resolve.atomic]: null;
 	#state: tg.Object.State;
 
 	/** Create a command. */
@@ -153,6 +155,7 @@ export class Command<
 	}
 
 	constructor(arg: tg.Command.ConstructorArg) {
+		this[Resolve.atomic] = null;
 		let object =
 			arg.object !== undefined
 				? { kind: "command" as const, value: arg.object }
