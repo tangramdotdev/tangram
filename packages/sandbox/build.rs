@@ -26,7 +26,7 @@ fn main() {
 	};
 	let archive_path = out_dir.join(archive_name);
 	let url = format!(
-		"https://github.com/tangramdotdev/bootstrap/releases/download/v2026.01.26/{archive_name}"
+		"https://github.com/tangramdotdev/bootstrap/releases/download/v2026.07.29/{archive_name}"
 	);
 	let status = Command::new("curl")
 		.args(["--location", "--fail", "--output"])
